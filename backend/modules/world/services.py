@@ -72,6 +72,7 @@ class WorldEntityService:
         self,
         db: AsyncSession,
         entity_id: str,
+        novel_id: str | None = None,
     ) -> WorldEntityResponse:
         """获取世界对象详情"""
         eid = self._parse_uuid(entity_id, "entity_id")
@@ -81,6 +82,8 @@ class WorldEntityService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"WorldEntity {entity_id} not found",
             )
+        if novel_id and str(entity.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return WorldEntityResponse.model_validate(entity)
 
     async def list(
@@ -113,9 +116,14 @@ class WorldEntityService:
         db: AsyncSession,
         entity_id: str,
         data: WorldEntityUpdate,
+        novel_id: str | None = None,
     ) -> WorldEntityResponse:
         """更新世界对象"""
         eid = self._parse_uuid(entity_id, "entity_id")
+        if novel_id:
+            existing = await self._repo.get(db, eid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         entity = await self._repo.update(db, eid, data)
         if entity is None:
             raise HTTPException(
@@ -128,9 +136,14 @@ class WorldEntityService:
         self,
         db: AsyncSession,
         entity_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除世界对象"""
         eid = self._parse_uuid(entity_id, "entity_id")
+        if novel_id:
+            existing = await self._repo.get(db, eid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, eid)
         if not deleted:
             raise HTTPException(
@@ -228,6 +241,7 @@ class RelationshipService:
         self,
         db: AsyncSession,
         rel_id: str,
+        novel_id: str | None = None,
     ) -> RelationshipResponse:
         """获取关系详情"""
         rid = self._parse_uuid(rel_id, "relationship_id")
@@ -237,6 +251,8 @@ class RelationshipService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Relationship {rel_id} not found",
             )
+        if novel_id and str(rel.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return RelationshipResponse.model_validate(rel)
 
     async def list(
@@ -258,9 +274,14 @@ class RelationshipService:
         db: AsyncSession,
         rel_id: str,
         data: RelationshipUpdate,
+        novel_id: str | None = None,
     ) -> RelationshipResponse:
         """更新关系"""
         rid = self._parse_uuid(rel_id, "relationship_id")
+        if novel_id:
+            existing = await self._repo.get(db, rid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         rel = await self._repo.update(db, rid, data)
         if rel is None:
             raise HTTPException(
@@ -273,9 +294,14 @@ class RelationshipService:
         self,
         db: AsyncSession,
         rel_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除关系"""
         rid = self._parse_uuid(rel_id, "relationship_id")
+        if novel_id:
+            existing = await self._repo.get(db, rid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, rid)
         if not deleted:
             raise HTTPException(
@@ -366,6 +392,7 @@ class EntityCandidateService:
         self,
         db: AsyncSession,
         candidate_id: str,
+        novel_id: str | None = None,
     ) -> EntityCandidateResponse:
         """获取候选对象详情"""
         cid = self._parse_uuid(candidate_id, "candidate_id")
@@ -375,6 +402,8 @@ class EntityCandidateService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"EntityCandidate {candidate_id} not found",
             )
+        if novel_id and str(candidate.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return EntityCandidateResponse.model_validate(candidate)
 
     async def list(
@@ -407,9 +436,14 @@ class EntityCandidateService:
         db: AsyncSession,
         candidate_id: str,
         data: EntityCandidateUpdate,
+        novel_id: str | None = None,
     ) -> EntityCandidateResponse:
         """更新候选对象"""
         cid = self._parse_uuid(candidate_id, "candidate_id")
+        if novel_id:
+            existing = await self._repo.get(db, cid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         candidate = await self._repo.update(db, cid, data)
         if candidate is None:
             raise HTTPException(
@@ -422,9 +456,14 @@ class EntityCandidateService:
         self,
         db: AsyncSession,
         candidate_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除候选对象"""
         cid = self._parse_uuid(candidate_id, "candidate_id")
+        if novel_id:
+            existing = await self._repo.get(db, cid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, cid)
         if not deleted:
             raise HTTPException(
@@ -508,6 +547,11 @@ class EntityCandidateService:
                     status_code=http_status.HTTP_404_NOT_FOUND,
                     detail=f"Suggested existing entity {candidate.suggested_existing_entity_id} not found",
                 )
+            if str(entity.novel_id) != str(nid):
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="Suggested entity does not belong to the same novel",
+                )
             return WorldEntityResponse.model_validate(entity)
 
         if action == "merge_with_existing" and candidate.suggested_existing_entity_id:
@@ -519,9 +563,23 @@ class EntityCandidateService:
             entity_repo = WorldEntityRepository()
             from modules.world.schemas import WorldEntityUpdate
 
-            # 只合并正文字段（不覆盖已有内容）
+            # 校验已有实体属于同一 novel
+            entity = await entity_repo.get(db, existing_eid)
+            if entity is None:
+                raise HTTPException(
+                    status_code=http_status.HTTP_404_NOT_FOUND,
+                    detail=f"Entity to merge into {candidate.suggested_existing_entity_id} not found",
+                )
+            if str(entity.novel_id) != str(nid):
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="Suggested entity does not belong to the same novel",
+                )
+
+            # 合并候选字段到已有实体（不覆盖已有非空内容）
             merge_fields: dict[str, Any] = {
                 "summary": candidate.summary or None,
+                "importance": candidate.importance_score,
             }
             if edits:
                 merge_fields.update(edits)
@@ -545,6 +603,8 @@ class EntityCandidateService:
             "name": edits.get("name", candidate.name),
             "entity_type": edits.get("entity_type", candidate.entity_type),
             "summary": edits.get("summary", candidate.summary or ""),
+            "public_info": edits.get("public_info", ""),
+            "hidden_truth": edits.get("hidden_truth", ""),
             "importance": edits.get("importance", candidate.importance_score),
             "importance_level": edits.get("importance_level", "normal"),
             "reveal_level": edits.get("reveal_level", "author_only"),
@@ -604,9 +664,10 @@ class AliasService:
         """获取别名列表"""
         nid = self._parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
+        eid = self._parse_uuid(entity_id, "entity_id") if entity_id else None
         items, total = await self._repo.get_by_novel(
             db, nid,
-            entity_id=entity_id,
+            entity_id=eid,
             skip=skip,
             limit=limit,
         )
@@ -616,9 +677,14 @@ class AliasService:
         self,
         db: AsyncSession,
         alias_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除别名"""
         aid = self._parse_uuid(alias_id, "alias_id")
+        if novel_id:
+            existing = await self._repo.get(db, aid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, aid)
         if not deleted:
             raise HTTPException(

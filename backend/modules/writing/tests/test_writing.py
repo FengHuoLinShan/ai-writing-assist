@@ -362,7 +362,7 @@ class TestWritingDraftService:
     ) -> None:
         """测试获取草稿"""
         created = await service.create_draft(db_session, sample_draft_data)
-        fetched = await service.get_draft(db_session, created.id)
+        fetched = await service.get_draft(db_session, created.id, sample_draft_data.novel_id)
         assert fetched.id == created.id
         assert fetched.title == "第一章：开端"
 
@@ -371,11 +371,12 @@ class TestWritingDraftService:
         self,
         service: WritingDraftService,
         db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
     ) -> None:
         """测试获取不存在的草稿"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_draft(db_session, fake_id)
+            await service.get_draft(db_session, fake_id, sample_draft_data.novel_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -389,7 +390,7 @@ class TestWritingDraftService:
         """测试更新草稿"""
         created = await service.create_draft(db_session, sample_draft_data)
         updated = await service.update_draft(
-            db_session, created.id, update_data,
+            db_session, created.id, update_data, sample_draft_data.novel_id,
         )
         assert updated.title == "更新后的标题"
         assert updated.content == "更新后的正文内容。"
@@ -400,11 +401,12 @@ class TestWritingDraftService:
         service: WritingDraftService,
         db_session: AsyncSession,
         update_data: WritingDraftUpdate,
+        sample_draft_data: WritingDraftCreate,
     ) -> None:
         """测试更新不存在的草稿"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.update_draft(db_session, fake_id, update_data)
+            await service.update_draft(db_session, fake_id, update_data, sample_draft_data.novel_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -416,10 +418,10 @@ class TestWritingDraftService:
     ) -> None:
         """测试删除草稿"""
         created = await service.create_draft(db_session, sample_draft_data)
-        await service.delete_draft(db_session, created.id)
+        await service.delete_draft(db_session, created.id, sample_draft_data.novel_id)
         # 验证已删除
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_draft(db_session, created.id)
+            await service.get_draft(db_session, created.id, sample_draft_data.novel_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -427,11 +429,12 @@ class TestWritingDraftService:
         self,
         service: WritingDraftService,
         db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
     ) -> None:
         """测试删除不存在的草稿"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.delete_draft(db_session, fake_id)
+            await service.delete_draft(db_session, fake_id, sample_draft_data.novel_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -522,10 +525,11 @@ class TestWritingDraftService:
         self,
         service: WritingDraftService,
         db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
     ) -> None:
         """测试无效 UUID 格式"""
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_draft(db_session, "not-a-uuid")
+            await service.get_draft(db_session, "not-a-uuid", sample_draft_data.novel_id)
         assert exc_info.value.status_code == 422
 
     @pytest.mark.asyncio

@@ -110,16 +110,14 @@ async def submit_task(
 
 @router.get("/{task_id}", response_model=TaskStatusResponse)
 async def get_task_status(
-    task_id: str,
+    task_id: uuid.UUID,
     db: DbSession,
 ) -> TaskStatusResponse:
-    """查询任务状态"""
-    try:
-        uid = uuid.UUID(task_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid task ID: {task_id}")
+    """查询任务状态
 
-    stmt = select(AsyncTask).where(AsyncTask.id == uid)
+    （Bug L3: task_id 改为原生 UUID 类型，由 FastAPI 自动校验）
+    """
+    stmt = select(AsyncTask).where(AsyncTask.id == task_id)
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
@@ -142,16 +140,14 @@ async def get_task_status(
 
 @router.post("/{task_id}/cancel", response_model=TaskCancelResponse)
 async def cancel_task(
-    task_id: str,
+    task_id: uuid.UUID,
     db: DbSession,
 ) -> TaskCancelResponse:
-    """取消一个 pending 或 running 的任务"""
-    try:
-        uid = uuid.UUID(task_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid task ID: {task_id}")
+    """取消一个 pending 或 running 的任务
 
-    stmt = select(AsyncTask).where(AsyncTask.id == uid)
+    （Bug L3: task_id 改为原生 UUID 类型）
+    """
+    stmt = select(AsyncTask).where(AsyncTask.id == task_id)
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 

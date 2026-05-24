@@ -56,6 +56,23 @@ class LLMClient:
         self._provider = get_provider(provider_name, **provider_kwargs)
         self._settings = get_settings()
 
+    async def close(self) -> None:
+        """关闭 LLMClient 并释放 provider HTTP 连接
+
+        （Bug C2: 防止 HTTP 连接泄漏）
+        """
+        if hasattr(self, "_provider") and hasattr(self._provider, "close"):
+            await self._provider.close()
+
+    async def switch_provider(self, provider_name: str, **provider_kwargs: Any) -> None:
+        """切换 provider，旧 provider 会被关闭
+
+        （Bug C2: 切换时释放旧连接）
+        """
+        if hasattr(self, "_provider") and hasattr(self._provider, "close"):
+            await self._provider.close()
+        self._provider = get_provider(provider_name, **provider_kwargs)
+
     @property
     def provider(self) -> str:
         """当前使用的 provider 名称"""
@@ -146,10 +163,11 @@ class LLMClient:
                 data = json.loads(response.content)
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
+                raw_content = response.content if locals().get("response") else ""
                 last_error = LLMInvalidResponseError(
                     f"Invalid JSON response (attempt {attempt+1}): {e}",
                     provider=self._provider.name,
-                    raw_response=response.content if 'response' in dir() else "",
+                    raw_response=raw_content,
                 )
                 logger.warning(
                     "JSON decode failed, attempt %d/%d: %s",

@@ -98,6 +98,10 @@ class RagQuery(BaseModel):
         ge=1,
         description="限制关联章节索引",
     )
+    visibility: str | None = Field(
+        None,
+        description="可见性过滤（author_only / reader_known / public，不传则不限制）",
+    )
     top_k: int = Field(
         default=12,
         ge=1,

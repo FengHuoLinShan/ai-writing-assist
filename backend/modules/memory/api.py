@@ -75,7 +75,7 @@ async def get_memory_record(
     record_id: str,
 ) -> MemoryRecordResponse:
     """获取记忆记录详情"""
-    return await _service.get_memory_record(db, record_id)
+    return await _service.get_memory_record(db, record_id, novel_id)
 
 
 @router.put("/records/{record_id}", response_model=MemoryRecordResponse)
@@ -86,7 +86,7 @@ async def update_memory_record(
     data: MemoryRecordUpdate,
 ) -> MemoryRecordResponse:
     """更新记忆记录"""
-    return await _service.update_memory_record(db, record_id, data)
+    return await _service.update_memory_record(db, record_id, data, novel_id)
 
 
 @router.delete("/records/{record_id}", status_code=204)
@@ -96,7 +96,7 @@ async def delete_memory_record(
     record_id: str,
 ) -> None:
     """删除记忆记录"""
-    await _service.delete_memory_record(db, record_id)
+    await _service.delete_memory_record(db, record_id, novel_id)
 
 
 # ============================================================
@@ -137,6 +137,7 @@ async def decide_proposal(
         await _service.confirm_memory_proposal(
             db,
             proposal_id,
+            novel_id,
             edited_payload=decision.edited_payload,
             decided_by=decision.decided_by,
         )
@@ -150,5 +151,5 @@ async def decide_proposal(
         )
 
     # 返回更新后的提案信息
-    record = await _service.get_memory_proposal(db, proposal_id)
+    record = await _service.get_memory_proposal(db, proposal_id, novel_id)
     return MemoryProposalResponse.model_validate(record)

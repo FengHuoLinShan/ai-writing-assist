@@ -13,8 +13,11 @@ World ORM 模型
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
@@ -198,12 +201,12 @@ class EntityAlias(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __tablename__ = "entity_aliases"
     __table_args__ = {"comment": "世界对象别名"}
 
-    entity_id: Mapped[str] = mapped_column(
-        String(36),
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         ForeignKey("world_entities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="所属对象 ID（UUID hex，FK -> world_entities.id）",
+        comment="所属对象 ID（FK -> world_entities.id）",
     )
     alias: Mapped[str] = mapped_column(
         String(255),

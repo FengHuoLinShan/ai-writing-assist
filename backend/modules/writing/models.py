@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +20,13 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """正文草稿 — 人工写作的正文承载"""
 
     __tablename__ = "writing_drafts"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id", "chapter_index", "version_number",
+            name="uq_writing_draft_version",
+        ),
+        {"comment": "正文草稿"},
+    )
 
     chapter_index: Mapped[int] = mapped_column(
         Integer,

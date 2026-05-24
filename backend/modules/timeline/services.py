@@ -50,11 +50,13 @@ class TimelineService:
         self,
         db: AsyncSession,
         event_id: str,
+        novel_id: str,
     ) -> TimelineEventResponse:
         """获取时间线事件详情"""
         eid = self._parse_uuid(event_id)
+        nid = self._parse_uuid(novel_id)
         event = await self._repo.get(db, eid)
-        if event is None:
+        if event is None or str(event.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Timeline event {event_id} not found",
@@ -92,30 +94,36 @@ class TimelineService:
         db: AsyncSession,
         event_id: str,
         data: TimelineEventUpdate,
+        novel_id: str,
     ) -> TimelineEventResponse:
         """更新时间线事件"""
         eid = self._parse_uuid(event_id)
-        event = await self._repo.update(db, eid, data)
-        if event is None:
+        nid = self._parse_uuid(novel_id)
+        event = await self._repo.get(db, eid)
+        if event is None or str(event.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Timeline event {event_id} not found",
             )
+        event = await self._repo.update(db, eid, data)
         return TimelineEventResponse.model_validate(event)
 
     async def delete_event(
         self,
         db: AsyncSession,
         event_id: str,
+        novel_id: str,
     ) -> None:
         """删除时间线事件"""
         eid = self._parse_uuid(event_id)
-        deleted = await self._repo.delete(db, eid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id)
+        event = await self._repo.get(db, eid)
+        if event is None or str(event.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Timeline event {event_id} not found",
             )
+        await self._repo.delete(db, eid)
 
     # ============================================================
     # Facade 支持方法
@@ -146,7 +154,7 @@ class TimelineService:
         """
         nid = self._parse_uuid(novel_id)
 
-        # 尝试按实体+角色关联查询
+        # 按实体+角色关联查询
         if related_entity_ids:
             cid = self._parse_uuid(character_id) if character_id else None
             items, _ = await self._repo.get_multi(
@@ -158,12 +166,11 @@ class TimelineService:
                 character_id=str(cid) if cid else None,
                 limit=limit,
             )
-            if items:
-                return [
-                    TimelineEventContext.model_validate(e) for e in items
-                ]
+            return [
+                TimelineEventContext.model_validate(e) for e in items
+            ]
 
-        # 回退：按角色或章节过滤
+        # 没有 entity_ids：按角色或章节过滤
         if character_id:
             items, _ = await self._repo.get_multi(
                 db,

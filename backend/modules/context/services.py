@@ -113,11 +113,6 @@ class ContextCompiler:
                     logger.warning(msg)
                     warnings.append(msg)
 
-        # 清理未加载的分类预算
-        bundle.budget_used = {
-            k: v for k, v in bundle.budget_used.items()
-            if v > 0
-        }
         bundle.warnings = warnings
 
         return bundle
@@ -218,7 +213,11 @@ class ContextCompiler:
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        """加载人物信息"""
+        """加载人物信息
+
+        加载后对第一个角色的视角执行知识边界过滤，
+        剔除角色不该知道的 world_entities 信息。
+        """
         char_limit = CONTEXT_BUDGET.get("characters", 6)
 
         if options.character_ids:
@@ -239,6 +238,21 @@ class ContextCompiler:
             )
             if ctx:
                 bundle.characters = [c.model_dump() for c in ctx.characters]
+
+        # 知识边界过滤：以第一个角色的视角过滤 bundle 中的 world_entities
+        if limited_ids and bundle.world_entities and options.scope != "project":
+            from modules.character.facade import filter_context_by_character_knowledge
+
+            try:
+                filtered = await filter_context_by_character_knowledge(
+                    db, options.novel_id,
+                    limited_ids[0],
+                    bundle.world_entities,
+                )
+                if filtered is not None:
+                    bundle.world_entities = filtered
+            except Exception:
+                pass
 
         bundle.budget_used["characters"] = len(bundle.characters)
 
@@ -293,6 +307,12 @@ class ContextCompiler:
                 if e.get("entity_type") == "location"
             ][:geo_limit]
 
+        if not location_ids:
+            bundle.geo_locations = []
+            bundle.budget_used["geo_relations"] = 0
+            return
+
+        # TODO: 后续可添加 geo facade 批量查询接口，减少 N+1 查询
         locations = []
         for loc_id in location_ids:
             try:
@@ -454,8 +474,19 @@ class ContextCompiler:
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        """加载 RAG 检索片段"""
+        """加载 RAG 检索片段
+
+        根据 reveal_mode 决定 visibility 过滤：
+        - author_safe: 不限制（保留全量，后续可细化）
+        - reader: 只返回读者已知的信息
+        """
         rag_limit = CONTEXT_BUDGET.get("rag_chunks", 8)
+
+        # 根据 reveal_mode 推导 visibility 过滤
+        rag_visibility: str | None = None
+        if options.reveal_mode == "reader":
+            rag_visibility = "reader_known"
+        # author_safe 模式下不传 visibility（保留全量，让下游决定）
 
         from modules.rag.facade import retrieve
 
@@ -465,6 +496,7 @@ class ContextCompiler:
             entity_ids=options.entity_ids,
             character_ids=options.character_ids,
             chapter_index=options.chapter_index,
+            visibility=rag_visibility,
             top_k=rag_limit,
         )
         if result and result.chunks:

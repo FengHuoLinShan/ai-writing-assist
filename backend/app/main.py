@@ -110,13 +110,25 @@ app = FastAPI(
 # 中间件
 # ---------------------------------------------------------------------------
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS 配置：开发环境允许前端本地文件 + localhost
+# 生产环境请通过 ALLOWED_ORIGINS 环境变量设置具体域名
+_origins = get_settings().allowed_origins
+if not _origins or _origins == ["*"]:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.middleware("http")
@@ -207,12 +219,17 @@ async def health_check():
         logger.warning("Health check — DB unreachable: %s", exc)
 
     settings = get_settings()
-    return {
-        "status": "healthy" if db_ok else "degraded",
+    status = "healthy" if db_ok else "degraded"
+    result = {
+        "status": status,
         "database": "connected" if db_ok else "unreachable",
         "version": settings.app_version,
         "app_name": settings.app_name,
     }
+    if status == "degraded":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content=result)
+    return result
 
 
 @app.get("/", tags=["system"])

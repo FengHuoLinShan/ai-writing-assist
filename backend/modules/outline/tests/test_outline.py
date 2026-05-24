@@ -262,7 +262,7 @@ class TestPlotThreadService:
     ) -> None:
         """测试获取剧情线"""
         created = await thread_service.create(db_session, novel_id, sample_thread_data)
-        result = await thread_service.get(db_session, created.id)
+        result = await thread_service.get(db_session, created.id, novel_id)
 
         assert result.id == created.id
         assert result.name == "主角的复仇之路"
@@ -272,10 +272,11 @@ class TestPlotThreadService:
         self,
         db_session: AsyncSession,
         thread_service: PlotThreadService,
+        novel_id: str,
     ) -> None:
         """测试获取不存在的剧情线返回 404"""
         with pytest.raises(HTTPException) as exc:
-            await thread_service.get(db_session, str(uuid.uuid4()))
+            await thread_service.get(db_session, str(uuid.uuid4()), novel_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -323,7 +324,7 @@ class TestPlotThreadService:
             current_stage="第二阶段：成长",
             status="canonical",
         )
-        result = await thread_service.update(db_session, created.id, update_data)
+        result = await thread_service.update(db_session, created.id, update_data, novel_id)
 
         assert result.name == "主角的复仇之路（第二版）"
         assert result.current_stage == "第二阶段：成长"
@@ -339,10 +340,10 @@ class TestPlotThreadService:
     ) -> None:
         """测试删除剧情线"""
         created = await thread_service.create(db_session, novel_id, sample_thread_data)
-        await thread_service.delete(db_session, created.id)
+        await thread_service.delete(db_session, created.id, novel_id)
 
         with pytest.raises(HTTPException) as exc:
-            await thread_service.get(db_session, created.id)
+            await thread_service.get(db_session, created.id, novel_id)
         assert exc.value.status_code == 404
 
 
@@ -388,7 +389,7 @@ class TestOutlineArcService:
     ) -> None:
         """测试获取篇章纲"""
         created = await arc_service.create(db_session, novel_id, sample_arc_data)
-        result = await arc_service.get(db_session, created.id)
+        result = await arc_service.get(db_session, created.id, novel_id)
 
         assert result.id == created.id
         assert result.title == "第一卷：觉醒"
@@ -398,10 +399,11 @@ class TestOutlineArcService:
         self,
         db_session: AsyncSession,
         arc_service: OutlineArcService,
+        novel_id: str,
     ) -> None:
         """测试获取不存在的篇章纲返回 404"""
         with pytest.raises(HTTPException) as exc:
-            await arc_service.get(db_session, str(uuid.uuid4()))
+            await arc_service.get(db_session, str(uuid.uuid4()), novel_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -434,7 +436,7 @@ class TestOutlineArcService:
             title="第一卷：觉醒（修订版）",
             status="canonical",
         )
-        result = await arc_service.update(db_session, created.id, update_data)
+        result = await arc_service.update(db_session, created.id, update_data, novel_id)
 
         assert result.title == "第一卷：觉醒（修订版）"
         assert result.status == "canonical"
@@ -449,10 +451,10 @@ class TestOutlineArcService:
     ) -> None:
         """测试删除篇章纲"""
         created = await arc_service.create(db_session, novel_id, sample_arc_data)
-        await arc_service.delete(db_session, created.id)
+        await arc_service.delete(db_session, created.id, novel_id)
 
         with pytest.raises(HTTPException) as exc:
-            await arc_service.get(db_session, created.id)
+            await arc_service.get(db_session, created.id, novel_id)
         assert exc.value.status_code == 404
 
 
@@ -496,7 +498,7 @@ class TestChapterCardService:
     ) -> None:
         """测试获取章节卡"""
         created = await chapter_service.create(db_session, novel_id, sample_chapter_data)
-        result = await chapter_service.get(db_session, created.id)
+        result = await chapter_service.get(db_session, created.id, novel_id)
 
         assert result.id == created.id
         assert result.chapter_index == 1
@@ -551,7 +553,7 @@ class TestChapterCardService:
             title="背叛之夜（修订版）",
             status="canonical",
         )
-        result = await chapter_service.update(db_session, created.id, update_data)
+        result = await chapter_service.update(db_session, created.id, update_data, novel_id)
 
         assert result.title == "背叛之夜（修订版）"
         assert result.status == "canonical"
@@ -566,10 +568,10 @@ class TestChapterCardService:
     ) -> None:
         """测试删除章节卡"""
         created = await chapter_service.create(db_session, novel_id, sample_chapter_data)
-        await chapter_service.delete(db_session, created.id)
+        await chapter_service.delete(db_session, created.id, novel_id)
 
         with pytest.raises(HTTPException) as exc:
-            await chapter_service.get(db_session, created.id)
+            await chapter_service.get(db_session, created.id, novel_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -657,7 +659,7 @@ class TestForeshadowingPlanService:
         created = await foreshadowing_service.create(
             db_session, novel_id, sample_foreshadowing_data,
         )
-        result = await foreshadowing_service.get(db_session, created.id)
+        result = await foreshadowing_service.get(db_session, created.id, novel_id)
 
         assert result.id == created.id
         assert result.name == "主角的隐藏血脉"
@@ -667,10 +669,11 @@ class TestForeshadowingPlanService:
         self,
         db_session: AsyncSession,
         foreshadowing_service: ForeshadowingPlanService,
+        novel_id: str,
     ) -> None:
         """测试获取不存在的伏笔计划返回 404"""
         with pytest.raises(HTTPException) as exc:
-            await foreshadowing_service.get(db_session, str(uuid.uuid4()))
+            await foreshadowing_service.get(db_session, str(uuid.uuid4()), novel_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -690,7 +693,7 @@ class TestForeshadowingPlanService:
             name="主角的隐藏血脉（修订版）",
             status="seeded",
         )
-        result = await foreshadowing_service.update(db_session, created.id, update_data)
+        result = await foreshadowing_service.update(db_session, created.id, update_data, novel_id)
 
         assert result.name == "主角的隐藏血脉（修订版）"
         assert result.status == "seeded"
@@ -707,10 +710,10 @@ class TestForeshadowingPlanService:
         created = await foreshadowing_service.create(
             db_session, novel_id, sample_foreshadowing_data,
         )
-        await foreshadowing_service.delete(db_session, created.id)
+        await foreshadowing_service.delete(db_session, created.id, novel_id)
 
         with pytest.raises(HTTPException) as exc:
-            await foreshadowing_service.get(db_session, created.id)
+            await foreshadowing_service.get(db_session, created.id, novel_id)
         assert exc.value.status_code == 404
 
 
@@ -749,7 +752,7 @@ class TestRevealPlanService:
     ) -> None:
         """测试获取揭示计划"""
         created = await reveal_service.create(db_session, novel_id, sample_reveal_data)
-        result = await reveal_service.get(db_session, created.id)
+        result = await reveal_service.get(db_session, created.id, novel_id)
 
         assert result.id == created.id
         assert result.target_type == "character"
@@ -759,10 +762,11 @@ class TestRevealPlanService:
         self,
         db_session: AsyncSession,
         reveal_service: RevealPlanService,
+        novel_id: str,
     ) -> None:
         """测试获取不存在的揭示计划返回 404"""
         with pytest.raises(HTTPException) as exc:
-            await reveal_service.get(db_session, str(uuid.uuid4()))
+            await reveal_service.get(db_session, str(uuid.uuid4()), novel_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -780,7 +784,7 @@ class TestRevealPlanService:
             secret_summary="主角是上古神族的后裔（已确认）",
             status="canonical",
         )
-        result = await reveal_service.update(db_session, created.id, update_data)
+        result = await reveal_service.update(db_session, created.id, update_data, novel_id)
 
         assert result.secret_summary == "主角是上古神族的后裔（已确认）"
         assert result.status == "canonical"
@@ -795,10 +799,10 @@ class TestRevealPlanService:
     ) -> None:
         """测试删除揭示计划"""
         created = await reveal_service.create(db_session, novel_id, sample_reveal_data)
-        await reveal_service.delete(db_session, created.id)
+        await reveal_service.delete(db_session, created.id, novel_id)
 
         with pytest.raises(HTTPException) as exc:
-            await reveal_service.get(db_session, created.id)
+            await reveal_service.get(db_session, created.id, novel_id)
         assert exc.value.status_code == 404
 
 
@@ -1012,6 +1016,8 @@ class TestOutlineArcRepository:
                 start_chapter=1, end_chapter=12,
                 arc_goal="起步",
                 core_conflict="初始冲突",
+                climax="高潮对决",
+                result="主角获胜",
             ),
         )
         arc2 = await arc_repo.create(
@@ -1021,6 +1027,8 @@ class TestOutlineArcRepository:
                 start_chapter=13, end_chapter=24,
                 arc_goal="发展",
                 core_conflict="中期冲突",
+                climax="中期转折",
+                result="陷入更大危机",
             ),
         )
 

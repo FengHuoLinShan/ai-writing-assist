@@ -67,9 +67,10 @@ async def submit_review(
 async def get_report(
     db: DbSession,
     review_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> ReviewReportResponse:
     """获取指定 ID 的复查报告详情"""
-    context = await _service.get_report(db, review_id)
+    context = await _service.get_report(db, review_id, novel_id)
     return ReviewReportResponse(
         id=context.report_id,
         novel_id=context.novel_id,

@@ -42,6 +42,7 @@ class PlotThreadCreate(BaseModel):
     thread_type: str = Field(
         ...,
         max_length=32,
+        pattern="^(main|secondary|hidden|relationship|villain|foreshadowing)$",
         description="剧情线类型：main/secondary/hidden/relationship/villain/foreshadowing",
     )
     summary: str | None = Field(
@@ -185,12 +186,12 @@ class OutlineArcCreate(BaseModel):
         ge=1,
         description="结束章节索引",
     )
-    arc_goal: str | None = Field(
-        None,
+    arc_goal: str = Field(
+        ...,
         description="篇章目标",
     )
-    core_conflict: str | None = Field(
-        None,
+    core_conflict: str = Field(
+        ...,
         description="核心冲突",
     )
     main_opposition: str | None = Field(
@@ -205,12 +206,12 @@ class OutlineArcCreate(BaseModel):
         None,
         description="中点转折",
     )
-    climax: str | None = Field(
-        None,
+    climax: str = Field(
+        ...,
         description="高潮",
     )
-    result: str | None = Field(
-        None,
+    result: str = Field(
+        ...,
         description="结果",
     )
     next_hook: str | None = Field(
@@ -336,7 +337,8 @@ class ChapterCardCreate(BaseModel):
     )
     must_happen: list[str] = Field(
         default_factory=list,
-        description="必须发生的事件",
+        max_length=20,
+        description="必须发生的事件（最多 20 条）",
     )
     must_not_happen: list[str] = Field(
         default_factory=list,
@@ -660,7 +662,8 @@ class ChapterCardFromCandidateRequest(BaseModel):
     cards: list[ChapterCardCandidateItem] = Field(
         ...,
         min_length=1,
-        description="候选章节卡列表",
+        max_length=20,
+        description="候选章节卡列表（最多 20 张）",
     )
 
 
@@ -737,8 +740,10 @@ class OutlineArcContext(BaseModel):
     core_conflict: str | None = None
     main_opposition: str | None = None
     entry_hook: str | None = None
+    midpoint_turn: str | None = None
     climax: str | None = None
     result: str | None = None
+    next_hook: str | None = None
     related_thread_ids: list[str] = []
     related_character_ids: list[str] = []
     related_entity_ids: list[str] = []

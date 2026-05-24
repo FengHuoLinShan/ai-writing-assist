@@ -91,9 +91,10 @@ async def create_entity(
 async def get_entity(
     db: DbSession,
     entity_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> WorldEntityResponse:
     """获取世界对象详情"""
-    return await _entity_service.get(db, entity_id)
+    return await _entity_service.get(db, entity_id, novel_id=novel_id)
 
 
 @router.put("/entities/{entity_id}", response_model=WorldEntityResponse)
@@ -101,18 +102,20 @@ async def update_entity(
     db: DbSession,
     entity_id: str,
     data: WorldEntityUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> WorldEntityResponse:
     """更新世界对象"""
-    return await _entity_service.update(db, entity_id, data)
+    return await _entity_service.update(db, entity_id, data, novel_id=novel_id)
 
 
 @router.delete("/entities/{entity_id}", status_code=204)
 async def delete_entity(
     db: DbSession,
     entity_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除世界对象"""
-    await _entity_service.delete(db, entity_id)
+    await _entity_service.delete(db, entity_id, novel_id=novel_id)
 
 
 @router.get("/entities/{entity_id}/related", response_model=list[WorldEntityContext])
@@ -177,18 +180,20 @@ async def update_relationship(
     db: DbSession,
     rel_id: str,
     data: RelationshipUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> RelationshipResponse:
     """更新关系"""
-    return await _relationship_service.update(db, rel_id, data)
+    return await _relationship_service.update(db, rel_id, data, novel_id=novel_id)
 
 
 @router.delete("/relationships/{rel_id}", status_code=204)
 async def delete_relationship(
     db: DbSession,
     rel_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除关系"""
-    await _relationship_service.delete(db, rel_id)
+    await _relationship_service.delete(db, rel_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -232,9 +237,10 @@ async def create_alias(
 async def delete_alias(
     db: DbSession,
     alias_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除别名"""
-    await _alias_service.delete(db, alias_id)
+    await _alias_service.delete(db, alias_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -279,9 +285,10 @@ async def create_candidate(
 async def get_candidate(
     db: DbSession,
     candidate_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> EntityCandidateResponse:
     """获取候选对象详情"""
-    return await _candidate_service.get(db, candidate_id)
+    return await _candidate_service.get(db, candidate_id, novel_id=novel_id)
 
 
 @router.put("/candidates/{candidate_id}", response_model=EntityCandidateResponse)
@@ -289,18 +296,20 @@ async def update_candidate(
     db: DbSession,
     candidate_id: str,
     data: EntityCandidateUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> EntityCandidateResponse:
     """更新候选对象"""
-    return await _candidate_service.update(db, candidate_id, data)
+    return await _candidate_service.update(db, candidate_id, data, novel_id=novel_id)
 
 
 @router.delete("/candidates/{candidate_id}", status_code=204)
 async def delete_candidate(
     db: DbSession,
     candidate_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除候选对象"""
-    await _candidate_service.delete(db, candidate_id)
+    await _candidate_service.delete(db, candidate_id, novel_id=novel_id)
 
 
 @router.post(

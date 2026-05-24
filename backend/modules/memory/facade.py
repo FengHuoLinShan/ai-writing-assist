@@ -25,24 +25,34 @@ async def get_recent_story_memory(
     novel_id: str,
     before_chapter_index: int | None = None,
     limit: int = 8,
+    reveal_mode: str = "author_safe",
 ) -> list[MemoryRecordContext]:
     """获取最近的故事记忆
 
     用于 Context Compiler 提供当前剧情前的记忆摘要。
     只返回 status='canonical' 的记忆记录，按章节倒序排列。
+    在 author_safe 模式下过滤 reader_know 级别的条目。
 
     Args:
         db: 数据库 session
         novel_id: 项目 ID
         before_chapter_index: 只返回该章节之前的记忆
         limit: 最大返回条数（默认 8）
+        reveal_mode: author_only / author_safe（默认 author_safe）
 
     Returns:
         list[MemoryRecordContext]: 记忆记录上下文列表
     """
-    return await _service.get_recent_story_memory(
+    records = await _service.get_recent_story_memory(
         db, novel_id, before_chapter_index, limit
     )
+    # author_safe 模式下过滤 visibility 为 author_only 的记录
+    if reveal_mode == "author_safe":
+        records = [
+            r for r in records
+            if getattr(r, "visibility", "reader_known") != "author_only"
+        ]
+    return records
 
 
 async def get_entity_memory(
@@ -96,6 +106,7 @@ async def create_memory_update_proposals(
 async def confirm_memory_proposal(
     db: AsyncSession,
     proposal_id: str,
+    novel_id: str,
     edited_payload: dict[str, Any] | None = None,
     decided_by: str | None = None,
 ) -> MemoryRecordContext:
@@ -104,6 +115,7 @@ async def confirm_memory_proposal(
     Args:
         db: 数据库 session
         proposal_id: 提案 ID
+        novel_id: 项目 ID
         edited_payload: 编辑后的 payload（可选）
         decided_by: 决策者标识
 
@@ -111,5 +123,5 @@ async def confirm_memory_proposal(
         MemoryRecordContext: 创建的正史记忆记录
     """
     return await _service.confirm_memory_proposal(
-        db, proposal_id, edited_payload, decided_by
+        db, proposal_id, novel_id, edited_payload, decided_by
     )

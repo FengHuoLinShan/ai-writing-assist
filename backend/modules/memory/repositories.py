@@ -110,18 +110,41 @@ class MemoryRecordRepository:
     ) -> list[MemoryRecord]:
         """获取与某实体关联的记忆记录"""
         # 使用 JSONB containment 查询
-        stmt = (
-            select(MemoryRecord)
-            .where(
-                MemoryRecord.novel_id == novel_id,
-                MemoryRecord.related_entity_ids.contains([str(entity_id)]),
+        # PostgreSQL: related_entity_ids @> ARRAY['entity_id']
+        # SQLite: JSON 内查找字符串（回退方案）
+        try:
+            stmt = (
+                select(MemoryRecord)
+                .where(
+                    MemoryRecord.novel_id == novel_id,
+                    MemoryRecord.related_entity_ids.contains([str(entity_id)]),
+                )
+                .order_by(MemoryRecord.created_at.desc())
+                .limit(limit)
             )
-            .order_by(MemoryRecord.created_at.desc())
-            .limit(limit)
-        )
-        result = await db.execute(stmt)
-        items: Sequence[MemoryRecord] = result.scalars().all()
-        return list(items)
+            result = await db.execute(stmt)
+        except Exception:
+            # SQLite 回退：使用 like 查询 JSON 文本
+            eid_str = str(entity_id)
+            stmt = (
+                select(MemoryRecord)
+                .where(
+                    MemoryRecord.novel_id == novel_id,
+                )
+                .order_by(MemoryRecord.created_at.desc())
+                .limit(limit)
+            )
+            result = await db.execute(stmt)
+            all_records: Sequence[MemoryRecord] = result.scalars().all()
+            # Python 端过滤
+            items = [
+                r for r in all_records
+                if r.related_entity_ids and eid_str in [str(x) for x in r.related_entity_ids]
+            ]
+            return list(items)
+        else:
+            items: Sequence[MemoryRecord] = result.scalars().all()
+            return list(items)
 
     async def update(
         self,

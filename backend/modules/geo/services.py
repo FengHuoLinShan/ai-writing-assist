@@ -79,6 +79,7 @@ class GeoLocationService:
         self,
         db: AsyncSession,
         location_id: str,
+        novel_id: str | None = None,
     ) -> GeoLocationResponse:
         """获取地点详情"""
         lid = self._parse_uuid(location_id)
@@ -88,6 +89,8 @@ class GeoLocationService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"GeoLocation {location_id} not found",
             )
+        if novel_id and str(location.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return GeoLocationResponse.model_validate(location)
 
     async def list_locations(
@@ -111,40 +114,77 @@ class GeoLocationService:
         db: AsyncSession,
         novel_id: str,
     ) -> list[LocationNode]:
-        """递归构建地点层级树"""
+        """构建地点层级树（内存构建，避免 N+1 查询）"""
         nid = self._parse_uuid(novel_id)
-        roots = await self._repo.get_tree(db, nid, parent_id=None)
-        return [await self._build_tree_node(db, loc) for loc in roots]
+        # 一次性加载所有地点
+        all_locs, _ = await self._repo.get_multi(db, nid, skip=0, limit=10000)
+        root_nodes = self._build_tree_in_memory(all_locs, max_depth=20)
+        return root_nodes
 
-    async def _build_tree_node(
-        self,
-        db: AsyncSession,
-        location: Any,
-    ) -> LocationNode:
-        """递归构建地点树节点"""
-        children_models = await self._repo.get_children(db, location.id)
-        children = [
-            await self._build_tree_node(db, child) for child in children_models
-        ]
-        return LocationNode(
-            id=str(location.id),
-            location_level=location.location_level,
-            position_label=location.position_label,
-            x=location.x,
-            y=location.y,
-            access_level=location.access_level,
-            summary=location.summary,
-            children=children,
-        )
+    @staticmethod
+    def _build_tree_in_memory(
+        all_locations: list[Any],
+        max_depth: int = 20,
+    ) -> list[LocationNode]:
+        """在内存中构建地点层级树
+
+        Args:
+            all_locations: 所有地点 ORM 对象列表
+            max_depth: 最大递归深度，防止循环引用导致栈溢出
+
+        Returns:
+            根节点列表（顶层地点）
+        """
+        # 按 parent_id 分组：parent_id → [children]
+        children_map: dict[str | None, list[Any]] = {}
+        id_map: dict[str, Any] = {}
+        for loc in all_locations:
+            loc_id = str(loc.id)
+            id_map[loc_id] = loc
+            pid = str(loc.parent_location_id) if loc.parent_location_id else None
+            if pid not in children_map:
+                children_map[pid] = []
+            children_map[pid].append(loc)
+
+        def _build_node(
+            loc: Any,
+            depth: int = 0,
+        ) -> LocationNode:
+            """递归构建单个节点（深度受限防止栈溢出）"""
+            children: list[LocationNode] = []
+            if depth < max_depth:
+                loc_id_str = str(loc.id)
+                child_locs = children_map.get(loc_id_str, [])
+                for child in child_locs:
+                    children.append(_build_node(child, depth + 1))
+            return LocationNode(
+                id=str(loc.id),
+                location_level=loc.location_level,
+                position_label=loc.position_label,
+                x=loc.x,
+                y=loc.y,
+                access_level=loc.access_level,
+                summary=loc.summary,
+                children=children,
+            )
+
+        # 根节点 = parent_location_id IS NULL 的地点
+        roots = children_map.get(None, [])
+        return [_build_node(r) for r in roots]
 
     async def update_location(
         self,
         db: AsyncSession,
         location_id: str,
         data: GeoLocationUpdate,
+        novel_id: str | None = None,
     ) -> GeoLocationResponse:
         """更新地点"""
         lid = self._parse_uuid(location_id)
+        if novel_id:
+            existing = await self._repo.get(db, lid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         location = await self._repo.update(db, lid, data)
         if location is None:
             raise HTTPException(
@@ -157,9 +197,14 @@ class GeoLocationService:
         self,
         db: AsyncSession,
         location_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除地点"""
         lid = self._parse_uuid(location_id)
+        if novel_id:
+            existing = await self._repo.get(db, lid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, lid)
         if not deleted:
             raise HTTPException(
@@ -191,6 +236,7 @@ class GeoEdgeService:
         self,
         db: AsyncSession,
         edge_id: str,
+        novel_id: str | None = None,
     ) -> GeoEdgeResponse:
         """获取关系边详情"""
         eid = self._parse_uuid(edge_id)
@@ -200,6 +246,8 @@ class GeoEdgeService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"GeoEdge {edge_id} not found",
             )
+        if novel_id and str(edge.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return GeoEdgeResponse.model_validate(edge)
 
     async def list_edges(
@@ -232,9 +280,14 @@ class GeoEdgeService:
         db: AsyncSession,
         edge_id: str,
         data: GeoEdgeUpdate,
+        novel_id: str | None = None,
     ) -> GeoEdgeResponse:
         """更新关系边"""
         eid = self._parse_uuid(edge_id)
+        if novel_id:
+            existing = await self._repo.get(db, eid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         edge = await self._repo.update(db, eid, data)
         if edge is None:
             raise HTTPException(
@@ -247,9 +300,14 @@ class GeoEdgeService:
         self,
         db: AsyncSession,
         edge_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除关系边"""
         eid = self._parse_uuid(edge_id)
+        if novel_id:
+            existing = await self._repo.get(db, eid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, eid)
         if not deleted:
             raise HTTPException(
@@ -292,6 +350,7 @@ class GeoEraService:
         self,
         db: AsyncSession,
         era_id: str,
+        novel_id: str | None = None,
     ) -> GeoEraResponse:
         """获取历史时期详情"""
         eid = self._parse_uuid(era_id)
@@ -301,6 +360,8 @@ class GeoEraService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"GeoEra {era_id} not found",
             )
+        if novel_id and str(era.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return GeoEraResponse.model_validate(era)
 
     async def list_eras(
@@ -321,9 +382,14 @@ class GeoEraService:
         db: AsyncSession,
         era_id: str,
         data: GeoEraUpdate,
+        novel_id: str | None = None,
     ) -> GeoEraResponse:
         """更新历史时期"""
         eid = self._parse_uuid(era_id)
+        if novel_id:
+            existing = await self._repo.get(db, eid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         era = await self._repo.update(db, eid, data)
         if era is None:
             raise HTTPException(
@@ -336,9 +402,14 @@ class GeoEraService:
         self,
         db: AsyncSession,
         era_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除历史时期"""
         eid = self._parse_uuid(era_id)
+        if novel_id:
+            existing = await self._repo.get(db, eid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, eid)
         if not deleted:
             raise HTTPException(
@@ -452,35 +523,45 @@ class GeoQueryService:
         db: AsyncSession,
         novel_id: str,
     ) -> list[dict]:
-        """获取地点层级树（递归构建）"""
+        """获取地点层级树（内存构建，避免 N+1 查询）"""
         nid = self._parse_uuid(novel_id)
-        roots = await self._loc_repo.get_tree(db, nid, parent_id=None)
-        tree = []
-        for root in roots:
-            node = await self._build_tree_dict(db, root)
-            tree.append(node)
-        return tree
+        all_locs, _ = await self._loc_repo.get_multi(db, nid, skip=0, limit=10000)
+        return self._build_tree_dict_in_memory(all_locs, max_depth=20)
 
-    async def _build_tree_dict(
-        self,
-        db: AsyncSession,
-        location: Any,
-    ) -> dict:
-        """递归构建地点树字典"""
-        children_models = await self._loc_repo.get_children(db, location.id)
-        children = [
-            await self._build_tree_dict(db, child) for child in children_models
-        ]
-        return {
-            "id": str(location.id),
-            "location_level": location.location_level,
-            "position_label": location.position_label,
-            "x": location.x,
-            "y": location.y,
-            "access_level": location.access_level,
-            "summary": location.summary,
-            "children": children,
-        }
+    @staticmethod
+    def _build_tree_dict_in_memory(
+        all_locations: list[Any],
+        max_depth: int = 20,
+    ) -> list[dict]:
+        """在内存中构建地点树字典（深度限制、循环引用保护）"""
+        children_map: dict[str | None, list[Any]] = {}
+        id_map: dict[str, Any] = {}
+        for loc in all_locations:
+            loc_id = str(loc.id)
+            id_map[loc_id] = loc
+            pid = str(loc.parent_location_id) if loc.parent_location_id else None
+            if pid not in children_map:
+                children_map[pid] = []
+            children_map[pid].append(loc)
+
+        def _build(loc: Any, depth: int = 0) -> dict:
+            children: list[dict] = []
+            if depth < max_depth:
+                for child in children_map.get(str(loc.id), []):
+                    children.append(_build(child, depth + 1))
+            return {
+                "id": str(loc.id),
+                "location_level": loc.location_level,
+                "position_label": loc.position_label,
+                "x": loc.x,
+                "y": loc.y,
+                "access_level": loc.access_level,
+                "summary": loc.summary,
+                "children": children,
+            }
+
+        roots = children_map.get(None, [])
+        return [_build(r) for r in roots]
 
     async def get_travel_constraints(
         self,

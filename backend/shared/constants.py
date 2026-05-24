@@ -22,7 +22,7 @@ DEFAULT_EMBEDDING_DIM: Final[int] = 1024
 DEFAULT_PAGE_SIZE: Final[int] = 20
 """默认分页每页条数"""
 
-MAX_PAGE_SIZE: Final[int] = 200
+MAX_PAGE_SIZE: Final[int] = 50
 """最大分页条数"""
 
 # ============================================================

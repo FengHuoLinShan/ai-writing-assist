@@ -225,29 +225,21 @@ class TaskWorker:
     async def recover_stale_tasks(self) -> int:
         """恢复超时未心跳的任务（将 running 状态重置为 pending）
 
+        修复：移除 ORM stmt 死代码，使用参数化查询替代 f-string
+        （Bug C3: 死代码 + SQL 注入风险）
+
         Returns:
             恢复的任务数量
         """
-        cutoff = datetime.now(timezone.utc)
-        stmt = (
-            update(AsyncTask)
-            .where(
-                AsyncTask.status == "running",
-                AsyncTask.heartbeat_at < cutoff,  # type: ignore[arg-type]
-            )
-            .values(
-                status="pending",
-                error_message="Task recovered: heartbeat timeout",
-            )
-        )
         async with self._db_manager.session_factory() as session:
             result = await session.execute(
                 sql_text(
                     "UPDATE async_tasks "
                     "SET status = 'pending', error_message = 'Task recovered: heartbeat timeout' "
                     "WHERE status = 'running' "
-                    f"AND heartbeat_at < NOW() - INTERVAL '{self._max_heartbeat_gap} seconds'"
-                )
+                    "AND heartbeat_at < NOW() - make_interval(secs => :gap)"
+                ),
+                {"gap": self._max_heartbeat_gap},
             )
             await session.commit()
             recovered = result.rowcount if result.rowcount is not None else 0

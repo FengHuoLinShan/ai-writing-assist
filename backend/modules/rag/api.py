@@ -80,6 +80,7 @@ async def retrieve_chunks(
         character_ids=query.character_ids,
         thread_ids=query.thread_ids,
         chapter_index=query.chapter_index,
+        visibility=query.visibility,
         top_k=query.top_k,
     )
 

@@ -57,11 +57,13 @@ class MemoryService:
         self,
         db: AsyncSession,
         record_id: str,
+        novel_id: str,
     ) -> MemoryRecordResponse:
         """获取记忆记录详情"""
         rid = self._parse_uuid(record_id)
+        nid = self._parse_uuid(novel_id)
         record = await self._record_repo.get(db, rid)
-        if record is None:
+        if record is None or str(record.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Memory record {record_id} not found",
@@ -97,30 +99,37 @@ class MemoryService:
         db: AsyncSession,
         record_id: str,
         data: MemoryRecordUpdate,
+        novel_id: str,
     ) -> MemoryRecordResponse:
         """更新记忆记录"""
         rid = self._parse_uuid(record_id)
-        record = await self._record_repo.update(db, rid, data)
-        if record is None:
+        nid = self._parse_uuid(novel_id)
+        # 先校验所有权
+        record = await self._record_repo.get(db, rid)
+        if record is None or str(record.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Memory record {record_id} not found",
             )
+        record = await self._record_repo.update(db, rid, data)
         return MemoryRecordResponse.model_validate(record)
 
     async def delete_memory_record(
         self,
         db: AsyncSession,
         record_id: str,
+        novel_id: str,
     ) -> None:
         """删除记忆记录"""
         rid = self._parse_uuid(record_id)
-        deleted = await self._record_repo.delete(db, rid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id)
+        record = await self._record_repo.get(db, rid)
+        if record is None or str(record.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Memory record {record_id} not found",
             )
+        await self._record_repo.delete(db, rid)
 
     # ============================================================
     # 提案管理
@@ -198,6 +207,7 @@ class MemoryService:
         self,
         db: AsyncSession,
         proposal_id: str,
+        novel_id: str,
         edited_payload: dict[str, Any] | None = None,
         decided_by: str | None = None,
     ) -> MemoryRecordContext:
@@ -206,6 +216,7 @@ class MemoryService:
         Args:
             db: 数据库 session
             proposal_id: 提案 ID
+            novel_id: 项目 ID
             edited_payload: 编辑后的 payload（如未提供则使用原 payload）
             decided_by: 决策者标识
 
@@ -216,8 +227,14 @@ class MemoryService:
             HTTPException: 提案不存在或已被处理
         """
         pid = self._parse_uuid(proposal_id)
+        nid = self._parse_uuid(novel_id)
         proposal = await self._proposal_repo.get(db, pid)
         if proposal is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Memory proposal {proposal_id} not found",
+            )
+        if proposal is None or str(proposal.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Memory proposal {proposal_id} not found",
@@ -227,11 +244,6 @@ class MemoryService:
                 status_code=http_status.HTTP_409_CONFLICT,
                 detail=f"Memory proposal {proposal_id} already decided as {proposal.decision}",
             )
-
-        # 标记提案为 approved
-        await self._proposal_repo.decide(
-            db, pid, decision="approved", decided_by=decided_by
-        )
 
         # 使用编辑后的 payload 或原始 payload 创建记忆记录
         payload = edited_payload or proposal.payload
@@ -260,7 +272,14 @@ class MemoryService:
             ),
         )
 
+        # 先创建正史记忆记录
         record = await self._record_repo.create(db, proposal.novel_id, create_data)
+
+        # 再标记提案为 approved（记录创建成功后）
+        await self._proposal_repo.decide(
+            db, pid, decision="approved", decided_by=decided_by
+        )
+
         return MemoryRecordContext.model_validate(record)
 
     # ============================================================
@@ -283,11 +302,13 @@ class MemoryService:
         self,
         db: AsyncSession,
         proposal_id: str,
+        novel_id: str,
     ) -> MemoryProposalResponse:
         """获取记忆提案详情"""
         pid = self._parse_uuid(proposal_id)
+        nid = self._parse_uuid(novel_id)
         proposal = await self._proposal_repo.get(db, pid)
-        if proposal is None:
+        if proposal is None or str(proposal.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Memory proposal {proposal_id} not found",

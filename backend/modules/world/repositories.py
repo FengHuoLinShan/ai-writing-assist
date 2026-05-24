@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import Select, delete, or_, select, update
+from sqlalchemy import Select, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import EntityAlias, EntityCandidate, Relationship, WorldEntity
@@ -87,9 +87,9 @@ class WorldEntityRepository:
             conditions.append(WorldEntity.status == status)
 
         # 计数
-        count_stmt = select(WorldEntity.id).where(*conditions)
+        count_stmt = select(func.count(WorldEntity.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 分页查询
         stmt = (
@@ -110,6 +110,8 @@ class WorldEntityRepository:
         entity_ids: list[uuid.UUID],
     ) -> list[WorldEntity]:
         """批量获取指定 ID 的世界对象"""
+        if not entity_ids:
+            return []
         stmt = select(WorldEntity).where(
             WorldEntity.novel_id == novel_id,
             WorldEntity.id.in_(entity_ids),
@@ -249,9 +251,9 @@ class RelationshipRepository:
         """获取小说的关系列表（分页）"""
         conditions = [Relationship.novel_id == novel_id]
 
-        count_stmt = select(Relationship.id).where(*conditions)
+        count_stmt = select(func.count(Relationship.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(Relationship)
@@ -458,18 +460,18 @@ class EntityAliasRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         *,
-        entity_id: str | None = None,
+        entity_id: uuid.UUID | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[EntityAlias], int]:
         """获取小说的别名列表（分页）"""
         conditions = [EntityAlias.novel_id == novel_id]
-        if entity_id:
+        if entity_id is not None:
             conditions.append(EntityAlias.entity_id == entity_id)
 
-        count_stmt = select(EntityAlias.id).where(*conditions)
+        count_stmt = select(func.count(EntityAlias.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(EntityAlias)
@@ -583,9 +585,9 @@ class EntityCandidateRepository:
         if suggested_action:
             conditions.append(EntityCandidate.suggested_action == suggested_action)
 
-        count_stmt = select(EntityCandidate.id).where(*conditions)
+        count_stmt = select(func.count(EntityCandidate.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(EntityCandidate)
@@ -659,6 +661,21 @@ class EntityCandidateRepository:
             candidate = await self.get(db, candidate_id)
 
         return candidate
+
+    async def update_status(
+        self,
+        db: AsyncSession,
+        candidate_id: uuid.UUID,
+        status: str,
+    ) -> None:
+        """更新候选对象状态"""
+        stmt = (
+            update(EntityCandidate)
+            .where(EntityCandidate.id == candidate_id)
+            .values(status=status)
+        )
+        await db.execute(stmt)
+        await db.flush()
 
     async def delete(
         self,

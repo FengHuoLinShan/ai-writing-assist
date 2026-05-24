@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -37,6 +37,7 @@ class WorldEntityCreate(BaseModel):
         ...,
         min_length=1,
         max_length=32,
+        pattern="^(location|faction|item|event|rule|power_system|secret|legend|resource|character_ref)$",
         description="对象类型：location/faction/item/event/rule/power_system/secret/legend/resource/character_ref",
     )
     name: str = Field(
@@ -47,6 +48,7 @@ class WorldEntityCreate(BaseModel):
     )
     summary: str | None = Field(
         None,
+        max_length=5000,
         description="概要",
     )
     public_info: str | None = Field(
@@ -80,6 +82,7 @@ class WorldEntityCreate(BaseModel):
     status: str = Field(
         default="draft",
         max_length=32,
+        pattern="^(draft|candidate|canonical|deprecated|ignored)$",
         description="状态",
     )
     created_by: str | None = Field(
@@ -235,7 +238,7 @@ class RelationshipResponse(BaseModel):
 class EntityAliasCreate(BaseModel):
     """创建别名请求"""
 
-    entity_id: str = Field(
+    entity_id: uuid.UUID = Field(
         ...,
         description="所属世界对象 ID",
     )
@@ -271,11 +274,29 @@ class EntityAliasCreate(BaseModel):
 class EntityAliasResponse(BaseModel):
     """别名响应"""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        # 允许 UUID → str 的序列化
+        loc_by_field_name=True,
+        arbitrary_types_allowed=True,
+    )
 
     id: str
     novel_id: str
     entity_id: str
+
+    @classmethod
+    def model_validate(cls, obj: object, **kwargs: Any) -> "EntityAliasResponse":
+        """从 ORM 对象创建响应，自动将 UUID 转为字符串"""
+        if hasattr(obj, "__table__"):
+            data = {}
+            for col in obj.__table__.columns:
+                v = getattr(obj, col.name, None)
+                if isinstance(v, uuid.UUID):
+                    v = str(v)
+                data[col.name] = v
+            return cls(**data)
+        return super().model_validate(obj, **kwargs)
     alias: str
     alias_type: str = "name"
     source_chapter_index: int | None = None
@@ -283,7 +304,7 @@ class EntityAliasResponse(BaseModel):
     status: str = "confirmed"
     created_at: datetime | None = None
 
-    @field_validator("id", "novel_id", mode="before")
+    @field_validator("id", "novel_id", "entity_id", mode="before")
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)

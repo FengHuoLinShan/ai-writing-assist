@@ -87,9 +87,10 @@ async def get_location_tree(
 async def get_location(
     db: DbSession,
     location_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoLocationResponse:
     """获取地点详情"""
-    return await _location_service.get_location(db, location_id)
+    return await _location_service.get_location(db, location_id, novel_id=novel_id)
 
 
 @router.put("/locations/{location_id}", response_model=GeoLocationResponse)
@@ -97,18 +98,20 @@ async def update_location(
     db: DbSession,
     location_id: str,
     data: GeoLocationUpdate,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoLocationResponse:
     """更新地点信息"""
-    return await _location_service.update_location(db, location_id, data)
+    return await _location_service.update_location(db, location_id, data, novel_id=novel_id)
 
 
 @router.delete("/locations/{location_id}", status_code=204)
 async def delete_location(
     db: DbSession,
     location_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> None:
     """删除地点"""
-    await _location_service.delete_location(db, location_id)
+    await _location_service.delete_location(db, location_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -157,9 +160,10 @@ async def get_edges_by_location(
 async def get_edge(
     db: DbSession,
     edge_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoEdgeResponse:
     """获取关系边详情"""
-    return await _edge_service.get_edge(db, edge_id)
+    return await _edge_service.get_edge(db, edge_id, novel_id=novel_id)
 
 
 @router.put("/edges/{edge_id}", response_model=GeoEdgeResponse)
@@ -167,18 +171,20 @@ async def update_edge(
     db: DbSession,
     edge_id: str,
     data: GeoEdgeUpdate,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoEdgeResponse:
     """更新关系边"""
-    return await _edge_service.update_edge(db, edge_id, data)
+    return await _edge_service.update_edge(db, edge_id, data, novel_id=novel_id)
 
 
 @router.delete("/edges/{edge_id}", status_code=204)
 async def delete_edge(
     db: DbSession,
     edge_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> None:
     """删除关系边"""
-    await _edge_service.delete_edge(db, edge_id)
+    await _edge_service.delete_edge(db, edge_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -217,9 +223,10 @@ async def list_eras(
 async def get_era(
     db: DbSession,
     era_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoEraResponse:
     """获取历史时期详情"""
-    return await _era_service.get_era(db, era_id)
+    return await _era_service.get_era(db, era_id, novel_id=novel_id)
 
 
 @router.put("/eras/{era_id}", response_model=GeoEraResponse)
@@ -227,18 +234,20 @@ async def update_era(
     db: DbSession,
     era_id: str,
     data: GeoEraUpdate,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoEraResponse:
     """更新历史时期"""
-    return await _era_service.update_era(db, era_id, data)
+    return await _era_service.update_era(db, era_id, data, novel_id=novel_id)
 
 
 @router.delete("/eras/{era_id}", status_code=204)
 async def delete_era(
     db: DbSession,
     era_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> None:
     """删除历史时期"""
-    await _era_service.delete_era(db, era_id)
+    await _era_service.delete_era(db, era_id, novel_id=novel_id)
 
 
 # ============================================================

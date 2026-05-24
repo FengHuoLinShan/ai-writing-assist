@@ -334,11 +334,12 @@ class TestTimelineService:
         self,
         service: TimelineService,
         db_session: AsyncSession,
+        novel_id: str,
     ) -> None:
         """测试获取不存在的事件"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_event(db_session, fake_id)
+            await service.get_event(db_session, fake_id, novel_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -432,6 +433,7 @@ class TestTimelineFacade:
                 order_index=100,
                 chapter_index=1,
                 status="canonical",
+                visibility="reader_known",
             ),
         )
         await repo.create(
@@ -443,6 +445,7 @@ class TestTimelineFacade:
                 order_index=200,
                 chapter_index=2,
                 status="canonical",
+                visibility="reader_known",
             ),
         )
         await db_session.flush()

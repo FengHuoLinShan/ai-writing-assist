@@ -120,9 +120,10 @@ async def get_active_threads(
 async def get_thread(
     db: DbSession,
     thread_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> PlotThreadResponse:
     """获取剧情线详情"""
-    return await _thread_service.get(db, thread_id)
+    return await _thread_service.get(db, thread_id, novel_id)
 
 
 @router.put("/threads/{thread_id}", response_model=PlotThreadResponse)
@@ -130,18 +131,20 @@ async def update_thread(
     db: DbSession,
     thread_id: str,
     data: PlotThreadUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> PlotThreadResponse:
     """更新剧情线"""
-    return await _thread_service.update(db, thread_id, data)
+    return await _thread_service.update(db, thread_id, data, novel_id)
 
 
 @router.delete("/threads/{thread_id}", status_code=204)
 async def delete_thread(
     db: DbSession,
     thread_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除剧情线"""
-    await _thread_service.delete(db, thread_id)
+    await _thread_service.delete(db, thread_id, novel_id)
 
 
 # ============================================================
@@ -184,9 +187,10 @@ async def create_arc(
 async def get_arc(
     db: DbSession,
     arc_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> OutlineArcResponse:
     """获取篇章纲详情"""
-    return await _arc_service.get(db, arc_id)
+    return await _arc_service.get(db, arc_id, novel_id)
 
 
 @router.put("/arcs/{arc_id}", response_model=OutlineArcResponse)
@@ -194,18 +198,20 @@ async def update_arc(
     db: DbSession,
     arc_id: str,
     data: OutlineArcUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> OutlineArcResponse:
     """更新篇章纲"""
-    return await _arc_service.update(db, arc_id, data)
+    return await _arc_service.update(db, arc_id, data, novel_id)
 
 
 @router.delete("/arcs/{arc_id}", status_code=204)
 async def delete_arc(
     db: DbSession,
     arc_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除篇章纲"""
-    await _arc_service.delete(db, arc_id)
+    await _arc_service.delete(db, arc_id, novel_id)
 
 
 # ============================================================
@@ -250,9 +256,10 @@ async def create_chapter(
 async def get_chapter(
     db: DbSession,
     card_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> ChapterCardResponse:
     """获取章节卡详情"""
-    return await _chapter_service.get(db, card_id)
+    return await _chapter_service.get(db, card_id, novel_id)
 
 
 @router.put("/chapters/{card_id}", response_model=ChapterCardResponse)
@@ -260,18 +267,20 @@ async def update_chapter(
     db: DbSession,
     card_id: str,
     data: ChapterCardUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> ChapterCardResponse:
     """更新章节卡"""
-    return await _chapter_service.update(db, card_id, data)
+    return await _chapter_service.update(db, card_id, data, novel_id)
 
 
 @router.delete("/chapters/{card_id}", status_code=204)
 async def delete_chapter(
     db: DbSession,
     card_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除章节卡"""
-    await _chapter_service.delete(db, card_id)
+    await _chapter_service.delete(db, card_id, novel_id)
 
 
 @router.get(
@@ -351,9 +360,10 @@ async def create_foreshadowing(
 async def get_foreshadowing(
     db: DbSession,
     f_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> ForeshadowingPlanResponse:
     """获取伏笔计划详情"""
-    return await _foreshadowing_service.get(db, f_id)
+    return await _foreshadowing_service.get(db, f_id, novel_id)
 
 
 @router.put(
@@ -364,18 +374,20 @@ async def update_foreshadowing(
     db: DbSession,
     f_id: str,
     data: ForeshadowingPlanUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> ForeshadowingPlanResponse:
     """更新伏笔计划"""
-    return await _foreshadowing_service.update(db, f_id, data)
+    return await _foreshadowing_service.update(db, f_id, data, novel_id)
 
 
 @router.delete("/foreshadowing/{f_id}", status_code=204)
 async def delete_foreshadowing(
     db: DbSession,
     f_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除伏笔计划"""
-    await _foreshadowing_service.delete(db, f_id)
+    await _foreshadowing_service.delete(db, f_id, novel_id)
 
 
 # ============================================================
@@ -420,9 +432,10 @@ async def create_reveal(
 async def get_reveal(
     db: DbSession,
     reveal_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> RevealPlanResponse:
     """获取揭示计划详情"""
-    return await _reveal_service.get(db, reveal_id)
+    return await _reveal_service.get(db, reveal_id, novel_id)
 
 
 @router.put("/reveals/{reveal_id}", response_model=RevealPlanResponse)
@@ -430,15 +443,17 @@ async def update_reveal(
     db: DbSession,
     reveal_id: str,
     data: RevealPlanUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> RevealPlanResponse:
     """更新揭示计划"""
-    return await _reveal_service.update(db, reveal_id, data)
+    return await _reveal_service.update(db, reveal_id, data, novel_id)
 
 
 @router.delete("/reveals/{reveal_id}", status_code=204)
 async def delete_reveal(
     db: DbSession,
     reveal_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除揭示计划"""
-    await _reveal_service.delete(db, reveal_id)
+    await _reveal_service.delete(db, reveal_id, novel_id)

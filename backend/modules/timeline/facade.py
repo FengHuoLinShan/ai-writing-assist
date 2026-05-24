@@ -27,11 +27,13 @@ async def get_relevant_timeline_context(
     related_entity_ids: list[str] | None = None,
     character_id: str | None = None,
     limit: int = 12,
+    reveal_mode: str = "author_safe",
 ) -> list[TimelineEventContext]:
     """获取相关时间线上下文
 
     用于 Context Compiler 组装创作上下文。
     只返回 status='canonical' 的事件，按顺序排列。
+    在 author_safe 模式下过滤 author_only 可见性的事件。
 
     Args:
         db: 数据库 session
@@ -40,11 +42,12 @@ async def get_relevant_timeline_context(
         related_entity_ids: 按关联实体过滤
         character_id: 按关联角色过滤
         limit: 最大返回条数（默认 12）
+        reveal_mode: author_only / author_safe（默认 author_safe）
 
     Returns:
         list[TimelineEventContext]: 时间线事件上下文列表
     """
-    return await _service.get_relevant_timeline_context(
+    events = await _service.get_relevant_timeline_context(
         db,
         novel_id,
         chapter_index=chapter_index,
@@ -52,6 +55,13 @@ async def get_relevant_timeline_context(
         character_id=character_id,
         limit=limit,
     )
+    # author_safe 模式下过滤 visibility 为 author_only 的事件
+    if reveal_mode == "author_safe":
+        events = [
+            e for e in events
+            if getattr(e, "visibility", "reader_known") != "author_only"
+        ]
+    return events
 
 
 async def check_timeline_conflicts(

@@ -73,6 +73,7 @@ async def retrieve(
     character_ids: list[str] | None = None,
     thread_ids: list[str] | None = None,
     chapter_index: int | None = None,
+    visibility: str | None = None,
     top_k: int = 12,
 ) -> RagResultBundle:
     """混合检索 RAG 片段
@@ -87,12 +88,13 @@ async def retrieve(
         character_ids: 限制关联的人物 ID 列表
         thread_ids: 限制关联的剧情线 ID 列表
         chapter_index: 限制关联章节索引
-        top_k: 返回的最大结果数
+        top_k: 返回的最大结果数（最小为 1）
 
     Returns:
         RagResultBundle — 检索结果
     """
     nid = uuid.UUID(hex=novel_id)
+    top_k = max(1, top_k)
     scored_chunks = await _retrieval.hybrid_search(
         db,
         nid,
@@ -101,6 +103,7 @@ async def retrieve(
         character_ids=character_ids,
         thread_ids=thread_ids,
         chapter_index=chapter_index,
+        visibility=visibility,
         top_k=top_k,
     )
 

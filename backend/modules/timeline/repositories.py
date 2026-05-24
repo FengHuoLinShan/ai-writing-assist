@@ -100,19 +100,28 @@ class TimelineEventRepository:
             conditions.append(
                 TimelineEvent.related_character_ids.contains([character_id])
             )
+        if entity_ids:
+            if len(entity_ids) == 1:
+                conditions.append(
+                    TimelineEvent.related_entity_ids.contains([entity_ids[0]])
+                )
+            else:
+                conditions.append(
+                    TimelineEvent.related_entity_ids.overlap(entity_ids)
+                )
 
         # 计数
         count_stmt = select(TimelineEvent.id).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = len(count_result.all())
 
-        # 分页排序（按 order_index 升序）
+        # 分页排序（按 order_index 升序，同 order_index 按 created_at 升序确保确定性）
         stmt = (
             select(TimelineEvent)
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(TimelineEvent.order_index.asc())
+            .order_by(TimelineEvent.order_index.asc(), TimelineEvent.created_at.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[TimelineEvent] = result.scalars().all()
@@ -219,7 +228,7 @@ class TimelineEventRepository:
         stmt = (
             select(TimelineEvent)
             .where(*conditions)
-            .order_by(TimelineEvent.order_index.asc())
+            .order_by(TimelineEvent.order_index.asc(), TimelineEvent.created_at.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[TimelineEvent] = result.scalars().all()

@@ -8,11 +8,14 @@ Geo 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from typing import Any, Sequence
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+# 用于区分「未传」和「显式设为 None」的哨兵对象
+_UNSET = object()
 
 from modules.geo.models import GeoEdge, GeoEra, GeoLocation
 from modules.geo.schemas import (
@@ -105,9 +108,9 @@ class GeoLocationRepository:
             conditions.append(GeoLocation.location_level == location_level)
 
         # 总数
-        count_stmt = select(GeoLocation.id).where(*conditions)
+        count_stmt = select(func.count(GeoLocation.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 分页
         stmt = (
@@ -222,10 +225,13 @@ class GeoLocationRepository:
             if value is not None:
                 update_values[field] = value
 
-        if data.parent_location_id is not None:
-            update_values["parent_location_id"] = uuid.UUID(
-                hex=data.parent_location_id
-            )
+        # 使用哨兵对象区分「未传」和「显式设为 None」（清空父地点）
+        parent_id_sentinel = getattr(data, "parent_location_id", _UNSET)
+        if parent_id_sentinel is not _UNSET:
+            if parent_id_sentinel is None:
+                update_values["parent_location_id"] = None
+            else:
+                update_values["parent_location_id"] = uuid.UUID(hex=parent_id_sentinel)
         if data.content_json is not None:
             update_values["content_json"] = data.content_json
 
@@ -352,9 +358,9 @@ class GeoEdgeRepository:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[GeoEdge], int]:
         """获取关系边列表（分页）"""
-        count_stmt = select(GeoEdge.id).where(GeoEdge.novel_id == novel_id)
+        count_stmt = select(func.count(GeoEdge.id)).where(GeoEdge.novel_id == novel_id)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(GeoEdge)
@@ -469,9 +475,9 @@ class GeoEraRepository:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[GeoEra], int]:
         """获取历史时期列表（按 order_index 排序）"""
-        count_stmt = select(GeoEra.id).where(GeoEra.novel_id == novel_id)
+        count_stmt = select(func.count(GeoEra.id)).where(GeoEra.novel_id == novel_id)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(GeoEra)

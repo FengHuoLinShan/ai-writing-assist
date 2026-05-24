@@ -36,18 +36,24 @@ class UUIDMixin:
 
 
 class TimestampMixin:
-    """创建/更新时间戳 Mixin"""
+    """创建/更新时间戳 Mixin
+
+    修复：统一使用 UTC 时区，添加 server_onupdate
+    （Bug H1: server_default 与 default 时区不一致 → 统一 UTC）
+    （Bug H2: 缺 server_onupdate → 添加）
+    """
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now(),
+        server_default=func.timezone("utc", func.now()),
         default=lambda: datetime.now(timezone.utc),
     )
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now(),
+        server_default=func.timezone("utc", func.now()),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        server_onupdate=func.timezone("utc", func.now()),
     )
 
 

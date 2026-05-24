@@ -208,7 +208,7 @@ class TestCheckEarlyReveal:
     async def test_hidden_truth_revealed(
         self, service: ReviewService,
     ) -> None:
-        """hidden_truth 被提前揭示时应产生警告"""
+        """hidden_truth 泄露到 public_info 时应产生警告"""
         payload = {
             "chapter_index": 3,
             "world_entities": [
@@ -217,6 +217,7 @@ class TestCheckEarlyReveal:
                     "entity_type": "location",
                     "hidden_truth": "这座塔其实是通往异世界的门户",
                     "reveal_level": "author_only",
+                    "public_info": "塔其实是一座通往异世界的神秘门户，据说连接着另一个世界",
                 }
             ],
         }
@@ -225,6 +226,29 @@ class TestCheckEarlyReveal:
         )
         assert len(warnings) >= 1
         assert any(w.type == "early_reveal" for w in warnings)
+
+    @pytest.mark.asyncio
+    async def test_hidden_truth_not_leaked(
+        self, service: ReviewService,
+    ) -> None:
+        """hidden_truth 未泄露到公开字段时不应产生警告"""
+        payload = {
+            "chapter_index": 3,
+            "world_entities": [
+                {
+                    "name": "黑暗之塔",
+                    "entity_type": "location",
+                    "hidden_truth": "这座塔其实是通往异世界的门户",
+                    "reveal_level": "author_only",
+                    "public_info": "外观为黑色高塔，常年笼罩在雾气中",
+                }
+            ],
+        }
+        warnings = await service._check_early_reveal(
+            None, "", payload,
+        )
+        # hidden_truth 内容未出现在公开字段中，不应视为提前揭示
+        assert len([w for w in warnings if w.type == "early_reveal"]) == 0
 
     @pytest.mark.asyncio
     async def test_no_hidden_truth_no_warning(
@@ -682,9 +706,7 @@ class TestFacade:
         )
 
         # 再获取
-        fetched = await get_review_report(
-            db_session, created.report_id,
-        )
+        fetched = await get_review_report(db_session, created.report_id, novel_id)
         assert fetched.report_id == created.report_id
         assert fetched.decision == created.decision
 

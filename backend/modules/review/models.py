@@ -25,6 +25,13 @@ class ReviewReport(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "review_reports"
     __table_args__ = {"comment": "结构复查报告"}
 
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="canonical",
+        comment="报告状态：draft/canonical/deprecated",
+    )
+
     target_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

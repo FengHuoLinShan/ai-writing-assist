@@ -217,6 +217,7 @@ class RetrievalService:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        visibility: str | None = None,
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量（预留）
@@ -239,6 +240,7 @@ class RetrievalService:
             character_ids=character_ids,
             thread_ids=thread_ids,
             chapter_index=chapter_index,
+            visibility=visibility,
             limit=top_k * 2,  # 扩大召回以进行重排序
         )
 
@@ -251,12 +253,22 @@ class RetrievalService:
                 unique_chunks.append(chunk)
 
         # Step 2: 计算每个 chunk 的混合评分
-        scored_chunks: list[tuple[RagChunk, float]] = []
+        # 对中文查询不分词，直接用整个查询做子串匹配
+        query_lower = query.lower().strip()
         query_terms = [q.strip().lower() for q in query.split() if q.strip()]
+        use_chinese_match = not query_terms or all(
+            ord(c) > 127 for c in query.replace(" ", "")
+        )
+        scored_chunks: list[tuple[RagChunk, float]] = []
+
+        scored_chunks: list[tuple[Any, float]] = []
 
         for chunk in unique_chunks:
-            # 关键词评分：匹配词数 / 总词数
-            keyword_score = self._compute_keyword_score(chunk.text, query_terms)
+            # 关键词评分：中文用全查询子串匹配，英文用词匹配
+            if use_chinese_match and query_lower:
+                keyword_score = 1.0 if query_lower in chunk.text.lower() else 0.0
+            else:
+                keyword_score = self._compute_keyword_score(chunk.text, query_terms)
 
             # 关系评分：匹配的 entity/character/thread ID 数量
             relation_score = self._compute_relation_score(
@@ -284,6 +296,22 @@ class RetrievalService:
 
         # Step 3: 按评分降序排列，取 top_k
         scored_chunks.sort(key=lambda x: x[1], reverse=True)
+
+        # 如果所有 chunk 都只有 importance 得分（无关键词/关系/向量匹配）
+        # 说明查询与内容无实质匹配，返回空结果避免 importance 劫持
+        has_meaningful_match = False
+        for chunk, _ in scored_chunks[:top_k]:
+            if use_chinese_match:
+                kw = 1.0 if query_lower in chunk.text.lower() else 0.0
+            else:
+                kw = self._compute_keyword_score(chunk.text, query_terms)
+            if kw > 0:
+                has_meaningful_match = True
+                break
+
+        if not has_meaningful_match:
+            return []
+
         return scored_chunks[:top_k]
 
     async def find_similar_entities(

@@ -47,12 +47,14 @@ async def review_structure_candidate(
 async def get_review_report(
     db: AsyncSession,
     review_id: str,
+    novel_id: str,
 ) -> ReviewReportContext:
     """获取已存在的复查报告
 
     Args:
         db: 数据库 session
         review_id: 复查报告 ID
+        novel_id: 项目 ID
 
     Returns:
         ReviewReportContext — 复查报告
@@ -60,4 +62,4 @@ async def get_review_report(
     Raises:
         HTTPException 404: 报告不存在
     """
-    return await _service.get_report(db, review_id)
+    return await _service.get_report(db, review_id, novel_id)

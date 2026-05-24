@@ -155,14 +155,16 @@ class ReviewService:
         self,
         db: AsyncSession,
         report_id: str,
+        novel_id: str,
     ) -> ReviewReportContext:
         """获取已存在的复查报告"""
         rid = self._parse_uuid(report_id, "report_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, rid)
-        if entity is None:
-            from fastapi import HTTPException
-            from fastapi import status as http_status
+        from fastapi import HTTPException
+        from fastapi import status as http_status
 
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ReviewReport {report_id} not found",
@@ -363,9 +365,6 @@ class ReviewService:
                 )
                 # 如果返回的实体数少于请求的 ID 数，说明有 ID 不存在
                 found_ids = {e.entity_id for e in ctx.entities} if hasattr(ctx, "entities") else set()
-                # get_world_context 可能返回 entities 列表或 entity_map
-                if hasattr(ctx, "entity_map"):
-                    found_ids = set(ctx.entity_map.keys())
                 missing = set(referenced_ids["entity"]) - found_ids
                 for mid in missing:
                     warnings.append(
@@ -389,8 +388,6 @@ class ReviewService:
                     character_ids=referenced_ids["character"],
                 )
                 found_ids = {c.character_id for c in ctx.characters} if hasattr(ctx, "characters") else set()
-                if hasattr(ctx, "character_map"):
-                    found_ids = set(ctx.character_map.keys())
                 missing = set(referenced_ids["character"]) - found_ids
                 for mid in missing:
                     warnings.append(
@@ -433,27 +430,47 @@ class ReviewService:
             hidden_truth = entity.get("hidden_truth")
             reveal_level = entity.get("reveal_level", "author_only")
 
-            # 如果 hidden_truth 有内容且 reveal_level 是 author_only
-            # 但在候选结构中出现在读者可见的位置，标记为警告
-            chapter_index = candidate_payload.get("chapter_index")
-            if hidden_truth and reveal_level == "author_only" and chapter_index:
-                warnings.append(
-                    ReviewWarning(
-                        type="early_reveal",
-                        message=(
-                            f"世界对象 '{entity.get('name', 'unnamed')}' "
-                            f"的 hidden_truth 在第 {chapter_index} 章被提前揭示。"
-                            f"当前揭示层级: {reveal_level}"
-                        ),
-                        severity="high",
-                        location={
-                            "entity_index": i,
-                            "entity_name": entity.get("name", ""),
-                            "field": "hidden_truth",
-                            "chapter_index": chapter_index,
-                        },
+            # 检查 hidden_truth 是否泄露到公开字段中
+            # 纯在 hidden_truth 不等于提前揭示，
+            # 只有当其内容出现在 public_info/summary 等可读字段才算泄露
+            if hidden_truth and reveal_level == "author_only":
+                leaked_fields = []
+                
+                # 对中文使用滑动窗口子串匹配（长度 >= 3 的中文连续字符）
+                hidden_subs = set()
+                for ci in range(len(hidden_truth) - 2):
+                    sub = hidden_truth[ci:ci+3]
+                    if sub.strip():
+                        hidden_subs.add(sub)
+                
+                if not hidden_subs:
+                    # 如果隐 truth 太短，直接全量匹配
+                    hidden_subs = {hidden_truth} if hidden_truth.strip() else set()
+                
+                for field_name in ("public_info", "summary", "description"):
+                    field_val = entity.get(field_name, "")
+                    if field_val and isinstance(field_val, str):
+                        # 检查是否有 ≥2 个不同子串出现在公开字段中
+                        match_count = sum(1 for sub in hidden_subs if field_val.find(sub) >= 0)
+                        if match_count >= 2:
+                            leaked_fields.append(field_name)
+                
+                if leaked_fields:
+                    warnings.append(
+                        ReviewWarning(
+                            type="early_reveal",
+                            message=(
+                                f"世界对象 '{entity.get('name', 'unnamed')}' 的 hidden_truth 泄露至 "
+                                f"{'/'.join(leaked_fields)}，揭示层级为 {reveal_level}"
+                            ),
+                            severity="high",
+                            location={
+                                "entity_index": i,
+                                "entity_name": entity.get("name", ""),
+                                "leaked_fields": leaked_fields,
+                            },
+                        )
                     )
-                )
 
         # 检查 plot_threads 中的 hidden_truth 提前暴露
         threads = candidate_payload.get("plot_threads", [])
@@ -471,18 +488,22 @@ class ReviewService:
             if hidden_truth and chapter_index:
                 visible_goal = thread.get("visible_goal", "")
                 # 如果 hidden_truth 的内容在 visible_goal 中被暗示
-                if visible_goal and any(
-                    word in visible_goal
-                    for word in hidden_truth.split()
-                    if len(word) > 2
-                ):
-                    warnings.append(
-                        ReviewWarning(
-                            type="early_reveal",
-                            message=(
-                                f"剧情线 '{thread.get('name', 'unnamed')}' "
-                                f"的 hidden_truth 在 visible_goal 中被暗示"
-                            ),
+                # 对中文不用 split() 分词，改用字符级存在检查
+                if visible_goal and hidden_truth:
+                    # 提取隐藏真相中的有意义的子串（长度 >2 的连续字符）
+                    revealed = any(
+                        visible_goal.find(sub) >= 0
+                        for sub in [hidden_truth[i:i+3] for i in range(len(hidden_truth)-2)]
+                        if sub.strip()
+                    ) if len(hidden_truth) > 2 else False
+                    if revealed:
+                        warnings.append(
+                            ReviewWarning(
+                                type="early_reveal",
+                                message=(
+                                    f"剧情线 '{thread.get('name', 'unnamed')}' "
+                                    f"的 hidden_truth 在 visible_goal 中被暗示"
+                                ),
                             severity="medium",
                             location={
                                 "thread_index": i,
@@ -895,11 +916,6 @@ class ReviewService:
                         existing_names = [
                             e.name for e in ctx.entities
                             if hasattr(e, "name") and e.name == name
-                        ]
-                    if hasattr(ctx, "entity_map"):
-                        existing_names = [
-                            e.get("name", "") for e in ctx.entity_map.values()
-                            if isinstance(e, dict) and e.get("name") == name
                         ]
                     if existing_names:
                         warnings.append(

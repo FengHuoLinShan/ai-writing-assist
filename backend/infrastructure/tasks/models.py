@@ -10,8 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column, DateTime, Float, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import JSON, Column, DateTime, Float, String, Text, text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, UUIDMixin, TimestampMixin
@@ -44,12 +44,12 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
         comment="任务进度 0.0 ~ 1.0",
     )
     meta: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
+        JSON,
         default=dict,
         comment="任务元数据（入参、配置等）",
     )
     result: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
+        JSON,
         default=dict,
         comment="任务执行结果",
     )

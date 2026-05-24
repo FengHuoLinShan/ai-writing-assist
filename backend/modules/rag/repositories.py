@@ -138,14 +138,20 @@ class RagChunkRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         entity_id: str,
+        *,
+        visibility: str | None = None,
     ) -> list[RagChunk]:
         """按关联的世界对象 ID 检索"""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.entity_ids.contains([entity_id]),
+        ]
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
         stmt = (
             select(RagChunk)
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.entity_ids.contains([entity_id]),
-            )
+            .where(and_(*conditions))
             .order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
@@ -156,14 +162,20 @@ class RagChunkRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         character_id: str,
+        *,
+        visibility: str | None = None,
     ) -> list[RagChunk]:
         """按关联的人物 ID 检索"""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.character_ids.contains([character_id]),
+        ]
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
         stmt = (
             select(RagChunk)
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.character_ids.contains([character_id]),
-            )
+            .where(and_(*conditions))
             .order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
@@ -174,14 +186,20 @@ class RagChunkRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         thread_id: str,
+        *,
+        visibility: str | None = None,
     ) -> list[RagChunk]:
         """按关联的剧情线 ID 检索"""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.thread_ids.contains([thread_id]),
+        ]
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
         stmt = (
             select(RagChunk)
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.thread_ids.contains([thread_id]),
-            )
+            .where(and_(*conditions))
             .order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
@@ -192,14 +210,20 @@ class RagChunkRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         chapter_index: int,
+        *,
+        visibility: str | None = None,
     ) -> list[RagChunk]:
         """按章节索引检索"""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.chapter_index == chapter_index,
+        ]
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
         stmt = (
             select(RagChunk)
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.chapter_index == chapter_index,
-            )
+            .where(and_(*conditions))
             .order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
@@ -219,6 +243,7 @@ class RagChunkRepository:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        visibility: str | None = None,
         limit: int = 20,
     ) -> list[RagChunk]:
         """关键词检索 — 使用简单的 SQL LIKE 文本匹配
@@ -246,6 +271,8 @@ class RagChunkRepository:
             conditions.append(RagChunk.thread_ids.contains(thread_ids))
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
             select(RagChunk)

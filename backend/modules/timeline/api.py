@@ -73,7 +73,7 @@ async def get_timeline_event(
     event_id: str,
 ) -> TimelineEventResponse:
     """获取时间线事件详情"""
-    return await _service.get_event(db, event_id)
+    return await _service.get_event(db, event_id, novel_id)
 
 
 @router.put("/events/{event_id}", response_model=TimelineEventResponse)
@@ -84,7 +84,7 @@ async def update_timeline_event(
     data: TimelineEventUpdate,
 ) -> TimelineEventResponse:
     """更新时间线事件"""
-    return await _service.update_event(db, event_id, data)
+    return await _service.update_event(db, event_id, data, novel_id)
 
 
 @router.delete("/events/{event_id}", status_code=204)
@@ -94,4 +94,4 @@ async def delete_timeline_event(
     event_id: str,
 ) -> None:
     """删除时间线事件"""
-    await _service.delete_event(db, event_id)
+    await _service.delete_event(db, event_id, novel_id)

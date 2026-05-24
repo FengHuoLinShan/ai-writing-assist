@@ -7,8 +7,6 @@ Project 业务逻辑层
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +19,7 @@ from modules.project.schemas import (
     ProjectUpdate,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from shared.utils import parse_uuid
 
 
 class ProjectService:
@@ -44,7 +43,7 @@ class ProjectService:
         project_id: str,
     ) -> ProjectResponse:
         """获取项目详情"""
-        pid = self._parse_uuid(project_id)
+        pid = parse_uuid(project_id, "project_id")
         project = await self._repo.get(db, pid)
         if project is None:
             raise HTTPException(
@@ -71,7 +70,7 @@ class ProjectService:
         data: ProjectUpdate,
     ) -> ProjectResponse:
         """更新项目"""
-        pid = self._parse_uuid(project_id)
+        pid = parse_uuid(project_id, "project_id")
         project = await self._repo.update(db, pid, data)
         if project is None:
             raise HTTPException(
@@ -86,7 +85,7 @@ class ProjectService:
         project_id: str,
     ) -> None:
         """删除项目"""
-        pid = self._parse_uuid(project_id)
+        pid = parse_uuid(project_id, "project_id")
         deleted = await self._repo.delete(db, pid)
         if not deleted:
             raise HTTPException(
@@ -100,7 +99,7 @@ class ProjectService:
         novel_id: str,
     ) -> ProjectContext | None:
         """获取项目上下文（供其他模块使用，不存在返回 None）"""
-        pid = self._parse_uuid(novel_id)
+        pid = parse_uuid(novel_id, "novel_id")
         project = await self._repo.get(db, pid)
         if project is None:
             return None
@@ -114,18 +113,3 @@ class ProjectService:
             current_stage=project.current_stage,
             default_reveal_policy=project.default_reveal_policy,
         )
-
-    # ============================================================
-    # 内部工具
-    # ============================================================
-
-    @staticmethod
-    def _parse_uuid(project_id: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=project_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid project ID: {project_id}",
-            )

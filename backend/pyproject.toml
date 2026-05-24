@@ -80,6 +80,10 @@ python_files = ["tests.py", "*_test.py", "test_*.py"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+markers = [
+    "api: API layer tests",
+    "integration: Integration/flow tests",
+]
 
 [tool.ruff]
 line-length = 90

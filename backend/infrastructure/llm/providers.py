@@ -95,6 +95,15 @@ class OpenAIProvider(LLMProvider):
     def name(self) -> str:
         return "openai"
 
+    async def close(self) -> None:
+        """关闭 HTTP 连接，释放 AsyncOpenAI 客户端资源
+
+        （Bug C2: 防止 HTTP 连接泄漏）
+        """
+        if hasattr(self, "_client"):
+            await self._client.close()
+            logger.debug("OpenAIProvider HTTP connection closed")
+
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """调用 LLM 并返回完整响应"""
         start_time = time.monotonic()

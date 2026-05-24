@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.character.models import Character, CharacterKnowledge
@@ -81,11 +81,11 @@ class CharacterRepository:
         """根据小说 ID 获取人物列表（分页），返回 (items, total)"""
         # 获取总数
         count_stmt = (
-            select(Character.id)
+            select(func.count(Character.id))
             .where(Character.novel_id == novel_id)
         )
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 获取分页数据
         stmt = (
@@ -106,10 +106,13 @@ class CharacterRepository:
         character_ids: list[uuid.UUID],
     ) -> list[Character]:
         """根据 ID 列表批量获取人物"""
+        if not character_ids:
+            return []
         stmt = (
             select(Character)
             .where(Character.novel_id == novel_id)
             .where(Character.id.in_(character_ids))
+            .order_by(Character.id.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[Character] = result.scalars().all()
@@ -232,12 +235,12 @@ class CharacterKnowledgeRepository:
     ) -> tuple[list[CharacterKnowledge], int]:
         """获取人物知识列表（分页）"""
         count_stmt = (
-            select(CharacterKnowledge.id)
+            select(func.count(CharacterKnowledge.id))
             .where(CharacterKnowledge.novel_id == novel_id)
             .where(CharacterKnowledge.character_id == character_id)
         )
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(CharacterKnowledge)
@@ -257,6 +260,7 @@ class CharacterKnowledgeRepository:
         novel_id: uuid.UUID,
         character_id: uuid.UUID,
         target_ids: list[uuid.UUID] | None = None,
+        target_type: str | None = None,
     ) -> list[CharacterKnowledge]:
         """获取人物对特定目标的知识记录
 
@@ -265,7 +269,13 @@ class CharacterKnowledgeRepository:
             novel_id: 小说 ID
             character_id: 人物 ID
             target_ids: 目标 ID 列表（可选，不传则返回所有目标的知识）
+                          传入空列表 [] 时返回空（区别于 None）
+            target_type: 目标类型过滤（可选）
         """
+        # 空列表：明确要求查询 0 个目标，直接返回空
+        if target_ids is not None and len(target_ids) == 0:
+            return []
+
         stmt = (
             select(CharacterKnowledge)
             .where(CharacterKnowledge.novel_id == novel_id)
@@ -273,6 +283,8 @@ class CharacterKnowledgeRepository:
         )
         if target_ids:
             stmt = stmt.where(CharacterKnowledge.target_id.in_(target_ids))
+        if target_type is not None:
+            stmt = stmt.where(CharacterKnowledge.target_type == target_type)
         result = await db.execute(stmt)
         items: Sequence[CharacterKnowledge] = result.scalars().all()
         return list(items)

@@ -39,9 +39,10 @@ async def create_draft(
 async def get_draft(
     db: DbSession,
     draft_id: str = Path(..., description="草稿 ID"),
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> WritingDraftResponse:
     """获取指定草稿"""
-    return await _service.get_draft(db, draft_id)
+    return await _service.get_draft(db, draft_id, novel_id)
 
 
 @router.put("/drafts/{draft_id}", response_model=WritingDraftResponse)
@@ -49,18 +50,20 @@ async def update_draft(
     db: DbSession,
     draft_id: str = Path(..., description="草稿 ID"),
     data: WritingDraftUpdate = ...,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> WritingDraftResponse:
     """更新草稿内容或状态"""
-    return await _service.update_draft(db, draft_id, data)
+    return await _service.update_draft(db, draft_id, data, novel_id)
 
 
 @router.delete("/drafts/{draft_id}", status_code=204)
 async def delete_draft(
     db: DbSession,
     draft_id: str = Path(..., description="草稿 ID"),
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> None:
     """删除草稿"""
-    await _service.delete_draft(db, draft_id)
+    await _service.delete_draft(db, draft_id, novel_id)
 
 
 @router.get(

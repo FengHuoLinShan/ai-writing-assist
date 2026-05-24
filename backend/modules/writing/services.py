@@ -22,6 +22,7 @@ from modules.writing.schemas import (
     WritingDraftResponse,
     WritingDraftUpdate,
 )
+from shared.utils import parse_uuid
 
 
 class WritingDraftService:
@@ -43,11 +44,13 @@ class WritingDraftService:
         self,
         db: AsyncSession,
         draft_id: str,
+        novel_id: str,
     ) -> WritingDraftResponse:
         """获取草稿详情"""
-        did = self._parse_uuid(draft_id, "draft")
+        did = parse_uuid(draft_id, "draft")
+        nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
-        if draft is None:
+        if draft is None or str(draft.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
@@ -59,30 +62,36 @@ class WritingDraftService:
         db: AsyncSession,
         draft_id: str,
         data: WritingDraftUpdate,
+        novel_id: str,
     ) -> WritingDraftResponse:
         """更新草稿"""
-        did = self._parse_uuid(draft_id, "draft")
-        draft = await self._repo.update(db, did, data)
-        if draft is None:
+        did = parse_uuid(draft_id, "draft")
+        nid = parse_uuid(novel_id, "novel")
+        draft = await self._repo.get(db, did)
+        if draft is None or str(draft.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
+        draft = await self._repo.update(db, did, data)
         return WritingDraftResponse.model_validate(draft)
 
     async def delete_draft(
         self,
         db: AsyncSession,
         draft_id: str,
+        novel_id: str,
     ) -> None:
         """删除草稿"""
-        did = self._parse_uuid(draft_id, "draft")
-        deleted = await self._repo.delete(db, did)
-        if not deleted:
+        did = parse_uuid(draft_id, "draft")
+        nid = parse_uuid(novel_id, "novel")
+        draft = await self._repo.get(db, did)
+        if draft is None or str(draft.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
+        await self._repo.delete(db, did)
 
     async def get_latest_draft(
         self,
@@ -91,7 +100,7 @@ class WritingDraftService:
         chapter_index: int,
     ) -> WritingDraftResponse:
         """获取章节最新草稿"""
-        nid = self._parse_uuid(novel_id, "novel")
+        nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if draft is None:
             raise HTTPException(
@@ -107,7 +116,7 @@ class WritingDraftService:
         chapter_index: int,
     ) -> VersionHistoryResponse:
         """获取章节版本历史"""
-        nid = self._parse_uuid(novel_id, "novel")
+        nid = parse_uuid(novel_id, "novel")
         versions = await self._repo.get_version_history(db, nid, chapter_index)
         items = [DraftListItem.model_validate(v) for v in versions]
         return VersionHistoryResponse(
@@ -123,7 +132,7 @@ class WritingDraftService:
         draft_id: str,
     ) -> WritingDraftContract | None:
         """获取草稿契约（供其他模块使用，不存在返回 None）"""
-        did = self._parse_uuid(draft_id, "draft")
+        did = parse_uuid(draft_id, "draft")
         draft = await self._repo.get(db, did)
         if draft is None:
             return None
@@ -144,7 +153,7 @@ class WritingDraftService:
         chapter_index: int,
     ) -> WritingDraftContract | None:
         """获取章节最新草稿契约（供其他模块使用，不存在返回 None）"""
-        nid = self._parse_uuid(novel_id, "novel")
+        nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if draft is None:
             return None

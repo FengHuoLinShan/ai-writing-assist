@@ -437,7 +437,7 @@ class TestMemoryService:
 
         # 确认提案
         result = await service.confirm_memory_proposal(
-            db_session, str(proposal.id)
+            db_session, str(proposal.id), novel_id
         )
         assert result.summary == "确认测试记忆"
         assert result.memory_type == "event"
@@ -464,11 +464,11 @@ class TestMemoryService:
             payload={"summary": "测试"},
         )
         # 先批准一次
-        await service.confirm_memory_proposal(db_session, str(proposal.id))
+        await service.confirm_memory_proposal(db_session, str(proposal.id), novel_id)
 
         # 再次确认应报 409
         with pytest.raises(HTTPException) as exc_info:
-            await service.confirm_memory_proposal(db_session, str(proposal.id))
+            await service.confirm_memory_proposal(db_session, str(proposal.id), novel_id)
         assert exc_info.value.status_code == 409
 
     @pytest.mark.asyncio
@@ -476,11 +476,12 @@ class TestMemoryService:
         self,
         service: MemoryService,
         db_session: AsyncSession,
+        novel_id: str,
     ) -> None:
         """测试确认不存在的提案"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.confirm_memory_proposal(db_session, fake_id)
+            await service.confirm_memory_proposal(db_session, fake_id, novel_id)
         assert exc_info.value.status_code == 404
 
 
@@ -568,7 +569,7 @@ class TestMemoryFacade:
 
         # 确认第一个提案
         result = await confirm_memory_proposal(
-            db_session, proposals[0].id
+            db_session, proposals[0].id, novel_id
         )
         assert result.summary is not None
         assert result.memory_type == "event"

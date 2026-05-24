@@ -65,9 +65,10 @@ async def list_characters(
 async def get_character(
     db: DbSession,
     character_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> CharacterResponse:
     """获取人物详情"""
-    return await _service.get_character(db, character_id)
+    return await _service.get_character(db, character_id, novel_id=novel_id)
 
 
 @router.put("/{character_id}", response_model=CharacterResponse)
@@ -75,24 +76,27 @@ async def update_character(
     db: DbSession,
     character_id: str,
     data: CharacterUpdate,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> CharacterResponse:
     """更新人物信息"""
-    return await _service.update_character(db, character_id, data)
+    return await _service.update_character(db, character_id, data, novel_id=novel_id)
 
 
 @router.delete("/{character_id}", status_code=204)
 async def delete_character(
     db: DbSession,
     character_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> None:
     """删除人物"""
-    await _service.delete_character(db, character_id)
+    await _service.delete_character(db, character_id, novel_id=novel_id)
 
 
 @router.patch("/{character_id}/state", response_model=CharacterResponse)
 async def update_character_state(
     db: DbSession,
     character_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
     current_state: str | None = Query(None, description="当前状态"),
     current_emotion: str | None = Query(None, description="当前情绪"),
     current_goal: str | None = Query(None, description="当前目标"),
@@ -104,6 +108,7 @@ async def update_character_state(
         current_state=current_state,
         current_emotion=current_emotion,
         current_goal=current_goal,
+        novel_id=novel_id,
     )
 
 
@@ -157,9 +162,10 @@ async def list_character_knowledge(
 async def get_character_knowledge(
     db: DbSession,
     knowledge_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> CharacterKnowledgeResponse:
     """获取单条知识记录"""
-    return await _service.get_knowledge(db, knowledge_id)
+    return await _service.get_knowledge(db, knowledge_id, novel_id=novel_id)
 
 
 @router.put(
@@ -170,9 +176,10 @@ async def update_character_knowledge(
     db: DbSession,
     knowledge_id: str,
     data: CharacterKnowledgeUpdate,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> CharacterKnowledgeResponse:
     """更新知识记录"""
-    return await _service.update_knowledge(db, knowledge_id, data)
+    return await _service.update_knowledge(db, knowledge_id, data, novel_id=novel_id)
 
 
 @router.delete(
@@ -182,9 +189,10 @@ async def update_character_knowledge(
 async def delete_character_knowledge(
     db: DbSession,
     knowledge_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> None:
     """删除知识记录"""
-    await _service.delete_knowledge(db, knowledge_id)
+    await _service.delete_knowledge(db, knowledge_id, novel_id=novel_id)
 
 
 # ============================================================

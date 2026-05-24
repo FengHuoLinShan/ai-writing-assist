@@ -90,7 +90,8 @@ class CharacterCreate(BaseModel):
     )
     behavior_rules: list[dict] = Field(
         default_factory=list,
-        description="行为规则列表 JSONB",
+        max_length=50,
+        description="行为规则列表 JSONB（最多 50 条）",
     )
     relationship_summary: str | None = Field(
         None,

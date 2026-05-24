@@ -95,7 +95,7 @@ async def get_arc_context(
     Raises:
         HTTPException 404: 篇章不存在
     """
-    return await _arc_service.get_arc_context(db, arc_id)
+    return await _arc_service.get_arc_context(db, arc_id, novel_id)
 
 
 async def create_chapter_cards_from_candidate(

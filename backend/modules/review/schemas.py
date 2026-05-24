@@ -68,6 +68,11 @@ class ReviewReportCreate(BaseModel):
         None,
         description="复查目标 ID（可选）",
     )
+    status: str = Field(
+        default="canonical",
+        max_length=32,
+        description="报告状态：draft/canonical/deprecated",
+    )
     decision: str = Field(
         ...,
         max_length=32,
@@ -147,6 +152,7 @@ class ReviewReportResponse(BaseModel):
     novel_id: str
     target_type: str
     target_id: str | None = None
+    status: str = "canonical"
     decision: str
     score: float | None = None
     problems: list[dict] = []
@@ -177,6 +183,7 @@ class ReviewReportContext(BaseModel):
     novel_id: str
     target_type: str
     target_id: str | None = None
+    status: str = "canonical"
     decision: str
     score: float | None = None
     problems: list[dict] = []

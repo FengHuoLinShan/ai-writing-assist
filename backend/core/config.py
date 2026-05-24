@@ -69,6 +69,12 @@ class Settings:
         "EMBEDDING_MODEL", "text-embedding-3-large",
     ))
 
+    # --- CORS ---
+    allowed_origins: list[str] = field(default_factory=lambda: [
+        o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",")
+        if o.strip()
+    ])
+
     # --- 应用 ---
     app_name: str = "ai-novel-structural-engine"
     app_version: str = "2.0.0"
@@ -90,6 +96,7 @@ def get_settings() -> Settings:
     return Settings()  # noqa: F821
 
 
-# 导出常用配置常量作为模块级便捷访问
-DATABASE_URL: Final[str] = get_settings().database_url
-EMBEDDING_DIM: Final[int] = get_settings().embedding_dim
+# 注意：不导出模块级配置常量。
+# 模块级常量在 import 时立即求值，绕过 lru_cache，导致测试重置 Settings 时仍使用旧值。
+# 调用方应使用 get_settings().database_url / get_settings().embedding_dim 获取。
+# （Bug L2: 移除 import 时求值的模块级常量）

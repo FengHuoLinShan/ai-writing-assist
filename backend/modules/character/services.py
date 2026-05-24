@@ -52,6 +52,7 @@ class CharacterService:
         self,
         db: AsyncSession,
         character_id: str,
+        novel_id: str | None = None,
     ) -> CharacterResponse:
         """获取人物详情"""
         cid = self._parse_uuid(character_id)
@@ -61,6 +62,8 @@ class CharacterService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Character {character_id} not found",
             )
+        if novel_id and str(character.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return CharacterResponse.model_validate(character)
 
     async def list_characters(
@@ -83,9 +86,14 @@ class CharacterService:
         db: AsyncSession,
         character_id: str,
         data: CharacterUpdate,
+        novel_id: str | None = None,
     ) -> CharacterResponse:
         """更新人物"""
         cid = self._parse_uuid(character_id)
+        if novel_id:
+            existing = await self._repo.get(db, cid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         character = await self._repo.update(db, cid, data)
         if character is None:
             raise HTTPException(
@@ -98,9 +106,14 @@ class CharacterService:
         self,
         db: AsyncSession,
         character_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除人物"""
         cid = self._parse_uuid(character_id)
+        if novel_id:
+            existing = await self._repo.get(db, cid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, cid)
         if not deleted:
             raise HTTPException(
@@ -115,9 +128,14 @@ class CharacterService:
         current_state: str | None = None,
         current_emotion: str | None = None,
         current_goal: str | None = None,
+        novel_id: str | None = None,
     ) -> CharacterResponse:
         """更新人物当前状态（状态变化时的便捷方法）"""
         cid = self._parse_uuid(character_id)
+        if novel_id:
+            existing = await self._repo.get(db, cid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         update_data = CharacterUpdate(
             current_state=current_state,
             current_emotion=current_emotion,
@@ -148,6 +166,7 @@ class CharacterService:
         self,
         db: AsyncSession,
         knowledge_id: str,
+        novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
         """获取单条知识记录"""
         kid = self._parse_uuid(knowledge_id)
@@ -157,6 +176,8 @@ class CharacterService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Knowledge record {knowledge_id} not found",
             )
+        if novel_id and str(knowledge.novel_id) != novel_id:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         return CharacterKnowledgeResponse.model_validate(knowledge)
 
     async def list_knowledge(
@@ -183,9 +204,14 @@ class CharacterService:
         db: AsyncSession,
         knowledge_id: str,
         data: CharacterKnowledgeUpdate,
+        novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
         """更新知识记录"""
         kid = self._parse_uuid(knowledge_id)
+        if novel_id:
+            existing = await self._knowledge_repo.get(db, kid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         knowledge = await self._knowledge_repo.update(db, kid, data)
         if knowledge is None:
             raise HTTPException(
@@ -198,9 +224,14 @@ class CharacterService:
         self,
         db: AsyncSession,
         knowledge_id: str,
+        novel_id: str | None = None,
     ) -> None:
         """删除知识记录"""
         kid = self._parse_uuid(knowledge_id)
+        if novel_id:
+            existing = await self._knowledge_repo.get(db, kid)
+            if existing is None or str(existing.novel_id) != novel_id:
+                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._knowledge_repo.delete(db, kid)
         if not deleted:
             raise HTTPException(

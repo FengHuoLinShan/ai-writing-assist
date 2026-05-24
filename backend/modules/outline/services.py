@@ -81,11 +81,13 @@ class PlotThreadService:
         self,
         db: AsyncSession,
         thread_id: str,
+        novel_id: str,
     ) -> PlotThreadResponse:
         """获取剧情线详情"""
         tid = self._parse_uuid(thread_id, "thread_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, tid)
-        if entity is None:
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"PlotThread {thread_id} not found",
@@ -154,30 +156,36 @@ class PlotThreadService:
         db: AsyncSession,
         thread_id: str,
         data: PlotThreadUpdate,
+        novel_id: str,
     ) -> PlotThreadResponse:
         """更新剧情线"""
         tid = self._parse_uuid(thread_id, "thread_id")
-        entity = await self._repo.update(db, tid, data)
-        if entity is None:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, tid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"PlotThread {thread_id} not found",
             )
+        entity = await self._repo.update(db, tid, data)
         return PlotThreadResponse.model_validate(entity)
 
     async def delete(
         self,
         db: AsyncSession,
         thread_id: str,
+        novel_id: str,
     ) -> None:
         """删除剧情线"""
         tid = self._parse_uuid(thread_id, "thread_id")
-        deleted = await self._repo.delete(db, tid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, tid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"PlotThread {thread_id} not found",
             )
+        await self._repo.delete(db, tid)
 
     @staticmethod
     def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -215,11 +223,13 @@ class OutlineArcService:
         self,
         db: AsyncSession,
         arc_id: str,
+        novel_id: str,
     ) -> OutlineArcResponse:
         """获取篇章纲详情"""
         aid = self._parse_uuid(arc_id, "arc_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, aid)
-        if entity is None:
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"OutlineArc {arc_id} not found",
@@ -230,11 +240,13 @@ class OutlineArcService:
         self,
         db: AsyncSession,
         arc_id: str,
+        novel_id: str,
     ) -> OutlineArcContext:
         """获取篇章纲上下文（供 facade 使用）"""
         aid = self._parse_uuid(arc_id, "arc_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, aid)
-        if entity is None:
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"OutlineArc {arc_id} not found",
@@ -254,8 +266,10 @@ class OutlineArcService:
             core_conflict=entity.core_conflict,
             main_opposition=entity.main_opposition,
             entry_hook=entity.entry_hook,
+            midpoint_turn=entity.midpoint_turn,
             climax=entity.climax,
             result=entity.result,
+            next_hook=entity.next_hook,
             related_thread_ids=entity.related_thread_ids or [],
             related_character_ids=entity.related_character_ids or [],
             related_entity_ids=entity.related_entity_ids or [],
@@ -290,30 +304,36 @@ class OutlineArcService:
         db: AsyncSession,
         arc_id: str,
         data: OutlineArcUpdate,
+        novel_id: str,
     ) -> OutlineArcResponse:
         """更新篇章纲"""
         aid = self._parse_uuid(arc_id, "arc_id")
-        entity = await self._repo.update(db, aid, data)
-        if entity is None:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, aid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"OutlineArc {arc_id} not found",
             )
+        entity = await self._repo.update(db, aid, data)
         return OutlineArcResponse.model_validate(entity)
 
     async def delete(
         self,
         db: AsyncSession,
         arc_id: str,
+        novel_id: str,
     ) -> None:
         """删除篇章纲"""
         aid = self._parse_uuid(arc_id, "arc_id")
-        deleted = await self._repo.delete(db, aid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, aid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"OutlineArc {arc_id} not found",
             )
+        await self._repo.delete(db, aid)
 
     @staticmethod
     def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -351,11 +371,13 @@ class ChapterCardService:
         self,
         db: AsyncSession,
         card_id: str,
+        novel_id: str,
     ) -> ChapterCardResponse:
         """获取章节卡详情"""
         cid = self._parse_uuid(card_id, "card_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, cid)
-        if entity is None:
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ChapterCard {card_id} not found",
@@ -422,18 +444,20 @@ class ChapterCardService:
         """从候选批量创建章节卡（供 facade 使用）
 
         对每个候选创建 ChapterCardCreate，如果同章节已存在则跳过。
+        先检查再创建，同时使用 try/except IntegrityError 处理并发竞争。
         返回所有成功创建的章节卡上下文。
         """
+        from sqlalchemy.exc import IntegrityError
+
         nid = self._parse_uuid(novel_id, "novel_id")
         results: list[ChapterCardContext] = []
 
         for item in cards:
-            # 检查是否已存在
+            # 先检查是否已存在
             existing = await self._repo.get_by_chapter_index(
                 db, nid, item.chapter_index,
             )
             if existing is not None:
-                # 已存在则跳过
                 continue
 
             create_data = ChapterCardCreate(
@@ -457,8 +481,13 @@ class ChapterCardService:
                 scene_cards=item.scene_cards,
                 status="candidate",
             )
-            entity = await self._repo.create(db, nid, create_data)
-            results.append(self._to_chapter_card_context(entity))
+            try:
+                entity = await self._repo.create(db, nid, create_data)
+                results.append(self._to_chapter_card_context(entity))
+            except IntegrityError:
+                await db.rollback()
+                # 同章节已存在（并发竞争），跳过
+                continue
 
         return results
 
@@ -467,30 +496,36 @@ class ChapterCardService:
         db: AsyncSession,
         card_id: str,
         data: ChapterCardUpdate,
+        novel_id: str,
     ) -> ChapterCardResponse:
         """更新章节卡"""
         cid = self._parse_uuid(card_id, "card_id")
-        entity = await self._repo.update(db, cid, data)
-        if entity is None:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, cid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ChapterCard {card_id} not found",
             )
+        entity = await self._repo.update(db, cid, data)
         return ChapterCardResponse.model_validate(entity)
 
     async def delete(
         self,
         db: AsyncSession,
         card_id: str,
+        novel_id: str,
     ) -> None:
         """删除章节卡"""
         cid = self._parse_uuid(card_id, "card_id")
-        deleted = await self._repo.delete(db, cid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, cid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ChapterCard {card_id} not found",
             )
+        await self._repo.delete(db, cid)
 
     def _to_chapter_card_context(
         self,
@@ -556,11 +591,13 @@ class ForeshadowingPlanService:
         self,
         db: AsyncSession,
         plan_id: str,
+        novel_id: str,
     ) -> ForeshadowingPlanResponse:
         """获取伏笔计划详情"""
         pid = self._parse_uuid(plan_id, "plan_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
-        if entity is None:
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ForeshadowingPlan {plan_id} not found",
@@ -595,30 +632,36 @@ class ForeshadowingPlanService:
         db: AsyncSession,
         plan_id: str,
         data: ForeshadowingPlanUpdate,
+        novel_id: str,
     ) -> ForeshadowingPlanResponse:
         """更新伏笔计划"""
         pid = self._parse_uuid(plan_id, "plan_id")
-        entity = await self._repo.update(db, pid, data)
-        if entity is None:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, pid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ForeshadowingPlan {plan_id} not found",
             )
+        entity = await self._repo.update(db, pid, data)
         return ForeshadowingPlanResponse.model_validate(entity)
 
     async def delete(
         self,
         db: AsyncSession,
         plan_id: str,
+        novel_id: str,
     ) -> None:
         """删除伏笔计划"""
         pid = self._parse_uuid(plan_id, "plan_id")
-        deleted = await self._repo.delete(db, pid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, pid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"ForeshadowingPlan {plan_id} not found",
             )
+        await self._repo.delete(db, pid)
 
     @staticmethod
     def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -656,11 +699,13 @@ class RevealPlanService:
         self,
         db: AsyncSession,
         plan_id: str,
+        novel_id: str,
     ) -> RevealPlanResponse:
         """获取揭示计划详情"""
         pid = self._parse_uuid(plan_id, "plan_id")
+        nid = self._parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
-        if entity is None:
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"RevealPlan {plan_id} not found",
@@ -697,30 +742,36 @@ class RevealPlanService:
         db: AsyncSession,
         plan_id: str,
         data: RevealPlanUpdate,
+        novel_id: str,
     ) -> RevealPlanResponse:
         """更新揭示计划"""
         pid = self._parse_uuid(plan_id, "plan_id")
-        entity = await self._repo.update(db, pid, data)
-        if entity is None:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, pid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"RevealPlan {plan_id} not found",
             )
+        entity = await self._repo.update(db, pid, data)
         return RevealPlanResponse.model_validate(entity)
 
     async def delete(
         self,
         db: AsyncSession,
         plan_id: str,
+        novel_id: str,
     ) -> None:
         """删除揭示计划"""
         pid = self._parse_uuid(plan_id, "plan_id")
-        deleted = await self._repo.delete(db, pid)
-        if not deleted:
+        nid = self._parse_uuid(novel_id, "novel_id")
+        entity = await self._repo.get(db, pid)
+        if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"RevealPlan {plan_id} not found",
             )
+        await self._repo.delete(db, pid)
 
     @staticmethod
     def _parse_uuid(value: str, field_name: str) -> uuid.UUID:

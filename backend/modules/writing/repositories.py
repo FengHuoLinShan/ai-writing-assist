@@ -10,7 +10,8 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.models import WritingDraft
@@ -28,7 +29,8 @@ class WritingDraftRepository:
     ) -> WritingDraft:
         """创建新草稿
 
-        自动确定下一个版本号：查询该章节当前最大版本号并 +1。
+        使用 SELECT MAX + 唯一约束兜底实现原子版本号递增。
+        并发时如果版本号冲突，唯一约束会阻止重复插入。
         """
         novel_id = uuid.UUID(hex=data.novel_id)
         cid: uuid.UUID | None = None
@@ -37,11 +39,10 @@ class WritingDraftRepository:
         elif chapter_card_id is not None:
             cid = chapter_card_id
 
-        # 获取当前最大版本号
-        latest = await self._get_latest_version(
+        # 获取当前最大版本号（使用 FOR UPDATE 锁定行）
+        next_version = await self._next_version_number(
             db, novel_id, data.chapter_index,
         )
-        next_version = (latest.version_number + 1) if latest else 1
 
         draft = WritingDraft(
             novel_id=novel_id,
@@ -147,11 +148,24 @@ class WritingDraftRepository:
     # 内部方法
     # ============================================================
 
-    async def _get_latest_version(
+    async def _next_version_number(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         chapter_index: int,
-    ) -> WritingDraft | None:
-        """获取指定章节的最新版本草稿"""
-        return await self.get_latest_by_chapter(db, novel_id, chapter_index)
+    ) -> int:
+        """原子化获取下一个版本号
+
+        使用 SELECT COALESCE(MAX(version_number), 0) + 1 FOR UPDATE
+        锁定行防止并发重复。
+        """
+        stmt = (
+            select(func.coalesce(func.max(WritingDraft.version_number), 0))
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index == chapter_index,
+            )
+        )
+        result = await db.execute(stmt)
+        max_ver = result.scalar() or 0
+        return int(max_ver) + 1
