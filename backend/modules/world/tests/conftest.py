@@ -1,0 +1,53 @@
+"""
+World 模块测试配置
+
+使用 SQLite 内存数据库进行测试，无需连接真实 PostgreSQL。
+注意：pgvector 相关功能在 SQLite 中不可用，相关测试跳过。
+"""
+
+from __future__ import annotations
+
+from typing import AsyncGenerator
+
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from core.base import Base
+
+# 导入 Project 模型以注册 projects 表到 Base.metadata
+# NovelMixin 依赖 projects.id 外键
+from modules.project.models import Project  # noqa: F401
+
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest_asyncio.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """提供内存 SQLite 测试数据库 session"""
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    async with session_factory() as session:
+        yield session
+        await session.rollback()
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+    await engine.dispose()
