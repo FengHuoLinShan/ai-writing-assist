@@ -5,11 +5,10 @@
         "matcher": "Bash",
         "hooks": [
           {
-            "type": "command",
-            "if": "Bash(git commit*)",
-            "command": "git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -qE 'facade\\.py|schemas\\.py|contracts\\.py|api\\.py|docs/modules/' && echo '{\"systemMessage\": \"本次提交改了公共接口（facade/schema/contracts/API/docs）。需要同步更新设计文档吗？\", \"continue\": true}' || echo '{\"continue\": true}'",
-            "timeout": 5,
-            "statusMessage": "检查是否需要更新文档…"
+            "type": "prompt",
+            "if": "Bash(git push*)",
+            "prompt": "git push 刚完成。检查最近提交是否修改了 facade.py / schemas.py / contracts.py / api.py 或 docs/modules/。如果有，请读取对应的 docs/modules/*.md 并更新到与代码一致。只更新文档，不修改代码。需要我更新文档时请说「更新文档」。",
+            "statusMessage": "检查代码变更…"
           }
         ]
       }
