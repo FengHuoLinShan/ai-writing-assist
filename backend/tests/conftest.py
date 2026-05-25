@@ -25,6 +25,7 @@ from core.dependencies import get_db
 # ============================================================
 # 导入所有 ORM 模型注册到 Base.metadata
 # ============================================================
+import modules.imports.models  # noqa: F401
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.character.models  # noqa: F401

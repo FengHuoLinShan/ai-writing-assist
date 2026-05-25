@@ -423,6 +423,18 @@ const App = {
   },
 }
 
+/**
+ * 切换"更多"导航折叠
+ */
+function toggleMoreNav() {
+  const container = document.getElementById("more-nav-items")
+  const toggle = document.getElementById("more-toggle")
+  if (!container || !toggle) return
+  const isHidden = container.style.display === "none" || !container.style.display
+  container.style.display = isHidden ? "block" : "none"
+  toggle.textContent = isHidden ? "▾" : "▸"
+}
+
 // 页面加载完成后启动
 document.addEventListener("DOMContentLoaded", () => {
   App.init()

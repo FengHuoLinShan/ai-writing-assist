@@ -323,3 +323,24 @@ async def dedup_candidate(
 ) -> list[DuplicateSuggestionResult]:
     """对候选对象进行去重检查"""
     return await _dedup_service.find_duplicates(db, novel_id, candidate_id)
+
+
+@router.post(
+    "/entities/{entity_id}/merge-from-candidate/{candidate_id}",
+    response_model=WorldEntityResponse,
+)
+async def merge_from_candidate(
+    db: DbSession,
+    entity_id: str,
+    candidate_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldEntityResponse:
+    """将候选对象合并到指定正史对象
+
+    候选的名称会成为正史对象的别名，summary/public_info/hidden_truth 追加合并。
+    合并后候选状态变为 canonical。
+    """
+    entity = await _dedup_service.merge_candidate_into_entity(
+        db, novel_id, candidate_id, entity_id,
+    )
+    return WorldEntityResponse.model_validate(entity)

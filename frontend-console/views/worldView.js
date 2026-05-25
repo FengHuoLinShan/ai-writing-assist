@@ -27,9 +27,9 @@ const worldView = {
     } else if (subView === "candidates") {
       html += this._renderCandidatesList()
     } else if (subView === "relations") {
-      html += this._renderRelations()
+      html += await this._renderRelations()
     } else if (subView === "aliases") {
-      html += this._renderAliases()
+      html += await this._renderAliases()
     }
 
     setTimeout(() => this._bindEvents(), 0)
@@ -154,14 +154,19 @@ const worldView = {
         needs_user_decision: "需用户决定",
       }
 
+      const isMergeCandidate = c.suggested_action === "alias_of_existing" || c.suggested_action === "merge_with_existing"
+
       html += `
         <tr data-id="${c.id || c.candidate_id}">
           <td>${c.name}</td>
           <td style="color:var(--accent-dim);font-family:var(--font-mono)">${c.entity_type}</td>
           <td>${c.importance_score || c.importance || "-"}</td>
           <td style="color:var(--warning)">${actionMap[c.suggested_action] || c.suggested_action}</td>
-          <td>
+          <td style="display:flex;gap:4px;flex-wrap:wrap;">
             <button class="btn btn-sm btn-primary" onclick="worldView.acceptCandidate('${esc(c.id || c.candidate_id)}')">确认</button>
+            ${isMergeCandidate && c.suggested_existing_entity_name ? `
+              <button class="btn btn-sm" onclick="worldView.mergeCandidate('${esc(c.id || c.candidate_id)}', '${esc(c.suggested_existing_entity_id)}', '${esc(c.suggested_existing_entity_name)}')">合并到</button>
+            ` : ""}
             <button class="btn btn-sm btn-danger" onclick="worldView.ignoreCandidate('${esc(c.id || c.candidate_id)}')">忽略</button>
           </td>
         </tr>
@@ -172,27 +177,212 @@ const worldView = {
     return html
   },
 
-  _renderRelations() {
-    return `
-      <div class="empty-state">
-        <div class="empty-icon">&#128279;</div>
-        <p>关系管理</p>
-        <p style="color:var(--text-dim);font-size:12px;">在此管理世界对象之间的关系。</p>
-        <div style="margin-top:8px;">
-          <button class="btn" onclick="toast('关系管理功能开发中', 'info')">新建关系</button>
-        </div>
-      </div>
-    `
+  async mergeCandidate(candidateId, targetEntityId, targetName) {
+    candidateId = candidateId || ""
+    targetEntityId = targetEntityId || ""
+    targetName = targetName || ""
+
+    confirmAction(
+      `将候选合并到「${esc(targetName)}」？\n\n候选名称会成为「${esc(targetName)}」的别名，概要等信息会追加合并。`,
+      async () => {
+        if (!_state.currentProjectId) {
+          toast("请先选择项目", "warning")
+          return
+        }
+        try {
+          const result = await api.world.mergeCandidate(targetEntityId, candidateId, {
+            novel_id: _state.currentProjectId,
+          })
+          toast(`已合并到「${esc(result.name || targetName)}」`, "success")
+          router.navigate("world", "candidates")
+        } catch (err) {
+          toast(`合并失败：${err.message}`, "error")
+        }
+      },
+      "确认合并"
+    )
   },
 
-  _renderAliases() {
-    return `
-      <div class="empty-state">
-        <div class="empty-icon">&#128212;</div>
-        <p>别名管理</p>
-        <p style="color:var(--text-dim);font-size:12px;">管理世界对象的别名、称号和化名。</p>
+  async _renderRelations() {
+    let html = `
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
+        管理世界对象与人物之间的关系。
+      </p>
+      <div style="margin-bottom:8px;">
+        <button class="btn btn-primary" onclick="worldView.showRelationCreateForm()">新建关系</button>
       </div>
     `
+    if (!_state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
+
+    try {
+      const data = await api.world.listRelationships({ novel_id: _state.currentProjectId })
+      const rels = data.items || data || []
+      if (rels.length === 0) {
+        return html + '<div class="empty-state"><p>暂无关系。</p></div>'
+      }
+      html += `
+      <table class="data-table">
+        <thead><tr><th>源对象</th><th>关系类型</th><th>目标对象</th><th>描述</th><th>操作</th></tr></thead>
+        <tbody>
+      `
+      for (const r of rels) {
+        html += `
+        <tr data-id="${esc(r.id || r.relationship_id)}">
+          <td style="color:var(--accent-dim);font-size:12px;">${esc(r.source_id || "").slice(0, 8)}...</td>
+          <td><span class="badge badge-canonical">${esc(r.relation_type || "-")}</span></td>
+          <td style="color:var(--accent-dim);font-size:12px;">${esc(r.target_id || "").slice(0, 8)}...</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(r.description || "")}</td>
+          <td><button class="btn btn-sm btn-danger" onclick="worldView.deleteRelation('${esc(r.id || r.relationship_id)}')">删除</button></td>
+        </tr>`
+      }
+      html += '</tbody></table>'
+    } catch { html += '<div class="empty-state"><p>加载关系失败。</p></div>' }
+    return html
+  },
+
+  showRelationCreateForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>源对象 ID</label>
+        <input class="form-input" id="rel-source" placeholder="对象 ID" />
+      </div>
+      <div class="form-group">
+        <label>关系类型</label>
+        <select class="form-select" id="rel-type">
+          <option value="friend_of">朋友</option>
+          <option value="enemy_of">敌人</option>
+          <option value="ally_of">盟友</option>
+          <option value="member_of">成员</option>
+          <option value="leader_of">领导者</option>
+          <option value="located_at">位于</option>
+          <option value="contains">包含</option>
+          <option value="related_to">相关</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>目标对象 ID</label>
+        <input class="form-input" id="rel-target" placeholder="对象 ID" />
+      </div>
+      <div class="form-group">
+        <label>描述</label>
+        <input class="form-input" id="rel-desc" placeholder="关系描述（可选）" />
+      </div>
+    `
+    showModal("新建关系", formHtml, [{
+      text: "创建", class: "btn-primary", handler: async () => {
+        const src = document.getElementById("rel-source")?.value
+        const tgt = document.getElementById("rel-target")?.value
+        if (!src || !tgt) { toast("请输入源对象和目标对象 ID", "warning"); return }
+        try {
+          await api.world.createRelationship({
+            novel_id: _state.currentProjectId,
+            source_id: src, source_type: "entity",
+            target_id: tgt, target_type: "entity",
+            relation_type: document.getElementById("rel-type")?.value || "related_to",
+            description: document.getElementById("rel-desc")?.value || "",
+          })
+          toast("关系已创建", "success")
+          router.navigate("world", "relations")
+        } catch (err) { toast(err.message || "创建失败", "error") }
+      },
+    }])
+  },
+
+  deleteRelation(relId) {
+    confirmAction("确定删除此关系？", async () => {
+      try {
+        await api.world.deleteRelationship(relId, { novel_id: _state.currentProjectId })
+        toast("已删除", "success")
+        router.navigate("world", "relations")
+      } catch (err) { toast(err.message || "删除失败", "error") }
+    }, "确认删除")
+  },
+
+  async _renderAliases() {
+    let html = `
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
+        管理世界对象的别名、称号和化名。别名不独立创建对象。
+      </p>
+      <div style="margin-bottom:8px;">
+        <button class="btn btn-primary" onclick="worldView.showAliasCreateForm()">新建别名</button>
+      </div>
+    `
+    if (!_state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
+
+    try {
+      const data = await api.world.listAliases({ novel_id: _state.currentProjectId })
+      const aliases = data.items || data || []
+      if (aliases.length === 0) {
+        return html + '<div class="empty-state"><p>暂无别名。</p></div>'
+      }
+      const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
+      html += `
+      <table class="data-table">
+        <thead><tr><th>对象</th><th>别名</th><th>类型</th><th>置信度</th><th>操作</th></tr></thead>
+        <tbody>
+      `
+      for (const a of aliases) {
+        html += `
+        <tr data-id="${esc(a.id || a.alias_id)}">
+          <td style="color:var(--accent-dim);font-size:12px;">${esc(a.entity_id || "").slice(0, 8)}...</td>
+          <td>${esc(a.alias)}</td>
+          <td>${typeMap[a.alias_type] || esc(a.alias_type)}</td>
+          <td>${a.confidence ? (a.confidence * 100).toFixed(0) + "%" : "-"}</td>
+          <td><button class="btn btn-sm btn-danger" onclick="worldView.deleteAlias('${esc(a.id || a.alias_id)}')">删除</button></td>
+        </tr>`
+      }
+      html += '</tbody></table>'
+    } catch { html += '<div class="empty-state"><p>加载别名失败。</p></div>' }
+    return html
+  },
+
+  showAliasCreateForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>所属对象 ID</label>
+        <input class="form-input" id="alias-entity" placeholder="对象 ID" />
+      </div>
+      <div class="form-group">
+        <label>别名文本</label>
+        <input class="form-input" id="alias-text" placeholder="别名" />
+      </div>
+      <div class="form-group">
+        <label>别名类型</label>
+        <select class="form-select" id="alias-type">
+          <option value="name">名称</option>
+          <option value="title">称号</option>
+          <option value="nickname">昵称</option>
+          <option value="alias">化名</option>
+          <option value="translation">译名</option>
+        </select>
+      </div>
+    `
+    showModal("新建别名", formHtml, [{
+      text: "创建", class: "btn-primary", handler: async () => {
+        const eid = document.getElementById("alias-entity")?.value
+        const text = document.getElementById("alias-text")?.value
+        if (!eid || !text) { toast("请输入对象 ID 和别名", "warning"); return }
+        try {
+          await api.world.createAlias({
+            novel_id: _state.currentProjectId,
+            entity_id: eid, alias: text,
+            alias_type: document.getElementById("alias-type")?.value || "name",
+          })
+          toast("别名已创建", "success")
+          router.navigate("world", "aliases")
+        } catch (err) { toast(err.message || "创建失败", "error") }
+      },
+    }])
+  },
+
+  deleteAlias(aliasId) {
+    confirmAction("确定删除此别名？", async () => {
+      try {
+        await api.world.deleteAlias(aliasId, { novel_id: _state.currentProjectId })
+        toast("已删除", "success")
+        router.navigate("world", "aliases")
+      } catch (err) { toast(err.message || "删除失败", "error") }
+    }, "确认删除")
   },
 
   editEntity(id) {

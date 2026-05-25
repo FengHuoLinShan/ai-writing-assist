@@ -24,8 +24,10 @@ async function request(path, options = {}) {
   }
 
   // 只在 POST/PUT/PATCH 请求时添加 Content-Type
+  // FormData 需要浏览器自动设置 multipart 边界，不能手动设
   const method = (options.method || "GET").toUpperCase()
-  if (method !== "GET" && method !== "DELETE") {
+  const isFormData = options.body instanceof FormData
+  if (method !== "GET" && method !== "DELETE" && !isFormData) {
     headers["Content-Type"] = "application/json"
   }
 
@@ -207,6 +209,13 @@ const api = {
     async listAliases(entityId) {
       return request("/world/aliases" + qs({ entity_id: entityId }))
     },
+
+    /** 将候选合并到正史对象（候选名称成为别名，信息合并） */
+    async mergeCandidate(entityId, candidateId, params = {}) {
+      return request(`/world/entities/${entityId}/merge-from-candidate/${candidateId}` + qs(params), {
+        method: "POST",
+      })
+    },
   },
 
   // ============================================================
@@ -273,6 +282,29 @@ const api = {
     /** 获取人物知识边界 */
     async listKnowledge(characterId) {
       return request(`/characters/${characterId}/knowledge`)
+    },
+
+    /** 创建知识边界条目 */
+    async createKnowledge(characterId, payload) {
+      return request(`/characters/${characterId}/knowledge`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 更新知识边界条目 */
+    async updateKnowledge(knowledgeId, payload) {
+      return request(`/characters/knowledge/${knowledgeId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 删除知识边界条目 */
+    async deleteKnowledge(knowledgeId) {
+      return request(`/characters/knowledge/${knowledgeId}`, {
+        method: "DELETE",
+      })
     },
 
     /** 创建人物 */
@@ -372,38 +404,73 @@ const api = {
     async listThreads(params = {}) {
       return request("/outline/threads" + qs(params))
     },
+    /** 创建剧情线 */
+    async createThread(payload) {
+      return request("/outline/threads", { method: "POST", body: JSON.stringify(payload) })
+    },
+    /** 删除剧情线 */
+    async deleteThread(id, params = {}) {
+      return request(`/outline/threads/${id}` + qs(params), { method: "DELETE" })
+    },
 
     /** 获取篇章纲列表 */
     async listArcs(params = {}) {
       return request("/outline/arcs" + qs(params))
+    },
+    /** 创建篇章纲 */
+    async createArc(payload) {
+      return request("/outline/arcs", { method: "POST", body: JSON.stringify(payload) })
+    },
+    /** 删除篇章纲 */
+    async deleteArc(id, params = {}) {
+      return request(`/outline/arcs/${id}` + qs(params), { method: "DELETE" })
     },
 
     /** 获取章节卡列表 */
     async listChapterCards(params = {}) {
       return request("/outline/chapters" + qs(params))
     },
-
     /** 获取章节卡详情 */
     async getChapterCard(id) {
       return request(`/outline/chapters/${id}`)
     },
-
+    /** 创建章节卡 */
+    async createChapterCard(payload) {
+      return request("/outline/chapters", { method: "POST", body: JSON.stringify(payload) })
+    },
     /** 更新章节卡 */
     async updateChapterCard(id, payload) {
-      return request(`/outline/chapters/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return request(`/outline/chapters/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+    },
+    /** 删除章节卡 */
+    async deleteChapterCard(id, params = {}) {
+      return request(`/outline/chapters/${id}` + qs(params), { method: "DELETE" })
     },
 
     /** 获取伏笔计划列表 */
     async listForeshadowing(params = {}) {
       return request("/outline/foreshadowing" + qs(params))
     },
+    /** 创建伏笔 */
+    async createForeshadowing(payload) {
+      return request("/outline/foreshadowing", { method: "POST", body: JSON.stringify(payload) })
+    },
+    /** 删除伏笔 */
+    async deleteForeshadowing(id, params = {}) {
+      return request(`/outline/foreshadowing/${id}` + qs(params), { method: "DELETE" })
+    },
 
     /** 获取揭示计划列表 */
     async listReveals(params = {}) {
       return request("/outline/reveals" + qs(params))
+    },
+    /** 创建揭示计划 */
+    async createReveal(payload) {
+      return request("/outline/reveals", { method: "POST", body: JSON.stringify(payload) })
+    },
+    /** 删除揭示计划 */
+    async deleteReveal(id, params = {}) {
+      return request(`/outline/reveals/${id}` + qs(params), { method: "DELETE" })
     },
   },
 
@@ -541,6 +608,50 @@ const api = {
     } catch {
       return false
     }
+  },
+
+  // ============================================================
+  // 导入
+  // ============================================================
+  imports: {
+    /** 上传并导入小说文件 */
+    async upload(novelId, file) {
+      const formData = new FormData()
+      formData.append("novel_id", novelId)
+      formData.append("file", file)
+      return request("/imports/upload", {
+        method: "POST",
+        body: formData,
+      })
+    },
+
+    /** 获取导入记录列表 */
+    async list(params = {}) {
+      return request("/imports" + qs(params))
+    },
+
+    /** 获取导入记录详情 */
+    async get(recordId, params = {}) {
+      return request(`/imports/${recordId}` + qs(params))
+    },
+  },
+
+  // ============================================================
+  // 任务（异步操作）
+  // ============================================================
+  tasks: {
+    /** 提交异步任务 */
+    async submit(taskType, meta = {}) {
+      return request("/tasks", {
+        method: "POST",
+        body: JSON.stringify({ task_type: taskType, meta }),
+      })
+    },
+
+    /** 查询任务状态 */
+    async getStatus(taskId) {
+      return request(`/tasks/${taskId}`)
+    },
   },
 }
 

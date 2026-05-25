@@ -10,9 +10,28 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.contracts import WritingDraftContract
+from modules.writing.schemas import WritingDraftCreate, WritingDraftResponse
 from modules.writing.services import WritingDraftService
 
 _service = WritingDraftService()
+
+
+async def create_draft(
+    db: AsyncSession,
+    data: WritingDraftCreate,
+) -> WritingDraftResponse:
+    """创建正文草稿
+
+    供其他模块（如 imports）写入导入的章节正文。
+
+    Args:
+        db: 数据库 session
+        data: 草稿创建数据
+
+    Returns:
+        WritingDraftResponse — 创建后的草稿信息
+    """
+    return await _service.create_draft(db, data)
 
 
 async def get_draft(

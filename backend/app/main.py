@@ -269,6 +269,8 @@ async def root():
 
 from infrastructure.tasks import api as tasks_api
 from modules.character import api as character_api
+from modules.imports import api as imports_api
+import modules.world.tasks  # noqa: F401 — 注册任务处理器
 from modules.context import api as context_api
 from modules.geo import api as geo_api
 from modules.memory import api as memory_api
@@ -281,6 +283,7 @@ from modules.world import api as world_api
 from modules.writing import api as writing_api
 
 app.include_router(project_api.router)
+app.include_router(imports_api.router)
 app.include_router(world_api.router)
 app.include_router(character_api.router)
 app.include_router(geo_api.router)

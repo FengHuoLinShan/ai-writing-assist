@@ -14,6 +14,7 @@ const projectView = {
           <p>你可以：</p>
           <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
             <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
+            <button class="btn" onclick="projectView.importFile()">导入小说</button>
           </div>
         </div>
       `
@@ -52,6 +53,7 @@ const projectView = {
       html += `
         <div style="margin-top:12px;display:flex;gap:8px;">
           <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
+          <button class="btn" id="btn-import-file" onclick="projectView.importFile()">导入小说</button>
         </div>
       `
     }
@@ -198,6 +200,42 @@ const projectView = {
         },
       },
     ])
+  },
+
+  /** 导入小说文件：选文件 → 自动建项目 → 解析入库 */
+  importFile() {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".txt,.epub,.html,.htm,.mobi,.azw3"
+    input.onchange = async () => {
+      if (!input.files || !input.files[0]) return
+      const file = input.files[0]
+
+      try {
+        // 1. 从文件名生成项目标题
+        const projectName = file.name.replace(/\.[^.]+$/, "").trim() || "未命名小说"
+
+        // 2. 创建项目
+        const project = await api.projects.create({
+          title: projectName,
+          genre: "",
+          tone: "",
+          language: "zh",
+        })
+        _state.currentProjectId = project.id
+        _state.currentProject = project
+        // 刷新项目列表
+        const data = await api.projects.list()
+        _state.projects = data.items || data || []
+
+        // 3. 上传并导入
+        const result = await api.imports.upload(project.id, file)
+        toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
+      } catch (err) {
+        toast(err.message || "导入失败", "error")
+      }
+    }
+    input.click()
   },
 }
 

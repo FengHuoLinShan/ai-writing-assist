@@ -13,6 +13,7 @@ from modules.world.schemas import (
     DuplicateSuggestionResult,
     WorldContextBundle,
     WorldEntityContext,
+    WorldEntityResponse,
 )
 from modules.world.services import EntityDedupService, RelationshipService, WorldEntityService
 
@@ -98,3 +99,54 @@ async def find_duplicate_entity_candidates(
         list[DuplicateSuggestionResult] — 去重建议列表
     """
     return await _dedup_service.find_duplicates(db, novel_id, candidate_id)
+
+
+async def find_similar_entities(
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    aliases: list[str] | None = None,
+    entity_type: str | None = None,
+) -> list[DuplicateSuggestionResult]:
+    """查找相似实体（供抽取模块使用）
+
+    对指定名称查找相似的正史对象。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        name: 待匹配名称
+        aliases: 可选别名列表
+        entity_type: 可选类型过滤
+
+    Returns:
+        list[DuplicateSuggestionResult] — 去重建议列表
+    """
+    return await _dedup_service.find_similar_entities(
+        db, novel_id, name, aliases=aliases, entity_type=entity_type,
+    )
+
+
+async def merge_candidate_into_entity(
+    db: AsyncSession,
+    novel_id: str,
+    candidate_id: str,
+    target_entity_id: str,
+) -> WorldEntityResponse:
+    """合并候选到正史对象
+
+    将候选对象的数据合并到指定的正史对象。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        candidate_id: 候选对象 ID
+        target_entity_id: 目标正史对象 ID
+
+    Returns:
+        WorldEntityResponse — 更新后的正史对象
+    """
+    entity = await _dedup_service.merge_candidate_into_entity(
+        db, novel_id, candidate_id, target_entity_id,
+    )
+    return WorldEntityResponse.model_validate(entity)

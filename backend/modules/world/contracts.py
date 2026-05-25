@@ -119,6 +119,7 @@ class DuplicateSuggestion:
     similarity_score: float
     """相似度分数"""
     match_method: str
-    """匹配方法（exact_name/trgm_similar/vector_similar）"""
+    """匹配方法（exact_name/trgm_similar/vector_similar/fuzzy_name）"""
     action: str
     """建议动作（alias_of_existing/merge_with_existing/needs_user_decision）"""
+

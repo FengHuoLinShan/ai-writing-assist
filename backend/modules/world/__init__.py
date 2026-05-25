@@ -16,7 +16,9 @@ from modules.world.contracts import (
 from modules.world.facade import (
     expand_related_entities,
     find_duplicate_entity_candidates,
+    find_similar_entities,
     get_world_context,
+    merge_candidate_into_entity,
 )
 from modules.world.models import (
     EntityAlias,
@@ -68,4 +70,6 @@ __all__ = [
     "get_world_context",
     "expand_related_entities",
     "find_duplicate_entity_candidates",
+    "find_similar_entities",
+    "merge_candidate_into_entity",
 ]

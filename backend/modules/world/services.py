@@ -6,6 +6,7 @@ World 业务逻辑层
 
 from __future__ import annotations
 
+import difflib
 import uuid
 from typing import Any
 
@@ -735,8 +736,9 @@ class EntityDedupService:
         执行顺序：
         1. 名称精确匹配
         2. 别名匹配
-        3. trgm 相似度（PostgreSQL 环境）
-        4. 向量相似度（PostgreSQL + pgvector 环境）
+        3. 模糊名称匹配（difflib，代码层面）
+        4. trgm 相似度（PostgreSQL 环境）
+        5. 向量相似度（PostgreSQL + pgvector 环境）
 
         返回所有匹配结果，按相似度降序排列。
         """
@@ -775,27 +777,249 @@ class EntityDedupService:
         alias_matches = await self._find_alias_matches(
             db, nid, candidate.name,
         )
-        for alias in alias_matches:
-            if alias.entity_id not in seen_ids and alias.entity_id:
-                seen_ids.add(alias.entity_id)
-                # 查找对应实体名称
-                eid = self._parse_uuid(alias.entity_id, "entity_id")
+        for alias_elem in alias_matches:
+            if alias_elem.entity_id not in seen_ids and alias_elem.entity_id:
+                seen_ids.add(alias_elem.entity_id)
+                eid = self._parse_uuid(alias_elem.entity_id, "entity_id")
                 entity = await self._entity_repo.get(db, eid)
-                entity_name = entity.name if entity else alias.alias
+                entity_name = entity.name if entity else alias_elem.alias
                 suggestions.append(DuplicateSuggestionResult(
                     candidate_id=candidate_id,
                     candidate_name=candidate.name,
-                    existing_entity_id=alias.entity_id,
+                    existing_entity_id=alias_elem.entity_id,
                     existing_entity_name=entity_name,
                     similarity_score=SIMILARITY_HIGH_CONFIDENCE,
                     match_method="alias_match",
                     action="alias_of_existing",
                 ))
 
-        # 3. 按相似度降序排列
+        # 3. 模糊名称匹配（difflib）
+        all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
+        fuzzy_matches = self._fuzzy_name_matches(
+            candidate.name, candidate.entity_type, all_entities,
+        )
+        for fuzz in fuzzy_matches:
+            eid_str = fuzz["entity_id"]
+            if eid_str not in seen_ids:
+                seen_ids.add(eid_str)
+                suggestions.append(DuplicateSuggestionResult(
+                    candidate_id=candidate_id,
+                    candidate_name=candidate.name,
+                    existing_entity_id=eid_str,
+                    existing_entity_name=fuzz["entity_name"],
+                    similarity_score=fuzz["score"],
+                    match_method="fuzzy_name",
+                    action=fuzz["action"],
+                ))
+
+        # 4. 按相似度降序排列
         suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
 
         return suggestions
+
+    async def find_similar_entities(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        name: str,
+        aliases: list[str] | None = None,
+        entity_type: str | None = None,
+    ) -> list[DuplicateSuggestionResult]:
+        """对指定名称查找相似的正史对象（供 EntityExtractionService 使用）
+
+        执行精确匹配 + 别名匹配 + 模糊匹配，返回去重排序结果。
+        """
+        nid = self._parse_uuid(novel_id, "novel_id")
+        suggestions: list[DuplicateSuggestionResult] = []
+        seen_ids: set[str] = set()
+
+        # 1. 精确匹配名称
+        exact_matches = await self._find_exact_name_matches(db, nid, name, entity_type)
+        for match in exact_matches:
+            eid_str = str(match.id)
+            if eid_str not in seen_ids:
+                seen_ids.add(eid_str)
+                suggestions.append(DuplicateSuggestionResult(
+                    candidate_id="",
+                    candidate_name=name,
+                    existing_entity_id=eid_str,
+                    existing_entity_name=match.name,
+                    similarity_score=1.0,
+                    match_method="exact_name",
+                    action="alias_of_existing",
+                ))
+
+        # 2. 别名匹配
+        alias_matches = await self._find_alias_matches(db, nid, name)
+        for alias_elem in alias_matches:
+            if alias_elem.entity_id not in seen_ids and alias_elem.entity_id:
+                seen_ids.add(alias_elem.entity_id)
+                eid = self._parse_uuid(alias_elem.entity_id, "entity_id")
+                entity = await self._entity_repo.get(db, eid)
+                entity_name = entity.name if entity else alias_elem.alias
+                suggestions.append(DuplicateSuggestionResult(
+                    candidate_id="",
+                    candidate_name=name,
+                    existing_entity_id=alias_elem.entity_id,
+                    existing_entity_name=entity_name,
+                    similarity_score=SIMILARITY_HIGH_CONFIDENCE,
+                    match_method="alias_match",
+                    action="alias_of_existing",
+                ))
+
+        # 3. 模糊匹配
+        all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
+        fuzzy_matches = self._fuzzy_name_matches(name, entity_type, all_entities)
+        for fuzz in fuzzy_matches:
+            eid_str = fuzz["entity_id"]
+            if eid_str not in seen_ids:
+                seen_ids.add(eid_str)
+                suggestions.append(DuplicateSuggestionResult(
+                    candidate_id="",
+                    candidate_name=name,
+                    existing_entity_id=eid_str,
+                    existing_entity_name=fuzz["entity_name"],
+                    similarity_score=fuzz["score"],
+                    match_method="fuzzy_name",
+                    action=fuzz["action"],
+                ))
+
+        suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
+        return suggestions
+
+    async def merge_candidate_into_entity(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        candidate_id: str,
+        target_entity_id: str,
+    ) -> WorldEntity:
+        """将候选对象合并到指定正史对象
+
+        合并逻辑：
+        1. 校验候选和实体属于同一项目
+        2. 将候选名称添加为别名
+        3. 合并 summary/public_info/hidden_truth（append 不覆盖）
+        4. 合并 importance（取 max）
+        5. 标记候选为 canonical
+        6. 返回更新后的正史对象
+
+        Args:
+            db: 数据库 session
+            novel_id: 项目 ID
+            candidate_id: 候选对象 ID
+            target_entity_id: 目标正史对象 ID
+
+        Returns:
+            更新后的 WorldEntity
+        """
+        nid = self._parse_uuid(novel_id, "novel_id")
+        cid = self._parse_uuid(candidate_id, "candidate_id")
+        teid = self._parse_uuid(target_entity_id, "target_entity_id")
+
+        # 获取候选对象
+        candidate = await self._candidate_repo.get(db, cid)
+        if candidate is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"EntityCandidate {candidate_id} not found",
+            )
+        if candidate.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Candidate does not belong to the same novel",
+            )
+
+        # 获取目标实体
+        entity = await self._entity_repo.get(db, teid)
+        if entity is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"WorldEntity {target_entity_id} not found",
+            )
+        if entity.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Target entity does not belong to the same novel",
+            )
+
+        # 合并字段
+        merged_fields: list[str] = []
+        added_aliases: list[str] = []
+
+        # 合并别名（候选名称作为正史对象别名写入 entity_aliases 表）
+        if candidate.name != entity.name:
+            from modules.world.schemas import EntityAliasCreate
+            alias_data = EntityAliasCreate(
+                entity_id=str(entity.id),
+                alias=candidate.name,
+                alias_type="name",
+                source_chapter_index=candidate.source_chapter_index,
+                confidence=candidate.confidence or 0.8,
+            )
+            from modules.world.repositories import EntityAliasRepository
+            await EntityAliasRepository().create(db, nid, alias_data)
+            added_aliases.append(candidate.name)
+            merged_fields.append("aliases")
+
+        # 合并 summary
+        entity.summary = _merge_text_field(entity.summary, candidate.summary)
+        merged_fields.append("summary")
+
+        # 合并 public_info（候选没有 public_info，使用 source_text 作为补充）
+        if candidate.source_text:
+            entity.public_info = _merge_text_field(entity.public_info, candidate.source_text)
+            merged_fields.append("public_info")
+
+        # 合并 hidden_truth（候选没有 hidden_truth，使用 source_text 作为补充）
+        if candidate.source_text:
+            entity.hidden_truth = _merge_text_field(entity.hidden_truth, candidate.source_text)
+            merged_fields.append("hidden_truth")
+
+        # 合并 importance（取最大值）
+        if candidate.importance_score is not None and candidate.importance_score > (entity.importance or 0):
+            entity.importance = candidate.importance_score
+
+        # 标记候选为 canonical
+        candidate.status = "canonical"
+        await db.flush()
+        await db.refresh(entity)
+        return entity
+
+    def _fuzzy_name_matches(
+        self,
+        name: str,
+        entity_type: str | None,
+        entities: list[WorldEntity],
+    ) -> list[dict[str, Any]]:
+        """使用 difflib 进行模糊名称匹配，返回相似度 >= 0.72 的建议
+
+        同时兼容 entity_type：同类型或一方为 other 时视为可合并。
+        """
+        if not name:
+            return []
+        results: list[dict[str, Any]] = []
+        normalized_name = _normalize_name(name)
+        for entity in entities:
+            if not _world_entity_types_compatible(entity_type, entity.entity_type):
+                continue
+            candidates = [entity.name]
+            best_score = max(
+                (
+                    difflib.SequenceMatcher(None, normalized_name, _normalize_name(c)).ratio()
+                    for c in candidates
+                    if c
+                ),
+                default=0.0,
+            )
+            if 0.72 <= best_score < 1.0:
+                results.append({
+                    "entity_id": str(entity.id),
+                    "entity_name": entity.name,
+                    "score": best_score,
+                    "action": "alias_of_existing",
+                })
+        return sorted(results, key=lambda r: r["score"], reverse=True)
 
     async def _find_exact_name_matches(
         self,
@@ -889,3 +1113,275 @@ class EntityDedupService:
                 status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Invalid {field_name}: {value}",
             )
+
+
+# ============================================================
+# EntityExtractionService — LLM 抽取管线
+# ============================================================
+
+class EntityExtractionService:
+    """从章节正文中抽取世界对象候选
+
+    流程：
+    WritingDraft chapters → batch group(5章/批) → LLM extract →
+    dedup → EntityCandidate
+    """
+
+    def __init__(self) -> None:
+        self._entity_repo = WorldEntityRepository()
+        self._candidate_repo = EntityCandidateRepository()
+        self._dedup_service = EntityDedupService()
+
+    async def extract_entities_from_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        batch_size: int = 5,
+    ) -> ExtractionResult:
+        """从指定章节范围抽取世界对象候选
+
+        Args:
+            db: 数据库 session
+            novel_id: 项目 ID
+            start_chapter: 起始章节索引
+            end_chapter: 结束章节索引
+            batch_size: 每批章节数
+
+        Returns:
+            ExtractionResult — 抽取结果统计
+        """
+        nid = self._parse_uuid(novel_id, "novel_id")
+        _start, _end = start_chapter, end_chapter
+
+        # 1. 读取已有正史对象作为 context
+        # 所有 status 为 "canonical" 或 "draft" 的实体都计入上下文
+        all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
+        existing_context = "\n".join(
+            f"- {e.name} ({e.entity_type})"
+            for e in all_entities if e.status in ("canonical", "draft")
+        ) or "无已有对象"
+
+        # 2. 分批读取 WritingDraft
+        chapters = await self._load_chapters(db, novel_id, start_chapter, end_chapter)
+        if not chapters:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"未找到章节 {start_chapter}-{end_chapter} 的正文",
+            )
+
+        # 3. 分批调用 LLM
+        from infrastructure.llm.client import LLMClient
+        from infrastructure.llm.schemas import LLMCallRequest
+
+        llm = LLMClient()
+        total_created = 0
+        total_skipped = 0
+        created_items: list[dict[str, Any]] = []
+        batches = [chapters[i:i + batch_size] for i in range(0, len(chapters), batch_size)]
+
+        for batch_idx, batch in enumerate(batches):
+            batch_text = "\n\n".join(
+                f"--- 第{c['chapter_index']}章: {c['title']} ---\n{c['content']}"
+                for c in batch
+            )
+
+            system_prompt = (
+                "你是一个小说世界对象抽取助手。"
+                "从章节正文中抽取需要长期维护的世界对象候选。"
+                f"已有对象列表：\n{existing_context}\n\n"
+                "规则：不抽取路人、普通道具、临时场景元素。"
+                "别名标记为 alias_of_existing，不创建新对象。"
+                "输出 JSON 数组，每个对象包含：name, entity_type, summary, "
+                "public_info, hidden_truth, importance, suggested_action, "
+                "suggested_existing_entity_name, candidate_reason, confidence"
+            )
+
+            request = LLMCallRequest(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": batch_text},
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"},
+            )
+
+            try:
+                from pydantic import BaseModel
+                class _ExtractedEntity(BaseModel):
+                    name: str
+                    entity_type: str
+                    summary: str
+                    public_info: str
+                    hidden_truth: str
+                    importance: float
+                    suggested_action: str
+                    suggested_existing_entity_name: str | None = None
+                    candidate_reason: str
+                    confidence: float
+                    source_chapter: int | None = None  # 由 LLM 推断来源章节
+
+                class _ExtractionOutput(BaseModel):
+                    entities: list[_ExtractedEntity]
+
+                result = await llm.generate_structured(request, _ExtractionOutput)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "LLM extraction failed for batch %d: %s", batch_idx, exc,
+                )
+                continue
+
+            # 4. 对每个结果：去重 + 创建候选
+            for extracted in result.entities:
+                if not extracted.name or not extracted.name.strip():
+                    total_skipped += 1
+                    continue
+
+                # 去重
+                suggestions = await self._dedup_service.find_similar_entities(
+                    db, novel_id, extracted.name,
+                    entity_type=extracted.entity_type,
+                )
+
+                high_confidence = [s for s in suggestions if s.similarity_score >= 0.88]
+                if high_confidence:
+                    total_skipped += 1
+                    continue
+
+                # 来源章节：优先使用 LLM 推断值，否则用批次首章
+                src_ch = extracted.source_chapter or batch[0]["chapter_index"]
+
+                # 创建候选
+                from modules.world.schemas import EntityCandidateCreate
+                candidate_data = EntityCandidateCreate(
+                    name=extracted.name.strip(),
+                    entity_type=extracted.entity_type,
+                    summary=extracted.summary[:2000] if extracted.summary else None,
+                    source_text=extracted.summary[:500] or None,
+                    source_chapter_index=src_ch,
+                    importance_score=min(max(extracted.importance, 0.0), 1.0),
+                    confidence=min(max(extracted.confidence, 0.0), 1.0),
+                    candidate_reason=extracted.candidate_reason[:500] if extracted.candidate_reason else None,
+                    suggested_action=extracted.suggested_action,
+                    suggested_existing_entity_id=(
+                        suggestions[0].existing_entity_id
+                        if suggestions
+                        else None
+                    ),
+                )
+                try:
+                    candidate = await self._candidate_repo.create(db, nid, candidate_data)
+                    total_created += 1
+                    created_items.append({
+                        "candidate_id": str(candidate.id),
+                        "name": candidate.name,
+                        "entity_type": candidate.entity_type,
+                        "suggested_action": candidate.suggested_action,
+                    })
+                except ValueError:
+                    total_skipped += 1
+
+        await db.flush()
+        return ExtractionResult(
+            total_chapters=len(chapters),
+            total_created=total_created,
+            total_skipped=total_skipped,
+            items=created_items,
+        )
+
+    async def _load_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> list[dict[str, Any]]:
+        """读取指定范围的 WritingDraft"""
+        from modules.writing.facade import get_latest_draft_for_chapter
+
+        chapters: list[dict[str, Any]] = []
+        for idx in range(start_chapter, end_chapter + 1):
+            draft = await get_latest_draft_for_chapter(db, novel_id, idx)
+            if draft and draft.content:
+                chapters.append({
+                    "chapter_index": idx,
+                    "title": draft.title or f"第{idx}章",
+                    "content": draft.content,
+                })
+        return chapters
+
+    @staticmethod
+    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
+        try:
+            return uuid.UUID(hex=value)
+        except ValueError:
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Invalid {field_name}: {value}",
+            )
+
+
+class ExtractionResult:
+    """抽取结果统计"""
+    total_chapters: int
+    total_created: int
+    total_skipped: int
+    items: list[dict[str, Any]]
+
+    def __init__(
+        self,
+        *,
+        total_chapters: int = 0,
+        total_created: int = 0,
+        total_skipped: int = 0,
+        items: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.total_chapters = total_chapters
+        self.total_created = total_created
+        self.total_skipped = total_skipped
+        self.items = items or []
+
+
+# ============================================================
+# 合并与去重辅助函数
+# ============================================================
+
+def _normalize_name(value: str) -> str:
+    """标准化名称用于匹配：去除特殊字符后 casefold"""
+    normalized = value.casefold()
+    for token in ("·", "•", "-", "_", " ", "（", "）", "(", ")", "　"):
+        normalized = normalized.replace(token, "")
+    return normalized
+
+
+def _merge_text_field(current: str | None, incoming: str | None) -> str:
+    """合并两个文本字段：不覆盖非空已有内容，只追加"""
+    current_text = (current or "").strip()
+    incoming_text = (incoming or "").strip()
+    if not incoming_text:
+        return current_text
+    if not current_text:
+        return incoming_text
+    if incoming_text == current_text or incoming_text in current_text:
+        return current_text
+    return f"{current_text}\n\n{incoming_text}"
+
+
+def _merge_string_lists(*values: list[str]) -> list[str]:
+    """合并多个字符串列表，去重保序"""
+    merged: list[str] = []
+    for group in values:
+        for item in group:
+            if item and item not in merged:
+                merged.append(item)
+    return merged
+
+
+def _world_entity_types_compatible(left: str | None, right: str | None) -> bool:
+    """判断两个 entity_type 是否可合并"""
+    left = (left or "other").strip().casefold()
+    right = (right or "other").strip().casefold()
+    return "other" in {left, right} or left == right

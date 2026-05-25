@@ -4,12 +4,10 @@ Alembic 迁移环境配置
 支持异步 PostgreSQL + pgvector。
 """
 
-import asyncio
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Alembic Config 对象
 config = context.config
@@ -64,34 +62,20 @@ def do_run_migrations(connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    """异步在线迁移"""
+def run_migrations_online() -> None:
+    """在线迁移：使用同步 psycopg2 连接"""
     from sqlalchemy import create_engine
 
-    # Alembic 需要同步连接来执行迁移
-    # 使用 psycopg2 作为同步 driver
     config_section = config.get_section(config.config_ini_section)
     sync_url = config_section["sqlalchemy.url"].replace(
         "postgresql+asyncpg://",
         "postgresql+psycopg2://",
     )
-    config_section["sqlalchemy.url"] = sync_url
 
-    connectable = async_engine_from_config(
-        config_section,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    """运行在线迁移"""
-    asyncio.run(run_async_migrations())
+    connectable = create_engine(sync_url, poolclass=pool.NullPool)
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
+    connectable.dispose()
 
 
 if context.is_offline_mode():

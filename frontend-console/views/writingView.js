@@ -1,7 +1,7 @@
 /**
- * 草稿导出视图
+ * 草稿导出视图 + 小说导入
  *
- * 承载手写正文草稿，关联章节卡，版本管理，导出创作包。
+ * 承载手写正文草稿、导入小说文件、导出创作包。
  */
 const writingView = {
   /** @type {Array} 草稿列表 */
@@ -13,19 +13,50 @@ const writingView = {
   /** @type {string|null} 当前草稿内容 */
   _currentContent: null,
 
+  /** @type {Array} 导入记录列表 */
+  _importRecords: [],
+
+  /** @type {boolean} 是否正在上传 */
+  _uploading: false,
+
   async onEnter() {
     this._drafts = []
     this._currentChapter = null
     this._currentContent = null
+    this._importRecords = []
+    this._uploading = false
+    this._loadImportRecords()
   },
 
   async render() {
     let html = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        承载手写正文草稿，管理版本，导出结构化创作包。
-        选择一个章节开始编辑，或直接在下方书写。
+        承载手写正文草稿，导入小说文件，导出结构化创作包。
       </p>
 
+      <!-- ====== 导入区 ====== -->
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>导入小说</span>
+          <span id="import-toggle" class="clickable" style="color:var(--accent);font-size:12px;cursor:pointer;" onclick="writingView._toggleImport()">展开</span>
+        </div>
+        <div id="import-section" style="display:none;">
+          <!-- 上传表单 -->
+          <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:8px;background:var(--panel);border-radius:4px;">
+            <div style="flex:1;">
+              <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px;">选择小说文件（txt/epub/html/mobi）</label>
+              <input type="file" id="import-file-input" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text);font-size:12px;" />
+            </div>
+            <button class="btn btn-primary" id="btn-import-upload" onclick="writingView._uploadFile()" ${this._uploading ? "disabled" : ""}>
+              ${this._uploading ? "上传中..." : "上传并导入"}
+            </button>
+          </div>
+          <!-- 导入记录 -->
+          <div id="import-history" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <!-- ====== 编辑区 ====== -->
       <div style="display:grid;grid-template-columns:280px 1fr 200px;gap:12px;">
         <!-- 左侧：章节导航 -->
         <div class="card" style="max-height:500px;overflow-y:auto;">
@@ -72,7 +103,7 @@ const writingView = {
 
         <!-- 右侧：导出工具 -->
         <div class="card">
-          <div class="card-title">导出创作包</div>
+          <div class="card-title">导出与提取</div>
           <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
             <button class="btn btn-sm" onclick="writingView._export('world')">导出世界设定</button>
             <button class="btn btn-sm" onclick="writingView._export('characters')">导出人物档案</button>
@@ -84,16 +115,132 @@ const writingView = {
           </div>
           <div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
             <p style="color:var(--text-dim);font-size:11px;">
-              <strong>导出格式</strong><br>
-              所有导出为 Markdown 文件。<br>
-              完整创作包包含全部结构化资产。
+              <strong>AI 提取</strong><br>
+              从已导入的章节正文中提取世界对象候选。
             </p>
+            <button class="btn btn-sm" id="btn-extract-entities" onclick="writingView._extractEntities()" style="margin-top:4px;">
+              抽取实体候选
+            </button>
           </div>
         </div>
       </div>
     `
     return html
   },
+
+  // ============================================================
+  // 导入
+  // ============================================================
+
+  _toggleImport() {
+    const section = document.getElementById("import-section")
+    const toggle = document.getElementById("import-toggle")
+    if (!section) return
+    const isHidden = section.style.display === "none" || !section.style.display
+    section.style.display = isHidden ? "block" : "none"
+    if (toggle) toggle.textContent = isHidden ? "收起" : "展开"
+    if (isHidden) this._renderImportHistory()
+  },
+
+  async _loadImportRecords() {
+    if (!_state.currentProjectId) return
+    try {
+      const data = await api.imports.list({ novel_id: _state.currentProjectId })
+      this._importRecords = data.items || []
+    } catch {
+      this._importRecords = []
+    }
+  },
+
+  async _renderImportHistory() {
+    const container = document.getElementById("import-history")
+    if (!container) return
+    await this._loadImportRecords()
+
+    if (this._importRecords.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);font-size:12px;padding:8px;">暂无导入记录。选择文件后点击"上传并导入"。</p>'
+      return
+    }
+
+    let html = '<table class="data-table" style="font-size:12px;"><thead><tr><th>文件名</th><th>类型</th><th>章节</th><th>状态</th><th>时间</th></tr></thead><tbody>'
+    for (const r of this._importRecords) {
+      const statusMap = { done: "完成", processing: "处理中", failed: "失败", pending: "等待" }
+      const statusClass = `badge-${r.status || "pending"}`
+      const time = r.created_at ? new Date(r.created_at).toLocaleString("zh-CN") : ""
+      html += `
+        <tr>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.file_name)}</td>
+          <td style="color:var(--accent-dim);">${r.file_type}</td>
+          <td>${r.imported_chapters || 0}/${r.total_chapters || 0}</td>
+          <td><span class="badge ${statusClass}">${statusMap[r.status] || r.status}</span></td>
+          <td style="color:var(--text-dim);font-size:11px;">${time}</td>
+        </tr>`
+    }
+    html += '</tbody></table>'
+    container.innerHTML = html
+  },
+
+  async _uploadFile() {
+    const input = document.getElementById("import-file-input")
+    const btn = document.getElementById("btn-import-upload")
+    if (!input || !input.files || input.files.length === 0) {
+      toast("请先选择文件", "warning")
+      return
+    }
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+
+    this._uploading = true
+    if (btn) btn.disabled = true
+    if (btn) btn.textContent = "上传中..."
+
+    try {
+      const result = await api.imports.upload(_state.currentProjectId, input.files[0])
+      toast(`导入完成：${result.imported_chapters} 章`, "success")
+      input.value = ""
+      this._renderImportHistory()
+    } catch (err) {
+      toast(err.message || "导入失败", "error")
+    } finally {
+      this._uploading = false
+      if (btn) {
+        btn.disabled = false
+        btn.textContent = "上传并导入"
+      }
+    }
+  },
+
+  // ============================================================
+  // 抽取
+  // ============================================================
+
+  async _extractEntities() {
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    const chStart = prompt("起始章节（默认 1）：", "1")
+    if (!chStart) return
+    const chEnd = prompt("结束章节（默认 10）：", "10")
+    if (!chEnd) return
+
+    try {
+      const result = await api.tasks.submit("world_entity_extraction", {
+        novel_id: _state.currentProjectId,
+        start_chapter: parseInt(chStart, 10),
+        end_chapter: parseInt(chEnd, 10),
+      })
+      toast(`抽取任务已提交（ID: ${result.task_id.slice(0, 8)}...）`, "info")
+    } catch (err) {
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  // ============================================================
+  // 草稿编辑
+  // ============================================================
 
   _selectChapter(chapterIndex) {
     this._currentChapter = chapterIndex
@@ -115,10 +262,8 @@ const writingView = {
       statusEl.textContent = this._currentContent ? "已修改" : "新草稿"
     }
 
-    // 尝试从后端加载已有草稿
     this._loadDraft(chapterIndex)
 
-    // 更新右侧信息栏
     _state.rightPanel = {
       title: `第 ${chapterIndex} 章`,
       type: "writing",
@@ -161,14 +306,11 @@ const writingView = {
 
   async saveDraft() {
     const editor = document.getElementById("writing-editor")
-    if (!editor || !this._currentChapter) {
-      toast("请先选择章节", "warning")
-      return
-    }
+    if (!editor || !this._currentChapter) return
 
-    const content = editor.value
-    if (!content.trim()) {
-      toast("草稿内容为空", "warning")
+    const content = editor.value.trim()
+    if (!content) {
+      toast("草稿内容不能为空", "warning")
       return
     }
 
@@ -176,50 +318,49 @@ const writingView = {
       await api.writing.saveDraft({
         novel_id: _state.currentProjectId,
         chapter_index: this._currentChapter,
-        content,
-        title: `第 ${this._currentChapter} 章`,
+        title: `第${this._currentChapter}章`,
+        content: content,
       })
       this._currentContent = content
-      toast(`第 ${this._currentChapter} 章草稿已保存`, "success")
-      const statusEl = document.getElementById("writing-draft-status")
-      if (statusEl) statusEl.textContent = "已保存 · " + new Date().toLocaleString("zh-CN")
+      toast("草稿已保存", "success")
     } catch (err) {
-      toast(`保存失败：${err.message}`, "error")
+      toast(err.message || "保存失败", "error")
     }
   },
 
   _loadChapterCard() {
-    if (!this._currentChapter) return
-    toast(`正在加载第 ${this._currentChapter} 章的章节卡...`, "info")
-    // 可以跳转到 outline 视图查看
-    router.navigate("outline", "chapters")
+    toast("章节卡关联功能开发中", "info")
   },
 
   _extractMemory() {
-    if (!this._currentChapter) return
     toast("状态抽取功能开发中", "info")
   },
 
   _exportDraft() {
-    const editor = document.getElementById("writing-editor")
-    if (!editor || !editor.value.trim() || !this._currentChapter) {
-      toast("没有可导出的内容", "warning")
+    if (!this._currentContent) {
+      toast("当前章节没有草稿内容", "warning")
       return
     }
-
-    const content = `# 第 ${this._currentChapter} 章\n\n${editor.value}`
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
+    const blob = new Blob([this._currentContent], { type: "text/plain;charset=utf-8" })
     const a = document.createElement("a")
-    a.href = url
-    a.download = `chapter-${String(this._currentChapter).padStart(3, "0")}.md`
+    a.href = URL.createObjectURL(blob)
+    a.download = `第${this._currentChapter}章.md`
     a.click()
-    URL.revokeObjectURL(url)
-    toast(`第 ${this._currentChapter} 章已导出`, "success")
+    URL.revokeObjectURL(a.href)
+    toast("草稿已导出", "success")
   },
 
   _export(type) {
-    const typeNames = {
+    // 跳转到对应视图的编译/查看功能
+    const targets = {
+      world: () => router.navigate("context"),
+      characters: () => router.navigate("context"),
+      arcs: () => router.navigate("outline", "arcs"),
+      chapters: () => router.navigate("outline", "chapters"),
+      context: () => router.navigate("context"),
+      full: () => router.navigate("context"),
+    }
+    const names = {
       world: "世界设定",
       characters: "人物档案",
       arcs: "篇章纲",
@@ -227,18 +368,12 @@ const writingView = {
       context: "上下文包",
       full: "完整创作包",
     }
-
-    const content = `# ${typeNames[type] || type}\n\n从小说项目"${_state.currentProject?.title || "未命名"}"导出\n导出时间：${new Date().toLocaleString("zh-CN")}\n\n---\n\n此功能需要后端支持。`
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `export-${type}-${Date.now()}.md`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast(`${typeNames[type] || type} 已导出`, "success")
+    if (targets[type]) {
+      toast(`跳转到 ${names[type] || type}`, "info")
+      targets[type]()
+    }
   },
 }
 
+// 注册视图
 router.registerView("writing", writingView)
-window.writingView = writingView

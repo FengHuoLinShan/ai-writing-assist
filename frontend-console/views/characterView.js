@@ -389,6 +389,7 @@ const characterView = {
           <td style="color:var(--danger);max-width:150px;">${k.misconception || "-"}</td>
           <td>
             <button class="btn btn-sm" onclick="characterView._editKnowledge('${esc(k.id || k.knowledge_id)}')">编辑</button>
+            <button class="btn btn-sm btn-danger" onclick="characterView._deleteKnowledge('${esc(k.id || k.knowledge_id)}')">删除</button>
           </td>
         </tr>
       `
@@ -571,7 +572,15 @@ const characterView = {
         text: "保存",
         class: "btn-primary",
         handler: async () => {
-          toast("知识边界保存功能开发中", "info")
+          try {
+            await api.character.updateKnowledge(knowledge.id || knowledge.knowledge_id, {
+              knowledge_level: document.getElementById("edit-know-level")?.value || "unknown",
+              known_content: document.getElementById("edit-know-content")?.value || "",
+              misconception: document.getElementById("edit-know-misconception")?.value || "",
+            })
+            toast("已保存", "success")
+            router.navigate("character", "detail")
+          } catch (err) { toast(err.message || "保存失败", "error") }
         },
       },
     ])
@@ -628,10 +637,32 @@ const characterView = {
         text: "添加",
         class: "btn-primary",
         handler: async () => {
-          toast("知识边界添加功能开发中", "info")
+          const charId = character.id || character.character_id
+          if (!charId) { toast("人物 ID 缺失", "error"); return }
+          try {
+            await api.character.createKnowledge(charId, {
+              target_type: document.getElementById("new-know-type")?.value || "entity",
+              target_id: document.getElementById("new-know-target")?.value || "",
+              knowledge_level: document.getElementById("new-know-level")?.value || "unknown",
+              known_content: document.getElementById("new-know-content")?.value || "",
+              misconception: document.getElementById("new-know-misconception")?.value || "",
+            })
+            toast("已添加", "success")
+            router.navigate("character", "detail")
+          } catch (err) { toast(err.message || "添加失败", "error") }
         },
       },
     ])
+  },
+
+  _deleteKnowledge(knowledgeId) {
+    confirmAction("确定删除此知识记录？", async () => {
+      try {
+        await api.character.deleteKnowledge(knowledgeId)
+        toast("已删除", "success")
+        router.navigate("character", "detail")
+      } catch (err) { toast(err.message || "删除失败", "error") }
+    }, "确认删除")
   },
 
   // ============================================================
