@@ -5,12 +5,11 @@
         "matcher": "Bash",
         "hooks": [
           {
-            "type": "prompt",
+            "type": "command",
             "if": "Bash(git commit*)",
-            "prompt": "You are a documentation maintainer for a project called \"AI长篇小说结构化创作引擎\". A git commit was just made.\n\nThe tool input (contains the command):\n$ARGUMENTS\n\nBased on the commit message, determine if this commit modifies any of:\n- Backend module Python code (modules/*.py, infrastructure/*.py)\n- API schemas or route definitions\n- Database ORM models or Alembic migrations\n- Facade/contract interfaces\n- CLAUDE.md or any docs/ files\n- Prompt files (prompts/*.md)\n- Test files\n- Frontend files\n\nIf it DOES modify backend code, APIs, models, or facades:\n- Identify which docs/ files might need updating (docs/整体设计.md, docs/数据库设计.md, docs/modules/*.md, etc.)\n- Suggest what sections need to change\n\nRespond with JSON:\n- ok: true if no doc updates needed\n- ok: false if docs need updating, with systemMessage listing what needs to change and why",
-            "continueOnBlock": true,
-            "timeout": 30,
-            "statusMessage": "正在检查 commit 是否需要更新文档…"
+            "command": "echo '{\"systemMessage\": \"git commit 已提交。需要同步更新设计文档（CLAUDE.md / docs/）吗？如需，请告诉我需要修改什么。\", \"continue\": true}'",
+            "timeout": 5,
+            "statusMessage": "询问是否更新文档…"
           }
         ]
       }
