@@ -18,6 +18,7 @@ from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_fil
 from modules.imports.repositories import ImportRecordRepository
 from modules.imports.schemas import ImportChapterItem, ImportListResponse, ImportResponse
 from modules.writing.facade import create_draft
+from shared.utils import parse_uuid
 from modules.writing.schemas import WritingDraftCreate
 
 
@@ -43,7 +44,7 @@ class ImportService:
         4. 逐章写入 WritingDraft
         5. 更新导入记录为完成
         """
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         file_type = self._validate_file(file_name, len(file_content))
 
         # 创建导入记录
@@ -119,8 +120,8 @@ class ImportService:
         record_id: str,
     ) -> ImportResponse:
         """获取单条导入记录详情"""
-        nid = self._parse_uuid(novel_id, "novel_id")
-        rid = self._parse_uuid(record_id, "record_id")
+        nid = parse_uuid(novel_id, "novel_id")
+        rid = parse_uuid(record_id, "record_id")
         record = await self._repo.get(db, rid)
         if record is None or record.novel_id != nid:
             raise HTTPException(
@@ -138,7 +139,7 @@ class ImportService:
         limit: int = 20,
     ) -> ImportListResponse:
         """获取项目的导入记录列表"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, 50)
         items, total = await self._repo.get_by_novel(db, nid, skip=skip, limit=limit)
         return ImportListResponse(
@@ -162,16 +163,6 @@ class ImportService:
             )
         # 文件类型去掉点号
         return ext.lstrip(".")
-
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name}: {value}",
-            )
 
 
 def _record_to_response(record: ImportRecord) -> ImportResponse:

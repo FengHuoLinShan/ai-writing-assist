@@ -41,6 +41,7 @@ from modules.geo.schemas import (
     TravelConstraintResult,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from shared.utils import parse_uuid
 
 
 # ============================================================
@@ -55,16 +56,6 @@ class GeoLocationService:
         self._edge_repo = GeoEdgeRepository()
         self._era_repo = GeoEraRepository()
 
-    @staticmethod
-    def _parse_uuid(value: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid ID: {value}",
-            )
 
     async def create_location(
         self,
@@ -82,7 +73,7 @@ class GeoLocationService:
         novel_id: str | None = None,
     ) -> GeoLocationResponse:
         """获取地点详情"""
-        lid = self._parse_uuid(location_id)
+        lid = parse_uuid(location_id)
         location = await self._repo.get(db, lid)
         if location is None:
             raise HTTPException(
@@ -102,7 +93,7 @@ class GeoLocationService:
         location_level: str | None = None,
     ) -> tuple[list[GeoLocationResponse], int]:
         """获取地点列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_multi(
             db, nid, skip=skip, limit=limit, location_level=location_level,
@@ -115,7 +106,7 @@ class GeoLocationService:
         novel_id: str,
     ) -> list[LocationNode]:
         """构建地点层级树（内存构建，避免 N+1 查询）"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         # 一次性加载所有地点
         all_locs, _ = await self._repo.get_multi(db, nid, skip=0, limit=10000)
         root_nodes = self._build_tree_in_memory(all_locs, max_depth=20)
@@ -180,7 +171,7 @@ class GeoLocationService:
         novel_id: str | None = None,
     ) -> GeoLocationResponse:
         """更新地点"""
-        lid = self._parse_uuid(location_id)
+        lid = parse_uuid(location_id)
         if novel_id:
             existing = await self._repo.get(db, lid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -200,7 +191,7 @@ class GeoLocationService:
         novel_id: str | None = None,
     ) -> None:
         """删除地点"""
-        lid = self._parse_uuid(location_id)
+        lid = parse_uuid(location_id)
         if novel_id:
             existing = await self._repo.get(db, lid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -239,7 +230,7 @@ class GeoEdgeService:
         novel_id: str | None = None,
     ) -> GeoEdgeResponse:
         """获取关系边详情"""
-        eid = self._parse_uuid(edge_id)
+        eid = parse_uuid(edge_id)
         edge = await self._repo.get(db, eid)
         if edge is None:
             raise HTTPException(
@@ -258,7 +249,7 @@ class GeoEdgeService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[GeoEdgeResponse], int]:
         """获取关系边列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_multi(db, nid, skip=skip, limit=limit)
         return [GeoEdgeResponse.model_validate(e) for e in items], total
@@ -270,8 +261,8 @@ class GeoEdgeService:
         location_id: str,
     ) -> list[GeoEdgeResponse]:
         """获取某个地点的所有关联边"""
-        nid = self._parse_uuid(novel_id)
-        lid = self._parse_uuid(location_id)
+        nid = parse_uuid(novel_id)
+        lid = parse_uuid(location_id)
         edges = await self._repo.get_by_location(db, nid, lid)
         return [GeoEdgeResponse.model_validate(e) for e in edges]
 
@@ -283,7 +274,7 @@ class GeoEdgeService:
         novel_id: str | None = None,
     ) -> GeoEdgeResponse:
         """更新关系边"""
-        eid = self._parse_uuid(edge_id)
+        eid = parse_uuid(edge_id)
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -303,7 +294,7 @@ class GeoEdgeService:
         novel_id: str | None = None,
     ) -> None:
         """删除关系边"""
-        eid = self._parse_uuid(edge_id)
+        eid = parse_uuid(edge_id)
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -315,16 +306,6 @@ class GeoEdgeService:
                 detail=f"GeoEdge {edge_id} not found",
             )
 
-    @staticmethod
-    def _parse_uuid(value: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid ID: {value}",
-            )
 
 
 # ============================================================
@@ -353,7 +334,7 @@ class GeoEraService:
         novel_id: str | None = None,
     ) -> GeoEraResponse:
         """获取历史时期详情"""
-        eid = self._parse_uuid(era_id)
+        eid = parse_uuid(era_id)
         era = await self._repo.get(db, eid)
         if era is None:
             raise HTTPException(
@@ -372,7 +353,7 @@ class GeoEraService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[GeoEraResponse], int]:
         """获取历史时期列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_multi(db, nid, skip=skip, limit=limit)
         return [GeoEraResponse.model_validate(e) for e in items], total
@@ -385,7 +366,7 @@ class GeoEraService:
         novel_id: str | None = None,
     ) -> GeoEraResponse:
         """更新历史时期"""
-        eid = self._parse_uuid(era_id)
+        eid = parse_uuid(era_id)
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -405,7 +386,7 @@ class GeoEraService:
         novel_id: str | None = None,
     ) -> None:
         """删除历史时期"""
-        eid = self._parse_uuid(era_id)
+        eid = parse_uuid(era_id)
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -417,16 +398,6 @@ class GeoEraService:
                 detail=f"GeoEra {era_id} not found",
             )
 
-    @staticmethod
-    def _parse_uuid(value: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid ID: {value}",
-            )
 
 
 # ============================================================
@@ -449,8 +420,8 @@ class GeoQueryService:
         depth: int = 1,
     ) -> GeoContextBundle:
         """获取地点上下文（含父级、子级、边、历史时期）"""
-        nid = self._parse_uuid(novel_id)
-        lid = self._parse_uuid(location_id)
+        nid = parse_uuid(novel_id)
+        lid = parse_uuid(location_id)
 
         location = await self._loc_repo.get(db, lid)
         if location is None:
@@ -524,7 +495,7 @@ class GeoQueryService:
         novel_id: str,
     ) -> list[dict]:
         """获取地点层级树（内存构建，避免 N+1 查询）"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         all_locs, _ = await self._loc_repo.get_multi(db, nid, skip=0, limit=10000)
         return self._build_tree_dict_in_memory(all_locs, max_depth=20)
 
@@ -571,9 +542,9 @@ class GeoQueryService:
         target_location_id: str,
     ) -> TravelConstraintResult:
         """查询两地之间的通行约束"""
-        nid = self._parse_uuid(novel_id)
-        src_id = self._parse_uuid(source_location_id)
-        tgt_id = self._parse_uuid(target_location_id)
+        nid = parse_uuid(novel_id)
+        src_id = parse_uuid(source_location_id)
+        tgt_id = parse_uuid(target_location_id)
 
         edges = await self._edge_repo.get_by_locations(db, nid, src_id, tgt_id)
 
@@ -639,11 +610,11 @@ class GeoQueryService:
         Returns:
             dict: 包含历史时期摘要和各地在各时期的状态变化
         """
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
 
         # 获取历史时期
         if era_id:
-            eid = self._parse_uuid(era_id)
+            eid = parse_uuid(era_id)
             era = await self._era_repo.get(db, eid)
             if era is None:
                 raise HTTPException(
@@ -658,7 +629,7 @@ class GeoQueryService:
         if location_ids:
             locations = []
             for loc_id in location_ids:
-                lid = self._parse_uuid(loc_id)
+                lid = parse_uuid(loc_id)
                 loc = await self._loc_repo.get(db, lid)
                 if loc:
                     locations.append(loc)
@@ -711,13 +682,3 @@ class GeoQueryService:
     # 内部工具
     # ============================================================
 
-    @staticmethod
-    def _parse_uuid(value: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid ID: {value}",
-            )

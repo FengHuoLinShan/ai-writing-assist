@@ -171,13 +171,3 @@ class WritingDraftService:
     # 内部工具
     # ============================================================
 
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name} ID: {value}",
-            )

@@ -25,6 +25,7 @@ from modules.memory.schemas import (
     MemoryRecordUpdate,
     MemoryUpdateProposalContext,
 )
+from shared.utils import parse_uuid
 
 _DEFAULT_RECENT_LIMIT = 8
 _DEFAULT_ENTITY_LIMIT = 20
@@ -49,7 +50,7 @@ class MemoryService:
         data: MemoryRecordCreate,
     ) -> MemoryRecordResponse:
         """创建新的记忆记录"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         record = await self._record_repo.create(db, nid, data)
         return MemoryRecordResponse.model_validate(record)
 
@@ -60,8 +61,8 @@ class MemoryService:
         novel_id: str,
     ) -> MemoryRecordResponse:
         """获取记忆记录详情"""
-        rid = self._parse_uuid(record_id)
-        nid = self._parse_uuid(novel_id)
+        rid = parse_uuid(record_id)
+        nid = parse_uuid(novel_id)
         record = await self._record_repo.get(db, rid)
         if record is None or str(record.novel_id) != str(nid):
             raise HTTPException(
@@ -82,7 +83,7 @@ class MemoryService:
         before_chapter_index: int | None = None,
     ) -> tuple[list[MemoryRecordResponse], int]:
         """获取记忆记录列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         items, total = await self._record_repo.get_multi(
             db,
             nid,
@@ -102,8 +103,8 @@ class MemoryService:
         novel_id: str,
     ) -> MemoryRecordResponse:
         """更新记忆记录"""
-        rid = self._parse_uuid(record_id)
-        nid = self._parse_uuid(novel_id)
+        rid = parse_uuid(record_id)
+        nid = parse_uuid(novel_id)
         # 先校验所有权
         record = await self._record_repo.get(db, rid)
         if record is None or str(record.novel_id) != str(nid):
@@ -121,8 +122,8 @@ class MemoryService:
         novel_id: str,
     ) -> None:
         """删除记忆记录"""
-        rid = self._parse_uuid(record_id)
-        nid = self._parse_uuid(novel_id)
+        rid = parse_uuid(record_id)
+        nid = parse_uuid(novel_id)
         record = await self._record_repo.get(db, rid)
         if record is None or str(record.novel_id) != str(nid):
             raise HTTPException(
@@ -144,7 +145,7 @@ class MemoryService:
         limit: int = 20,
     ) -> tuple[list[MemoryProposalResponse], int]:
         """获取待处理的提案列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         items, total = await self._proposal_repo.get_pending(
             db, nid, skip=skip, limit=limit
         )
@@ -182,8 +183,8 @@ class MemoryService:
         Returns:
             list[MemoryUpdateProposalContext]: 创建的提案列表
         """
-        nid = self._parse_uuid(novel_id)
-        sid = self._parse_uuid(source_id) if source_id else None
+        nid = parse_uuid(novel_id)
+        sid = parse_uuid(source_id) if source_id else None
 
         proposals = extraction_result.get("proposals", [])
         results: list[MemoryUpdateProposalContext] = []
@@ -226,8 +227,8 @@ class MemoryService:
         Raises:
             HTTPException: 提案不存在或已被处理
         """
-        pid = self._parse_uuid(proposal_id)
-        nid = self._parse_uuid(novel_id)
+        pid = parse_uuid(proposal_id)
+        nid = parse_uuid(novel_id)
         proposal = await self._proposal_repo.get(db, pid)
         if proposal is None:
             raise HTTPException(
@@ -305,8 +306,8 @@ class MemoryService:
         novel_id: str,
     ) -> MemoryProposalResponse:
         """获取记忆提案详情"""
-        pid = self._parse_uuid(proposal_id)
-        nid = self._parse_uuid(novel_id)
+        pid = parse_uuid(proposal_id)
+        nid = parse_uuid(novel_id)
         proposal = await self._proposal_repo.get(db, pid)
         if proposal is None or str(proposal.novel_id) != str(nid):
             raise HTTPException(
@@ -327,7 +328,7 @@ class MemoryService:
         limit: int = _DEFAULT_RECENT_LIMIT,
     ) -> list[MemoryRecordContext]:
         """获取最近的故事记忆"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         items, _ = await self._record_repo.get_multi(
             db,
             nid,
@@ -345,8 +346,8 @@ class MemoryService:
         limit: int = _DEFAULT_ENTITY_LIMIT,
     ) -> list[MemoryRecordContext]:
         """获取与某实体关联的记忆"""
-        nid = self._parse_uuid(novel_id)
-        eid = self._parse_uuid(entity_id)
+        nid = parse_uuid(novel_id)
+        eid = parse_uuid(entity_id)
         records = await self._record_repo.get_by_entity(
             db, nid, eid, limit=limit
         )
@@ -356,13 +357,3 @@ class MemoryService:
     # 内部工具
     # ============================================================
 
-    @staticmethod
-    def _parse_uuid(value: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid UUID: {value}",
-            )

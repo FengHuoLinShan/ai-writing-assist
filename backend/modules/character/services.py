@@ -30,6 +30,7 @@ from modules.character.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.enums import KnowledgeLevel
+from shared.utils import parse_uuid
 
 
 class CharacterService:
@@ -55,7 +56,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> CharacterResponse:
         """获取人物详情"""
-        cid = self._parse_uuid(character_id)
+        cid = parse_uuid(character_id)
         character = await self._repo.get(db, cid)
         if character is None:
             raise HTTPException(
@@ -74,7 +75,7 @@ class CharacterService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CharacterResponse], int]:
         """获取人物列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid, skip=skip, limit=limit,
@@ -89,7 +90,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> CharacterResponse:
         """更新人物"""
-        cid = self._parse_uuid(character_id)
+        cid = parse_uuid(character_id)
         if novel_id:
             existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -109,7 +110,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> None:
         """删除人物"""
-        cid = self._parse_uuid(character_id)
+        cid = parse_uuid(character_id)
         if novel_id:
             existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -131,7 +132,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> CharacterResponse:
         """更新人物当前状态（状态变化时的便捷方法）"""
-        cid = self._parse_uuid(character_id)
+        cid = parse_uuid(character_id)
         if novel_id:
             existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -169,7 +170,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
         """获取单条知识记录"""
-        kid = self._parse_uuid(knowledge_id)
+        kid = parse_uuid(knowledge_id)
         knowledge = await self._knowledge_repo.get(db, kid)
         if knowledge is None:
             raise HTTPException(
@@ -189,8 +190,8 @@ class CharacterService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CharacterKnowledgeResponse], int]:
         """获取人物知识列表"""
-        nid = self._parse_uuid(novel_id)
-        cid = self._parse_uuid(character_id)
+        nid = parse_uuid(novel_id)
+        cid = parse_uuid(character_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._knowledge_repo.get_by_character(
             db, nid, cid, skip=skip, limit=limit,
@@ -207,7 +208,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
         """更新知识记录"""
-        kid = self._parse_uuid(knowledge_id)
+        kid = parse_uuid(knowledge_id)
         if novel_id:
             existing = await self._knowledge_repo.get(db, kid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -227,7 +228,7 @@ class CharacterService:
         novel_id: str | None = None,
     ) -> None:
         """删除知识记录"""
-        kid = self._parse_uuid(knowledge_id)
+        kid = parse_uuid(knowledge_id)
         if novel_id:
             existing = await self._knowledge_repo.get(db, kid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -255,8 +256,8 @@ class CharacterService:
         根据 character_ids 获取人物信息，供 Context Compiler 等模块使用。
         reveal_mode 控制哪些字段返回（author_safe 不返回 secret）。
         """
-        nid = self._parse_uuid(novel_id)
-        cids = [self._parse_uuid(cid) for cid in character_ids]
+        nid = parse_uuid(novel_id)
+        cids = [parse_uuid(cid) for cid in character_ids]
         characters = await self._repo.get_by_ids(db, nid, cids)
 
         items = []
@@ -300,10 +301,10 @@ class CharacterService:
 
         返回角色对所有指定目标的知识情况。
         """
-        nid = self._parse_uuid(novel_id)
-        cid = self._parse_uuid(character_id)
+        nid = parse_uuid(novel_id)
+        cid = parse_uuid(character_id)
         tids = (
-            [self._parse_uuid(tid) for tid in target_ids]
+            [parse_uuid(tid) for tid in target_ids]
             if target_ids
             else None
         )
@@ -346,8 +347,8 @@ class CharacterService:
         Returns:
             (filtered_items, removed_count, replaced_count)
         """
-        cid = self._parse_uuid(character_id)
-        nid = self._parse_uuid(novel_id)
+        cid = parse_uuid(character_id)
+        nid = parse_uuid(novel_id)
 
         # 收集所有目标的 ID
         target_ids_map: dict[str, set[str]] = {}
@@ -362,7 +363,7 @@ class CharacterService:
         # 按 target_type 分批查询知识记录
         knowledge_map: dict[str, dict] = {}  # key: "type:id" -> knowledge
         for t_type, t_ids in target_ids_map.items():
-            tid_uuids = [self._parse_uuid(tid) for tid in t_ids]
+            tid_uuids = [parse_uuid(tid) for tid in t_ids]
             records = await self._knowledge_repo.get_by_target(
                 db, nid, cid, tid_uuids,
             )
@@ -423,13 +424,3 @@ class CharacterService:
     # 内部工具
     # ============================================================
 
-    @staticmethod
-    def _parse_uuid(id_str: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=id_str)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid UUID: {id_str}",
-            )

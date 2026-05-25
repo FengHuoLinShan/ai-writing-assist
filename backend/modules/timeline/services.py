@@ -21,6 +21,7 @@ from modules.timeline.schemas import (
     TimelineEventResponse,
     TimelineEventUpdate,
 )
+from shared.utils import parse_uuid
 
 _DEFAULT_CONTEXT_LIMIT = 12
 
@@ -42,7 +43,7 @@ class TimelineService:
         data: TimelineEventCreate,
     ) -> TimelineEventResponse:
         """创建新的时间线事件"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         event = await self._repo.create(db, nid, data)
         return TimelineEventResponse.model_validate(event)
 
@@ -53,8 +54,8 @@ class TimelineService:
         novel_id: str,
     ) -> TimelineEventResponse:
         """获取时间线事件详情"""
-        eid = self._parse_uuid(event_id)
-        nid = self._parse_uuid(novel_id)
+        eid = parse_uuid(event_id)
+        nid = parse_uuid(novel_id)
         event = await self._repo.get(db, eid)
         if event is None or str(event.novel_id) != str(nid):
             raise HTTPException(
@@ -76,7 +77,7 @@ class TimelineService:
         character_id: str | None = None,
     ) -> tuple[list[TimelineEventResponse], int]:
         """获取时间线事件列表"""
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         items, total = await self._repo.get_multi(
             db,
             nid,
@@ -97,8 +98,8 @@ class TimelineService:
         novel_id: str,
     ) -> TimelineEventResponse:
         """更新时间线事件"""
-        eid = self._parse_uuid(event_id)
-        nid = self._parse_uuid(novel_id)
+        eid = parse_uuid(event_id)
+        nid = parse_uuid(novel_id)
         event = await self._repo.get(db, eid)
         if event is None or str(event.novel_id) != str(nid):
             raise HTTPException(
@@ -115,8 +116,8 @@ class TimelineService:
         novel_id: str,
     ) -> None:
         """删除时间线事件"""
-        eid = self._parse_uuid(event_id)
-        nid = self._parse_uuid(novel_id)
+        eid = parse_uuid(event_id)
+        nid = parse_uuid(novel_id)
         event = await self._repo.get(db, eid)
         if event is None or str(event.novel_id) != str(nid):
             raise HTTPException(
@@ -152,11 +153,11 @@ class TimelineService:
         Returns:
             list[TimelineEventContext]: 时间线事件上下文
         """
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
 
         # 按实体+角色关联查询
         if related_entity_ids:
-            cid = self._parse_uuid(character_id) if character_id else None
+            cid = parse_uuid(character_id) if character_id else None
             items, _ = await self._repo.get_multi(
                 db,
                 nid,
@@ -215,7 +216,7 @@ class TimelineService:
         Returns:
             list[TimelineConflictWarning]: 冲突警告列表
         """
-        nid = self._parse_uuid(novel_id)
+        nid = parse_uuid(novel_id)
         warnings: list[TimelineConflictWarning] = []
 
         # 获取正史事件
@@ -342,13 +343,3 @@ class TimelineService:
     # 内部工具
     # ============================================================
 
-    @staticmethod
-    def _parse_uuid(value: str) -> uuid.UUID:
-        """将字符串 ID 解析为 UUID，格式错误时抛出 422"""
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid UUID: {value}",
-            )

@@ -54,6 +54,7 @@ from modules.outline.schemas import (
     RevealPlanUpdate,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from shared.utils import parse_uuid
 
 
 # ============================================================
@@ -73,7 +74,7 @@ class PlotThreadService:
         data: PlotThreadCreate,
     ) -> PlotThreadResponse:
         """创建剧情线"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.create(db, nid, data)
         return PlotThreadResponse.model_validate(entity)
 
@@ -84,8 +85,8 @@ class PlotThreadService:
         novel_id: str,
     ) -> PlotThreadResponse:
         """获取剧情线详情"""
-        tid = self._parse_uuid(thread_id, "thread_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        tid = parse_uuid(thread_id, "thread_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, tid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -105,7 +106,7 @@ class PlotThreadService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> PlotThreadListResponse:
         """获取剧情线列表"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid,
@@ -127,7 +128,7 @@ class PlotThreadService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[PlotThreadContext]:
         """获取活跃剧情线上下文（供 facade 使用）"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         threads = await self._repo.get_active_by_novel(
             db, nid,
@@ -159,8 +160,8 @@ class PlotThreadService:
         novel_id: str,
     ) -> PlotThreadResponse:
         """更新剧情线"""
-        tid = self._parse_uuid(thread_id, "thread_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        tid = parse_uuid(thread_id, "thread_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, tid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -177,8 +178,8 @@ class PlotThreadService:
         novel_id: str,
     ) -> None:
         """删除剧情线"""
-        tid = self._parse_uuid(thread_id, "thread_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        tid = parse_uuid(thread_id, "thread_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, tid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -187,15 +188,6 @@ class PlotThreadService:
             )
         await self._repo.delete(db, tid)
 
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name}: {value}",
-            )
 
 
 # ============================================================
@@ -215,7 +207,7 @@ class OutlineArcService:
         data: OutlineArcCreate,
     ) -> OutlineArcResponse:
         """创建篇章纲"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.create(db, nid, data)
         return OutlineArcResponse.model_validate(entity)
 
@@ -226,8 +218,8 @@ class OutlineArcService:
         novel_id: str,
     ) -> OutlineArcResponse:
         """获取篇章纲详情"""
-        aid = self._parse_uuid(arc_id, "arc_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        aid = parse_uuid(arc_id, "arc_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, aid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -243,8 +235,8 @@ class OutlineArcService:
         novel_id: str,
     ) -> OutlineArcContext:
         """获取篇章纲上下文（供 facade 使用）"""
-        aid = self._parse_uuid(arc_id, "arc_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        aid = parse_uuid(arc_id, "arc_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, aid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -286,7 +278,7 @@ class OutlineArcService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> OutlineArcListResponse:
         """获取篇章纲列表"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid,
@@ -307,8 +299,8 @@ class OutlineArcService:
         novel_id: str,
     ) -> OutlineArcResponse:
         """更新篇章纲"""
-        aid = self._parse_uuid(arc_id, "arc_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        aid = parse_uuid(arc_id, "arc_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, aid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -325,8 +317,8 @@ class OutlineArcService:
         novel_id: str,
     ) -> None:
         """删除篇章纲"""
-        aid = self._parse_uuid(arc_id, "arc_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        aid = parse_uuid(arc_id, "arc_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, aid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -335,15 +327,6 @@ class OutlineArcService:
             )
         await self._repo.delete(db, aid)
 
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name}: {value}",
-            )
 
 
 # ============================================================
@@ -363,7 +346,7 @@ class ChapterCardService:
         data: ChapterCardCreate,
     ) -> ChapterCardResponse:
         """创建章节卡"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.create(db, nid, data)
         return ChapterCardResponse.model_validate(entity)
 
@@ -374,8 +357,8 @@ class ChapterCardService:
         novel_id: str,
     ) -> ChapterCardResponse:
         """获取章节卡详情"""
-        cid = self._parse_uuid(card_id, "card_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        cid = parse_uuid(card_id, "card_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, cid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -391,7 +374,7 @@ class ChapterCardService:
         chapter_index: int,
     ) -> ChapterCardResponse | None:
         """按章节索引获取章节卡"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get_by_chapter_index(db, nid, chapter_index)
         if entity is None:
             return None
@@ -404,7 +387,7 @@ class ChapterCardService:
         chapter_index: int,
     ) -> ChapterCardContext | None:
         """获取章节卡上下文（供 facade 使用）"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get_by_chapter_index(db, nid, chapter_index)
         if entity is None:
             return None
@@ -421,7 +404,7 @@ class ChapterCardService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> ChapterCardListResponse:
         """获取章节卡列表"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid,
@@ -449,7 +432,7 @@ class ChapterCardService:
         """
         from sqlalchemy.exc import IntegrityError
 
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         results: list[ChapterCardContext] = []
 
         for item in cards:
@@ -499,8 +482,8 @@ class ChapterCardService:
         novel_id: str,
     ) -> ChapterCardResponse:
         """更新章节卡"""
-        cid = self._parse_uuid(card_id, "card_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        cid = parse_uuid(card_id, "card_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, cid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -517,8 +500,8 @@ class ChapterCardService:
         novel_id: str,
     ) -> None:
         """删除章节卡"""
-        cid = self._parse_uuid(card_id, "card_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        cid = parse_uuid(card_id, "card_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, cid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -555,15 +538,6 @@ class ChapterCardService:
             status=entity.status,
         )
 
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name}: {value}",
-            )
 
 
 # ============================================================
@@ -583,7 +557,7 @@ class ForeshadowingPlanService:
         data: ForeshadowingPlanCreate,
     ) -> ForeshadowingPlanResponse:
         """创建伏笔计划"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.create(db, nid, data)
         return ForeshadowingPlanResponse.model_validate(entity)
 
@@ -594,8 +568,8 @@ class ForeshadowingPlanService:
         novel_id: str,
     ) -> ForeshadowingPlanResponse:
         """获取伏笔计划详情"""
-        pid = self._parse_uuid(plan_id, "plan_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(plan_id, "plan_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -614,7 +588,7 @@ class ForeshadowingPlanService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> ForeshadowingPlanListResponse:
         """获取伏笔计划列表"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid,
@@ -635,8 +609,8 @@ class ForeshadowingPlanService:
         novel_id: str,
     ) -> ForeshadowingPlanResponse:
         """更新伏笔计划"""
-        pid = self._parse_uuid(plan_id, "plan_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(plan_id, "plan_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -653,8 +627,8 @@ class ForeshadowingPlanService:
         novel_id: str,
     ) -> None:
         """删除伏笔计划"""
-        pid = self._parse_uuid(plan_id, "plan_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(plan_id, "plan_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -663,15 +637,6 @@ class ForeshadowingPlanService:
             )
         await self._repo.delete(db, pid)
 
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name}: {value}",
-            )
 
 
 # ============================================================
@@ -691,7 +656,7 @@ class RevealPlanService:
         data: RevealPlanCreate,
     ) -> RevealPlanResponse:
         """创建揭示计划"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.create(db, nid, data)
         return RevealPlanResponse.model_validate(entity)
 
@@ -702,8 +667,8 @@ class RevealPlanService:
         novel_id: str,
     ) -> RevealPlanResponse:
         """获取揭示计划详情"""
-        pid = self._parse_uuid(plan_id, "plan_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(plan_id, "plan_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -723,7 +688,7 @@ class RevealPlanService:
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> RevealPlanListResponse:
         """获取揭示计划列表"""
-        nid = self._parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid,
@@ -745,8 +710,8 @@ class RevealPlanService:
         novel_id: str,
     ) -> RevealPlanResponse:
         """更新揭示计划"""
-        pid = self._parse_uuid(plan_id, "plan_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(plan_id, "plan_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -763,8 +728,8 @@ class RevealPlanService:
         novel_id: str,
     ) -> None:
         """删除揭示计划"""
-        pid = self._parse_uuid(plan_id, "plan_id")
-        nid = self._parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(plan_id, "plan_id")
+        nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.get(db, pid)
         if entity is None or str(entity.novel_id) != str(nid):
             raise HTTPException(
@@ -773,12 +738,3 @@ class RevealPlanService:
             )
         await self._repo.delete(db, pid)
 
-    @staticmethod
-    def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
-        try:
-            return uuid.UUID(hex=value)
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid {field_name}: {value}",
-            )
