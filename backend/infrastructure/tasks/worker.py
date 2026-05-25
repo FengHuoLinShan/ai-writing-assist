@@ -31,6 +31,9 @@ from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TA
 
 logger = logging.getLogger(__name__)
 
+# 导入所有 ORM 模型注册到 Base.metadata（FK 解析需要）
+import modules.project.models  # noqa: F401 — 注册 projects 表（NovelMixin FK 依赖）
+
 # 导入所有任务处理器注册（@task_handler 装饰器触发注册）
 import modules.world.tasks  # noqa: F401 — 注册 world_entity_extraction 处理器
 
