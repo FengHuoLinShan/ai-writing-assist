@@ -8,9 +8,8 @@ Person 模块属于事实层，依赖 project 模块提供 novel_id。
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -115,7 +114,7 @@ class Character(Base, UUIDMixin, NovelMixin, TimestampMixin, StatusMixin):
         return f"<Character id={self.id} name={self.name!r}>"
 
 
-class CharacterKnowledge(Base, UUIDMixin, StatusMixin):
+class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
     """人物知识边界 — 角色知道什么、不知道什么、误解什么"""
 
     __tablename__ = "character_knowledge"
@@ -168,13 +167,6 @@ class CharacterKnowledge(Base, UUIDMixin, StatusMixin):
         UUID(as_uuid=True),
         nullable=True,
         comment="关联的 memory 记录 ID",
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
-        comment="创建时间",
     )
 
     def __repr__(self) -> str:

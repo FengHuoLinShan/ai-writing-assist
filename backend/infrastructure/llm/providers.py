@@ -1,15 +1,14 @@
 """
 LLM Provider 管理
 
-定义 Provider 抽象基类，提供 OpenAI-compatible API 的实现。
-通过 get_provider() 工厂函数获取指定 Provider 实例。
+提供 OpenAI-compatible API 的 Provider 实现。
+通过 get_provider() 工厂函数获取 Provider 实例。
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -36,32 +35,7 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMStrea
 logger = logging.getLogger(__name__)
 
 
-class LLMProvider(ABC):
-    """LLM Provider 抽象基类
-
-    所有 Provider 需实现 generate() 和 generate_stream()。
-    """
-
-    @abstractmethod
-    async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
-        """非流式调用 LLM，返回完整响应"""
-        ...
-
-    @abstractmethod
-    async def generate_stream(
-        self, request: LLMCallRequest,
-    ) -> AsyncIterator[LLMStreamChunk]:
-        """流式调用 LLM，逐个 chunk 返回"""
-        ...
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Provider 名称标识"""
-        ...
-
-
-class OpenAIProvider(LLMProvider):
+class OpenAIProvider:
     """OpenAI-compatible API Provider
 
     支持 OpenAI、Azure OpenAI、以及任何 OpenAI-compatible 的 API（如 Ollama、vLLM、DeepSeek 等）。
@@ -264,33 +238,23 @@ class OpenAIProvider(LLMProvider):
 
 
 # ============================================================
-# Provider 注册与工厂
+# Provider 工厂
 # ============================================================
 
-_providers: dict[str, type[LLMProvider]] = {
-    "openai": OpenAIProvider,
-}
 
-
-def register_provider(name: str, provider_cls: type[LLMProvider]) -> None:
-    """注册一个新的 Provider 类型"""
-    _providers[name] = provider_cls
-
-
-def get_provider(name: str = "openai", **kwargs: Any) -> LLMProvider:
-    """获取指定名称的 Provider 实例
+def get_provider(name: str = "openai", **kwargs: Any) -> OpenAIProvider:
+    """获取 Provider 实例
 
     Args:
-        name: Provider 名称（默认 "openai"）
+        name: Provider 名称（目前仅支持 "openai"）
         **kwargs: 传递给 Provider 构造函数的参数
 
     Returns:
-        LLMProvider 实例
+        OpenAIProvider 实例
 
     Raises:
         ValueError: 未知的 provider 名称
     """
-    provider_cls = _providers.get(name)
-    if provider_cls is None:
-        raise ValueError(f"Unknown provider: {name}. Available: {list(_providers.keys())}")
-    return provider_cls(**kwargs)
+    if name != "openai":
+        raise ValueError(f"Unknown provider: {name}. Available: ['openai']")
+    return OpenAIProvider(**kwargs)
