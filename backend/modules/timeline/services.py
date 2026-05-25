@@ -217,22 +217,27 @@ class TimelineService:
             list[TimelineConflictWarning]: 冲突警告列表
         """
         nid = parse_uuid(novel_id)
-        warnings: list[TimelineConflictWarning] = []
 
-        # 获取正史事件
-        existing_events = await self._repo.get_all_by_novel(
-            db, nid, status="canonical"
-        )
-
+        existing_events = await self._repo.get_all_by_novel(db, nid, status="canonical")
         candidate_events = structure_candidate.get("events", [])
         if not candidate_events:
-            return warnings
+            return []
 
-        # 1. 顺序矛盾检查
+        warnings: list[TimelineConflictWarning] = []
+        warnings.extend(self._check_order_conflicts(candidate_events, existing_events))
+        warnings.extend(self._check_duplicate_events(candidate_events, existing_events))
+        warnings.extend(self._check_character_location_conflicts(candidate_events, existing_events))
+        return warnings
+
+    def _check_order_conflicts(
+        self,
+        candidate_events: list[dict[str, Any]],
+        existing_events: list[TimelineEvent],
+    ) -> list[TimelineConflictWarning]:
+        """检查顺序矛盾 — 候选事件 order_index / chapter_index 不一致"""
+        warnings: list[TimelineConflictWarning] = []
         for i, candidate in enumerate(candidate_events):
             candidate_order = candidate.get("order_index", i)
-
-            # 检查在已有事件之后但 chapter_index 却在前面
             if candidate.get("chapter_index") is not None:
                 for existing in existing_events:
                     if (
@@ -258,34 +263,33 @@ class TimelineService:
                                 ),
                             )
                         )
+        return warnings
 
-        # 2. 重复事件检查
+    def _check_duplicate_events(
+        self,
+        candidate_events: list[dict[str, Any]],
+        existing_events: list[TimelineEvent],
+    ) -> list[TimelineConflictWarning]:
+        """检查重复事件 — 标题相同或高度重叠"""
+        warnings: list[TimelineConflictWarning] = []
         for candidate in candidate_events:
             c_title = candidate.get("title", "").strip()
-            c_summary = candidate.get("summary", "").strip()
-
-            # 简单文本相似检查：标题相同或摘要高度重叠
+            if not c_title:
+                continue
             for existing in existing_events:
-                if not c_title or not existing.title:
+                if not existing.title:
                     continue
-
-                # 标题完全相同
                 if c_title == existing.title.strip():
                     warnings.append(
                         TimelineConflictWarning(
                             type="duplicate_event",
-                            description=(
-                                f"候选事件「{c_title}」"
-                                f"与已有事件「{existing.title}」标题完全相同"
-                            ),
+                            description=f"候选事件「{c_title}」与已有事件「{existing.title}」标题完全相同",
                             severity="warning",
                             source_event_ids=[str(existing.id)],
                             suggestion="检查是否为同一事件，如是则复用已有事件 ID 而非创建新事件",
                         )
                     )
                     continue
-
-                # 标题高度重叠（用于中文标题）
                 if len(c_title) >= 4 and len(existing.title) >= 4:
                     shorter = min(c_title, existing.title, key=len)
                     longer = c_title if shorter == existing.title else existing.title
@@ -293,18 +297,20 @@ class TimelineService:
                         warnings.append(
                             TimelineConflictWarning(
                                 type="duplicate_event",
-                                description=(
-                                    f"候选事件「{c_title}」"
-                                    f"与已有事件「{existing.title}」标题高度重叠"
-                                ),
+                                description=f"候选事件「{c_title}」与已有事件「{existing.title}」标题高度重叠",
                                 severity="info",
                                 source_event_ids=[str(existing.id)],
                                 suggestion="确认是否为同一事件的不同表述",
                             )
                         )
+        return warnings
 
-        # 3. 角色冲突检查（简单实现）
-        # 收集每个角色在每章的事件 ID，用于比对位置
+    def _check_character_location_conflicts(
+        self,
+        candidate_events: list[dict[str, Any]],
+        existing_events: list[TimelineEvent],
+    ) -> list[TimelineConflictWarning]:
+        """检查角色冲突 — 角色同时在两地出现"""
         character_chapter_events: dict[str, dict[int, list[str]]] = {}
         for existing in existing_events:
             for cid in (existing.related_character_ids or []):
@@ -314,29 +320,26 @@ class TimelineService:
                     str(existing.id)
                 )
 
+        warnings: list[TimelineConflictWarning] = []
         for candidate in candidate_events:
             cand_ch = candidate.get("chapter_index")
             if cand_ch is None:
                 continue
             for cid in (candidate.get("related_character_ids") or []):
                 existing_event_ids = character_chapter_events.get(cid, {}).get(cand_ch)
-                if existing_event_ids:
-                    candidate_loc_ids = candidate.get("related_location_ids", [])
-                    # 简单检查：候选事件有位置信息且已有事件在同一章
-                    if candidate_loc_ids:
-                        warnings.append(
-                            TimelineConflictWarning(
-                                type="character_location_conflict",
-                                description=(
-                                    f"角色 {cid} 在同一章节(第{cand_ch}章)"
-                                    f"出现在已有事件中，请确认位置是否一致"
-                                ),
-                                severity="info",
-                                source_event_ids=existing_event_ids,
-                                suggestion="确认角色是否可能在同一章节出现在多个位置",
-                            )
+                if existing_event_ids and candidate.get("related_location_ids"):
+                    warnings.append(
+                        TimelineConflictWarning(
+                            type="character_location_conflict",
+                            description=(
+                                f"角色 {cid} 在同一章节(第{cand_ch}章)"
+                                f"出现在已有事件中，请确认位置是否一致"
+                            ),
+                            severity="info",
+                            source_event_ids=existing_event_ids,
+                            suggestion="确认角色是否可能在同一章节出现在多个位置",
                         )
-
+                    )
         return warnings
 
     # ============================================================
