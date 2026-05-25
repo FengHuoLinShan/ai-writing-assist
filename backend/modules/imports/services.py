@@ -102,7 +102,7 @@ class ImportService:
 
         except HTTPException:
             raise
-        except Exception as exc:
+        except ValueError as exc:
             await self._repo.update_status(
                 db, record.id,
                 status="failed",
@@ -110,8 +110,20 @@ class ImportService:
             )
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"导入失败: {exc}",
+                detail=f"导入参数错误: {exc}",
+            ) from exc
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("导入失败: %s", exc, exc_info=True)
+            await self._repo.update_status(
+                db, record.id,
+                status="failed",
+                error_message=str(exc)[:1000],
             )
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="导入过程中发生服务器错误，请查看日志",
+            ) from exc
 
     async def get_import_record(
         self,
