@@ -165,6 +165,7 @@ class WritingDraftRepository:
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index == chapter_index,
             )
+            .with_for_update()
         )
         result = await db.execute(stmt)
         max_ver = result.scalar() or 0
