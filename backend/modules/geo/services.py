@@ -423,33 +423,36 @@ class GeoQueryService:
         nid = parse_uuid(novel_id)
         lid = parse_uuid(location_id)
 
-        location = await self._loc_repo.get(db, lid)
+        # 批量加载所有地点（供父级链内存行走和后续使用）
+        all_locs, _ = await self._loc_repo.get_multi(db, nid, skip=0, limit=10000)
+        loc_map = {str(loc.id): loc for loc in all_locs}
+        location = loc_map.get(str(lid))
+
         if location is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"GeoLocation {location_id} not found",
             )
 
-        # 父级地点链
-        ancestors = await self._loc_repo.get_ancestors(db, lid)
-        # ancestors 包含 location 自身 + 父级链
+        # 并行查询：父级链（内存）、子地点、关联边、历史时期
+        import asyncio
+
+        ancestors, children, edges, eras = await asyncio.gather(
+            self._loc_repo.get_ancestors(db, lid, all_locations=all_locs),
+            self._loc_repo.get_children(db, lid),
+            self._edge_repo.get_by_location(db, nid, lid),
+            self._era_repo.get_all_sorted(db, nid),
+        )
+
         parent_locations: list[GeoLocationResponse] = []
         for anc in ancestors:
-            if anc.id != lid:  # 排除自身
+            if anc.id != lid:
                 parent_locations.append(GeoLocationResponse.model_validate(anc))
 
-        # 子地点
-        children = await self._loc_repo.get_children(db, lid)
         child_responses = [
             GeoLocationResponse.model_validate(c) for c in children
         ]
-
-        # 关联边
-        edges = await self._edge_repo.get_by_location(db, nid, lid)
         edge_responses = [GeoEdgeResponse.model_validate(e) for e in edges]
-
-        # 历史时期
-        eras = await self._era_repo.get_all_sorted(db, nid)
         era_states: list[dict] = []
         current_era_response = None
         content_json = location.content_json or {}

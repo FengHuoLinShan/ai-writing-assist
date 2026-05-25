@@ -143,29 +143,42 @@ class GeoLocationRepository:
         self,
         db: AsyncSession,
         location_id: uuid.UUID,
+        all_locations: list[GeoLocation] | None = None,
     ) -> list[GeoLocation]:
         """获取上级地点链（从父级到根）
 
-        由于 SQLite 不支持递归 CTE，此方法通过逐级查询实现，
-        层级深度一般不会超过 8 层。
+        通过 all_locations 参数传递全量地点列表时，在内存中行走父链，
+        避免 N+1 逐级查询。各层级深度一般不超过 8 层。
         """
-        ancestors: list[GeoLocation] = []
-        current_id = location_id
+        if all_locations is not None:
+            loc_map = {str(loc.id): loc for loc in all_locations}
+            ancestors: list[GeoLocation] = []
+            current = loc_map.get(str(location_id))
+            while current is not None:
+                if current.parent_location_id:
+                    ancestors.append(current)
+                    current = loc_map.get(str(current.parent_location_id))
+                else:
+                    ancestors.append(current)
+                    break
+            return ancestors
 
-        for _ in range(16):  # 安全上限
+        # SQLite 回退：逐级查询
+        ancestors_db: list[GeoLocation] = []
+        current_id = location_id
+        for _ in range(16):
             stmt = select(GeoLocation).where(GeoLocation.id == current_id)
             result = await db.execute(stmt)
             location = result.scalar_one_or_none()
             if location is None:
                 break
             if location.parent_location_id:
-                ancestors.append(location)
+                ancestors_db.append(location)
                 current_id = location.parent_location_id
             else:
-                ancestors.append(location)
+                ancestors_db.append(location)
                 break
-
-        return ancestors  # 从最近父级到最远根
+        return ancestors_db  # 从最近父级到最远根
 
     async def get_tree(
         self,
