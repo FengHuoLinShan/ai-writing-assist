@@ -241,9 +241,24 @@ class EntityCandidateService:
             return WorldEntityResponse.model_validate(entity)
 
         # create_new
+        # 映射中文/LLM 输出的实体类型到标准英文类型
+        _ENTITY_TYPE_MAP = {
+            "人物": "character_ref", "人": "character_ref", "角色": "character_ref",
+            "地点": "location", "场所": "location", "位置": "location",
+            "组织": "faction", "势力": "faction", "派系": "faction",
+            "物品": "item", "道具": "item", "物品/装备": "item",
+            "事件": "event", "事件/活动": "event",
+            "规则": "rule", "规则/系统": "rule",
+            "力量体系": "power_system", "超凡体系": "power_system",
+            "秘密": "secret", "秘密/真相": "secret",
+            "传说": "legend", "传说/神话": "legend",
+            "资源": "resource", "资源/材料": "resource",
+        }
+        raw_type = edits.get("entity_type", candidate.entity_type)
+        mapped_type = _ENTITY_TYPE_MAP.get(raw_type, raw_type)
         create_fields: dict[str, Any] = {
             "name": edits.get("name", candidate.name),
-            "entity_type": edits.get("entity_type", candidate.entity_type),
+            "entity_type": mapped_type,
             "summary": edits.get("summary", candidate.summary or ""),
             "public_info": edits.get("public_info", ""),
             "hidden_truth": edits.get("hidden_truth", ""),
@@ -256,5 +271,24 @@ class EntityCandidateService:
         entity_repo = WorldEntityRepository()
         entity = await entity_repo.create(db, nid, create_data)
         await self._repo.update_status(db, cid, "canonical")
+
+        # 自动同步：entity_type=人物 → 创建 Character 记录
+        if mapped_type == "character_ref":
+            import logging
+            try:
+                from modules.character.services import CharacterService
+                from modules.character.schemas import CharacterCreate
+                char_svc = CharacterService()
+                char_data = CharacterCreate(
+                    novel_id=novel_id,
+                    name=candidate.name,
+                    world_entity_id=str(entity.id),
+                )
+                await char_svc.create_character(db, char_data)
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "Failed to auto-create Character for candidate %s: %s",
+                    candidate.name, exc,
+                )
 
         return WorldEntityResponse.model_validate(entity)

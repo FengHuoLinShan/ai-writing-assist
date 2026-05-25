@@ -581,8 +581,8 @@ const worldView = {
       `确认将 "${candidate.name}" 处理为：${actionText[action] || action}？`,
       async () => {
         try {
-          await api.world.confirmCandidate(id, { suggested_action: action })
-          toast(`候选 "${candidate.name}" 已处理`, "success")
+          await api.world.acceptCandidate(id, _state.currentProjectId)
+          toast(`候选 "${candidate.name}" 已接受`, "success")
           router.navigate("world", "candidates")
         } catch (err) {
           toast(`处理失败：${err.message}`, "error")

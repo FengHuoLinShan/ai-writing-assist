@@ -7,6 +7,8 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.schemas import (
@@ -15,10 +17,11 @@ from modules.world.schemas import (
     WorldEntityContext,
     WorldEntityResponse,
 )
-from modules.world.services import EntityDedupService, RelationshipService, WorldEntityService
+from modules.world.services import EntityCandidateService, EntityDedupService, RelationshipService, WorldEntityService
 
 _entity_service = WorldEntityService()
 _relationship_service = RelationshipService()
+_candidate_service = EntityCandidateService()
 _dedup_service = EntityDedupService()
 
 
@@ -124,6 +127,28 @@ async def find_similar_entities(
     """
     return await _dedup_service.find_similar_entities(
         db, novel_id, name, aliases=aliases, entity_type=entity_type,
+    )
+
+
+async def accept_candidate(
+    db: AsyncSession,
+    novel_id: str,
+    candidate_id: str,
+    user_edits: dict[str, Any] | None = None,
+) -> WorldEntityResponse:
+    """接受候选对象：根据 suggested_action 创建实体/别名/合并
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        candidate_id: 候选对象 ID
+        user_edits: 用户编辑的可选覆盖字段
+
+    Returns:
+        WorldEntityResponse — 创建/更新后的正史对象
+    """
+    return await _candidate_service.accept_candidate(
+        db, novel_id, candidate_id, user_edits=user_edits,
     )
 
 

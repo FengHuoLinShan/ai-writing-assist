@@ -302,6 +302,21 @@ async def update_candidate(
     return await _candidate_service.update(db, candidate_id, data, novel_id=novel_id)
 
 
+@router.post(
+    "/candidates/{candidate_id}/accept",
+    response_model=WorldEntityResponse,
+)
+async def accept_candidate(
+    db: DbSession,
+    candidate_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldEntityResponse:
+    """接受候选对象：根据 suggested_action 创建实体/别名/合并"""
+    from modules.world.facade import accept_candidate as _accept
+
+    return await _accept(db, novel_id, candidate_id)
+
+
 @router.delete("/candidates/{candidate_id}", status_code=204)
 async def delete_candidate(
     db: DbSession,

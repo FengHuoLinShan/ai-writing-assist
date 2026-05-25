@@ -20,6 +20,11 @@ from fastapi.responses import JSONResponse
 from core.config import get_settings
 from core.database import get_manager
 
+# 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
+import modules.project.models  # noqa: F401
+import modules.world.models  # noqa: F401
+import modules.character.models  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 

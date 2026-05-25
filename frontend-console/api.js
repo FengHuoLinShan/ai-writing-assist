@@ -191,6 +191,13 @@ const api = {
       })
     },
 
+    /** 接受候选对象：根据 suggested_action 创建实体/别名/合并 */
+    async acceptCandidate(id, novelId) {
+      return request(`/world/candidates/${id}/accept${qs({ novel_id: novelId })}`, {
+        method: "POST",
+      })
+    },
+
     /** 获取关系列表 */
     async listRelationships(entityId) {
       const params = entityId ? { source_id: entityId, target_id: entityId } : {}
