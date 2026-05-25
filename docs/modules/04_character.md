@@ -20,6 +20,8 @@ character 模块负责人物档案、当前状态和知识边界。当前阶段�
 async def get_characters_context(db, novel_id, character_ids, reveal_mode="author_safe") -> CharacterContextBundle
 async def get_character_knowledge_context(db, novel_id, character_id, target_ids=None) -> list
 async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
+async def create_character(db, novel_id, name, world_entity_id=None) -> CharacterResponse
+async def get_character_id_by_world_entity(db, novel_id, world_entity_id) -> str | None
 ```
 
 ## API

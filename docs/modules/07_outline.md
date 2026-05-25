@@ -45,6 +45,31 @@ POST/GET/DELETE /api/outline/foreshadowing
 POST/GET/DELETE /api/outline/reveals
 ```
 
+## Facade
+
+```python
+# PlotThread
+async def create_thread(db, novel_id, data) -> PlotThreadResponse
+async def update_thread(db, thread_id, data, novel_id) -> PlotThreadResponse
+async def list_thread_summaries(db, novel_id, limit=50) -> list[dict]
+
+# OutlineArc
+async def create_arc(db, novel_id, data) -> OutlineArcResponse
+async def update_arc(db, arc_id, data, novel_id) -> OutlineArcResponse
+async def list_arc_summaries(db, novel_id, limit=50) -> list[dict]
+
+# ChapterCard
+async def get_chapter_card(db, novel_id, chapter_index) -> ChapterCardContext | None
+async def create_chapter_cards_from_candidate(db, novel_id, candidate_payload) -> list[ChapterCardContext]
+```
+
+## 异步任务
+
+- `@task_handler("plot_structure_generate")` — 从正文生成剧情线+篇章纲（支持增量）
+- `@task_handler("chapter_card_extraction")` — 逐章从正文提取章节卡字段
+
+章节卡提取流程：检查正文 → 跳过已有卡 → LLM 提取 7 个核心字段（chapter_goal, main_conflict, emotional_point, ending_hook, scene_cards, must_happen/not_happen, visible/hidden_progress）→ 创建 candidate 状态章节卡
+
 ## 不做
 
 - 一次性生成 500 章全部章节卡

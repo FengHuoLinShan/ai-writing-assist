@@ -42,7 +42,27 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 POST /api/imports/upload           # 上传并导入（multipart/form-data）
 GET  /api/imports                  # 导入记录列表
 GET  /api/imports/{id}            # 导入记录详情
+POST /api/imports/deep            # 提交深度导入任务
+POST /api/imports/deep/resume     # 继续深度导入（确认候选后）
 ```
+
+## 深度导入流水线
+
+DeepImportWorkflow 将三步串成有状态流水线，完成后进入 checkpoint 等待用户确认：
+
+1. **extract_world** — 调用 world facade 从章节正文抽取世界对象候选
+2. **sync_characters** — 将已确认的 character_ref 实体同步到人物档案
+3. **generate_plot** — 调用 LLM 生成剧情线和篇章纲（增量更新）
+
+状态转换：`pending → running → awaiting_review → running → done`
+
+Checkpoint 机制：step1 完成后 task 以 done 结束，progress.phase = "awaiting_review"。
+用户处理完所有 pending 候选后调用 resume 继续 step2+3。
+
+关键文件：
+- `workflow_schemas.py` — DeepImportStep 枚举 + DeepImportProgress
+- `workflow.py` — DeepImportWorkflow 编排器（3 个 step 方法）
+- `tasks.py` — @task_handler("deep_import") + @task_handler("deep_import_resume")
 
 ## 跨模块依赖
 

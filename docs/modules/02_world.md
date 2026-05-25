@@ -23,6 +23,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 services/ 目录下按职责拆分：
 
 - `entity_service.py` — WorldEntityService：对象 CRUD
+- `entity_types.py` — ENTITY_TYPE_MAP：24 种中文→英文实体类型映射 + map_entity_type() + is_entity_type_valid()
 - `relationship_service.py` — RelationshipService：关系 CRUD + 一跳/二跳扩展
 - `candidate_service.py` — EntityCandidateService：候选池管理 + 晋升/合并/别名
 - `alias_service.py` — AliasService：别名管理
@@ -38,6 +39,10 @@ async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=
 async def find_duplicate_entity_candidates(db, novel_id, candidate_id) -> list[DuplicateSuggestion]
 async def find_similar_entities(db, novel_id, name, entity_type=None, threshold=0.72, limit=5) -> list
 async def merge_candidate_into_entity(db, entity_id, candidate_id) -> WorldEntity
+async def list_entities(db, novel_id, entity_type=None, limit=100) -> list[dict]    # 轻量摘要（id/name/type）
+async def count_pending_candidates(db, novel_id) -> int
+async def accept_candidate(db, novel_id, candidate_id, user_edits=None) -> WorldEntityResponse
+async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_size=5) -> dict
 ```
 
 ## API
