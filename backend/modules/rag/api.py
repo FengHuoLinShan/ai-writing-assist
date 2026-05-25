@@ -12,7 +12,6 @@ from fastapi import APIRouter, HTTPException, Query, status as http_status
 from core.dependencies import DbSession
 from modules.rag.facade import (
     create_chunk,
-    find_similar_entities,
     list_chunks,
     retrieve,
 )
@@ -21,15 +20,12 @@ from modules.rag.schemas import (
     RagChunkResponse,
     RagQuery,
     RagResult,
-    SimilarEntity,
-    SimilarEntityResponse,
 )
-from modules.rag.services import ChunkingService, EmbeddingService
+from modules.rag.services import ChunkingService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/rag", tags=["rag"])
 _chunking = ChunkingService()
-_embedding = EmbeddingService()
 
 
 @router.post("/chunks", response_model=RagChunkResponse, status_code=201)
@@ -109,40 +105,6 @@ async def retrieve_chunks(
         total=result.total,
         query=result.query,
     )
-
-
-@router.post("/similar-entities", response_model=SimilarEntityResponse)
-async def find_similar(
-    db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID (UUID hex string)"),
-    candidate_embedding: list[float] = Query(
-        ...,
-        description="候选对象的 embedding 向量",
-    ),
-    entity_type: str | None = Query(
-        None,
-        description="可选的实体类型过滤",
-    ),
-    top_k: int = Query(
-        default=8,
-        ge=1,
-        le=50,
-        description="返回的最大结果数",
-    ),
-) -> SimilarEntityResponse:
-    """查找语义相似的实体（预留接口）
-
-    生产环境通过 pgvector 查询语义相似的 world_entities。
-    当前 SQLite 模式返回空列表。
-    """
-    entities = await find_similar_entities(
-        db,
-        novel_id,
-        candidate_embedding,
-        entity_type=entity_type,
-        top_k=top_k,
-    )
-    return SimilarEntityResponse(items=entities, total=len(entities))
 
 
 @router.post("/chunks/split", response_model=dict)

@@ -13,12 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.contracts import RagChunkContract, RagResultBundle
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.schemas import RagChunkCreate, RagChunkResponse, SimilarEntity
-from modules.rag.services import ChunkingService, EmbeddingService, RetrievalService
+from modules.rag.schemas import RagChunkCreate, RagChunkResponse
+from modules.rag.services import ChunkingService, RetrievalService
 
 _repo = RagChunkRepository()
 _chunking = ChunkingService()
-_embedding = EmbeddingService()
 _retrieval = RetrievalService()
 
 
@@ -130,38 +129,6 @@ async def retrieve(
         chunks=chunk_contracts,
         total=len(scored_chunks),
         query=query,
-    )
-
-
-async def find_similar_entities(
-    db: AsyncSession,
-    novel_id: str,
-    candidate_embedding: list[float],
-    entity_type: str | None = None,
-    top_k: int = 8,
-) -> list[SimilarEntity]:
-    """查找语义相似的实体（预留接口）
-
-    生产环境中通过 pgvector 查询 world_entities 表的 embedding 列。
-    当前返回空列表，因为内存 SQLite 不支持 pgvector。
-
-    Args:
-        db: 数据库 session
-        novel_id: 小说项目 ID (UUID hex string)
-        candidate_embedding: 候选对象的 embedding 向量
-        entity_type: 可选的实体类型过滤
-        top_k: 返回的最大结果数
-
-    Returns:
-        list[SimilarEntity] — 相似实体列表
-    """
-    nid = uuid.UUID(hex=novel_id)
-    return await _retrieval.find_similar_entities(
-        db,
-        nid,
-        candidate_embedding,
-        entity_type=entity_type,
-        top_k=top_k,
     )
 
 

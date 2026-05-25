@@ -7,18 +7,11 @@ RAG 业务逻辑层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
 
-from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.schemas import (
-    RagChunkCreate,
-    RagChunkResponse,
-    SimilarEntity,
-)
 from shared.constants import (
     RAG_IMPORTANCE_WEIGHT,
     RAG_KEYWORD_WEIGHT,
@@ -149,49 +142,6 @@ class ChunkingService:
 
 
 # ============================================================
-# EmbeddingService
-# ============================================================
-
-class EmbeddingService:
-    """Embedding 生成服务
-
-    MVP 阶段提供预留接口。
-    生产环境应接入 OpenAI Embedding API 或本地 embedding 模型。
-    """
-
-    async def generate_embedding(
-        self,
-        text: str,
-        model: str | None = None,
-    ) -> list[float] | None:
-        """生成文本 embedding（预留接口）
-
-        当前返回 None，表示未接入 embedding 服务。
-        生产环境应：
-        1. 调用 LLM provider 的 embedding API
-        2. 或使用本地 embedding 模型
-        3. 返回符合 embedding_dim 的 float 列表
-
-        Args:
-            text: 要生成 embedding 的文本
-            model: 模型名称（可选，使用默认模型）
-
-        Returns:
-            list[float] | None — 嵌入向量或 None（未接入时）
-        """
-        # 预留接口 — 后续接入具体 embedding 实现
-        return None
-
-    async def generate_embeddings_batch(
-        self,
-        texts: list[str],
-        model: str | None = None,
-    ) -> list[list[float] | None]:
-        """批量生成 embedding（预留接口）"""
-        return [await self.generate_embedding(t, model) for t in texts]
-
-
-# ============================================================
 # RetrievalService
 # ============================================================
 
@@ -205,7 +155,6 @@ class RetrievalService:
     def __init__(self) -> None:
         self._repo = RagChunkRepository()
         self._chunking = ChunkingService()
-        self._embedding = EmbeddingService()
 
     async def hybrid_search(
         self,
@@ -261,8 +210,6 @@ class RetrievalService:
         )
         scored_chunks: list[tuple[RagChunk, float]] = []
 
-        scored_chunks: list[tuple[Any, float]] = []
-
         for chunk in unique_chunks:
             # 关键词评分：中文用全查询子串匹配，英文用词匹配
             if use_chinese_match and query_lower:
@@ -313,36 +260,6 @@ class RetrievalService:
             return []
 
         return scored_chunks[:top_k]
-
-    async def find_similar_entities(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        candidate_embedding: list[float],
-        entity_type: str | None = None,
-        top_k: int = 8,
-    ) -> list[SimilarEntity]:
-        """查找语义相似的实体（预留接口）
-
-        当前返回空列表，因为内存 SQLite 不支持 pgvector。
-        生产环境中应:
-        1. 查询 world_entities 表（带 embedding 列）
-        2. 使用余弦距离: embedding <=> :candidate
-        3. 可选按 entity_type 过滤
-        4. 返回名称和相似度
-
-        Args:
-            db: 数据库 session
-            novel_id: 小说项目 ID
-            candidate_embedding: 候选对象的 embedding 向量
-            entity_type: 可选的实体类型过滤
-            top_k: 返回的最大结果数
-
-        Returns:
-            list[SimilarEntity] — 相似实体列表
-        """
-        # 预留接口 — 后续接入 pgvector 语义相似查询
-        return []
 
     # ============================================================
     # 内部评分方法
@@ -426,22 +343,3 @@ class RetrievalService:
             return 0.0
         return matched_score / total_fields
 
-    @staticmethod
-    def _normalize_scores(
-        scored_chunks: list[tuple[RagChunk, float]],
-    ) -> list[tuple[RagChunk, float]]:
-        """Min-max 归一化评分到 0.0-1.0 范围"""
-        if not scored_chunks:
-            return scored_chunks
-
-        scores = [s for _, s in scored_chunks]
-        min_s = min(scores)
-        max_s = max(scores)
-
-        if max_s - min_s < 0.001:
-            return [(c, 1.0) for c, _ in scored_chunks]
-
-        return [
-            (c, (s - min_s) / (max_s - min_s))
-            for c, s in scored_chunks
-        ]

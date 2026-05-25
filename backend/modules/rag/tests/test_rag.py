@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.rag.contracts import RagChunkContract, RagQueryContract, RagResultBundle
 from modules.rag.facade import (
     create_chunk,
-    find_similar_entities,
     list_chunks,
     retrieve,
     split_text_into_chunks,
@@ -28,7 +27,7 @@ from modules.rag.schemas import (
     RagResult,
     SimilarEntity,
 )
-from modules.rag.services import ChunkingService, EmbeddingService, RetrievalService
+from modules.rag.services import ChunkingService, RetrievalService
 
 
 # ============================================================
@@ -340,26 +339,6 @@ class TestChunkingService:
         assert len(chunks) > 1
 
 
-# ============================================================
-# EmbeddingService 测试
-# ============================================================
-
-class TestEmbeddingService:
-    """测试 Embedding 服务"""
-
-    @pytest.mark.asyncio
-    async def test_generate_embedding_returns_none(self) -> None:
-        """测试生成 embedding 返回 None（预留接口）"""
-        svc = EmbeddingService()
-        result = await svc.generate_embedding("测试文本")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_generate_embeddings_batch(self) -> None:
-        """测试批量生成 embedding 返回 None 列表"""
-        svc = EmbeddingService()
-        results = await svc.generate_embeddings_batch(["a", "b", "c"])
-        assert results == [None, None, None]
 
 
 # ============================================================
@@ -452,19 +431,6 @@ class TestRetrievalService:
             entity_ids=["e1"], top_k=5,
         )
         assert len(results) >= 1
-
-    @pytest.mark.asyncio
-    async def test_find_similar_entities_returns_empty(
-        self,
-        retrieval: RetrievalService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
-        """测试相似实体检索返回空列表（预留接口）"""
-        results = await retrieval.find_similar_entities(
-            db_with_project, sample_novel_id, [0.1] * 10,
-        )
-        assert results == []
 
     @pytest.mark.asyncio
     async def test_score_computation(self) -> None:
@@ -611,18 +577,6 @@ class TestRagFacade:
         )
         if result.chunks:
             assert result.chunks[0].character_ids == [char_id]
-
-    @pytest.mark.asyncio
-    async def test_find_similar_entities(
-        self,
-        db_with_project: AsyncSession,
-    ) -> None:
-        """测试相似实体检索"""
-        novel_id = str(uuid.uuid4())
-        entities = await find_similar_entities(
-            db_with_project, novel_id, [0.1] * 10,
-        )
-        assert entities == []
 
     @pytest.mark.asyncio
     async def test_split_text_into_chunks_paragraph(self) -> None:
