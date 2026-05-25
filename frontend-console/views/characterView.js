@@ -200,7 +200,7 @@ const characterView = {
         if (data.status === "done") toast("识别任务已完成", "success")
         else if (data.status === "failed") toast(`识别失败: ${data.error_message || "未知错误"}`, "error")
       }
-    } catch {}
+    } catch (e) { console.warn("轮询任务状态失败", e) }
   },
 
   _updateExtractStatusDOM() {

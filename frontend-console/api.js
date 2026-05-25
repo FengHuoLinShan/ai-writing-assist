@@ -5,7 +5,7 @@
  * 所有函数返回 Promise<Object>。
  */
 
-const API_BASE_URL = "http://localhost:8000/api"
+const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
 const API_TIMEOUT = 15000
 
 /**
@@ -54,7 +54,7 @@ async function request(path, options = {}) {
       try {
         const errBody = await resp.json()
         detail = errBody.detail || errBody.message || ""
-      } catch {}
+      } catch (e) { console.warn("解析错误响应失败", e) }
 
       const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
       throw new Error(detail ? `${msg}：${detail}` : msg)
