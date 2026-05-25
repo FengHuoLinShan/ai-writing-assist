@@ -1,7 +1,7 @@
 /**
- * 草稿导出视图 + 小说导入
+ * 草稿导出视图
  *
- * 承载手写正文草稿、导入小说文件、导出创作包。
+ * 承载手写正文草稿、导出结构化创作包。
  */
 const writingView = {
   /** @type {Array} 草稿列表 */
@@ -13,48 +13,17 @@ const writingView = {
   /** @type {string|null} 当前草稿内容 */
   _currentContent: null,
 
-  /** @type {Array} 导入记录列表 */
-  _importRecords: [],
-
-  /** @type {boolean} 是否正在上传 */
-  _uploading: false,
-
   async onEnter() {
     this._drafts = []
     this._currentChapter = null
     this._currentContent = null
-    this._importRecords = []
-    this._uploading = false
-    this._loadImportRecords()
   },
 
   async render() {
     let html = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        承载手写正文草稿，导入小说文件，导出结构化创作包。
+        手写正文草稿、导出结构化创作包。
       </p>
-
-      <!-- ====== 导入区 ====== -->
-      <div class="card" style="margin-bottom:12px;">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>导入小说</span>
-          <span id="import-toggle" class="clickable" style="color:var(--accent);font-size:12px;cursor:pointer;" onclick="writingView._toggleImport()">展开</span>
-        </div>
-        <div id="import-section" style="display:none;">
-          <!-- 上传表单 -->
-          <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:8px;background:var(--panel);border-radius:4px;">
-            <div style="flex:1;">
-              <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px;">选择小说文件（txt/epub/html/mobi）</label>
-              <input type="file" id="import-file-input" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text);font-size:12px;" />
-            </div>
-            <button class="btn btn-primary" id="btn-import-upload" onclick="writingView._uploadFile()" ${this._uploading ? "disabled" : ""}>
-              ${this._uploading ? "上传中..." : "上传并导入"}
-            </button>
-          </div>
-          <!-- 导入记录 -->
-          <div id="import-history" style="margin-top:8px;"></div>
-        </div>
-      </div>
 
       <!-- ====== 编辑区 ====== -->
       <div style="display:grid;grid-template-columns:280px 1fr 200px;gap:12px;">
@@ -126,90 +95,6 @@ const writingView = {
       </div>
     `
     return html
-  },
-
-  // ============================================================
-  // 导入
-  // ============================================================
-
-  _toggleImport() {
-    const section = document.getElementById("import-section")
-    const toggle = document.getElementById("import-toggle")
-    if (!section) return
-    const isHidden = section.style.display === "none" || !section.style.display
-    section.style.display = isHidden ? "block" : "none"
-    if (toggle) toggle.textContent = isHidden ? "收起" : "展开"
-    if (isHidden) this._renderImportHistory()
-  },
-
-  async _loadImportRecords() {
-    if (!_state.currentProjectId) return
-    try {
-      const data = await api.imports.list({ novel_id: _state.currentProjectId })
-      this._importRecords = data.items || []
-    } catch {
-      this._importRecords = []
-    }
-  },
-
-  async _renderImportHistory() {
-    const container = document.getElementById("import-history")
-    if (!container) return
-    await this._loadImportRecords()
-
-    if (this._importRecords.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-dim);font-size:12px;padding:8px;">暂无导入记录。选择文件后点击"上传并导入"。</p>'
-      return
-    }
-
-    let html = '<table class="data-table" style="font-size:12px;"><thead><tr><th>文件名</th><th>类型</th><th>章节</th><th>状态</th><th>时间</th></tr></thead><tbody>'
-    for (const r of this._importRecords) {
-      const statusMap = { done: "完成", processing: "处理中", failed: "失败", pending: "等待" }
-      const statusClass = `badge-${r.status || "pending"}`
-      const time = r.created_at ? new Date(r.created_at).toLocaleString("zh-CN") : ""
-      html += `
-        <tr>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.file_name)}</td>
-          <td style="color:var(--accent-dim);">${r.file_type}</td>
-          <td>${r.imported_chapters || 0}/${r.total_chapters || 0}</td>
-          <td><span class="badge ${statusClass}">${statusMap[r.status] || r.status}</span></td>
-          <td style="color:var(--text-dim);font-size:11px;">${time}</td>
-        </tr>`
-    }
-    html += '</tbody></table>'
-    container.innerHTML = html
-  },
-
-  async _uploadFile() {
-    const input = document.getElementById("import-file-input")
-    const btn = document.getElementById("btn-import-upload")
-    if (!input || !input.files || input.files.length === 0) {
-      toast("请先选择文件", "warning")
-      return
-    }
-    if (!_state.currentProjectId) {
-      toast("请先选择项目", "warning")
-      return
-    }
-
-    this._uploading = true
-    if (btn) btn.disabled = true
-    if (btn) btn.textContent = "上传中..."
-
-    try {
-      const result = await api.imports.upload(_state.currentProjectId, input.files[0])
-      toast(`导入完成：${result.imported_chapters} 章`, "success")
-      input.value = ""
-      this._renderImportHistory()
-    } catch (err) {
-      toast(err.message || "导入失败", "error")
-    } finally {
-      this._uploading = false
-      if (btn) {
-        btn.disabled = false
-        btn.textContent = "上传并导入"
-      }
-    }
   },
 
   // ============================================================

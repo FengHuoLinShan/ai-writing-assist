@@ -99,6 +99,14 @@ const _state = new Proxy(appState, {
 
     target[key] = value
 
+    // 自动保存项目选择到 localStorage
+    if (key === "currentProjectId") {
+      try { localStorage.setItem("novel_currentProjectId", value || "") } catch {}
+    }
+    if (key === "currentProject" && value) {
+      try { localStorage.setItem("novel_currentProject", JSON.stringify(value)) } catch {}
+    }
+
     // 触发监听器
     for (const listener of _stateListeners) {
       try {

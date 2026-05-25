@@ -20,12 +20,15 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 ## 服务
 
-- WorldEntityService：对象 CRUD
-- RelationshipService：关系 CRUD
-- EntityCandidateService：候选池管理
-- EntityDedupService：_fuzzy_name_matches（difflib 0.72 阈值）+ entity_type 兼容性过滤 + 候选合并
-- EntityExtractionService：调用 LLM 批量抽取（5 章一批），创建候选 + 去重
-- AliasService：别名管理
+services/ 目录下按职责拆分：
+
+- `entity_service.py` — WorldEntityService：对象 CRUD
+- `relationship_service.py` — RelationshipService：关系 CRUD + 一跳/二跳扩展
+- `candidate_service.py` — EntityCandidateService：候选池管理 + 晋升/合并/别名
+- `alias_service.py` — AliasService：别名管理
+- `dedup_service.py` — EntityDedupService：_fuzzy_name_matches（difflib 0.72 阈值）+ entity_type 兼容性过滤 + 候选合并
+- `extraction_service.py` — EntityExtractionService：调用 LLM 批量抽取（5 章一批），创建候选 + 去重
+- `helpers.py` — 共享函数（parse_uuid / normalize_name / merge_text_field / world_entity_types_compatible）
 
 ## Facade
 

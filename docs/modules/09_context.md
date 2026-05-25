@@ -8,6 +8,23 @@ context 模块是系统核心智能模块。RAG 负责找资料，Context Compil
 
 project / world / geo / character / memory / timeline / outline / rag
 
+## 架构
+
+ContextCompiler 使用 Loader 策略模式，每个数据源独立一个 Loader 类：
+
+| Loader | 来源 |
+|--------|------|
+| ProjectLoader | project.facade.get_project_context |
+| WorldEntitiesLoader | world.facade.get_world_context |
+| CharactersLoader | character.facade.get_characters_context |
+| GeoLocationsLoader | geo.facade.get_location_context（批量） |
+| MemoryRecordsLoader | memory.facade.get_recent_story_memory |
+| TimelineEventsLoader | timeline.facade.get_relevant_timeline_context |
+| PlotThreadsLoader | outline.facade.get_active_threads |
+| OutlineArcLoader | outline.facade.get_arc_context |
+| ChapterCardLoader | outline.facade.get_chapter_card |
+| RagChunksLoader | rag.facade.retrieve |
+
 ## 核心函数
 
 ```python

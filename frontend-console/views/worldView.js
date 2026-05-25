@@ -8,6 +8,12 @@ const worldView = {
   /** @type {Array} */
   _candidates: [],
 
+  /** AI 自动识别状态 */
+  _autoExtractOpen: false,
+  _autoExtractTaskId: null,
+  _autoExtractStatus: "就绪",
+  _autoExtractTimer: null,
+
   async render() {
     const subView = _state.currentSubView || "objects"
     let html = ''
@@ -37,6 +43,12 @@ const worldView = {
   },
 
   async onEnter() {
+    // 清理上次的轮询
+    if (this._autoExtractTimer) {
+      clearInterval(this._autoExtractTimer)
+      this._autoExtractTimer = null
+    }
+
     try {
       if (_state.currentProjectId) {
         const data = await api.world.listEntities({ novel_id: _state.currentProjectId })
@@ -56,6 +68,92 @@ const worldView = {
     }
   },
 
+  // ============================================================
+  // AI 自动识别
+  // ============================================================
+
+  _toggleAutoExtract() {
+    this._autoExtractOpen = !this._autoExtractOpen
+    router.navigate("world", _state.currentSubView)
+  },
+
+  _renderAutoExtractPanel(taskType, label) {
+    const statusLine = this._autoExtractTaskId
+      ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ${this._autoExtractStatus}`
+      : `状态: ${this._autoExtractStatus}`
+    return `
+      <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
+        <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
+          起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          <button class="btn btn-sm btn-primary" onclick="worldView._submitAutoExtract('${taskType}')" ${this._autoExtractTaskId ? "disabled" : ""}>
+            ${this._autoExtractTaskId ? "识别中..." : "开始识别"}
+          </button>
+        </div>
+        <div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">${statusLine}</div>
+      </div>
+    `
+  },
+
+  async _submitAutoExtract(taskType) {
+    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    const start = parseInt(document.getElementById("w-extract-start")?.value || "1", 10)
+    const end = parseInt(document.getElementById("w-extract-end")?.value || "10", 10)
+    if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
+
+    try {
+      const result = await api.tasks.submit(taskType, {
+        novel_id: _state.currentProjectId,
+        start_chapter: start,
+        end_chapter: end,
+      })
+      this._autoExtractTaskId = result.task_id
+      this._autoExtractStatus = "运行中"
+      this._updateExtractStatusDOM()
+      toast("识别任务已提交", "info")
+      router.navigate("world", _state.currentSubView)
+
+      // 启动轮询
+      if (this._autoExtractTimer) clearInterval(this._autoExtractTimer)
+      this._autoExtractTimer = setInterval(() => this._pollAutoExtract(result.task_id), 5000)
+    } catch (err) {
+      this._autoExtractStatus = `失败: ${err.message}`
+      this._updateExtractStatusDOM()
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  async _pollAutoExtract(taskId) {
+    try {
+      const data = await api.tasks.getStatus(taskId)
+      this._autoExtractStatus = data.status || "未知"
+      this._updateExtractStatusDOM()
+
+      if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
+        if (this._autoExtractTimer) {
+          clearInterval(this._autoExtractTimer)
+          this._autoExtractTimer = null
+        }
+        if (data.status === "done") {
+          toast("识别任务已完成，请查看候选清洗", "success")
+        } else if (data.status === "failed") {
+          toast(`识别任务失败: ${data.error_message || "未知错误"}`, "error")
+        }
+      }
+    } catch {
+      // 轮询失败不中断
+    }
+  },
+
+  _updateExtractStatusDOM() {
+    const el = document.getElementById("w-extract-status")
+    if (el) {
+      const prefix = this._autoExtractTaskId ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ` : "状态: "
+      el.textContent = prefix + this._autoExtractStatus
+    }
+  },
+
   _renderEntityList() {
     if (this._entities.length === 0) {
       return `
@@ -65,12 +163,21 @@ const worldView = {
           <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
           <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
             <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
+            <button class="btn" onclick="worldView._toggleAutoExtract()">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
           </div>
+          ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象候选") : ""}
         </div>
       `
     }
 
     let html = `
+      <div style="text-align:center;margin-bottom:12px;">
+        <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
+        <button class="btn" onclick="worldView._toggleAutoExtract()" style="margin-left:8px;">
+          ${this._autoExtractOpen ? "▾" : "▸"} 自动识别
+        </button>
+      </div>
+      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象候选") : ""}
       <table class="data-table">
         <thead>
           <tr>
@@ -105,8 +212,7 @@ const worldView = {
 
     html += '</tbody></table>'
     html += `
-      <div style="margin-top:12px;display:flex;gap:8px;">
-        <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
+      <div style="margin-top:12px;text-align:center;">
         <button class="btn" onclick="router.navigate('world','candidates')">查看候选（${this._candidates.length}）</button>
       </div>
     `

@@ -13,11 +13,18 @@ const characterView = {
   /** @type {boolean} API 是否可用 */
   _apiAvailable: false,
 
+  /** AI 自动识别状态 */
+  _autoExtractOpen: false,
+  _autoExtractTaskId: null,
+  _autoExtractStatus: "就绪",
+  _autoExtractTimer: null,
+
   /**
    * 进入视图时加载人物列表
    */
   async onEnter() {
     this._apiAvailable = true
+    if (this._autoExtractTimer) { clearInterval(this._autoExtractTimer); this._autoExtractTimer = null }
     if (!_state.currentProjectId) {
       this._characters = []
       return
@@ -82,7 +89,9 @@ const characterView = {
           <p>记录小说中的主要人物、配角的档案和当前状态。</p>
           <div style="margin-top:8px;">
             <button class="btn btn-primary" data-action="new" id="btn-new-character">新建人物</button>
+            <button class="btn" onclick="characterView._toggleAutoExtract()">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
           </div>
+          ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别新的人物候选") : ""}
         </div>
       `
     }
@@ -121,8 +130,85 @@ const characterView = {
     }
 
     html += '</tbody></table>'
-    html += '<div style="margin-top:12px;"><button class="btn btn-primary" data-action="new" id="btn-new-character">新建人物</button></div>'
+    html += `
+      <div style="margin-top:12px;text-align:center;">
+        <button class="btn btn-primary" data-action="new" id="btn-new-character">新建人物</button>
+        <button class="btn" onclick="characterView._toggleAutoExtract()">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
+      </div>
+      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别新的人物候选") : ""}`
     return html
+  },
+
+  // ============================================================
+  // AI 自动识别
+  // ============================================================
+
+  _toggleAutoExtract() {
+    this._autoExtractOpen = !this._autoExtractOpen
+    router.navigate("character", _state.currentSubView)
+  },
+
+  _renderAutoExtractPanel(taskType, label) {
+    const statusLine = this._autoExtractTaskId
+      ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ${this._autoExtractStatus}`
+      : `状态: ${this._autoExtractStatus}`
+    return `
+      <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
+        <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
+          起始章 <input id="c-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          结束章 <input id="c-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          <button class="btn btn-sm btn-primary" onclick="characterView._submitAutoExtract('${taskType}')" ${this._autoExtractTaskId ? "disabled" : ""}>
+            ${this._autoExtractTaskId ? "识别中..." : "开始识别"}
+          </button>
+        </div>
+        <div id="c-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">${statusLine}</div>
+      </div>
+    `
+  },
+
+  async _submitAutoExtract(taskType) {
+    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    const start = parseInt(document.getElementById("c-extract-start")?.value || "1", 10)
+    const end = parseInt(document.getElementById("c-extract-end")?.value || "10", 10)
+    if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
+    try {
+      const result = await api.tasks.submit(taskType, {
+        novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
+      })
+      this._autoExtractTaskId = result.task_id
+      this._autoExtractStatus = "运行中"
+      this._updateExtractStatusDOM()
+      toast("识别任务已提交", "info")
+      router.navigate("character", _state.currentSubView)
+      if (this._autoExtractTimer) clearInterval(this._autoExtractTimer)
+      this._autoExtractTimer = setInterval(() => this._pollAutoExtract(result.task_id), 5000)
+    } catch (err) {
+      this._autoExtractStatus = `失败: ${err.message}`
+      this._updateExtractStatusDOM()
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  async _pollAutoExtract(taskId) {
+    try {
+      const data = await api.tasks.getStatus(taskId)
+      this._autoExtractStatus = data.status || "未知"
+      this._updateExtractStatusDOM()
+      if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
+        if (this._autoExtractTimer) { clearInterval(this._autoExtractTimer); this._autoExtractTimer = null }
+        if (data.status === "done") toast("识别任务已完成", "success")
+        else if (data.status === "failed") toast(`识别失败: ${data.error_message || "未知错误"}`, "error")
+      }
+    } catch {}
+  },
+
+  _updateExtractStatusDOM() {
+    const el = document.getElementById("c-extract-status")
+    if (el) {
+      const prefix = this._autoExtractTaskId ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ` : "状态: "
+      el.textContent = prefix + this._autoExtractStatus
+    }
   },
 
   /**

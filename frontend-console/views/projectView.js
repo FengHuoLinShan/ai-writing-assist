@@ -2,6 +2,15 @@
  * 项目视图
  */
 const projectView = {
+  /** @type {Array} 导入记录 */
+  _importRecords: [],
+
+  /** @type {boolean} 是否正在上传 */
+  _importUploading: false,
+
+  /** @type {boolean} 导入区折叠状态 */
+  _importSectionOpen: false,
+
   async render() {
     const projects = _state.projects
     let html = ''
@@ -45,16 +54,19 @@ const projectView = {
             <td>${p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : "-"}</td>
             <td>
               <button class="btn btn-sm" onclick="event.stopPropagation();projectView.editProject('${esc(p.id)}')">编辑</button>
+              <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();projectView.deleteProject('${esc(p.id)}')" style="margin-left:4px;">删除</button>
             </td>
           </tr>
         `
       }
       html += '</tbody></table>'
       html += `
-        <div style="margin-top:12px;display:flex;gap:8px;">
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
           <button class="btn" id="btn-import-file" onclick="projectView.importFile()">导入小说</button>
+          <button class="btn" onclick="projectView._toggleImportSection()">${this._importSectionOpen ? "▾" : "▸"} 导入到当前项目</button>
         </div>
+        ${this._importSectionOpen ? this._renderImportSection() : ""}
       `
     }
 
@@ -71,6 +83,17 @@ const projectView = {
     try {
       const data = await api.projects.list()
       _state.projects = data.items || data || []
+      // 自动选中之前保存的项目
+      if (_state.currentProjectId) {
+        const match = _state.projects.find(p => p.id === _state.currentProjectId)
+        if (match) {
+          _state.currentProject = match
+        } else {
+          // 保存的项目已被删除，清除状态
+          _state.currentProjectId = null
+          _state.currentProject = null
+        }
+      }
     } catch {
       // 后端不可用时使用空列表
       _state.projects = []
@@ -135,6 +158,27 @@ const projectView = {
         },
       },
     ])
+  },
+
+  /** 删除项目（二次确认） */
+  deleteProject(id) {
+    const project = _state.projects.find((p) => p.id === id)
+    if (!project) return
+    const name = project.title || project.name || "未命名"
+    confirmAction(`确定要删除项目「${esc(name)}」吗？\n此操作不可恢复，所有关联数据（世界对象、人物、剧情等）将被一并删除。`, async () => {
+      try {
+        await api.projects.remove(id)
+        toast(`项目「${name}」已删除`, "success")
+        // 如果删除的是当前项目，清除选中状态
+        if (_state.currentProjectId === id) {
+          _state.currentProjectId = null
+          _state.currentProject = null
+        }
+        router.navigate("project")
+      } catch (err) {
+        toast(`删除失败：${err.message}`, "error")
+      }
+    }, "确认删除")
   },
 
   showCreateForm() {
@@ -236,6 +280,93 @@ const projectView = {
       }
     }
     input.click()
+  },
+
+  // ============================================================
+  // 导入区（上传到当前项目）
+  // ============================================================
+
+  _toggleImportSection() {
+    this._importSectionOpen = !this._importSectionOpen
+    router.navigate("project")
+  },
+
+  _renderImportSection() {
+    const hasProject = !!_state.currentProjectId
+    return `
+      <div style="border:1px solid var(--border);border-radius:4px;padding:12px;margin-top:12px;">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+          将小说文件导入到当前选中的项目。
+          ${hasProject ? `当前项目：<strong>${esc(_state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px;">选择文件（txt/epub/html/mobi）</label>
+            <input type="file" id="pv-import-file" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text);font-size:12px;" ${!hasProject ? "disabled" : ""} />
+          </div>
+          <button class="btn btn-primary" onclick="projectView._uploadFile()" ${this._importUploading || !hasProject ? "disabled" : ""}>
+            ${this._importUploading ? "上传中..." : "上传并导入"}
+          </button>
+        </div>
+        <div id="pv-import-history" style="margin-top:8px;"></div>
+      </div>
+    `
+  },
+
+  async _loadImportRecords() {
+    if (!_state.currentProjectId) { this._importRecords = []; return }
+    try {
+      const data = await api.imports.list({ novel_id: _state.currentProjectId })
+      this._importRecords = data.items || []
+    } catch { this._importRecords = [] }
+  },
+
+  async _renderImportHistory() {
+    const container = document.getElementById("pv-import-history")
+    if (!container) return
+    await this._loadImportRecords()
+    if (this._importRecords.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);font-size:12px;padding:8px;">暂无导入记录。</p>'
+      return
+    }
+    let html = '<table class="data-table" style="font-size:12px;"><thead><tr><th>文件名</th><th>类型</th><th>章节</th><th>状态</th><th>时间</th></tr></thead><tbody>'
+    for (const r of this._importRecords) {
+      const statusMap = { done: "完成", processing: "处理中", failed: "失败", pending: "等待" }
+      const time = r.created_at ? new Date(r.created_at).toLocaleString("zh-CN") : ""
+      html += `<tr>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.file_name)}</td>
+        <td style="color:var(--accent-dim);">${r.file_type}</td>
+        <td>${r.imported_chapters || 0}/${r.total_chapters || 0}</td>
+        <td><span class="badge badge-${r.status || "pending"}">${statusMap[r.status] || r.status}</span></td>
+        <td style="color:var(--text-dim);font-size:11px;">${time}</td>
+      </tr>`
+    }
+    html += '</tbody></table>'
+    container.innerHTML = html
+  },
+
+  async _uploadFile() {
+    const input = document.getElementById("pv-import-file")
+    const btn = document.querySelector('[onclick="projectView._uploadFile()"]')
+    if (!input || !input.files || input.files.length === 0) {
+      toast("请先选择文件", "warning"); return
+    }
+    if (!_state.currentProjectId) {
+      toast("请先点击项目行选择项目", "warning"); return
+    }
+    this._importUploading = true
+    if (btn) btn.textContent = "上传中..."
+    try {
+      const result = await api.imports.upload(_state.currentProjectId, input.files[0])
+      toast(`导入完成：${result.imported_chapters} 章`, "success")
+      input.value = ""
+      this._renderImportHistory()
+    } catch (err) {
+      toast(err.message || "导入失败", "error")
+    } finally {
+      this._importUploading = false
+      if (btn) btn.textContent = "上传并导入"
+    }
   },
 }
 

@@ -50,3 +50,17 @@
 ### 测试
 - 修改 `contracts.py` / `facade.py` / API / DB schema 后，不允许漏更新 README / 测试 / 调用方 / docs
 - 不跑受影响模块测试不合并
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as GitHub issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage roles use their default label names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout. See `docs/agents/domain.md`.

@@ -29,6 +29,9 @@ const App = {
     this._bindHelpClose()
     this._bindRightPanelClose()
 
+    // 从 localStorage 恢复项目选择
+    this._restoreProjectState()
+
     // 初始化路由
     router.initRouter()
 
@@ -412,6 +415,22 @@ const App = {
       const panel = document.getElementById("right-panel")
       if (panel) panel.style.display = "none"
     })
+  },
+
+  /**
+   * 从 localStorage 恢复项目选择状态
+   */
+  _restoreProjectState() {
+    try {
+      const savedId = localStorage.getItem("novel_currentProjectId")
+      if (savedId) {
+        _state.currentProjectId = savedId
+      }
+      const savedProject = localStorage.getItem("novel_currentProject")
+      if (savedProject) {
+        _state.currentProject = JSON.parse(savedProject)
+      }
+    } catch {}
   },
 
   /**
