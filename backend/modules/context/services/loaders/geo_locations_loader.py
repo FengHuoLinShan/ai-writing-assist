@@ -45,45 +45,29 @@ class GeoLocationsLoader(Loader):
             bundle.budget_used["geo_relations"] = 0
             return
 
-        # 批量查询地点
-        locations = await self._batch_load_locations(db, options.novel_id, location_ids)
+        # 批量查询地点（并行，避免 N+1）
+        from modules.geo.facade import get_locations_context_batch
+
+        results = await get_locations_context_batch(db, options.novel_id, location_ids, depth=1)
+        locations = []
+        for ctx in results:
+            if ctx and ctx.location:
+                loc_data = {
+                    "location": ctx.location,
+                    "parent_locations": [
+                        p.model_dump() if hasattr(p, "model_dump") else p
+                        for p in ctx.parent_locations
+                    ],
+                    "child_locations": [
+                        c.model_dump() if hasattr(c, "model_dump") else c
+                        for c in ctx.child_locations
+                    ],
+                    "edges": [
+                        e.model_dump() if hasattr(e, "model_dump") else e
+                        for e in ctx.edges
+                    ],
+                    "current_era": ctx.current_era,
+                }
+                locations.append(loc_data)
         bundle.geo_locations = locations
         bundle.budget_used["geo_relations"] = min(len(locations), geo_limit)
-
-    async def _batch_load_locations(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        location_ids: list[str],
-    ) -> list[dict]:
-        """批量加载地点详情
-
-        批量获取地点上下文，替代逐 ID 循环的 N+1 模式。
-        """
-        from modules.geo.facade import get_location_context
-
-        locations = []
-        for loc_id in location_ids:
-            try:
-                ctx = await get_location_context(db, novel_id, loc_id, depth=1)
-                if ctx and ctx.location:
-                    loc_data = {
-                        "location": ctx.location,
-                        "parent_locations": [
-                            p.model_dump() if hasattr(p, "model_dump") else p
-                            for p in ctx.parent_locations
-                        ],
-                        "child_locations": [
-                            c.model_dump() if hasattr(c, "model_dump") else c
-                            for c in ctx.child_locations
-                        ],
-                        "edges": [
-                            e.model_dump() if hasattr(e, "model_dump") else e
-                            for e in ctx.edges
-                        ],
-                        "current_era": ctx.current_era,
-                    }
-                    locations.append(loc_data)
-            except Exception:
-                continue
-        return locations

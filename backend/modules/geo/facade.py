@@ -46,6 +46,38 @@ async def get_location_context(
     )
 
 
+async def get_locations_context_batch(
+    db: AsyncSession,
+    novel_id: str,
+    location_ids: list[str],
+    depth: int = 1,
+) -> list[GeoContextBundle]:
+    """批量获取地点上下文
+
+    并行查询多个地点，避免 N+1 循环。每个地点独立执行，异常不影响其他。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        location_ids: 地点 ID 列表
+        depth: 递归深度
+
+    Returns:
+        list[GeoContextBundle]: 地点上下文列表（不存在的 ID 跳过）
+    """
+    import asyncio
+
+    tasks = [
+        _query_service.get_location_context(db, novel_id, lid, depth)
+        for lid in location_ids
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [
+        r for r in results
+        if isinstance(r, GeoContextBundle) and r.location is not None
+    ]
+
+
 async def get_location_tree(
     db: AsyncSession,
     novel_id: str,
