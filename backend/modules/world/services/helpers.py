@@ -2,21 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
-
-from fastapi import HTTPException
-from fastapi import status as http_status
-
-
-def parse_uuid(value: str, field_name: str) -> uuid.UUID:
-    """将字符串 ID 解析为 UUID"""
-    try:
-        return uuid.UUID(hex=value)
-    except ValueError:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Invalid {field_name}: {value}",
-        )
+from shared.utils import parse_uuid  # noqa: F401
 
 
 def normalize_name(value: str) -> str:
@@ -38,16 +24,6 @@ def merge_text_field(current: str | None, incoming: str | None) -> str:
     if incoming_text == current_text or incoming_text in current_text:
         return current_text
     return f"{current_text}\n\n{incoming_text}"
-
-
-def merge_string_lists(*values: list[str]) -> list[str]:
-    """合并多个字符串列表，去重保序"""
-    merged: list[str] = []
-    for group in values:
-        for item in group:
-            if item and item not in merged:
-                merged.append(item)
-    return merged
 
 
 def world_entity_types_compatible(left: str | None, right: str | None) -> bool:

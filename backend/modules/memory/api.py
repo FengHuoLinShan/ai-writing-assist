@@ -21,6 +21,7 @@ from modules.memory.schemas import (
 )
 from modules.memory.services import MemoryService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from shared.utils import parse_uuid
 
 router = APIRouter(prefix="/api/novels/{novel_id}/memories", tags=["memory"])
 _service = MemoryService()
@@ -130,7 +131,7 @@ async def decide_proposal(
     decision: MemoryProposalDecision,
 ) -> MemoryProposalResponse:
     """处理记忆提案（批准/拒绝）"""
-    pid = _service._parse_uuid(proposal_id)
+    pid = parse_uuid(proposal_id, "proposal_id")
 
     if decision.decision == "approved":
         # 批准：创建正史记忆记录
