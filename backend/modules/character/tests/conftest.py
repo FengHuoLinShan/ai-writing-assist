@@ -1,56 +1,14 @@
-"""
-Character 模块测试配置
-
-使用 SQLite 内存数据库进行测试，无需连接真实 PostgreSQL。
-需要导入 Project 模型以确保 ForeignKey 依赖的表存在。
-"""
+"""Character 模块测试配置 — 使用根 conftest 的 db_session"""
 
 from __future__ import annotations
 
 import uuid
-from typing import AsyncGenerator
 
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.base import Base
-
-# 导入 Project 模型以注册 projects 表到 Base.metadata
-# Character 使用 NovelMixin 引用了 projects.id 的外键
-from modules.project.models import Project  # noqa: F401  # register table
-
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest_asyncio.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """提供内存 SQLite 测试数据库 session"""
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        echo=False,
-    )
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_factory = async_sessionmaker(
-        bind=engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-
-    async with session_factory() as session:
-        yield session
-        await session.rollback()
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    await engine.dispose()
+from modules.character.repositories import CharacterKnowledgeRepository, CharacterRepository
+from modules.character.schemas import CharacterCreate, CharacterKnowledgeCreate
 
 
 @pytest_asyncio.fixture
@@ -65,9 +23,6 @@ async def sample_character_id(
     sample_novel_id: str,
 ) -> str:
     """创建测试人物并返回 ID"""
-    from modules.character.repositories import CharacterRepository
-    from modules.character.schemas import CharacterCreate
-
     repo = CharacterRepository()
     data = CharacterCreate(
         novel_id=sample_novel_id,
@@ -108,9 +63,6 @@ async def sample_knowledge_id(
     sample_target_entity_id: str,
 ) -> str:
     """创建测试用知识记录并返回 ID"""
-    from modules.character.repositories import CharacterKnowledgeRepository
-    from modules.character.schemas import CharacterKnowledgeCreate
-
     repo = CharacterKnowledgeRepository()
     data = CharacterKnowledgeCreate(
         novel_id=sample_novel_id,
