@@ -14,6 +14,21 @@ const worldView = {
   _autoExtractStatus: "就绪",
   _autoExtractTimer: null,
 
+  async onEnter() {
+    // 从 localStorage 恢复抽取任务
+    const saved = localStorage.getItem("novel_world_extract_task")
+    if (saved) {
+      try {
+        const { taskId, status } = JSON.parse(saved)
+        if (taskId && status !== "done" && status !== "failed") {
+          this._autoExtractTaskId = taskId
+          this._autoExtractStatus = status || "运行中"
+          this._pollAutoExtract(taskId)
+        }
+      } catch {}
+    }
+  },
+
   async render() {
     const subView = _state.currentSubView || "objects"
     let html = ''
@@ -111,6 +126,7 @@ const worldView = {
       this._autoExtractTaskId = result.task_id
       this._autoExtractStatus = "运行中"
       this._updateExtractStatusDOM()
+      try { localStorage.setItem("novel_world_extract_task", JSON.stringify({ taskId: result.task_id, status: "running" })) } catch {}
       toast("识别任务已提交", "info")
       router.navigate("world", _state.currentSubView)
 
@@ -135,6 +151,7 @@ const worldView = {
           clearInterval(this._autoExtractTimer)
           this._autoExtractTimer = null
         }
+        try { localStorage.removeItem("novel_world_extract_task") } catch {}
         if (data.status === "done") {
           toast("识别任务已完成，请查看候选清洗", "success")
         } else if (data.status === "failed") {

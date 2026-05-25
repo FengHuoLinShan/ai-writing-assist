@@ -98,7 +98,8 @@ class EntityExtractionService:
                 f"已有对象列表：\n{existing_context}\n\n"
                 "规则：不抽取路人、普通道具、临时场景元素。"
                 "别名标记为 alias_of_existing，不创建新对象。"
-                "输出 JSON 数组，每个对象包含：name, entity_type, summary, "
+                "输出 JSON 对象，entities 字段为数组，每项包含："
+                "name, entity_type, summary, "
                 "public_info, hidden_truth, importance, suggested_action, "
                 "suggested_existing_entity_name, candidate_reason, confidence"
             )
