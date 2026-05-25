@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.world.repositories import EntityCandidateRepository, WorldEntityRepository
 from modules.world.schemas import EntityCandidateCreate
 from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.draft_provider import DraftProvider, WritingDraftProvider
 from modules.world.services.helpers import parse_uuid
 
 
@@ -43,10 +44,11 @@ class EntityExtractionService:
     dedup → EntityCandidate
     """
 
-    def __init__(self) -> None:
+    def __init__(self, draft_provider: DraftProvider | None = None) -> None:
         self._entity_repo = WorldEntityRepository()
         self._candidate_repo = EntityCandidateRepository()
         self._dedup_service = EntityDedupService()
+        self._draft_provider = draft_provider or WritingDraftProvider()
 
     async def extract_entities_from_chapters(
         self,
@@ -199,16 +201,7 @@ class EntityExtractionService:
         start_chapter: int,
         end_chapter: int,
     ) -> list[dict[str, Any]]:
-        """读取指定范围的 WritingDraft"""
-        from modules.writing.facade import get_latest_draft_for_chapter
-
-        chapters: list[dict[str, Any]] = []
-        for idx in range(start_chapter, end_chapter + 1):
-            draft = await get_latest_draft_for_chapter(db, novel_id, idx)
-            if draft and draft.content:
-                chapters.append({
-                    "chapter_index": idx,
-                    "title": draft.title or f"第{idx}章",
-                    "content": draft.content,
-                })
-        return chapters
+        """通过 DraftProvider 读取指定范围的 WritingDraft"""
+        return await self._draft_provider.load_chapters(
+            db, novel_id, start_chapter, end_chapter,
+        )
