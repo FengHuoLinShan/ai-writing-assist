@@ -25,6 +25,70 @@ _candidate_service = EntityCandidateService()
 _dedup_service = EntityDedupService()
 
 
+async def list_entities(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    entity_type: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """获取世界对象摘要列表
+
+    返回轻量结果（id, name, entity_type），供其他模块注入上下文。
+    """
+    result = await _entity_service.list(
+        db, novel_id,
+        entity_type=entity_type,
+        limit=limit,
+    )
+    return [
+        {"id": item.id, "name": item.name, "entity_type": item.entity_type}
+        for item in result.items
+    ]
+
+
+async def run_entity_extraction(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    batch_size: int = 5,
+) -> dict[str, Any]:
+    """从章节正文中抽取世界对象候选
+
+    调用 EntityExtractionService，返回抽取结果统计。
+    """
+    from modules.world.services import EntityExtractionService
+
+    service = EntityExtractionService()
+    result = await service.extract_entities_from_chapters(
+        db,
+        novel_id=novel_id,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+        batch_size=batch_size,
+    )
+    return {
+        "total_chapters": result.total_chapters,
+        "total_created": result.total_created,
+        "total_skipped": result.total_skipped,
+        "items": result.items,
+    }
+
+
+async def count_pending_candidates(
+    db: AsyncSession,
+    novel_id: str,
+) -> int:
+    """统计待处理的候选对象数量"""
+    result = await _candidate_service.list(
+        db, novel_id,
+        status="pending",
+        limit=1,
+    )
+    return result.total
+
+
 async def get_world_context(
     db: AsyncSession,
     novel_id: str,

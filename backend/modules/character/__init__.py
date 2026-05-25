@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from modules.character.contracts import CharacterContract, CharacterKnowledgeContract
 from modules.character.facade import (
+    create_character,
     filter_context_by_character_knowledge,
     get_character_knowledge_context,
     get_characters_context,
@@ -39,4 +40,5 @@ __all__ = [
     "get_characters_context",
     "get_character_knowledge_context",
     "filter_context_by_character_knowledge",
+    "create_character",
 ]

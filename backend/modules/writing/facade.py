@@ -70,3 +70,21 @@ async def get_latest_draft_for_chapter(
         WritingDraftContract | None — 无草稿时返回 None
     """
     return await _service.get_latest_draft_contract(db, novel_id, chapter_index)
+
+
+async def list_chapter_indices(
+    db: AsyncSession,
+    novel_id: str,
+) -> list[int]:
+    """列出该小说所有有草稿的章节索引（去重、升序）
+
+    供前端构建章节树使用。
+
+    Args:
+        db: 数据库 session
+        novel_id: 小说项目 ID
+
+    Returns:
+        list[int] — 有草稿的章节索引列表
+    """
+    return await _service.list_chapter_indices(db, novel_id)

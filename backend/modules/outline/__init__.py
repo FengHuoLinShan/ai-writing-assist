@@ -15,10 +15,16 @@ from modules.outline.contracts import (
     RevealPlanContract,
 )
 from modules.outline.facade import (
+    create_arc,
     create_chapter_cards_from_candidate,
+    create_thread,
     get_active_threads,
     get_arc_context,
     get_chapter_card,
+    list_arc_summaries,
+    list_thread_summaries,
+    update_arc,
+    update_thread,
 )
 from modules.outline.models import (
     ChapterCard,
@@ -108,4 +114,10 @@ __all__ = [
     "get_active_threads",
     "get_arc_context",
     "create_chapter_cards_from_candidate",
+    "create_thread",
+    "update_thread",
+    "create_arc",
+    "update_arc",
+    "list_thread_summaries",
+    "list_arc_summaries",
 ]

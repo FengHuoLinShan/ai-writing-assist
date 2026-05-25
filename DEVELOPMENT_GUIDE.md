@@ -6,27 +6,35 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 
 ## Commands
 
+### One-command dev start
+
+```bash
+make dev                         # Kill old → DB → backend(—reload) + worker(—reload) + frontend
+make kill                        # Stop all services
+make help                        # List all targets
+```
+
+### Individual services
+
 ```bash
 # Backend
 cd backend
-pip install -e ".[dev]"        # Install dependencies
-uvicorn app.main:app --reload   # Dev server (port 8000)
+pip install -e ".[dev]"          # Install dependencies
+uvicorn app.main:app --reload    # Dev server (port 8000)
+python run_worker.py --reload    # Task worker with auto-reload
 
 # Database
-docker compose up -d            # Start PostgreSQL + pgvector
-cd backend && alembic upgrade head  # Run migrations
+make db                          # docker compose up -d
+make migrate                     # alembic upgrade head
 
-# Testing (run from backend/)
-pytest                           # All tests
-pytest tests/                    # Integration/API tests
-pytest modules/<name>/tests/     # Single module tests
-pytest -xvs                      # Verbose, stop on first failure
-pytest -k "test_create"          # Filter by test name
-pytest --cov=modules --cov=app   # Coverage report
-
-# Linting
-ruff check .                     # Lint
-ruff format --check .            # Format check
+# Testing & linting
+make test                        # All tests
+make test-v                      # Verbose, stop on first failure
+make test ARGS="-k test_create"  # Filter by test name
+make lint                        # ruff check
+make lint-fix                    # ruff --fix
+make format                      # ruff format --check
+make format-fix                  # ruff format
 ```
 
 ## Three-Layer Architecture

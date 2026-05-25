@@ -7,3 +7,4 @@ Import 对外契约
 
 # facade 返回类型（Pydantic schema），供跨模块导入使用
 from modules.imports.schemas import ImportResponse  # noqa: F401 — facade.import_file 返回
+from modules.imports.workflow_schemas import DeepImportProgress  # noqa: F401 — 深度导入进度

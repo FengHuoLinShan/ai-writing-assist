@@ -441,6 +441,10 @@ const api = {
     async getChapterCard(id) {
       return request(`/outline/chapters/${id}`)
     },
+    /** 按章节号获取章节卡 */
+    async getChapterCardByIndex(index, novelId) {
+      return request(`/outline/chapters/by-index/${index}${qs({ novel_id: novelId })}`)
+    },
     /** 创建章节卡 */
     async createChapterCard(payload) {
       return request("/outline/chapters", { method: "POST", body: JSON.stringify(payload) })
@@ -565,6 +569,25 @@ const api = {
       // 导出功能通过 API 或直接生成
       return request("/writing/drafts" + qs(payload))
     },
+
+    /** 获取有草稿的章节索引列表 */
+    async listChapters(novelId) {
+      return request(`/writing/chapters${qs({ novel_id: novelId })}`)
+    },
+
+    /** 更新草稿状态 */
+    async updateDraftStatus(draftId, status, novelId) {
+      return request(`/writing/drafts/${draftId}${qs({ novel_id: novelId })}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      })
+    },
+
+    /** 获取章节版本历史 */
+    async getVersionHistory(chapterIndex, novelId) {
+      return request(`/writing/chapters/${chapterIndex}/versions${qs({ novel_id: novelId })}`)
+    },
+
   },
 
   // ============================================================
@@ -640,6 +663,28 @@ const api = {
     /** 获取导入记录详情 */
     async get(recordId, params = {}) {
       return request(`/imports/${recordId}` + qs(params))
+    },
+
+    /** 提交深度导入任务 */
+    async deepImport(novelId, startChapter, endChapter) {
+      return request("/imports/deep", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          novel_id: novelId,
+          start_chapter: startChapter,
+          end_chapter: endChapter,
+        }),
+      })
+    },
+
+    /** 继续深度导入（在用户确认候选后） */
+    async resumeDeepImport(taskId) {
+      return request("/imports/deep/resume", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({task_id: taskId}),
+      })
     },
   },
 

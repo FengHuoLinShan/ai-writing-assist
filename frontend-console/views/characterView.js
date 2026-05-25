@@ -25,6 +25,7 @@ const characterView = {
     try {
       const data = await api.character.list({ novel_id: _state.currentProjectId })
       this._characters = data.items || data || []
+      this._apiAvailable = true
     } catch {
       this._apiAvailable = false
       this._characters = []

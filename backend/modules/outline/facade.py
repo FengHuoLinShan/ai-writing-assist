@@ -7,13 +7,25 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.schemas import (
     ChapterCardCandidateItem,
     ChapterCardContext,
     OutlineArcContext,
+    OutlineArcCreate,
+    OutlineArcResponse,
+    OutlineArcUpdate,
     PlotThreadContext,
+    PlotThreadCreate,
+    PlotThreadResponse,
+    PlotThreadUpdate,
 )
 from modules.outline.services import (
     ChapterCardService,
@@ -24,6 +36,88 @@ from modules.outline.services import (
 _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
 _chapter_service = ChapterCardService()
+
+
+async def create_thread(
+    db: AsyncSession,
+    novel_id: str,
+    data: PlotThreadCreate,
+) -> PlotThreadResponse:
+    """创建剧情线"""
+    return await _thread_service.create(db, novel_id, data)
+
+
+async def update_thread(
+    db: AsyncSession,
+    thread_id: str,
+    data: PlotThreadUpdate,
+    novel_id: str,
+) -> PlotThreadResponse:
+    """更新剧情线"""
+    return await _thread_service.update(db, thread_id, data, novel_id)
+
+
+async def create_arc(
+    db: AsyncSession,
+    novel_id: str,
+    data: OutlineArcCreate,
+) -> OutlineArcResponse:
+    """创建篇章纲"""
+    return await _arc_service.create(db, novel_id, data)
+
+
+async def update_arc(
+    db: AsyncSession,
+    arc_id: str,
+    data: OutlineArcUpdate,
+    novel_id: str,
+) -> OutlineArcResponse:
+    """更新篇章纲"""
+    return await _arc_service.update(db, arc_id, data, novel_id)
+
+
+async def list_thread_summaries(
+    db: AsyncSession,
+    novel_id: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """获取剧情线摘要列表（id, name, thread_type, summary 等）
+
+    供其他模块注入 LLM 上下文，非完整 CRUD 查询。
+    """
+    from sqlalchemy import select
+    from modules.outline.models import PlotThread
+
+    nid = _parse_uuid(novel_id)
+    stmt = select(PlotThread).where(PlotThread.novel_id == nid).limit(limit)
+    result = await db.execute(stmt)
+    return [
+        {
+            "id": str(t.id), "name": t.name, "thread_type": t.thread_type,
+            "summary": t.summary or "", "start_chapter": t.start_chapter,
+            "planned_payoff_chapter": t.planned_payoff_chapter,
+        } for t in result.scalars().all()
+    ]
+
+
+async def list_arc_summaries(
+    db: AsyncSession,
+    novel_id: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """获取篇章纲摘要列表（id, title, start_chapter, end_chapter）"""
+    from sqlalchemy import select
+    from modules.outline.models import OutlineArc
+
+    nid = _parse_uuid(novel_id)
+    stmt = select(OutlineArc).where(OutlineArc.novel_id == nid).limit(limit)
+    result = await db.execute(stmt)
+    return [
+        {
+            "id": str(a.id), "title": a.title,
+            "start_chapter": a.start_chapter, "end_chapter": a.end_chapter,
+        } for a in result.scalars().all()
+    ]
 
 
 async def get_chapter_card(
@@ -123,3 +217,11 @@ async def create_chapter_cards_from_candidate(
     return await _chapter_service.create_from_candidate(
         db, novel_id, items,
     )
+
+
+def _parse_uuid(value: str) -> object:
+    import uuid
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        raise ValueError(f"Invalid UUID: {value}")

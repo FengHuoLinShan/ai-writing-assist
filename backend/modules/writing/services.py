@@ -167,6 +167,15 @@ class WritingDraftService:
             status=draft.status,
         )
 
+    async def list_chapter_indices(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[int]:
+        """列出该小说所有有草稿的章节索引"""
+        nid = parse_uuid(novel_id, "novel")
+        return await self._repo.list_chapter_indices(db, nid)
+
     # ============================================================
     # 内部工具
     # ============================================================

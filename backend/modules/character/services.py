@@ -49,6 +49,20 @@ class CharacterService:
         character = await self._repo.create(db, data)
         return CharacterResponse.model_validate(character)
 
+    async def get_character_id_by_world_entity(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        world_entity_id: str,
+    ) -> str | None:
+        """按 world_entity_id 查找已存在的人物 ID"""
+        nid = parse_uuid(novel_id)
+        weid = parse_uuid(world_entity_id)
+        character = await self._repo.get_by_world_entity(db, nid, weid)
+        if character is None:
+            return None
+        return str(character.id)
+
     async def get_character(
         self,
         db: AsyncSession,

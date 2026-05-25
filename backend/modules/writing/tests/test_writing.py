@@ -13,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.writing.facade import get_draft, get_latest_draft_for_chapter
+from modules.writing.facade import get_draft, get_latest_draft_for_chapter, list_chapter_indices
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.schemas import (
@@ -327,6 +327,38 @@ class TestWritingDraftRepository:
         deleted = await repo.delete(db_session, fake_id)
         assert deleted is False
 
+    @pytest.mark.asyncio
+    async def test_list_chapter_indices(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试列出有草稿的章节索引"""
+        novel_id = str(uuid.uuid4())
+        nid = uuid.UUID(hex=novel_id)
+
+        # 创建三个章节的草稿
+        for ch in (1, 1, 3, 5):
+            data = WritingDraftCreate(
+                novel_id=novel_id, chapter_index=ch,
+                title=f"第{ch}章", content="内容",
+            )
+            await repo.create(db_session, data)
+
+        indices = await repo.list_chapter_indices(db_session, nid)
+        assert indices == [1, 3, 5]
+
+    @pytest.mark.asyncio
+    async def test_list_chapter_indices_empty(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试无草稿时返回空列表"""
+        nid = uuid.uuid4()
+        indices = await repo.list_chapter_indices(db_session, nid)
+        assert indices == []
+
 
 # ============================================================
 # Service 测试
@@ -591,6 +623,36 @@ class TestWritingDraftService:
         )
         assert contract is None
 
+    @pytest.mark.asyncio
+    async def test_list_chapter_indices(
+        self,
+        service: WritingDraftService,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试列出有草稿的章节索引"""
+        novel_id = str(uuid.uuid4())
+        for ch in (1, 1, 3, 5):
+            data = WritingDraftCreate(
+                novel_id=novel_id, chapter_index=ch,
+                title=f"第{ch}章", content="内容",
+            )
+            await service.create_draft(db_session, data)
+
+        indices = await service.list_chapter_indices(db_session, novel_id)
+        assert indices == [1, 3, 5]
+
+    @pytest.mark.asyncio
+    async def test_list_chapter_indices_empty(
+        self,
+        service: WritingDraftService,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试无草稿时返回空列表"""
+        indices = await service.list_chapter_indices(
+            db_session, str(uuid.uuid4()),
+        )
+        assert indices == []
+
 
 # ============================================================
 # Facade 测试
@@ -660,3 +722,32 @@ class TestWritingFacade:
             db_session, str(uuid.uuid4()), 1,
         )
         assert contract is None
+
+    @pytest.mark.asyncio
+    async def test_list_chapter_indices(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试 facade.list_chapter_indices"""
+        novel_id = str(uuid.uuid4())
+        repo = WritingDraftRepository()
+        for ch in (1, 1, 3, 5):
+            data = WritingDraftCreate(
+                novel_id=novel_id, chapter_index=ch,
+                title=f"第{ch}章", content="内容",
+            )
+            await repo.create(db_session, data)
+
+        indices = await list_chapter_indices(db_session, novel_id)
+        assert indices == [1, 3, 5]
+
+    @pytest.mark.asyncio
+    async def test_list_chapter_indices_empty(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试 facade 无草稿时返回空列表"""
+        indices = await list_chapter_indices(
+            db_session, str(uuid.uuid4()),
+        )
+        assert indices == []

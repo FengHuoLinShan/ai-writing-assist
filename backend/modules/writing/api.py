@@ -10,12 +10,19 @@ from __future__ import annotations
 from fastapi import APIRouter, Path, Query
 
 from core.dependencies import DbSession
+from pydantic import BaseModel
+
 from modules.writing.schemas import (
     VersionHistoryResponse,
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
 )
+
+
+class ChapterIndicesResponse(BaseModel):
+    """章节索引列表响应"""
+    chapter_indices: list[int]
 from modules.writing.services import WritingDraftService
 
 router = APIRouter(prefix="/api/writing", tags=["writing"])
@@ -90,3 +97,16 @@ async def get_chapter_version_history(
 ) -> VersionHistoryResponse:
     """获取指定章节的版本历史"""
     return await _service.get_version_history(db, novel_id, chapter_index)
+
+
+@router.get(
+    "/chapters",
+    response_model=ChapterIndicesResponse,
+)
+async def list_chapters(
+    db: DbSession,
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> ChapterIndicesResponse:
+    """列出该小说所有有草稿的章节索引（去重、升序）"""
+    indices = await _service.list_chapter_indices(db, novel_id)
+    return ChapterIndicesResponse(chapter_indices=indices)

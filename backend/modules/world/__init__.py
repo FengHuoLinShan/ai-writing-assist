@@ -14,11 +14,15 @@ from modules.world.contracts import (
     WorldEntityContract,
 )
 from modules.world.facade import (
+    accept_candidate,
+    count_pending_candidates,
     expand_related_entities,
     find_duplicate_entity_candidates,
     find_similar_entities,
     get_world_context,
+    list_entities,
     merge_candidate_into_entity,
+    run_entity_extraction,
 )
 from modules.world.models import (
     EntityAlias,
@@ -72,4 +76,8 @@ __all__ = [
     "find_duplicate_entity_candidates",
     "find_similar_entities",
     "merge_candidate_into_entity",
+    "accept_candidate",
+    "list_entities",
+    "count_pending_candidates",
+    "run_entity_extraction",
 ]

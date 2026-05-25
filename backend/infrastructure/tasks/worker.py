@@ -36,6 +36,8 @@ import modules.project.models  # noqa: F401 — 注册 projects 表（NovelMixin
 
 # 导入所有任务处理器注册（@task_handler 装饰器触发注册）
 import modules.world.tasks  # noqa: F401 — 注册 world_entity_extraction 处理器
+import modules.outline.tasks  # noqa: F401 — 注册 plot_structure_generate 处理器
+import modules.imports.tasks  # noqa: F401 — 注册 deep_import / deep_import_resume 处理器
 
 
 class TaskWorker:

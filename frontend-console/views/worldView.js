@@ -75,7 +75,7 @@ const worldView = {
 
     try {
       if (_state.currentProjectId) {
-        const data = await api.world.listCandidates({ novel_id: _state.currentProjectId })
+        const data = await api.world.listCandidates({ novel_id: _state.currentProjectId, status: "pending" })
         this._candidates = data.items || data || []
       }
     } catch {
@@ -598,7 +598,7 @@ const worldView = {
       `确定忽略候选 "${candidate?.name || id}"？`,
       async () => {
         try {
-          await api.world.confirmCandidate(id, { suggested_action: "ignore" })
+          await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" })
           toast("已忽略", "success")
           router.navigate("world", "candidates")
         } catch (err) {

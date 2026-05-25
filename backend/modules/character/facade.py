@@ -11,11 +11,55 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.character.schemas import (
     CharacterContextBundle,
+    CharacterCreate,
     CharacterKnowledgeContext,
+    CharacterResponse,
 )
 from modules.character.services import CharacterService
 
 _service = CharacterService()
+
+
+async def create_character(
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    world_entity_id: str | None = None,
+) -> CharacterResponse:
+    """创建人物档案
+
+    供 world 模块在确认人物类型候选后自动创建对应的人物档案。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        name: 人物名称
+        world_entity_id: 关联的世界对象 ID（可选）
+
+    Returns:
+        CharacterResponse — 创建的人物
+    """
+    data = CharacterCreate(
+        novel_id=novel_id,
+        name=name,
+        world_entity_id=world_entity_id,
+    )
+    return await _service.create_character(db, data)
+
+
+async def get_character_id_by_world_entity(
+    db: AsyncSession,
+    novel_id: str,
+    world_entity_id: str,
+) -> str | None:
+    """按 world_entity_id 查找已存在的人物 ID
+
+    Returns:
+        人物 ID 字符串，未找到返回 None
+    """
+    return await _service.get_character_id_by_world_entity(
+        db, novel_id, world_entity_id,
+    )
 
 
 async def get_characters_context(

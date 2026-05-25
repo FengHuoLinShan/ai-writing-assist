@@ -148,6 +148,22 @@ class WritingDraftRepository:
     # 内部方法
     # ============================================================
 
+    async def list_chapter_indices(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[int]:
+        """列出该小说所有有草稿的章节索引（去重、升序）"""
+        stmt = (
+            select(WritingDraft.chapter_index)
+            .where(WritingDraft.novel_id == novel_id)
+            .where(WritingDraft.status != "deprecated")
+            .distinct()
+            .order_by(WritingDraft.chapter_index)
+        )
+        result = await db.execute(stmt)
+        return [row[0] for row in result.all()]
+
     async def _next_version_number(
         self,
         db: AsyncSession,

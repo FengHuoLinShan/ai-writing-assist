@@ -99,6 +99,21 @@ class CharacterRepository:
         items: Sequence[Character] = result.scalars().all()
         return list(items), total
 
+    async def get_by_world_entity(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        world_entity_id: uuid.UUID,
+    ) -> Character | None:
+        """根据 world_entity_id 获取人物"""
+        stmt = (
+            select(Character)
+            .where(Character.novel_id == novel_id)
+            .where(Character.world_entity_id == world_entity_id)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_by_ids(
         self,
         db: AsyncSession,
