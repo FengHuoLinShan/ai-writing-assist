@@ -115,3 +115,10 @@ class GeoContextBundle:
     # 保留字段以防外部使用，后续版本将移除
     era_summaries: list[tuple[str, str]] = field(default_factory=list)
     """[已废弃] 历史时期摘要列表，使用 schemas.GeoContextBundle.era_states 替代"""
+
+
+# facade 返回类型（Pydantic schema），供跨模块导入使用
+# 注意：GeoContextBundle 与上方 dataclass 同名但不同类，
+# facade.get_location_context 返回的是 schemas.GeoContextBundle（Pydantic 版本）
+from modules.geo.schemas import GeoContextBundle as GeoContextResult  # noqa: F401
+from modules.geo.schemas import TravelConstraintResult  # noqa: F401

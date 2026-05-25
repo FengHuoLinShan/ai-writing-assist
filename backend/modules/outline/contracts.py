@@ -124,3 +124,11 @@ class RevealPlanContract:
     """秘密概要"""
     status: str = "draft"
     """状态"""
+
+
+# facade 返回类型（Pydantic schema），供跨模块导入使用
+from modules.outline.schemas import (  # noqa: F401
+    ChapterCardContext,   # facade.get_chapter_card / create_chapter_cards_from_candidate 返回
+    OutlineArcContext,    # facade.get_arc_context 返回
+    PlotThreadContext,    # facade.get_active_threads 返回
+)

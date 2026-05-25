@@ -20,3 +20,7 @@ class ImportContract:
     imported_chapters: int
     status: str
     error_message: str | None = None
+
+
+# facade 返回类型（Pydantic schema），供跨模块导入使用
+from modules.imports.schemas import ImportResponse  # noqa: F401 — facade.import_file 返回

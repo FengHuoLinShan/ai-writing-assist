@@ -55,3 +55,10 @@ class MemoryUpdateProposalContract:
     """提案理由"""
     decision: str = "pending"
     """决策状态"""
+
+
+# facade 返回类型（Pydantic schema），供跨模块导入使用
+from modules.memory.schemas import (  # noqa: F401
+    MemoryRecordContext,          # facade.get_recent_story_memory / get_entity_memory / confirm_memory_proposal 返回
+    MemoryUpdateProposalContext,  # facade.create_memory_update_proposals 返回
+)

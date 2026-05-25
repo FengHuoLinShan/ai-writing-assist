@@ -56,3 +56,10 @@ class CharacterKnowledgeContract:
     """已知内容"""
     misconception: str | None = None
     """误解内容"""
+
+
+# facade 返回类型（Pydantic schema），供跨模块导入使用
+from modules.character.schemas import (  # noqa: F401
+    CharacterContextBundle,      # facade.get_characters_context 返回
+    CharacterKnowledgeContext,   # facade.get_character_knowledge_context 返回
+)

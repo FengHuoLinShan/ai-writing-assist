@@ -62,3 +62,7 @@ class ReviewReportContract:
     """地理冲突警告"""
     revision_instructions: list[str] = field(default_factory=list)
     """修改建议列表"""
+
+
+# facade 返回类型（Pydantic schema），供跨模块导入使用
+from modules.review.schemas import ReviewReportContext  # noqa: F401 — facade.review_structure_candidate / get_review_report 返回

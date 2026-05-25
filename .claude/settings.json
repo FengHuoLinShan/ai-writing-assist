@@ -7,9 +7,9 @@
           {
             "type": "command",
             "if": "Bash(git commit*)",
-            "command": "echo '{\"systemMessage\": \"git commit 已提交。需要同步更新设计文档（CLAUDE.md / docs/）吗？如需，请告诉我需要修改什么。\", \"continue\": true}'",
+            "command": "git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -qE 'facade\\.py|schemas\\.py|contracts\\.py|api\\.py|docs/modules/' && echo '{\"systemMessage\": \"本次提交改了公共接口（facade/schema/contracts/API/docs）。需要同步更新设计文档吗？\", \"continue\": true}' || echo '{\"continue\": true}'",
             "timeout": 5,
-            "statusMessage": "询问是否更新文档…"
+            "statusMessage": "检查是否需要更新文档…"
           }
         ]
       }
