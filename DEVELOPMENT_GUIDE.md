@@ -93,7 +93,7 @@ modules/<name>/
 
 - When modifying contracts.py, facade.py, API routes, Pydantic schemas, or DB schema: must also update module README, tests, all callers, and docs
 - Each module owns its tests. Run that module's tests after modification. Cross-module flows go in tests/integration/
-- The system uses 4 core prompts (not multi-agent). Additional prompt files may be added for specific purposes (e.g., `structure_extraction.md`).
+- The system uses 4 core creative prompts (not multi-agent). Tool-specific prompt files may exist for bounded workflows, e.g. `structure_extraction.md` for entity candidate extraction.
 - Entity extraction is NOT NER. Extract only "long-term creative assets."
 
 ## Frontend Principles

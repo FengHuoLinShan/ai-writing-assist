@@ -1,30 +1,14 @@
 # CLAUDE.md — modules/world
 
-## 模块职责
+## 模块级禁止事项
 
-世界对象（WorldEntity）、关系（Relationship）、别名（EntityAlias）、候选对象（EntityCandidate）的 CRUD 与去重。
-
-## 关键提醒
-
-### WorldEntity 没有 aliases 字段
-别名存储在独立表 `entity_aliases` 中。合并候选时使用 `EntityAliasRepository.create()`，不要直接设置 `entity.aliases`。
-
-### EntityCandidate 有限字段
-`EntityCandidate` 没有 `hidden_truth` 或 `public_info` 字段。合并到正史对象时应使用 `source_text` 作为补充。
-
-### Falsy-zero 陷阱
-`importance`、`importance_score`、`confidence` 等 float 字段为 0.0 时是合法值。检查时用 `is not None` 而非 `if value:`。
-
-### 模糊匹配
-`_fuzzy_name_matches` 在 `_normalize_name` 中移除了空格，英文多词名称相似度会膨胀。仅用于中文名称匹配时效果较好。
-
-### 抽取管线
-- `EntityExtractionService` 读取 WritingDraft 通过 `writing/facade.get_latest_draft_for_chapter`
-- 批次中所有 entity 优先使用 LLM 报告的 `source_chapter`，fallback 到 `batch[0]["chapter_index"]`
-- `except ValueError` 只捕获数据错误，DB 异常应向上传播避免 session 中毒
-
-## 测试要求
-
-- conftest 必须 import `modules.project.models`（NovelMixin FK）
-- dedup 测试：精确匹配 + 模糊匹配 + 合并
-- 抽取测试：mock LLMClient，验证候选创建和去重逻辑
+- 不给 `WorldEntity` 添加或假设存在 `aliases` 字段；别名只存储在 `entity_aliases`
+- 不把别名当作新世界对象创建；候选应标记 `alias_of_existing` 并等待用户确认
+- 不自动合并正史对象；候选合并、废弃、删除必须有二次确认
+- 不跨 `novel_id` 合并候选、关系、别名或正史对象
+- 不假设 `EntityCandidate` 有 `hidden_truth` / `public_info` 字段；合并补充信息时使用 `source_text`
+- 不用 `if value:` 判断 `importance` / `importance_score` / `confidence` 等浮点字段；`0.0` 是合法值，必须使用 `is not None`
+- 不把 `_fuzzy_name_matches` 当作强一致性判断；它对英文多词名称会因空格归一化放大相似度
+- 不抽取路人、普通道具、代词、一次性场景元素；实体抽取只服务长期创作资产
+- 不捕获并吞掉数据库异常；数据错误可转为业务错误，DB flush / commit 异常必须向上传播
+- 不在缺少精确匹配、模糊匹配、跨 `novel_id`、候选合并、LLM 抽取 mock 测试时合并去重/抽取逻辑改动

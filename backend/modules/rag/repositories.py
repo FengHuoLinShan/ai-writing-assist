@@ -8,10 +8,12 @@ RAG 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from modules.rag.models import RagChunk
 from modules.rag.schemas import RagChunkCreate
@@ -20,6 +22,19 @@ from shared.constants import DEFAULT_PAGE_SIZE
 
 class RagChunkRepository:
     """RAG 片段数据访问"""
+
+    def _json_array_contains_all(
+        self,
+        db: AsyncSession,
+        column: ColumnElement,
+        values: list[str],
+    ) -> ColumnElement[bool]:
+        """Build a JSON-array containment predicate for the active dialect."""
+        bind = db.get_bind()
+        if bind.dialect.name == "postgresql":
+            return column.cast(JSONB).contains(values)
+
+        return and_(*(column.contains(value) for value in values))
 
     # ============================================================
     # 基础 CRUD
@@ -144,7 +159,7 @@ class RagChunkRepository:
         """按关联的世界对象 ID 检索"""
         conditions = [
             RagChunk.novel_id == novel_id,
-            RagChunk.entity_ids.contains([entity_id]),
+            self._json_array_contains_all(db, RagChunk.entity_ids, [entity_id]),
         ]
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
@@ -168,7 +183,7 @@ class RagChunkRepository:
         """按关联的人物 ID 检索"""
         conditions = [
             RagChunk.novel_id == novel_id,
-            RagChunk.character_ids.contains([character_id]),
+            self._json_array_contains_all(db, RagChunk.character_ids, [character_id]),
         ]
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
@@ -192,7 +207,7 @@ class RagChunkRepository:
         """按关联的剧情线 ID 检索"""
         conditions = [
             RagChunk.novel_id == novel_id,
-            RagChunk.thread_ids.contains([thread_id]),
+            self._json_array_contains_all(db, RagChunk.thread_ids, [thread_id]),
         ]
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
@@ -264,11 +279,17 @@ class RagChunkRepository:
 
         # metadata 过滤
         if entity_ids:
-            conditions.append(RagChunk.entity_ids.contains(entity_ids))
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.entity_ids, entity_ids)
+            )
         if character_ids:
-            conditions.append(RagChunk.character_ids.contains(character_ids))
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.character_ids, character_ids)
+            )
         if thread_ids:
-            conditions.append(RagChunk.thread_ids.contains(thread_ids))
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.thread_ids, thread_ids)
+            )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
         if visibility is not None:

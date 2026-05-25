@@ -24,6 +24,7 @@ import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.character.models  # noqa: F401
 import modules.geo.models  # noqa: F401
+import modules.imports.models  # noqa: F401
 import modules.memory.models  # noqa: F401
 import modules.timeline.models  # noqa: F401
 import modules.outline.models  # noqa: F401

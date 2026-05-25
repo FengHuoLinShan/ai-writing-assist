@@ -140,6 +140,13 @@ class ReviewRequest(BaseModel):
     )
 
 
+class ReviewListResponse(BaseModel):
+    """复查报告列表响应"""
+
+    items: list[ReviewReportResponse] = []
+    total: int = 0
+
+
 class ReviewReportResponse(BaseModel):
     """复查报告响应"""
 

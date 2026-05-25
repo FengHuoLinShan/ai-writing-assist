@@ -11,6 +11,8 @@ Outline ORM 模型
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
@@ -240,11 +242,10 @@ class ChapterCard(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         nullable=True,
         comment="章节标题",
     )
-    arc_id: Mapped[str | None] = mapped_column(
-        String(36),
+    arc_id: Mapped[uuid.UUID | None] = mapped_column(
         nullable=True,
         index=True,
-        comment="所属篇章 ID（UUID hex，逻辑 FK）",
+        comment="所属篇章 ID（UUID，逻辑 FK -> outline_arcs.id）",
     )
     chapter_goal: Mapped[str] = mapped_column(
         Text,

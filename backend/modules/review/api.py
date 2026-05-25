@@ -9,16 +9,55 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
+from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+
 from core.dependencies import DbSession
 from modules.review.schemas import (
+    ReviewListResponse,
     ReviewReportResponse,
     ReviewRequest,
 )
 from modules.review.services import ReviewService
+from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
 _service = ReviewService()
+
+
+@router.get("", response_model=ReviewListResponse)
+async def list_reports(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    target_type: str | None = Query(None, description="按目标类型筛选"),
+    decision: str | None = Query(None, description="按决策筛选"),
+    skip: int = Query(0, ge=0, description="跳过的记录数"),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="每页条数"),
+) -> ReviewListResponse:
+    """获取复查报告列表"""
+    items, total = await _service.list_reports(
+        db, novel_id, target_type=target_type, decision=decision,
+        skip=skip, limit=limit,
+    )
+    return ReviewListResponse(
+        items=[ReviewReportResponse(
+            id=r.report_id,
+            novel_id=r.novel_id,
+            target_type=r.target_type,
+            target_id=r.target_id,
+            status=r.status,
+            decision=r.decision,
+            score=r.score,
+            problems=r.problems,
+            conflict_warnings=r.conflict_warnings,
+            early_reveal_warnings=r.early_reveal_warnings,
+            character_knowledge_warnings=r.character_knowledge_warnings,
+            duplicate_entity_warnings=r.duplicate_entity_warnings,
+            geo_warnings=r.geo_warnings,
+            revision_instructions=r.revision_instructions,
+        ) for r in items],
+        total=total,
+    )
 
 
 @router.post("", response_model=ReviewReportResponse, status_code=201)
@@ -51,6 +90,7 @@ async def submit_review(
         novel_id=context.novel_id,
         target_type=context.target_type,
         target_id=context.target_id,
+        status=context.status,
         decision=context.decision,
         score=context.score,
         problems=context.problems,
@@ -76,6 +116,7 @@ async def get_report(
         novel_id=context.novel_id,
         target_type=context.target_type,
         target_id=context.target_id,
+        status=context.status,
         decision=context.decision,
         score=context.score,
         problems=context.problems,

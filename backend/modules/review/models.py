@@ -7,8 +7,11 @@ Review ORM 模型
 
 from __future__ import annotations
 
-from sqlalchemy import Float, String, Text
+import uuid
+
+from sqlalchemy import Float, String
 from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
@@ -37,11 +40,11 @@ class ReviewReport(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=False,
         comment="复查目标类型：world_structure/plot_structure/chapter_cards/memory_update/entity_candidates",
     )
-    target_id: Mapped[str | None] = mapped_column(
-        String(36),
+    target_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
         nullable=True,
         index=True,
-        comment="复查目标 ID（UUID hex，可选）",
+        comment="复查目标 ID",
     )
     decision: Mapped[str] = mapped_column(
         String(32),

@@ -171,6 +171,24 @@ class ReviewService:
             )
         return self._to_context(entity)
 
+    async def list_reports(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        target_type: str | None = None,
+        decision: str | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[ReviewReportContext], int]:
+        """获取复查报告列表"""
+        nid = self._parse_uuid(novel_id, "novel_id")
+        reports, total = await self._repo.get_by_novel(
+            db, nid, target_type=target_type, decision=decision,
+            skip=skip, limit=limit,
+        )
+        return [self._to_context(r) for r in reports], total
+
     # ============================================================
     # 检查方法
     # ============================================================
@@ -1087,7 +1105,7 @@ class ReviewService:
             report_id=str(entity.id),
             novel_id=str(entity.novel_id),
             target_type=entity.target_type,
-            target_id=entity.target_id,
+            target_id=str(entity.target_id) if entity.target_id else None,
             decision=entity.decision,
             score=entity.score,
             problems=entity.problems or [],

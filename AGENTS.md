@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 ## Prohibitions (不做xx)
 
@@ -10,13 +10,13 @@
 - 不主动实现 Neo4j / Qdrant / PostGIS / GraphRAG 社区摘要 / 多用户权限 / 商业功能，除非用户明确要求
 - 场景卡不拆独立表，放在 `chapter_cards.scene_cards` JSONB
 - 时间线不做复杂相对时间推理、日历系统、自动历史推演
-- 不把项目结构、目录设计、里程碑、实施计划写入根目录 `CLAUDE.md`；这些内容写入 `docs/00_整体设计.md` 和 `docs/项目进度.md`
-- 不把开发命令、测试策略、Review 分级写入根目录 `CLAUDE.md`；这些内容写入 `DEVELOPMENT_GUIDE.md` 和 `TESTING_GUIDE.md`
+- 不把项目结构、目录设计、里程碑、实施计划写入根目录 `AGENTS.md`；这些内容写入 `docs/00_整体设计.md` 和 `docs/项目进度.md`
+- 不把开发命令、测试策略、Review 分级写入根目录 `AGENTS.md`；这些内容写入 `DEVELOPMENT_GUIDE.md` 和 `TESTING_GUIDE.md`
 
 ### 文档维护
-- 不把根目录 `CLAUDE.md` 当作文档索引、开发指南或进度记录；它只维护禁止事项
-- 不新增或修改根目录 `CLAUDE.md` 的结构设计、命令说明、测试流程、里程碑状态、模块职责正文
-- 不只更新 `CLAUDE.md` 而忘记同步 `AGENTS.md` 中等价的 Codex 禁止事项，除非用户明确只维护 Claude
+- 不把根目录 `AGENTS.md` 当作文档索引、开发指南或进度记录；它只维护禁止事项
+- 不新增或修改根目录 `AGENTS.md` 的结构设计、命令说明、测试流程、里程碑状态、模块职责正文
+- 不只更新 `AGENTS.md` 而忘记同步 `CLAUDE.md` 中等价的 Claude 禁止事项，除非用户明确只维护 Codex
 - 不在模块级 `CLAUDE.md` 写通用开发流程或完整模块说明；模块级 `CLAUDE.md` 只写该模块特殊禁令、风险陷阱和不可绕过的边界
 - 不把项目结构、目录树、分层架构、技术栈写进 `docs/项目进度.md`；这些内容归 `docs/00_整体设计.md`
 - 不把里程碑状态、完成情况、已知不足、后续维护项写进 `docs/00_整体设计.md`；这些内容归 `docs/项目进度.md`
