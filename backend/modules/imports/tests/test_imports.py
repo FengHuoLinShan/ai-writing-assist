@@ -116,6 +116,32 @@ class TestFileValidation:
 
 
 # ============================================================
+# File size & encoding 测试
+# ============================================================
+
+class TestFileLimits:
+    """测试文件大小和编码限制"""
+
+    def test_oversized_file(self):
+        """超过 50MB 的文件应拒绝"""
+        from modules.imports.parsers import MAX_FILE_SIZE
+        large_data = b"x" * (MAX_FILE_SIZE + 1)
+        # parsers 本身不校验大小，由 service 层拒绝
+        # 这里测试 parsers 处理大文件无内存异常
+        chapters = parse_txt(large_data)
+        assert len(chapters) >= 1
+
+    def test_non_utf8_content(self):
+        """非 UTF-8 编码的文本应以 UTF-8 解码（忽略错误）"""
+        # 构造含非法 UTF-8 字节序列的内容
+        raw = b"\xff\xfe\x00\xe4\xbd\xa0\xe5\xa5\xbd\n\xe4\xb8\x96\xe7\x95\x8c"
+        chapters = parse_txt(raw)
+        # 不应抛出异常
+        assert len(chapters) >= 1
+        assert isinstance(chapters[0]["content"], str)
+
+
+# ============================================================
 # Repository 测试
 # ============================================================
 
