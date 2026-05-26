@@ -13,6 +13,7 @@ from sqlalchemy import select
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import task_handler
 from modules.imports.workflow import DeepImportWorkflow
+from shared.utils import parse_uuid as _parse_uuid
 from modules.imports.workflow_schemas import DeepImportProgress
 
 logger = logging.getLogger(__name__)
@@ -116,10 +117,3 @@ async def handle_deep_import_resume(db, task) -> dict[str, Any]:
     }
 
 
-def _parse_uuid(value: str) -> object:
-    """解析 UUID 字符串"""
-    import uuid
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise ValueError(f"Invalid UUID: {value}")

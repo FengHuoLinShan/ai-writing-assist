@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.services import ImportService
 from modules.imports.schemas import ImportResponse
+from shared.utils import parse_uuid as _parse_uuid
 
 _service = ImportService()
 
@@ -137,10 +138,3 @@ async def resume_deep_import(
     }
 
 
-def _parse_uuid(value: str) -> object:
-    """解析 UUID 字符串"""
-    import uuid
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise ValueError(f"Invalid UUID: {value}")

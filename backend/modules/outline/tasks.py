@@ -184,24 +184,11 @@ async def _extract_single_chapter_card(
     entities = await list_entities(db, novel_id)
     entity_names = ", ".join(e["name"] for e in entities[:30])
 
-    system_prompt = (
-        "你是一个小说章节分析助手。"
-        "从章节正文中分析并提取章节卡信息。\n\n"
-        f"当前章节：第{chapter_index}章\n\n"
-        "输出 JSON 对象，包含以下字段：\n"
-        "- chapter_goal: 本章核心目标（字符串）\n"
-        "- main_conflict: 本章主要冲突（字符串）\n"
-        "- emotional_point: 情绪基调（字符串，可选）\n"
-        "- ending_hook: 章尾钩子（字符串，可选）\n"
-        "- scene_cards: 场景细纲数组，每项包含 scene_index（序号）、"
-        "summary（场景摘要）、location（地点，可选）、conflict（场景冲突，可选）\n"
-        "- must_happen: 本章必须发生的事件列表\n"
-        "- must_not_happen: 本章绝对不能发生的事件列表\n"
-        "- visible_progress: 读者可见的剧情进展列表\n"
-        "- hidden_progress: 隐藏的剧情进展列表（仅作者知）\n"
-        "\n"
-        f"已有世界对象：{entity_names}\n"
-        "规则：只基于本章正文分析，不凭空创造未发生的内容。"
+    from infrastructure.llm.prompt_loader import load_prompt
+
+    system_prompt = load_prompt("extract_chapter_scene",
+        chapter_index=str(chapter_index),
+        entity_names=entity_names,
     )
 
     settings = get_settings()

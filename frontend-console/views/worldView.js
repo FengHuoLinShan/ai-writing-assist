@@ -15,6 +15,12 @@ const worldView = {
   _autoExtractTimer: null,
 
   async onEnter() {
+    // 清理上次的轮询
+    if (this._autoExtractTimer) {
+      clearInterval(this._autoExtractTimer)
+      this._autoExtractTimer = null
+    }
+
     // 从 localStorage 恢复抽取任务
     const saved = localStorage.getItem("novel_world_extract_task")
     if (saved) {
@@ -26,6 +32,24 @@ const worldView = {
           this._pollAutoExtract(taskId)
         }
       } catch {}
+    }
+
+    try {
+      if (_state.currentProjectId) {
+        const data = await api.world.listEntities({ novel_id: _state.currentProjectId })
+        this._entities = data.items || data || []
+      }
+    } catch {
+      this._entities = []
+    }
+
+    try {
+      if (_state.currentProjectId) {
+        const data = await api.world.listCandidates({ novel_id: _state.currentProjectId, status: "pending" })
+        this._candidates = data.items || data || []
+      }
+    } catch {
+      this._candidates = []
     }
   },
 
@@ -55,32 +79,6 @@ const worldView = {
 
     setTimeout(() => this._bindEvents(), 0)
     return html
-  },
-
-  async onEnter() {
-    // 清理上次的轮询
-    if (this._autoExtractTimer) {
-      clearInterval(this._autoExtractTimer)
-      this._autoExtractTimer = null
-    }
-
-    try {
-      if (_state.currentProjectId) {
-        const data = await api.world.listEntities({ novel_id: _state.currentProjectId })
-        this._entities = data.items || data || []
-      }
-    } catch {
-      this._entities = []
-    }
-
-    try {
-      if (_state.currentProjectId) {
-        const data = await api.world.listCandidates({ novel_id: _state.currentProjectId, status: "pending" })
-        this._candidates = data.items || data || []
-      }
-    } catch {
-      this._candidates = []
-    }
   },
 
   // ============================================================

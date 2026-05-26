@@ -31,15 +31,28 @@ from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TA
 
 logger = logging.getLogger(__name__)
 
-# 导入所有 ORM 模型注册到 Base.metadata（FK 解析需要）
-import modules.project.models  # noqa: F401 — 注册 projects 表（NovelMixin FK 依赖）
+# 自动发现并导入所有模块的 task handler（@task_handler 装饰器触发注册）
+import importlib
+import os
+import modules
 
-# 导入所有任务处理器注册（@task_handler 装饰器触发注册）
-import modules.world.tasks  # noqa: F401 — 注册 world_entity_extraction 处理器
-import modules.outline.tasks  # noqa: F401 — 注册 plot_structure_generate 处理器
-import modules.imports.tasks  # noqa: F401 — 注册 deep_import / deep_import_resume 处理器
-import modules.rag.tasks  # noqa: F401 — 注册 rag_index_chapter 处理器
-import modules.character.tasks  # noqa: F401 — 注册 character_extract 处理器
+
+# 注册 projects 表（NovelMixin FK 依赖）
+import modules.project.models  # noqa: F401
+
+
+def _discover_and_import_tasks() -> None:
+    """扫描 modules/*/tasks.py 自动注册所有 task handlers"""
+    modules_path = modules.__path__[0]  # type: ignore[attr-defined]
+    for name in sorted(os.listdir(modules_path)):
+        if name.startswith("_"):
+            continue
+        tasks_path = os.path.join(modules_path, name, "tasks.py")
+        if os.path.isfile(tasks_path):
+            importlib.import_module(f"modules.{name}.tasks")
+
+
+_discover_and_import_tasks()
 
 
 class TaskWorker:

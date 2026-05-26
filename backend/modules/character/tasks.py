@@ -108,22 +108,11 @@ async def handle_character_extract(db, task):
         for f in _EXTRACTABLE_FIELDS
     )
 
-    system_prompt = (
-        "你是一个小说人物档案分析助手。"
-        "从章节正文片段中提取指定角色的档案信息。\n\n"
-        f"角色名称：{character.name}\n\n"
-        "已有信息：\n"
-        f"{existing_info}\n\n"
-        "如果已有信息不为空，输出时保留原文并用 # 括起来，如：\n"
-        "\"desire\": \"#推翻帝国统治# 他内心深处真正的渴望是建立一个平等的新世界\"\n\n"
-        "规则：\n"
-        "- 只基于提供的章节正文分析\n"
-        "- 对每个字段输出最有信息量的内容，不确定的字段留 null\n"
-        "- 如果章节内容与该字段无关，输出 null\n"
-        "- 不要凭空创造未在文中体现的内容\n"
-        "- 每条建议应简短有力（不超过 100 字）\n\n"
-        "输出 JSON 对象，字段为：role, desire, fear, secret, weakness, "
-        "current_goal, current_state, current_emotion, stance, voice_style。"
+    from infrastructure.llm.prompt_loader import load_prompt
+
+    system_prompt = load_prompt("extract_character",
+        character_name=character.name,
+        existing_info=existing_info,
     )
 
     settings = get_settings()

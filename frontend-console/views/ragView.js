@@ -1,13 +1,37 @@
 /**
  * RAG 检索视图
+ *
+ * 子标签：索引状态 | 搜索测试
  */
-
 const ragView = {
+  _totalChunks: null,
+  _loading: true,
+  _apiAvailable: false,
+
+  async onEnter() {
+    this._loading = true
+    if (!_state.currentProjectId) {
+      this._totalChunks = null
+      this._apiAvailable = false
+      this._loading = false
+      return
+    }
+    try {
+      const data = await api.rag.status(_state.currentProjectId)
+      this._totalChunks = data.total || 0
+      this._apiAvailable = true
+    } catch {
+      this._totalChunks = null
+      this._apiAvailable = false
+    }
+    this._loading = false
+  },
+
   onLeave() {},
 
   async render() {
     const subView = _state.currentSubView || "status"
-    let html = ''
+    let html = ""
 
     html += `
       <div class="subnav">
@@ -17,78 +41,70 @@ const ragView = {
     `
 
     if (subView === "search") {
-      html += `
-        <div class="form-group">
-          <label>搜索关键词</label>
-          <div style="display:flex;gap:8px;">
-            <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${_state.searchQuery || ""}" style="flex:1;" />
-            <button class="btn btn-primary" data-action="do-search">搜索</button>
-          </div>
-        </div>
-        <div id="rag-results">
-          <div class="empty-state">
-            <p style="color:var(--text-dim);font-size:12px;">输入关键词后搜索。</p>
-          </div>
-        </div>
-      `
-
-      setTimeout(() => {
-        const input = document.getElementById("rag-search-input")
-        if (input && _state.searchQuery) {
-          this._doSearch(_state.searchQuery)
-        }
-        if (input) {
-          input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") this._doSearch(input.value)
-          })
-        }
-
-        const content = document.getElementById("workspace-content")
-        if (!content) return
-        content.removeEventListener("click", this._searchClickHandler)
-        this._searchClickHandler = (e) => {
-          const target = e.target.closest("[data-action]")
-          if (!target || target.getAttribute("data-action") !== "do-search") return
-          const val = document.getElementById("rag-search-input")?.value
-          if (val) this._doSearch(val)
-        }
-        content.addEventListener("click", this._searchClickHandler)
-      }, 0)
+      html += this._renderSearch()
     } else {
-      html += `
-        <table class="data-table">
-          <thead>
-            <tr><th>来源类型</th><th>总数量</th><th>已索引</th><th>状态</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>世界对象</td><td>-</td><td>-</td><td><span class="badge badge-canonical">正常</span></td></tr>
-            <tr><td>人物档案</td><td>-</td><td>-</td><td><span class="badge badge-canonical">正常</span></td></tr>
-            <tr><td>长期记忆</td><td>-</td><td>-</td><td><span class="badge badge-canonical">正常</span></td></tr>
-            <tr><td>剧情结构</td><td>-</td><td>-</td><td><span class="badge badge-canonical">正常</span></td></tr>
-          </tbody>
-        </table>
-        <div style="margin-top:12px;">
-          <button class="btn btn-warning" onclick="toast('正在重建索引...', 'info')">重建索引</button>
-          <button class="btn" data-action="nav-search">测试搜索</button>
-        </div>
-      `
-
-      setTimeout(() => {
-        const content = document.getElementById("workspace-content")
-        if (!content) return
-        content.removeEventListener("click", this._navClickHandler)
-        this._navClickHandler = (e) => {
-          const target = e.target.closest("[data-action]")
-          if (!target) return
-          const action = target.getAttribute("data-action")
-          if (action === "nav-status") router.navigate("rag", "status")
-          else if (action === "nav-search") router.navigate("rag", "search")
-        }
-        content.addEventListener("click", this._navClickHandler)
-      }, 0)
+      html += this._renderStatus()
     }
 
+    setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  _renderStatus() {
+    const statusBadge = this._apiAvailable
+      ? '<span class="badge badge-canonical">正常</span>'
+      : '<span class="badge badge-draft">未连接</span>'
+    const countDisplay = this._totalChunks !== null ? String(this._totalChunks) : "-"
+
+    if (!this._apiAvailable && this._totalChunks === null && !this._loading) {
+      return `
+        <div class="empty-state">
+          <div class="empty-icon">&#128269;</div>
+          <p>后端未连接</p>
+          <p style="color:var(--text-dim);font-size:12px;">请确认后端已启动并连接数据库。</p>
+        </div>
+      `
+    }
+
+    return `
+      <div style="margin-bottom:8px;">
+        <div class="card" style="margin-bottom:8px;">
+          <div class="card-title">RAG 索引概览</div>
+          <div style="display:flex;gap:16px;margin-top:8px;">
+            <div><strong style="font-size:24px;">${countDisplay}</strong><br><span style="color:var(--text-dim);font-size:12px;">总片段数</span></div>
+            <div><span style="font-size:24px;">${statusBadge}</span></div>
+          </div>
+        </div>
+        ${!this._loading && this._totalChunks === 0 ? `
+          <div class="empty-state">
+            <div class="empty-icon">&#128194;</div>
+            <p>暂无索引数据</p>
+            <p style="color:var(--text-dim);font-size:12px;">请先导入正文草稿，然后使用剧情结构提取或深度导入创建索引。</p>
+          </div>
+        ` : ""}
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn" data-action="rebuild-index">重建索引</button>
+        <button class="btn" data-action="nav-search">测试搜索</button>
+      </div>
+    `
+  },
+
+  _renderSearch() {
+    return `
+      <div class="form-group">
+        <label>搜索关键词</label>
+        <div style="display:flex;gap:8px;">
+          <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${esc(_state.searchQuery || "")}" style="flex:1;" />
+          <button class="btn btn-primary" data-action="do-search">搜索</button>
+        </div>
+      </div>
+      <div id="rag-results">
+        <div class="empty-state">
+          <p style="color:var(--text-dim);font-size:12px;">输入关键词后搜索。</p>
+        </div>
+      </div>
+    `
   },
 
   async _doSearch(query) {
@@ -128,6 +144,54 @@ const ragView = {
     } catch (err) {
       results.innerHTML = `<div class="empty-state"><p style="color:var(--danger);">搜索失败：${esc(err.message)}</p></div>`
     }
+  },
+
+  async _rebuildIndex() {
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      toast("正在重建索引...", "info")
+      await api.rag.rebuild({ novel_id: _state.currentProjectId })
+      toast("索引重建任务已提交", "success")
+      await this.onEnter()
+    } catch (err) {
+      toast(err.message || "重建失败", "error")
+    }
+  },
+
+  _bindEvents() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+    content.removeEventListener("click", this._clickHandler)
+
+    // 搜索输入框的 Enter 快捷键
+    const searchInput = document.getElementById("rag-search-input")
+    if (searchInput) {
+      searchInput.removeEventListener("keydown", this._searchEnterHandler)
+      this._searchEnterHandler = (e) => {
+        if (e.key === "Enter") this._doSearch(searchInput.value)
+      }
+      searchInput.addEventListener("keydown", this._searchEnterHandler)
+    }
+
+    this._clickHandler = (e) => {
+      const t = e.target.closest("[data-action]")
+      if (!t) return
+      const a = t.getAttribute("data-action")
+      switch (a) {
+        case "nav-status": router.navigate("rag", "status"); break
+        case "nav-search": router.navigate("rag", "search"); break
+        case "do-search": {
+          const val = document.getElementById("rag-search-input")?.value
+          if (val) this._doSearch(val)
+          break
+        }
+        case "rebuild-index": this._rebuildIndex(); break
+      }
+    }
+    content.addEventListener("click", this._clickHandler)
   },
 }
 

@@ -92,16 +92,10 @@ class EntityExtractionService:
                 for c in batch
             )
 
-            system_prompt = (
-                "你是一个小说世界对象抽取助手。"
-                "从章节正文中抽取需要长期维护的世界对象候选。"
-                f"已有对象列表：\n{existing_context}\n\n"
-                "规则：不抽取路人、普通道具、临时场景元素。"
-                "别名标记为 alias_of_existing，不创建新对象。"
-                "输出 JSON 对象，entities 字段为数组，每项包含："
-                "name, entity_type, summary, "
-                "public_info, hidden_truth, importance, suggested_action, "
-                "suggested_existing_entity_name, candidate_reason, confidence"
+            from infrastructure.llm.prompt_loader import load_prompt
+
+            system_prompt = load_prompt("structure_extraction",
+                existing_entities_context=existing_context,
             )
 
             from core.config import get_settings

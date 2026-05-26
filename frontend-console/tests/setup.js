@@ -55,6 +55,8 @@ globalThis.esc = (str) => {
 globalThis.toast = vi.fn()
 globalThis.showModal = vi.fn()
 globalThis.confirmAction = vi.fn()
+globalThis.closeModal = vi.fn()
+globalThis.prompt = vi.fn()
 globalThis.onStateChange = vi.fn(() => vi.fn()) // returns unsubscribe
 globalThis.updateRightPanelForView = vi.fn()
 
@@ -87,10 +89,6 @@ globalThis.api = {
     update: vi.fn(),
     remove: vi.fn(),
   },
-  imports: {
-    upload: vi.fn(),
-    list: vi.fn(),
-  },
   review: {
     run: vi.fn(),
   },
@@ -117,5 +115,77 @@ globalThis.api = {
     plotStructure: vi.fn(),
     chapterScene: vi.fn(),
     reviewMemory: vi.fn(),
+  },
+  outline: {
+    listChapterCards: vi.fn(),
+    getChapterCardByIndex: vi.fn(),
+    listThreads: vi.fn(),
+    listArcs: vi.fn(),
+    listForeshadowing: vi.fn(),
+    listReveals: vi.fn(),
+    createThread: vi.fn(),
+    deleteThread: vi.fn(),
+    createArc: vi.fn(),
+    deleteArc: vi.fn(),
+    createChapterCard: vi.fn(),
+    deleteChapterCard: vi.fn(),
+    getChapterCard: vi.fn(),
+    updateChapterCard: vi.fn(),
+    createForeshadowing: vi.fn(),
+    deleteForeshadowing: vi.fn(),
+    createReveal: vi.fn(),
+    deleteReveal: vi.fn(),
+  },
+  writing: {
+    listChapters: vi.fn(),
+    getDraft: vi.fn(),
+    saveDraft: vi.fn(),
+    updateDraftStatus: vi.fn(),
+    getVersionHistory: vi.fn(),
+  },
+  character: {
+    list: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    listKnowledge: vi.fn(),
+    updateKnowledge: vi.fn(),
+    createKnowledge: vi.fn(),
+    deleteKnowledge: vi.fn(),
+    extractAll: vi.fn(),
+    extract: vi.fn(),
+    getSuggestions: vi.fn(),
+    applySuggestions: vi.fn(),
+  },
+  geo: {
+    listLocations: vi.fn(),
+    listEras: vi.fn(),
+    listEdges: vi.fn(),
+  },
+  world: {
+    listEntities: vi.fn(),
+    listCandidates: vi.fn(),
+    listRelationships: vi.fn(),
+    listAliases: vi.fn(),
+    createEntity: vi.fn(),
+    updateEntity: vi.fn(),
+    deleteEntity: vi.fn(),
+    acceptCandidate: vi.fn(),
+    confirmCandidate: vi.fn(),
+    mergeCandidate: vi.fn(),
+    createRelationship: vi.fn(),
+    deleteRelationship: vi.fn(),
+    createAlias: vi.fn(),
+    deleteAlias: vi.fn(),
+  },
+  tasks: {
+    submit: vi.fn(),
+    getStatus: vi.fn(),
+    get: vi.fn(),
+  },
+  imports: {
+    upload: vi.fn(),
+    list: vi.fn(),
+    deepImport: vi.fn(),
+    resumeDeepImport: vi.fn(),
   },
 }
