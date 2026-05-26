@@ -3,6 +3,7 @@
  *
  * 对应后端 timeline_events: 列表、新建、编辑、删除。
  */
+
 const timelineView = {
   _events: [],
 
@@ -16,12 +17,30 @@ const timelineView = {
       return `<div class="empty-state"><p>请先选择项目。</p></div>`
     }
 
+    setTimeout(() => {
+      const content = document.getElementById("workspace-content")
+      if (!content) return
+      content.removeEventListener("click", this._clickHandler)
+      this._clickHandler = (e) => {
+        const target = e.target.closest("[data-action]")
+        if (!target) return
+        const action = target.getAttribute("data-action")
+        const id = target.getAttribute("data-id")
+        switch (action) {
+          case "create-event": this.showCreateForm(); break
+          case "edit-event": if (id) this.showEditForm(id); break
+          case "delete-event": if (id) this.deleteEvent(id); break
+        }
+      }
+      content.addEventListener("click", this._clickHandler)
+    }, 0)
+
     let html = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
         维护事件顺序，防止剧情冲突。轻量时间线，不做复杂时间推理。
       </p>
       <div style="margin-bottom:8px;display:flex;gap:8px;">
-        <button class="btn btn-primary" onclick="timelineView.showCreateForm()">新建事件</button>
+        <button class="btn btn-primary" data-action="create-event">新建事件</button>
       </div>
     `
 
@@ -50,8 +69,8 @@ const timelineView = {
           <td><span class="badge badge-draft">${esc(e.event_type || "-")}</span></td>
           <td>${visMap[e.visibility] || esc(e.visibility)}</td>
           <td style="display:flex;gap:4px;">
-            <button class="btn btn-sm" onclick="timelineView.showEditForm('${esc(e.id || e.event_id)}')">编辑</button>
-            <button class="btn btn-sm btn-danger" onclick="timelineView.deleteEvent('${esc(e.id || e.event_id)}')">删除</button>
+            <button class="btn btn-sm" data-action="edit-event" data-id="${esc(e.id || e.event_id)}">编辑</button>
+            <button class="btn btn-sm btn-danger" data-action="delete-event" data-id="${esc(e.id || e.event_id)}">删除</button>
           </td>
         </tr>`
       }
@@ -182,3 +201,4 @@ const timelineView = {
 
 router.registerView("timeline", timelineView)
 window.timelineView = timelineView
+export default timelineView

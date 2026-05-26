@@ -25,6 +25,10 @@ Thumbs.db
 *.coverage
 htmlcov/
 
+# Node
+node_modules/
+frontend-console/test-results/
+
 # Database
 *.db
 *.sqlite3

@@ -669,3 +669,6 @@ const worldView = {
 
 router.registerView("world", worldView)
 window.worldView = worldView
+
+
+export default worldView

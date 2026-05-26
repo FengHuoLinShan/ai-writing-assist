@@ -1,6 +1,10 @@
 /**
  * 项目视图
+ *
+ * ES Module — export default 供测试 import。
+ * 生产环境通过 index.html 的 <script type="module"> 加载。
  */
+
 const projectView = {
   /** @type {Array} 导入记录 */
   _importRecords: [],
@@ -23,7 +27,7 @@ const projectView = {
           <p>你可以：</p>
           <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
             <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
-            <button class="btn" onclick="projectView.importFile()">导入小说</button>
+            <button class="btn" data-action="import">导入小说</button>
           </div>
         </div>
       `
@@ -46,15 +50,15 @@ const projectView = {
         const status = p.status || "active"
         const statusClass = status === "active" || status === "canonical" ? "badge-canonical" : "badge-draft"
         html += `
-          <tr data-id="${esc(p.id)}" class="clickable" onclick="projectView.openProject('${esc(p.id)}')">
+          <tr data-id="${esc(p.id)}" class="clickable" data-action="open-project">
             <td><span class="badge ${statusClass}">${status === "canonical" ? "正史" : "草稿"}</span></td>
             <td>${esc(p.title || p.name || "未命名项目")}</td>
             <td>${esc(p.genre || "-")}</td>
             <td>${esc(p.current_stage || "-")}</td>
             <td>${p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : "-"}</td>
             <td>
-              <button class="btn btn-sm" onclick="event.stopPropagation();projectView.editProject('${esc(p.id)}')">编辑</button>
-              <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();projectView.deleteProject('${esc(p.id)}')" style="margin-left:4px;">删除</button>
+              <button class="btn btn-sm" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
+              <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}" style="margin-left:4px;">删除</button>
             </td>
           </tr>
         `
@@ -63,39 +67,88 @@ const projectView = {
       html += `
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
-          <button class="btn" id="btn-import-file" onclick="projectView.importFile()">导入小说</button>
-          <button class="btn" onclick="projectView._toggleImportSection()">${this._importSectionOpen ? "▾" : "▸"} 导入到当前项目</button>
+          <button class="btn" data-action="import">导入小说</button>
+          <button class="btn" data-action="toggle-import">${this._importSectionOpen ? "▾" : "▸"} 导入到当前项目</button>
         </div>
         ${this._importSectionOpen ? this._renderImportSection() : ""}
       `
     }
 
-    // 绑定事件
-    setTimeout(() => {
-      document.getElementById("btn-create-project")?.addEventListener("click", () => projectView.showCreateForm())
-    }, 0)
+    // 事件绑定（延迟到 DOM 挂载后）
+    setTimeout(() => this._bindEvents(), 0)
 
     return html
   },
 
+  _bindEvents() {
+    // 新建项目
+    document.getElementById("btn-create-project")?.addEventListener("click", () => this.showCreateForm())
+    // 表内操作通过委托处理
+    this._bindTableDelegation()
+    // 导入区域按钮
+    this._bindImportButtons()
+  },
+
+  /** 全局事件委托：监听所有 data-action */
+  _bindTableDelegation() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+
+    const handler = (e) => {
+      const target = e.target.closest("[data-action]")
+      if (!target) return
+
+      const action = target.getAttribute("data-action")
+      const id = target.getAttribute("data-id")
+
+      switch (action) {
+        case "open-project":
+          if (id) this.openProject(id)
+          break
+        case "edit-project":
+          if (id) this.editProject(id)
+          break
+        case "delete-project":
+          if (id) this.deleteProject(id)
+          break
+        case "new":
+          this.showCreateForm()
+          break
+        case "import":
+          this.importFile()
+          break
+        case "toggle-import":
+          this._toggleImportSection()
+          break
+        case "upload-file":
+          this._uploadFile()
+          break
+      }
+    }
+
+    // 移除旧监听避免重复绑定
+    content.removeEventListener("click", handler)
+    content.addEventListener("click", handler)
+  },
+
+  _bindImportButtons() {
+    document.getElementById("btn-import-file")?.addEventListener("click", () => this.importFile())
+  },
+
   async onEnter() {
-    // 加载项目列表
     try {
       const data = await api.projects.list()
       _state.projects = data.items || data || []
-      // 自动选中之前保存的项目
       if (_state.currentProjectId) {
         const match = _state.projects.find(p => p.id === _state.currentProjectId)
         if (match) {
           _state.currentProject = match
         } else {
-          // 保存的项目已被删除，清除状态
           _state.currentProjectId = null
           _state.currentProject = null
         }
       }
     } catch {
-      // 后端不可用时使用空列表
       _state.projects = []
     }
   },
@@ -106,7 +159,6 @@ const projectView = {
       _state.currentProjectId = id
       _state.currentProject = project
       toast(`已切换到项目：${project.title || project.name}`, "success")
-      // 切换到世界对象页
       router.navigate("world", "objects")
     }
   },
@@ -160,7 +212,6 @@ const projectView = {
     ])
   },
 
-  /** 删除项目（二次确认） */
   deleteProject(id) {
     const project = _state.projects.find((p) => p.id === id)
     if (!project) return
@@ -169,7 +220,6 @@ const projectView = {
       try {
         await api.projects.remove(id)
         toast(`项目「${name}」已删除`, "success")
-        // 如果删除的是当前项目，清除选中状态
         if (_state.currentProjectId === id) {
           _state.currentProjectId = null
           _state.currentProject = null
@@ -246,7 +296,6 @@ const projectView = {
     ])
   },
 
-  /** 导入小说文件：选文件 → 自动建项目 → 解析入库 */
   importFile() {
     const input = document.createElement("input")
     input.type = "file"
@@ -256,10 +305,7 @@ const projectView = {
       const file = input.files[0]
 
       try {
-        // 1. 从文件名生成项目标题
         const projectName = file.name.replace(/\.[^.]+$/, "").trim() || "未命名小说"
-
-        // 2. 创建项目
         const project = await api.projects.create({
           title: projectName,
           genre: "",
@@ -268,11 +314,9 @@ const projectView = {
         })
         _state.currentProjectId = project.id
         _state.currentProject = project
-        // 刷新项目列表
         const data = await api.projects.list()
         _state.projects = data.items || data || []
 
-        // 3. 上传并导入
         const result = await api.imports.upload(project.id, file)
         toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
       } catch (err) {
@@ -283,7 +327,7 @@ const projectView = {
   },
 
   // ============================================================
-  // 导入区（上传到当前项目）
+  // 导入区
   // ============================================================
 
   _toggleImportSection() {
@@ -304,7 +348,7 @@ const projectView = {
             <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px;">选择文件（txt/epub/html/mobi）</label>
             <input type="file" id="pv-import-file" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text);font-size:12px;" ${!hasProject ? "disabled" : ""} />
           </div>
-          <button class="btn btn-primary" onclick="projectView._uploadFile()" ${this._importUploading || !hasProject ? "disabled" : ""}>
+          <button class="btn btn-primary" data-action="upload-file" ${this._importUploading || !hasProject ? "disabled" : ""}>
             ${this._importUploading ? "上传中..." : "上传并导入"}
           </button>
         </div>
@@ -347,7 +391,7 @@ const projectView = {
 
   async _uploadFile() {
     const input = document.getElementById("pv-import-file")
-    const btn = document.querySelector('[onclick="projectView._uploadFile()"]')
+    const btn = document.querySelector("[data-action='upload-file']")
     if (!input || !input.files || input.files.length === 0) {
       toast("请先选择文件", "warning"); return
     }
@@ -372,3 +416,4 @@ const projectView = {
 
 router.registerView("project", projectView)
 window.projectView = projectView
+export default projectView

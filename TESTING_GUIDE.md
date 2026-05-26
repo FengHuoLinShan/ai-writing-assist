@@ -57,6 +57,21 @@ async def db_session() -> AsyncGenerator[AsyncSession, ...]:
     await engine.dispose()
 ```
 
+### Test import convention
+
+测试应优先通过 public 接口（facade + contracts）进行，而非直接 import 内部模块：
+
+```
+✅ 推荐: from modules.xxx.facade import some_function
+❌ 避免: from modules.xxx.repositories import SomeRepository
+❌ 避免: from modules.xxx.services import SomeService
+```
+
+理由：
+- **测试验证的是行为而非实现** — facade 是稳定的公共接口，内部重构不影响测试
+- **facade 层本身就是薄层** — 测 facade 等价于测 service
+- 当 facade 未暴露某个特定行为、或需要测试 repository 的复杂查询逻辑时，直接 import 内部是可以接受的，但应作为例外备注说明
+
 Key points:
 - All ORM models with FK dependencies must be imported to register in `Base.metadata`
 - `NovelMixin` references `projects.id` → always import `modules.project.models`

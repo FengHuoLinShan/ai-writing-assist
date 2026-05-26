@@ -152,6 +152,24 @@ class PlotThreadService:
             for t in threads
         ]
 
+    async def list_summaries(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        limit: int = 50,
+    ) -> list[dict]:
+        """获取剧情线摘要列表（供 LLM 上下文注入使用）"""
+        nid = parse_uuid(novel_id, "novel_id")
+        items, _ = await self._repo.get_by_novel(db, nid, limit=limit)
+        return [
+            {
+                "id": str(t.id), "name": t.name, "thread_type": t.thread_type,
+                "summary": t.summary or "", "start_chapter": t.start_chapter,
+                "planned_payoff_chapter": t.planned_payoff_chapter,
+            }
+            for t in items
+        ]
+
     async def update(
         self,
         db: AsyncSession,
@@ -326,6 +344,23 @@ class OutlineArcService:
                 detail=f"OutlineArc {arc_id} not found",
             )
         await self._repo.delete(db, aid)
+
+    async def list_summaries(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        limit: int = 50,
+    ) -> list[dict]:
+        """获取篇章纲摘要列表（供 LLM 上下文注入使用）"""
+        nid = parse_uuid(novel_id, "novel_id")
+        items, _ = await self._repo.get_by_novel(db, nid, limit=limit)
+        return [
+            {
+                "id": str(a.id), "title": a.title,
+                "start_chapter": a.start_chapter, "end_chapter": a.end_chapter,
+            }
+            for a in items
+        ]
 
 
 
@@ -636,6 +671,251 @@ class ForeshadowingPlanService:
                 detail=f"ForeshadowingPlan {plan_id} not found",
             )
         await self._repo.delete(db, pid)
+
+
+# ============================================================
+# PlotGenerationService
+# ============================================================
+
+class PlotGenerationService:
+    """剧情结构生成服务
+
+    读取章节正文，调用 LLM 生成剧情线和篇章纲，持久化结果。
+    同时被 outline/tasks.py 和 imports/workflow.py 调用。
+    """
+
+    def __init__(self) -> None:
+        self._thread_service = PlotThreadService()
+        self._arc_service = OutlineArcService()
+
+    async def generate(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> dict:
+        """读取章节 → 调用 LLM → 持久化 → 返回统计"""
+        # 1. 读取章节正文
+        from modules.writing.facade import get_latest_draft_for_chapter
+
+        chapters = []
+        for idx in range(start_chapter, end_chapter + 1):
+            draft = await get_latest_draft_for_chapter(db, novel_id, idx)
+            if draft and draft.content:
+                chapters.append(f"--- 第{idx}章 ---\n{draft.content}")
+
+        if not chapters:
+            return {"total_threads": 0, "total_arcs": 0, "threads": [], "arcs": []}
+
+        batch_text = "\n\n".join(chapters)
+
+        # 2. 加载已有上下文
+        existing_threads = await self._load_existing_threads(db, novel_id)
+        existing_arcs = await self._load_existing_arcs(db, novel_id)
+        existing_entities = await self._load_existing_entities(db, novel_id)
+
+        # 3. LLM 输出 Schema
+        from pydantic import BaseModel
+
+        class _GeneratedThread(BaseModel):
+            name: str
+            thread_type: str
+            summary: str
+            visible_goal: str
+            start_chapter: int | None = None
+            planned_payoff_chapter: int | None = None
+            existing_id: str | None = None
+
+        class _GeneratedArc(BaseModel):
+            title: str
+            arc_index: int
+            start_chapter: int
+            end_chapter: int
+            arc_goal: str
+            core_conflict: str
+            climax: str = ""
+            result: str = ""
+            existing_id: str | None = None
+
+        class _PlotOutput(BaseModel):
+            plot_threads: list[_GeneratedThread]
+            outline_arcs: list[_GeneratedArc]
+
+        # 4. 构建 Prompt
+        context_note = ""
+        if existing_threads or existing_arcs:
+            context_note = (
+                f"\n已有实体：{', '.join(e['name'] for e in existing_entities[:30])}\n"
+                f"已有剧情线：\n" + "\n".join(
+                    f"  - id={t['id']} name={t['name']} type={t['thread_type']} "
+                    f"summary={t['summary'][:50]}"
+                    for t in existing_threads
+                ) + "\n"
+                f"已有篇章纲：\n" + "\n".join(
+                    f"  - id={a['id']} title={a['title']} chapters={a['start_chapter']}-{a['end_chapter']}"
+                    for a in existing_arcs
+                ) + "\n"
+            )
+
+        system_prompt = (
+            "你是一个小说剧情结构分析助手。"
+            "从章节正文中分析识别剧情线和篇章结构。"
+            f"当前章节范围：第{start_chapter}章到第{end_chapter}章\n\n"
+            "输出 JSON 对象，包含：\n"
+            "- plot_threads: 剧情线数组，每项包含 name, thread_type (main/secondary/hidden), "
+            "summary, visible_goal, start_chapter, planned_payoff_chapter, existing_id\n"
+            "- outline_arcs: 篇章纲数组，每项包含 title, arc_index, start_chapter, end_chapter, "
+            "arc_goal, core_conflict, climax, result, existing_id\n\n"
+            f"{context_note}"
+            "规则：只基于已有章节正文分析，不凭空创造未发生的内容。\n"
+            "增量规则：\n"
+            "- 已有记录通过 existing_id 标记（值为已有的 id），此时更新其字段\n"
+            "- 新记录 existing_id 设为 null（不提供该字段）\n"
+            "- 不修改不可变字段（name, thread_type, arc_index 等，即使提供了也忽略）\n"
+            "- 对已有线程，如在新章节中有明确进展则更新 summary / planned_payoff_chapter\n"
+            "- 对已有篇章，如边界扩展则更新 end_chapter\n"
+            "start_chapter 和 planned_payoff_chapter 必须为正整数（≥1），不确定时写 null。"
+            "climax 和 result 是 OutlineArc 必填字段，必须根据正文内容填写。"
+        )
+
+        from core.config import get_settings
+        from infrastructure.llm.client import LLMClient
+        from infrastructure.llm.schemas import LLMCallRequest
+
+        settings = get_settings()
+        request = LLMCallRequest(
+            model=settings.llm_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": batch_text},
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+
+        llm = LLMClient()
+        parsed = await llm.generate_structured(request, _PlotOutput)
+
+        # 5. 持久化结果
+        from modules.outline.schemas import (
+            OutlineArcCreate,
+            OutlineArcUpdate,
+            PlotThreadCreate,
+            PlotThreadUpdate,
+        )
+
+        import logging
+
+        logger = logging.getLogger(__name__)
+        created_threads = []
+        created_arcs = []
+
+        for pt in parsed.plot_threads:
+            sc = pt.start_chapter if (pt.start_chapter is not None and pt.start_chapter >= 1) else None
+            ppc = pt.planned_payoff_chapter if (pt.planned_payoff_chapter is not None and pt.planned_payoff_chapter >= 1) else None
+
+            if pt.existing_id:
+                updates: dict = {}
+                if pt.summary:
+                    updates["summary"] = pt.summary
+                if pt.visible_goal:
+                    updates["visible_goal"] = pt.visible_goal
+                if ppc is not None:
+                    updates["planned_payoff_chapter"] = ppc
+                if updates:
+                    try:
+                        await self._thread_service.update(
+                            db, pt.existing_id,
+                            PlotThreadUpdate(**updates),
+                            novel_id,
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to update thread %s: %s", pt.existing_id, exc)
+            else:
+                data = PlotThreadCreate(
+                    name=pt.name, thread_type=pt.thread_type,
+                    summary=pt.summary, visible_goal=pt.visible_goal,
+                    start_chapter=sc, planned_payoff_chapter=ppc,
+                )
+                try:
+                    created = await self._thread_service.create(db, novel_id, data)
+                    created_threads.append({"id": str(created.id), "name": created.name})
+                except Exception as exc:
+                    logger.warning("Failed to create thread %s: %s", pt.name, exc)
+
+        for arc in parsed.outline_arcs:
+            if arc.existing_id:
+                updates: dict = {}
+                if arc.arc_goal:
+                    updates["arc_goal"] = arc.arc_goal
+                if arc.core_conflict:
+                    updates["core_conflict"] = arc.core_conflict
+                if arc.climax:
+                    updates["climax"] = arc.climax
+                if arc.result:
+                    updates["result"] = arc.result
+                if arc.end_chapter:
+                    updates["end_chapter"] = arc.end_chapter
+                if updates:
+                    try:
+                        await self._arc_service.update(
+                            db, arc.existing_id,
+                            OutlineArcUpdate(**updates),
+                            novel_id,
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to update arc %s: %s", arc.existing_id, exc)
+            else:
+                data = OutlineArcCreate(
+                    title=arc.title, arc_index=arc.arc_index,
+                    start_chapter=arc.start_chapter, end_chapter=arc.end_chapter,
+                    arc_goal=arc.arc_goal, core_conflict=arc.core_conflict,
+                    climax=arc.climax, result=arc.result,
+                )
+                try:
+                    created = await self._arc_service.create(db, novel_id, data)
+                    created_arcs.append({"id": str(created.id), "title": created.title})
+                except Exception as exc:
+                    logger.warning("Failed to create arc %s: %s", arc.title, exc)
+
+        await db.flush()
+
+        logger.info(
+            "Plot structure generated: %d threads, %d arcs",
+            len(created_threads), len(created_arcs),
+        )
+
+        return {
+            "total_threads": len(created_threads),
+            "total_arcs": len(created_arcs),
+            "threads": created_threads,
+            "arcs": created_arcs,
+        }
+
+    async def _load_existing_threads(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[dict]:
+        from modules.outline.facade import list_thread_summaries
+        return await list_thread_summaries(db, novel_id)
+
+    async def _load_existing_arcs(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[dict]:
+        from modules.outline.facade import list_arc_summaries
+        return await list_arc_summaries(db, novel_id)
+
+    async def _load_existing_entities(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[dict]:
+        from modules.world.facade import list_entities
+        return await list_entities(db, novel_id)
 
 
 

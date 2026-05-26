@@ -3,6 +3,7 @@
  *
  * 对应后端 memory_records + memory_update_proposals。
  */
+
 const memoryView = {
   _records: [],
   _proposals: [],
@@ -15,18 +16,35 @@ const memoryView = {
 
   async render() {
     const subView = _state.currentSubView || "records"
-    let html = ''
 
+    setTimeout(() => {
+      const content = document.getElementById("workspace-content")
+      if (!content) return
+      content.removeEventListener("click", this._clickHandler)
+      this._clickHandler = (e) => {
+        const target = e.target.closest("[data-action]")
+        if (!target) return
+        const action = target.getAttribute("data-action")
+        const id = target.getAttribute("data-id")
+        switch (action) {
+          case "nav-records": router.navigate("memory", "records"); break
+          case "nav-proposals": router.navigate("memory", "proposals"); break
+          case "confirm-proposal": if (id) this.confirmProposal(id); break
+          case "reject-proposal": if (id) this.rejectProposal(id); break
+        }
+      }
+      content.addEventListener("click", this._clickHandler)
+    }, 0)
+
+    let html = ''
     html += `
       <div class="subnav">
-        <span class="subnav-item ${subView === "records" ? "active" : ""}" data-subview="records" onclick="router.navigate('memory','records')">记忆记录</span>
-        <span class="subnav-item ${subView === "proposals" ? "active" : ""}" data-subview="proposals" onclick="router.navigate('memory','proposals')">更新候选</span>
+        <span class="subnav-item ${subView === "records" ? "active" : ""}" data-action="nav-records">记忆记录</span>
+        <span class="subnav-item ${subView === "proposals" ? "active" : ""}" data-action="nav-proposals">更新候选</span>
       </div>
     `
-
     if (subView === "proposals") html += await this._renderProposals()
     else html += await this._renderRecords()
-
     return html
   },
 
@@ -100,8 +118,8 @@ const memoryView = {
           <td>${p.confidence ? (p.confidence * 100).toFixed(0) + "%" : "-"}</td>
           <td style="color:var(--text-dim);font-size:11px;">${esc((p.source_text_excerpt || "").slice(0, 50))}</td>
           <td style="display:flex;gap:4px;">
-            <button class="btn btn-sm btn-primary" onclick="memoryView.confirmProposal('${esc(p.id || p.proposal_id)}')">确认</button>
-            <button class="btn btn-sm btn-danger" onclick="memoryView.rejectProposal('${esc(p.id || p.proposal_id)}')">拒绝</button>
+            <button class="btn btn-sm btn-primary" data-action="confirm-proposal" data-id="${esc(p.id || p.proposal_id)}">确认</button>
+            <button class="btn btn-sm btn-danger" data-action="reject-proposal" data-id="${esc(p.id || p.proposal_id)}">拒绝</button>
           </td>
         </tr>`
     }
@@ -130,3 +148,4 @@ const memoryView = {
 
 router.registerView("memory", memoryView)
 window.memoryView = memoryView
+export default memoryView

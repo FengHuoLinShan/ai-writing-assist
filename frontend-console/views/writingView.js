@@ -1025,3 +1025,6 @@ const writingView = {
 
 // 注册视图
 router.registerView("writing", writingView)
+
+
+export default writingView

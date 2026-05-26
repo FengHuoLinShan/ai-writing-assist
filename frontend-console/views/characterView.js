@@ -964,3 +964,6 @@ const characterView = {
 
 router.registerView("character", characterView)
 window.characterView = characterView
+
+
+export default characterView

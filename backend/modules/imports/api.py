@@ -85,16 +85,10 @@ async def submit_deep_import(
 
     # 自动检测最后章节
     if end_chapter == 0:
-        from modules.writing.repositories import WritingDraftRepository
-        repo = WritingDraftRepository()
-        from sqlalchemy import select, func
-        from modules.writing.models import WritingDraft
-        stmt = select(func.max(WritingDraft.chapter_index)).where(
-            WritingDraft.novel_id == _parse_uuid_to_obj(novel_id),
-        )
-        result = await db.execute(stmt)
-        max_ch = result.scalar() or 1
-        end_chapter = int(max_ch)
+        from modules.writing.facade import list_chapter_indices
+
+        indices = await list_chapter_indices(db, novel_id)
+        end_chapter = max(indices) if indices else 1
 
     result = await _start(db, novel_id, start_chapter, end_chapter)
     return result
@@ -121,12 +115,3 @@ async def resume_deep_import(
 
     result = await _resume(db, prev_task_id)
     return result
-
-
-def _parse_uuid_to_obj(value: str) -> object:
-    import uuid
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        from fastapi import HTTPException
-        raise HTTPException(400, detail=f"Invalid UUID: {value}")

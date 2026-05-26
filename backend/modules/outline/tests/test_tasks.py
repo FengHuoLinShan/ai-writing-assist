@@ -16,13 +16,8 @@ from infrastructure.tasks.models import AsyncTask
 from modules.outline.schemas import ChapterCardCreate
 from modules.outline.services import ChapterCardService
 from modules.outline.tasks import handle_chapter_card_extraction
+from modules.writing.facade import create_draft as _create_writing_draft
 from modules.writing.schemas import WritingDraftCreate
-from modules.writing.services import WritingDraftService
-
-
-@pytest.fixture
-def writing_service() -> WritingDraftService:
-    return WritingDraftService()
 
 
 @pytest.fixture
@@ -44,7 +39,6 @@ class TestChapterCardExtraction:
     async def test_skip_existing_and_no_draft(
         self,
         db_session: AsyncSession,
-        writing_service: WritingDraftService,
         card_service: ChapterCardService,
     ) -> None:
         """测试已有章节卡和无正文的章节被跳过"""
@@ -56,7 +50,7 @@ class TestChapterCardExtraction:
                 novel_id=novel_id, chapter_index=ch,
                 title=f"第{ch}章", content=f"第{ch}章正文内容。",
             )
-            await writing_service.create_draft(db_session, data)
+            await _create_writing_draft(db_session, data)
 
         # 为第1章创建章节卡（应被跳过）
         card_data = ChapterCardCreate(
@@ -118,7 +112,6 @@ class TestChapterCardExtraction:
     async def test_progress_tracking(
         self,
         db_session: AsyncSession,
-        writing_service: WritingDraftService,
     ) -> None:
         """测试进度更新"""
         novel_id = str(uuid.uuid4())
@@ -128,7 +121,7 @@ class TestChapterCardExtraction:
                 novel_id=novel_id, chapter_index=ch,
                 title=f"第{ch}章", content=f"第{ch}章正文。",
             )
-            await writing_service.create_draft(db_session, data)
+            await _create_writing_draft(db_session, data)
 
         task = AsyncTask(
             task_type="chapter_card_extraction",

@@ -30,12 +30,14 @@ from modules.outline.schemas import (
 from modules.outline.services import (
     ChapterCardService,
     OutlineArcService,
+    PlotGenerationService,
     PlotThreadService,
 )
 
 _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
 _chapter_service = ChapterCardService()
+_plot_generation = PlotGenerationService()
 
 
 async def create_thread(
@@ -85,19 +87,7 @@ async def list_thread_summaries(
 
     供其他模块注入 LLM 上下文，非完整 CRUD 查询。
     """
-    from sqlalchemy import select
-    from modules.outline.models import PlotThread
-
-    nid = _parse_uuid(novel_id)
-    stmt = select(PlotThread).where(PlotThread.novel_id == nid).limit(limit)
-    result = await db.execute(stmt)
-    return [
-        {
-            "id": str(t.id), "name": t.name, "thread_type": t.thread_type,
-            "summary": t.summary or "", "start_chapter": t.start_chapter,
-            "planned_payoff_chapter": t.planned_payoff_chapter,
-        } for t in result.scalars().all()
-    ]
+    return await _thread_service.list_summaries(db, novel_id, limit=limit)
 
 
 async def list_arc_summaries(
@@ -106,18 +96,7 @@ async def list_arc_summaries(
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """获取篇章纲摘要列表（id, title, start_chapter, end_chapter）"""
-    from sqlalchemy import select
-    from modules.outline.models import OutlineArc
-
-    nid = _parse_uuid(novel_id)
-    stmt = select(OutlineArc).where(OutlineArc.novel_id == nid).limit(limit)
-    result = await db.execute(stmt)
-    return [
-        {
-            "id": str(a.id), "title": a.title,
-            "start_chapter": a.start_chapter, "end_chapter": a.end_chapter,
-        } for a in result.scalars().all()
-    ]
+    return await _arc_service.list_summaries(db, novel_id, limit=limit)
 
 
 async def get_chapter_card(
@@ -219,9 +198,24 @@ async def create_chapter_cards_from_candidate(
     )
 
 
-def _parse_uuid(value: str) -> object:
-    import uuid
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise ValueError(f"Invalid UUID: {value}")
+async def generate_plot_structure(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+) -> dict:
+    """生成剧情结构
+
+    读取章节正文 → 调用 LLM → 持久化剧情线和篇章纲。
+    供 imports/workflow.py 等跨模块调用。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        start_chapter: 起始章节
+        end_chapter: 结束章节
+
+    Returns:
+        dict — {total_threads, total_arcs, threads, arcs}
+    """
+    return await _plot_generation.generate(db, novel_id, start_chapter, end_chapter)

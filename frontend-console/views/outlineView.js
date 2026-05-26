@@ -620,3 +620,6 @@ function empty(msg) { return `<div class="empty-state"><p>${msg}</p></div>` }
 
 router.registerView("outline", outlineView)
 window.outlineView = outlineView
+
+
+export default outlineView

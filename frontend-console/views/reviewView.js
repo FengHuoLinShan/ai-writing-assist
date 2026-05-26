@@ -1,10 +1,12 @@
 /**
  * 结构复查视图
  */
+
 const reviewView = {
   onLeave() {},
 
   async render() {
+    setTimeout(() => this._bindEvents(), 0)
     return `
       <div class="empty-state">
         <div class="empty-icon">&#128269;</div>
@@ -14,12 +16,23 @@ const reviewView = {
           提前揭示检测、人物知识边界验证、时间线冲突检查、地理冲突检查和重复检测。
         </p>
         <div style="margin-top:12px;">
-          <button class="btn btn-primary" onclick="reviewView.runReview()" data-action="review">运行复查</button>
+          <button class="btn btn-primary" data-action="review">运行复查</button>
         </div>
       </div>
 
       <div id="review-output" style="margin-top:12px;max-width:600px;margin-left:auto;margin-right:auto;"></div>
     `
+  },
+
+  _bindEvents() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+    content.removeEventListener("click", this._clickHandler)
+    this._clickHandler = (e) => {
+      const btn = e.target.closest("[data-action='review']")
+      if (btn) this.runReview()
+    }
+    content.addEventListener("click", this._clickHandler)
   },
 
   async runReview() {
@@ -49,7 +62,6 @@ const reviewView = {
       html += `<p style="color:${decisionColors[decision] || "var(--text)"};">结论：${decision}</p>`
       html += report.score ? `<p>综合评分：${report.score}</p>` : ""
 
-      // 列出问题
       const allProblems = [
         ...(report.problems || []),
         ...(report.conflict_warnings || []).map((w) => ({ ...w, type: "timeline_conflict" })),
@@ -101,3 +113,4 @@ const reviewView = {
 
 router.registerView("review", reviewView)
 window.reviewView = reviewView
+export default reviewView

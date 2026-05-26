@@ -40,6 +40,7 @@
 - 不做无空状态提示、无操作确认、无错误提示的页面
 
 ### 测试
+- 测试优先通过 facade + contracts 验证行为，而非直接 import 内部模块（repositories/services/models）
 - 修改 `contracts.py` / `facade.py` / API / DB schema 后，不允许漏更新 README / 测试 / 调用方 / docs
 - 不跑受影响模块测试不合并
 

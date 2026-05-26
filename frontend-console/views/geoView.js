@@ -536,3 +536,6 @@ const geoView = {
 
 router.registerView("geo", geoView)
 window.geoView = geoView
+
+
+export default geoView

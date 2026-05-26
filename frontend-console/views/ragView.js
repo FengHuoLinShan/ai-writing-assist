@@ -1,6 +1,7 @@
 /**
  * RAG 检索视图
  */
+
 const ragView = {
   onLeave() {},
 
@@ -10,8 +11,8 @@ const ragView = {
 
     html += `
       <div class="subnav">
-        <span class="subnav-item ${subView === "status" ? "active" : ""}" data-subview="status" onclick="router.navigate('rag','status')">索引状态</span>
-        <span class="subnav-item ${subView === "search" ? "active" : ""}" data-subview="search" onclick="router.navigate('rag','search')">搜索测试</span>
+        <span class="subnav-item ${subView === "status" ? "active" : ""}" data-action="nav-status">索引状态</span>
+        <span class="subnav-item ${subView === "search" ? "active" : ""}" data-action="nav-search">搜索测试</span>
       </div>
     `
 
@@ -21,33 +22,37 @@ const ragView = {
           <label>搜索关键词</label>
           <div style="display:flex;gap:8px;">
             <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${_state.searchQuery || ""}" style="flex:1;" />
-            <button class="btn btn-primary" id="btn-rag-search">搜索</button>
+            <button class="btn btn-primary" data-action="do-search">搜索</button>
           </div>
         </div>
         <div id="rag-results">
           <div class="empty-state">
-            <p style="color:var(--text-dim);font-size:12px;">输入关键词后按 Enter 搜索。</p>
+            <p style="color:var(--text-dim);font-size:12px;">输入关键词后搜索。</p>
           </div>
         </div>
       `
 
       setTimeout(() => {
         const input = document.getElementById("rag-search-input")
-        const btn = document.getElementById("btn-rag-search")
         if (input && _state.searchQuery) {
-          ragView._doSearch(_state.searchQuery)
+          this._doSearch(_state.searchQuery)
         }
         if (input) {
           input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") ragView._doSearch(input.value)
+            if (e.key === "Enter") this._doSearch(input.value)
           })
         }
-        if (btn) {
-          btn.addEventListener("click", () => {
-            const val = document.getElementById("rag-search-input")?.value
-            if (val) ragView._doSearch(val)
-          })
+
+        const content = document.getElementById("workspace-content")
+        if (!content) return
+        content.removeEventListener("click", this._searchClickHandler)
+        this._searchClickHandler = (e) => {
+          const target = e.target.closest("[data-action]")
+          if (!target || target.getAttribute("data-action") !== "do-search") return
+          const val = document.getElementById("rag-search-input")?.value
+          if (val) this._doSearch(val)
         }
+        content.addEventListener("click", this._searchClickHandler)
       }, 0)
     } else {
       html += `
@@ -64,9 +69,23 @@ const ragView = {
         </table>
         <div style="margin-top:12px;">
           <button class="btn btn-warning" onclick="toast('正在重建索引...', 'info')">重建索引</button>
-          <button class="btn" onclick="router.navigate('rag','search')">测试搜索</button>
+          <button class="btn" data-action="nav-search">测试搜索</button>
         </div>
       `
+
+      setTimeout(() => {
+        const content = document.getElementById("workspace-content")
+        if (!content) return
+        content.removeEventListener("click", this._navClickHandler)
+        this._navClickHandler = (e) => {
+          const target = e.target.closest("[data-action]")
+          if (!target) return
+          const action = target.getAttribute("data-action")
+          if (action === "nav-status") router.navigate("rag", "status")
+          else if (action === "nav-search") router.navigate("rag", "search")
+        }
+        content.addEventListener("click", this._navClickHandler)
+      }, 0)
     }
 
     return html
@@ -79,11 +98,7 @@ const ragView = {
     results.innerHTML = '<div class="loading">搜索中</div>'
 
     try {
-      const data = await api.rag.search({
-        query,
-        top_k: 8,
-      }, _state.currentProjectId)
-
+      const data = await api.rag.search({ query, top_k: 8 }, _state.currentProjectId)
       const chunks = data.chunks || data || []
       if (chunks.length === 0) {
         results.innerHTML = '<div class="empty-state"><p style="color:var(--text-dim);">未找到匹配结果</p></div>'
@@ -92,7 +107,6 @@ const ragView = {
 
       let html = '<div style="margin-top:12px;">'
       html += `<p style="color:var(--text-muted);font-size:12px;margin-bottom:8px;">找到 ${chunks.length} 条结果</p>`
-
       for (const chunk of chunks) {
         const sourceType = esc(chunk.source_type || "unknown")
         const text = esc(chunk.text || chunk.summary || chunk.content || "")
@@ -109,7 +123,6 @@ const ragView = {
           </div>
         `
       }
-
       html += "</div>"
       results.innerHTML = html
     } catch (err) {
@@ -120,3 +133,4 @@ const ragView = {
 
 router.registerView("rag", ragView)
 window.ragView = ragView
+export default ragView

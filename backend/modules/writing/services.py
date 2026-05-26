@@ -136,15 +136,7 @@ class WritingDraftService:
         draft = await self._repo.get(db, did)
         if draft is None:
             return None
-        return WritingDraftContract(
-            novel_id=str(draft.novel_id),
-            chapter_index=draft.chapter_index,
-            chapter_card_id=str(draft.chapter_card_id) if draft.chapter_card_id else None,
-            title=draft.title,
-            content=draft.content,
-            version_number=draft.version_number,
-            status=draft.status,
-        )
+        return self._to_contract(draft)
 
     async def get_latest_draft_contract(
         self,
@@ -157,14 +149,19 @@ class WritingDraftService:
         draft = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if draft is None:
             return None
+        return self._to_contract(draft)
+
+    @staticmethod
+    def _to_contract(draft: object) -> WritingDraftContract:
+        """将 ORM draft 转为契约对象"""
         return WritingDraftContract(
-            novel_id=str(draft.novel_id),
-            chapter_index=draft.chapter_index,
+            novel_id=str(draft.novel_id),  # type: ignore[union-attr]
+            chapter_index=draft.chapter_index,  # type: ignore[union-attr]
             chapter_card_id=str(draft.chapter_card_id) if draft.chapter_card_id else None,
-            title=draft.title,
-            content=draft.content,
-            version_number=draft.version_number,
-            status=draft.status,
+            title=draft.title,  # type: ignore[union-attr]
+            content=draft.content,  # type: ignore[union-attr]
+            version_number=draft.version_number,  # type: ignore[union-attr]
+            status=draft.status,  # type: ignore[union-attr]
         )
 
     async def list_chapter_indices(

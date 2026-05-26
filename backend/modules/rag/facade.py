@@ -7,21 +7,19 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
-import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
-
 from modules.rag.contracts import RagChunkContract, RagResultBundle
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate, RagChunkResponse
-from modules.rag.services import ChunkingService, RetrievalService
+from modules.rag.services import ChunkingService, IndexingService, RetrievalService
 
 _repo = RagChunkRepository()
 _chunking = ChunkingService()
 _retrieval = RetrievalService()
+_indexing = IndexingService()
 
 
 async def create_chunk(
@@ -142,11 +140,7 @@ async def index_chapter(
 ) -> int:
     """索引指定章节的正文到 RAG 库
 
-    1. 读取该章节最新草稿
-    2. 按段落分割为 chunk
-    3. 文本匹配已有角色名，标记 character_ids
-    4. 删除该章节旧 chunk（替换）
-    5. 创建新 chunk
+    由 IndexingService 实现完整编排，facade 仅做类型转换与委托。
 
     Args:
         db: 数据库 session
@@ -156,70 +150,8 @@ async def index_chapter(
     Returns:
         int — 创建的 chunk 数量（无草稿返回 0）
     """
-    from modules.writing.facade import get_latest_draft_for_chapter
-
-    draft = await get_latest_draft_for_chapter(db, novel_id, chapter_index)
-    if not draft or not draft.content:
-        return 0
-
-    # 1. 分割为段落
-    paragraphs = _chunking.split_by_paragraphs(draft.content)
-    if not paragraphs:
-        return 0
-
-    # 2. 加载所有角色名（用于文本匹配）
-    from modules.character.facade import list_characters as _list_chars
-
-    chars_list, _ = await _list_chars(db, novel_id, limit=999)
-    char_name_map: dict[str, str] = {}
-    for c in chars_list:
-        char_name_map[c.name] = str(c.id)
-
     nid = uuid.UUID(hex=novel_id)
-
-    # 3. 删除旧 chunk
-    await _repo.delete_by_chapter(db, nid, "chapter_text", chapter_index)
-
-    # 4. 创建新 chunk（记录 ID 和文本用于批量 embedding）
-    created = 0
-    created_chunks: list[tuple[uuid.UUID, str]] = []
-    for para in paragraphs:
-        matched_char_ids: list[str] = []
-        for name, cid in char_name_map.items():
-            if name in para:
-                matched_char_ids.append(cid)
-
-        chunk_data = RagChunkCreate(
-            source_type="chapter_text",
-            chapter_index=chapter_index,
-            text=para,
-            character_ids=matched_char_ids,
-            visibility="author_only",
-            importance=0.5,
-            meta={"chapter_index": chapter_index},
-        )
-        chunk = await _repo.create(db, nid, chunk_data)
-        created_chunks.append((chunk.id, para))
-        created += 1
-
-    await db.flush()
-
-    # 5. 批量生成 embedding
-    if created_chunks:
-        try:
-            from infrastructure.llm.client import LLMClient
-
-            llm = LLMClient()
-            texts = [t for _, t in created_chunks]
-            embeddings = await llm.generate_embedding(texts)
-            if isinstance(embeddings, list) and len(embeddings) == len(created_chunks):
-                for (chunk_id, _), emb in zip(created_chunks, embeddings):
-                    await _repo.update_embedding(db, chunk_id, emb)
-                await db.flush()
-        except Exception as exc:
-            logger.warning("Failed to generate embeddings for chapter %d: %s", chapter_index, exc)
-
-    return created
+    return await _indexing.index_chapter(db, nid, chapter_index)
 
 
 async def split_text_into_chunks(
