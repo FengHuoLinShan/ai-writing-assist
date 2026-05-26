@@ -15,6 +15,21 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin
 
+# 尝试导入 pgvector Vector 类型；不可用时回退
+try:
+    from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
+
+    _HAS_PGVECTOR = True
+except ImportError:
+    _HAS_PGVECTOR = False
+
+
+def _embedding_column(dim: int = 1024):
+    """返回 pgvector Vector 列或 LargeBinary 回退列（用于 SQLite 测试）"""
+    if _HAS_PGVECTOR:
+        return mapped_column(Vector(dim), nullable=True)
+    return mapped_column(LargeBinary, nullable=True)
+
 
 class RagChunk(Base, UUIDMixin, TimestampMixin):
     """RAG 文本片段 — 语义检索的基本单元"""
@@ -85,11 +100,7 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         default=0.5,
         comment="重要性评分（0.0-1.0），越高越关键",
     )
-    embedding: Mapped[bytes | None] = mapped_column(
-        LargeBinary,
-        nullable=True,
-        comment="Embedding 向量（暂存为 bytes，生产环境用 pgvector Vector 类型）",
-    )
+    embedding = _embedding_column()
     meta: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,

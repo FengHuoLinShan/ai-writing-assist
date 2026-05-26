@@ -398,12 +398,11 @@ const worldView = {
         if (!src || !tgt) { toast("请输入源对象和目标对象 ID", "warning"); return }
         try {
           await api.world.createRelationship({
-            novel_id: _state.currentProjectId,
             source_id: src, source_type: "entity",
             target_id: tgt, target_type: "entity",
             relation_type: document.getElementById("rel-type")?.value || "related_to",
             description: document.getElementById("rel-desc")?.value || "",
-          })
+          }, _state.currentProjectId)
           toast("关系已创建", "success")
           router.navigate("world", "relations")
         } catch (err) { toast(err.message || "创建失败", "error") }
@@ -543,7 +542,7 @@ const worldView = {
               name: document.getElementById("edit-entity-name")?.value,
               entity_type: document.getElementById("edit-entity-type")?.value,
               summary: document.getElementById("edit-entity-summary")?.value,
-            })
+            }, _state.currentProjectId)
             toast("已保存", "success")
             router.navigate("world", "objects")
           } catch (err) {
@@ -557,7 +556,7 @@ const worldView = {
   deleteEntity(id) {
     confirmAction("确定要删除此世界对象吗？此操作不可撤销。", async () => {
       try {
-        await api.world.deleteEntity(id)
+        await api.world.deleteEntity(id, _state.currentProjectId)
         toast("已删除", "success")
         router.navigate("world", "objects")
       } catch (err) {
@@ -598,7 +597,7 @@ const worldView = {
       `确定忽略候选 "${candidate?.name || id}"？`,
       async () => {
         try {
-          await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" })
+          await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" }, _state.currentProjectId)
           toast("已忽略", "success")
           router.navigate("world", "candidates")
         } catch (err) {
@@ -653,11 +652,10 @@ const worldView = {
 
           try {
             await api.world.createEntity({
-              novel_id: _state.currentProjectId,
               name,
               entity_type: document.getElementById("create-entity-type")?.value || "item",
               summary: document.getElementById("create-entity-summary")?.value || "",
-            })
+            }, _state.currentProjectId)
             toast(`对象 "${name}" 已创建`, "success")
             router.navigate("world", "objects")
           } catch (err) {

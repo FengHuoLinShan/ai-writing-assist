@@ -6,6 +6,7 @@ RAG 业务逻辑层
 
 from __future__ import annotations
 
+import math
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -156,12 +157,36 @@ class RetrievalService:
         self._repo = RagChunkRepository()
         self._chunking = ChunkingService()
 
+    @staticmethod
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
+        """计算余弦相似度
+
+        Args:
+            a: 向量 A
+            b: 向量 B
+
+        Returns:
+            -1.0 ~ 1.0 的余弦相似度，零向量时返回 0.0
+        """
+        if not a or not b or len(a) != len(b):
+            return 0.0
+
+        dot = sum(ai * bi for ai, bi in zip(a, b))
+        norm_a = math.sqrt(sum(ai * ai for ai in a))
+        norm_b = math.sqrt(sum(bi * bi for bi in b))
+
+        if norm_a == 0.0 or norm_b == 0.0:
+            return 0.0
+
+        return dot / (norm_a * norm_b)
+
     async def hybrid_search(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         query: str,
         *,
+        query_embedding: list[float] | None = None,
         entity_ids: list[str] | None = None,
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
@@ -169,13 +194,16 @@ class RetrievalService:
         visibility: str | None = None,
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
-        """混合检索：关键词 + 关系 + 重要性 + 向量（预留）
+        """混合检索：关键词 + 关系 + 重要性 + 向量
 
         评分公式：
-          score = 0.45 * vector_score (预留时取 0)
+          score = 0.45 * vector_score
                 + 0.30 * keyword_score
                 + 0.15 * relation_score
                 + 0.10 * importance_score
+
+        Args:
+            query_embedding: 查询的 embedding 向量（启用向量检索时传入）
 
         Returns:
             list[(RagChunk, score)] — 按评分降序排列
@@ -228,8 +256,15 @@ class RetrievalService:
             # 重要性/新颖性评分
             importance_score = chunk.importance
 
-            # 向量评分（预留，当前为 0）
+            # 向量评分（有 query_embedding 时启用）
             vector_score = 0.0
+            if query_embedding is not None and chunk.embedding is not None:
+                # chunk.embedding 可能是 bytes（SQLite）或 list[float]（pgvector）
+                chunk_emb = chunk.embedding
+                if isinstance(chunk_emb, list) and len(chunk_emb) == len(query_embedding):
+                    vector_score = self._cosine_similarity(query_embedding, chunk_emb)
+                # 余弦相似度范围 [-1, 1] 映射到 [0, 1] 作为评分
+                vector_score = max(0.0, vector_score)
 
             # 综合评分
             total_score = (

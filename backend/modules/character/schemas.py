@@ -97,6 +97,10 @@ class CharacterCreate(BaseModel):
         None,
         description="人物关系摘要",
     )
+    meta: dict = Field(
+        default_factory=dict,
+        description="扩展元数据",
+    )
     status: str = Field(
         default="canonical",
         max_length=32,
@@ -124,6 +128,7 @@ class CharacterUpdate(BaseModel):
     voice_style: Annotated[str | None, Field(None)]
     behavior_rules: Annotated[list[dict] | None, Field(None)]
     relationship_summary: Annotated[str | None, Field(None)]
+    meta: Annotated[dict | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
@@ -218,6 +223,7 @@ class CharacterResponse(BaseModel):
     voice_style: str | None = None
     behavior_rules: list[dict] = []
     relationship_summary: str | None = None
+    meta: dict = {}
     status: str = "canonical"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -345,6 +351,7 @@ class CharacterContextItem(BaseModel):
     voice_style: str | None = None
     behavior_rules: list[dict] = []
     relationship_summary: str | None = None
+    meta: dict = {}
 
 
 class CharacterKnowledgeContext(BaseModel):

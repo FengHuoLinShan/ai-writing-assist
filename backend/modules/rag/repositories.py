@@ -103,6 +103,28 @@ class RagChunkRepository:
         items: Sequence[RagChunk] = result.scalars().all()
         return list(items), total
 
+    async def update_embedding(
+        self,
+        db: AsyncSession,
+        chunk_id: uuid.UUID,
+        embedding: list[float],
+    ) -> bool:
+        """更新片段的 embedding 向量
+
+        Args:
+            db: 数据库 session
+            chunk_id: 片段 ID
+            embedding: 浮点数向量
+
+        Returns:
+            bool — 是否成功更新
+        """
+        chunk = await self.get(db, chunk_id)
+        if chunk is None:
+            return False
+        chunk.embedding = embedding  # type: ignore[assignment]
+        return True
+
     async def delete(
         self,
         db: AsyncSession,
@@ -121,6 +143,23 @@ class RagChunkRepository:
     ) -> int:
         """删除小说项目的所有片段，返回删除数"""
         stmt = delete(RagChunk).where(RagChunk.novel_id == novel_id)
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount
+
+    async def delete_by_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_type: str,
+        chapter_index: int,
+    ) -> int:
+        """删除指定章节和来源类型的全部片段，返回删除数"""
+        stmt = delete(RagChunk).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.source_type == source_type,
+            RagChunk.chapter_index == chapter_index,
+        )
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount
@@ -313,30 +352,40 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
         embedding: list[float],
         *,
-        entity_ids: list[str] | None = None,
-        character_ids: list[str] | None = None,
-        thread_ids: list[str] | None = None,
-        chapter_index: int | None = None,
         top_k: int = 12,
-    ) -> list[RagChunk]:
-        """向量检索（预留接口）
+    ) -> list[tuple[RagChunk, float]]:
+        """向量检索 — 余弦相似度排序
 
-        此接口在使用 pgvector 的生产环境中启用。
-        当前实现返回空列表，因为内存 SQLite 不支持 pgvector。
-        当检测到 pgvector 可用时，应使用:
-          - embeddingvector 类型列
-          - cosine 距离: embedding <=> :query_embedding
-          - ORDER BY embedding <=> :query_embedding
-          - LIMIT top_k
+        遍历该 novel 所有有 embedding 的 chunk，按余弦相似度排序。
+        生产环境可优化为 pgvector <=> SQL 查询。
+
+        Returns:
+            list[(RagChunk, score)] — 按相似度降序排列
         """
-        # 预留：生产环境中替换为 pgvector 余弦距离查询
-        # SELECT id, 1 - (embedding <=> :query_embedding) AS similarity
-        # FROM rag_chunks
-        # WHERE novel_id = :novel_id
-        #   AND embedding IS NOT NULL
-        # ORDER BY embedding <=> :query_embedding
-        # LIMIT :top_k
-        return []
+        stmt = (
+            select(RagChunk)
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.embedding.is_not(None),
+            )
+        )
+        result = await db.execute(stmt)
+        chunks: list[RagChunk] = list(result.scalars().all())
+
+        if not chunks:
+            return []
+
+        from modules.rag.services import RetrievalService as _rs
+
+        scored: list[tuple[RagChunk, float]] = []
+        for c in chunks:
+            chunk_emb = c.embedding
+            if isinstance(chunk_emb, list) and len(chunk_emb) == len(embedding):
+                sim = _rs._cosine_similarity(embedding, chunk_emb)
+                scored.append((c, max(0.0, sim)))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:top_k]
 
     # ============================================================
     # 统计

@@ -47,6 +47,26 @@ async def create_character(
     return await _service.create_character(db, data)
 
 
+async def list_characters(
+    db: AsyncSession,
+    novel_id: str,
+    skip: int = 0,
+    limit: int = 100,
+) -> tuple[list[CharacterResponse], int]:
+    """获取人物列表
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        skip: 跳过的记录数
+        limit: 每页条数
+
+    Returns:
+        (items, total) — 人物列表和总数
+    """
+    return await _service.list_characters(db, novel_id, skip=skip, limit=limit)
+
+
 async def get_character_id_by_world_entity(
     db: AsyncSession,
     novel_id: str,

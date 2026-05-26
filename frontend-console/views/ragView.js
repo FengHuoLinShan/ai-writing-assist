@@ -80,10 +80,9 @@ const ragView = {
 
     try {
       const data = await api.rag.search({
-        novel_id: _state.currentProjectId,
         query,
         top_k: 8,
-      })
+      }, _state.currentProjectId)
 
       const chunks = data.chunks || data || []
       if (chunks.length === 0) {

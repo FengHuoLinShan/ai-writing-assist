@@ -43,6 +43,11 @@
 - 修改 `contracts.py` / `facade.py` / API / DB schema 后，不允许漏更新 README / 测试 / 调用方 / docs
 - 不跑受影响模块测试不合并
 
+## 工作流
+
+- 代码开发（新功能、bug 修复、重构）：调用 `/tdd` 技能，遵循 RED→GREEN→REFACTOR 循环
+- 方案讨论、设计决策、需求澄清：调用 `/grill-with-docs` 技能，逐个深入直到达成共识
+
 ## Agent skills
 
 ### Structure docs update

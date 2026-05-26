@@ -21,7 +21,7 @@ const routes = {
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
   review: { title: "结构复查", subViews: [] },
-  writing: { title: "草稿导出", subViews: [] },
+  writing: { title: "手动工作台", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
 }
 
@@ -76,6 +76,18 @@ function onNavigate(listener) {
  * 渲染当前视图
  */
 let _prevView = null
+
+/** @type {Object<string, string|null>} 各视图最后访问的子标签 */
+const _lastSubViewMap = {}
+
+/**
+ * 获取视图最后访问的子标签
+ * @param {string} viewName
+ * @returns {string|null}
+ */
+function getLastSubView(viewName) {
+  return _lastSubViewMap[viewName] || null
+}
 
 async function renderCurrentView() {
   const viewName = _state.currentView
@@ -148,12 +160,19 @@ function navigate(viewName, subView = null, pushHistory = true) {
     return
   }
 
+  // 保存当前视图的最后子标签
+  if (_state.currentView && _state.currentView !== viewName) {
+    _lastSubViewMap[_state.currentView] = _state.currentSubView
+  }
+
   _state.currentView = viewName
   _state.currentSubView = subView
 
-  // 清空选择
-  _state.selectedItem = null
-  _state.selectedItems = []
+  // 清空选择（只在切换视图时清除，同一视图内切换子标签时保留）
+  if (_state.currentView !== viewName) {
+    _state.selectedItem = null
+    _state.selectedItems = []
+  }
 
   // 更新 URL hash
   if (pushHistory) {
@@ -213,4 +232,4 @@ function initRouter() {
 }
 
 // 导出
-window.router = { navigate, getCurrentView, getRoute, registerView, onNavigate, initRouter }
+window.router = { navigate, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView }

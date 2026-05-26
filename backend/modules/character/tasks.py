@@ -1,0 +1,185 @@
+"""Character 任务处理器"""
+
+from __future__ import annotations
+
+import logging
+
+from infrastructure.tasks.registry import task_handler
+
+logger = logging.getLogger(__name__)
+
+# 人物档案字段中可由 AI 抽取的部分
+_EXTRACTABLE_FIELDS = [
+    "desire", "fear", "secret", "weakness",
+    "current_goal", "current_state", "current_emotion",
+    "stance", "voice_style", "role",
+]
+
+# 每个字段的意图查询关键词
+_FIELD_QUERIES = {
+    "role": "角色定位 主角 反派 配角",
+    "desire": "渴望 目标 欲望 追求 动机",
+    "fear": "恐惧 害怕 软肋 畏惧 担忧",
+    "secret": "秘密 隐藏 隐瞒 不为人知",
+    "weakness": "弱点 缺陷 不足 短板 致命伤",
+    "current_goal": "当前目标 短期目标 计划 下一步",
+    "current_state": "当前状态 处境 状况 现状",
+    "current_emotion": "情绪 心情 感受 态度",
+    "stance": "立场 态度 看法 观点 倾向",
+    "voice_style": "语言风格 说话方式 口吻 语气",
+}
+
+
+@task_handler("character_extract")
+async def handle_character_extract(db, task):
+    """处理人物档案抽取任务
+
+    对指定角色：
+    1. 用 RAG 检索含该角色的章节 chunk
+    2. 调用 LLM 按字段抽取档案
+    3. 结果写入 characters.meta.ai_suggestions
+
+    Task meta 参数：
+    - novel_id: 项目 ID
+    - character_id: 角色 ID
+    """
+    meta = task.meta or {}
+    novel_id = meta.get("novel_id", "")
+    character_id = meta.get("character_id", "")
+
+    if not novel_id:
+        raise ValueError("novel_id is required for character_extract")
+    if not character_id:
+        raise ValueError("character_id is required for character_extract")
+
+    # 1. 获取角色信息
+    from modules.character.facade import list_characters as _list_chars
+
+    chars, _ = await _list_chars(db, novel_id, limit=999)
+    character = next((c for c in chars if c.id == character_id), None)
+    if not character:
+        raise ValueError(f"Character {character_id} not found")
+
+    # 2. 用 RAG 检索含该角色的 chunk（逐字段意图查询）
+    from modules.rag.facade import retrieve as _rag_retrieve
+
+    all_chunks_text: list[str] = []
+    for query_keywords in _FIELD_QUERIES.values():
+        query = f"{character.name} {query_keywords}"
+        try:
+            result = await _rag_retrieve(
+                db, novel_id, query,
+                character_ids=[character_id],
+                top_k=5,
+            )
+            for chunk in result.chunks:
+                preview = chunk.text[:200]
+                if preview not in all_chunks_text:
+                    all_chunks_text.append(preview)
+        except Exception as exc:
+            logger.warning("RAG retrieve for %s failed: %s", query, exc)
+
+    if not all_chunks_text:
+        logger.info("No RAG chunks found for character %s", character.name)
+        return {"character_id": character_id, "status": "no_chunks", "fields": []}
+
+    chunk_context = "\n\n---\n\n".join(all_chunks_text)
+
+    # 3. 调用 LLM 结构化抽取
+    from core.config import get_settings
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.schemas import LLMCallRequest
+    from pydantic import BaseModel
+
+    class _CharacterExtractOutput(BaseModel):
+        role: str | None = None
+        desire: str | None = None
+        fear: str | None = None
+        secret: str | None = None
+        weakness: str | None = None
+        current_goal: str | None = None
+        current_state: str | None = None
+        current_emotion: str | None = None
+        stance: str | None = None
+        voice_style: str | None = None
+
+    existing_info = "\n".join(
+        f"{f}: {getattr(character, f, '') or '(空)'}"
+        for f in _EXTRACTABLE_FIELDS
+    )
+
+    system_prompt = (
+        "你是一个小说人物档案分析助手。"
+        "从章节正文片段中提取指定角色的档案信息。\n\n"
+        f"角色名称：{character.name}\n\n"
+        "已有信息：\n"
+        f"{existing_info}\n\n"
+        "如果已有信息不为空，输出时保留原文并用 # 括起来，如：\n"
+        "\"desire\": \"#推翻帝国统治# 他内心深处真正的渴望是建立一个平等的新世界\"\n\n"
+        "规则：\n"
+        "- 只基于提供的章节正文分析\n"
+        "- 对每个字段输出最有信息量的内容，不确定的字段留 null\n"
+        "- 如果章节内容与该字段无关，输出 null\n"
+        "- 不要凭空创造未在文中体现的内容\n"
+        "- 每条建议应简短有力（不超过 100 字）\n\n"
+        "输出 JSON 对象，字段为：role, desire, fear, secret, weakness, "
+        "current_goal, current_state, current_emotion, stance, voice_style。"
+    )
+
+    settings = get_settings()
+    request = LLMCallRequest(
+        model=settings.llm_model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": chunk_context},
+        ],
+        temperature=0.3,
+        response_format={"type": "json_object"},
+    )
+
+    llm = LLMClient()
+    try:
+        extract_result = await llm.generate_structured(request, _CharacterExtractOutput)
+    except Exception as exc:
+        logger.error("LLM extraction failed for %s: %s", character.name, exc)
+        return {"character_id": character_id, "status": "llm_failed", "error": str(exc)}
+
+    # 4. 构建 ai_suggestions
+    suggestions = {}
+    for field in _EXTRACTABLE_FIELDS:
+        value = getattr(extract_result, field, None)
+        if value:
+            suggestions[field] = value
+
+    # 5. 保存到 characters.meta.ai_suggestions
+    from modules.character.services import CharacterService
+
+    char_service = CharacterService()
+    from modules.character.schemas import CharacterUpdate
+
+    # 读取当前 meta
+    char = await char_service.get_character(db, character_id, novel_id=novel_id)
+    current_meta = dict(char.meta or {})
+    current_meta["ai_suggestions"] = suggestions
+    current_meta["ai_suggestions_at"] = (await _now_iso())
+
+    update_data = CharacterUpdate(meta=current_meta)
+    await char_service.update_character(db, character_id, update_data, novel_id=novel_id)
+    await db.flush()
+
+    logger.info(
+        "Extracted %d fields for character %s: %s",
+        len(suggestions), character.name, list(suggestions.keys()),
+    )
+
+    return {
+        "character_id": character_id,
+        "status": "ok",
+        "fields": list(suggestions.keys()),
+    }
+
+
+async def _now_iso() -> str:
+    """返回当前时间的 ISO 格式字符串"""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()

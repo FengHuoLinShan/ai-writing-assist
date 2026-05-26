@@ -6,7 +6,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 ## 数据表
 
-- rag_chunks — source_type / text / summary / embedding / entity_ids / character_ids / thread_ids / visibility
+- rag_chunks — source_type / text / summary / embedding (Vector(1024)) / entity_ids / character_ids / thread_ids / visibility / meta
 
 ## 服务
 
@@ -24,6 +24,30 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 ```text
 score = 0.45 * vector_score + 0.30 * keyword_score + 0.15 * relation_score + 0.10 * importance_or_recency_score
 ```
+
+- vector_score 现在为真实余弦相似度（查询 embedding vs chunk embedding），不再为 0
+- 查询时调用 `LLMClient.generate_embedding()` 生成查询向量
+- 索引时批量生成所有 chunk 的 embedding 并存储
+
+## 章节自动索引
+
+保存草稿时自动触发 `rag_index_chapter` 异步任务：
+
+1. 读取该章节最新草稿正文
+2. 按段落分割为 chunk
+3. 文本匹配已有角色名，填入 `character_ids`
+4. 删除该章节旧 chunk（替换而非追加）
+5. 存入 RAG 库
+
+### Facade
+
+```python
+async def index_chapter(db, novel_id, chapter_index) -> int
+```
+
+### 任务
+
+- `rag_index_chapter` — 由 writing API 的 saveDraft 端点自动触发
 
 ## API
 

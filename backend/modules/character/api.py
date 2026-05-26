@@ -7,7 +7,10 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+import uuid
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from core.dependencies import DbSession
 from modules.character.schemas import (
@@ -27,6 +30,18 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
 _service = CharacterService()
+
+
+class TaskSubmitResponse(BaseModel):
+    """任务提交响应"""
+    task_id: str
+    status: str = "pending"
+
+
+class ApplySuggestionsRequest(BaseModel):
+    """应用 AI 建议请求"""
+    fields: list[str]
+    """要应用的字段列表"""
 
 
 # ============================================================
@@ -90,6 +105,124 @@ async def delete_character(
 ) -> None:
     """删除人物"""
     await _service.delete_character(db, character_id, novel_id=novel_id)
+
+
+# ============================================================
+# AI 抽取
+# ============================================================
+
+
+@router.post("/{character_id}/extract", response_model=TaskSubmitResponse, status_code=201)
+async def extract_character(
+    db: DbSession,
+    character_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> TaskSubmitResponse:
+    """提交单个人物的档案抽取任务
+
+    用 RAG 检索章节正文中与该角色相关的内容，
+    调用 LLM 抽取档案字段，写入 meta.ai_suggestions。
+    """
+    from infrastructure.tasks.models import AsyncTask
+
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="character_extract",
+        status="pending",
+        meta={"novel_id": novel_id, "character_id": character_id},
+        progress=0.0,
+    )
+    db.add(task)
+    await db.flush()
+    return TaskSubmitResponse(task_id=str(task.id))
+
+
+@router.post("/extract-all", response_model=list[TaskSubmitResponse], status_code=201)
+async def extract_all_characters(
+    db: DbSession,
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> list[TaskSubmitResponse]:
+    """提交所有人物档案的抽取任务"""
+    from infrastructure.tasks.models import AsyncTask
+
+    chars, _ = await _service.list_characters(db, novel_id, limit=999)
+    tasks = []
+    for char in chars:
+        task = AsyncTask(
+            id=uuid.uuid4(),
+            task_type="character_extract",
+            status="pending",
+            meta={"novel_id": novel_id, "character_id": char.id},
+            progress=0.0,
+        )
+        db.add(task)
+        tasks.append(task)
+    await db.flush()
+    return [
+        TaskSubmitResponse(task_id=str(t.id))
+        for t in tasks
+    ]
+
+
+@router.get("/{character_id}/suggestions")
+async def get_character_suggestions(
+    db: DbSession,
+    character_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> dict:
+    """获取人物的 AI 抽取建议（meta.ai_suggestions）"""
+    char = await _service.get_character(db, character_id, novel_id=novel_id)
+    meta = getattr(char, "meta", {}) or {}
+    return {"suggestions": meta.get("ai_suggestions", {}), "updated_at": meta.get("ai_suggestions_at")}
+
+
+@router.put("/{character_id}/apply-suggestions", response_model=CharacterResponse)
+async def apply_character_suggestions(
+    db: DbSession,
+    character_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
+    request: ApplySuggestionsRequest | None = None,
+) -> CharacterResponse:
+    """应用 AI 建议到人物字段
+
+    将 ai_suggestions 中的指定字段应用到人物原型字段，
+    并清除已应用的 suggestions。
+    """
+    char = await _service.get_character(db, character_id, novel_id=novel_id)
+
+    meta = dict(getattr(char, "meta", {}) or {})
+    suggestions = meta.get("ai_suggestions", {})
+
+    if not suggestions:
+        raise HTTPException(400, detail="没有待应用的 AI 建议")
+
+    fields_to_apply = request.fields if request and request.fields else list(suggestions.keys())
+    if not fields_to_apply:
+        raise HTTPException(400, detail="请指定要应用的字段")
+
+    # 构建更新数据
+    updates: dict[str, object] = {}
+    for field in fields_to_apply:
+        if field in suggestions and suggestions[field]:
+            raw_value = suggestions[field]
+            # 移除 #包围的原始内容保留
+            from modules.character.tasks import _EXTRACTABLE_FIELDS
+            if field in _EXTRACTABLE_FIELDS:
+                updates[field] = raw_value
+
+    if not updates:
+        raise HTTPException(400, detail="没有可应用的字段")
+
+    # 清除已应用的 suggestions
+    remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+    meta["ai_suggestions"] = remaining_suggestions
+    if not remaining_suggestions:
+        meta.pop("ai_suggestions", None)
+        meta.pop("ai_suggestions_at", None)
+    updates["meta"] = meta
+
+    update_data = CharacterUpdate(**updates)
+    return await _service.update_character(db, character_id, update_data, novel_id=novel_id)
 
 
 @router.patch("/{character_id}/state", response_model=CharacterResponse)

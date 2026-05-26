@@ -123,8 +123,9 @@ const characterView = {
 
     html += '</tbody></table>'
     html += `
-      <div style="margin-top:12px;text-align:center;">
+      <div style="margin-top:12px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
         <button class="btn btn-primary" data-action="new" id="btn-new-character">新建人物</button>
+        <button class="btn" id="btn-extract-all" onclick="characterView._extractAll()">全部更新</button>
         <span style="color:var(--text-dim);font-size:11px;">人物抽取已合并到「世界对象 → 自动识别」</span>
       </div>`
     return html
@@ -215,6 +216,7 @@ const characterView = {
           </div>
           <div>
             <button class="btn btn-primary" data-char-id="${charId}" id="btn-edit-character">编辑档案</button>
+            <button class="btn" id="btn-extract-single" onclick="characterView._extractCharacter('${esc(charId)}')">提取档案</button>
             <button class="btn" onclick="router.navigate('character','knowledge')">知识边界</button>
           </div>
         </div>
@@ -257,6 +259,53 @@ const characterView = {
       </div>
     `
 
+    // AI 建议区域
+    const suggestions = (character.meta && character.meta.ai_suggestions) || {}
+    const suggestionKeys = Object.keys(suggestions)
+    if (suggestionKeys.length > 0) {
+      const fieldLabelMap = {
+        role: "定位", desire: "欲望", fear: "恐惧", secret: "秘密",
+        weakness: "弱点", current_goal: "当前目标", current_state: "当前状态",
+        current_emotion: "当前情绪", stance: "立场", voice_style: "语言风格",
+      }
+      html += `
+        <div style="margin-top:16px;border:1px solid var(--warning);border-radius:4px;padding:12px;background:rgba(255,193,7,0.05);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-weight:bold;font-size:13px;color:var(--warning);">💡 AI 建议（${suggestionKeys.length} 个字段）</span>
+            <div>
+              <button class="btn btn-sm" style="border-color:var(--warning);color:var(--warning);" onclick="characterView._applyAllSuggestions()">全部采纳</button>
+            </div>
+          </div>
+      `
+      for (const field of suggestionKeys) {
+        const label = fieldLabelMap[field] || field
+        const original = character[field] || "-"
+        const suggested = suggestions[field]
+        html += `
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:6px;">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">
+              <strong style="color:var(--warning);">${label}</strong>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div style="font-size:12px;">
+                <span style="color:var(--text-dim);">原文：</span>
+                <span style="color:var(--text-muted);">${esc(String(original).substring(0, 100))}</span>
+              </div>
+              <div style="font-size:12px;">
+                <span style="color:var(--accent);">建议：</span>
+                <span style="color:var(--text);">${esc(String(suggested).substring(0, 100))}</span>
+              </div>
+            </div>
+            <div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end;">
+              <button class="btn btn-sm" style="font-size:10px;border-color:var(--accent);color:var(--accent);" onclick="characterView._applySuggestion('${field}')">采纳</button>
+              <button class="btn btn-sm" style="font-size:10px;" onclick="characterView._rejectSuggestion('${field}')">忽略</button>
+            </div>
+          </div>
+        `
+      }
+      html += `</div>`
+    }
+
     return html
   },
 
@@ -288,7 +337,7 @@ const characterView = {
     let knowledges = []
     try {
       const charId = character.id || character.character_id
-      const data = await api.character.listKnowledge(charId)
+      const data = await api.character.listKnowledge(charId, _state.currentProjectId)
       knowledges = data.items || data || []
       this._characterKnowledge = knowledges
     } catch {
@@ -514,7 +563,7 @@ const characterView = {
           }
 
           try {
-            await api.character.update(charId, data)
+            await api.character.update(charId, data, _state.currentProjectId)
             // 更新本地缓存
             const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
             if (idx >= 0) {
@@ -582,7 +631,7 @@ const characterView = {
               knowledge_level: document.getElementById("edit-know-level")?.value || "unknown",
               known_content: document.getElementById("edit-know-content")?.value || "",
               misconception: document.getElementById("edit-know-misconception")?.value || "",
-            })
+            }, _state.currentProjectId)
             toast("已保存", "success")
             router.navigate("character", "detail")
           } catch (err) { toast(err.message || "保存失败", "error") }
@@ -663,7 +712,7 @@ const characterView = {
   _deleteKnowledge(knowledgeId) {
     confirmAction("确定删除此知识记录？", async () => {
       try {
-        await api.character.deleteKnowledge(knowledgeId)
+        await api.character.deleteKnowledge(knowledgeId, _state.currentProjectId)
         toast("已删除", "success")
         router.navigate("character", "detail")
       } catch (err) { toast(err.message || "删除失败", "error") }
@@ -747,6 +796,165 @@ const characterView = {
         this._editCharacter(char.id || char.character_id)
       }
     })
+  },
+
+  // ============================================================
+  // AI 抽取
+  // ============================================================
+
+  async _extractAll() {
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      const result = await api.character.extractAll(_state.currentProjectId)
+      const tasks = Array.isArray(result) ? result : []
+      toast(`已提交 ${tasks.length} 个人物的抽取任务`, "success")
+      // 启动轮询检查任务完成
+      this._pollExtractionTasks(tasks.map((t) => t.task_id))
+    } catch (err) {
+      toast("提交失败: " + (err.message || err), "error")
+    }
+  },
+
+  async _extractCharacter(charId) {
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      const result = await api.character.extract(charId, _state.currentProjectId)
+      toast("抽取任务已提交", "success")
+      this._pollExtractionTasks([result.task_id], () => this._refreshSuggestions(charId))
+    } catch (err) {
+      toast("提交失败: " + (err.message || err), "error")
+    }
+  },
+
+  /** 轮询抽取任务完成 */
+  _pollExtractionTasks(taskIds, onDone) {
+    let attempts = 0
+    const maxAttempts = 60  // 最多等 5 分钟
+    const timer = setInterval(async () => {
+      attempts++
+      const remaining = []
+      for (const tid of taskIds) {
+        try {
+          const resp = await fetch(`/api/tasks/${tid}`)
+          const data = await resp.json()
+          if (data.status === "done" || data.status === "failed") {
+            // 完成或失败，不再轮询
+          } else {
+            remaining.push(tid)
+          }
+        } catch {
+          remaining.push(tid)
+        }
+      }
+      if (remaining.length === 0 || attempts >= maxAttempts) {
+        clearInterval(timer)
+        if (remaining.length === 0) {
+          toast("人物抽取完成", "success")
+          if (onDone) onDone()
+        }
+      }
+    }, 5000)
+  },
+
+  /** 刷新当前角色的 AI 建议 */
+  async _refreshSuggestions(charId) {
+    const character = this._characters.find((c) => (c.id || c.character_id) === charId)
+    if (!character || !_state.currentProjectId) return
+    try {
+      const data = await api.character.getSuggestions(charId, _state.currentProjectId)
+      if (data && data.suggestions && Object.keys(data.suggestions).length > 0) {
+        // 更新本地缓存
+        if (!character.meta) character.meta = {}
+        character.meta.ai_suggestions = data.suggestions
+        character.meta.ai_suggestions_at = data.updated_at
+        // 如果当前在看的就是这个角色，刷新显示
+        if (_state.selectedItem && (_state.selectedItem.id || _state.selectedItem.character_id) === charId) {
+          _state.selectedItem = character
+          router.navigate("character", "detail", false)
+        }
+        toast("AI 建议已就绪，可在档案中查看", "info")
+      }
+    } catch {
+      // 静默处理
+    }
+  },
+
+  /** 应用所有 AI 建议 */
+  async _applyAllSuggestions() {
+    const character = _state.selectedItem
+    if (!character) return
+    const charId = character.id || character.character_id
+    const suggestions = (character.meta && character.meta.ai_suggestions) || {}
+    const fields = Object.keys(suggestions)
+    if (fields.length === 0) {
+      toast("没有待应用的 AI 建议", "info")
+      return
+    }
+    try {
+      await api.character.applySuggestions(charId, _state.currentProjectId, fields)
+      // 更新本地缓存
+      if (character.meta) delete character.meta.ai_suggestions
+      toast(`已应用 ${fields.length} 个字段的 AI 建议`, "success")
+      router.navigate("character", "detail", false)
+    } catch (err) {
+      toast("应用失败: " + (err.message || err), "error")
+    }
+  },
+
+  /** 应用单个字段的 AI 建议 */
+  async _applySuggestion(field) {
+    const character = _state.selectedItem
+    if (!character) return
+    const charId = character.id || character.character_id
+    try {
+      await api.character.applySuggestions(charId, _state.currentProjectId, [field])
+      // 更新本地缓存
+      if (character.meta && character.meta.ai_suggestions) {
+        delete character.meta.ai_suggestions[field]
+      }
+      toast(`已应用「${field}」建议`, "success")
+      router.navigate("character", "detail", false)
+    } catch (err) {
+      toast("应用失败: " + (err.message || err), "error")
+    }
+  },
+
+  /** 拒绝单个字段的 AI 建议（从 meta 中移除） */
+  async _rejectSuggestion(field) {
+    const character = _state.selectedItem
+    if (!character) return
+    const charId = character.id || character.character_id
+    try {
+      // 读取当前 suggestions，移除该字段后写回
+      const data = await api.character.getSuggestions(charId, _state.currentProjectId)
+      const remaining = { ...(data.suggestions || {}) }
+      delete remaining[field]
+      // 通过 apply 空字段列表来清除
+      // 实际上我们只需应用空列表，保留其余建议
+      await api.character.applySuggestions(charId, _state.currentProjectId, [])
+      // 重新设置剩余的建议
+      await api.character.update(charId, {
+        meta: {
+          ...(character.meta || {}),
+          ai_suggestions: remaining,
+          ai_suggestions_at: data.updated_at,
+        },
+      }, _state.currentProjectId)
+      // 更新本地缓存
+      if (character.meta && character.meta.ai_suggestions) {
+        delete character.meta.ai_suggestions[field]
+      }
+      toast("已忽略该建议", "info")
+      router.navigate("character", "detail", false)
+    } catch (err) {
+      toast("操作失败: " + (err.message || err), "error")
+    }
   },
 
   onLeave() {

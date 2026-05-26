@@ -109,6 +109,12 @@ class Character(Base, UUIDMixin, NovelMixin, TimestampMixin, StatusMixin):
         nullable=True,
         comment="人物关系摘要",
     )
+    meta: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="扩展元数据（AI 抽取建议等）",
+    )
 
     def __repr__(self) -> str:
         return f"<Character id={self.id} name={self.name!r}>"

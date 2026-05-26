@@ -68,6 +68,9 @@ const appState = {
 
   /** @type {number} Toast 定时器 ID */
   _toastTimer: null,
+
+  /** @type {Object<string, any>} 各视图保存的状态（切回时恢复用） */
+  viewStates: {},
 }
 
 /**

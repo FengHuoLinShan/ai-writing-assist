@@ -7,6 +7,8 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Path, Query
 
 from core.dependencies import DbSession
@@ -29,6 +31,20 @@ router = APIRouter(prefix="/api/writing", tags=["writing"])
 _service = WritingDraftService()
 
 
+async def _trigger_rag_index(db: DbSession, novel_id: str, chapter_index: int) -> None:
+    """提交 RAG 章节索引任务（后台异步，不阻塞响应）"""
+    from infrastructure.tasks.models import AsyncTask
+
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_index_chapter",
+        status="pending",
+        meta={"novel_id": novel_id, "chapter_index": chapter_index},
+        progress=0.0,
+    )
+    db.add(task)
+
+
 @router.post("/drafts", response_model=WritingDraftResponse, status_code=201)
 async def create_draft(
     db: DbSession,
@@ -38,8 +54,12 @@ async def create_draft(
 
     每次创建自动递增版本号。
     相同 novel_id + chapter_index 的新 POST 会创建新版本。
+    保存后自动触发 RAG 章节索引。
     """
-    return await _service.create_draft(db, data)
+    result = await _service.create_draft(db, data)
+    await _trigger_rag_index(db, data.novel_id, data.chapter_index)
+    await db.flush()
+    return result
 
 
 @router.get("/drafts/{draft_id}", response_model=WritingDraftResponse)
@@ -60,7 +80,11 @@ async def update_draft(
     novel_id: str = Query(..., description="小说项目 ID"),
 ) -> WritingDraftResponse:
     """更新草稿内容或状态"""
-    return await _service.update_draft(db, draft_id, data, novel_id)
+    result = await _service.update_draft(db, draft_id, data, novel_id)
+    if data.content is not None:
+        await _trigger_rag_index(db, novel_id, result.chapter_index)
+        await db.flush()
+    return result
 
 
 @router.delete("/drafts/{draft_id}", status_code=204)

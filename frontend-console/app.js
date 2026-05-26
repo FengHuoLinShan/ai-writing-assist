@@ -52,7 +52,8 @@ const App = {
       el.addEventListener("click", () => {
         const viewName = el.dataset.view
         const route = router.getRoute(viewName)
-        router.navigate(viewName, route && route.subViews.length > 0 ? route.subViews[0] : null)
+        const lastSub = router.getLastSubView(viewName)
+        router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
       })
     })
   },

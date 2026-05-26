@@ -32,6 +32,11 @@ const writingView = {
   /** @type {boolean} 加载状态 */
   _loading: true,
 
+  /** @type {Object} 提取任务状态 */
+  _extractionTasks: {},
+  _extractionTimer: null,
+  _extractionMessage: "",
+
   // ── 深度导入流水线 ──
   _deepImportTaskId: null,
   _deepImportPhase: "idle",
@@ -45,26 +50,49 @@ const writingView = {
   // ============================================================
 
   async onEnter() {
-    this._currentChapter = null
-    this._currentContent = null
-    this._currentDraftId = null
-    this._currentDraftStatus = null
-    this._currentDraftVersion = null
-    this._currentCard = null
-    this._loading = true
-    this._chapters = {}
-    this._chapterList = []
+    const saved = _state.viewStates.writing
+
+    if (saved) {
+      // 恢复保存的编辑状态（不重新加载服务器草稿）
+      this._currentChapter = saved.currentChapter
+      this._currentContent = saved.currentContent
+      this._currentDraftId = saved.currentDraftId
+      this._currentDraftStatus = saved.currentDraftStatus
+      this._currentDraftVersion = null
+      this._currentCard = null
+      this._loading = true
+      this._chapters = {}
+      this._chapterList = []
+    } else {
+      // 无保存状态，完全重置
+      this._currentChapter = null
+      this._currentContent = null
+      this._currentDraftId = null
+      this._currentDraftStatus = null
+      this._currentDraftVersion = null
+      this._currentCard = null
+      this._loading = true
+      this._chapters = {}
+      this._chapterList = []
+    }
     this._deepImportTimer = null
+
+    // 清理提取轮询（仅当无运行中任务时）
+    const hasRunning = Object.values(this._extractionTasks).some((t) => t.status === "running")
+    if (!hasRunning && this._extractionTimer) {
+      clearInterval(this._extractionTimer)
+      this._extractionTimer = null
+    }
 
     if (!_state.currentProjectId) {
       this._loading = false
       return
     }
 
-    // 并行获取章节卡 + 有草稿的章节索引
+    // 并行获取章节卡 + 有草稿的章节索引（始终刷新）
     try {
       const [cardData, draftData] = await Promise.all([
-        api.outline.listChapterCards({ novel_id: _state.currentProjectId, limit: 999 }),
+        api.outline.listChapterCards({ novel_id: _state.currentProjectId, limit: 50 }),
         api.writing.listChapters(_state.currentProjectId),
       ])
 
@@ -93,11 +121,16 @@ const writingView = {
 
     this._loading = false
 
+    // 恢复保存状态后异步加载章节卡（不阻塞渲染）
+    if (saved && saved.currentChapter) {
+      this._loadChapterCard(saved.currentChapter)
+    }
+
     // 从 localStorage 恢复深度导入任务
-    const saved = localStorage.getItem("novel_deep_import_task")
-    if (saved) {
+    const deepImportSaved = localStorage.getItem("novel_deep_import_task")
+    if (deepImportSaved) {
       try {
-        const parsed = JSON.parse(saved)
+        const parsed = JSON.parse(deepImportSaved)
         if (parsed.taskId && parsed.projectId === _state.currentProjectId) {
           this._deepImportTaskId = parsed.taskId
           this._pollDeepImportTask()
@@ -139,12 +172,20 @@ const writingView = {
         ${this._renderEditor()}
         ${this._renderSidePanel()}
       </div>
+      ${this._renderExtractionPanel()}
     `
     setTimeout(() => this._bindEvents(), 0)
     return html
   },
 
   onLeave() {
+    // 保存当前编辑状态
+    _state.viewStates.writing = {
+      currentChapter: this._currentChapter,
+      currentContent: this._currentContent,
+      currentDraftId: this._currentDraftId,
+      currentDraftStatus: this._currentDraftStatus,
+    }
     if (this._deepImportTimer) {
       clearInterval(this._deepImportTimer)
       this._deepImportTimer = null
@@ -237,7 +278,7 @@ const writingView = {
           border:1px solid var(--border);border-radius:4px;padding:12px;
           font-family:var(--font-mono);font-size:13px;line-height:1.8;
           resize:vertical;
-        " placeholder="${hasSelection ? '在此书写正文...' : '请从左侧选择章节'}" ${hasSelection ? '' : 'disabled'}></textarea>
+        " placeholder="${hasSelection ? '在此书写正文...' : '请从左侧选择章节'}" ${hasSelection ? '' : 'disabled'}>${this._currentContent ? esc(this._currentContent) : ''}</textarea>
 
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
           <button class="btn btn-primary" id="btn-save-draft" onclick="writingView.saveDraft()" ${hasSelection ? '' : 'disabled'}>保存草稿</button>
@@ -338,66 +379,86 @@ const writingView = {
       `
     }
 
-    html += '</div>'
+    html += '</div></div>'
+    return html
+  },
 
-    // ── 深度导入流水线 ──
-    html += `
-      <hr style="border-color:var(--border);margin:8px 0;">
-      <div style="font-size:11px;">
-        <details>
-          <summary style="cursor:pointer;font-weight:bold;color:var(--text-dim);">📥 深度导入</summary>
+  _renderExtractionPanel() {
+    return `
+      <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="card" style="font-size:11px;">
+          <div class="card-title" style="font-size:12px;">📥 剧情结构提取</div>
+          <div style="margin-top:6px;">
+            <div style="display:flex;gap:4px;align-items:center;margin-bottom:6px;">
+              <span style="color:var(--text-dim);">章节：</span>
+              <input type="number" id="writing-ext-start" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;font-size:11px;" />
+              <span style="color:var(--text-dim);font-size:11px;">~</span>
+              <input type="number" id="writing-ext-end" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;font-size:11px;" />
+            </div>
+            ${this._renderExtractionSteps()}
+          </div>
+        </div>
+        <div class="card" style="font-size:11px;">
+          <div class="card-title" style="font-size:12px;">🔗 深度导入（三步流水线）</div>
           <div id="deep-import-panel" style="margin-top:6px;">
             <div style="display:flex;gap:4px;align-items:center;">
-              <input type="number" id="deep-import-start" min="1" value="1" style="width:40px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 4px;border-radius:3px;font-size:11px;" />
+              <span style="color:var(--text-dim);">章节：</span>
+              <input type="number" id="deep-import-start" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;font-size:11px;" />
               <span style="color:var(--text-dim);font-size:11px;">~</span>
-              <input type="number" id="deep-import-end" min="1" value="10" style="width:40px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 4px;border-radius:3px;font-size:11px;" />
-              <button class="btn btn-sm btn-primary" onclick="writingView._submitDeepImport()" id="btn-deep-import-start">开始</button>
+              <input type="number" id="deep-import-end" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;font-size:11px;" />
+              <button class="btn btn-sm btn-primary" onclick="writingView._submitDeepImport()" id="btn-deep-import-start" style="margin-left:4px;">开始</button>
             </div>
-
             <div id="deep-import-progress" style="display:none;margin-top:6px;">
               <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
                 <div id="deep-import-bar" style="height:100%;width:0%;background:var(--accent);transition:width 0.5s;"></div>
               </div>
               <p id="deep-import-status" style="color:var(--text-dim);font-size:10px;margin-top:3px;"></p>
-
               <div id="deep-import-steps" style="margin-top:4px;font-size:10px;">
                 <div id="step-extract_world" class="deep-step"><span class="step-icon">☐</span> 1. 世界对象抽取<span class="step-action" style="display:none;"></span></div>
                 <div id="step-sync_characters" class="deep-step" style="margin-top:2px;"><span class="step-icon">☐</span> 2. 同步人物档案</div>
                 <div id="step-generate_plot" class="deep-step" style="margin-top:2px;"><span class="step-icon">☐</span> 3. 剧情结构生成</div>
               </div>
-
               <div id="deep-import-actions" style="margin-top:4px;display:none;">
                 <button class="btn btn-sm" onclick="writingView._gotoReview()" id="btn-deep-goto-review">前往审查</button>
                 <button class="btn btn-sm btn-primary" onclick="writingView._resumeDeepImport()" id="btn-deep-resume" style="display:none;">继续深度导入</button>
               </div>
             </div>
           </div>
-        </details>
+        </div>
       </div>
     `
+  },
 
-    // ── 章节卡提取 ──
-    html += `
-      <hr style="border-color:var(--border);margin:6px 0;">
-      <div style="font-size:11px;">
-        <details>
-          <summary style="cursor:pointer;font-weight:bold;color:var(--text-dim);">📇 从正文提取章节卡</summary>
-          <div style="margin-top:6px;">
-            <div style="display:flex;gap:4px;align-items:center;">
-              <input type="number" id="card-extract-start" min="1" value="1" style="width:40px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 4px;border-radius:3px;font-size:11px;" />
-              <span style="color:var(--text-dim);font-size:11px;">~</span>
-              <input type="number" id="card-extract-end" min="1" value="10" style="width:40px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 4px;border-radius:3px;font-size:11px;" />
-              <button class="btn btn-sm btn-primary" onclick="writingView._submitChapterCardExtraction()">提取</button>
-            </div>
-            <p style="color:var(--text-dim);font-size:10px;margin-top:4px;">
-              逐章调用 LLM 从正文提取章节卡字段。已有关键卡的章节跳过。
-            </p>
-          </div>
-        </details>
-      </div>
-    `
+  _renderExtractionSteps() {
+    const steps = [
+      { key: "world", label: "世界对象抽取", taskType: "world_entity_extraction" },
+      { key: "plot", label: "剧情线/篇章纲生成", taskType: "plot_structure_generate" },
+      { key: "cards", label: "章节卡提取", taskType: "chapter_card_extraction" },
+    ]
 
-    html += '</div>'
+    let html = ""
+    for (const step of steps) {
+      const s = this._extractionTasks[step.key] || { status: "idle", message: "" }
+      const isRunning = s.status === "running"
+      const isDone = s.status === "done"
+      const icon = isRunning ? "⏳" : isDone ? "✅" : "☐"
+
+      html += `
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-top:1px solid var(--border);">
+          <span style="font-size:11px;${isRunning ? 'color:var(--accent);' : ''}">${icon} ${step.label}</span>
+          <span style="flex:1;"></span>
+          <button class="btn btn-sm" onclick="writingView._submitWritingExtraction('${step.key}','${step.taskType}')"
+            ${isRunning ? 'disabled' : ''} style="font-size:10px;">
+            ${isRunning ? "运行中..." : isDone ? "已完成" : "开始"}
+          </button>
+        </div>
+      `
+    }
+
+    if (this._extractionMessage) {
+      html += `<p style="font-size:10px;color:var(--text-dim);margin-top:4px;">${this._extractionMessage}</p>`
+    }
+
     return html
   },
 
@@ -430,6 +491,8 @@ const writingView = {
   // ============================================================
 
   async _selectChapter(chapterIndex) {
+    // 用户主动切换章节，清除已保存的编辑状态
+    delete _state.viewStates.writing
     this._currentChapter = chapterIndex
     this._currentContent = null
     this._currentDraftId = null
@@ -438,18 +501,27 @@ const writingView = {
     this._currentDraftUpdatedAt = null
     this._currentCard = null
 
-    // 重新渲染（简化：全量）
-    const content = document.getElementById("workspace-content")
+    // 渲染骨架（细纲面板显示"加载中"）
+    let content = document.getElementById("workspace-content")
     if (content) {
       const html = await this.render()
       content.innerHTML = html
     }
 
-    // 加载草稿
-    this._loadDraft(chapterIndex)
+    // 并行加载草稿 + 章节卡，加载完成后重新渲染
+    await Promise.all([
+      this._loadDraft(chapterIndex),
+      this._loadChapterCard(chapterIndex),
+    ])
 
-    // 加载章节卡
-    this._loadChapterCard(chapterIndex)
+    content = document.getElementById("workspace-content")
+    if (content) {
+      const html = await this.render()
+      content.innerHTML = html
+      // 恢复编辑器内容（render 创建了新 textarea）
+      const editor = document.getElementById("writing-editor")
+      if (editor && this._currentContent) editor.value = this._currentContent
+    }
   },
 
   async _loadDraft(chapterIndex) {
@@ -540,6 +612,9 @@ const writingView = {
         this._chapterList.push(this._currentChapter)
         this._chapterList.sort((a, b) => a - b)
       }
+
+      // 保存成功，清除已保存的编辑状态（已持久化到服务器）
+      delete _state.viewStates.writing
 
       this._updateStatusDisplay()
       toast("草稿已保存", "success")
@@ -633,14 +708,72 @@ const writingView = {
 
   // ============================================================
   // ============================================================
+  // 统一提取
+  // ============================================================
+
+  async _submitWritingExtraction(stepKey, taskType) {
+    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    const start = parseInt(document.getElementById("writing-ext-start")?.value || "1", 10)
+    const end = parseInt(document.getElementById("writing-ext-end")?.value || "10", 10)
+    if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+
+    // 章节卡提取走确认弹窗
+    if (stepKey === "cards") {
+      this._submitChapterCardExtraction()
+      return
+    }
+
+    try {
+      const result = await api.tasks.submit(taskType, {
+        novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
+      })
+      this._extractionTasks[stepKey] = { taskId: result.task_id, status: "running", message: "" }
+      this._extractionMessage = `${stepKey === "world" ? "世界对象" : "剧情结构"}抽取任务已提交`
+      toast("任务已提交", "info")
+
+      // 启动共享轮询
+      if (!this._extractionTimer) {
+        this._extractionTimer = setInterval(() => this._pollWritingExtraction(), 3000)
+      }
+    } catch (err) {
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  async _pollWritingExtraction() {
+    const running = Object.entries(this._extractionTasks).filter(([, v]) => v.status === "running")
+    if (running.length === 0) {
+      clearInterval(this._extractionTimer)
+      this._extractionTimer = null
+      return
+    }
+
+    for (const [key, task] of running) {
+      try {
+        const data = await api.tasks.getStatus(task.taskId)
+        if (data.status === "done") {
+          this._extractionTasks[key] = { ...task, status: "done", message: "完成" }
+          this._extractionMessage = `步骤完成：${key === "world" ? "世界对象抽取" : "剧情结构生成"}`
+          toast(this._extractionMessage, "success")
+        } else if (data.status === "failed") {
+          this._extractionTasks[key] = { ...task, status: "failed", message: data.error_message || "失败" }
+          toast(`步骤失败：${data.error_message || "未知错误"}`, "error")
+        } else if (data.status === "cancelled") {
+          this._extractionTasks[key] = { ...task, status: "idle", message: "" }
+        }
+      } catch { /* 静默重试 */ }
+    }
+  },
+
+  // ============================================================
   // 章节卡提取
   // ============================================================
 
   async _submitChapterCardExtraction() {
     if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
 
-    const chStart = parseInt(document.getElementById("card-extract-start")?.value || "1", 10)
-    const chEnd = parseInt(document.getElementById("card-extract-end")?.value || "10", 10)
+    const chStart = parseInt(document.getElementById("writing-ext-start")?.value || "1", 10)
+    const chEnd = parseInt(document.getElementById("writing-ext-end")?.value || "10", 10)
     if (chEnd < chStart) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
 
     // 查已有章节卡
@@ -648,7 +781,7 @@ const writingView = {
     try {
       const data = await api.outline.listChapterCards({
         novel_id: _state.currentProjectId,
-        limit: 999,
+        limit: 50,
       })
       existingCards = data.items || []
     } catch {

@@ -6,7 +6,7 @@ character 模块负责人物档案、当前状态和知识边界。当前阶段�
 
 ## 数据表
 
-- characters — 人物档案（name / role / appearance / personality / desire / fear / secret / weakness / current_goal / current_state / current_emotion / stance / voice_style / behavior_rules / relationship_summary / aliases JSONB）
+- characters — 人物档案（name / role / appearance / personality / desire / fear / secret / weakness / current_goal / current_state / current_emotion / stance / voice_style / behavior_rules / relationship_summary / aliases JSONB / meta JSONB）
 - character_knowledge — 知识边界（target_type / target_id / knowledge_level: unknown|rumor|partial|full|false_belief）
 
 ## 服务
@@ -17,6 +17,7 @@ character 模块负责人物档案、当前状态和知识边界。当前阶段�
 ## Facade
 
 ```python
+async def list_characters(db, novel_id, skip=0, limit=100) -> tuple[list[CharacterResponse], int]
 async def get_characters_context(db, novel_id, character_ids, reveal_mode="author_safe") -> CharacterContextBundle
 async def get_character_knowledge_context(db, novel_id, character_id, target_ids=None) -> list
 async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
@@ -27,15 +28,30 @@ async def get_character_id_by_world_entity(db, novel_id, world_entity_id) -> str
 ## API
 
 ```
+# CRUD
 POST   /api/characters
 GET    /api/characters
 GET    /api/characters/{id}
 PUT    /api/characters/{id}
+DELETE /api/characters/{id}
 
+# 知识边界
 POST   /api/characters/{id}/knowledge
 GET    /api/characters/{id}/knowledge
 PUT    /api/characters/knowledge/{id}
 DELETE /api/characters/knowledge/{id}
+
+# 状态更新
+PATCH  /api/characters/{id}/state
+
+# AI 抽取
+POST   /api/characters/{id}/extract          # 单人物抽取
+POST   /api/characters/extract-all           # 全部人物抽取
+GET    /api/characters/{id}/suggestions      # 获取 AI 建议
+PUT    /api/characters/{id}/apply-suggestions # 应用 AI 建议
+
+# 上下文过滤
+POST   /api/characters/{id}/filter-context
 ```
 
 ## Context 输出重点

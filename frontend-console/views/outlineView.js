@@ -11,14 +11,17 @@ const outlineView = {
   _foreshadowing: [],
   _reveals: [],
 
-  /** AI 自动识别状态 */
-  _autoExtractOpen: false,
-  _autoExtractTaskId: null,
-  _autoExtractStatus: "就绪",
-  _autoExtractTimer: null,
+  /** 提取任务状态：{ taskId, status, message } */
+  _extractionTasks: {
+    world: { taskId: null, status: "idle", message: "" },
+    plot: { taskId: null, status: "idle", message: "" },
+    cards: { taskId: null, status: "idle", message: "" },
+  },
+  _extractionTimer: null,
 
   async onEnter() {
-    if (this._autoExtractTimer) { clearInterval(this._autoExtractTimer); this._autoExtractTimer = null }
+    const hasRunning = Object.values(this._extractionTasks).some((t) => t.status === "running")
+    if (!hasRunning && this._extractionTimer) { clearInterval(this._extractionTimer); this._extractionTimer = null }
     await Promise.all([
       this._loadThreads(), this._loadArcs(),
       this._loadChapters(), this._loadForeshadowing(), this._loadReveals(),
@@ -35,6 +38,7 @@ const outlineView = {
         <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-subview="foreshadowing" onclick="router.navigate('outline','foreshadowing')">伏笔计划</span>
         <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-subview="reveals" onclick="router.navigate('outline','reveals')">信息揭示</span>
       </div>`
+    html += this._renderExtractionPanel()
     if (subView === "threads") html += await this._renderThreads()
     else if (subView === "arcs") html += await this._renderArcs()
     else if (subView === "chapters") html += await this._renderChapters()
@@ -77,9 +81,7 @@ const outlineView = {
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理主线、支线、暗线等剧情线。</p>
       <div style="text-align:center;margin-bottom:8px;">
         <button class="btn btn-primary" onclick="outlineView._createThread()">新建剧情线</button>
-        <button class="btn" onclick="outlineView._toggleAutoExtract()">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
-      </div>
-      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别剧情线相关的对象") : ""}`
+      </div>`
     if (!this._threads.length) return html + empty("暂无剧情线。")
     html += `<table class="data-table"><thead><tr><th>类型</th><th>名称</th><th>阶段</th><th>回收章节</th><th>操作</th></tr></thead><tbody>`
     for (const t of this._threads) {
@@ -113,12 +115,12 @@ const outlineView = {
     showModal("新建剧情线", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const name = document.getElementById("th-name")?.value
       if (!name) { toast("请输入名称", "warning"); return }
-      await api.outline.createThread({ novel_id: _state.currentProjectId, name,
+      await api.outline.createThread({ name,
         thread_type: document.getElementById("th-type")?.value || "main",
         summary: document.getElementById("th-summary")?.value || "",
         start_chapter: parseInt(document.getElementById("th-start")?.value) || undefined,
         planned_payoff_chapter: parseInt(document.getElementById("th-end")?.value) || undefined,
-      }); toast("已创建", "success"); router.navigate("outline", "threads")
+      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "threads")
     } }])
   },
 
@@ -130,74 +132,124 @@ const outlineView = {
   },
 
   // ============================================================
-  // AI 自动识别
+  // 统一提取面板
   // ============================================================
 
-  _toggleAutoExtract() {
-    this._autoExtractOpen = !this._autoExtractOpen
-    router.navigate("outline", _state.currentSubView)
-  },
+  _renderExtractionPanel() {
+    const steps = [
+      {
+        key: "world",
+        label: "1. 世界对象抽取",
+        desc: "从正文识别地点、组织、物品、人物等世界对象候选",
+        taskType: "world_entity_extraction",
+      },
+      {
+        key: "plot",
+        label: "2. 剧情线/篇章纲生成",
+        desc: "基于正文分析生成剧情线和篇章结构",
+        taskType: "plot_structure_generate",
+      },
+      {
+        key: "cards",
+        label: "3. 章节卡提取",
+        desc: "逐章提取核心目标、主要冲突、场景细纲等",
+        taskType: "chapter_card_extraction",
+      },
+    ]
 
-  _renderAutoExtractPanel(taskType, label) {
-    const statusLine = this._autoExtractTaskId
-      ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ${this._autoExtractStatus}`
-      : `状态: ${this._autoExtractStatus}`
-    return `
-      <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
-        <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
-          起始章 <input id="o-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
-          结束章 <input id="o-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
-          <button class="btn btn-sm btn-primary" onclick="outlineView._submitAutoExtract('${taskType}')" ${this._autoExtractTaskId ? "disabled" : ""}>
-            ${this._autoExtractTaskId ? "识别中..." : "开始识别"}
-          </button>
-        </div>
-        <div id="o-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">${statusLine}</div>
-      </div>
+    let html = `
+      <details open style="border:1px solid var(--border);border-radius:4px;padding:8px 10px;margin-bottom:12px;font-size:12px;">
+        <summary style="cursor:pointer;font-weight:bold;color:var(--text);">📥 剧情结构提取</summary>
+        <div style="margin-top:6px;">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+            <span style="color:var(--text-dim);">章节：</span>
+            <input type="number" id="ext-start" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+            <span style="color:var(--text-dim);">~</span>
+            <input type="number" id="ext-end" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          </div>
     `
+
+    for (const step of steps) {
+      const s = this._extractionTasks[step.key]
+      const isRunning = s.status === "running"
+      const isDone = s.status === "done"
+      const isFailed = s.status === "failed"
+      const icon = isRunning ? "⏳" : isDone ? "✅" : isFailed ? "❌" : "☐"
+      const btnLabel = isRunning ? "运行中..." : "开始"
+
+      html += `
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--border);">
+          <span style="font-size:11px;${isRunning ? 'color:var(--accent);' : isDone ? 'color:var(--text-dim);' : 'color:var(--text);'}">${icon} ${step.label}</span>
+          <span style="font-size:10px;color:var(--text-dim);flex:1;">${step.desc}</span>
+          <button class="btn btn-sm" onclick="outlineView._submitExtraction('${step.key}','${step.taskType}')"
+            ${isRunning ? 'disabled' : ''} style="font-size:10px;white-space:nowrap;">${btnLabel}</button>
+          ${s.message ? `<span style="font-size:10px;color:var(--text-dim);">${s.message}</span>` : ""}
+        </div>
+      `
+    }
+
+    html += '</div></details>'
+    return html
   },
 
-  async _submitAutoExtract(taskType) {
+  async _submitExtraction(stepKey, taskType) {
     if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
-    const start = parseInt(document.getElementById("o-extract-start")?.value || "1", 10)
-    const end = parseInt(document.getElementById("o-extract-end")?.value || "10", 10)
+    const start = parseInt(document.getElementById("ext-start")?.value || "1", 10)
+    const end = parseInt(document.getElementById("ext-end")?.value || "10", 10)
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
+
+    // 步骤 3（章节卡）需要跳过确认
+    if (stepKey === "cards") {
+      this._submitChapterCardExtraction()
+      return
+    }
+
     try {
       const result = await api.tasks.submit(taskType, {
         novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
       })
-      this._autoExtractTaskId = result.task_id
-      this._autoExtractStatus = "运行中"
-      this._updateExtractStatusDOM()
-      toast("识别任务已提交", "info")
+      this._extractionTasks[stepKey] = { taskId: result.task_id, status: "running", message: "" }
+      toast("任务已提交", "info")
       router.navigate("outline", _state.currentSubView)
-      if (this._autoExtractTimer) clearInterval(this._autoExtractTimer)
-      this._autoExtractTimer = setInterval(() => this._pollAutoExtract(result.task_id), 5000)
+
+      // 启动共享轮询
+      this._startPolling()
     } catch (err) {
-      this._autoExtractStatus = `失败: ${err.message}`
-      this._updateExtractStatusDOM()
+      this._extractionTasks[stepKey] = { taskId: null, status: "failed", message: err.message }
+      router.navigate("outline", _state.currentSubView)
       toast(err.message || "提交失败", "error")
     }
   },
 
-  async _pollAutoExtract(taskId) {
-    try {
-      const data = await api.tasks.getStatus(taskId)
-      this._autoExtractStatus = data.status || "未知"
-      this._updateExtractStatusDOM()
-      if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
-        if (this._autoExtractTimer) { clearInterval(this._autoExtractTimer); this._autoExtractTimer = null }
-        if (data.status === "done") toast("识别任务已完成", "success")
-        else if (data.status === "failed") toast(`识别失败: ${data.error_message || "未知错误"}`, "error")
-      }
-    } catch (e) { console.warn("轮询任务状态失败", e) }
+  _startPolling() {
+    if (this._extractionTimer) return  // 已有轮询
+    this._extractionTimer = setInterval(() => this._pollExtractionTasks(), 3000)
   },
 
-  _updateExtractStatusDOM() {
-    const el = document.getElementById("o-extract-status")
-    if (el) {
-      const prefix = this._autoExtractTaskId ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ` : "状态: "
-      el.textContent = prefix + this._autoExtractStatus
+  async _pollExtractionTasks() {
+    const running = Object.entries(this._extractionTasks).filter(([, v]) => v.status === "running")
+    if (running.length === 0) {
+      clearInterval(this._extractionTimer)
+      this._extractionTimer = null
+      return
+    }
+
+    for (const [key, task] of running) {
+      try {
+        const data = await api.tasks.getStatus(task.taskId)
+        if (data.status === "done") {
+          this._extractionTasks[key] = { ...task, status: "done", message: "完成" }
+          toast(`步骤完成：${key === "world" ? "世界对象抽取" : key === "plot" ? "剧情结构生成" : "章节卡提取"}`, "success")
+        } else if (data.status === "failed") {
+          this._extractionTasks[key] = { ...task, status: "failed", message: data.error_message || "失败" }
+          toast(`步骤失败：${data.error_message || "未知错误"}`, "error")
+        } else if (data.status === "cancelled") {
+          this._extractionTasks[key] = { ...task, status: "idle", message: "已取消" }
+        }
+        // running 状态不更新 — 下次轮询再检查
+      } catch {
+        // 轮询失败，静默重试
+      }
     }
   },
 
@@ -236,14 +288,14 @@ const outlineView = {
     showModal("新建篇章纲", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const title = document.getElementById("arc-title")?.value
       if (!title) { toast("请输入标题", "warning"); return }
-      await api.outline.createArc({ novel_id: _state.currentProjectId, title,
+      await api.outline.createArc({ title,
         start_chapter: parseInt(document.getElementById("arc-start")?.value) || undefined,
         end_chapter: parseInt(document.getElementById("arc-end")?.value) || undefined,
         arc_goal: document.getElementById("arc-goal")?.value || "",
         core_conflict: document.getElementById("arc-conflict")?.value || "",
         entry_hook: document.getElementById("arc-hook")?.value || "",
         climax: document.getElementById("arc-climax")?.value || "",
-      }); toast("已创建", "success"); router.navigate("outline", "arcs")
+      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "arcs")
     } }])
   },
 
@@ -261,17 +313,24 @@ const outlineView = {
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">每章的结构化计划：目标、冲突、禁止事项、钩子。</p>
       <div style="margin-bottom:8px;display:flex;gap:8px;">
         <button class="btn btn-primary" onclick="outlineView._createChapter()">新建章节卡</button>
+        <button class="btn" onclick="outlineView._submitChapterCardExtraction()">从正文提取</button>
       </div>`
     if (!this._chapters.length) return html + empty("暂无章节卡。")
+    const statusLabels = { draft: "草稿", candidate: "候选", canonical: "正史", deprecated: "废弃" }
     html += `<table class="data-table"><thead><tr><th>章</th><th>标题</th><th>目标</th><th>冲突</th><th>状态</th><th>操作</th></tr></thead><tbody>`
     for (const c of this._chapters) {
+      const isCandidate = c.status === "candidate"
       html += `<tr class="clickable" onclick="outlineView._viewChapter('${esc(c.id || c.card_id)}')">
         <td>${c.chapter_index || "-"}</td>
         <td><strong>${esc(c.title || "")}</strong></td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(c.chapter_goal || "")}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(c.main_conflict || "")}</td>
-        <td><span class="badge badge-${c.status || "draft"}">${esc(c.status || "draft")}</span></td>
-        <td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();outlineView._deleteChapter('${esc(c.id || c.card_id)}')">删除</button></td>
+        <td><span class="badge badge-${c.status || "draft"}">${statusLabels[c.status] || c.status || "draft"}</span></td>
+        <td>
+          ${isCandidate ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();outlineView._confirmChapter('${esc(c.id || c.card_id)}', '${esc(c.title || "")}')" style="font-size:10px;">确认</button>` : ""}
+          <button class="btn btn-sm" onclick="event.stopPropagation();outlineView._editChapter('${esc(c.id || c.card_id)}')" style="font-size:10px;">编辑</button>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();outlineView._deleteChapter('${esc(c.id || c.card_id)}')" style="font-size:10px;">删除</button>
+        </td>
       </tr>`
     }
     html += `</tbody></table>`
@@ -290,18 +349,18 @@ const outlineView = {
     showModal("新建章节卡", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const idx = parseInt(document.getElementById("ch-index")?.value)
       if (!idx) { toast("请输入章节序号", "warning"); return }
-      await api.outline.createChapterCard({ novel_id: _state.currentProjectId,
+      await api.outline.createChapterCard({
         chapter_index: idx, title: document.getElementById("ch-title")?.value || "",
         chapter_goal: document.getElementById("ch-goal")?.value || "",
         main_conflict: document.getElementById("ch-conflict")?.value || "",
         ending_hook: document.getElementById("ch-hook")?.value || "",
-      }); toast("已创建", "success"); router.navigate("outline", "chapters")
+      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "chapters")
     } }])
   },
 
   async _viewChapter(cardId) {
     try {
-      const c = await api.outline.getChapterCard(cardId)
+      const c = await api.outline.getChapterCard(cardId, _state.currentProjectId)
       const body = `
         <p><strong>章节：</strong>${c.chapter_index || "-"}</p>
         <p><strong>标题：</strong>${esc(c.title || "-")}</p>
@@ -314,11 +373,142 @@ const outlineView = {
     } catch (e) { toast(e.message || "加载失败", "error") }
   },
 
+  _confirmChapter(cardId, title) {
+    confirmAction(`确认将「${title}」标记为正史？`, async () => {
+      try {
+        await api.outline.updateChapterCard(cardId, { status: "canonical" }, _state.currentProjectId)
+        toast(`「${title}」已确认`, "success")
+        router.navigate("outline", "chapters")
+      } catch (e) { toast(e.message || "确认失败", "error") }
+    }, "确认")
+  },
+
+  async _editChapter(cardId) {
+    let card
+    try { card = await api.outline.getChapterCard(cardId, _state.currentProjectId) }
+    catch { toast("无法加载章节卡数据", "error"); return }
+
+    const formHtml = `
+      <div class="form-group"><label>标题</label><input class="form-input" id="edit-ch-title" value="${esc(card.title || "")}" /></div>
+      <div class="form-group"><label>核心目标</label><textarea class="form-textarea" id="edit-ch-goal" rows="2">${esc(card.chapter_goal || "")}</textarea></div>
+      <div class="form-group"><label>主要冲突</label><textarea class="form-textarea" id="edit-ch-conflict" rows="2">${esc(card.main_conflict || "")}</textarea></div>
+      <div class="form-group"><label>情绪基调</label><input class="form-input" id="edit-ch-emotion" value="${esc(card.emotional_point || "")}" /></div>
+      <div class="form-group"><label>尾钩</label><textarea class="form-textarea" id="edit-ch-hook" rows="1">${esc(card.ending_hook || "")}</textarea></div>
+      <div class="form-group"><label>必发生事件（每行一条）</label><textarea class="form-textarea" id="edit-ch-must" rows="2">${(card.must_happen || []).join("\n")}</textarea></div>
+      <div class="form-group"><label>不能发生事件（每行一条）</label><textarea class="form-textarea" id="edit-ch-not" rows="2">${(card.must_not_happen || []).join("\n")}</textarea></div>
+      <div class="form-group"><label>场景细纲（JSON）</label><textarea class="form-textarea" id="edit-ch-scenes" rows="3">${JSON.stringify(card.scene_cards || [])}</textarea></div>
+    `
+    showModal(`编辑章节卡 — 第${card.chapter_index}章`, formHtml, [
+      { text: "取消", handler: () => closeModal() },
+      {
+        text: "保存", class: "btn-primary",
+        handler: async () => {
+          const data = {
+            title: document.getElementById("edit-ch-title")?.value || "",
+            chapter_goal: document.getElementById("edit-ch-goal")?.value || "",
+            main_conflict: document.getElementById("edit-ch-conflict")?.value || "",
+            emotional_point: document.getElementById("edit-ch-emotion")?.value || "",
+            ending_hook: document.getElementById("edit-ch-hook")?.value || "",
+            must_happen: (document.getElementById("edit-ch-must")?.value || "").split("\n").map(l => l.trim()).filter(Boolean),
+            must_not_happen: (document.getElementById("edit-ch-not")?.value || "").split("\n").map(l => l.trim()).filter(Boolean),
+          }
+          let scenes = card.scene_cards || []
+          try {
+            scenes = JSON.parse(document.getElementById("edit-ch-scenes")?.value || "[]")
+          } catch {}
+          data.scene_cards = scenes
+
+          try {
+            await api.outline.updateChapterCard(cardId, data, _state.currentProjectId)
+            toast("已保存", "success")
+            router.navigate("outline", "chapters")
+          } catch (err) { toast(err.message || "保存失败", "error") }
+        },
+      },
+    ])
+  },
+
   _deleteChapter(id) {
     confirmAction("确定删除此章节卡？", async () => {
       try { await api.outline.deleteChapterCard(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "chapters") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
+  },
+
+  async _submitChapterCardExtraction() {
+    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+
+    const chStartStr = prompt("起始章节：", "1")
+    if (!chStartStr) return
+    const chEndStr = prompt("结束章节：", "10")
+    if (!chEndStr) return
+    const chStart = parseInt(chStartStr, 10)
+    const chEnd = parseInt(chEndStr, 10)
+    if (chEnd < chStart) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+
+    // 查已有章节卡
+    let existingCards = []
+    try {
+      const data = await api.outline.listChapterCards({
+        novel_id: _state.currentProjectId, limit: 50,
+      })
+      existingCards = data.items || []
+    } catch {
+      toast("无法加载章节卡信息", "error")
+      return
+    }
+
+    const skipped = existingCards.filter((c) => c.chapter_index >= chStart && c.chapter_index <= chEnd)
+    const extractList = []
+    for (let i = chStart; i <= chEnd; i++) {
+      if (!skipped.find((c) => c.chapter_index === i)) {
+        extractList.push(i)
+      }
+    }
+
+    if (extractList.length === 0) {
+      toast("所选范围内所有章节已有章节卡，无需提取", "info")
+      return
+    }
+
+    let modalHtml = `
+      <div style="font-size:13px;">
+        <p style="margin-bottom:8px;">将提取以下 <strong>${extractList.length}</strong> 章：</p>
+        <div style="max-height:200px;overflow-y:auto;background:var(--panel);padding:8px;border-radius:4px;margin-bottom:8px;">
+    `
+    for (const idx of extractList) {
+      modalHtml += `<div style="font-size:12px;padding:2px 0;">✅ 第 ${idx} 章</div>`
+    }
+    if (skipped.length > 0) {
+      modalHtml += `
+        <p style="margin-top:8px;color:var(--text-dim);">已跳过 <strong>${skipped.length}</strong> 章（已有章节卡）：</p>
+      `
+      for (const c of skipped) {
+        modalHtml += `<div style="font-size:11px;color:var(--text-dim);padding:2px 0;">⏭ 第 ${c.chapter_index} 章 — ${esc(c.title || "")}</div>`
+      }
+    }
+    modalHtml += `</div>
+      <p style="color:var(--text-dim);font-size:11px;">提取结果将保存为「候选」状态，请审核确认。</p>
+    `
+
+    const start = chStart; const end = chEnd
+    showModal("确认提取章节卡", modalHtml, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "确认提取", class: "btn-primary",
+        handler: async () => {
+          closeModal()
+          try {
+            await api.tasks.submit("chapter_card_extraction", {
+              novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
+            })
+            toast("章节卡提取任务已提交，请稍后刷新查看", "success")
+          } catch (err) {
+            toast(err.message || "提交失败", "error")
+          }
+        },
+      },
+    ])
   },
 
   // ============ 伏笔计划 ============
@@ -357,13 +547,13 @@ const outlineView = {
     showModal("新建伏笔", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const name = document.getElementById("fs-name")?.value
       if (!name) { toast("请输入名称", "warning"); return }
-      await api.outline.createForeshadowing({ novel_id: _state.currentProjectId, name,
+      await api.outline.createForeshadowing({ name,
         summary: document.getElementById("fs-summary")?.value || "",
         surface_meaning: document.getElementById("fs-surface")?.value || "",
         hidden_meaning: document.getElementById("fs-hidden")?.value || "",
         planned_seed_chapter: parseInt(document.getElementById("fs-seed")?.value) || undefined,
         planned_payoff_chapter: parseInt(document.getElementById("fs-payoff")?.value) || undefined,
-      }); toast("已创建", "success"); router.navigate("outline", "foreshadowing")
+      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "foreshadowing")
     } }])
   },
 
@@ -410,11 +600,11 @@ const outlineView = {
     showModal("新建揭示计划", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const targetId = document.getElementById("rv-target")?.value
       if (!targetId) { toast("请输入目标 ID", "warning"); return }
-      await api.outline.createReveal({ novel_id: _state.currentProjectId,
+      await api.outline.createReveal({
         target_type: document.getElementById("rv-type")?.value || "world_entity",
         target_id: targetId,
         secret_summary: document.getElementById("rv-secret")?.value || "",
-      }); toast("已创建", "success"); router.navigate("outline", "reveals")
+      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "reveals")
     } }])
   },
 

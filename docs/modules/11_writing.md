@@ -19,14 +19,16 @@ async def list_chapter_indices(db, novel_id) -> list[int]  # 有草稿的章节�
 ## API
 
 ```
-POST /api/writing/drafts                            # 保存/创建草稿（自动递增版本号）
+POST /api/writing/drafts                            # 保存/创建草稿（自动递增版本号 + 触发 RAG 索引）
 GET  /api/writing/drafts/{id}                       # 获取草稿
-PUT  /api/writing/drafts/{id}                       # 更新草稿内容/状态
+PUT  /api/writing/drafts/{id}                       # 更新草稿内容/状态（内容变化时触发 RAG 索引）
 DELETE /api/writing/drafts/{id}                     # 删除草稿
 GET  /api/writing/chapters/{index}/draft            # 按章节索引获取最新草稿
 GET  /api/writing/chapters/{index}/versions         # 获取章节版本历史
 GET  /api/writing/chapters                          # 列出有草稿的章节索引
 ```
+
+保存/更新草稿时自动提交 `rag_index_chapter` 异步任务，将正文分割为 chunk 并存入 RAG 库。
 
 ## 手动工作台
 

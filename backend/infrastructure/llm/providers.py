@@ -210,6 +210,46 @@ class OpenAIProvider:
                 usage=usage,
             )
 
+    async def generate_embedding(
+        self,
+        text: str | list[str],
+        model: str | None = None,
+    ) -> list[float] | list[list[float]]:
+        """生成文本的 embedding 向量
+
+        Args:
+            text: 单文本或文本列表（批量）
+            model: embedding 模型名称，默认使用配置中的 embedding_model
+
+        Returns:
+            单文本 → list[float]（一维向量）
+            文本列表 → list[list[float]]（批量向量）
+
+        Raises:
+            ValueError: 输入为空
+        """
+        if isinstance(text, str):
+            if not text.strip():
+                raise ValueError("Input text is empty")
+        elif isinstance(text, list):
+            if not text:
+                raise ValueError("Input text list is empty")
+            if any(not t.strip() for t in text):
+                raise ValueError("Input text list contains empty string")
+
+        model_name = model or get_settings().embedding_model
+
+        response = await self._client.embeddings.create(
+            model=model_name,
+            input=text,
+        )
+
+        embeddings = [item.embedding for item in response.data]
+
+        if isinstance(text, str):
+            return embeddings[0]
+        return embeddings
+
     def _build_kwargs(self, request: LLMCallRequest, model: str) -> dict[str, Any]:
         """构建 OpenAI SDK 调用参数"""
         kwargs: dict[str, Any] = {

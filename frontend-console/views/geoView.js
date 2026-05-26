@@ -85,7 +85,7 @@ const geoView = {
   async _loadEdges(projectId) {
     try {
       if (!this._apiAvailable) throw new Error("API 不可用")
-      const data = await api.geo.listEdges()
+      const data = await api.geo.listEdges({ novel_id: projectId })
       this._edges = data.items || data || []
     } catch {
       this._edges = [
