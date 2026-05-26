@@ -157,11 +157,11 @@ const geoView = {
 
     html += `
       <div class="subnav">
-        <span class="subnav-item ${subView === "tree" ? "active" : ""}" data-subview="tree" onclick="router.navigate('geo','tree')">地点树</span>
-        <span class="subnav-item ${subView === "edges" ? "active" : ""}" data-subview="edges" onclick="router.navigate('geo','edges')">地理关系</span>
-        <span class="subnav-item ${subView === "eras" ? "active" : ""}" data-subview="eras" onclick="router.navigate('geo','eras')">历史时期</span>
-        <span class="subnav-item ${subView === "history" ? "active" : ""}" data-subview="history" onclick="router.navigate('geo','history')">地点历史</span>
-        <span class="subnav-item ${subView === "map" ? "active" : ""}" data-subview="map" onclick="router.navigate('geo','map')">简易地图</span>
+        <span class="subnav-item ${subView === "tree" ? "active" : ""}" data-action="nav-tree">地点树</span>
+        <span class="subnav-item ${subView === "edges" ? "active" : ""}" data-action="nav-edges">地理关系</span>
+        <span class="subnav-item ${subView === "eras" ? "active" : ""}" data-action="nav-eras">历史时期</span>
+        <span class="subnav-item ${subView === "history" ? "active" : ""}" data-action="nav-history">地点历史</span>
+        <span class="subnav-item ${subView === "map" ? "active" : ""}" data-action="nav-map">简易地图</span>
       </div>
     `
 
@@ -197,8 +197,8 @@ const geoView = {
       `}
       <div style="margin-top:12px;">
         <button class="btn btn-primary" id="btn-new-location">新建地点</button>
-        <button class="btn" onclick="router.navigate('geo','edges')">查看地理关系</button>
-        <button class="btn" onclick="router.navigate('geo','history')">查看地点历史</button>
+        <button class="btn" data-action="nav-edges">查看地理关系</button>
+        <button class="btn" data-action="nav-history">查看地点历史</button>
       </div>
     `
   },
@@ -224,7 +224,7 @@ const geoView = {
       const hasChildren = node.children && node.children.length > 0
 
       html += '<li>'
-      html += `<span class="tree-item clickable" style="${style}" data-location-id="${node.id}" onclick="geoView._onLocationClick('${node.id}')">`
+      html += `<span class="tree-item clickable" style="${style}" data-location-id="${node.id}" data-action="location-click">`
       html += hasChildren ? "&#128193; " : "&#128204; "
       html += `${node.name}`
       if (node.level) html += ` <span style="color:var(--text-dim);font-size:11px;">(${node.level})</span>`
@@ -267,8 +267,8 @@ const geoView = {
           <p>层级：${node.level || "未知"}</p>
           <p style="color:var(--text-dim);font-size:12px;margin-top:8px;">
             <strong>相关操作</strong><br>
-            <a style="cursor:pointer;color:var(--accent);" onclick="router.navigate('geo','history')">查看地点历史</a><br>
-            <a style="cursor:pointer;color:var(--accent);" onclick="router.navigate('geo','edges')">查看通行关系</a>
+            <a style="cursor:pointer;color:var(--accent);" data-action="nav-history">查看地点历史</a><br>
+            <a style="cursor:pointer;color:var(--accent);" data-action="nav-edges">查看通行关系</a>
           </p>
         </div>
       `,
@@ -518,6 +518,26 @@ const geoView = {
   // ============================================================
 
   _bindEvents() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+
+    content.removeEventListener("click", this._clickHandler)
+    this._clickHandler = (e) => {
+      const target = e.target.closest("[data-action]")
+      if (!target) return
+      const action = target.getAttribute("data-action")
+      const id = target.getAttribute("data-location-id")
+      switch (action) {
+        case "nav-tree": router.navigate("geo", "tree"); break
+        case "nav-edges": router.navigate("geo", "edges"); break
+        case "nav-eras": router.navigate("geo", "eras"); break
+        case "nav-history": router.navigate("geo", "history"); break
+        case "nav-map": router.navigate("geo", "map"); break
+        case "location-click": if (id) this._onLocationClick(id); break
+      }
+    }
+    content.addEventListener("click", this._clickHandler)
+
     document.getElementById("btn-new-location")?.addEventListener("click", () => {
       toast("新建地点功能开发中", "info")
     })

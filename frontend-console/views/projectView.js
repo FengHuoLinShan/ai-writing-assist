@@ -94,7 +94,7 @@ const projectView = {
     const content = document.getElementById("workspace-content")
     if (!content) return
 
-    const handler = (e) => {
+    this._clickHandler = (e) => {
       const target = e.target.closest("[data-action]")
       if (!target) return
 
@@ -126,9 +126,8 @@ const projectView = {
       }
     }
 
-    // 移除旧监听避免重复绑定
-    content.removeEventListener("click", handler)
-    content.addEventListener("click", handler)
+    content.removeEventListener("click", this._clickHandler)
+    content.addEventListener("click", this._clickHandler)
   },
 
   _bindImportButtons() {

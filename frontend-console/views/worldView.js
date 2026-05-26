@@ -36,10 +36,10 @@ const worldView = {
     // 子标签导航
     html += `
       <div class="subnav">
-        <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" onclick="router.navigate('world','objects')">对象库</span>
-        <span class="subnav-item ${subView === "candidates" ? "active" : ""}" data-subview="candidates" onclick="router.navigate('world','candidates')">候选清洗</span>
-        <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" onclick="router.navigate('world','relations')">关系</span>
-        <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" onclick="router.navigate('world','aliases')">别名</span>
+        <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
+        <span class="subnav-item ${subView === "candidates" ? "active" : ""}" data-subview="candidates" data-action="nav-candidates">候选清洗</span>
+        <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
+        <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
       </div>
     `
 
@@ -102,7 +102,7 @@ const worldView = {
         <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
           起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
           结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
-          <button class="btn btn-sm btn-primary" onclick="worldView._submitAutoExtract('${taskType}')" ${this._autoExtractTaskId ? "disabled" : ""}>
+          <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${this._autoExtractTaskId ? "disabled" : ""}>
             ${this._autoExtractTaskId ? "识别中..." : "开始识别"}
           </button>
         </div>
@@ -180,7 +180,7 @@ const worldView = {
           <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
           <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
             <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-            <button class="btn" onclick="worldView._toggleAutoExtract()">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
+            <button class="btn" data-action="toggle-extract">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
           </div>
           ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象候选") : ""}
         </div>
@@ -190,7 +190,7 @@ const worldView = {
     let html = `
       <div style="text-align:center;margin-bottom:12px;">
         <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-        <button class="btn" onclick="worldView._toggleAutoExtract()" style="margin-left:8px;">
+        <button class="btn" data-action="toggle-extract" style="margin-left:8px;">
           ${this._autoExtractOpen ? "▾" : "▸"} 自动识别
         </button>
       </div>
@@ -220,8 +220,8 @@ const worldView = {
           <td>${e.importance || e.importance_score || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.summary || e.public_info || "-"}</td>
           <td>
-            <button class="btn btn-sm" onclick="event.stopPropagation();worldView.editEntity('${esc(e.id || e.entity_id)}')">编辑</button>
-            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();worldView.deleteEntity('${esc(e.id || e.entity_id)}')">删除</button>
+            <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
+            <button class="btn btn-sm btn-danger" data-action="delete-entity" data-id="${esc(e.id || e.entity_id)}">删除</button>
           </td>
         </tr>
       `
@@ -230,7 +230,7 @@ const worldView = {
     html += '</tbody></table>'
     html += `
       <div style="margin-top:12px;text-align:center;">
-        <button class="btn" onclick="router.navigate('world','candidates')">查看候选（${this._candidates.length}）</button>
+        <button class="btn" data-action="nav-candidates">查看候选（${this._candidates.length}）</button>
       </div>
     `
     return html
@@ -244,7 +244,7 @@ const worldView = {
           <p>没有待处理的候选对象。</p>
           <p>AI 从文本中抽取的候选对象会出现在这里，你可以决定如何处置它们。</p>
           <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
-            <button class="btn" onclick="router.navigate('generate')">去生成中心创建候选</button>
+            <button class="btn" data-action="nav-generate">去生成中心创建候选</button>
           </div>
         </div>
       `
@@ -286,11 +286,11 @@ const worldView = {
           <td>${c.importance_score || c.importance || "-"}</td>
           <td style="color:var(--warning)">${actionMap[c.suggested_action] || c.suggested_action}</td>
           <td style="display:flex;gap:4px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-primary" onclick="worldView.acceptCandidate('${esc(c.id || c.candidate_id)}')">确认</button>
+            <button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(c.id || c.candidate_id)}">确认</button>
             ${isMergeCandidate && c.suggested_existing_entity_name ? `
-              <button class="btn btn-sm" onclick="worldView.mergeCandidate('${esc(c.id || c.candidate_id)}', '${esc(c.suggested_existing_entity_id)}', '${esc(c.suggested_existing_entity_name)}')">合并到</button>
+              <button class="btn btn-sm" data-action="merge-candidate" data-id="${esc(c.id || c.candidate_id)}" data-entity-id="${esc(c.suggested_existing_entity_id)}" data-entity-name="${esc(c.suggested_existing_entity_name)}">合并到</button>
             ` : ""}
-            <button class="btn btn-sm btn-danger" onclick="worldView.ignoreCandidate('${esc(c.id || c.candidate_id)}')">忽略</button>
+            <button class="btn btn-sm btn-danger" data-action="ignore-candidate" data-id="${esc(c.id || c.candidate_id)}">忽略</button>
           </td>
         </tr>
       `
@@ -332,7 +332,7 @@ const worldView = {
         管理世界对象与人物之间的关系。
       </p>
       <div style="margin-bottom:8px;">
-        <button class="btn btn-primary" onclick="worldView.showRelationCreateForm()">新建关系</button>
+        <button class="btn btn-primary" data-action="create-relation">新建关系</button>
       </div>
     `
     if (!_state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
@@ -355,7 +355,7 @@ const worldView = {
           <td><span class="badge badge-canonical">${esc(r.relation_type || "-")}</span></td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(r.target_id || "").slice(0, 8)}...</td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(r.description || "")}</td>
-          <td><button class="btn btn-sm btn-danger" onclick="worldView.deleteRelation('${esc(r.id || r.relationship_id)}')">删除</button></td>
+          <td><button class="btn btn-sm btn-danger" data-action="delete-relation" data-id="${esc(r.id || r.relationship_id)}">删除</button></td>
         </tr>`
       }
       html += '</tbody></table>'
@@ -426,7 +426,7 @@ const worldView = {
         管理世界对象的别名、称号和化名。别名不独立创建对象。
       </p>
       <div style="margin-bottom:8px;">
-        <button class="btn btn-primary" onclick="worldView.showAliasCreateForm()">新建别名</button>
+        <button class="btn btn-primary" data-action="create-alias">新建别名</button>
       </div>
     `
     if (!_state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
@@ -450,7 +450,7 @@ const worldView = {
           <td>${esc(a.alias)}</td>
           <td>${typeMap[a.alias_type] || esc(a.alias_type)}</td>
           <td>${a.confidence ? (a.confidence * 100).toFixed(0) + "%" : "-"}</td>
-          <td><button class="btn btn-sm btn-danger" onclick="worldView.deleteAlias('${esc(a.id || a.alias_id)}')">删除</button></td>
+          <td><button class="btn btn-sm btn-danger" data-action="delete-alias" data-id="${esc(a.id || a.alias_id)}">删除</button></td>
         </tr>`
       }
       html += '</tbody></table>'
@@ -609,6 +609,35 @@ const worldView = {
   },
 
   _bindEvents() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+    content.removeEventListener("click", this._clickHandler)
+    this._clickHandler = (e) => {
+      const t = e.target.closest("[data-action]")
+      if (!t) return
+      const a = t.getAttribute("data-action")
+      const id = t.getAttribute("data-id")
+      switch (a) {
+        case "nav-objects": router.navigate("world", "objects"); break
+        case "nav-candidates": router.navigate("world", "candidates"); break
+        case "nav-relations": router.navigate("world", "relations"); break
+        case "nav-aliases": router.navigate("world", "aliases"); break
+        case "nav-generate": router.navigate("generate"); break
+        case "toggle-extract": this._toggleAutoExtract(); break
+        case "submit-extract": this._submitAutoExtract(t.getAttribute("data-type")); break
+        case "edit-entity": if (id) this.editEntity(id); break
+        case "delete-entity": if (id) this.deleteEntity(id); break
+        case "accept-candidate": if (id) this.acceptCandidate(id); break
+        case "merge-candidate": if (id) this.mergeCandidate(id, t.getAttribute("data-entity-id"), t.getAttribute("data-entity-name")); break
+        case "ignore-candidate": if (id) this.ignoreCandidate(id); break
+        case "create-relation": this.showRelationCreateForm(); break
+        case "delete-relation": if (id) this.deleteRelation(id); break
+        case "create-alias": this.showAliasCreateForm(); break
+        case "delete-alias": if (id) this.deleteAlias(id); break
+      }
+    }
+    content.addEventListener("click", this._clickHandler)
+
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
   },
 

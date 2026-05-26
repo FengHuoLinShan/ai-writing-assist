@@ -1,17 +1,4 @@
 {
   "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "prompt",
-            "if": "Bash(git push*)",
-            "prompt": "Git push 刚完成。需要我执行 /structure-docs-update 同步设计文档吗？",
-            "statusMessage": "检查文档同步…"
-          }
-        ]
-      }
-    ]
   }
 }

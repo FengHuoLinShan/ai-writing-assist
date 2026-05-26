@@ -32,11 +32,11 @@ const outlineView = {
     const subView = _state.currentSubView || "threads"
     let html = `
       <div class="subnav">
-        <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-subview="threads" onclick="router.navigate('outline','threads')">剧情线</span>
-        <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-subview="arcs" onclick="router.navigate('outline','arcs')">篇章纲</span>
-        <span class="subnav-item ${subView === "chapters" ? "active" : ""}" data-subview="chapters" onclick="router.navigate('outline','chapters')">章节卡</span>
-        <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-subview="foreshadowing" onclick="router.navigate('outline','foreshadowing')">伏笔计划</span>
-        <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-subview="reveals" onclick="router.navigate('outline','reveals')">信息揭示</span>
+        <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-subview="threads" data-action="nav-threads">剧情线</span>
+        <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-subview="arcs" data-action="nav-arcs">篇章纲</span>
+        <span class="subnav-item ${subView === "chapters" ? "active" : ""}" data-subview="chapters" data-action="nav-chapters">章节卡</span>
+        <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-subview="foreshadowing" data-action="nav-foreshadowing">伏笔计划</span>
+        <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-subview="reveals" data-action="nav-reveals">信息揭示</span>
       </div>`
     html += this._renderExtractionPanel()
     if (subView === "threads") html += await this._renderThreads()
@@ -44,6 +44,7 @@ const outlineView = {
     else if (subView === "chapters") html += await this._renderChapters()
     else if (subView === "foreshadowing") html += await this._renderForeshadowing()
     else if (subView === "reveals") html += await this._renderReveals()
+    setTimeout(() => this._bindEvents(), 0)
     return html
   },
 
@@ -80,7 +81,7 @@ const outlineView = {
     const typeMap = { main: "主线", secondary: "支线", hidden: "暗线", relationship: "关系线", villain: "反派线", foreshadowing: "伏笔线" }
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理主线、支线、暗线等剧情线。</p>
       <div style="text-align:center;margin-bottom:8px;">
-        <button class="btn btn-primary" onclick="outlineView._createThread()">新建剧情线</button>
+        <button class="btn btn-primary" data-action="create-thread">新建剧情线</button>
       </div>`
     if (!this._threads.length) return html + empty("暂无剧情线。")
     html += `<table class="data-table"><thead><tr><th>类型</th><th>名称</th><th>阶段</th><th>回收章节</th><th>操作</th></tr></thead><tbody>`
@@ -90,7 +91,7 @@ const outlineView = {
         <td><strong>${esc(t.name)}</strong></td>
         <td style="color:var(--text-dim);font-size:12px;">${esc(t.current_stage || "-")}</td>
         <td>${t.planned_payoff_chapter ? "第" + t.planned_payoff_chapter + "章" : "-"}</td>
-        <td><button class="btn btn-sm btn-danger" onclick="outlineView._deleteThread('${esc(t.id || t.thread_id)}')">删除</button></td>
+        <td><button class="btn btn-sm btn-danger" data-action="delete-thread" data-id="${esc(t.id || t.thread_id)}">删除</button></td>
       </tr>`
     }
     html += `</tbody></table>`
@@ -181,7 +182,7 @@ const outlineView = {
         <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--border);">
           <span style="font-size:11px;${isRunning ? 'color:var(--accent);' : isDone ? 'color:var(--text-dim);' : 'color:var(--text);'}">${icon} ${step.label}</span>
           <span style="font-size:10px;color:var(--text-dim);flex:1;">${step.desc}</span>
-          <button class="btn btn-sm" onclick="outlineView._submitExtraction('${step.key}','${step.taskType}')"
+          <button class="btn btn-sm" data-action="submit-extraction" data-key="${step.key}" data-task-type="${step.taskType}"
             ${isRunning ? 'disabled' : ''} style="font-size:10px;white-space:nowrap;">${btnLabel}</button>
           ${s.message ? `<span style="font-size:10px;color:var(--text-dim);">${s.message}</span>` : ""}
         </div>
@@ -258,7 +259,7 @@ const outlineView = {
   async _renderArcs() {
     if (!_state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">8-15 章的小剧情闭环。</p>
-      <div style="margin-bottom:8px;"><button class="btn btn-primary" onclick="outlineView._createArc()">新建篇章纲</button></div>`
+      <div style="margin-bottom:8px;"><button class="btn btn-primary" data-action="create-arc">新建篇章纲</button></div>`
     if (!this._arcs.length) return html + empty("暂无篇章纲。")
     for (const a of this._arcs) {
       html += `<div class="card" style="margin-bottom:8px;">
@@ -268,7 +269,7 @@ const outlineView = {
           <span style="color:var(--warning);">冲突</span>：${esc(a.core_conflict || "-")}<br>
           <span style="color:var(--info);">高潮</span>：${esc(a.climax || "-")}
         </div>
-        <div style="margin-top:6px;"><button class="btn btn-sm btn-danger" onclick="outlineView._deleteArc('${esc(a.id || a.arc_id)}')">删除</button></div>
+        <div style="margin-top:6px;"><button class="btn btn-sm btn-danger" data-action="delete-arc" data-id="${esc(a.id || a.arc_id)}">删除</button></div>
       </div>`
     }
     return html
@@ -312,24 +313,24 @@ const outlineView = {
     if (!_state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">每章的结构化计划：目标、冲突、禁止事项、钩子。</p>
       <div style="margin-bottom:8px;display:flex;gap:8px;">
-        <button class="btn btn-primary" onclick="outlineView._createChapter()">新建章节卡</button>
-        <button class="btn" onclick="outlineView._submitChapterCardExtraction()">从正文提取</button>
+        <button class="btn btn-primary" data-action="create-chapter">新建章节卡</button>
+        <button class="btn" data-action="submit-card-extraction">从正文提取</button>
       </div>`
     if (!this._chapters.length) return html + empty("暂无章节卡。")
     const statusLabels = { draft: "草稿", candidate: "候选", canonical: "正史", deprecated: "废弃" }
     html += `<table class="data-table"><thead><tr><th>章</th><th>标题</th><th>目标</th><th>冲突</th><th>状态</th><th>操作</th></tr></thead><tbody>`
     for (const c of this._chapters) {
       const isCandidate = c.status === "candidate"
-      html += `<tr class="clickable" onclick="outlineView._viewChapter('${esc(c.id || c.card_id)}')">
+      html += `<tr class="clickable" data-action="view-chapter" data-id="${esc(c.id || c.card_id)}">
         <td>${c.chapter_index || "-"}</td>
         <td><strong>${esc(c.title || "")}</strong></td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(c.chapter_goal || "")}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(c.main_conflict || "")}</td>
         <td><span class="badge badge-${c.status || "draft"}">${statusLabels[c.status] || c.status || "draft"}</span></td>
         <td>
-          ${isCandidate ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();outlineView._confirmChapter('${esc(c.id || c.card_id)}', '${esc(c.title || "")}')" style="font-size:10px;">确认</button>` : ""}
-          <button class="btn btn-sm" onclick="event.stopPropagation();outlineView._editChapter('${esc(c.id || c.card_id)}')" style="font-size:10px;">编辑</button>
-          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();outlineView._deleteChapter('${esc(c.id || c.card_id)}')" style="font-size:10px;">删除</button>
+          ${isCandidate ? `<button class="btn btn-sm btn-success" data-action="confirm-chapter" data-id="${esc(c.id || c.card_id)}" data-title="${esc(c.title || "")}" style="font-size:10px;">确认</button>` : ""}
+          <button class="btn btn-sm" data-action="edit-chapter" data-id="${esc(c.id || c.card_id)}" style="font-size:10px;">编辑</button>
+          <button class="btn btn-sm btn-danger" data-action="delete-chapter" data-id="${esc(c.id || c.card_id)}" style="font-size:10px;">删除</button>
         </td>
       </tr>`
     }
@@ -516,7 +517,7 @@ const outlineView = {
   async _renderForeshadowing() {
     if (!_state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理伏笔的埋设、强化和收束计划。</p>
-      <div style="margin-bottom:8px;"><button class="btn btn-primary" onclick="outlineView._createForeshadowing()">新建伏笔</button></div>`
+      <div style="margin-bottom:8px;"><button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔</button></div>`
     if (!this._foreshadowing.length) return html + empty("暂无伏笔计划。")
     html += `<table class="data-table"><thead><tr><th>名称</th><th>埋设章</th><th>收束章</th><th>状态</th><th>操作</th></tr></thead><tbody>`
     for (const f of this._foreshadowing) {
@@ -525,7 +526,7 @@ const outlineView = {
         <td>${f.planned_seed_chapter ? "第" + f.planned_seed_chapter + "章" : "-"}</td>
         <td>${f.planned_payoff_chapter ? "第" + f.planned_payoff_chapter + "章" : "-"}</td>
         <td><span class="badge badge-draft">${esc(f.status || "draft")}</span></td>
-        <td><button class="btn btn-sm btn-danger" onclick="outlineView._deleteForeshadowing('${esc(f.id || f.foreshadow_id)}')">删除</button></td>
+        <td><button class="btn btn-sm btn-danger" data-action="delete-foreshadowing" data-id="${esc(f.id || f.foreshadow_id)}">删除</button></td>
       </tr>`
     }
     html += `</tbody></table>`
@@ -569,7 +570,7 @@ const outlineView = {
   async _renderReveals() {
     if (!_state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理隐藏真相的分阶段揭示计划。</p>
-      <div style="margin-bottom:8px;"><button class="btn btn-primary" onclick="outlineView._createReveal()">新建揭示计划</button></div>`
+      <div style="margin-bottom:8px;"><button class="btn btn-primary" data-action="create-reveal">新建揭示计划</button></div>`
     if (!this._reveals.length) return html + empty("暂无揭示计划。")
     html += `<table class="data-table"><thead><tr><th>目标</th><th>秘密摘要</th><th>揭示阶段</th><th>状态</th><th>操作</th></tr></thead><tbody>`
     for (const r of this._reveals) {
@@ -579,7 +580,7 @@ const outlineView = {
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-dim);">${esc(r.secret_summary || "")}</td>
         <td>${stages} 个阶段</td>
         <td><span class="badge badge-draft">${esc(r.status || "draft")}</span></td>
-        <td><button class="btn btn-sm btn-danger" onclick="outlineView._deleteReveal('${esc(r.id || r.reveal_id)}')">删除</button></td>
+        <td><button class="btn btn-sm btn-danger" data-action="delete-reveal" data-id="${esc(r.id || r.reveal_id)}">删除</button></td>
       </tr>`
     }
     html += `</tbody></table>`
@@ -613,6 +614,41 @@ const outlineView = {
       try { await api.outline.deleteReveal(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "reveals") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
+  },
+
+  _bindEvents() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+    content.removeEventListener("click", this._clickHandler)
+    this._clickHandler = (e) => {
+      const t = e.target.closest("[data-action]")
+      if (!t) return
+      const a = t.getAttribute("data-action")
+      const id = t.getAttribute("data-id")
+      switch (a) {
+        case "nav-threads": router.navigate("outline", "threads"); break
+        case "nav-arcs": router.navigate("outline", "arcs"); break
+        case "nav-chapters": router.navigate("outline", "chapters"); break
+        case "nav-foreshadowing": router.navigate("outline", "foreshadowing"); break
+        case "nav-reveals": router.navigate("outline", "reveals"); break
+        case "create-thread": this._createThread(); break
+        case "delete-thread": if (id) this._deleteThread(id); break
+        case "create-arc": this._createArc(); break
+        case "delete-arc": if (id) this._deleteArc(id); break
+        case "create-chapter": this._createChapter(); break
+        case "delete-chapter": if (id) this._deleteChapter(id); break
+        case "view-chapter": if (id) this._viewChapter(id); break
+        case "edit-chapter": if (id) this._editChapter(id); break
+        case "confirm-chapter": if (id) this._confirmChapter(id, t.getAttribute("data-title")); break
+        case "submit-card-extraction": this._submitChapterCardExtraction(); break
+        case "submit-extraction": this._submitExtraction(t.getAttribute("data-key"), t.getAttribute("data-task-type")); break
+        case "create-foreshadowing": this._createForeshadowing(); break
+        case "delete-foreshadowing": if (id) this._deleteForeshadowing(id); break
+        case "create-reveal": this._createReveal(); break
+        case "delete-reveal": if (id) this._deleteReveal(id); break
+      }
+    }
+    content.addEventListener("click", this._clickHandler)
   },
 }
 

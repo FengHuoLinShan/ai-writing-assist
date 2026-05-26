@@ -157,7 +157,7 @@ const writingView = {
             请先在「剧情结构 → 章节卡」中创建章节卡，或上传/导入正文草稿。
           </p>
           <div style="margin-top:8px;">
-            <button class="btn btn-primary" onclick="router.navigate('outline','chapters')">前往章节卡</button>
+            <button class="btn btn-primary" data-action="nav-chapters">前往章节卡</button>
           </div>
         </div>
       `
@@ -215,7 +215,7 @@ const writingView = {
       html += `
         <div class="clickable chapter-item ${isActive ? 'active' : ''}"
              style="padding:8px 10px;border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};margin-bottom:2px;background:${isActive ? 'var(--hover-bg)' : 'transparent'};border-radius:0 4px 4px 0;"
-             onclick="writingView._selectChapter(${idx})">
+             data-action="select-chapter" data-chapter="${idx}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;flex-wrap:wrap;">
             <strong style="font-size:13px;">第 ${idx} 章</strong>
             <span style="display:flex;gap:3px;">${badges.join('')}</span>
@@ -281,16 +281,16 @@ const writingView = {
         " placeholder="${hasSelection ? '在此书写正文...' : '请从左侧选择章节'}" ${hasSelection ? '' : 'disabled'}>${this._currentContent ? esc(this._currentContent) : ''}</textarea>
 
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-          <button class="btn btn-primary" id="btn-save-draft" onclick="writingView.saveDraft()" ${hasSelection ? '' : 'disabled'}>保存草稿</button>
-          <button class="btn" id="btn-prev-chapter" onclick="writingView._prevChapter()" ${this._hasPrev() ? '' : 'disabled'}>上一章</button>
-          <button class="btn" id="btn-next-chapter" onclick="writingView._nextChapter()" ${this._hasNext() ? '' : 'disabled'}>下一章</button>
-          <button class="btn" onclick="writingView._exportDraft()" ${hasSelection ? '' : 'disabled'}>导出本章</button>
+          <button class="btn btn-primary" id="btn-save-draft" data-action="save-draft" ${hasSelection ? '' : 'disabled'}>保存草稿</button>
+          <button class="btn" id="btn-prev-chapter" data-action="prev-chapter" ${this._hasPrev() ? '' : 'disabled'}>上一章</button>
+          <button class="btn" id="btn-next-chapter" data-action="next-chapter" ${this._hasNext() ? '' : 'disabled'}>下一章</button>
+          <button class="btn" data-action="export-draft" ${hasSelection ? '' : 'disabled'}>导出本章</button>
           <span style="flex:1;"></span>
           ${statusActions.map((a) =>
-            `<button class="btn btn-sm" onclick="writingView._updateDraftStatus('${a.status}')" style="font-size:11px;">${a.label}</button>`
+            `<button class="btn btn-sm" data-action="update-status" data-status="${a.status}" style="font-size:11px;">${a.label}</button>`
           ).join("")}
           ${this._currentChapter !== null
-            ? `<button class="btn btn-sm" onclick="writingView._showVersionHistory()" style="font-size:11px;">查看版本历史</button>`
+            ? `<button class="btn btn-sm" data-action="show-version-history" style="font-size:11px;">查看版本历史</button>`
             : ""}
         </div>
       </div>
@@ -406,7 +406,7 @@ const writingView = {
               <input type="number" id="deep-import-start" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;font-size:11px;" />
               <span style="color:var(--text-dim);font-size:11px;">~</span>
               <input type="number" id="deep-import-end" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;font-size:11px;" />
-              <button class="btn btn-sm btn-primary" onclick="writingView._submitDeepImport()" id="btn-deep-import-start" style="margin-left:4px;">开始</button>
+              <button class="btn btn-sm btn-primary" data-action="submit-deep-import" id="btn-deep-import-start" style="margin-left:4px;">开始</button>
             </div>
             <div id="deep-import-progress" style="display:none;margin-top:6px;">
               <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
@@ -419,8 +419,8 @@ const writingView = {
                 <div id="step-generate_plot" class="deep-step" style="margin-top:2px;"><span class="step-icon">☐</span> 3. 剧情结构生成</div>
               </div>
               <div id="deep-import-actions" style="margin-top:4px;display:none;">
-                <button class="btn btn-sm" onclick="writingView._gotoReview()" id="btn-deep-goto-review">前往审查</button>
-                <button class="btn btn-sm btn-primary" onclick="writingView._resumeDeepImport()" id="btn-deep-resume" style="display:none;">继续深度导入</button>
+                <button class="btn btn-sm" data-action="goto-review" id="btn-deep-goto-review">前往审查</button>
+                <button class="btn btn-sm btn-primary" data-action="resume-deep-import" id="btn-deep-resume" style="display:none;">继续深度导入</button>
               </div>
             </div>
           </div>
@@ -447,7 +447,7 @@ const writingView = {
         <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-top:1px solid var(--border);">
           <span style="font-size:11px;${isRunning ? 'color:var(--accent);' : ''}">${icon} ${step.label}</span>
           <span style="flex:1;"></span>
-          <button class="btn btn-sm" onclick="writingView._submitWritingExtraction('${step.key}','${step.taskType}')"
+          <button class="btn btn-sm" data-action="submit-writing-extraction" data-key="${step.key}" data-task-type="${step.taskType}"
             ${isRunning ? 'disabled' : ''} style="font-size:10px;">
             ${isRunning ? "运行中..." : isDone ? "已完成" : "开始"}
           </button>
@@ -690,7 +690,7 @@ const writingView = {
           <td><strong>v${v.version_number}</strong></td>
           <td><span class="badge" style="font-size:10px;">${label}</span></td>
           <td style="font-size:11px;color:var(--text-dim);">${v.updated_at ? new Date(v.updated_at).toLocaleString("zh-CN") : "-"}</td>
-          <td><button class="btn btn-sm" onclick="writingView._restoreVersion('${esc(v.id)}')">恢复到此处</button></td>
+          <td><button class="btn btn-sm" data-action="restore-version" data-id="${esc(v.id)}">恢复到此处</button></td>
         </tr>
       `
     }
@@ -1019,7 +1019,31 @@ const writingView = {
   // ============================================================
 
   _bindEvents() {
-    // Ctrl+S 保存由 app.js 全局处理
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+    content.removeEventListener("click", this._clickHandler)
+    this._clickHandler = (e) => {
+      const t = e.target.closest("[data-action]")
+      if (!t) return
+      const a = t.getAttribute("data-action")
+      const id = t.getAttribute("data-id")
+      switch (a) {
+        case "save-draft": this.saveDraft(); break
+        case "prev-chapter": this._prevChapter(); break
+        case "next-chapter": this._nextChapter(); break
+        case "export-draft": this._exportDraft(); break
+        case "update-status": this._updateDraftStatus(t.getAttribute("data-status")); break
+        case "show-version-history": this._showVersionHistory(); break
+        case "select-chapter": this._selectChapter(parseInt(t.getAttribute("data-chapter"), 10)); break
+        case "nav-chapters": router.navigate("outline", "chapters"); break
+        case "submit-deep-import": this._submitDeepImport(); break
+        case "goto-review": this._gotoReview(); break
+        case "resume-deep-import": this._resumeDeepImport(); break
+        case "submit-writing-extraction": this._submitWritingExtraction(t.getAttribute("data-key"), t.getAttribute("data-task-type")); break
+        case "restore-version": if (id) this._restoreVersion(id); break
+      }
+    }
+    content.addEventListener("click", this._clickHandler)
   },
 }
 

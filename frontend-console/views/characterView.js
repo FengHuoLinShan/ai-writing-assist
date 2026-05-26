@@ -42,9 +42,9 @@ const characterView = {
 
     html += `
       <div class="subnav">
-        <span class="subnav-item ${subView === "list" ? "active" : ""}" data-subview="list" onclick="router.navigate('character','list')">人物列表</span>
-        <span class="subnav-item ${subView === "detail" ? "active" : ""}" data-subview="detail" onclick="router.navigate('character','detail')">人物档案</span>
-        <span class="subnav-item ${subView === "knowledge" ? "active" : ""}" data-subview="knowledge" onclick="router.navigate('character','knowledge')">知识边界</span>
+        <span class="subnav-item ${subView === "list" ? "active" : ""}" data-subview="list" data-action="nav-list">人物列表</span>
+        <span class="subnav-item ${subView === "detail" ? "active" : ""}" data-subview="detail" data-action="nav-detail">人物档案</span>
+        <span class="subnav-item ${subView === "knowledge" ? "active" : ""}" data-subview="knowledge" data-action="nav-knowledge">知识边界</span>
       </div>
     `
 
@@ -68,7 +68,7 @@ const characterView = {
           <p>无法连接到后端服务</p>
           <p style="color:var(--text-dim);font-size:12px;">请确认后端已启动，然后刷新页面。</p>
           <div style="margin-top:8px;">
-            <button class="btn" onclick="router.navigate('character','list')">重试</button>
+            <button class="btn" data-action="nav-list">重试</button>
           </div>
         </div>
       `
@@ -108,14 +108,14 @@ const characterView = {
     for (const c of this._characters) {
       const charId = c.id || c.character_id
       html += `
-        <tr data-id="${esc(charId)}" class="clickable" onclick="characterView._selectCharacter('${esc(charId)}')">
+        <tr data-id="${esc(charId)}" class="clickable" data-action="select-character" data-id="${esc(charId)}">
           <td><strong>${esc(c.name)}</strong></td>
           <td>${esc(c.role || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.current_goal || "-")}</td>
           <td>${esc(c.current_state || c.current_emotion || "-")}</td>
           <td>
-            <button class="btn btn-sm" onclick="event.stopPropagation();characterView._selectCharacter('${esc(charId)}')">查看</button>
-            <button class="btn btn-sm" onclick="event.stopPropagation();characterView._editCharacter('${esc(charId)}')">编辑</button>
+            <button class="btn btn-sm" data-action="select-character" data-id="${esc(charId)}">查看</button>
+            <button class="btn btn-sm" data-action="edit-character" data-id="${esc(charId)}">编辑</button>
           </td>
         </tr>
       `
@@ -125,7 +125,7 @@ const characterView = {
     html += `
       <div style="margin-top:12px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
         <button class="btn btn-primary" data-action="new" id="btn-new-character">新建人物</button>
-        <button class="btn" id="btn-extract-all" onclick="characterView._extractAll()">全部更新</button>
+        <button class="btn" id="btn-extract-all" data-action="extract-all">全部更新</button>
         <span style="color:var(--text-dim);font-size:11px;">人物抽取已合并到「世界对象 → 自动识别」</span>
       </div>`
     return html
@@ -153,8 +153,8 @@ const characterView = {
           <p>语言风格：${character.voice_style || "-"}</p>
           <hr style="border-color:var(--border);margin:8px 0;">
           <p style="color:var(--text-dim);font-size:12px;">
-            <a style="cursor:pointer;color:var(--accent);" onclick="router.navigate('character','detail')">查看完整档案</a><br>
-            <a style="cursor:pointer;color:var(--accent);" onclick="router.navigate('character','knowledge')">查看知识边界</a>
+            <a style="cursor:pointer;color:var(--accent);" data-action="nav-detail">查看完整档案</a><br>
+            <a style="cursor:pointer;color:var(--accent);" data-action="nav-knowledge">查看知识边界</a>
           </p>
         </div>
       `,
@@ -178,11 +178,11 @@ const characterView = {
           <p>未选择人物</p>
           <p style="color:var(--text-dim);font-size:12px;">
             请先在
-            <a style="cursor:pointer;color:var(--accent);" onclick="router.navigate('character','list')">人物列表</a>
+            <a style="cursor:pointer;color:var(--accent);" data-action="nav-list">人物列表</a>
             中选择一个角色，然后在此查看完整档案。
           </p>
           <div style="margin-top:8px;">
-            <button class="btn btn-primary" onclick="router.navigate('character','list')">前往人物列表</button>
+            <button class="btn btn-primary" data-action="nav-list">前往人物列表</button>
           </div>
         </div>
       `
@@ -216,8 +216,8 @@ const characterView = {
           </div>
           <div>
             <button class="btn btn-primary" data-char-id="${charId}" id="btn-edit-character">编辑档案</button>
-            <button class="btn" id="btn-extract-single" onclick="characterView._extractCharacter('${esc(charId)}')">提取档案</button>
-            <button class="btn" onclick="router.navigate('character','knowledge')">知识边界</button>
+            <button class="btn" id="btn-extract-single" data-action="extract-character" data-id="${esc(charId)}">提取档案</button>
+            <button class="btn" data-action="nav-knowledge">知识边界</button>
           </div>
         </div>
         <hr style="border-color:var(--border);margin:12px 0;">
@@ -273,7 +273,7 @@ const characterView = {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
             <span style="font-weight:bold;font-size:13px;color:var(--warning);">💡 AI 建议（${suggestionKeys.length} 个字段）</span>
             <div>
-              <button class="btn btn-sm" style="border-color:var(--warning);color:var(--warning);" onclick="characterView._applyAllSuggestions()">全部采纳</button>
+              <button class="btn btn-sm" style="border-color:var(--warning);color:var(--warning);" data-action="apply-all-suggestions">全部采纳</button>
             </div>
           </div>
       `
@@ -297,8 +297,8 @@ const characterView = {
               </div>
             </div>
             <div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end;">
-              <button class="btn btn-sm" style="font-size:10px;border-color:var(--accent);color:var(--accent);" onclick="characterView._applySuggestion('${field}')">采纳</button>
-              <button class="btn btn-sm" style="font-size:10px;" onclick="characterView._rejectSuggestion('${field}')">忽略</button>
+              <button class="btn btn-sm" style="font-size:10px;border-color:var(--accent);color:var(--accent);" data-action="apply-suggestion" data-field="${field}">采纳</button>
+              <button class="btn btn-sm" style="font-size:10px;" data-action="reject-suggestion" data-field="${field}">忽略</button>
             </div>
           </div>
         `
@@ -323,11 +323,11 @@ const characterView = {
           <p>未选择人物</p>
           <p style="color:var(--text-dim);font-size:12px;">
             请先在
-            <a style="cursor:pointer;color:var(--accent);" onclick="router.navigate('character','list')">人物列表</a>
+            <a style="cursor:pointer;color:var(--accent);" data-action="nav-list">人物列表</a>
             中选择一个角色，然后在此查看其知识边界。
           </p>
           <div style="margin-top:8px;">
-            <button class="btn btn-primary" onclick="router.navigate('character','list')">前往人物列表</button>
+            <button class="btn btn-primary" data-action="nav-list">前往人物列表</button>
           </div>
         </div>
       `
@@ -397,7 +397,7 @@ const characterView = {
               用于防止角色知道作者才知道的信息。
             </p>
           </div>
-          <button class="btn" onclick="characterView._addKnowledge()">添加知识</button>
+          <button class="btn" data-action="add-knowledge">添加知识</button>
         </div>
       </div>
     `
@@ -408,7 +408,7 @@ const characterView = {
           <div class="empty-icon">&#128214;</div>
           <p>${character.name} 暂无知识边界记录</p>
           <p style="color:var(--text-dim);font-size:12px;">可以手动添加或通过状态抽取自动生成。</p>
-          <div style="margin-top:8px;"><button class="btn btn-primary" onclick="characterView._addKnowledge()">添加知识</button></div>
+          <div style="margin-top:8px;"><button class="btn btn-primary" data-action="add-knowledge">添加知识</button></div>
         </div>
       `
       return html
@@ -442,8 +442,8 @@ const characterView = {
           <td style="color:var(--text-muted);max-width:200px;">${k.known_content || "-"}</td>
           <td style="color:var(--danger);max-width:150px;">${k.misconception || "-"}</td>
           <td>
-            <button class="btn btn-sm" onclick="characterView._editKnowledge('${esc(k.id || k.knowledge_id)}')">编辑</button>
-            <button class="btn btn-sm btn-danger" onclick="characterView._deleteKnowledge('${esc(k.id || k.knowledge_id)}')">删除</button>
+            <button class="btn btn-sm" data-action="edit-knowledge" data-id="${esc(k.id || k.knowledge_id)}">编辑</button>
+            <button class="btn btn-sm btn-danger" data-action="delete-knowledge" data-id="${esc(k.id || k.knowledge_id)}">删除</button>
           </td>
         </tr>
       `
@@ -789,12 +789,36 @@ const characterView = {
   // ============================================================
 
   _bindEvents() {
+    const content = document.getElementById("workspace-content")
+    if (!content) return
+    content.removeEventListener("click", this._clickHandler)
+    this._clickHandler = (e) => {
+      const t = e.target.closest("[data-action]")
+      if (!t) return
+      const a = t.getAttribute("data-action")
+      const id = t.getAttribute("data-id")
+      switch (a) {
+        case "nav-list": router.navigate("character", "list"); break
+        case "nav-detail": router.navigate("character", "detail"); break
+        case "nav-knowledge": router.navigate("character", "knowledge"); break
+        case "select-character": if (id) this._selectCharacter(id); break
+        case "edit-character": if (id) this._editCharacter(id); break
+        case "extract-character": if (id) this._extractCharacter(id); break
+        case "extract-all": this._extractAll(); break
+        case "apply-all-suggestions": this._applyAllSuggestions(); break
+        case "apply-suggestion": this._applySuggestion(t.getAttribute("data-field")); break
+        case "reject-suggestion": this._rejectSuggestion(t.getAttribute("data-field")); break
+        case "add-knowledge": this._addKnowledge(); break
+        case "edit-knowledge": if (id) this._editKnowledge(id); break
+        case "delete-knowledge": if (id) this._deleteKnowledge(id); break
+      }
+    }
+    content.addEventListener("click", this._clickHandler)
+
     document.getElementById("btn-new-character")?.addEventListener("click", () => this._showCreateForm())
     document.getElementById("btn-edit-character")?.addEventListener("click", () => {
       const char = _state.selectedItem
-      if (char) {
-        this._editCharacter(char.id || char.character_id)
-      }
+      if (char) this._editCharacter(char.id || char.character_id)
     })
   },
 
