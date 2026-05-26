@@ -61,12 +61,24 @@ async def list_arc_summaries(db, novel_id, limit=50) -> list[dict]
 # ChapterCard
 async def get_chapter_card(db, novel_id, chapter_index) -> ChapterCardContext | None
 async def create_chapter_cards_from_candidate(db, novel_id, candidate_payload) -> list[ChapterCardContext]
+
+# Plot Generation（跨模块入口，供 imports/workflow 等使用）
+async def generate_plot_structure(db, novel_id, start_chapter, end_chapter) -> dict
 ```
 
 ## 异步任务
 
-- `@task_handler("plot_structure_generate")` — 从正文生成剧情线+篇章纲（支持增量）
+- `@task_handler("plot_structure_generate")` — 从正文生成剧情线+篇章纲（支持增量），委托给 `PlotGenerationService.generate()`
 - `@task_handler("chapter_card_extraction")` — 逐章从正文提取章节卡字段
+
+## 服务层
+
+- `PlotThreadService` — 剧情线 CRUD + `list_summaries()` 供 LLM 上下文注入
+- `OutlineArcService` — 篇章纲 CRUD + `list_summaries()` 供 LLM 上下文注入
+- `ChapterCardService` — 章节卡 CRUD + 候选批量创建
+- `ForeshadowingPlanService` — 伏笔计划 CRUD
+- `RevealPlanService` — 揭示计划 CRUD
+- `PlotGenerationService` — 剧情结构生成编排（读取章节 → LLM 调用 → 持久化），同时被 tasks.py 和 imports/workflow.py 调用
 
 章节卡提取流程：检查正文 → 跳过已有卡 → LLM 提取 7 个核心字段（chapter_goal, main_conflict, emotional_point, ending_hook, scene_cards, must_happen/not_happen, visible/hidden_progress）→ 创建 candidate 状态章节卡
 
