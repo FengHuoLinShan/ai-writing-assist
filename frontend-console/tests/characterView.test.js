@@ -103,16 +103,40 @@ describe("_renderList", () => {
 // ============================================================
 
 describe("_selectCharacter", () => {
-  it("更新状态并导航", () => {
+  it("从 API 获取完整数据并导航", async () => {
+    _state.currentProjectId = "p1"
     characterView._characters = [{ id: "c1", name: "张三", role: "protagonist" }]
-    characterView._selectCharacter("c1")
+    api.character.get.mockResolvedValue({
+      id: "c1", name: "张三", role: "protagonist",
+      desire: "权力", fear: "失败", secret: "身世",
+      current_goal: "寻宝", current_state: "健康", current_emotion: "平静",
+      stance: "中立", voice_style: "冷静",
+    })
+
+    await characterView._selectCharacter("c1")
+
+    expect(api.character.get).toHaveBeenCalledWith("c1", "p1")
     expect(_state.selectedItem?.name).toBe("张三")
+    expect(_state.selectedItem?.desire).toBe("权力")
+    expect(_state.selectedItem?.secret).toBe("身世")
     expect(_state.rightPanel?.title).toBe("张三")
     expect(router.navigate).toHaveBeenCalledWith("character", "detail")
   })
 
-  it("未找到人物不操作", () => {
-    characterView._selectCharacter("nonexistent")
+  it("API 失败时使用列表数据降级", async () => {
+    _state.currentProjectId = "p1"
+    characterView._characters = [{ id: "c1", name: "张三", role: "protagonist" }]
+    api.character.get.mockRejectedValue(new Error("网络错误"))
+
+    await characterView._selectCharacter("c1")
+
+    // 降级到列表数据
+    expect(_state.selectedItem?.name).toBe("张三")
+    expect(router.navigate).toHaveBeenCalledWith("character", "detail")
+  })
+
+  it("未找到人物不操作", async () => {
+    await characterView._selectCharacter("nonexistent")
     expect(router.navigate).not.toHaveBeenCalled()
   })
 })

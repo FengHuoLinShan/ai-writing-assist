@@ -84,6 +84,7 @@ class TestCharacterRepository:
                 {"rule": "不透露身份", "context": "与陌生人交谈"},
             ],
             relationship_summary="与陈锋搭档",
+            meta={"ai_suggestions": {"desire": "寻找真相"}},
         )
         character = await repo.create(db_session, data)
         assert character.id is not None
@@ -91,6 +92,7 @@ class TestCharacterRepository:
         assert character.role == "protagonist"
         assert character.current_goal == "调查异变"
         assert len(character.behavior_rules) == 1
+        assert character.meta == {"ai_suggestions": {"desire": "寻找真相"}}
 
     @pytest.mark.asyncio
     async def test_get(
@@ -175,11 +177,16 @@ class TestCharacterRepository:
         data = CharacterCreate(novel_id=sample_novel_id, name="更新前")
         created = await repo.create(db_session, data)
 
-        update_data = CharacterUpdate(name="更新后", current_state="新状态")
+        update_data = CharacterUpdate(
+            name="更新后",
+            current_state="新状态",
+            meta={"review": {"source": "manual"}},
+        )
         updated = await repo.update(db_session, created.id, update_data)
         assert updated is not None
         assert updated.name == "更新后"
         assert updated.current_state == "新状态"
+        assert updated.meta == {"review": {"source": "manual"}}
 
     @pytest.mark.asyncio
     async def test_update_not_found(

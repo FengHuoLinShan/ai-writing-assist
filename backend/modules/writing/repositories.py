@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,19 +170,21 @@ class WritingDraftRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> int:
-        """原子化获取下一个版本号
+        """获取下一个版本号。
 
-        使用 SELECT COALESCE(MAX(version_number), 0) + 1 FOR UPDATE
-        锁定行防止并发重复。
+        PostgreSQL 不允许对聚合查询使用 FOR UPDATE，所以这里锁定当前
+        最新版本行；没有历史版本时由唯一约束兜底防止并发重复。
         """
         stmt = (
-            select(func.coalesce(func.max(WritingDraft.version_number), 0))
+            select(WritingDraft.version_number)
             .where(
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index == chapter_index,
             )
+            .order_by(WritingDraft.version_number.desc())
+            .limit(1)
             .with_for_update()
         )
         result = await db.execute(stmt)
-        max_ver = result.scalar() or 0
+        max_ver = result.scalar_one_or_none() or 0
         return int(max_ver) + 1

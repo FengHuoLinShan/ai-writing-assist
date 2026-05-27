@@ -55,6 +55,7 @@ class CharacterRepository:
             voice_style=data.voice_style,
             behavior_rules=data.behavior_rules or [],
             relationship_summary=data.relationship_summary,
+            meta=data.meta or {},
             status=data.status or "canonical",
         )
         db.add(character)
@@ -163,6 +164,7 @@ class CharacterRepository:
             "voice_style": "voice_style",
             "behavior_rules": "behavior_rules",
             "relationship_summary": "relationship_summary",
+            "meta": "meta",
             "status": "status",
         }
 

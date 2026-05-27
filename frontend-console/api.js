@@ -50,13 +50,23 @@ async function request(path, options = {}) {
         502: "后端服务不可用",
         503: "后端服务暂时不可用",
       }
-      let detail = ""
+      let detail = "", responseBody = ""
       try {
         const errBody = await resp.json()
         detail = errBody.detail || errBody.message || ""
+        responseBody = JSON.stringify(errBody).slice(0, 500)
       } catch (e) { console.warn("解析错误响应失败", e) }
 
       const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
+
+      // 记录请求详情供 error-logger 使用
+      window.__lastFailedRequest = {
+        method, url: path,
+        status: resp.status,
+        response: responseBody,
+        body: options.body ? String(options.body).slice(0, 200) : undefined,
+      }
+
       throw new Error(detail ? `${msg}：${detail}` : msg)
     }
 
@@ -211,6 +221,11 @@ const api = {
       })
     },
 
+    /** 删除关系 */
+    async deleteRelationship(id, params = {}) {
+      return request(`/world/relationships/${id}` + qs(params), { method: "DELETE" })
+    },
+
     /** 获取别名列表 */
     async listAliases(params = {}) {
       return request("/world/aliases" + qs(params))
@@ -304,10 +319,14 @@ const api = {
     },
 
     /** 创建知识边界条目 */
-    async createKnowledge(characterId, payload) {
+    async createKnowledge(characterId, payload, novelId) {
       return request(`/characters/${characterId}/knowledge`, {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          novel_id: novelId || payload.novel_id,
+          character_id: characterId,
+        }),
       })
     },
 
@@ -539,10 +558,25 @@ const api = {
 
     /** 重建索引 */
     async rebuild(payload) {
-      return request("/rag/chunks/split", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      const novelId = payload?.novel_id
+      if (!novelId) throw new Error("重建索引需要先选择项目")
+      const chapters = await request(`/writing/chapters${qs({ novel_id: novelId })}`)
+      const indices = chapters.chapter_indices || []
+      const tasks = []
+      for (const chapterIndex of indices) {
+        tasks.push(await request("/tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            task_type: "rag_index_chapter",
+            meta: { novel_id: novelId, chapter_index: chapterIndex },
+          }),
+        }))
+      }
+      return {
+        status: tasks.length ? "pending" : "empty",
+        total: tasks.length,
+        task_ids: tasks.map((task) => task.task_id),
+      }
     },
 
     /** 获取索引状态 */
@@ -558,6 +592,14 @@ const api = {
     /** 编译上下文 */
     async compile(payload) {
       return request("/context/compile", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 渲染上下文 Markdown */
+    async render(payload) {
+      return request("/context/render", {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -636,10 +678,9 @@ const api = {
   generate: {
     /** 生成世界与人物结构 */
     async worldCharacter(payload) {
-      // 需要调用 LLM，目前先返回任务创建
       return request("/tasks", {
         method: "POST",
-        body: JSON.stringify({ task_type: "world_structure_generate", meta: payload }),
+        body: JSON.stringify({ task_type: "world_entity_extraction", meta: payload }),
       })
     },
 
@@ -655,15 +696,19 @@ const api = {
     async chapterScene(payload) {
       return request("/tasks", {
         method: "POST",
-        body: JSON.stringify({ task_type: "chapter_scene_generate", meta: payload }),
+        body: JSON.stringify({ task_type: "chapter_card_extraction", meta: payload }),
       })
     },
 
     /** 结构复查与状态抽取 */
     async reviewMemory(payload) {
-      return request("/tasks", {
+      return request("/review", {
         method: "POST",
-        body: JSON.stringify({ task_type: "memory_extract", meta: payload }),
+        body: JSON.stringify({
+          novel_id: payload.novel_id,
+          target_type: "chapter_cards",
+          candidate_payload: payload,
+        }),
       })
     },
   },
@@ -743,6 +788,11 @@ const api = {
     /** 查询任务状态 */
     async getStatus(taskId) {
       return request(`/tasks/${taskId}`)
+    },
+
+    /** 查询任务详情（getStatus 的别名，供长轮询流程使用） */
+    async get(taskId) {
+      return this.getStatus(taskId)
     },
   },
 }

@@ -134,9 +134,19 @@ const characterView = {
   /**
    * 选中人物 — 更新状态并切换到档案子标签
    */
-  _selectCharacter(charId) {
+  async _selectCharacter(charId) {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
     if (!character) return
+
+    // 从 API 获取完整数据
+    if (_state.currentProjectId) {
+      try {
+        const full = await api.character.get(charId, _state.currentProjectId)
+        if (full) Object.assign(character, full)
+      } catch {
+        // API 失败时使用列表数据降级
+      }
+    }
 
     _state.selectedItem = character
 
@@ -652,8 +662,8 @@ const characterView = {
 
     const formHtml = `
       <div class="form-group">
-        <label>目标对象名称</label>
-        <input class="form-input" id="new-know-target" placeholder="如：旧王都焚毁事件" />
+        <label>目标对象 ID</label>
+        <input class="form-input" id="new-know-target" placeholder="选择或粘贴目标对象 ID" />
       </div>
       <div class="form-group">
         <label>目标类型</label>
@@ -700,7 +710,7 @@ const characterView = {
               knowledge_level: document.getElementById("new-know-level")?.value || "unknown",
               known_content: document.getElementById("new-know-content")?.value || "",
               misconception: document.getElementById("new-know-misconception")?.value || "",
-            })
+            }, _state.currentProjectId)
             toast("已添加", "success")
             router.navigate("character", "detail")
           } catch (err) { toast(err.message || "添加失败", "error") }
@@ -865,8 +875,7 @@ const characterView = {
       const remaining = []
       for (const tid of taskIds) {
         try {
-          const resp = await fetch(`/api/tasks/${tid}`)
-          const data = await resp.json()
+          const data = await api.tasks.getStatus(tid)
           if (data.status === "done" || data.status === "failed") {
             // 完成或失败，不再轮询
           } else {

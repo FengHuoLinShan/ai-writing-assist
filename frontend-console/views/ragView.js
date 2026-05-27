@@ -153,8 +153,12 @@ const ragView = {
     }
     try {
       toast("正在重建索引...", "info")
-      await api.rag.rebuild({ novel_id: _state.currentProjectId })
-      toast("索引重建任务已提交", "success")
+      const result = await api.rag.rebuild({ novel_id: _state.currentProjectId })
+      if (result.total > 0) {
+        toast(`索引重建任务已提交：${result.total} 章`, "success")
+      } else {
+        toast("暂无可索引草稿", "info")
+      }
       await this.onEnter()
     } catch (err) {
       toast(err.message || "重建失败", "error")

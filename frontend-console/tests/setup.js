@@ -105,6 +105,8 @@ globalThis.api = {
   },
   rag: {
     search: vi.fn(),
+    rebuild: vi.fn(),
+    status: vi.fn(),
   },
   context: {
     compile: vi.fn(),
@@ -145,6 +147,7 @@ globalThis.api = {
   },
   character: {
     list: vi.fn(),
+    get: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     listKnowledge: vi.fn(),
@@ -181,6 +184,7 @@ globalThis.api = {
     submit: vi.fn(),
     getStatus: vi.fn(),
     get: vi.fn(),
+    cancel: vi.fn(),
   },
   imports: {
     upload: vi.fn(),

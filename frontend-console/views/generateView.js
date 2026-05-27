@@ -187,10 +187,11 @@ const generateView = {
       this._updateStep(4, "active")
 
       let previewHtml = `<div class="card" style="border-color:var(--accent);">`
-      if (resp && resp.id) {
+      const responseId = resp && (resp.task_id || resp.id)
+      if (responseId) {
         previewHtml += `
           <p style="color:var(--accent);">&#10003; 任务已提交</p>
-          <p style="color:var(--text-muted);font-size:12px;">任务 ID: ${resp.id}<br>类型: ${typeNames[this._currentType]}<br>${resp.status ? `状态: ${resp.status}` : ""}</p>
+          <p style="color:var(--text-muted);font-size:12px;">任务 ID: ${responseId}<br>类型: ${typeNames[this._currentType]}<br>${resp.status ? `状态: ${resp.status}` : ""}</p>
           <p style="color:var(--text-dim);font-size:12px;">任务正在后台运行。完成后可以在对应模块查看结果。</p>
         `
       } else {

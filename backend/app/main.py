@@ -16,6 +16,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core.config import get_settings
 from core.database import get_manager
@@ -115,6 +116,39 @@ app = FastAPI(
 # 中间件
 # ---------------------------------------------------------------------------
 
+# 纯 ASGI 耗时记录 middleware：不依赖 BaseHTTPMiddleware，
+# 避免与 CORSMiddleware 的 ASGI 层级不兼容问题。
+# CORS middleware 在下方通过 add_middleware 添加以保持最外层。
+
+
+class _TimingMiddleware:
+    """在响应头注入 X-Request-Time-Ms"""
+    def __init__(self, app: "ASGIApp") -> None:
+        self.app = app
+
+    async def __call__(self, scope: "Scope", receive: "Receive", send: "Send") -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        start = time.perf_counter()
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                elapsed = time.perf_counter() - start
+                headers = list(message.get("headers", []))
+                headers.append((b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode()))
+                message["headers"] = headers
+            await send(message)
+        try:
+            await self.app(scope, receive, send_with_headers)
+        except Exception:
+            elapsed = time.perf_counter() - start
+            logger.error("%s — unhandled exception after %.1fms", scope.get("path", ""), round(elapsed * 1000, 1))
+            raise
+
+
+app.add_middleware(_TimingMiddleware)
+
+
 # CORS 配置：开发环境允许前端本地文件 + localhost
 # 生产环境请通过 ALLOWED_ORIGINS 环境变量设置具体域名
 _origins = get_settings().allowed_origins
@@ -134,34 +168,6 @@ else:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-
-@app.middleware("http")
-async def request_timing_middleware(request: Request, call_next):
-    """记录每个请求的耗时"""
-    start = time.perf_counter()
-    try:
-        response = await call_next(request)
-        elapsed = time.perf_counter() - start
-        response.headers["X-Request-Time-Ms"] = str(round(elapsed * 1000, 1))
-        logger.debug(
-            "%s %s → %s (%.1fms)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed * 1000,
-        )
-        return response
-    except Exception as exc:
-        elapsed = time.perf_counter() - start
-        logger.error(
-            "%s %s — unhandled exception after %.1fms: %s",
-            request.method,
-            request.url.path,
-            elapsed * 1000,
-            exc,
-        )
-        raise
 
 
 # ---------------------------------------------------------------------------

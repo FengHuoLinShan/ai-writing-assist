@@ -48,4 +48,25 @@ describe("ragView", () => {
       await expect(ragView._doSearch("test")).resolves.toBeUndefined()
     })
   })
+
+  describe("_rebuildIndex", () => {
+    it("无项目时显示警告", async () => {
+      _state.currentProjectId = null
+
+      await ragView._rebuildIndex()
+
+      expect(toast).toHaveBeenCalledWith("请先选择项目", "warning")
+    })
+
+    it("提交重建任务后刷新状态", async () => {
+      _state.currentProjectId = "p1"
+      api.rag.rebuild.mockResolvedValue({ total: 2 })
+      api.rag.status.mockResolvedValue({ total: 10 })
+
+      await ragView._rebuildIndex()
+
+      expect(api.rag.rebuild).toHaveBeenCalledWith({ novel_id: "p1" })
+      expect(toast).toHaveBeenCalledWith("索引重建任务已提交：2 章", "success")
+    })
+  })
 })
