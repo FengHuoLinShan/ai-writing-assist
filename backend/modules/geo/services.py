@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.geo.contracts import (
@@ -709,6 +710,24 @@ class GeoQueryService:
             "location_count": len(locations),
             "eras": era_summaries,
         }
+
+    async def get_location_factions(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        location_id: str,
+    ) -> list[dict]:
+        from modules.world.facade import get_location_factions as world_get_factions
+        return await world_get_factions(db, novel_id, location_id)
+
+    async def get_location_characters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        location_id: str,
+    ) -> list[dict]:
+        from modules.character.facade import get_characters_at_location
+        return await get_characters_at_location(db, novel_id, location_id)
 
     # ============================================================
     # 内部工具

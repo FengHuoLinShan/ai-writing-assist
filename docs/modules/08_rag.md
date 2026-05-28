@@ -10,7 +10,9 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 ## 服务
 
-- RagService：分块、embedding、检索
+- ChunkingService：文本分块（按段落/按长度）
+- RetrievalService：混合检索（向量+关键词+关系+重要性）
+- IndexingService：章节索引编排（读取草稿 → 分块 → 入库）
 
 ## 检索类型
 
@@ -52,9 +54,10 @@ async def index_chapter(db, novel_id, chapter_index) -> int
 ## API
 
 ```
-POST /api/rag/retrieve       # 混合检索
-POST /api/rag/chunks/split   # 重建索引
-GET  /api/rag/chunks         # 索引状态
+POST /api/rag/chunks           # 创建 RAG 片段
+GET  /api/rag/chunks           # 获取 RAG 片段列表
+POST /api/rag/retrieve         # 混合检索
+POST /api/rag/chunks/split     # 分割文本为片段（工具接口，不写入数据库）
 ```
 
 ## 不做

@@ -7,6 +7,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
+from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
 
@@ -15,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 class RagChunksLoader(Loader):
     """加载 RAG 检索片段"""
+
+    def __init__(self, geo_filter: GeoReachabilityFilter | None = None) -> None:
+        self._geo_filter = geo_filter or GeoReachabilityFilter()
 
     @property
     def name(self) -> str:
@@ -48,4 +52,48 @@ class RagChunksLoader(Loader):
                 c.model_dump() if hasattr(c, "model_dump") else c
                 for c in result.chunks
             ]
+
+        if (
+            options.enable_geo_filter
+            and options.character_ids
+            and options.chapter_index is not None
+            and bundle.rag_chunks
+        ):
+            entity_to_location = self._build_entity_to_location_map(bundle)
+            try:
+                bundle.rag_chunks = await self._geo_filter.filter_chunks(
+                    db=db,
+                    novel_id=options.novel_id,
+                    chapter_index=options.chapter_index,
+                    character_ids=options.character_ids,
+                    chunks=bundle.rag_chunks,
+                    entity_to_location_map=entity_to_location,
+                )
+                bundle.geo_filtered = True
+            except Exception as exc:
+                logger.warning("地缘过滤执行异常，跳过过滤: %s", str(exc))
+
         bundle.budget_used["rag_chunks"] = len(bundle.rag_chunks)
+
+    @staticmethod
+    def _build_entity_to_location_map(
+        bundle: StructureContextBundle,
+    ) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for loc_ctx in bundle.geo_locations:
+            loc_data = loc_ctx.get("location") if isinstance(loc_ctx, dict) else None
+            if loc_data is None:
+                continue
+            we_id = (
+                loc_data.world_entity_id
+                if hasattr(loc_data, "world_entity_id")
+                else loc_data.get("world_entity_id")
+            )
+            loc_id = (
+                loc_data.id
+                if hasattr(loc_data, "id")
+                else loc_data.get("id")
+            )
+            if we_id and loc_id:
+                mapping[str(we_id)] = str(loc_id)
+        return mapping

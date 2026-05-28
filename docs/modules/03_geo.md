@@ -66,6 +66,8 @@ DELETE /api/geo/eras/{id}
 GET    /api/geo/travel-constraints?source={id}&target={id}
 GET    /api/geo/history-context?era_id={id}&location_ids={ids}
 POST   /api/geo/calculate-routing
+GET    /api/geo/location/{location_id}/factions
+GET    /api/geo/location/{location_id}/characters
 ```
 
 ## 不做

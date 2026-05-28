@@ -341,6 +341,12 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+
+    getLocationFactions: (locationId, novelId) =>
+      request(`/api/geo/location/${locationId}/factions?novel_id=${encodeURIComponent(novelId)}`),
+
+    getLocationCharacters: (locationId, novelId) =>
+      request(`/api/geo/location/${locationId}/characters?novel_id=${encodeURIComponent(novelId)}`),
   },
 
   // ============================================================
@@ -714,6 +720,13 @@ const api = {
       return request(`/writing/drafts/${draftId}${qs({ novel_id: novelId })}`, {
         method: "PUT",
         body: JSON.stringify({ status }),
+      })
+    },
+
+    async saveAndAnalyze(novelId, chapterIndex, content) {
+      return request("/api/writing/save-and-analyze", {
+        method: "POST",
+        body: JSON.stringify({ novel_id: novelId, chapter_index: chapterIndex, content }),
       })
     },
 

@@ -1154,3 +1154,48 @@ class TestRevealPlanRepository:
             db_session, nid, "world_entity", "ent-001",
         )
         assert len(entity_reveals) == 1
+
+
+class TestMergeInvolvedIds:
+    @pytest.mark.asyncio
+    async def test_merge_involved_ids_dedup(
+        self,
+        db_session: AsyncSession,
+        chapter_repo: ChapterCardRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        card = await chapter_repo.create(
+            db_session, nid,
+            ChapterCardCreate(
+                chapter_index=1,
+                chapter_goal="目标",
+                main_conflict="冲突",
+                involved_character_ids=["c1", "c2"],
+                involved_entity_ids=["e1"],
+            ),
+        )
+
+        await chapter_repo.merge_involved_ids(
+            db_session, nid, 1,
+            character_ids=["c2", "c3"],
+            entity_ids=["e1", "e2"],
+        )
+
+        updated = await chapter_repo.get(db_session, card.id)
+        assert set(updated.involved_character_ids) == {"c1", "c2", "c3"}
+        assert set(updated.involved_entity_ids) == {"e1", "e2"}
+
+    @pytest.mark.asyncio
+    async def test_merge_involved_ids_no_card(
+        self,
+        db_session: AsyncSession,
+        chapter_repo: ChapterCardRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        await chapter_repo.merge_involved_ids(
+            db_session, nid, 999,
+            character_ids=["c1"],
+            entity_ids=["e1"],
+        )

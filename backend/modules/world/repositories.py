@@ -199,6 +199,45 @@ class WorldEntityRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def find_entity_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        name: str,
+        entity_type: str | None = None,
+    ) -> str | None:
+        conditions = [
+            WorldEntity.novel_id == novel_id,
+            WorldEntity.name == name,
+            WorldEntity.status == "canonical",
+        ]
+        if entity_type:
+            conditions.append(WorldEntity.entity_type == entity_type)
+        stmt = select(WorldEntity.id).where(*conditions).limit(1)
+        result = await db.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is not None:
+            return str(row)
+
+        alias_stmt = (
+            select(EntityAlias.entity_id)
+            .join(WorldEntity, WorldEntity.id == EntityAlias.entity_id)
+            .where(
+                EntityAlias.alias == name,
+                WorldEntity.novel_id == novel_id,
+                WorldEntity.status == "canonical",
+            )
+        )
+        if entity_type:
+            alias_stmt = alias_stmt.where(WorldEntity.entity_type == entity_type)
+        alias_stmt = alias_stmt.limit(1)
+        alias_result = await db.execute(alias_stmt)
+        alias_row = alias_result.scalar_one_or_none()
+        if alias_row is not None:
+            return str(alias_row)
+
+        return None
+
 
 # ============================================================
 # RelationshipRepository
@@ -434,11 +473,87 @@ class RelationshipRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def upsert_relationship(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_id: str,
+        target_id: str,
+        source_type: str,
+        target_type: str,
+        relation_type: str,
+        description: str | None = None,
+    ) -> None:
+        stmt = select(Relationship).where(
+            Relationship.novel_id == novel_id,
+            Relationship.source_id == source_id,
+            Relationship.target_id == target_id,
+            Relationship.relation_type == relation_type,
+            Relationship.status == "canonical",
+        ).limit(1)
+        result = await db.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing is not None:
+            existing.description = description
+        else:
+            new_rel = Relationship(
+                novel_id=novel_id,
+                source_id=source_id,
+                target_id=target_id,
+                source_type=source_type,
+                target_type=target_type,
+                relation_type=relation_type,
+                description=description,
+                status="canonical",
+            )
+            db.add(new_rel)
+        await db.flush()
+
+    async def get_factions_for_location(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        location_id: str,
+        entity_repo: "WorldEntityRepository",
+    ) -> list[dict[str, Any]]:
+        stmt = select(Relationship).where(
+            Relationship.novel_id == novel_id,
+            Relationship.target_id == location_id,
+            Relationship.relation_type.in_(["controls", "stationed_at", "hidden_presence"]),
+            Relationship.status == "canonical",
+        )
+        result = await db.execute(stmt)
+        relationships = result.scalars().all()
+
+        faction_ids = list({r.source_id for r in relationships})
+        if not faction_ids:
+            return []
+
+        from shared.utils import parse_uuid
+        entity_stmt = select(WorldEntity).where(
+            WorldEntity.id.in_([parse_uuid(fid) for fid in faction_ids]),
+            WorldEntity.status == "canonical",
+        )
+        entity_result = await db.execute(entity_stmt)
+        entities = entity_result.scalars().all()
+        entity_map = {str(e.id): e for e in entities}
+
+        factions = []
+        for r in relationships:
+            entity = entity_map.get(r.source_id)
+            if entity:
+                factions.append({
+                    "id": str(entity.id),
+                    "name": entity.name,
+                    "relation_type": r.relation_type,
+                    "description": r.description or "",
+                })
+        return factions
+
 
 # ============================================================
 # EntityAliasRepository
-# ============================================================
-
 class EntityAliasRepository:
     """别名数据访问"""
 

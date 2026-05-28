@@ -557,6 +557,33 @@ class ChapterCardRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def merge_involved_ids(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        character_ids: list[str],
+        entity_ids: list[str],
+    ) -> None:
+        stmt = select(ChapterCard).where(
+            ChapterCard.novel_id == novel_id,
+            ChapterCard.chapter_index == chapter_index,
+        ).limit(1)
+        result = await db.execute(stmt)
+        card = result.scalar_one_or_none()
+        if card is None:
+            return
+
+        existing_chars = list(card.involved_character_ids or [])
+        existing_entities = list(card.involved_entity_ids or [])
+
+        merged_chars = list(set(existing_chars + character_ids))
+        merged_entities = list(set(existing_entities + entity_ids))
+
+        card.involved_character_ids = merged_chars
+        card.involved_entity_ids = merged_entities
+        await db.flush()
+
 
 # ============================================================
 # ForeshadowingPlanRepository

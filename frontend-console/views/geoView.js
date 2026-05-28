@@ -242,7 +242,6 @@ const geoView = {
    * 点击地点事件
    */
   _onLocationClick(locationId) {
-    // 查找地点详情
     const findNode = (nodes) => {
       for (const n of nodes) {
         if (n.id === locationId) return n
@@ -257,24 +256,79 @@ const geoView = {
     const node = findNode(this._locationTree) || { id: locationId, name: locationId }
     this._selectedLocation = node
 
-    // 更新右侧信息栏
+    let panelContent = `
+      <div class="help-section">
+        <h4>${esc(node.name)}</h4>
+        <p>层级：${esc(node.level || "未知")}</p>
+        <p style="color:var(--text-dim);font-size:12px;margin-top:8px;">
+          <strong>相关操作</strong><br>
+          <a style="cursor:pointer;color:var(--accent);" data-action="nav-history">查看地点历史</a><br>
+          <a style="cursor:pointer;color:var(--accent);" data-action="nav-edges">查看通行关系</a>
+        </p>
+      </div>
+      <div id="geo-factions-section" style="margin-top:12px;">
+        <h5 style="font-size:12px;font-weight:bold;margin-bottom:6px;">势力列表</h5>
+        <div id="geo-factions-list" style="color:var(--text-dim);font-size:11px;">加载中...</div>
+      </div>
+      <div id="geo-characters-section" style="margin-top:12px;">
+        <h5 style="font-size:12px;font-weight:bold;margin-bottom:6px;">活跃人物</h5>
+        <div id="geo-characters-list" style="color:var(--text-dim);font-size:11px;">加载中...</div>
+      </div>
+    `
+
     _state.rightPanel = {
       title: node.name,
       type: "location",
-      content: `
-        <div class="help-section">
-          <h4>${esc(node.name)}</h4>
-          <p>层级：${esc(node.level || "未知")}</p>
-          <p style="color:var(--text-dim);font-size:12px;margin-top:8px;">
-            <strong>相关操作</strong><br>
-            <a style="cursor:pointer;color:var(--accent);" data-action="nav-history">查看地点历史</a><br>
-            <a style="cursor:pointer;color:var(--accent);" data-action="nav-edges">查看通行关系</a>
-          </p>
-        </div>
-      `,
+      content: panelContent,
     }
 
+    this._loadLocationFactions(locationId)
+    this._loadLocationCharacters(locationId)
+
     toast(`已选择：${node.name}`, "info")
+  },
+
+  async _loadLocationFactions(locationId) {
+    const container = document.getElementById("geo-factions-list")
+    if (!container || !_state.currentProjectId) return
+    try {
+      const data = await api.geo.getLocationFactions(locationId, _state.currentProjectId)
+      const factions = data.items || data || []
+      if (factions.length === 0) {
+        container.textContent = "暂无势力"
+        return
+      }
+      let html = ""
+      for (const f of factions) {
+        html += `<div style="padding:4px 6px;margin-bottom:3px;background:var(--panel);border-radius:3px;font-size:11px;">
+          <strong>${esc(f.faction_name || f.name || "")}</strong>
+          <span style="color:var(--text-dim);margin-left:6px;">${esc(f.relation_type || "")}</span>
+        </div>`
+      }
+      container.innerHTML = html
+    } catch {
+      container.textContent = "加载失败"
+    }
+  },
+
+  async _loadLocationCharacters(locationId) {
+    const container = document.getElementById("geo-characters-list")
+    if (!container || !_state.currentProjectId) return
+    try {
+      const data = await api.geo.getLocationCharacters(locationId, _state.currentProjectId)
+      const characters = data.items || data || []
+      if (characters.length === 0) {
+        container.textContent = "暂无活跃人物"
+        return
+      }
+      let html = ""
+      for (const c of characters) {
+        html += `<a href="#" data-char-id="${esc(c.id)}" class="char-link" style="display:inline-block;margin:2px 4px;padding:2px 8px;background:var(--panel);border-radius:3px;font-size:11px;color:var(--accent);text-decoration:none;">${esc(c.name)}</a>`
+      }
+      container.innerHTML = html
+    } catch {
+      container.textContent = "加载失败"
+    }
   },
 
   // ============================================================
@@ -537,6 +591,20 @@ const geoView = {
       }
     }
     content.addEventListener("click", this._clickHandler)
+
+    const rightPanel = document.querySelector(".right-panel") || document.getElementById("right-panel")
+    if (rightPanel) {
+      rightPanel.removeEventListener("click", this._charLinkHandler)
+      this._charLinkHandler = (e) => {
+        const link = e.target.closest(".char-link")
+        if (link) {
+          e.preventDefault()
+          const charId = link.dataset.charId
+          router.go("character", { selectedItem: charId })
+        }
+      }
+      rightPanel.addEventListener("click", this._charLinkHandler)
+    }
 
     document.getElementById("btn-new-location")?.addEventListener("click", () => {
       toast("新建地点功能开发中", "info")

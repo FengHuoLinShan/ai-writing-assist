@@ -18,3 +18,4 @@ class CompileOptions:
     character_ids: list[str] | None = None
     location_ids: list[str] | None = None
     reveal_mode: str = "author_safe"
+    enable_geo_filter: bool = False

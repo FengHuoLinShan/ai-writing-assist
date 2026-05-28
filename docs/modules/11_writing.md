@@ -26,6 +26,7 @@ DELETE /api/writing/drafts/{id}                     # 删除草稿
 GET  /api/writing/chapters/{index}/draft            # 按章节索引获取最新草稿
 GET  /api/writing/chapters/{index}/versions         # 获取章节版本历史
 GET  /api/writing/chapters                          # 列出有草稿的章节索引
+POST /api/writing/save-and-analyze                  # 保存草稿 + 地缘资产 AI 提取
 ```
 
 保存/更新草稿时自动提交 `rag_index_chapter` 异步任务，将正文分割为 chunk 并存入 RAG 库。

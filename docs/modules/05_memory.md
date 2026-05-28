@@ -35,10 +35,10 @@ memory_records
 ## Facade
 
 ```python
-async def get_recent_story_memory(db, novel_id, before_chapter_index, limit=8) -> list[MemoryRecordContext]
+async def get_recent_story_memory(db, novel_id, before_chapter_index=None, limit=8, reveal_mode="author_safe") -> list[MemoryRecordContext]
 async def get_entity_memory(db, novel_id, entity_id, limit=20) -> list[MemoryRecordContext]
-async def create_memory_update_proposals(db, novel_id, source_type, source_id, extraction_result) -> list
-async def confirm_memory_proposal(db, proposal_id, edited_payload=None) -> MemoryRecordContext
+async def create_memory_update_proposals(db, novel_id, source_type, source_id, extraction_result) -> list[MemoryUpdateProposalContext]
+async def confirm_memory_proposal(db, proposal_id, novel_id, edited_payload=None, decided_by=None) -> MemoryRecordContext
 ```
 
 ## API

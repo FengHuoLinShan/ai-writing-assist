@@ -10,7 +10,9 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import and_, delete, func, or_, select
+import json
+
+from sqlalchemy import and_, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -21,7 +23,6 @@ from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class RagChunkRepository:
-    """RAG 片段数据访问"""
 
     def _json_array_contains_all(
         self,
@@ -29,11 +30,15 @@ class RagChunkRepository:
         column: ColumnElement,
         values: list[str],
     ) -> ColumnElement[bool]:
-        """Build a JSON-array containment predicate for the active dialect."""
+        if not values:
+            from sqlalchemy import true
+            return true()
         bind = db.get_bind()
         if bind.dialect.name == "postgresql":
-            return column.cast(JSONB).contains(values)
-
+            target_json = json.dumps(values)
+            return column.cast(JSONB).contains(
+                cast(target_json, JSONB)
+            )
         return and_(*(column.contains(value) for value in values))
 
     # ============================================================

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from infrastructure.tasks.registry import task_handler
+from shared.constants import LLM_RETRY_BASE_DELAY, LLM_RETRY_MAX_ATTEMPTS
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,11 @@ async def handle_character_extract(db, task):
                 character_ids=[character_id],
                 top_k=5,
             )
+            if result.total == 0:
+                result = await _rag_retrieve(
+                    db, novel_id, query,
+                    top_k=5,
+                )
             for chunk in result.chunks:
                 preview = chunk.text[:200]
                 if preview not in all_chunks_text:
@@ -127,11 +134,25 @@ async def handle_character_extract(db, task):
     )
 
     llm = LLMClient()
-    try:
-        extract_result = await llm.generate_structured(request, _CharacterExtractOutput)
-    except Exception as exc:
-        logger.error("LLM extraction failed for %s: %s", character.name, exc)
-        return {"character_id": character_id, "status": "llm_failed", "error": str(exc)}
+    extract_result = None
+    for attempt in range(LLM_RETRY_MAX_ATTEMPTS):
+        try:
+            extract_result = await llm.generate_structured(request, _CharacterExtractOutput)
+            break
+        except Exception as exc:
+            if attempt < LLM_RETRY_MAX_ATTEMPTS - 1:
+                delay = LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "LLM extraction attempt %d/%d failed for %s, retrying in %.1fs: %s",
+                    attempt + 1, LLM_RETRY_MAX_ATTEMPTS, character.name, delay, exc,
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.error("LLM extraction failed for %s after %d attempts: %s", character.name, LLM_RETRY_MAX_ATTEMPTS, exc)
+                return {"character_id": character_id, "status": "llm_failed", "error": str(exc)}
+
+    if extract_result is None:
+        return {"character_id": character_id, "status": "llm_failed", "error": "No result after retries"}
 
     # 4. 构建 ai_suggestions
     suggestions = {}

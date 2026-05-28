@@ -44,6 +44,7 @@ async def compile_structure_context(
     character_ids: list[str] | None = None,
     location_ids: list[str] | None = None,
     reveal_mode: str = "author_safe",
+    enable_geo_filter: bool = False,
 ) -> StructureContextBundle:
     """编译结构化创作上下文
 
@@ -70,6 +71,7 @@ async def compile_structure_context(
             - author_safe: 隐藏 hidden_truth（默认）
             - author_full: 显示所有信息，标注作者视角
             - reader: 只显示读者已知信息
+        enable_geo_filter: 是否启用地缘可达性过滤（默认关闭）
 
     Returns:
         StructureContextBundle — 结构化创作上下文包
@@ -84,5 +86,6 @@ async def compile_structure_context(
         character_ids=character_ids,
         location_ids=location_ids,
         reveal_mode=reveal_mode,
+        enable_geo_filter=enable_geo_filter,
     )
     return await _compiler.compile(db, options)

@@ -239,3 +239,59 @@ async def merge_candidate_into_entity(
         db, novel_id, candidate_id, target_entity_id,
     )
     return WorldEntityResponse.model_validate(entity)
+
+
+async def find_entity_id_by_name(
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    entity_type: str | None = None,
+) -> str | None:
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.world.repositories import WorldEntityRepository
+    repo = WorldEntityRepository()
+    return await repo.find_entity_by_name(db, nid, name, entity_type=entity_type)
+
+
+async def upsert_relationship(
+    db: AsyncSession,
+    novel_id: str,
+    source_id: str,
+    target_id: str,
+    source_type: str,
+    target_type: str,
+    relation_type: str,
+    description: str | None = None,
+) -> None:
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.world.repositories import RelationshipRepository
+    repo = RelationshipRepository()
+    await repo.upsert_relationship(
+        db, nid, source_id, target_id,
+        source_type, target_type, relation_type, description,
+    )
+
+
+async def get_location_factions(
+    db: AsyncSession,
+    novel_id: str,
+    location_id: str,
+) -> list[dict[str, Any]]:
+    """获取控制/驻扎某地点的势力列表
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        location_id: 地点 ID
+
+    Returns:
+        list[dict] — 势力列表，每项含 id, name, relation_type, description
+    """
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.world.repositories import RelationshipRepository, WorldEntityRepository
+    rel_repo = RelationshipRepository()
+    entity_repo = WorldEntityRepository()
+    return await rel_repo.get_factions_for_location(db, nid, location_id, entity_repo)

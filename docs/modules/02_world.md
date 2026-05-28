@@ -37,12 +37,15 @@ services/ 目录下按职责拆分：
 async def get_world_context(db, novel_id, entity_ids=None, reveal_mode="author_safe", limit=20) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[WorldEntityContext]
 async def find_duplicate_entity_candidates(db, novel_id, candidate_id) -> list[DuplicateSuggestion]
-async def find_similar_entities(db, novel_id, name, entity_type=None, threshold=0.72, limit=5) -> list
-async def merge_candidate_into_entity(db, entity_id, candidate_id) -> WorldEntity
-async def list_entities(db, novel_id, entity_type=None, limit=100) -> list[dict]    # 轻量摘要（id/name/type）
+async def find_similar_entities(db, novel_id, name, aliases=None, entity_type=None) -> list[DuplicateSuggestionResult]
+async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> WorldEntityResponse
+async def list_entities(db, novel_id, entity_type=None, limit=100) -> list[dict]
 async def count_pending_candidates(db, novel_id) -> int
 async def accept_candidate(db, novel_id, candidate_id, user_edits=None) -> WorldEntityResponse
 async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_size=5) -> dict
+async def find_entity_id_by_name(db, novel_id, name, entity_type=None) -> str | None
+async def upsert_relationship(db, novel_id, source_id, target_id, source_type, target_type, relation_type, description=None) -> None
+async def get_location_factions(db, novel_id, location_id) -> list[dict]
 ```
 
 ## API

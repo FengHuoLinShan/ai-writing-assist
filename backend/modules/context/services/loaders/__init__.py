@@ -2,6 +2,7 @@
 
 from modules.context.services.loaders.chapter_card_loader import ChapterCardLoader
 from modules.context.services.loaders.characters_loader import CharactersLoader
+from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
 from modules.context.services.loaders.geo_locations_loader import GeoLocationsLoader
 from modules.context.services.loaders.memory_records_loader import MemoryRecordsLoader
 from modules.context.services.loaders.outline_arc_loader import OutlineArcLoader
@@ -22,4 +23,5 @@ __all__ = [
     "OutlineArcLoader",
     "ChapterCardLoader",
     "RagChunksLoader",
+    "GeoReachabilityFilter",
 ]

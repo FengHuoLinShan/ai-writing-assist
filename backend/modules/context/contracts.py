@@ -54,6 +54,9 @@ class StructureContextBundle:
     rag_chunks: list = field(default_factory=list)
     """RAG 检索片段列表"""
 
+    geo_filtered: bool = False
+    """是否执行了地缘可达性过滤"""
+
     # --- 元信息 ---
     reveal_mode: str = "author_safe"
     """揭示模式（author_safe / author_full / reader）"""

@@ -12,6 +12,8 @@ Geo 模块测试
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1008,3 +1010,128 @@ async def test_calculate_routing_api_route_registered() -> None:
     from modules.geo.api import router
     routes = [r.path for r in router.routes]
     assert "/api/geo/calculate-routing" in routes
+
+
+class TestLocationFactionsAndCharacters:
+
+    _NOVEL_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+    async def _create_world_entity(
+        self,
+        db: AsyncSession,
+        entity_type: str,
+        name: str,
+        status: str = "canonical",
+    ) -> str:
+        from modules.world.models import WorldEntity
+
+        entity = WorldEntity(
+            novel_id=uuid.UUID(self._NOVEL_ID),
+            entity_type=entity_type,
+            name=name,
+            status=status,
+        )
+        db.add(entity)
+        await db.flush()
+        return str(entity.id)
+
+    async def _create_relationship(
+        self,
+        db: AsyncSession,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+        description: str | None = None,
+        status: str = "canonical",
+    ) -> None:
+        from modules.world.models import Relationship
+
+        rel = Relationship(
+            novel_id=uuid.UUID(self._NOVEL_ID),
+            source_type="faction",
+            source_id=source_id,
+            target_type="location",
+            target_id=target_id,
+            relation_type=relation_type,
+            description=description,
+            status=status,
+        )
+        db.add(rel)
+        await db.flush()
+
+    async def _create_character(
+        self,
+        db: AsyncSession,
+        name: str,
+        meta: dict | None = None,
+        current_state: str | None = None,
+        status: str = "canonical",
+    ) -> str:
+        from modules.character.models import Character
+
+        char = Character(
+            novel_id=uuid.UUID(self._NOVEL_ID),
+            name=name,
+            meta=meta or {},
+            current_state=current_state,
+            status=status,
+        )
+        db.add(char)
+        await db.flush()
+        return str(char.id)
+
+    async def test_get_location_factions(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        faction_id = await self._create_world_entity(db_session, "faction", "铁血军团")
+        location_id = str(uuid.uuid4())
+
+        await self._create_relationship(
+            db_session, faction_id, location_id, "controls", "铁血军团控制此城",
+        )
+
+        factions = await service.get_location_factions(db_session, self._NOVEL_ID, location_id)
+        assert len(factions) == 1
+        assert factions[0]["name"] == "铁血军团"
+        assert factions[0]["relation_type"] == "controls"
+        assert factions[0]["description"] == "铁血军团控制此城"
+        assert factions[0]["id"] == faction_id
+
+    async def test_get_location_factions_empty(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        location_id = str(uuid.uuid4())
+
+        factions = await service.get_location_factions(db_session, self._NOVEL_ID, location_id)
+        assert factions == []
+
+    async def test_get_location_characters(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        location_id = str(uuid.uuid4())
+
+        await self._create_character(
+            db_session,
+            "林月",
+            meta={"current_location_id": location_id},
+            current_state="巡逻中",
+        )
+        await self._create_character(
+            db_session,
+            "陈锋",
+            meta={"current_location_id": str(uuid.uuid4())},
+            current_state="休息中",
+        )
+
+        characters = await service.get_location_characters(db_session, self._NOVEL_ID, location_id)
+        assert len(characters) == 1
+        assert characters[0]["name"] == "林月"
+        assert characters[0]["current_state"] == "巡逻中"
+
+    async def test_get_location_characters_empty(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        location_id = str(uuid.uuid4())
+
+        characters = await service.get_location_characters(db_session, self._NOVEL_ID, location_id)
+        assert characters == []

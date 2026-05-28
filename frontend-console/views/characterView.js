@@ -904,7 +904,7 @@ const characterView = {
         this._pollTimer = null
         if (remaining.length === 0) {
           toast("人物抽取完成", "success")
-          this._refreshCharacterList()
+          await this._refreshCharacterList()
           if (onDone) onDone()
         }
       }
@@ -916,6 +916,11 @@ const characterView = {
     try {
       const data = await api.character.list({ novel_id: _state.currentProjectId })
       this._characters = data.items || data || []
+      if (_state.selectedItem) {
+        const selId = _state.selectedItem.id || _state.selectedItem.character_id
+        const synced = this._characters.find((c) => (c.id || c.character_id) === selId)
+        if (synced) _state.selectedItem = synced
+      }
     } catch {
       // 静默处理
     }
@@ -944,7 +949,24 @@ const characterView = {
     }
   },
 
-  /** 应用所有 AI 建议 */
+  _syncAfterApply(character, updated) {
+    if (!updated) return
+    const charId = character.id || character.character_id
+    Object.assign(character, updated)
+    if (!character.meta) character.meta = {}
+    const remaining = updated.meta?.ai_suggestions
+    if (remaining && Object.keys(remaining).length > 0) {
+      character.meta.ai_suggestions = remaining
+    } else {
+      delete character.meta.ai_suggestions
+      delete character.meta.ai_suggestions_at
+    }
+    const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
+    if (idx >= 0) {
+      this._characters[idx] = { ...this._characters[idx], ...updated }
+    }
+  },
+
   async _applyAllSuggestions() {
     const character = _state.selectedItem
     if (!character) return
@@ -957,15 +979,7 @@ const characterView = {
     }
     try {
       const updated = await api.character.applySuggestions(charId, _state.currentProjectId, fields)
-      if (updated) {
-        Object.assign(character, updated)
-        if (!character.meta) character.meta = {}
-        character.meta.ai_suggestions = updated.meta?.ai_suggestions || {}
-      }
-      const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
-      if (idx >= 0 && updated) {
-        this._characters[idx] = { ...this._characters[idx], ...updated }
-      }
+      this._syncAfterApply(character, updated)
       toast(`已应用 ${fields.length} 个字段的 AI 建议`, "success")
       router.navigate("character", "detail", false)
     } catch (err) {
@@ -973,22 +987,13 @@ const characterView = {
     }
   },
 
-  /** 应用单个字段的 AI 建议 */
   async _applySuggestion(field) {
     const character = _state.selectedItem
     if (!character) return
     const charId = character.id || character.character_id
     try {
       const updated = await api.character.applySuggestions(charId, _state.currentProjectId, [field])
-      if (updated) {
-        Object.assign(character, updated)
-        if (!character.meta) character.meta = {}
-        character.meta.ai_suggestions = updated.meta?.ai_suggestions || {}
-      }
-      const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
-      if (idx >= 0 && updated) {
-        this._characters[idx] = { ...this._characters[idx], ...updated }
-      }
+      this._syncAfterApply(character, updated)
       toast(`已应用「${field}」建议`, "success")
       router.navigate("character", "detail", false)
     } catch (err) {

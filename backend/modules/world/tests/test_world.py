@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.world.facade import (
     expand_related_entities,
     find_duplicate_entity_candidates,
+    find_entity_id_by_name,
     get_world_context,
+    upsert_relationship,
 )
 from modules.world.repositories import (
     EntityAliasRepository,
@@ -699,3 +701,97 @@ class TestFacade:
         )
         assert len(suggestions) >= 1
         assert any(s.match_method == "exact_name" for s in suggestions)
+
+
+class TestFindEntityByName:
+    @pytest.mark.asyncio
+    async def test_find_entity_by_name_exact(
+        self,
+        db_session: AsyncSession,
+        entity_repo: WorldEntityRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        data = WorldEntityCreate(entity_type="location", name="炎城", status="canonical")
+        entity = await entity_repo.create(db_session, nid, data)
+
+        result = await entity_repo.find_entity_by_name(db_session, nid, "炎城")
+        assert result == str(entity.id)
+
+    @pytest.mark.asyncio
+    async def test_find_entity_by_name_alias(
+        self,
+        db_session: AsyncSession,
+        entity_repo: WorldEntityRepository,
+        alias_repo: EntityAliasRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        data = WorldEntityCreate(entity_type="location", name="Fire City", status="canonical")
+        entity = await entity_repo.create(db_session, nid, data)
+
+        alias_data = EntityAliasCreate(entity_id=str(entity.id), alias="炎城", alias_type="translation")
+        await alias_repo.create(db_session, nid, alias_data)
+
+        result = await entity_repo.find_entity_by_name(db_session, nid, "炎城")
+        assert result == str(entity.id)
+
+    @pytest.mark.asyncio
+    async def test_find_entity_by_name_not_found(
+        self,
+        db_session: AsyncSession,
+        entity_repo: WorldEntityRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        result = await entity_repo.find_entity_by_name(db_session, nid, "不存在的名字")
+        assert result is None
+
+
+class TestUpsertRelationship:
+    @pytest.mark.asyncio
+    async def test_upsert_relationship_create(
+        self,
+        db_session: AsyncSession,
+        rel_repo: RelationshipRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source_id = str(uuid.uuid4())
+        target_id = str(uuid.uuid4())
+
+        await rel_repo.upsert_relationship(
+            db_session, nid, source_id, target_id,
+            "location", "faction", "controls", "控制关系",
+        )
+
+        rels, total = await rel_repo.get_by_novel(db_session, nid)
+        assert total == 1
+        assert rels[0].source_id == source_id
+        assert rels[0].target_id == target_id
+        assert rels[0].relation_type == "controls"
+        assert rels[0].description == "控制关系"
+
+    @pytest.mark.asyncio
+    async def test_upsert_relationship_idempotent(
+        self,
+        db_session: AsyncSession,
+        rel_repo: RelationshipRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source_id = str(uuid.uuid4())
+        target_id = str(uuid.uuid4())
+
+        await rel_repo.upsert_relationship(
+            db_session, nid, source_id, target_id,
+            "location", "faction", "controls", "初始描述",
+        )
+        await rel_repo.upsert_relationship(
+            db_session, nid, source_id, target_id,
+            "location", "faction", "controls", "更新描述",
+        )
+
+        rels, total = await rel_repo.get_by_novel(db_session, nid)
+        assert total == 1
+        assert rels[0].description == "更新描述"

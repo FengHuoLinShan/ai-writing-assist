@@ -23,6 +23,10 @@ async def get_character_knowledge_context(db, novel_id, character_id, target_ids
 async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
 async def create_character(db, novel_id, name, world_entity_id=None) -> CharacterResponse
 async def get_character_id_by_world_entity(db, novel_id, world_entity_id) -> str | None
+async def find_character_id_by_name(db, novel_id, name) -> str | None
+async def update_character_location(db, novel_id, character_id, location_id, text_state, chapter_index) -> None
+async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
+async def get_character_location_id(db, novel_id, character_id) -> str | None
 ```
 
 ## API

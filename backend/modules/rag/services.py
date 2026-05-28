@@ -7,6 +7,7 @@ RAG 业务逻辑层
 from __future__ import annotations
 
 import math
+import re
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,6 +159,42 @@ class RetrievalService:
         self._repo = RagChunkRepository()
         self._chunking = ChunkingService()
 
+    _CHINESE_SEP_RE = re.compile(r'[\s,，.。!！?？、·]+')
+
+    @staticmethod
+    def _smart_tokenize_chinese(query: str) -> list[str]:
+        if not query or not query.strip():
+            return []
+        raw_terms = RetrievalService._CHINESE_SEP_RE.split(query.strip())
+        return [term.lower() for term in raw_terms if len(term) >= 2]
+
+    @staticmethod
+    def _compute_keyword_score_with_proximity(
+        text: str,
+        query_terms: list[str],
+    ) -> float:
+        if not query_terms:
+            return 0.0
+        text_lower = text.lower()
+        matched_count = sum(1 for t in query_terms if t in text_lower)
+        overlap_ratio = matched_count / len(query_terms)
+        if len(query_terms) <= 1 or matched_count < 2:
+            return overlap_ratio
+        positions: list[tuple[int, str]] = []
+        for term in query_terms:
+            idx = text_lower.find(term)
+            if idx >= 0:
+                positions.append((idx, term))
+        if len(positions) < 2:
+            return overlap_ratio
+        positions.sort(key=lambda x: x[0])
+        min_distance = float("inf")
+        for i in range(len(positions) - 1):
+            dist = positions[i + 1][0] - positions[i][0]
+            min_distance = min(min_distance, dist)
+        proximity_bonus = max(0.0, 1.0 - min_distance / 500) * 0.2
+        return min(1.0, overlap_ratio + proximity_bonus)
+
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
         """计算余弦相似度
@@ -237,12 +274,18 @@ class RetrievalService:
         use_chinese_match = not query_terms or all(
             ord(c) > 127 for c in query.replace(" ", "")
         )
+        chinese_query_no_spaces = query.replace(" ", "").lower()
+        chinese_terms = self._smart_tokenize_chinese(query)
         scored_chunks: list[tuple[RagChunk, float]] = []
 
         for chunk in unique_chunks:
-            # 关键词评分：中文用全查询子串匹配，英文用词匹配
-            if use_chinese_match and query_lower:
-                keyword_score = 1.0 if query_lower in chunk.text.lower() else 0.0
+            if use_chinese_match and chinese_terms:
+                if len(chinese_terms) > 1:
+                    keyword_score = self._compute_keyword_score_with_proximity(
+                        chunk.text, chinese_terms,
+                    )
+                else:
+                    keyword_score = 1.0 if chinese_query_no_spaces in chunk.text.lower().replace(" ", "") else 0.0
             else:
                 keyword_score = self._compute_keyword_score(chunk.text, query_terms)
 
@@ -285,7 +328,12 @@ class RetrievalService:
         has_meaningful_match = False
         for chunk, _ in scored_chunks[:top_k]:
             if use_chinese_match:
-                kw = 1.0 if query_lower in chunk.text.lower() else 0.0
+                if chinese_terms and len(chinese_terms) > 1:
+                    kw = self._compute_keyword_score_with_proximity(
+                        chunk.text, chinese_terms,
+                    )
+                else:
+                    kw = 1.0 if chinese_query_no_spaces in chunk.text.lower().replace(" ", "") else 0.0
             else:
                 kw = self._compute_keyword_score(chunk.text, query_terms)
             if kw > 0:

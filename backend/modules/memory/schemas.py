@@ -278,6 +278,36 @@ class MemoryRecordContext(BaseModel):
         return list(v) if v else []
 
 
+class CharacterLocationShift(BaseModel):
+
+    character_name: str = Field(..., min_length=1, description="角色名")
+    destination_location_name: str = Field(..., min_length=1, description="目标地点名")
+    movement_type: str = Field(..., description="行为动词，如：步行潜入、御剑飞行、传送、撤退至")
+
+
+class FactionControlShift(BaseModel):
+
+    faction_name: str = Field(..., min_length=1, description="势力/组织名称")
+    target_location_name: str = Field(..., min_length=1, description="受影响地点名")
+    new_relation: str = Field(..., description="空间地缘关系属性")
+    description: str = Field(..., description="单句局势小结")
+
+    @field_validator('new_relation')
+    @classmethod
+    def validate_relation(cls, v: str) -> str:
+        allowed = ['controls', 'stationed_at', 'hidden_presence']
+        if v not in allowed:
+            return 'stationed_at'
+        return v
+
+
+class ChapterStateExtraction(BaseModel):
+
+    summary: str = Field(..., description="情节主线脉络极简总结")
+    character_shifts: list[CharacterLocationShift] = Field(default_factory=list, description="角色位移列表")
+    faction_shifts: list[FactionControlShift] = Field(default_factory=list, description="势力割据变更列表")
+
+
 class MemoryUpdateProposalContext(BaseModel):
     """记忆提案上下文 — 供其他模块读取"""
 

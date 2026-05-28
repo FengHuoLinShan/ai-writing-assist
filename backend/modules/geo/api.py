@@ -313,3 +313,23 @@ async def calculate_routing(
         recommended_path=result.path,
         message=result.reason or "",
     )
+
+
+@router.get("/location/{location_id}/factions")
+async def get_location_factions(
+    db: DbSession,
+    location_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> dict:
+    factions = await _query_service.get_location_factions(db, novel_id, location_id)
+    return {"factions": factions}
+
+
+@router.get("/location/{location_id}/characters")
+async def get_location_characters(
+    db: DbSession,
+    location_id: str,
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> dict:
+    characters = await _query_service.get_location_characters(db, novel_id, location_id)
+    return {"characters": characters}
