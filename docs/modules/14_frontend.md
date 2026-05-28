@@ -12,7 +12,7 @@ frontend-console/
 ├── styles.css        — CSS 变量暗色主题
 ├── state.js          — Proxy 响应式状态管理
 ├── router.js         — view + subView 两级路由
-├── api.js            — 全模块 API 封装（character/world/geo/outline/writing/memory/timeline/rag/context/review/projects/imports/tasks）
+├── api.js            — 全模块 API 封装（character/world/geo/outline/writing/memory/timeline/rag/context/review/projects/imports/tasks/generate）
 ├── commands.js       — Vim 风格命令系统
 ├── app.js            — 事件绑定 / 快捷键 / 生命周期
 └── views/            — 12 个视图

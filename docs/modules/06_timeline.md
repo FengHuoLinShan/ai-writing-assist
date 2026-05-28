@@ -15,7 +15,8 @@ timeline 模块负责事件顺序和剧情防错。不是复杂时间推理系�
 ## Facade
 
 ```python
-async def get_relevant_timeline_context(db, novel_id, chapter_index=None, related_entity_ids=None, character_id=None, limit=12) -> TimelineContextBundle
+async def get_relevant_timeline_context(db, novel_id, chapter_index=None, related_entity_ids=None, character_id=None, limit=12, reveal_mode="author_safe") -> list[TimelineEventContext]
+async def get_geo_effects_up_to_chapter(db, novel_id, chapter_index) -> list[dict]
 async def check_timeline_conflicts(db, novel_id, structure_candidate) -> list[TimelineConflictWarning]
 ```
 
