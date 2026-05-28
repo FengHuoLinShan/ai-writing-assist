@@ -7,11 +7,12 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.rag.facade import (
     create_chunk,
+    get_index_status,
     list_chunks,
     retrieve,
 )
@@ -55,7 +56,8 @@ async def list_rag_chunks(
 ) -> dict:
     """获取 RAG 片段列表"""
     items, total = await list_chunks(db, novel_id, skip=skip, limit=limit)
-    return {"items": items, "total": total}
+    status = await get_index_status(db, novel_id)
+    return {"items": items, "total": total, **status}
 
 
 @router.post("/retrieve", response_model=RagResult)
@@ -77,6 +79,7 @@ async def retrieve_chunks(
         thread_ids=query.thread_ids,
         chapter_index=query.chapter_index,
         visibility=query.visibility,
+        mode=query.mode,
         top_k=query.top_k,
     )
 
@@ -88,6 +91,10 @@ async def retrieve_chunks(
             source_type=c.source_type,
             source_id=c.source_id,
             chapter_index=c.chapter_index,
+            chunk_index=c.chunk_index,
+            start_offset=c.start_offset,
+            end_offset=c.end_offset,
+            char_count=c.char_count,
             text=c.text,
             summary=c.summary,
             entity_ids=c.entity_ids,
@@ -95,6 +102,10 @@ async def retrieve_chunks(
             thread_ids=c.thread_ids,
             visibility=c.visibility,
             importance=c.importance,
+            index_version=c.index_version,
+            embedding_status=c.embedding_status,
+            embedding_error=c.embedding_error,
+            index_warnings=c.index_warnings,
             score=c.score,
         )
         for c in result.chunks
@@ -104,6 +115,8 @@ async def retrieve_chunks(
         chunks=chunks,
         total=result.total,
         query=result.query,
+        warnings=result.warnings,
+        degraded=result.degraded,
     )
 
 

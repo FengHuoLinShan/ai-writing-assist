@@ -94,6 +94,20 @@ class TravelConstraintContract:
 
 
 @dataclass(frozen=True)
+class RouteCalculationResult:
+    """路径计算结果契约"""
+
+    is_reachable: bool
+    """是否可达"""
+    total_hours: float
+    """总旅行耗时（小时）"""
+    path: list[str]
+    """途经节点 ID 列表"""
+    reason: str | None = None
+    """不可达原因"""
+
+
+@dataclass(frozen=True)
 class GeoContextBundle:
     """地理上下文组合 — 供 Context Compiler 读取
 
@@ -121,4 +135,5 @@ class GeoContextBundle:
 # 注意：GeoContextBundle 与上方 dataclass 同名但不同类，
 # facade.get_location_context 返回的是 schemas.GeoContextBundle（Pydantic 版本）
 from modules.geo.schemas import GeoContextBundle as GeoContextResult  # noqa: F401
+from modules.geo.schemas import RouteQueryResponse  # noqa: F401
 from modules.geo.schemas import TravelConstraintResult  # noqa: F401

@@ -12,7 +12,7 @@ import uuid
 from fastapi import APIRouter, Path, Query
 
 from core.dependencies import DbSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from modules.writing.schemas import (
     VersionHistoryResponse,
@@ -134,3 +134,53 @@ async def list_chapters(
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     indices = await _service.list_chapter_indices(db, novel_id)
     return ChapterIndicesResponse(chapter_indices=indices)
+
+
+class SaveAndAnalyzeRequest(BaseModel):
+    novel_id: str = Field(..., description="小说项目 ID")
+    chapter_index: int = Field(..., ge=1, description="章节索引")
+    content: str = Field(..., min_length=1, description="章节正文内容")
+
+
+class SaveAndAnalyzeResponse(BaseModel):
+    draft_id: str
+    proposal_created: bool = False
+    analysis_status: str = "success"
+
+
+@router.post("/save-and-analyze", response_model=SaveAndAnalyzeResponse)
+async def save_and_analyze(
+    db: DbSession,
+    data: SaveAndAnalyzeRequest,
+) -> SaveAndAnalyzeResponse:
+    from modules.writing.services import WritingDraftService
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    draft_data = WritingDraftCreate(
+        novel_id=data.novel_id,
+        chapter_index=data.chapter_index,
+        content=data.content,
+    )
+    draft = await _service.create_draft(db, draft_data)
+    await _trigger_rag_index(db, data.novel_id, data.chapter_index)
+    await db.flush()
+
+    proposal_created = False
+    analysis_status = "success"
+    try:
+        from modules.writing.services import WritingAnalysisService
+        analysis_service = WritingAnalysisService()
+        proposal_created, analysis_status = await analysis_service.analyze_chapter(
+            db, data.novel_id, data.chapter_index, data.content,
+        )
+    except Exception as e:
+        _logger.error("地缘资产AI提取非致命性失败，已安全降级。详情: %s", str(e))
+        proposal_created = False
+        analysis_status = "failed"
+
+    return SaveAndAnalyzeResponse(
+        draft_id=str(draft.id),
+        proposal_created=proposal_created,
+        analysis_status=analysis_status,
+    )

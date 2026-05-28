@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.review.models import ReviewReport
@@ -86,9 +86,8 @@ class ReviewReportRepository:
             conditions.append(ReviewReport.decision == decision)
 
         # 计数
-        count_stmt = select(ReviewReport.id).where(*conditions)
-        count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        count_stmt = select(func.count(ReviewReport.id)).where(*conditions)
+        total = (await db.execute(count_stmt)).scalar_one()
 
         # 分页查询
         stmt = (

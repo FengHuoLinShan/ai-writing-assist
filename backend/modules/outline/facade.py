@@ -219,3 +219,17 @@ async def generate_plot_structure(
         dict — {total_threads, total_arcs, threads, arcs}
     """
     return await _plot_generation.generate(db, novel_id, start_chapter, end_chapter)
+
+
+async def merge_chapter_involved_ids(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    character_ids: list[str],
+    entity_ids: list[str],
+) -> None:
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.outline.repositories import ChapterCardRepository
+    repo = ChapterCardRepository()
+    await repo.merge_involved_ids(db, nid, chapter_index, character_ids, entity_ids)

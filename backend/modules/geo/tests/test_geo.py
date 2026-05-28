@@ -12,6 +12,8 @@ Geo 模块测试
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +35,7 @@ from modules.geo.schemas import (
     GeoLocationUpdate,
     TravelConstraintResult,
 )
-from modules.geo.services import GeoEdgeService, GeoEraService, GeoLocationService, GeoQueryService
+from modules.geo.services import GeoEdgeService, GeoEraService, GeoLocationService, GeoQueryService, GeoTopologyService
 
 # ============================================================
 # 测试用常量
@@ -43,6 +45,7 @@ NOVEL_ID = "00000000-0000-0000-0000-000000000001"
 WORLD_ENTITY_ID_A = "10000000-0000-0000-0000-000000000001"
 WORLD_ENTITY_ID_B = "10000000-0000-0000-0000-000000000002"
 WORLD_ENTITY_ID_C = "10000000-0000-0000-0000-000000000003"
+GEO_MUTATION_NOVEL_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 
 # ============================================================
@@ -601,9 +604,534 @@ async def test_contracts_imports() -> None:
         GeoEraContract,
         GeoContextBundle,
         TravelConstraintContract,
+        RouteCalculationResult,
     )
     assert GeoLocationContract is not None
     assert GeoEdgeContract is not None
     assert GeoEraContract is not None
     assert GeoContextBundle is not None
     assert TravelConstraintContract is not None
+    assert RouteCalculationResult is not None
+
+
+# ============================================================
+# GeoTopologyService 测试
+# ============================================================
+
+class TestGeoTopologyService:
+    """地理拓扑服务测试"""
+
+    def test_parse_time_to_hours_chinese(self) -> None:
+        assert GeoTopologyService._parse_time_to_hours("3天") == 72.0
+        assert GeoTopologyService._parse_time_to_hours("12小时") == 12.0
+        assert GeoTopologyService._parse_time_to_hours("半日") == 12.0
+        assert GeoTopologyService._parse_time_to_hours("一日") == 24.0
+        assert GeoTopologyService._parse_time_to_hours("十五天") == 360.0
+        assert GeoTopologyService._parse_time_to_hours("二十天") == 480.0
+        assert GeoTopologyService._parse_time_to_hours("十天") == 240.0
+
+    def test_parse_time_to_hours_english(self) -> None:
+        assert GeoTopologyService._parse_time_to_hours("2d") == 48.0
+        assert GeoTopologyService._parse_time_to_hours("8h") == 8.0
+
+    def test_parse_time_to_hours_pure_number(self) -> None:
+        assert GeoTopologyService._parse_time_to_hours("24") == 24.0
+
+    def test_parse_time_to_hours_fallback(self) -> None:
+        assert GeoTopologyService._parse_time_to_hours("约三刻钟") == 24.0
+
+    def test_parse_time_to_hours_none(self) -> None:
+        assert GeoTopologyService._parse_time_to_hours(None) == 24.0
+
+    def test_calculate_route_static_graph(self) -> None:
+        graph: dict[str, list[tuple[str, float]]] = {
+            "A": [("B", 10.0), ("C", 30.0)],
+            "B": [("C", 5.0)],
+        }
+        result = GeoTopologyService._dijkstra(graph, "A", "C")
+        assert result.is_reachable is True
+        assert result.total_hours == 15.0
+        assert result.path == ["A", "B", "C"]
+
+    def test_calculate_route_same_source_target(self) -> None:
+        graph: dict[str, list[tuple[str, float]]] = {
+            "A": [("B", 10.0)],
+        }
+        result = GeoTopologyService._dijkstra(graph, "A", "A")
+        assert result.is_reachable is True
+        assert result.total_hours == 0.0
+        assert result.path == ["A"]
+
+    def test_calculate_route_unreachable(self) -> None:
+        graph: dict[str, list[tuple[str, float]]] = {
+            "A": [("B", 10.0)],
+            "C": [("D", 5.0)],
+        }
+        result = GeoTopologyService._dijkstra(graph, "A", "D")
+        assert result.is_reachable is False
+        assert result.total_hours == float('inf')
+        assert result.path == []
+        assert result.reason is not None
+
+    def test_calculate_route_source_not_in_graph(self) -> None:
+        graph: dict[str, list[tuple[str, float]]] = {
+            "A": [("B", 10.0)],
+        }
+        result = GeoTopologyService._dijkstra(graph, "Z", "B")
+        assert result.is_reachable is False
+        assert result.total_hours == float('inf')
+        assert result.reason is not None
+
+    def test_dijkstra_performance(self) -> None:
+        import time
+        graph: dict[str, list[tuple[str, float]]] = {}
+        for i in range(1000):
+            src = f"loc_{i}"
+            neighbors = []
+            for j in range(1, 6):
+                tgt = f"loc_{(i + j) % 1000}"
+                neighbors.append((tgt, float(j)))
+            graph[src] = neighbors
+        start = time.perf_counter()
+        result = GeoTopologyService._dijkstra(graph, "loc_0", "loc_500")
+        elapsed = time.perf_counter() - start
+        assert result.is_reachable is True
+        assert elapsed < 0.05
+
+
+class TestCalculateRoute:
+    """路径计算 Facade 集成测试"""
+
+    async def _create_location(
+        self,
+        db: AsyncSession,
+        world_entity_id: str,
+        summary: str,
+    ) -> str:
+        service = GeoLocationService()
+        resp = await service.create_location(
+            db,
+            GeoLocationCreate(
+                novel_id=NOVEL_ID,
+                world_entity_id=world_entity_id,
+                location_level="city",
+                summary=summary,
+            ),
+        )
+        return resp.id
+
+    async def _create_edge(
+        self,
+        db: AsyncSession,
+        source_id: str,
+        target_id: str,
+        travel_time: str,
+    ) -> None:
+        service = GeoEdgeService()
+        await service.create_edge(
+            db,
+            GeoEdgeCreate(
+                novel_id=NOVEL_ID,
+                source_location_id=source_id,
+                target_location_id=target_id,
+                relation_type="road_to",
+                travel_time=travel_time,
+            ),
+        )
+
+    async def test_calculate_route_reachable(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "30000000-0000-0000-0000-000000000001", "城市A")
+        loc_b = await self._create_location(db_session, "30000000-0000-0000-0000-000000000002", "城市B")
+        loc_c = await self._create_location(db_session, "30000000-0000-0000-0000-000000000003", "城市C")
+
+        await self._create_edge(db_session, loc_a, loc_b, "1日")
+        await self._create_edge(db_session, loc_b, loc_c, "2日")
+
+        result = await calculate_route(
+            db_session, NOVEL_ID, loc_a, loc_c, chapter_index=1,
+        )
+        assert result.is_reachable is True
+        assert result.total_hours == 72.0
+        assert result.path == [loc_a, loc_b, loc_c]
+
+    async def test_calculate_route_same_source_target(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "30000000-0000-0000-0000-000000000004", "城市D")
+
+        result = await calculate_route(
+            db_session, NOVEL_ID, loc_a, loc_a, chapter_index=1,
+        )
+        assert result.is_reachable is True
+        assert result.total_hours == 0.0
+        assert result.path == [loc_a]
+
+    async def test_calculate_route_unreachable(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "30000000-0000-0000-0000-000000000005", "城市E")
+        loc_b = await self._create_location(db_session, "30000000-0000-0000-0000-000000000006", "城市F")
+
+        result = await calculate_route(
+            db_session, NOVEL_ID, loc_a, loc_b, chapter_index=1,
+        )
+        assert result.is_reachable is False
+
+
+async def test_facade_calculate_route_import() -> None:
+    from modules.geo.facade import calculate_route
+    assert callable(calculate_route)
+
+
+class TestCompileActiveGraph:
+
+    async def _create_location(
+        self,
+        db: AsyncSession,
+        world_entity_id: str,
+        summary: str,
+    ) -> str:
+        service = GeoLocationService()
+        resp = await service.create_location(
+            db,
+            GeoLocationCreate(
+                novel_id=GEO_MUTATION_NOVEL_ID,
+                world_entity_id=world_entity_id,
+                location_level="city",
+                summary=summary,
+            ),
+        )
+        return resp.id
+
+    async def _create_edge(
+        self,
+        db: AsyncSession,
+        source_id: str,
+        target_id: str,
+        travel_time: str,
+    ) -> None:
+        service = GeoEdgeService()
+        await service.create_edge(
+            db,
+            GeoEdgeCreate(
+                novel_id=GEO_MUTATION_NOVEL_ID,
+                source_location_id=source_id,
+                target_location_id=target_id,
+                relation_type="road_to",
+                travel_time=travel_time,
+            ),
+        )
+
+    async def _create_timeline_event_with_geo_effects(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        order_index: int,
+        geo_effects: list[dict],
+    ) -> None:
+        from modules.timeline.repositories import TimelineEventRepository
+        from modules.timeline.schemas import TimelineEventCreate
+        import uuid
+        repo = TimelineEventRepository()
+        nid = uuid.UUID(novel_id)
+        await repo.create(
+            db,
+            nid,
+            TimelineEventCreate(
+                title="地理事件",
+                summary="影响地理连通性",
+                order_index=order_index,
+                chapter_index=chapter_index,
+                event_type="geo_change",
+                geo_effects=geo_effects,
+                status="canonical",
+            ),
+        )
+        await db.flush()
+
+    async def test_block_mutation_removes_edge(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000001", "城市A")
+        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000002", "城市B")
+
+        await self._create_edge(db_session, loc_a, loc_b, "1日")
+
+        await self._create_timeline_event_with_geo_effects(
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            chapter_index=1,
+            order_index=100,
+            geo_effects=[
+                {
+                    "edge_mutations": [
+                        {
+                            "source_id": loc_a,
+                            "target_id": loc_b,
+                            "action": "block",
+                        }
+                    ]
+                }
+            ],
+        )
+
+        result = await calculate_route(
+            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+        )
+        assert result.is_reachable is False
+
+    async def test_connect_mutation_adds_edge(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000003", "城市C")
+        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000004", "城市D")
+
+        await self._create_timeline_event_with_geo_effects(
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            chapter_index=1,
+            order_index=100,
+            geo_effects=[
+                {
+                    "edge_mutations": [
+                        {
+                            "source_id": loc_a,
+                            "target_id": loc_b,
+                            "action": "connect",
+                            "travel_time": "2日",
+                        }
+                    ]
+                }
+            ],
+        )
+
+        result = await calculate_route(
+            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+        )
+        assert result.is_reachable is True
+        assert result.total_hours == 48.0
+
+    async def test_reveal_hidden_mutation_adds_edge(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000005", "城市E")
+        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000006", "城市F")
+
+        await self._create_timeline_event_with_geo_effects(
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            chapter_index=2,
+            order_index=200,
+            geo_effects=[
+                {
+                    "edge_mutations": [
+                        {
+                            "source_id": loc_a,
+                            "target_id": loc_b,
+                            "action": "reveal_hidden",
+                            "travel_time": "半日",
+                        }
+                    ]
+                }
+            ],
+        )
+
+        result = await calculate_route(
+            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=2,
+        )
+        assert result.is_reachable is True
+        assert result.total_hours == 12.0
+
+    async def test_blocked_path_edge_excluded(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000007", "城市G")
+        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000008", "城市H")
+
+        service = GeoEdgeService()
+        await service.create_edge(
+            db_session,
+            GeoEdgeCreate(
+                novel_id=GEO_MUTATION_NOVEL_ID,
+                source_location_id=loc_a,
+                target_location_id=loc_b,
+                relation_type="blocked_path",
+                travel_time="1日",
+            ),
+        )
+
+        result = await calculate_route(
+            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+        )
+        assert result.is_reachable is False
+
+    async def test_block_mutation_removes_bidirectional(self, db_session: AsyncSession) -> None:
+        from modules.geo.facade import calculate_route
+
+        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000009", "城市I")
+        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000010", "城市J")
+
+        await self._create_edge(db_session, loc_a, loc_b, "1日")
+        await self._create_edge(db_session, loc_b, loc_a, "1日")
+
+        await self._create_timeline_event_with_geo_effects(
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            chapter_index=1,
+            order_index=100,
+            geo_effects=[
+                {
+                    "edge_mutations": [
+                        {
+                            "source_id": loc_a,
+                            "target_id": loc_b,
+                            "action": "block",
+                        }
+                    ]
+                }
+            ],
+        )
+
+        result_ab = await calculate_route(
+            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+        )
+        assert result_ab.is_reachable is False
+
+        result_ba = await calculate_route(
+            db_session, GEO_MUTATION_NOVEL_ID, loc_b, loc_a, chapter_index=1,
+        )
+        assert result_ba.is_reachable is False
+
+
+async def test_calculate_routing_api_route_registered() -> None:
+    from modules.geo.api import router
+    routes = [r.path for r in router.routes]
+    assert "/api/geo/calculate-routing" in routes
+
+
+class TestLocationFactionsAndCharacters:
+
+    _NOVEL_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+    async def _create_world_entity(
+        self,
+        db: AsyncSession,
+        entity_type: str,
+        name: str,
+        status: str = "canonical",
+    ) -> str:
+        from modules.world.models import WorldEntity
+
+        entity = WorldEntity(
+            novel_id=uuid.UUID(self._NOVEL_ID),
+            entity_type=entity_type,
+            name=name,
+            status=status,
+        )
+        db.add(entity)
+        await db.flush()
+        return str(entity.id)
+
+    async def _create_relationship(
+        self,
+        db: AsyncSession,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+        description: str | None = None,
+        status: str = "canonical",
+    ) -> None:
+        from modules.world.models import Relationship
+
+        rel = Relationship(
+            novel_id=uuid.UUID(self._NOVEL_ID),
+            source_type="faction",
+            source_id=source_id,
+            target_type="location",
+            target_id=target_id,
+            relation_type=relation_type,
+            description=description,
+            status=status,
+        )
+        db.add(rel)
+        await db.flush()
+
+    async def _create_character(
+        self,
+        db: AsyncSession,
+        name: str,
+        meta: dict | None = None,
+        current_state: str | None = None,
+        status: str = "canonical",
+    ) -> str:
+        from modules.character.models import Character
+
+        char = Character(
+            novel_id=uuid.UUID(self._NOVEL_ID),
+            name=name,
+            meta=meta or {},
+            current_state=current_state,
+            status=status,
+        )
+        db.add(char)
+        await db.flush()
+        return str(char.id)
+
+    async def test_get_location_factions(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        faction_id = await self._create_world_entity(db_session, "faction", "铁血军团")
+        location_id = str(uuid.uuid4())
+
+        await self._create_relationship(
+            db_session, faction_id, location_id, "controls", "铁血军团控制此城",
+        )
+
+        factions = await service.get_location_factions(db_session, self._NOVEL_ID, location_id)
+        assert len(factions) == 1
+        assert factions[0]["name"] == "铁血军团"
+        assert factions[0]["relation_type"] == "controls"
+        assert factions[0]["description"] == "铁血军团控制此城"
+        assert factions[0]["id"] == faction_id
+
+    async def test_get_location_factions_empty(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        location_id = str(uuid.uuid4())
+
+        factions = await service.get_location_factions(db_session, self._NOVEL_ID, location_id)
+        assert factions == []
+
+    async def test_get_location_characters(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        location_id = str(uuid.uuid4())
+
+        await self._create_character(
+            db_session,
+            "林月",
+            meta={"current_location_id": location_id},
+            current_state="巡逻中",
+        )
+        await self._create_character(
+            db_session,
+            "陈锋",
+            meta={"current_location_id": str(uuid.uuid4())},
+            current_state="休息中",
+        )
+
+        characters = await service.get_location_characters(db_session, self._NOVEL_ID, location_id)
+        assert len(characters) == 1
+        assert characters[0]["name"] == "林月"
+        assert characters[0]["current_state"] == "巡逻中"
+
+    async def test_get_location_characters_empty(self, db_session: AsyncSession) -> None:
+        service = GeoQueryService()
+
+        location_id = str(uuid.uuid4())
+
+        characters = await service.get_location_characters(db_session, self._NOVEL_ID, location_id)
+        assert characters == []

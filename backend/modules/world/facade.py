@@ -17,7 +17,12 @@ from modules.world.schemas import (
     WorldEntityContext,
     WorldEntityResponse,
 )
-from modules.world.services import EntityCandidateService, EntityDedupService, RelationshipService, WorldEntityService
+from modules.world.services import (
+    EntityCandidateService,
+    EntityDedupService,
+    RelationshipService,
+    WorldEntityService,
+)
 
 _entity_service = WorldEntityService()
 _relationship_service = RelationshipService()
@@ -45,6 +50,42 @@ async def list_entities(
         {"id": item.id, "name": item.name, "entity_type": item.entity_type}
         for item in result.items
     ]
+
+
+async def list_entity_terms(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """获取世界对象检索词典项（名称 + 已确认别名）。
+
+    供 RAG 索引用于正文标注；返回轻量 dict，避免跨模块暴露 ORM。
+    """
+    from modules.world.repositories import EntityAliasRepository, WorldEntityRepository
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    entities, _ = await WorldEntityRepository().get_by_novel(db, nid, limit=limit)
+    aliases, _ = await EntityAliasRepository().get_by_novel(db, nid, limit=limit * 4)
+
+    alias_map: dict[str, list[str]] = {}
+    for alias in aliases:
+        alias_map.setdefault(str(alias.entity_id), []).append(alias.alias)
+
+    terms: list[dict[str, Any]] = []
+    for item in entities:
+        if item.status not in ("canonical", "draft"):
+            continue
+        item_terms = [item.name]
+        item_terms.extend(alias_map.get(str(item.id), []))
+        terms.append({
+            "id": str(item.id),
+            "name": item.name,
+            "entity_type": item.entity_type,
+            "terms": [t for t in item_terms if t],
+        })
+    return terms
 
 
 async def run_entity_extraction(
@@ -239,3 +280,59 @@ async def merge_candidate_into_entity(
         db, novel_id, candidate_id, target_entity_id,
     )
     return WorldEntityResponse.model_validate(entity)
+
+
+async def find_entity_id_by_name(
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    entity_type: str | None = None,
+) -> str | None:
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.world.repositories import WorldEntityRepository
+    repo = WorldEntityRepository()
+    return await repo.find_entity_by_name(db, nid, name, entity_type=entity_type)
+
+
+async def upsert_relationship(
+    db: AsyncSession,
+    novel_id: str,
+    source_id: str,
+    target_id: str,
+    source_type: str,
+    target_type: str,
+    relation_type: str,
+    description: str | None = None,
+) -> None:
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.world.repositories import RelationshipRepository
+    repo = RelationshipRepository()
+    await repo.upsert_relationship(
+        db, nid, source_id, target_id,
+        source_type, target_type, relation_type, description,
+    )
+
+
+async def get_location_factions(
+    db: AsyncSession,
+    novel_id: str,
+    location_id: str,
+) -> list[dict[str, Any]]:
+    """获取控制/驻扎某地点的势力列表
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        location_id: 地点 ID
+
+    Returns:
+        list[dict] — 势力列表，每项含 id, name, relation_type, description
+    """
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.world.repositories import RelationshipRepository, WorldEntityRepository
+    rel_repo = RelationshipRepository()
+    entity_repo = WorldEntityRepository()
+    return await rel_repo.get_factions_for_location(db, nid, location_id, entity_repo)

@@ -84,7 +84,10 @@ const timelineView = {
     try {
       const data = await api.timeline.listEvents({ novel_id: _state.currentProjectId })
       this._events = data.items || data || []
-    } catch { this._events = [] }
+    } catch {
+      this._events = []
+      if (_state.currentProjectId) toast("加载时间线事件失败", "warning")
+    }
   },
 
   showCreateForm() {

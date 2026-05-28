@@ -7,6 +7,38 @@
 
 const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
 const API_TIMEOUT = 15000
+const API_CACHE_TTL = 30000
+
+const _apiCache = new Map()
+const _pendingRequests = new Map()
+
+function _cacheKey(path, options) {
+  const method = (options.method || "GET").toUpperCase()
+  return `${method}:${path}`
+}
+
+function _invalidateRelatedCache(path) {
+  const base = path.split("?")[0]
+  for (const key of _apiCache.keys()) {
+    if (key.includes(base) || key.includes(base.split("/").slice(0, -1).join("/"))) {
+      _apiCache.delete(key)
+    }
+  }
+}
+
+function _getCached(key) {
+  const entry = _apiCache.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.time > API_CACHE_TTL) {
+    _apiCache.delete(key)
+    return null
+  }
+  return entry.data
+}
+
+function _setCache(key, data) {
+  _apiCache.set(key, { data, time: Date.now() })
+}
 
 /**
  * 通用请求函数
@@ -23,20 +55,37 @@ async function request(path, options = {}) {
     "Accept": "application/json",
   }
 
-  // 只在 POST/PUT/PATCH 请求时添加 Content-Type
-  // FormData 需要浏览器自动设置 multipart 边界，不能手动设
   const method = (options.method || "GET").toUpperCase()
   const isFormData = options.body instanceof FormData
   if (method !== "GET" && method !== "DELETE" && !isFormData) {
     headers["Content-Type"] = "application/json"
   }
 
+  const cacheKey = _cacheKey(path, options)
+
+  if (method === "GET") {
+    const cached = _getCached(cacheKey)
+    if (cached !== null) return cached
+
+    const pending = _pendingRequests.get(cacheKey)
+    if (pending) return pending
+  }
+
+  if (method !== "GET") {
+    _invalidateRelatedCache(path)
+  }
+
+  let fetchPromise
   try {
-    const resp = await fetch(url, {
+    fetchPromise = fetch(url, {
       ...options,
       headers: { ...headers, ...options.headers },
       signal: controller.signal,
     })
+
+    if (method === "GET") _pendingRequests.set(cacheKey, fetchPromise)
+
+    const resp = await fetchPromise
 
     clearTimeout(timeoutId)
 
@@ -70,12 +119,14 @@ async function request(path, options = {}) {
       throw new Error(detail ? `${msg}：${detail}` : msg)
     }
 
-    // 204 No Content
     if (resp.status === 204) {
+      if (method === "GET") _setCache(cacheKey, null)
       return null
     }
 
-    return await resp.json()
+    const data = await resp.json()
+    if (method === "GET") _setCache(cacheKey, data)
+    return data
   } catch (err) {
     clearTimeout(timeoutId)
 
@@ -83,12 +134,13 @@ async function request(path, options = {}) {
       throw new Error("请求超时，请检查后端服务是否运行")
     }
 
-    // 网络错误
     if (err.message === "Failed to fetch" || err.message.includes("fetch")) {
       throw new Error("无法连接到后端服务，请确认后端已启动")
     }
 
     throw err
+  } finally {
+    if (method === "GET") _pendingRequests.delete(cacheKey)
   }
 }
 
@@ -289,6 +341,12 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+
+    getLocationFactions: (locationId, novelId) =>
+      request(`/api/geo/location/${locationId}/factions?novel_id=${encodeURIComponent(novelId)}`),
+
+    getLocationCharacters: (locationId, novelId) =>
+      request(`/api/geo/location/${locationId}/characters?novel_id=${encodeURIComponent(novelId)}`),
   },
 
   // ============================================================
@@ -560,22 +618,19 @@ const api = {
     async rebuild(payload) {
       const novelId = payload?.novel_id
       if (!novelId) throw new Error("重建索引需要先选择项目")
-      const chapters = await request(`/writing/chapters${qs({ novel_id: novelId })}`)
-      const indices = chapters.chapter_indices || []
-      const tasks = []
-      for (const chapterIndex of indices) {
-        tasks.push(await request("/tasks", {
-          method: "POST",
-          body: JSON.stringify({
-            task_type: "rag_index_chapter",
-            meta: { novel_id: novelId, chapter_index: chapterIndex },
-          }),
-        }))
-      }
+      const task = await request("/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          task_type: "rag_reindex_novel",
+          meta: { novel_id: novelId, force: true },
+        }),
+      })
       return {
-        status: tasks.length ? "pending" : "empty",
-        total: tasks.length,
-        task_ids: tasks.map((task) => task.task_id),
+        status: task.status || "pending",
+        total: task.task_id ? 1 : 0,
+        task_id: task.task_id,
+        task_ids: task.task_id ? [task.task_id] : [],
+        warnings: task.warnings || [],
       }
     },
 
@@ -662,6 +717,13 @@ const api = {
       return request(`/writing/drafts/${draftId}${qs({ novel_id: novelId })}`, {
         method: "PUT",
         body: JSON.stringify({ status }),
+      })
+    },
+
+    async saveAndAnalyze(novelId, chapterIndex, content) {
+      return request("/api/writing/save-and-analyze", {
+        method: "POST",
+        body: JSON.stringify({ novel_id: novelId, chapter_index: chapterIndex, content }),
       })
     },
 

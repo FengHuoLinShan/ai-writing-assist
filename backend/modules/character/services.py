@@ -172,8 +172,16 @@ class CharacterService:
         self,
         db: AsyncSession,
         data: CharacterKnowledgeCreate,
+        novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
         """创建人物知识记录"""
+        if novel_id:
+            char = await self._repo.get(db, parse_uuid(data.character_id))
+            if char is None or str(char.novel_id) != novel_id:
+                raise HTTPException(
+                    status_code=http_status.HTTP_404_NOT_FOUND,
+                    detail="Character not found in this novel",
+                )
         knowledge = await self._knowledge_repo.create(db, data)
         return CharacterKnowledgeResponse.model_validate(knowledge)
 

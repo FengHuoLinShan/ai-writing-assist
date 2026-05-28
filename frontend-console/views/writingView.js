@@ -190,6 +190,10 @@ const writingView = {
       clearInterval(this._deepImportTimer)
       this._deepImportTimer = null
     }
+    if (this._extractionTimer) {
+      clearInterval(this._extractionTimer)
+      this._extractionTimer = null
+    }
   },
 
   // ============================================================
@@ -282,6 +286,7 @@ const writingView = {
 
         <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
           <button class="btn btn-primary" id="btn-save-draft" data-action="save-draft" ${hasSelection ? '' : 'disabled'}>保存草稿</button>
+          <button class="btn" id="btn-save-analyze-geo" data-action="save-analyze-geo" ${hasSelection ? '' : 'disabled'}>💾 保存并分析地缘</button>
           <button class="btn" id="btn-prev-chapter" data-action="prev-chapter" ${this._hasPrev() ? '' : 'disabled'}>上一章</button>
           <button class="btn" id="btn-next-chapter" data-action="next-chapter" ${this._hasNext() ? '' : 'disabled'}>下一章</button>
           <button class="btn" data-action="export-draft" ${hasSelection ? '' : 'disabled'}>导出本章</button>
@@ -368,7 +373,6 @@ const writingView = {
       html += this._cardCollapsible("剧情功能", card.plot_function)
       html += this._cardCollapsible("隐藏进展", card.hidden_progress)
       html += this._cardCollapsible("幕外进展", card.offscreen_progress)
-      html += this._cardCollapsible("尾钩", card.ending_hook)
     } else {
       html += `
         <div style="font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;">
@@ -603,7 +607,6 @@ const writingView = {
         ? new Date(result.updated_at).toLocaleString("zh-CN")
         : ""
 
-      // 更新章节树标记
       if (!this._chapters[this._currentChapter]) {
         this._chapters[this._currentChapter] = { hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null }
       }
@@ -613,13 +616,65 @@ const writingView = {
         this._chapterList.sort((a, b) => a - b)
       }
 
-      // 保存成功，清除已保存的编辑状态（已持久化到服务器）
       delete _state.viewStates.writing
 
       this._updateStatusDisplay()
       toast("草稿已保存", "success")
     } catch (err) {
       toast(err.message || "保存失败", "error")
+    }
+  },
+
+  async _saveAndAnalyze() {
+    const editor = document.getElementById("writing-editor")
+    if (!editor || !this._currentChapter) return
+
+    const content = editor.value.trim()
+    if (!content) {
+      toast("草稿内容不能为空", "warning")
+      return
+    }
+
+    const btn = document.getElementById("btn-save-analyze-geo")
+    if (btn) btn.disabled = true
+
+    try {
+      const result = await api.writing.saveAndAnalyze(
+        _state.currentProjectId,
+        this._currentChapter,
+        content,
+      )
+      this._currentContent = content
+      if (result.draft) {
+        this._currentDraftId = result.draft.id
+        this._currentDraftStatus = result.draft.status || "draft"
+        this._currentDraftVersion = result.draft.version_number || 1
+        this._currentDraftUpdatedAt = result.draft.updated_at
+          ? new Date(result.draft.updated_at).toLocaleString("zh-CN")
+          : ""
+      }
+
+      if (!this._chapters[this._currentChapter]) {
+        this._chapters[this._currentChapter] = { hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null }
+      }
+      this._chapters[this._currentChapter].hasDraft = true
+      if (!this._chapterList.includes(this._currentChapter)) {
+        this._chapterList.push(this._currentChapter)
+        this._chapterList.sort((a, b) => a - b)
+      }
+
+      delete _state.viewStates.writing
+
+      if (result.proposal_created) {
+        _state.pending_proposals_count = (_state.pending_proposals_count || 0) + 1
+      }
+
+      this._updateStatusDisplay()
+      toast("草稿已保存" + (result.proposal_created ? "，AI 已提取地缘变动" : ""), "success")
+    } catch (err) {
+      toast(err.message || "保存并分析失败", "error")
+    } finally {
+      if (btn) btn.disabled = false
     }
   },
 
@@ -1029,6 +1084,7 @@ const writingView = {
       const id = t.getAttribute("data-id")
       switch (a) {
         case "save-draft": this.saveDraft(); break
+        case "save-analyze-geo": this._saveAndAnalyze(); break
         case "prev-chapter": this._prevChapter(); break
         case "next-chapter": this._nextChapter(); break
         case "export-draft": this._exportDraft(); break

@@ -22,7 +22,7 @@ function definedApiMethods() {
     const [group, start] = groups[i]
     const end = i + 1 < groups.length ? groups[i + 1][1] : apiSource.length
     const block = apiSource.slice(start, end)
-    for (const match of block.matchAll(/\n\s{4}(?:\/\*\*[\s\S]*?\*\/\s*)?async\s+([a-zA-Z0-9_]+)\s*\(/g)) {
+    for (const match of block.matchAll(/\n\s{4}(?:\/\*\*[\s\S]*?\*\/\s*)?(?:async\s+)?([a-zA-Z0-9_]+)\s*[\(=:]/g)) {
       methods.add(`${group}.${match[1]}`)
     }
   }

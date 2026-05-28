@@ -14,6 +14,11 @@ beforeEach(() => {
   characterView._characters = []
   characterView._characterKnowledge = []
   characterView._apiAvailable = false
+  if (characterView._pollTimer) {
+    clearInterval(characterView._pollTimer)
+    characterView._pollTimer = null
+  }
+  vi.useRealTimers()
   vi.clearAllMocks()
 })
 
@@ -200,6 +205,19 @@ describe("_editCharacter", () => {
     const html = vi.mocked(showModal).mock.calls[0][1]
     expect(html).toContain("张三")
   })
+
+  it("详情内容动态刷新后点击编辑档案仍然打开表单", () => {
+    const char = { id: "c1", name: "张三", role: "protagonist" }
+    _state.selectedItem = char
+    characterView._characters = [char]
+    document.body.innerHTML = '<div id="workspace-content"><div class="subnav"></div></div>'
+    characterView._bindEvents()
+
+    document.getElementById("workspace-content").insertAdjacentHTML("beforeend", characterView._renderDetail())
+    document.getElementById("btn-edit-character").click()
+
+    expect(showModal).toHaveBeenCalled()
+  })
 })
 
 // ============================================================
@@ -276,5 +294,277 @@ describe("_bindEvents", () => {
     document.querySelector("button").click()
     expect(spy).toHaveBeenCalledWith("c1")
     spy.mockRestore()
+  })
+})
+
+// ============================================================
+// 人物档案抽取 + AI 建议刷新
+// ============================================================
+
+describe("人物档案抽取流程", () => {
+  describe("_refreshSuggestions", () => {
+    it("更新本地缓存的 ai_suggestions 并刷新 selectedItem", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞", meta: {} }
+      characterView._characters = [char]
+      _state.selectedItem = char
+
+      api.character.getSuggestions.mockResolvedValue({
+        suggestions: { desire: "追求武道巅峰", fear: "失去至亲之人" },
+        updated_at: "2025-01-01T00:00:00Z",
+      })
+
+      await characterView._refreshSuggestions("c1")
+
+      expect(char.meta.ai_suggestions).toEqual({
+        desire: "追求武道巅峰",
+        fear: "失去至亲之人",
+      })
+      expect(char.meta.ai_suggestions_at).toBe("2025-01-01T00:00:00Z")
+      expect(_state.selectedItem).toBe(char)
+      expect(router.navigate).toHaveBeenCalledWith("character", "detail", false)
+    })
+
+    it("无建议时不更新 meta", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞", meta: {} }
+      characterView._characters = [char]
+
+      api.character.getSuggestions.mockResolvedValue({
+        suggestions: {},
+        updated_at: null,
+      })
+
+      await characterView._refreshSuggestions("c1")
+
+      expect(char.meta.ai_suggestions).toBeUndefined()
+    })
+
+    it("抽取完成但没有建议时提示没有新内容", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞", meta: {} }
+      characterView._characters = [char]
+
+      api.character.getSuggestions.mockResolvedValue({
+        suggestions: {},
+        updated_at: null,
+      })
+
+      await characterView._refreshSuggestions("c1", { status: "no_chunks", fields: [] })
+
+      expect(toast).toHaveBeenCalledWith(
+        "人物抽取完成，但没有找到可提取的相关正文片段",
+        "warning",
+      )
+    })
+
+    it("抽取有降级告警时提示结果可能不准确", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞", meta: {} }
+      characterView._characters = [char]
+
+      api.character.getSuggestions.mockResolvedValue({
+        suggestions: { desire: "想要回家" },
+        updated_at: null,
+      })
+
+      await characterView._refreshSuggestions("c1", {
+        status: "ok",
+        warnings: ["embedding 生成失败，本次生成人物档案可能不准确"],
+      })
+
+      expect(toast).toHaveBeenCalledWith(
+        "embedding 生成失败，本次生成人物档案可能不准确",
+        "warning",
+      )
+    })
+  })
+
+  describe("_applyAllSuggestions", () => {
+    it("应用后正式字段更新且 ai_suggestions 被清除", async () => {
+      _state.currentProjectId = "p1"
+      const char = {
+        id: "c1",
+        name: "周明瑞",
+        desire: "",
+        fear: "",
+        meta: {
+          ai_suggestions: { desire: "追求武道巅峰", fear: "失去至亲之人" },
+          ai_suggestions_at: "2025-01-01T00:00:00Z",
+        },
+      }
+      _state.selectedItem = char
+      characterView._characters = [char]
+
+      api.character.applySuggestions.mockResolvedValue({
+        id: "c1",
+        name: "周明瑞",
+        desire: "追求武道巅峰",
+        fear: "失去至亲之人",
+        meta: {},
+      })
+
+      await characterView._applyAllSuggestions()
+
+      expect(api.character.applySuggestions).toHaveBeenCalledWith(
+        "c1", "p1", ["desire", "fear"]
+      )
+      expect(_state.selectedItem.desire).toBe("追求武道巅峰")
+      expect(_state.selectedItem.fear).toBe("失去至亲之人")
+      expect(_state.selectedItem.meta.ai_suggestions).toBeUndefined()
+    })
+
+    it("部分应用后剩余建议保留", async () => {
+      _state.currentProjectId = "p1"
+      const char = {
+        id: "c1",
+        name: "周明瑞",
+        desire: "",
+        meta: {
+          ai_suggestions: { desire: "追求武道巅峰", weakness: "过于重情" },
+          ai_suggestions_at: "2025-01-01T00:00:00Z",
+        },
+      }
+      _state.selectedItem = char
+      characterView._characters = [char]
+
+      api.character.applySuggestions.mockResolvedValue({
+        id: "c1",
+        name: "周明瑞",
+        desire: "追求武道巅峰",
+        meta: {
+          ai_suggestions: { weakness: "过于重情" },
+          ai_suggestions_at: "2025-01-01T00:00:00Z",
+        },
+      })
+
+      await characterView._applySuggestion("desire")
+
+      expect(_state.selectedItem.desire).toBe("追求武道巅峰")
+      expect(_state.selectedItem.meta.ai_suggestions).toEqual({ weakness: "过于重情" })
+    })
+  })
+
+  describe("_extractCharacter + 轮询", () => {
+    it("提交抽取任务并启动轮询", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞" }
+      characterView._characters = [char]
+
+      api.character.extract.mockResolvedValue({ task_id: "t1" })
+      api.tasks.getStatus.mockResolvedValue({ status: "pending" })
+
+      await characterView._extractCharacter("c1")
+
+      expect(api.character.extract).toHaveBeenCalledWith("c1", "p1")
+      expect(characterView._pollTimer).not.toBeNull()
+      clearInterval(characterView._pollTimer)
+    })
+
+    it("任务失败时提示失败而不是完成", async () => {
+      vi.useFakeTimers()
+      const onDone = vi.fn()
+
+      api.tasks.getStatus.mockResolvedValue({
+        status: "failed",
+        error_message: "LLM 调用失败",
+        result: {},
+      })
+
+      characterView._pollExtractionTasks(["t1"], onDone)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(onDone).not.toHaveBeenCalled()
+      expect(api.character.list).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith("人物抽取失败：LLM 调用失败", "error")
+      expect(toast).not.toHaveBeenCalledWith("人物抽取完成", "success")
+    })
+  })
+
+  describe("_refreshCharacterList 同步 selectedItem", () => {
+    it("刷新列表后 selectedItem 指向新列表中的对象", async () => {
+      _state.currentProjectId = "p1"
+      const oldChar = { id: "c1", name: "周明瑞", desire: "" }
+      characterView._characters = [oldChar]
+      _state.selectedItem = oldChar
+
+      api.character.list.mockResolvedValue({
+        items: [{ id: "c1", name: "周明瑞", desire: "追求武道巅峰" }],
+      })
+
+      await characterView._refreshCharacterList()
+
+      expect(characterView._characters).toHaveLength(1)
+      const newChar = characterView._characters[0]
+      expect(newChar.desire).toBe("追求武道巅峰")
+      expect(_state.selectedItem).toBe(newChar)
+    })
+
+    it("刷新列表后 selectedItem 不再指向旧对象", async () => {
+      _state.currentProjectId = "p1"
+      const oldChar = { id: "c1", name: "周明瑞" }
+      characterView._characters = [oldChar]
+      _state.selectedItem = oldChar
+
+      api.character.list.mockResolvedValue({
+        items: [{ id: "c1", name: "周明瑞", desire: "追求武道巅峰" }],
+      })
+
+      await characterView._refreshCharacterList()
+
+      expect(_state.selectedItem).not.toBe(oldChar)
+    })
+  })
+
+  describe("_applyAllSuggestions meta 一致性", () => {
+    it("全部应用后 meta 不应残留空 ai_suggestions", async () => {
+      _state.currentProjectId = "p1"
+      const char = {
+        id: "c1",
+        name: "周明瑞",
+        desire: "",
+        meta: {
+          ai_suggestions: { desire: "追求武道巅峰" },
+          ai_suggestions_at: "2025-01-01T00:00:00Z",
+        },
+      }
+      _state.selectedItem = char
+      characterView._characters = [char]
+
+      api.character.applySuggestions.mockResolvedValue({
+        id: "c1",
+        name: "周明瑞",
+        desire: "追求武道巅峰",
+        meta: {},
+      })
+
+      await characterView._applyAllSuggestions()
+
+      expect(_state.selectedItem.desire).toBe("追求武道巅峰")
+      expect(_state.selectedItem.meta.ai_suggestions).toBeUndefined()
+    })
+
+    it("列表条目同步更新正式字段", async () => {
+      _state.currentProjectId = "p1"
+      const char = {
+        id: "c1",
+        name: "周明瑞",
+        desire: "",
+        meta: { ai_suggestions: { desire: "追求武道巅峰" } },
+      }
+      _state.selectedItem = char
+      characterView._characters = [char]
+
+      api.character.applySuggestions.mockResolvedValue({
+        id: "c1",
+        name: "周明瑞",
+        desire: "追求武道巅峰",
+        meta: {},
+      })
+
+      await characterView._applyAllSuggestions()
+
+      expect(characterView._characters[0].desire).toBe("追求武道巅峰")
+    })
   })
 })

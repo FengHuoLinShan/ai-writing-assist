@@ -163,6 +163,8 @@ globalThis.api = {
     listLocations: vi.fn(),
     listEras: vi.fn(),
     listEdges: vi.fn(),
+    getLocationFactions: vi.fn(),
+    getLocationCharacters: vi.fn(),
   },
   world: {
     listEntities: vi.fn(),

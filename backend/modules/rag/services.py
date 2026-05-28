@@ -7,7 +7,9 @@ RAG 业务逻辑层
 from __future__ import annotations
 
 import math
+import re
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,19 @@ from shared.constants import (
     RAG_RELATION_WEIGHT,
     RAG_VECTOR_WEIGHT,
 )
+
+RAG_INDEX_VERSION = "cn-novel-v1"
+
+
+@dataclass(frozen=True)
+class ChineseNovelChunk:
+    """中文小说正文分块结果。"""
+
+    chunk_index: int
+    text: str
+    start_offset: int
+    end_offset: int
+    char_count: int
 
 
 # ============================================================
@@ -36,6 +51,10 @@ class ChunkingService:
 
     DEFAULT_MAX_CHUNK_LENGTH: int = 2000
     """默认最大 chunk 长度（字符数）"""
+
+    DEFAULT_CN_TARGET_LENGTH: int = 900
+    DEFAULT_CN_MAX_LENGTH: int = 1400
+    DEFAULT_CN_OVERLAP: int = 160
 
     def split_by_paragraphs(
         self,
@@ -67,7 +86,12 @@ class ChunkingService:
                 chunks.append(para)
             else:
                 # 超长段落按句号分割
-                sentences = para.replace("。", "。\n").replace("！", "！\n").replace("？", "？\n").split("\n")
+                sentences = (
+                    para.replace("。", "。\n")
+                    .replace("！", "！\n")
+                    .replace("？", "？\n")
+                    .split("\n")
+                )
                 current = ""
                 for sentence in sentences:
                     s = sentence.strip()
@@ -126,6 +150,91 @@ class ChunkingService:
 
         return chunks
 
+    def split_chinese_novel(
+        self,
+        text: str,
+        *,
+        target_length: int | None = None,
+        max_length: int | None = None,
+        overlap: int | None = None,
+    ) -> list[ChineseNovelChunk]:
+        """面向中文长篇小说的正文分块。
+
+        优先在段落、对话和中文句末标点处切分，并记录原文 offset。
+        相邻 chunk 保留少量重叠，便于人物出场和状态变化的前后文召回。
+        """
+        if not text or not text.strip():
+            return []
+
+        target = target_length or self.DEFAULT_CN_TARGET_LENGTH
+        max_len = max_length or self.DEFAULT_CN_MAX_LENGTH
+        overlap_len = overlap if overlap is not None else self.DEFAULT_CN_OVERLAP
+        overlap_len = max(0, min(overlap_len, max_len // 2))
+
+        chunks: list[ChineseNovelChunk] = []
+        text_len = len(text)
+        start = self._skip_whitespace(text, 0)
+
+        while start < text_len:
+            hard_end = min(start + max_len, text_len)
+            if hard_end >= text_len:
+                end = text_len
+            else:
+                end = self._choose_cn_boundary(text, start, target, hard_end)
+
+            raw = text[start:end]
+            stripped = raw.strip()
+            if stripped:
+                leading_ws = len(raw) - len(raw.lstrip())
+                trailing_ws = len(raw) - len(raw.rstrip())
+                adjusted_start = start + leading_ws
+                adjusted_end = end - trailing_ws
+                chunks.append(
+                    ChineseNovelChunk(
+                        chunk_index=len(chunks),
+                        text=stripped,
+                        start_offset=adjusted_start,
+                        end_offset=adjusted_end,
+                        char_count=len(stripped),
+                    ),
+                )
+
+            if end >= text_len:
+                break
+
+            next_start = max(start + 1, end - overlap_len)
+            start = self._skip_whitespace(text, next_start)
+
+        return chunks
+
+    @staticmethod
+    def _skip_whitespace(text: str, start: int) -> int:
+        while start < len(text) and text[start].isspace():
+            start += 1
+        return start
+
+    @staticmethod
+    def _choose_cn_boundary(
+        text: str,
+        start: int,
+        target_length: int,
+        hard_end: int,
+    ) -> int:
+        min_end = min(start + max(80, target_length // 2), hard_end)
+        target_end = min(start + target_length, hard_end)
+
+        boundary_patterns = ("\n\n", "\r\n\r\n", "。", "！", "？", "”", "」", "\n")
+        best = -1
+        for pattern in boundary_patterns:
+            pos = text.rfind(pattern, min_end, hard_end)
+            if pos >= min_end:
+                candidate = pos + len(pattern)
+                if abs(candidate - target_end) < abs(best - target_end) or best < 0:
+                    best = candidate
+        if best > start:
+            return best
+        return hard_end
+
     def extract_summary(self, chunk_text: str, max_length: int = 200) -> str:
         """提取片段摘要
 
@@ -157,6 +266,42 @@ class RetrievalService:
     def __init__(self) -> None:
         self._repo = RagChunkRepository()
         self._chunking = ChunkingService()
+
+    _CHINESE_SEP_RE = re.compile(r'[\s,，.。!！?？、·]+')
+
+    @staticmethod
+    def _smart_tokenize_chinese(query: str) -> list[str]:
+        if not query or not query.strip():
+            return []
+        raw_terms = RetrievalService._CHINESE_SEP_RE.split(query.strip())
+        return [term.lower() for term in raw_terms if len(term) >= 2]
+
+    @staticmethod
+    def _compute_keyword_score_with_proximity(
+        text: str,
+        query_terms: list[str],
+    ) -> float:
+        if not query_terms:
+            return 0.0
+        text_lower = text.lower()
+        matched_count = sum(1 for t in query_terms if t in text_lower)
+        overlap_ratio = matched_count / len(query_terms)
+        if len(query_terms) <= 1 or matched_count < 2:
+            return overlap_ratio
+        positions: list[tuple[int, str]] = []
+        for term in query_terms:
+            idx = text_lower.find(term)
+            if idx >= 0:
+                positions.append((idx, term))
+        if len(positions) < 2:
+            return overlap_ratio
+        positions.sort(key=lambda x: x[0])
+        min_distance = float("inf")
+        for i in range(len(positions) - 1):
+            dist = positions[i + 1][0] - positions[i][0]
+            min_distance = min(min_distance, dist)
+        proximity_bonus = max(0.0, 1.0 - min_distance / 500) * 0.2
+        return min(1.0, overlap_ratio + proximity_bonus)
 
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -193,6 +338,7 @@ class RetrievalService:
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
         visibility: str | None = None,
+        mode: str = "search",
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量
@@ -210,10 +356,30 @@ class RetrievalService:
             list[(RagChunk, score)] — 按评分降序排列
         """
         # Step 1: 关键词检索
-        keyword_chunks = await self._repo.keyword_search(
+        expanded_query = await _expand_query_with_project_terms(
             db,
             novel_id,
             query,
+            entity_ids=entity_ids,
+            character_ids=character_ids,
+            thread_ids=thread_ids,
+        )
+
+        relation_only = (
+            mode == "extraction"
+            and bool(
+                entity_ids
+                or character_ids
+                or thread_ids
+                or chapter_index is not None
+            )
+        )
+        repo_query = "" if relation_only else expanded_query
+
+        keyword_chunks = await self._repo.keyword_search(
+            db,
+            novel_id,
+            repo_query,
             entity_ids=entity_ids,
             character_ids=character_ids,
             thread_ids=thread_ids,
@@ -232,17 +398,26 @@ class RetrievalService:
 
         # Step 2: 计算每个 chunk 的混合评分
         # 对中文查询不分词，直接用整个查询做子串匹配
-        query_lower = query.lower().strip()
-        query_terms = [q.strip().lower() for q in query.split() if q.strip()]
+        query_terms = [q.strip().lower() for q in expanded_query.split() if q.strip()]
         use_chinese_match = not query_terms or all(
-            ord(c) > 127 for c in query.replace(" ", "")
+            ord(c) > 127 for c in expanded_query.replace(" ", "")
         )
+        chinese_query_no_spaces = expanded_query.replace(" ", "").lower()
+        chinese_terms = self._smart_tokenize_chinese(expanded_query)
         scored_chunks: list[tuple[RagChunk, float]] = []
 
         for chunk in unique_chunks:
-            # 关键词评分：中文用全查询子串匹配，英文用词匹配
-            if use_chinese_match and query_lower:
-                keyword_score = 1.0 if query_lower in chunk.text.lower() else 0.0
+            if use_chinese_match and chinese_terms:
+                if len(chinese_terms) > 1:
+                    keyword_score = self._compute_keyword_score_with_proximity(
+                        chunk.text, chinese_terms,
+                    )
+                else:
+                    keyword_score = (
+                        1.0
+                        if chinese_query_no_spaces in chunk.text.lower().replace(" ", "")
+                        else 0.0
+                    )
             else:
                 keyword_score = self._compute_keyword_score(chunk.text, query_terms)
 
@@ -285,12 +460,33 @@ class RetrievalService:
         has_meaningful_match = False
         for chunk, _ in scored_chunks[:top_k]:
             if use_chinese_match:
-                kw = 1.0 if query_lower in chunk.text.lower() else 0.0
+                if chinese_terms and len(chinese_terms) > 1:
+                    kw = self._compute_keyword_score_with_proximity(
+                        chunk.text, chinese_terms,
+                    )
+                else:
+                    kw = (
+                        1.0
+                        if chinese_query_no_spaces in chunk.text.lower().replace(" ", "")
+                        else 0.0
+                    )
             else:
                 kw = self._compute_keyword_score(chunk.text, query_terms)
             if kw > 0:
                 has_meaningful_match = True
                 break
+
+        if not has_meaningful_match and mode == "extraction":
+            has_meaningful_match = any(
+                self._compute_relation_score(
+                    chunk,
+                    entity_ids=entity_ids,
+                    character_ids=character_ids,
+                    thread_ids=thread_ids,
+                ) > 0
+                or (chapter_index is not None and chunk.chapter_index == chapter_index)
+                for chunk, _ in scored_chunks[:top_k]
+            )
 
         if not has_meaningful_match:
             return []
@@ -380,6 +576,160 @@ class RetrievalService:
         return matched_score / total_fields
 
 
+def _add_term(
+    terms: list[dict[str, str]],
+    *,
+    term: str | None,
+    target_id: str,
+    target_type: str,
+) -> None:
+    value = (term or "").strip()
+    if len(value) < 2:
+        return
+    terms.append({"term": value, "id": target_id, "type": target_type})
+
+
+async def _load_project_terms(
+    db: AsyncSession,
+    novel_id: uuid.UUID,
+) -> list[dict[str, str]]:
+    """加载项目词典：人物、世界对象/别名、剧情线。"""
+    terms: list[dict[str, str]] = []
+    novel_id_str = str(novel_id)
+
+    from modules.character.facade import list_characters as _list_chars
+
+    chars_list, _ = await _list_chars(db, novel_id_str, limit=999)
+    for char in chars_list:
+        _add_term(terms, term=char.name, target_id=str(char.id), target_type="character")
+        for alias_entry in (char.aliases or []):
+            if isinstance(alias_entry, dict):
+                _add_term(
+                    terms,
+                    term=alias_entry.get("alias"),
+                    target_id=str(char.id),
+                    target_type="character",
+                )
+
+    try:
+        from modules.world.facade import list_entity_terms
+
+        entity_terms = await list_entity_terms(db, novel_id_str)
+        for item in entity_terms:
+            for term in item.get("terms", []):
+                _add_term(
+                    terms,
+                    term=term,
+                    target_id=str(item["id"]),
+                    target_type="entity",
+                )
+    except Exception:
+        # 世界对象词典失败不应阻断章节索引。
+        pass
+
+    try:
+        from modules.outline.facade import list_thread_summaries
+
+        threads = await list_thread_summaries(db, novel_id_str, limit=200)
+        for thread in threads:
+            _add_term(
+                terms,
+                term=thread.get("name"),
+                target_id=str(thread.get("id")),
+                target_type="thread",
+            )
+    except Exception:
+        pass
+
+    terms.sort(key=lambda x: len(x["term"]), reverse=True)
+    return terms
+
+
+def _match_project_terms(
+    text: str,
+    terms: list[dict[str, str]],
+) -> tuple[list[str], list[str], list[str]]:
+    character_ids: list[str] = []
+    entity_ids: list[str] = []
+    thread_ids: list[str] = []
+    seen: set[tuple[str, str]] = set()
+
+    for item in terms:
+        term = item["term"]
+        if term not in text:
+            continue
+        key = (item["type"], item["id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        if item["type"] == "character":
+            character_ids.append(item["id"])
+        elif item["type"] == "entity":
+            entity_ids.append(item["id"])
+        elif item["type"] == "thread":
+            thread_ids.append(item["id"])
+
+    return character_ids, entity_ids, thread_ids
+
+
+def _cn_ngrams(term: str, min_n: int = 2, max_n: int = 4) -> list[str]:
+    compact = re.sub(r"\s+", "", term)
+    if not compact or not any("\u4e00" <= ch <= "\u9fff" for ch in compact):
+        return []
+    grams: list[str] = []
+    for n in range(min_n, min(max_n, len(compact)) + 1):
+        for i in range(0, len(compact) - n + 1):
+            gram = compact[i:i + n]
+            if gram not in grams:
+                grams.append(gram)
+    return grams
+
+
+async def _expand_query_with_project_terms(
+    db: AsyncSession,
+    novel_id: uuid.UUID,
+    query: str,
+    *,
+    entity_ids: list[str] | None = None,
+    character_ids: list[str] | None = None,
+    thread_ids: list[str] | None = None,
+) -> str:
+    """用项目词典扩展查询词，适配中文小说别名/称号。"""
+    terms = await _load_project_terms(db, novel_id)
+    if not terms:
+        return query
+
+    requested: set[tuple[str, str]] = set()
+    for cid in character_ids or []:
+        requested.add(("character", cid))
+    for eid in entity_ids or []:
+        requested.add(("entity", eid))
+    for tid in thread_ids or []:
+        requested.add(("thread", tid))
+
+    compact_query = query.replace(" ", "")
+    for item in terms:
+        term = item["term"]
+        if term in query or term in compact_query or query in term:
+            requested.add((item["type"], item["id"]))
+            continue
+        if any(gram in term for gram in _cn_ngrams(query)):
+            requested.add((item["type"], item["id"]))
+
+    expanded: list[str] = [query]
+    for item in terms:
+        if (item["type"], item["id"]) not in requested:
+            continue
+        if item["term"] not in expanded:
+            expanded.append(item["term"])
+
+    for gram in _cn_ngrams(query):
+        if gram not in expanded:
+            expanded.append(gram)
+
+    return " ".join(expanded)
+
+
 # ============================================================
 # IndexingService
 # ============================================================
@@ -401,86 +751,104 @@ class IndexingService:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> int:
-        """索引指定章节的正文到 RAG 库
+        """索引指定章节的正文到 RAG 库，返回创建的 chunk 数。"""
+        report = await self.index_chapter_with_report(db, novel_id, chapter_index)
+        return report.chunks_created
 
-        1. 读取该章节最新草稿
-        2. 按段落分割为 chunk
-        3. 文本匹配已有角色名，标记 character_ids
-        4. 删除该章节旧 chunk（替换）
-        5. 创建新 chunk
-        6. 批量生成 embedding（失败不阻塞）
-
-        Args:
-            db: 数据库 session
-            novel_id: 小说项目 UUID
-            chapter_index: 章节索引
-
-        Returns:
-            int — 创建的 chunk 数量（无草稿返回 0）
-        """
+    async def index_chapter_with_report(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ):
+        """索引指定章节并返回诊断报告。"""
+        from modules.rag.contracts import RagIndexReport
         from modules.writing.facade import get_latest_draft_for_chapter
 
         draft = await get_latest_draft_for_chapter(db, str(novel_id), chapter_index)
         if not draft or not draft.content:
-            return 0
+            return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
 
-        # 1. 分割为段落
-        paragraphs = self._chunking.split_by_paragraphs(draft.content)
-        if not paragraphs:
-            return 0
+        chunks = self._chunking.split_chinese_novel(draft.content)
+        if not chunks:
+            return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
 
-        # 2. 加载所有角色名（用于文本匹配）
-        from modules.character.facade import list_characters as _list_chars
-
-        chars_list, _ = await _list_chars(db, str(novel_id), limit=999)
-        char_name_map: dict[str, str] = {}
-        for c in chars_list:
-            char_name_map[c.name] = str(c.id)
-
-        # 3. 删除旧 chunk
+        project_terms = await _load_project_terms(db, novel_id)
         await self._repo.delete_by_chapter(db, novel_id, "chapter_text", chapter_index)
 
-        # 4. 创建新 chunk（记录 ID 和文本用于批量 embedding）
         import logging
 
         logger = logging.getLogger(__name__)
-        created = 0
-        created_chunks: list[tuple[uuid.UUID, str]] = []
-        for para in paragraphs:
-            matched_char_ids: list[str] = []
-            for name, cid in char_name_map.items():
-                if name in para:
-                    matched_char_ids.append(cid)
+        created_chunks: list[RagChunk] = []
+        warnings: list[str] = []
 
+        for cn_chunk in chunks:
+            character_ids, entity_ids, thread_ids = _match_project_terms(
+                cn_chunk.text, project_terms,
+            )
             chunk_data = RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=chapter_index,
-                text=para,
-                character_ids=matched_char_ids,
+                chunk_index=cn_chunk.chunk_index,
+                start_offset=cn_chunk.start_offset,
+                end_offset=cn_chunk.end_offset,
+                char_count=cn_chunk.char_count,
+                text=cn_chunk.text,
+                summary=self._chunking.extract_summary(cn_chunk.text),
+                entity_ids=entity_ids,
+                character_ids=character_ids,
+                thread_ids=thread_ids,
                 visibility="author_only",
                 importance=0.5,
-                meta={"chapter_index": chapter_index},
+                index_version=RAG_INDEX_VERSION,
+                embedding_status="pending",
+                meta={
+                    "chapter_index": chapter_index,
+                    "chunk_index": cn_chunk.chunk_index,
+                },
             )
             chunk = await self._repo.create(db, novel_id, chunk_data)
-            created_chunks.append((chunk.id, para))
-            created += 1
+            created_chunks.append(chunk)
 
         await db.flush()
 
-        # 5. 批量生成 embedding
+        embedding_failed_count = 0
         if created_chunks:
             try:
                 from infrastructure.llm.client import LLMClient
 
                 llm = LLMClient()
-                texts = [t for _, t in created_chunks]
+                texts = [chunk.text for chunk in created_chunks]
                 embeddings = await llm.generate_embedding(texts)
-                if isinstance(embeddings, list) and len(embeddings) == len(created_chunks):
-                    for (chunk_id, _), emb in zip(created_chunks, embeddings):
-                        await self._repo.update_embedding(db, chunk_id, emb)
+                if (
+                    isinstance(embeddings, list)
+                    and len(embeddings) == len(created_chunks)
+                ):
+                    for chunk, emb in zip(created_chunks, embeddings):
+                        await self._repo.update_embedding(db, chunk.id, emb)
+                        chunk.embedding_status = "succeeded"
                     await db.flush()
+                else:
+                    raise ValueError("embedding result count does not match chunk count")
             except Exception as exc:
-                logger.warning("Failed to generate embeddings for chapter %d: %s", chapter_index, exc)
+                warning = f"embedding 生成失败，本章检索将降级为关键词/词典匹配: {exc}"
+                warnings.append(warning)
+                logger.warning(
+                    "Failed to generate embeddings for chapter %d: %s",
+                    chapter_index,
+                    exc,
+                )
+                embedding_failed_count = len(created_chunks)
+                for chunk in created_chunks:
+                    chunk.embedding_status = "failed"
+                    chunk.embedding_error = str(exc)[:1000]
+                    chunk.index_warnings = [warning]
+                await db.flush()
 
-        return created
-
+        return RagIndexReport(
+            chapter_index=chapter_index,
+            chunks_created=len(created_chunks),
+            warnings=warnings,
+            embedding_failed_count=embedding_failed_count,
+            chunks_created_ids=[str(c.id) for c in created_chunks],
+        )

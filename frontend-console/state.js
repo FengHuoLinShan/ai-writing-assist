@@ -5,9 +5,8 @@
  */
 function esc(str) {
   if (str === null || str === undefined) return ""
-  var div = document.createElement("div")
-  div.textContent = String(str)
-  return div.innerHTML
+  var s = String(str)
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;")
 }
 
 /**

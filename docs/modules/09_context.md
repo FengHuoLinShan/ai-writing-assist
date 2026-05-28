@@ -24,27 +24,18 @@ ContextCompiler 使用 Loader 策略模式，每个数据源独立一个 Loader 
 | OutlineArcLoader | outline.facade.get_arc_context |
 | ChapterCardLoader | outline.facade.get_chapter_card |
 | RagChunksLoader | rag.facade.retrieve |
+| GeoReachabilityFilter | character.facade + geo.facade（地缘可达性过滤 RAG chunk） |
 
 ## 核心函数
 
 ```python
-async def compile_structure_context(db, novel_id, task, scope, chapter_index=None, ...) -> StructureContextBundle
+async def compile_structure_context(db, novel_id, task, scope, chapter_index=None, arc_id=None, entity_ids=None, character_ids=None, location_ids=None, reveal_mode="author_safe", enable_geo_filter=False) -> StructureContextBundle
 def render_context_markdown(context: StructureContextBundle) -> str
 ```
 
 ## Context Budget
 
-| 类别 | 上限 |
-|------|------|
-| 核心对象 | 8 |
-| 普通对象 | 8 |
-| 人物 | 6 |
-| 记忆 | 10 |
-| 伏笔 | 5 |
-| 时间线 | 8 |
-| 地理关系 | 10 |
-| 关系边 | 12 |
-| RAG 片段 | 8 |
+各分类预算见 `contracts.py` 中的 `CONTEXT_BUDGET` 常量，编译时自动应用。
 
 ## Markdown 层次
 

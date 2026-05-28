@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
@@ -58,9 +58,9 @@ class ProjectRepository:
     ) -> tuple[list[Project], int]:
         """获取项目列表（分页），返回 (items, total)"""
         # 获取总数
-        count_stmt = select(Project.id)
+        count_stmt = select(func.count(Project.id))
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 获取分页数据
         stmt = (

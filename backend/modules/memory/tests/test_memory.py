@@ -24,6 +24,7 @@ from modules.memory.repositories import (
     MemoryRecordRepository,
 )
 from modules.memory.schemas import (
+    ChapterStateExtraction,
     MemoryRecordCreate,
     MemoryRecordUpdate,
 )
@@ -574,3 +575,299 @@ class TestMemoryFacade:
         assert result.summary is not None
         assert result.memory_type == "event"
         assert result.importance == 0.8
+
+
+# ============================================================
+# ChapterStateExtraction Schema 测试
+# ============================================================
+
+class TestChapterStateExtraction:
+
+    def test_chapter_state_extraction_valid(self) -> None:
+        extraction = ChapterStateExtraction(
+            summary="主角前往北境",
+            character_shifts=[
+                {
+                    "character_name": "李明",
+                    "destination_location_name": "北境",
+                    "movement_type": "御剑飞行",
+                }
+            ],
+            faction_shifts=[
+                {
+                    "faction_name": "天剑宗",
+                    "target_location_name": "北境",
+                    "new_relation": "controls",
+                    "description": "天剑宗全面控制北境",
+                }
+            ],
+        )
+        assert extraction.summary == "主角前往北境"
+        assert len(extraction.character_shifts) == 1
+        assert extraction.character_shifts[0].character_name == "李明"
+        assert extraction.character_shifts[0].destination_location_name == "北境"
+        assert extraction.character_shifts[0].movement_type == "御剑飞行"
+        assert len(extraction.faction_shifts) == 1
+        assert extraction.faction_shifts[0].faction_name == "天剑宗"
+        assert extraction.faction_shifts[0].new_relation == "controls"
+        assert extraction.faction_shifts[0].description == "天剑宗全面控制北境"
+
+    def test_chapter_state_extraction_invalid_relation_downgrade(self) -> None:
+        extraction = ChapterStateExtraction(
+            summary="测试",
+            faction_shifts=[
+                {
+                    "faction_name": "暗影门",
+                    "target_location_name": "东域",
+                    "new_relation": "invalid_relation",
+                    "description": "暗影门渗透东域",
+                }
+            ],
+        )
+        assert extraction.faction_shifts[0].new_relation == "stationed_at"
+
+    def test_chapter_state_extraction_empty_shifts(self) -> None:
+        extraction = ChapterStateExtraction(summary="平静的一章")
+        assert extraction.character_shifts == []
+        assert extraction.faction_shifts == []
+
+
+class TestGeoMutationsDispatch:
+
+    @pytest.mark.asyncio
+    async def test_confirm_proposal_with_character_shift(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        from modules.character.repositories import CharacterRepository
+        from modules.character.schemas import CharacterCreate
+        from modules.world.repositories import WorldEntityRepository
+        from modules.world.schemas import WorldEntityCreate
+
+        char_repo = CharacterRepository()
+        char = await char_repo.create(
+            db_session,
+            CharacterCreate(novel_id=novel_id, name="林动"),
+        )
+
+        entity_repo = WorldEntityRepository()
+        nid = uuid.UUID(hex=novel_id)
+        loc = await entity_repo.create(
+            db_session, nid,
+            WorldEntityCreate(entity_type="location", name="炎城", status="canonical"),
+        )
+
+        proposal_repo = MemoryProposalRepository()
+        proposal = await proposal_repo.create(
+            db_session,
+            nid,
+            proposal_type="create_memory",
+            payload={
+                "memory_type": "chapter_state",
+                "summary": "林动前往炎城",
+                "chapter_index": 3,
+                "geo_mutations": {
+                    "character_shifts": [
+                        {
+                            "character_name": "林动",
+                            "destination_location_name": "炎城",
+                            "movement_type": "御剑飞行",
+                        }
+                    ],
+                    "faction_shifts": [],
+                },
+            },
+            chapter_index=3,
+        )
+
+        service = MemoryService()
+        result = await service.confirm_memory_proposal(
+            db_session, str(proposal.id), novel_id,
+        )
+        assert result.summary == "林动前往炎城"
+
+        updated = await char_repo.get(db_session, char.id)
+        assert updated is not None
+        assert updated.meta.get("current_location_id") == str(loc.id)
+        assert "御剑飞行" in updated.current_state
+        assert "炎城" in updated.current_state
+
+    @pytest.mark.asyncio
+    async def test_confirm_proposal_with_faction_shift(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        from modules.world.repositories import WorldEntityRepository, RelationshipRepository
+        from modules.world.schemas import WorldEntityCreate
+
+        entity_repo = WorldEntityRepository()
+        nid = uuid.UUID(hex=novel_id)
+        faction = await entity_repo.create(
+            db_session, nid,
+            WorldEntityCreate(entity_type="faction", name="血狼帮", status="canonical"),
+        )
+        loc = await entity_repo.create(
+            db_session, nid,
+            WorldEntityCreate(entity_type="location", name="炎城", status="canonical"),
+        )
+
+        proposal_repo = MemoryProposalRepository()
+        proposal = await proposal_repo.create(
+            db_session,
+            nid,
+            proposal_type="create_memory",
+            payload={
+                "memory_type": "chapter_state",
+                "summary": "血狼帮驻扎炎城",
+                "chapter_index": 5,
+                "geo_mutations": {
+                    "character_shifts": [],
+                    "faction_shifts": [
+                        {
+                            "faction_name": "血狼帮",
+                            "target_location_name": "炎城",
+                            "new_relation": "stationed_at",
+                            "description": "血狼帮驻扎在炎城",
+                        }
+                    ],
+                },
+            },
+            chapter_index=5,
+        )
+
+        service = MemoryService()
+        result = await service.confirm_memory_proposal(
+            db_session, str(proposal.id), novel_id,
+        )
+        assert result.summary == "血狼帮驻扎炎城"
+
+        rel_repo = RelationshipRepository()
+        rels, total = await rel_repo.get_by_novel(db_session, nid)
+        assert total >= 1
+        matched = [r for r in rels if r.source_id == str(faction.id) and r.target_id == str(loc.id)]
+        assert len(matched) == 1
+        assert matched[0].relation_type == "stationed_at"
+
+    @pytest.mark.asyncio
+    async def test_confirm_proposal_character_not_found_skipped(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+
+        proposal_repo = MemoryProposalRepository()
+        proposal = await proposal_repo.create(
+            db_session,
+            nid,
+            proposal_type="create_memory",
+            payload={
+                "memory_type": "chapter_state",
+                "summary": "不存在的角色位移",
+                "chapter_index": 2,
+                "geo_mutations": {
+                    "character_shifts": [
+                        {
+                            "character_name": "不存在的角色",
+                            "destination_location_name": "不存在的地点",
+                            "movement_type": "步行",
+                        }
+                    ],
+                    "faction_shifts": [],
+                },
+            },
+            chapter_index=2,
+        )
+
+        service = MemoryService()
+        result = await service.confirm_memory_proposal(
+            db_session, str(proposal.id), novel_id,
+        )
+        assert result.summary == "不存在的角色位移"
+        assert result.memory_type == "chapter_state"
+
+    @pytest.mark.asyncio
+    async def test_confirm_proposal_chapter_involved_merged(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        from modules.character.repositories import CharacterRepository
+        from modules.character.schemas import CharacterCreate
+        from modules.world.repositories import WorldEntityRepository
+        from modules.world.schemas import WorldEntityCreate
+        from modules.outline.repositories import ChapterCardRepository
+        from modules.outline.schemas import ChapterCardCreate
+
+        char_repo = CharacterRepository()
+        char = await char_repo.create(
+            db_session,
+            CharacterCreate(novel_id=novel_id, name="林动"),
+        )
+
+        entity_repo = WorldEntityRepository()
+        nid = uuid.UUID(hex=novel_id)
+        faction = await entity_repo.create(
+            db_session, nid,
+            WorldEntityCreate(entity_type="faction", name="血狼帮", status="canonical"),
+        )
+        loc = await entity_repo.create(
+            db_session, nid,
+            WorldEntityCreate(entity_type="location", name="炎城", status="canonical"),
+        )
+
+        chapter_repo = ChapterCardRepository()
+        card = await chapter_repo.create(
+            db_session, nid,
+            ChapterCardCreate(
+                chapter_index=7,
+                chapter_goal="目标",
+                main_conflict="冲突",
+                involved_character_ids=[],
+                involved_entity_ids=[],
+            ),
+        )
+
+        proposal_repo = MemoryProposalRepository()
+        proposal = await proposal_repo.create(
+            db_session,
+            nid,
+            proposal_type="create_memory",
+            payload={
+                "memory_type": "chapter_state",
+                "summary": "林动抵达炎城，血狼帮驻扎",
+                "chapter_index": 7,
+                "geo_mutations": {
+                    "character_shifts": [
+                        {
+                            "character_name": "林动",
+                            "destination_location_name": "炎城",
+                            "movement_type": "御剑飞行",
+                        }
+                    ],
+                    "faction_shifts": [
+                        {
+                            "faction_name": "血狼帮",
+                            "target_location_name": "炎城",
+                            "new_relation": "stationed_at",
+                            "description": "血狼帮驻扎炎城",
+                        }
+                    ],
+                },
+            },
+            chapter_index=7,
+        )
+
+        service = MemoryService()
+        result = await service.confirm_memory_proposal(
+            db_session, str(proposal.id), novel_id,
+        )
+        assert result.summary == "林动抵达炎城，血狼帮驻扎"
+
+        updated_card = await chapter_repo.get(db_session, card.id)
+        assert updated_card is not None
+        assert str(char.id) in updated_card.involved_character_ids
+        assert str(faction.id) in updated_card.involved_entity_ids
+        assert str(loc.id) in updated_card.involved_entity_ids

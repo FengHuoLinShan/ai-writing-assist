@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.models import MemoryRecord, MemoryUpdateProposal
@@ -84,9 +84,9 @@ class MemoryRecordRepository:
             )
 
         # 计数
-        count_stmt = select(MemoryRecord.id).where(*conditions)
+        count_stmt = select(func.count(MemoryRecord.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 分页查询
         stmt = (
@@ -255,9 +255,9 @@ class MemoryProposalRepository:
             MemoryUpdateProposal.decision == "pending",
         ]
 
-        count_stmt = select(MemoryUpdateProposal.id).where(*conditions)
+        count_stmt = select(func.count(MemoryUpdateProposal.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(MemoryUpdateProposal)

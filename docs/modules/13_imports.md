@@ -12,19 +12,10 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 
 | 格式 | 库 | 说明 |
 |------|----|------|
-| .txt | 内置 + chardet | 编码检测 + 5 种章节正则分割 |
+| .txt | 内置 + chardet | 编码检测 + 章节正则分割 |
 | .epub | ebooklib | 逐章提取 |
-| .html/.htm | beautifulsoup4 | 提取 `<body>` 或 `<article>` 文本 |
-| .mobi/.azw3 | 内置（二选一） | mobi 原始解析或使用 mobi 包 |
-
-### 章节分割正则
-
-支持 5 种中文/英文章节标题格式：
-- `第X章` / `第X节` / `第X话`
-- `Chapter X` / `Ch.X` / `Ch X`
-- `VOL.X` / `卷X`
-- `Part X`
-- `Episode X`
+| .html/.htm | beautifulsoup4 | 提取文本 |
+| .mobi/.azw3 | 内置 | 原始解析 |
 
 ## 服务
 
@@ -59,19 +50,8 @@ DeepImportWorkflow 将三步串成有状态流水线，完成后进入 checkpoin
 Checkpoint 机制：step1 完成后 task 以 done 结束，progress.phase = "awaiting_review"。
 用户处理完所有 pending 候选后调用 resume 继续 step2+3。
 
-关键文件：
-- `workflow_schemas.py` — DeepImportStep 枚举 + DeepImportProgress
-- `workflow.py` — DeepImportWorkflow 编排器（3 个 step 方法）
-- `tasks.py` — @task_handler("deep_import") + @task_handler("deep_import_resume")
-
 ## 跨模块依赖
 
 - 写入 writing_drafts 通过 `writing/facade.create_draft()`
+- `writing/facade.create_draft()` 会同时提交 `rag_index_chapter` 任务，确保导入正文可被 RAG 和人物档案抽取检索
 - 不直接访问 writing/models.py
-
-## 测试
-
-- parsers：每种格式 happy path + 空内容
-- repository：CRUD + 分页
-- service：导入流程 + 非法类型拒绝
-- conftest 必须 import `modules.project.models` 和 `modules.outline.models`

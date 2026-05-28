@@ -104,6 +104,11 @@ const contextView = {
     const exportBtn = document.querySelector('[data-action="export"]')
     if (!output) return
 
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+
     const task = document.getElementById("ctx-task")?.value || ""
     const scope = document.getElementById("ctx-scope")?.value || "arc"
     const reveal = document.getElementById("ctx-reveal")?.value || "author_safe"
@@ -208,7 +213,7 @@ const contextView = {
         character_ids: characterIds, reveal_mode: reveal,
       })
       if (data && data.markdown) {
-        output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:4px;border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${this._escapeHtml(data.markdown)}</pre>`
+        output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:4px;border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`
         this._lastMarkdown = data.markdown
         if (copyBtn) copyBtn.disabled = false
         if (exportBtn) exportBtn.disabled = false
@@ -242,12 +247,6 @@ const contextView = {
   _budgetName(key) {
     const names = { core_entities: "核心对象", normal_entities: "普通对象", characters: "人物", memory: "记忆", timeline: "时间线", geo_relations: "地理关系", plot_threads: "剧情线", rag_chunks: "RAG 片段" }
     return names[key] || key
-  },
-
-  _escapeHtml(str) {
-    const div = document.createElement("div")
-    div.textContent = str
-    return div.innerHTML
   },
 }
 

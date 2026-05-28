@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from infrastructure.llm.client import LLMClient
 from infrastructure.llm.providers import OpenAIProvider
 
 
@@ -98,3 +99,22 @@ async def test_generate_embedding_custom_model(provider, mock_openai_client):
     await provider.generate_embedding("测试", model="text-embedding-3-small")
     kwargs = mock_openai_client.embeddings.create.call_args[1]
     assert kwargs["model"] == "text-embedding-3-small"
+
+
+@pytest.mark.asyncio
+async def test_llm_client_generate_embedding_delegates_to_provider():
+    """LLMClient 应公开 embedding 方法并委托 provider。"""
+    with patch("infrastructure.llm.client.get_provider") as get_provider:
+        provider = AsyncMock()
+        provider.generate_embedding = AsyncMock(return_value=[0.1, 0.2])
+        get_provider.return_value = provider
+
+        client = LLMClient()
+        result = await client.generate_embedding("测试文本")
+
+    assert result == [0.1, 0.2]
+    provider.generate_embedding.assert_called_once()
+    assert provider.generate_embedding.call_args.kwargs == {
+        "text": "测试文本",
+        "model": None,
+    }

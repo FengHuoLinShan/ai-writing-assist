@@ -440,7 +440,7 @@ class ChapterCardResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_validator("id", "novel_id", mode="before")
+    @field_validator("id", "novel_id", "arc_id", mode="before")
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
@@ -615,7 +615,7 @@ class RevealPlanResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_validator("id", "novel_id", mode="before")
+    @field_validator("id", "novel_id", "target_id", mode="before")
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)

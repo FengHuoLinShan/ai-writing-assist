@@ -199,6 +199,45 @@ class WorldEntityRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def find_entity_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        name: str,
+        entity_type: str | None = None,
+    ) -> str | None:
+        conditions = [
+            WorldEntity.novel_id == novel_id,
+            WorldEntity.name == name,
+            WorldEntity.status == "canonical",
+        ]
+        if entity_type:
+            conditions.append(WorldEntity.entity_type == entity_type)
+        stmt = select(WorldEntity.id).where(*conditions).limit(1)
+        result = await db.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is not None:
+            return str(row)
+
+        alias_stmt = (
+            select(EntityAlias.entity_id)
+            .join(WorldEntity, WorldEntity.id == EntityAlias.entity_id)
+            .where(
+                EntityAlias.alias == name,
+                WorldEntity.novel_id == novel_id,
+                WorldEntity.status == "canonical",
+            )
+        )
+        if entity_type:
+            alias_stmt = alias_stmt.where(WorldEntity.entity_type == entity_type)
+        alias_stmt = alias_stmt.limit(1)
+        alias_result = await db.execute(alias_stmt)
+        alias_row = alias_result.scalar_one_or_none()
+        if alias_row is not None:
+            return str(alias_row)
+
+        return None
+
 
 # ============================================================
 # RelationshipRepository
@@ -332,40 +371,57 @@ class RelationshipRepository:
 
         一跳（depth=1）：直接连接的对象
         二跳（depth=2）：直接对象的直接连接对象（一跳扩展）
+
+        使用 UNION 合并 source/target 查询，避免 N+1 问题。
         """
         related: set[str] = set()
 
-        # 一跳：直接 source→target 和 target→source
-        source_rels = await self.get_by_source(db, novel_id, entity_id, limit=limit)
-        for rel in source_rels:
-            related.add(rel.target_id)
-
-        target_rels = await self.get_by_target(db, novel_id, entity_id, limit=limit)
-        for rel in target_rels:
-            related.add(rel.source_id)
+        one_hop_ids = await self._get_one_hop_ids(db, novel_id, entity_id)
+        related.update(one_hop_ids)
 
         if depth >= 2:
-            # 二跳：对一跳结果再扩展
-            for related_id in list(related):
+            for hop_id in list(one_hop_ids):
                 if len(related) >= limit:
                     break
-                second_source = await self.get_by_source(
-                    db, novel_id, related_id, limit=limit // 2,
+                second_hop = await self._get_one_hop_ids(
+                    db, novel_id, hop_id,
                 )
-                for rel in second_source:
-                    if len(related) >= limit:
-                        break
-                    related.add(rel.target_id)
-
-                second_target = await self.get_by_target(
-                    db, novel_id, related_id, limit=limit // 2,
-                )
-                for rel in second_target:
-                    if len(related) >= limit:
-                        break
-                    related.add(rel.source_id)
+                related.update(second_hop)
+                if len(related) >= limit:
+                    break
 
         return related
+
+    async def _get_one_hop_ids(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: str,
+    ) -> set[str]:
+        """单次 UNION 查询获取一跳相关的所有实体 ID
+
+        合并 source→target 和 target→source 为一条 SQL，
+        避免分别调用 get_by_source / get_by_target 造成的两次查询。
+        """
+        from sqlalchemy import union_all
+
+        src_stmt = (
+            select(Relationship.target_id.label("related_id"))
+            .where(
+                Relationship.novel_id == novel_id,
+                Relationship.source_id == entity_id,
+            )
+        )
+        tgt_stmt = (
+            select(Relationship.source_id.label("related_id"))
+            .where(
+                Relationship.novel_id == novel_id,
+                Relationship.target_id == entity_id,
+            )
+        )
+        combined = union_all(src_stmt, tgt_stmt)
+        result = await db.execute(combined)
+        return {row[0] for row in result.all()}
 
     async def update(
         self,
@@ -417,11 +473,87 @@ class RelationshipRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def upsert_relationship(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_id: str,
+        target_id: str,
+        source_type: str,
+        target_type: str,
+        relation_type: str,
+        description: str | None = None,
+    ) -> None:
+        stmt = select(Relationship).where(
+            Relationship.novel_id == novel_id,
+            Relationship.source_id == source_id,
+            Relationship.target_id == target_id,
+            Relationship.relation_type == relation_type,
+            Relationship.status == "canonical",
+        ).limit(1)
+        result = await db.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing is not None:
+            existing.description = description
+        else:
+            new_rel = Relationship(
+                novel_id=novel_id,
+                source_id=source_id,
+                target_id=target_id,
+                source_type=source_type,
+                target_type=target_type,
+                relation_type=relation_type,
+                description=description,
+                status="canonical",
+            )
+            db.add(new_rel)
+        await db.flush()
+
+    async def get_factions_for_location(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        location_id: str,
+        entity_repo: "WorldEntityRepository",
+    ) -> list[dict[str, Any]]:
+        stmt = select(Relationship).where(
+            Relationship.novel_id == novel_id,
+            Relationship.target_id == location_id,
+            Relationship.relation_type.in_(["controls", "stationed_at", "hidden_presence"]),
+            Relationship.status == "canonical",
+        )
+        result = await db.execute(stmt)
+        relationships = result.scalars().all()
+
+        faction_ids = list({r.source_id for r in relationships})
+        if not faction_ids:
+            return []
+
+        from shared.utils import parse_uuid
+        entity_stmt = select(WorldEntity).where(
+            WorldEntity.id.in_([parse_uuid(fid) for fid in faction_ids]),
+            WorldEntity.status == "canonical",
+        )
+        entity_result = await db.execute(entity_stmt)
+        entities = entity_result.scalars().all()
+        entity_map = {str(e.id): e for e in entities}
+
+        factions = []
+        for r in relationships:
+            entity = entity_map.get(r.source_id)
+            if entity:
+                factions.append({
+                    "id": str(entity.id),
+                    "name": entity.name,
+                    "relation_type": r.relation_type,
+                    "description": r.description or "",
+                })
+        return factions
+
 
 # ============================================================
 # EntityAliasRepository
-# ============================================================
-
 class EntityAliasRepository:
     """别名数据访问"""
 

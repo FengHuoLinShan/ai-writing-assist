@@ -4,10 +4,6 @@
 
 timeline 模块负责事件顺序和剧情防错。不是复杂时间推理系统。
 
-## 回答的问题
-
-- 哪些事件已经发生？发生顺序？位于哪章？读者是否知道？哪些角色知道？
-
 ## 数据表
 
 - timeline_events — order_index / chapter_index / title / summary / event_type / visibility / known_by_character_ids / related_* JSONB
@@ -15,7 +11,8 @@ timeline 模块负责事件顺序和剧情防错。不是复杂时间推理系�
 ## Facade
 
 ```python
-async def get_relevant_timeline_context(db, novel_id, chapter_index=None, related_entity_ids=None, character_id=None, limit=12) -> TimelineContextBundle
+async def get_relevant_timeline_context(db, novel_id, chapter_index=None, related_entity_ids=None, character_id=None, limit=12, reveal_mode="author_safe") -> list[TimelineEventContext]
+async def get_geo_effects_up_to_chapter(db, novel_id, chapter_index) -> list[dict]
 async def check_timeline_conflicts(db, novel_id, structure_candidate) -> list[TimelineConflictWarning]
 ```
 

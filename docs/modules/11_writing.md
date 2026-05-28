@@ -11,6 +11,7 @@ writing 模块当前不是核心 AI 正文生成模块，而是人工正文草�
 ## Facade
 
 ```python
+async def create_draft(db, data) -> WritingDraftResponse  # 创建草稿并提交 RAG 索引任务
 async def get_draft(db, draft_id) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_chapter_indices(db, novel_id) -> list[int]  # 有草稿的章节索引
@@ -26,9 +27,10 @@ DELETE /api/writing/drafts/{id}                     # 删除草稿
 GET  /api/writing/chapters/{index}/draft            # 按章节索引获取最新草稿
 GET  /api/writing/chapters/{index}/versions         # 获取章节版本历史
 GET  /api/writing/chapters                          # 列出有草稿的章节索引
+POST /api/writing/save-and-analyze                  # 保存草稿 + 地缘资产 AI 提取
 ```
 
-保存/更新草稿时自动提交 `rag_index_chapter` 异步任务，将正文分割为 chunk 并存入 RAG 库。
+通过 API 或 writing facade 创建草稿时会自动提交 `rag_index_chapter` 异步任务，将正文分割为 chunk 并存入 RAG 库。API 更新草稿内容时也会重新提交该章节索引任务。
 
 ## 手动工作台
 

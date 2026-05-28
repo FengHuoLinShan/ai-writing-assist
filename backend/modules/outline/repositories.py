@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import Select, asc, delete, or_, select, update
+from sqlalchemy import Select, asc, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import (
@@ -98,9 +98,9 @@ class PlotThreadRepository:
             conditions.append(PlotThread.status == status)
 
         # 计数
-        count_stmt = select(PlotThread.id).where(*conditions)
+        count_stmt = select(func.count(PlotThread.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 分页查询
         stmt = (
@@ -280,9 +280,9 @@ class OutlineArcRepository:
         if status:
             conditions.append(OutlineArc.status == status)
 
-        count_stmt = select(OutlineArc.id).where(*conditions)
+        count_stmt = select(func.count(OutlineArc.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(OutlineArc)
@@ -455,9 +455,9 @@ class ChapterCardRepository:
         if status:
             conditions.append(ChapterCard.status == status)
 
-        count_stmt = select(ChapterCard.id).where(*conditions)
+        count_stmt = select(func.count(ChapterCard.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(ChapterCard)
@@ -557,6 +557,33 @@ class ChapterCardRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def merge_involved_ids(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        character_ids: list[str],
+        entity_ids: list[str],
+    ) -> None:
+        stmt = select(ChapterCard).where(
+            ChapterCard.novel_id == novel_id,
+            ChapterCard.chapter_index == chapter_index,
+        ).limit(1)
+        result = await db.execute(stmt)
+        card = result.scalar_one_or_none()
+        if card is None:
+            return
+
+        existing_chars = list(card.involved_character_ids or [])
+        existing_entities = list(card.involved_entity_ids or [])
+
+        merged_chars = list(set(existing_chars + character_ids))
+        merged_entities = list(set(existing_entities + entity_ids))
+
+        card.involved_character_ids = merged_chars
+        card.involved_entity_ids = merged_entities
+        await db.flush()
+
 
 # ============================================================
 # ForeshadowingPlanRepository
@@ -613,9 +640,9 @@ class ForeshadowingPlanRepository:
         if status:
             conditions.append(ForeshadowingPlan.status == status)
 
-        count_stmt = select(ForeshadowingPlan.id).where(*conditions)
+        count_stmt = select(func.count(ForeshadowingPlan.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(ForeshadowingPlan)
@@ -703,7 +730,7 @@ class RevealPlanRepository:
         entity = RevealPlan(
             novel_id=novel_id,
             target_type=data.target_type,
-            target_id=data.target_id,
+            target_id=uuid.UUID(hex=data.target_id) if isinstance(data.target_id, str) else data.target_id,
             secret_summary=data.secret_summary,
             reveal_stages=data.reveal_stages or [],
             status=data.status or "draft",
@@ -739,9 +766,9 @@ class RevealPlanRepository:
         if status:
             conditions.append(RevealPlan.status == status)
 
-        count_stmt = select(RevealPlan.id).where(*conditions)
+        count_stmt = select(func.count(RevealPlan.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(RevealPlan)
@@ -761,11 +788,10 @@ class RevealPlanRepository:
         target_type: str,
         target_id: str,
     ) -> list[RevealPlan]:
-        """获取指定目标的揭示计划"""
         stmt = select(RevealPlan).where(
             RevealPlan.novel_id == novel_id,
             RevealPlan.target_type == target_type,
-            RevealPlan.target_id == target_id,
+            RevealPlan.target_id == uuid.UUID(hex=target_id) if isinstance(target_id, str) else target_id,
         )
         result = await db.execute(stmt)
         items: Sequence[RevealPlan] = result.scalars().all()
@@ -785,13 +811,16 @@ class RevealPlanRepository:
         update_values: dict[str, Any] = {}
         for field in (
             "target_type",
-            "target_id",
             "secret_summary",
             "status",
         ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
+
+        if data.target_id is not None:
+            tid = data.target_id
+            update_values["target_id"] = uuid.UUID(hex=tid) if isinstance(tid, str) else tid
 
         if data.reveal_stages is not None:
             update_values["reveal_stages"] = data.reveal_stages

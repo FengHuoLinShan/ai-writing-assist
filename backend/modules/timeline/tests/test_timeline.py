@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.timeline.facade import (
     check_timeline_conflicts,
+    get_geo_effects_up_to_chapter,
     get_relevant_timeline_context,
 )
 from modules.timeline.repositories import TimelineEventRepository
@@ -580,3 +581,208 @@ class TestTimelineFacade:
         )
         order_warnings = [w for w in warnings if w.type == "order_conflict"]
         assert len(order_warnings) >= 1
+
+
+# ============================================================
+# get_geo_effects_up_to_chapter 测试
+# ============================================================
+
+class TestGetGeoEffects:
+
+    @pytest.mark.asyncio
+    async def test_returns_geo_effects_from_canonical_events_up_to_chapter(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        repo = TimelineEventRepository()
+
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="桥梁被毁",
+                summary="战争摧毁了石桥",
+                order_index=100,
+                chapter_index=1,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-1", "effect_type": "destroyed"}],
+            ),
+        )
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="道路修复",
+                summary="商人集资修复道路",
+                order_index=200,
+                chapter_index=3,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-2", "effect_type": "restored"}],
+            ),
+        )
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="港口封锁",
+                summary="港口被军事封锁",
+                order_index=300,
+                chapter_index=5,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-3", "effect_type": "blocked"}],
+            ),
+        )
+        await db_session.flush()
+
+        effects = await get_geo_effects_up_to_chapter(
+            db_session, novel_id, chapter_index=3,
+        )
+        assert len(effects) == 2
+        assert effects[0]["location_id"] == "loc-1"
+        assert effects[1]["location_id"] == "loc-2"
+
+    @pytest.mark.asyncio
+    async def test_excludes_candidate_events(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        repo = TimelineEventRepository()
+
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="候选事件",
+                summary="尚未确认的地理变化",
+                order_index=100,
+                chapter_index=1,
+                status="candidate",
+                geo_effects=[{"location_id": "loc-cand", "effect_type": "changed"}],
+            ),
+        )
+        await db_session.flush()
+
+        effects = await get_geo_effects_up_to_chapter(
+            db_session, novel_id, chapter_index=5,
+        )
+        assert len(effects) == 0
+
+    @pytest.mark.asyncio
+    async def test_excludes_events_with_empty_geo_effects(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        repo = TimelineEventRepository()
+
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="无地理影响事件",
+                summary="普通剧情事件",
+                order_index=100,
+                chapter_index=1,
+                status="canonical",
+                geo_effects=[],
+            ),
+        )
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="有地理影响事件",
+                summary="影响地理的事件",
+                order_index=200,
+                chapter_index=2,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-1", "effect_type": "destroyed"}],
+            ),
+        )
+        await db_session.flush()
+
+        effects = await get_geo_effects_up_to_chapter(
+            db_session, novel_id, chapter_index=5,
+        )
+        assert len(effects) == 1
+        assert effects[0]["location_id"] == "loc-1"
+
+    @pytest.mark.asyncio
+    async def test_facade_returns_same_results(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        repo = TimelineEventRepository()
+        service = TimelineService()
+
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="桥梁被毁",
+                summary="战争摧毁了石桥",
+                order_index=100,
+                chapter_index=1,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-1", "effect_type": "destroyed"}],
+            ),
+        )
+        await db_session.flush()
+
+        facade_result = await get_geo_effects_up_to_chapter(
+            db_session, novel_id, chapter_index=3,
+        )
+        service_result = await service.get_geo_effects_up_to_chapter(
+            db_session, novel_id, chapter_index=3,
+        )
+        assert facade_result == service_result
+        assert len(facade_result) == 1
+
+    @pytest.mark.asyncio
+    async def test_includes_events_with_null_chapter_index(
+        self,
+        db_session: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        repo = TimelineEventRepository()
+
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="全局地理事件",
+                summary="影响整个世界的地理变化",
+                order_index=50,
+                chapter_index=None,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-global", "effect_type": "shifted"}],
+            ),
+        )
+        await repo.create(
+            db_session,
+            nid,
+            TimelineEventCreate(
+                title="章节事件",
+                summary="第一章的地理变化",
+                order_index=100,
+                chapter_index=1,
+                status="canonical",
+                geo_effects=[{"location_id": "loc-1", "effect_type": "destroyed"}],
+            ),
+        )
+        await db_session.flush()
+
+        effects = await get_geo_effects_up_to_chapter(
+            db_session, novel_id, chapter_index=1,
+        )
+        assert len(effects) == 2
+        assert effects[0]["location_id"] == "loc-global"
+        assert effects[1]["location_id"] == "loc-1"

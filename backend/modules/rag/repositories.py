@@ -21,7 +21,6 @@ from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class RagChunkRepository:
-    """RAG 片段数据访问"""
 
     def _json_array_contains_all(
         self,
@@ -29,11 +28,12 @@ class RagChunkRepository:
         column: ColumnElement,
         values: list[str],
     ) -> ColumnElement[bool]:
-        """Build a JSON-array containment predicate for the active dialect."""
+        if not values:
+            from sqlalchemy import true
+            return true()
         bind = db.get_bind()
         if bind.dialect.name == "postgresql":
             return column.cast(JSONB).contains(values)
-
         return and_(*(column.contains(value) for value in values))
 
     # ============================================================
@@ -52,6 +52,10 @@ class RagChunkRepository:
             source_type=data.source_type,
             source_id=uuid.UUID(hex=data.source_id) if data.source_id else None,
             chapter_index=data.chapter_index,
+            chunk_index=data.chunk_index,
+            start_offset=data.start_offset,
+            end_offset=data.end_offset,
+            char_count=data.char_count,
             text=data.text,
             summary=data.summary,
             entity_ids=data.entity_ids or [],
@@ -59,6 +63,10 @@ class RagChunkRepository:
             thread_ids=data.thread_ids or [],
             visibility=data.visibility or "author_only",
             importance=data.importance if data.importance is not None else 0.5,
+            index_version=data.index_version or "legacy",
+            embedding_status=data.embedding_status or "pending",
+            embedding_error=data.embedding_error,
+            index_warnings=data.index_warnings or [],
             meta=data.meta or {},
         )
         db.add(chunk)
@@ -206,7 +214,35 @@ class RagChunkRepository:
         stmt = (
             select(RagChunk)
             .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def find_by_chapter_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_chapter: int,
+        end_chapter: int,
+        *,
+        source_type: str = "chapter_text",
+        visibility: str | None = None,
+    ) -> list[RagChunk]:
+        """按章节范围读取有序 chunk。"""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.source_type == source_type,
+            RagChunk.chapter_index >= start_chapter,
+            RagChunk.chapter_index <= end_chapter,
+        ]
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
+        stmt = (
+            select(RagChunk)
+            .where(and_(*conditions))
+            .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -375,13 +411,13 @@ class RagChunkRepository:
         if not chunks:
             return []
 
-        from modules.rag.services import RetrievalService as _rs
+        from modules.rag.services import RetrievalService as _RetrievalService
 
         scored: list[tuple[RagChunk, float]] = []
         for c in chunks:
             chunk_emb = c.embedding
             if isinstance(chunk_emb, list) and len(chunk_emb) == len(embedding):
-                sim = _rs._cosine_similarity(embedding, chunk_emb)
+                sim = _RetrievalService._cosine_similarity(embedding, chunk_emb)
                 scored.append((c, max(0.0, sim)))
 
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -403,3 +439,36 @@ class RagChunkRepository:
         )
         result = await db.execute(stmt)
         return result.scalar_one()
+
+    async def has_embeddings(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> bool:
+        """该项目是否已有可用 chunk embedding。"""
+        stmt = (
+            select(func.count(RagChunk.id))
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.embedding.is_not(None),
+            )
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return (result.scalar_one() or 0) > 0
+
+    async def count_embedding_failed(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> int:
+        """统计 embedding 失败的 chunk 数。"""
+        stmt = (
+            select(func.count(RagChunk.id))
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.embedding_status == "failed",
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one() or 0

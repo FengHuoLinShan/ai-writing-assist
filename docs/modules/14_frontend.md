@@ -6,17 +6,7 @@
 
 ## 架构
 
-```text
-frontend-console/
-├── index.html        — 主页面 DOM
-├── styles.css        — CSS 变量暗色主题
-├── state.js          — Proxy 响应式状态管理
-├── router.js         — view + subView 两级路由
-├── api.js            — 全模块 API 封装（character/world/geo/outline/writing/memory/timeline/rag/context/review/projects/imports/tasks）
-├── commands.js       — Vim 风格命令系统
-├── app.js            — 事件绑定 / 快捷键 / 生命周期
-└── views/            — 14 个视图
-```
+SPA 入口 `index.html`，文件职责：`state.js`（Proxy 响应式）、`router.js`（两级路由）、`api.js`（14 个模块封装）、`app.js`（生命周期）、`views/`（12 个视图）。
 
 ## 核心设计
 
@@ -44,41 +34,10 @@ frontend-console/
 | writingView | 手动工作台（章节树+编辑器+细纲面板）+ 深度导入 + 章节卡提取 |
 | generateView | 四大 Prompt 生成入口 |
 
-## 侧边栏导航
-
-```
-项目
-手动工作台
-—— 创作核心 ——
-世界对象
-人物档案
-剧情结构
-地理历史
-时间线
-长期记忆
-▸ 更多
-  RAG 检索
-  上下文
-  结构复查
-  生成中心
-```
-
 ## 状态保存机制
 
-支持两种维度状态保存，确保视图切换时用户体验连续。
-
-### A. 子标签记忆（router.js）
-
-- `router.js` 维护 `_lastSubViewMap`，记录每个视图最后访问的子标签
-- 侧边栏导航时通过 `router.getLastSubView(viewName)` 恢复，而非默认跳到第一个子标签
-- 切换视图时自动保存当前子标签
-
-### B. 编辑器内容保持（state.js + writingView.js）
-
-- `state.js` 的 `appState` 增加 `viewStates: {}` 命名空间，各视图独立存储
-- `writingView.onLeave()` 保存 `{currentChapter, currentContent, currentDraftId, currentDraftStatus}`
-- `writingView.onEnter()` 检测到保存状态后恢复，不重新从服务器加载草稿正文
-- 用户主动切换章节或保存草稿后清除保存状态
+- 子标签记忆：`router.js` 维护 `_lastSubViewMap`，切换视图时恢复最后访问的子标签
+- 编辑器内容保持：`state.js` 的 `viewStates` 命名空间独立存储各视图状态，`writingView` 切换时保存/恢复编辑器内容
 
 ## API 封装风格
 

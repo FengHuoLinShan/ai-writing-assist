@@ -11,6 +11,10 @@ const memoryView = {
   async onEnter() {
     this._records = []
     this._proposals = []
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
     await Promise.all([this._loadRecords(), this._loadProposals()])
   },
 
@@ -111,10 +115,26 @@ const memoryView = {
     }
     let html = `<table class="data-table"><thead><tr><th>类型</th><th>摘要</th><th>置信度</th><th>来源</th><th>操作</th></tr></thead><tbody>`
     for (const p of this._proposals) {
+      const payload = p.payload || {}
+      const isGeo = !!(payload.character_shifts || payload.faction_shifts)
+      const rowClass = isGeo ? ' class="geo-proposal-card"' : ""
+      let geoDetail = ""
+      if (isGeo) {
+        if (payload.character_shifts && payload.character_shifts.length > 0) {
+          for (const cs of payload.character_shifts) {
+            geoDetail += `<div style="font-size:11px;color:var(--text-muted);">人物变动：角色 【${esc(cs.character_name)}】 【${esc(cs.movement_type)}】 至 【${esc(cs.destination_location_name)}】</div>`
+          }
+        }
+        if (payload.faction_shifts && payload.faction_shifts.length > 0) {
+          for (const fs of payload.faction_shifts) {
+            geoDetail += `<div style="font-size:11px;color:var(--text-muted);">割据变动：组织 【${esc(fs.faction_name)}】 对 【${esc(fs.target_location_name)}】 的状态转为 【${esc(fs.new_relation)}】</div>`
+          }
+        }
+      }
       html += `
-        <tr data-id="${esc(p.id || p.proposal_id)}">
+        <tr data-id="${esc(p.id || p.proposal_id)}"${rowClass}>
           <td><span class="badge badge-draft">${esc(p.proposal_type || p.memory_type || "-")}</span></td>
-          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.summary || p.reason || "")}</td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.summary || p.reason || "")}${geoDetail}</td>
           <td>${p.confidence ? (p.confidence * 100).toFixed(0) + "%" : "-"}</td>
           <td style="color:var(--text-dim);font-size:11px;">${esc((p.source_text_excerpt || "").slice(0, 50))}</td>
           <td style="display:flex;gap:4px;">
@@ -131,6 +151,7 @@ const memoryView = {
     try {
       await api.memory.confirmProposal(_state.currentProjectId, proposalId, {})
       toast("提案已确认", "success")
+      await this._loadProposals()
       router.navigate("memory", "proposals")
     } catch (err) { toast(err.message || "确认失败", "error") }
   },
@@ -140,6 +161,7 @@ const memoryView = {
       try {
         await api.memory.rejectProposal(_state.currentProjectId, proposalId, "user")
         toast("已拒绝", "success")
+        await this._loadProposals()
         router.navigate("memory", "proposals")
       } catch (err) { toast(err.message || "操作失败", "error") }
     }, "拒绝")

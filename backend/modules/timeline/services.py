@@ -342,6 +342,20 @@ class TimelineService:
                     )
         return warnings
 
+    async def get_geo_effects_up_to_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+    ) -> list[dict[str, Any]]:
+        nid = parse_uuid(novel_id)
+        events = await self._repo.get_geo_effects_up_to_chapter(db, nid, chapter_index)
+        result: list[dict[str, Any]] = []
+        for event in events:
+            if isinstance(event.geo_effects, list):
+                result.extend(event.geo_effects)
+        return result
+
     # ============================================================
     # 内部工具
     # ============================================================

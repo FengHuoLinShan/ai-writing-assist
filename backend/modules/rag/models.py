@@ -60,6 +60,26 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="关联章节索引（从 1 开始）",
     )
+    chunk_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="章节内 chunk 序号（从 0 开始）",
+    )
+    start_offset: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="chunk 在原始章节正文中的起始字符位置",
+    )
+    end_offset: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="chunk 在原始章节正文中的结束字符位置",
+    )
+    char_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="chunk 正文字符数",
+    )
     text: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -99,6 +119,29 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=0.5,
         comment="重要性评分（0.0-1.0），越高越关键",
+    )
+    index_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="legacy",
+        comment="RAG 索引版本",
+    )
+    embedding_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        comment="embedding 状态：pending/succeeded/failed/skipped",
+    )
+    embedding_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="embedding 失败原因",
+    )
+    index_warnings: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        comment="索引过程告警",
     )
     embedding = _embedding_column()
     meta: Mapped[dict] = mapped_column(

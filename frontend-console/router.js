@@ -76,6 +76,8 @@ function onNavigate(listener) {
  * 渲染当前视图
  */
 let _prevView = null
+let _prevRenderedView = null
+let _prevRenderedSubView = null
 
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = {}
@@ -95,7 +97,6 @@ async function renderCurrentView() {
 
   if (!content) return
 
-  // 调用上一个视图的 onLeave（不是当前视图的）
   if (_prevView && _prevView !== viewName) {
     const prevRenderer = viewRenderers[_prevView]
     if (prevRenderer && prevRenderer.onLeave) {
@@ -104,19 +105,19 @@ async function renderCurrentView() {
   }
   _prevView = viewName
 
+  const isSameRender = _prevRenderedView === viewName && _prevRenderedSubView === (_state.currentSubView || "")
+  const renderer = viewRenderers[viewName]
+
   _state.loading = true
 
   try {
-    if (viewRenderers[viewName]) {
-      // 调用视图的 onEnter
-      if (viewRenderers[viewName].onEnter) {
-        await viewRenderers[viewName].onEnter()
+    if (renderer) {
+      if (!isSameRender && renderer.onEnter) {
+        await renderer.onEnter()
       }
-      // 渲染
-      const html = await viewRenderers[viewName].render()
+      const html = await renderer.render()
       content.innerHTML = html
     } else {
-      // 视图尚未实现
       const route = routes[viewName]
       content.innerHTML = `
         <div class="empty-state">
@@ -137,39 +138,33 @@ async function renderCurrentView() {
     `
   } finally {
     _state.loading = false
+    _prevRenderedView = viewName
+    _prevRenderedSubView = _state.currentSubView || ""
   }
 
-  // 更新右侧信息栏
   updateRightPanelForView(viewName)
 
-  // 触发导航监听
   for (const listener of _navListeners) {
     try { listener(viewName, _state.currentSubView) } catch (e) { console.error(e) }
   }
 }
 
-/**
- * 切换视图
- * @param {string} viewName - 视图名称
- * @param {string|null} [subView] - 子视图名称
- * @param {boolean} [pushHistory=true] - 是否写入浏览器历史
- */
 function navigate(viewName, subView = null, pushHistory = true) {
   if (!routes[viewName]) {
     console.warn(`未知路由: ${viewName}`)
     return
   }
 
-  // 保存当前视图的最后子标签
   if (_state.currentView && _state.currentView !== viewName) {
     _lastSubViewMap[_state.currentView] = _state.currentSubView
   }
 
+  const isSameView = _state.currentView === viewName
+
   _state.currentView = viewName
   _state.currentSubView = subView
 
-  // 清空选择（只在切换视图时清除，同一视图内切换子标签时保留）
-  if (_state.currentView !== viewName) {
+  if (!isSameView) {
     _state.selectedItem = null
     _state.selectedItems = []
   }
@@ -214,14 +209,6 @@ function initRouter() {
     const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : subFromHash
 
     if (routes[targetView]) {
-      // 调用旧视图的 onLeave
-      if (_prevView && _prevView !== targetView) {
-        const prevRenderer = viewRenderers[_prevView]
-        if (prevRenderer && prevRenderer.onLeave) {
-          try { prevRenderer.onLeave() } catch (e) { console.error(e) }
-        }
-      }
-      _prevView = targetView
       _state.currentView = targetView
       _state.currentSubView = targetSubView
       renderCurrentView()

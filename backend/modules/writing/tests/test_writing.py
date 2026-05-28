@@ -21,7 +21,7 @@ from modules.writing.schemas import (
     WritingDraftCreate,
     WritingDraftUpdate,
 )
-from modules.writing.services import WritingDraftService
+from modules.writing.services import WritingDraftService, WritingAnalysisService
 
 
 # ============================================================
@@ -751,3 +751,90 @@ class TestWritingFacade:
             db_session, str(uuid.uuid4()),
         )
         assert indices == []
+
+
+# ============================================================
+# SaveAndAnalyze 测试
+# ============================================================
+
+class TestSaveAndAnalyze:
+
+    @pytest.mark.asyncio
+    async def test_save_and_analyze_creates_proposal(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+        from modules.memory.schemas import ChapterStateExtraction, CharacterLocationShift, FactionControlShift
+        from modules.memory.schemas import MemoryUpdateProposalContext
+
+        novel_id = str(uuid.uuid4())
+        content = "李明御剑飞往北境，天剑宗全面控制了北境。"
+
+        mock_extraction = ChapterStateExtraction(
+            summary="主角前往北境",
+            character_shifts=[
+                CharacterLocationShift(
+                    character_name="李明",
+                    destination_location_name="北境",
+                    movement_type="御剑飞行",
+                )
+            ],
+            faction_shifts=[
+                FactionControlShift(
+                    faction_name="天剑宗",
+                    target_location_name="北境",
+                    new_relation="controls",
+                    description="天剑宗全面控制北境",
+                )
+            ],
+        )
+
+        mock_proposals = [
+            MemoryUpdateProposalContext(
+                id=str(uuid.uuid4()),
+                proposal_type="create_memory",
+                payload={"summary": "test"},
+                confidence=0.8,
+            )
+        ]
+
+        with patch(
+            "infrastructure.llm.client.LLMClient.generate_structured",
+            new_callable=AsyncMock,
+            return_value=mock_extraction,
+        ), patch(
+            "modules.memory.facade.create_memory_update_proposals",
+            new_callable=AsyncMock,
+            return_value=mock_proposals,
+        ):
+            service = WritingAnalysisService()
+            result = await service.analyze_chapter(
+                db_session, novel_id, 1, content,
+            )
+            assert result == (True, "success")
+
+    @pytest.mark.asyncio
+    async def test_save_and_analyze_llm_failure_graceful(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+        from modules.writing.api import SaveAndAnalyzeRequest, save_and_analyze
+
+        novel_id = str(uuid.uuid4())
+        content = "平静的一章，没有任何变化。"
+
+        with patch(
+            "infrastructure.llm.client.LLMClient.generate_structured",
+            new_callable=AsyncMock,
+            side_effect=Exception("LLM service unavailable"),
+        ):
+            data = SaveAndAnalyzeRequest(
+                novel_id=novel_id,
+                chapter_index=1,
+                content=content,
+            )
+            response = await save_and_analyze(db_session, data)
+            assert response.draft_id is not None
+            assert response.proposal_created is False

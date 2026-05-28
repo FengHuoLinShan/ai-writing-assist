@@ -10,8 +10,10 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
 from modules.imports.parsers import (
     parse_file,
     parse_txt,
@@ -240,6 +242,31 @@ class TestImportService:
         assert resp.imported_chapters == 4
         assert resp.file_name == "novel.txt"
         assert resp.file_type == "txt"
+
+    @pytest.mark.asyncio
+    async def test_upload_and_import_enqueues_rag_index_tasks(
+        self,
+        service,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+    ):
+        """导入章节后应排 RAG 索引任务，供人物档案抽取检索正文。"""
+        resp = await service.upload_and_import(
+            db_session,
+            test_project_id,
+            "novel.txt",
+            sample_txt_content,
+        )
+
+        result = await db_session.execute(
+            select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
+        )
+        tasks = list(result.scalars().all())
+
+        assert len(tasks) == resp.imported_chapters
+        assert {task.meta["chapter_index"] for task in tasks} == {1, 2, 3, 4}
+        assert all(task.meta["novel_id"] == test_project_id for task in tasks)
 
     @pytest.mark.asyncio
     async def test_upload_unsupported_type(

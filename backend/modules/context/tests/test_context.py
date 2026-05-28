@@ -90,6 +90,7 @@ class TestStructureContextBundle:
         assert bundle.world_entities == []
         assert bundle.characters == []
         assert bundle.warnings == []
+        assert bundle.geo_filtered is False
 
     def test_create_full_bundle(self) -> None:
         """验证完整 bundle 创建"""
@@ -245,6 +246,37 @@ class TestContextCompiler:
         # 项目不存在时 project 应为 None
         assert bundle.project is None
 
+    @pytest.mark.asyncio
+    async def test_compile_with_geo_filter_disabled(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """默认不启用地缘过滤"""
+        bundle = await compile_structure_context(
+            db=db_session,
+            novel_id="00000000-0000-0000-0000-000000000008",
+            task="测试",
+            scope="chapter",
+            chapter_index=1,
+        )
+        assert bundle.geo_filtered is False
+
+    @pytest.mark.asyncio
+    async def test_compile_with_geo_filter_enabled(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """显式启用地缘过滤时参数正确传递"""
+        bundle = await compile_structure_context(
+            db=db_session,
+            novel_id="00000000-0000-0000-0000-000000000009",
+            task="测试",
+            scope="chapter",
+            chapter_index=1,
+            enable_geo_filter=True,
+        )
+        assert bundle.geo_filtered is False
+
 
 # ============================================================
 # CompileOptions 测试
@@ -261,6 +293,7 @@ class TestCompileOptions:
         )
         assert opts.novel_id == "test-id"
         assert opts.reveal_mode == "author_safe"
+        assert opts.enable_geo_filter is False
 
     def test_create_full(self) -> None:
         opts = CompileOptions(
@@ -273,10 +306,12 @@ class TestCompileOptions:
             character_ids=["c1"],
             location_ids=["l1"],
             reveal_mode="author_full",
+            enable_geo_filter=True,
         )
         assert opts.chapter_index == 3
         assert opts.arc_id == "arc-1"
         assert opts.reveal_mode == "author_full"
+        assert opts.enable_geo_filter is True
 
 
 # ============================================================
@@ -529,3 +564,305 @@ class TestApiSchemas:
         assert item.category == "core_entities"
         assert item.budget == 8
         assert item.used == 3
+
+
+# ============================================================
+# GeoReachabilityFilter 测试
+# ============================================================
+
+class TestGeoReachabilityFilter:
+    """测试地缘可达性过滤器"""
+
+    @pytest.mark.asyncio
+    async def test_filter_downweights_unreachable_chunks(self) -> None:
+        from unittest import mock
+
+        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
+
+        geo_filter = GeoReachabilityFilter()
+
+        chunks = [
+            {
+                "text": "北大陆的魔法学院",
+                "entity_ids": ["entity-north"],
+                "importance": 0.8,
+            },
+            {
+                "text": "南大陆的沙漠商队",
+                "entity_ids": ["entity-south"],
+                "importance": 0.7,
+            },
+        ]
+        entity_to_location = {
+            "entity-north": "loc-north",
+            "entity-south": "loc-south",
+        }
+
+        with mock.patch(
+            "modules.character.facade.get_character_location_id",
+            return_value="loc-north",
+        ), mock.patch(
+            "modules.geo.facade.calculate_route",
+            return_value=mock.Mock(is_reachable=False),
+        ):
+
+            result = await geo_filter.filter_chunks(
+                db=mock.AsyncMock(),
+                novel_id="test-novel",
+                chapter_index=5,
+                character_ids=["char-1"],
+                chunks=chunks,
+                entity_to_location_map=entity_to_location,
+            )
+
+        assert len(result) == 2
+        assert result[0]["importance"] == 0.8
+        assert result[1]["importance"] < 0.7
+        assert result[1].get("geo_filtered") is True
+
+    @pytest.mark.asyncio
+    async def test_filter_preserves_reachable_chunks(self) -> None:
+        from unittest import mock
+
+        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
+
+        geo_filter = GeoReachabilityFilter()
+
+        chunks = [
+            {
+                "text": "北大陆的魔法学院",
+                "entity_ids": ["entity-north"],
+                "importance": 0.8,
+            },
+        ]
+        entity_to_location = {"entity-north": "loc-north"}
+
+        with mock.patch(
+            "modules.character.facade.get_character_location_id",
+            return_value="loc-north",
+        ), mock.patch(
+            "modules.geo.facade.calculate_route",
+            return_value=mock.Mock(is_reachable=True),
+        ):
+            result = await geo_filter.filter_chunks(
+                db=mock.AsyncMock(),
+                novel_id="test-novel",
+                chapter_index=5,
+                character_ids=["char-1"],
+                chunks=chunks,
+                entity_to_location_map=entity_to_location,
+            )
+
+        assert len(result) == 1
+        assert result[0]["importance"] == 0.8
+        assert result[0].get("geo_filtered") is not True
+
+    @pytest.mark.asyncio
+    async def test_filter_no_character_location_skips(self) -> None:
+        from unittest import mock
+
+        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
+
+        geo_filter = GeoReachabilityFilter()
+
+        chunks = [
+            {
+                "text": "北大陆的魔法学院",
+                "entity_ids": ["entity-north"],
+                "importance": 0.8,
+            },
+        ]
+
+        with mock.patch(
+            "modules.character.facade.get_character_location_id",
+            return_value=None,
+        ):
+            result = await geo_filter.filter_chunks(
+                db=mock.AsyncMock(),
+                novel_id="test-novel",
+                chapter_index=5,
+                character_ids=["char-1"],
+                chunks=chunks,
+                entity_to_location_map={"entity-north": "loc-north"},
+            )
+
+        assert len(result) == 1
+        assert result[0]["importance"] == 0.8
+
+    @pytest.mark.asyncio
+    async def test_filter_no_chapter_index_skips(self) -> None:
+        from unittest import mock
+
+        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
+
+        geo_filter = GeoReachabilityFilter()
+
+        chunks = [
+            {
+                "text": "北大陆的魔法学院",
+                "entity_ids": ["entity-north"],
+                "importance": 0.8,
+            },
+        ]
+
+        result = await geo_filter.filter_chunks(
+            db=mock.AsyncMock(),
+            novel_id="test-novel",
+            chapter_index=None,
+            character_ids=["char-1"],
+            chunks=chunks,
+            entity_to_location_map={"entity-north": "loc-north"},
+        )
+
+        assert len(result) == 1
+        assert result[0]["importance"] == 0.8
+
+    @pytest.mark.asyncio
+    async def test_filter_chunk_without_entity_ids_preserved(self) -> None:
+        from unittest import mock
+
+        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
+
+        geo_filter = GeoReachabilityFilter()
+
+        chunks = [
+            {
+                "text": "通用背景信息",
+                "entity_ids": [],
+                "importance": 0.6,
+            },
+        ]
+
+        with mock.patch(
+            "modules.character.facade.get_character_location_id",
+            return_value="loc-north",
+        ):
+            result = await geo_filter.filter_chunks(
+                db=mock.AsyncMock(),
+                novel_id="test-novel",
+                chapter_index=5,
+                character_ids=["char-1"],
+                chunks=chunks,
+                entity_to_location_map={},
+            )
+
+        assert len(result) == 1
+        assert result[0]["importance"] == 0.6
+
+
+# ============================================================
+# RagChunksLoader 地缘过滤集成测试
+# ============================================================
+
+class TestRagChunksLoaderGeoFilter:
+    """测试 RagChunksLoader 与地缘过滤的集成"""
+
+    @pytest.mark.asyncio
+    async def test_rag_loader_applies_geo_filter_when_enabled(self) -> None:
+        from unittest import mock
+
+        from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
+        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
+        from modules.context.services.types import CompileOptions
+        from modules.rag.contracts import RagChunkContract, RagResultBundle
+
+        loader = RagChunksLoader()
+        options = CompileOptions(
+            novel_id="test-novel",
+            task="测试",
+            scope="chapter",
+            chapter_index=5,
+            character_ids=["char-1"],
+            enable_geo_filter=True,
+        )
+        bundle = StructureContextBundle(
+            novel_id="test-novel",
+            task="测试",
+            scope="chapter",
+            budget_used={k: 0 for k in CONTEXT_BUDGET},
+        )
+
+        mock_result = RagResultBundle(
+            chunks=[
+                RagChunkContract(
+                    id="chunk-1",
+                    novel_id="test-novel",
+                    source_type="chapter_text",
+                    text="北大陆的魔法学院",
+                    entity_ids=["entity-north"],
+                    importance=0.8,
+                ),
+            ],
+            total=1,
+            query="测试",
+        )
+
+        filtered_chunks = [
+            {
+                "id": "chunk-1",
+                "text": "北大陆的魔法学院",
+                "entity_ids": ["entity-north"],
+                "importance": 0.24,
+                "geo_filtered": True,
+            },
+        ]
+
+        with mock.patch(
+            "modules.rag.facade.retrieve", return_value=mock_result,
+        ):
+            loader._geo_filter = mock.AsyncMock()
+            loader._geo_filter.filter_chunks = mock.AsyncMock(return_value=filtered_chunks)
+
+            await loader.load(mock.AsyncMock(), options, bundle)
+
+        assert bundle.rag_chunks == filtered_chunks
+        assert bundle.geo_filtered is True
+
+    @pytest.mark.asyncio
+    async def test_rag_loader_skips_geo_filter_when_disabled(self) -> None:
+        from unittest import mock
+
+        from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
+        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
+        from modules.context.services.types import CompileOptions
+        from modules.rag.contracts import RagChunkContract, RagResultBundle
+
+        loader = RagChunksLoader()
+        options = CompileOptions(
+            novel_id="test-novel",
+            task="测试",
+            scope="chapter",
+            chapter_index=5,
+            character_ids=["char-1"],
+            enable_geo_filter=False,
+        )
+        bundle = StructureContextBundle(
+            novel_id="test-novel",
+            task="测试",
+            scope="chapter",
+            budget_used={k: 0 for k in CONTEXT_BUDGET},
+        )
+
+        mock_result = RagResultBundle(
+            chunks=[
+                RagChunkContract(
+                    id="chunk-1",
+                    novel_id="test-novel",
+                    source_type="chapter_text",
+                    text="北大陆的魔法学院",
+                    entity_ids=["entity-north"],
+                    importance=0.8,
+                ),
+            ],
+            total=1,
+            query="测试",
+        )
+
+        with mock.patch(
+            "modules.rag.facade.retrieve", return_value=mock_result,
+        ):
+            await loader.load(mock.AsyncMock(), options, bundle)
+
+        assert len(bundle.rag_chunks) == 1
+        assert bundle.rag_chunks[0].importance == 0.8
+        assert bundle.geo_filtered is False

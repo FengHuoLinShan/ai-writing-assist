@@ -7,7 +7,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.e2e.seed_data import create_base_scene
+from tests.e2e.seed_data import create_base_scene, create_timeline_events
 
 
 class TestTimelineCRUD:
@@ -70,3 +70,23 @@ class TestTimelineCRUD:
         client, pid = ctx
         resp = await client.get(f"/api/novels/{pid}/timeline/events?before_chapter=10")
         assert resp.status_code == 200
+
+
+class TestTimelineMissingFlows:
+    @pytest_asyncio.fixture
+    async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
+        meta = await create_base_scene(db_session)
+        pid = meta["project_uuid"]
+        events = await create_timeline_events(db_session, pid)
+        await db_session.flush()
+        return async_client, meta["project_id"], events["event_ids"]
+
+    async def test_deprecate_event(self, ctx):
+        client, pid, event_ids = ctx
+        eid = event_ids["克莱恩穿越"]
+        resp = await client.put(
+            f"/api/novels/{pid}/timeline/events/{eid}",
+            json={"status": "deprecated"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deprecated"

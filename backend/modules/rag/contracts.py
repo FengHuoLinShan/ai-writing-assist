@@ -8,7 +8,6 @@ RAG 对外契约
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -25,6 +24,14 @@ class RagChunkContract:
     """来源对象 ID"""
     chapter_index: int | None = None
     """关联章节索引"""
+    chunk_index: int | None = None
+    """章节内 chunk 序号"""
+    start_offset: int | None = None
+    """原始正文起始字符位置"""
+    end_offset: int | None = None
+    """原始正文结束字符位置"""
+    char_count: int | None = None
+    """chunk 正文字符数"""
     text: str = ""
     """片段文本"""
     summary: str | None = None
@@ -39,6 +46,14 @@ class RagChunkContract:
     """信息可见性"""
     importance: float = 0.5
     """重要性评分"""
+    index_version: str = "legacy"
+    """RAG 索引版本"""
+    embedding_status: str = "pending"
+    """embedding 状态"""
+    embedding_error: str | None = None
+    """embedding 失败原因"""
+    index_warnings: list[str] = field(default_factory=list)
+    """索引过程告警"""
     score: float | None = None
     """检索评分（检索结果中填充）"""
 
@@ -57,6 +72,8 @@ class RagQueryContract:
     """限制关联的剧情线 ID 列表"""
     chapter_index: int | None = None
     """限制关联章节索引"""
+    mode: str = "search"
+    """检索模式：search / context / extraction"""
     top_k: int = 12
     """返回的最大结果数"""
 
@@ -74,3 +91,18 @@ class RagResultBundle:
     """匹配总数"""
     query: str = ""
     """原始查询文本"""
+    warnings: list[str] = field(default_factory=list)
+    """检索过程告警"""
+    degraded: bool = False
+    """是否发生降级"""
+
+
+@dataclass(frozen=True)
+class RagIndexReport:
+    """RAG 索引结果报告"""
+
+    chapter_index: int
+    chunks_created: int = 0
+    warnings: list[str] = field(default_factory=list)
+    embedding_failed_count: int = 0
+    chunks_created_ids: list[str] = field(default_factory=list)

@@ -76,6 +76,7 @@ async def handle_chapter_card_extraction(db, task):
         raise ValueError("novel_id is required for chapter_card_extraction")
 
     from modules.outline.services import ChapterCardService
+    from modules.rag.facade import get_ordered_chapter_chunks, index_chapter_with_report
     from modules.writing.facade import get_latest_draft_for_chapter
 
     card_service = ChapterCardService()
@@ -109,8 +110,14 @@ async def handle_chapter_card_extraction(db, task):
 
         # 3. 调用 LLM 单章提取
         try:
+            report = await index_chapter_with_report(db, novel_id, idx)
+            rag_chunks = await get_ordered_chapter_chunks(db, novel_id, idx)
+            extraction_content = "\n\n".join(
+                f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
+                for chunk in rag_chunks
+            ) or draft.content
             card_data = await _extract_single_chapter_card(
-                db, novel_id, idx, draft.content,
+                db, novel_id, idx, extraction_content,
             )
 
             create_data = ChapterCardCreate(
@@ -129,7 +136,12 @@ async def handle_chapter_card_extraction(db, task):
             )
             result = await card_service.create(db, novel_id, create_data)
             created += 1
-            items.append({"chapter_index": idx, "card_id": str(result.id), "status": "created"})
+            items.append({
+                "chapter_index": idx,
+                "card_id": str(result.id),
+                "status": "created",
+                "warnings": report.warnings,
+            })
         except Exception as exc:
             logger.warning("Failed to extract chapter card for ch %d: %s", idx, exc)
             errors.append(f"第{idx}章: {exc}")
@@ -205,5 +217,4 @@ async def _extract_single_chapter_card(
     llm = LLMClient()
     result = await llm.generate_structured(request, _ExtractedChapterCard)
     return result
-
 

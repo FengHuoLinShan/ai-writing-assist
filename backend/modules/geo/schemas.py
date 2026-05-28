@@ -358,6 +358,24 @@ class TravelConstraintResult(BaseModel):
     alternative_routes: list[dict] = []
 
 
+class RouteQueryRequest(BaseModel):
+    """路径计算请求"""
+
+    novel_id: str = Field(..., description="小说项目 ID")
+    source_location_id: str = Field(..., description="起点地点 ID")
+    target_location_id: str = Field(..., description="终点地点 ID")
+    chapter_index: int = Field(..., ge=0, description="截止章节索引")
+
+
+class RouteQueryResponse(BaseModel):
+    """路径计算响应"""
+
+    is_reachable: bool = Field(..., description="是否可达")
+    total_travel_hours: float = Field(..., description="总旅行耗时（小时），不可达时为 -1.0")
+    recommended_path: list[str] = Field(default_factory=list, description="途经节点 ID 列表")
+    message: str = Field(default="", description="附加信息（如不可达原因）")
+
+
 class EraState(BaseModel):
     """地点在某个历史时期的状态"""
 

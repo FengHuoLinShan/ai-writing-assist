@@ -209,6 +209,93 @@ async def test_index_chapter_with_embeddings(
 
 
 @pytest.mark.asyncio
+async def test_index_chapter_uses_cn_novel_index_and_project_terms(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """索引应记录显式位置字段，并用人物/世界/剧情线词典标注 chunk。"""
+    from unittest.mock import AsyncMock, patch
+
+    from modules.character.models import Character
+    from modules.outline.models import PlotThread
+    from modules.rag.facade import index_chapter_with_report
+    from modules.world.models import EntityAlias, WorldEntity
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    char_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    thread_id = uuid.uuid4()
+
+    db_session.add(Character(
+        id=char_id,
+        novel_id=nid_uuid,
+        name="克莱恩·莫雷蒂",
+        aliases=[{"alias": "周明瑞", "type": "original_name"}],
+        role="主角",
+    ))
+    db_session.add(WorldEntity(
+        id=entity_id,
+        novel_id=nid_uuid,
+        entity_type="secret",
+        name="灰雾",
+        summary="神秘空间",
+        status="canonical",
+    ))
+    db_session.add(EntityAlias(
+        id=uuid.uuid4(),
+        novel_id=nid_uuid,
+        entity_id=entity_id,
+        alias="神秘空间",
+        alias_type="name",
+    ))
+    db_session.add(PlotThread(
+        id=thread_id,
+        novel_id=nid_uuid,
+        name="穿越谜团",
+        thread_type="hidden",
+        summary="主角穿越相关暗线",
+        status="canonical",
+    ))
+    db_session.add(WritingDraft(
+        id=uuid.uuid4(),
+        novel_id=nid_uuid,
+        chapter_index=1,
+        title="第一章",
+        content=(
+            "周明瑞从梦中醒来，脑海里残留着穿越谜团。"
+            "他看见神秘空间一样的灰雾在眼前翻涌。" * 20
+        ),
+        version_number=1,
+        status="draft",
+    ))
+    await db_session.flush()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=Exception("embedding down"))
+        mock_client_cls.return_value = mock_client
+
+        report = await index_chapter_with_report(db_session, test_project_id, 1)
+
+    assert report.chunks_created > 0
+    assert report.embedding_failed_count == report.chunks_created
+    assert report.warnings
+
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert chunks
+    assert all(c.index_version == "cn-novel-v1" for c in chunks)
+    assert all(c.chunk_index is not None for c in chunks)
+    assert all(c.start_offset is not None and c.end_offset is not None for c in chunks)
+    assert all(c.char_count == len(c.text) for c in chunks)
+    assert any(str(char_id) in (c.character_ids or []) for c in chunks)
+    assert any(str(entity_id) in (c.entity_ids or []) for c in chunks)
+    assert any(str(thread_id) in (c.thread_ids or []) for c in chunks)
+    assert all(c.embedding_status == "failed" for c in chunks)
+
+
+@pytest.mark.asyncio
 async def test_index_chapter_embedding_empty_when_no_llm(
     db_session: AsyncSession,
     repo: RagChunkRepository,
@@ -249,6 +336,54 @@ async def test_index_chapter_embedding_empty_when_no_llm(
     # embedding 应为 None（不阻塞索引）
     has_any_embedding = any(c.embedding is not None for c in chunks)
     assert not has_any_embedding, "embedding 失败时所有 chunk 的 embedding 应为 None"
+
+
+@pytest.mark.asyncio
+async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+):
+    """全量重建任务应逐章索引并返回可展示的诊断结果。"""
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_reindex_novel
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    for idx in (1, 2):
+        db_session.add(WritingDraft(
+            id=uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=idx,
+            title=f"第{idx}章",
+            content=f"第{idx}章正文。周明瑞醒来并观察这个世界。" * 8,
+            version_number=1,
+            status="draft",
+        ))
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_reindex_novel",
+        status="running",
+        meta={"novel_id": test_project_id, "force": True},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=Exception("embedding down"))
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_reindex_novel(db_session, task)
+
+    assert result["total_chapters"] == 2
+    assert result["chunks_created"] >= 2
+    assert result["embedding_failed_count"] == result["chunks_created"]
+    assert result["warnings"]
+    assert len(result["chapters"]) == 2
+    assert task.progress == 1.0
 
 
 @pytest.mark.asyncio

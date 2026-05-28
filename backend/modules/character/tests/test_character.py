@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.character.facade import (
     filter_context_by_character_knowledge,
+    find_character_id_by_name,
     get_character_knowledge_context,
     get_characters_context,
+    update_character_location,
 )
 from modules.character.repositories import (
     CharacterKnowledgeRepository,
@@ -794,3 +796,539 @@ class TestCharacterSchemas:
         )
         assert data.knowledge_level == "full"
         assert data.status == "canonical"
+
+
+class TestFindCharacterByName:
+    @pytest.mark.asyncio
+    async def test_find_character_by_name_exact(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        repo = CharacterRepository()
+        data = CharacterCreate(novel_id=sample_novel_id, name="林动")
+        char = await repo.create(db_session, data)
+
+        nid = uuid.UUID(hex=sample_novel_id)
+        result = await repo.find_character_by_name(db_session, nid, "林动")
+        assert result == str(char.id)
+
+    @pytest.mark.asyncio
+    async def test_find_character_by_name_alias(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="林动",
+            aliases=[{"alias": "动哥", "type": "nickname"}],
+        )
+        char = await repo.create(db_session, data)
+
+        nid = uuid.UUID(hex=sample_novel_id)
+        result = await repo.find_character_by_name(db_session, nid, "动哥")
+        assert result == str(char.id)
+
+    @pytest.mark.asyncio
+    async def test_find_character_by_name_not_found(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        repo = CharacterRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        result = await repo.find_character_by_name(db_session, nid, "不存在")
+        assert result is None
+
+
+class TestUpdateCharacterLocation:
+    @pytest.mark.asyncio
+    async def test_update_character_location(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        repo = CharacterRepository()
+        data = CharacterCreate(novel_id=sample_novel_id, name="测试角色")
+        char = await repo.create(db_session, data)
+
+        location_id = str(uuid.uuid4())
+        await repo.update_character_meta_location(
+            db_session, char.id, location_id, "在炎城", 5,
+        )
+
+        updated = await repo.get(db_session, char.id)
+        assert updated is not None
+        assert updated.current_state == "在炎城"
+        assert updated.meta["current_location_id"] == location_id
+        assert updated.meta["last_updated_chapter"] == 5
+
+
+class TestCharacterExtract:
+    """测试人物档案抽取任务 — handle_character_extract 正确写入 ai_suggestions"""
+
+    @pytest.mark.asyncio
+    async def test_extract_writes_ai_suggestions_to_db(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from unittest import mock
+
+        from infrastructure.tasks.models import AsyncTask
+        from modules.character.schemas import CharacterResponse
+        from modules.rag.contracts import RagChunkContract, RagResultBundle
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞",
+            role="protagonist",
+        )
+        character = await repo.create(db_session, data)
+        await db_session.flush()
+
+        char_resp = CharacterResponse.model_validate(character)
+        task = AsyncTask(
+            id=uuid.uuid4(),
+            task_type="character_extract",
+            status="pending",
+            meta={"novel_id": sample_novel_id, "character_id": str(character.id)},
+            progress=0.0,
+        )
+
+        mock_chunks = RagResultBundle(
+            chunks=[
+                RagChunkContract(
+                    id="chunk-1",
+                    novel_id=sample_novel_id,
+                    source_type="chapter",
+                    text="周明瑞追求武道巅峰，内心深处害怕失去至亲之人。",
+                ),
+            ],
+            total=1,
+            query="周明瑞 渴望 目标 欲望 追求 动机",
+        )
+
+        class _MockExtractOutput:
+            desire = "追求武道巅峰"
+            fear = "失去至亲之人"
+            secret = None
+            weakness = None
+            current_goal = None
+            current_state = None
+            current_emotion = None
+            stance = None
+            voice_style = None
+            role = "protagonist"
+
+        with mock.patch("modules.character.facade.list_characters", return_value=([char_resp], 1)), \
+             mock.patch("modules.rag.facade.retrieve", return_value=mock_chunks), \
+             mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
+             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
+             mock.patch("core.config.get_settings") as mock_settings:
+            mock_settings.return_value.llm_model = "test-model"
+
+            from modules.character.tasks import handle_character_extract
+            result = await handle_character_extract(db_session, task)
+
+        assert result["status"] == "ok"
+        assert "desire" in result["fields"]
+        assert "fear" in result["fields"]
+
+        updated = await repo.get(db_session, character.id)
+        assert updated is not None
+        assert updated.meta is not None
+        assert "ai_suggestions" in updated.meta
+        assert updated.meta["ai_suggestions"]["desire"] == "追求武道巅峰"
+        assert updated.meta["ai_suggestions"]["fear"] == "失去至亲之人"
+        assert "ai_suggestions_at" in updated.meta
+
+    @pytest.mark.asyncio
+    async def test_apply_suggestions_updates_formal_fields_and_clears(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.character.services import CharacterService
+        from modules.character.tasks import _EXTRACTABLE_FIELDS
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞",
+            role="protagonist",
+            desire="",
+            fear="",
+            meta={
+                "ai_suggestions": {
+                    "desire": "追求武道巅峰",
+                    "fear": "失去至亲之人",
+                    "weakness": "过于重情",
+                },
+                "ai_suggestions_at": "2025-01-01T00:00:00+00:00",
+            },
+        )
+        character = await repo.create(db_session, data)
+        await db_session.flush()
+        char_id = str(character.id)
+
+        service = CharacterService()
+        char = await service.get_character(db_session, char_id, novel_id=sample_novel_id)
+        meta = dict(getattr(char, "meta", {}) or {})
+        suggestions = meta.get("ai_suggestions", {})
+
+        fields_to_apply = ["desire", "fear"]
+        updates: dict[str, object] = {}
+        for field in fields_to_apply:
+            if field in suggestions and suggestions[field]:
+                if field in _EXTRACTABLE_FIELDS:
+                    updates[field] = suggestions[field]
+
+        remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+        meta["ai_suggestions"] = remaining_suggestions
+        if not remaining_suggestions:
+            meta.pop("ai_suggestions", None)
+            meta.pop("ai_suggestions_at", None)
+        updates["meta"] = meta
+
+        update_data = CharacterUpdate(**updates)
+        result = await service.update_character(db_session, char_id, update_data, novel_id=sample_novel_id)
+
+        assert result.desire == "追求武道巅峰"
+        assert result.fear == "失去至亲之人"
+        assert result.meta.get("ai_suggestions") == {"weakness": "过于重情"}
+        assert "ai_suggestions_at" in result.meta
+
+        updated = await repo.get(db_session, character.id)
+        assert updated.desire == "追求武道巅峰"
+        assert updated.fear == "失去至亲之人"
+        assert updated.meta["ai_suggestions"] == {"weakness": "过于重情"}
+
+    @pytest.mark.asyncio
+    async def test_apply_all_suggestions_clears_at_timestamp(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.character.services import CharacterService
+        from modules.character.tasks import _EXTRACTABLE_FIELDS
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞2",
+            desire="",
+            meta={
+                "ai_suggestions": {
+                    "desire": "追求武道巅峰",
+                },
+                "ai_suggestions_at": "2025-01-01T00:00:00+00:00",
+            },
+        )
+        character = await repo.create(db_session, data)
+        await db_session.flush()
+        char_id = str(character.id)
+
+        service = CharacterService()
+        char = await service.get_character(db_session, char_id, novel_id=sample_novel_id)
+        meta = dict(getattr(char, "meta", {}) or {})
+        suggestions = meta.get("ai_suggestions", {})
+
+        fields_to_apply = list(suggestions.keys())
+        updates: dict[str, object] = {}
+        for field in fields_to_apply:
+            if field in suggestions and suggestions[field]:
+                if field in _EXTRACTABLE_FIELDS:
+                    updates[field] = suggestions[field]
+
+        remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+        meta["ai_suggestions"] = remaining_suggestions
+        if not remaining_suggestions:
+            meta.pop("ai_suggestions", None)
+            meta.pop("ai_suggestions_at", None)
+        updates["meta"] = meta
+
+        update_data = CharacterUpdate(**updates)
+        result = await service.update_character(db_session, char_id, update_data, novel_id=sample_novel_id)
+
+        assert result.desire == "追求武道巅峰"
+        assert result.meta.get("ai_suggestions") is None or result.meta.get("ai_suggestions") == {}
+        assert "ai_suggestions_at" not in result.meta
+
+    @pytest.mark.asyncio
+    async def test_extract_rag_fallback_without_character_filter(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from unittest import mock
+
+        from infrastructure.tasks.models import AsyncTask
+        from modules.character.schemas import CharacterResponse
+        from modules.rag.contracts import RagChunkContract, RagResultBundle
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞",
+            role="protagonist",
+        )
+        character = await repo.create(db_session, data)
+        await db_session.flush()
+
+        char_resp = CharacterResponse.model_validate(character)
+        task = AsyncTask(
+            id=uuid.uuid4(),
+            task_type="character_extract",
+            status="pending",
+            meta={"novel_id": sample_novel_id, "character_id": str(character.id)},
+            progress=0.0,
+        )
+
+        empty_result = RagResultBundle(chunks=[], total=0, query="test")
+        fallback_result = RagResultBundle(
+            chunks=[
+                RagChunkContract(
+                    id="chunk-1",
+                    novel_id=sample_novel_id,
+                    source_type="chapter",
+                    text="周明瑞追求武道巅峰。",
+                ),
+            ],
+            total=1,
+            query="test",
+        )
+
+        class _MockExtractOutput:
+            desire = "追求武道巅峰"
+            fear = None
+            secret = None
+            weakness = None
+            current_goal = None
+            current_state = None
+            current_emotion = None
+            stance = None
+            voice_style = None
+            role = None
+
+        call_count = 0
+
+        async def _mock_retrieve(db, novel_id, query, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("character_ids"):
+                return empty_result
+            return fallback_result
+
+        with mock.patch("modules.character.facade.list_characters", return_value=([char_resp], 1)), \
+             mock.patch("modules.rag.facade.retrieve", side_effect=_mock_retrieve), \
+             mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
+             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
+             mock.patch("core.config.get_settings") as mock_settings:
+            mock_settings.return_value.llm_model = "test-model"
+
+            from modules.character.tasks import handle_character_extract
+            result = await handle_character_extract(db_session, task)
+
+        assert result["status"] == "ok", f"Expected ok, got {result}"
+        assert "desire" in result["fields"]
+
+    @pytest.mark.asyncio
+    async def test_extract_llm_retry_on_failure(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from unittest import mock
+
+        from infrastructure.tasks.models import AsyncTask
+        from modules.character.schemas import CharacterResponse
+        from modules.rag.contracts import RagChunkContract, RagResultBundle
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞",
+            role="protagonist",
+        )
+        character = await repo.create(db_session, data)
+        await db_session.flush()
+
+        char_resp = CharacterResponse.model_validate(character)
+        task = AsyncTask(
+            id=uuid.uuid4(),
+            task_type="character_extract",
+            status="pending",
+            meta={"novel_id": sample_novel_id, "character_id": str(character.id)},
+            progress=0.0,
+        )
+
+        mock_chunks = RagResultBundle(
+            chunks=[
+                RagChunkContract(
+                    id="chunk-1",
+                    novel_id=sample_novel_id,
+                    source_type="chapter",
+                    text="周明瑞追求武道巅峰。",
+                ),
+            ],
+            total=1,
+            query="test",
+        )
+
+        class _MockExtractOutput:
+            desire = "追求武道巅峰"
+            fear = None
+            secret = None
+            weakness = None
+            current_goal = None
+            current_state = None
+            current_emotion = None
+            stance = None
+            voice_style = None
+            role = None
+
+        llm_call_count = 0
+
+        def _mock_generate_structured(request, schema):
+            nonlocal llm_call_count
+            llm_call_count += 1
+            if llm_call_count == 1:
+                raise RuntimeError("LLM temporarily unavailable")
+            return _MockExtractOutput()
+
+        with mock.patch("modules.character.facade.list_characters", return_value=([char_resp], 1)), \
+             mock.patch("modules.rag.facade.retrieve", return_value=mock_chunks), \
+             mock.patch("infrastructure.llm.client.LLMClient.generate_structured", side_effect=_mock_generate_structured), \
+             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
+             mock.patch("core.config.get_settings") as mock_settings, \
+             mock.patch("asyncio.sleep", new_callable=mock.AsyncMock):
+            mock_settings.return_value.llm_model = "test-model"
+
+            from modules.character.tasks import handle_character_extract
+            result = await handle_character_extract(db_session, task)
+
+        assert result["status"] == "ok", f"Expected ok after retry, got {result}"
+        assert llm_call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_extract_indexes_existing_draft_when_rag_is_empty(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """历史导入未建 RAG 时，应从已有草稿补索引后再抽取人物档案。"""
+        from unittest import mock
+
+        from infrastructure.tasks.models import AsyncTask
+        from modules.rag.repositories import RagChunkRepository
+        from modules.writing.schemas import WritingDraftCreate
+        from modules.writing.services import WritingDraftService
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞",
+            role="protagonist",
+        )
+        character = await repo.create(db_session, data)
+
+        writing = WritingDraftService()
+        await writing.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_novel_id,
+                chapter_index=1,
+                title="第一章",
+                content="熟睡中的周明瑞只觉脑袋抽痛异常。他想要回家，也害怕失去对身体的控制。",
+            ),
+        )
+        await db_session.flush()
+
+        task = AsyncTask(
+            id=uuid.uuid4(),
+            task_type="character_extract",
+            status="pending",
+            meta={"novel_id": sample_novel_id, "character_id": str(character.id)},
+            progress=0.0,
+        )
+
+        class _MockExtractOutput:
+            desire = "回到原本的世界"
+            fear = "失去对身体的控制"
+            secret = None
+            weakness = None
+            current_goal = None
+            current_state = None
+            current_emotion = None
+            stance = None
+            voice_style = None
+            role = None
+
+        with mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
+             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
+             mock.patch("core.config.get_settings") as mock_settings:
+            mock_settings.return_value.llm_model = "test-model"
+
+            from modules.character.tasks import handle_character_extract
+            result = await handle_character_extract(db_session, task)
+
+        assert result["status"] == "ok"
+        assert result["fields"] == ["desire", "fear"]
+
+        chunks, total = await RagChunkRepository().get_multi(
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
+        )
+        assert total == 1
+        assert str(character.id) in (chunks[0].character_ids or [])
+
+        updated = await repo.get(db_session, character.id)
+        assert updated is not None
+        assert updated.meta["ai_suggestions"]["desire"] == "回到原本的世界"
+
+
+class TestGetCharacterLocationId:
+    """测试 character.facade.get_character_location_id"""
+
+    @pytest.mark.asyncio
+    async def test_get_character_location_id_returns_location(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.character.facade import get_character_location_id
+
+        repo = CharacterRepository()
+        data = CharacterCreate(novel_id=sample_novel_id, name="定位角色")
+        char = await repo.create(db_session, data)
+
+        location_id = str(uuid.uuid4())
+        await repo.update_character_meta_location(
+            db_session, char.id, location_id, "在炎城", 3,
+        )
+
+        result = await get_character_location_id(
+            db_session, sample_novel_id, str(char.id),
+        )
+        assert result == location_id
+
+    @pytest.mark.asyncio
+    async def test_get_character_location_id_returns_none_when_no_location(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.character.facade import get_character_location_id
+
+        repo = CharacterRepository()
+        data = CharacterCreate(novel_id=sample_novel_id, name="无定位角色")
+        char = await repo.create(db_session, data)
+
+        result = await get_character_location_id(
+            db_session, sample_novel_id, str(char.id),
+        )
+        assert result is None

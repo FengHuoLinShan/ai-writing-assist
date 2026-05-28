@@ -19,6 +19,7 @@ const characterView = {
   async onEnter() {
     if (!_state.currentProjectId) {
       this._characters = []
+      _state.selectedItem = null
       return
     }
 
@@ -29,7 +30,10 @@ const characterView = {
     } catch {
       this._apiAvailable = false
       this._characters = []
-      toast("后端未连接，无法加载人物数据", "warning")
+    }
+
+    if (!_state.currentSubView || _state.currentSubView === "list") {
+      _state.selectedItem = null
     }
   },
 
@@ -108,7 +112,7 @@ const characterView = {
     for (const c of this._characters) {
       const charId = c.id || c.character_id
       html += `
-        <tr data-id="${esc(charId)}" class="clickable" data-action="select-character" data-id="${esc(charId)}">
+        <tr data-id="${esc(charId)}" class="clickable" data-action="select-character">
           <td><strong>${esc(c.name)}</strong></td>
           <td>${esc(c.role || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.current_goal || "-")}</td>
@@ -138,25 +142,40 @@ const characterView = {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
     if (!character) return
 
-    // 从 API 获取完整数据
+    _state.selectedItem = character
+
+    router.navigate("character", "detail")
+
     if (_state.currentProjectId) {
       try {
         const full = await api.character.get(charId, _state.currentProjectId)
-        if (full) Object.assign(character, full)
+        if (full) {
+          Object.assign(character, full)
+          _state.selectedItem = character
+          const content = document.getElementById("workspace-content")
+          if (content && _state.currentView === "character" && _state.currentSubView === "detail") {
+            const detailHtml = this._renderDetail()
+            const detailArea = content.querySelector(".subnav")
+            if (detailArea) {
+              const existing = detailArea.nextSibling
+              while (existing && existing.nextSibling) {
+                content.removeChild(content.lastChild)
+              }
+              detailArea.insertAdjacentHTML("afterend", detailHtml)
+            }
+          }
+        }
       } catch {
         // API 失败时使用列表数据降级
       }
     }
 
-    _state.selectedItem = character
-
-    // 更新右侧信息栏
     _state.rightPanel = {
       title: character.name,
       type: "character",
       content: `
         <div class="help-section">
-          <h4>${character.name}</h4>
+          <h4>${esc(character.name)}</h4>
           <p>定位：${character.role || "未设定"}</p>
           <p>当前目标：${character.current_goal || "-"}</p>
           <p>当前状态：${character.current_state || "-"}</p>
@@ -169,9 +188,6 @@ const characterView = {
         </div>
       `,
     }
-
-    // 切换到档案子标签
-    router.navigate("character", "detail")
   },
 
   // ============================================================
@@ -225,7 +241,7 @@ const characterView = {
             </p>
           </div>
           <div>
-            <button class="btn btn-primary" data-char-id="${charId}" id="btn-edit-character">编辑档案</button>
+            <button class="btn btn-primary" id="btn-edit-character" data-action="edit-character" data-id="${esc(charId)}">编辑档案</button>
             <button class="btn" id="btn-extract-single" data-action="extract-character" data-id="${esc(charId)}">提取档案</button>
             <button class="btn" data-action="nav-knowledge">知识边界</button>
           </div>
@@ -806,7 +822,7 @@ const characterView = {
       const t = e.target.closest("[data-action]")
       if (!t) return
       const a = t.getAttribute("data-action")
-      const id = t.getAttribute("data-id")
+      const id = t.getAttribute("data-id") || t.closest("[data-id]")?.getAttribute("data-id")
       switch (a) {
         case "nav-list": router.navigate("character", "list"); break
         case "nav-detail": router.navigate("character", "detail"); break
@@ -826,10 +842,6 @@ const characterView = {
     content.addEventListener("click", this._clickHandler)
 
     document.getElementById("btn-new-character")?.addEventListener("click", () => this._showCreateForm())
-    document.getElementById("btn-edit-character")?.addEventListener("click", () => {
-      const char = _state.selectedItem
-      if (char) this._editCharacter(char.id || char.character_id)
-    })
   },
 
   // ============================================================
@@ -860,7 +872,7 @@ const characterView = {
     try {
       const result = await api.character.extract(charId, _state.currentProjectId)
       toast("抽取任务已提交", "success")
-      this._pollExtractionTasks([result.task_id], () => this._refreshSuggestions(charId))
+      this._pollExtractionTasks([result.task_id], (tasks) => this._refreshSuggestions(charId, tasks?.[0]?.result))
     } catch (err) {
       toast("提交失败: " + (err.message || err), "error")
     }
@@ -869,16 +881,16 @@ const characterView = {
   /** 轮询抽取任务完成 */
   _pollExtractionTasks(taskIds, onDone) {
     let attempts = 0
-    const maxAttempts = 60  // 最多等 5 分钟
-    const timer = setInterval(async () => {
+    const maxAttempts = 60
+    this._pollTimer = setInterval(async () => {
       attempts++
       const remaining = []
+      const taskStates = []
       for (const tid of taskIds) {
         try {
           const data = await api.tasks.getStatus(tid)
-          if (data.status === "done" || data.status === "failed") {
-            // 完成或失败，不再轮询
-          } else {
+          taskStates.push(data)
+          if (data.status !== "done" && data.status !== "failed") {
             remaining.push(tid)
           }
         } catch {
@@ -886,25 +898,66 @@ const characterView = {
         }
       }
       if (remaining.length === 0 || attempts >= maxAttempts) {
-        clearInterval(timer)
+        clearInterval(this._pollTimer)
+        this._pollTimer = null
         if (remaining.length === 0) {
-          toast("人物抽取完成", "success")
-          if (onDone) onDone()
+          const failedTask = taskStates.find((task) =>
+            task.status === "failed" || task.result?.status === "llm_failed"
+          )
+          if (failedTask) {
+            const message = failedTask.error_message || failedTask.result?.error || "请查看任务详情"
+            toast(`人物抽取失败：${message}`, "error")
+            return
+          }
+
+          await this._refreshCharacterList()
+          if (onDone) {
+            await onDone(taskStates)
+          } else {
+            const allNoChunks = taskStates.length > 0 && taskStates.every((task) => task.result?.status === "no_chunks")
+            if (allNoChunks) {
+              toast("人物抽取完成，但没有找到可提取的相关正文片段", "warning")
+            } else {
+              toast("人物抽取完成", "success")
+            }
+          }
+        } else {
+          toast("人物抽取仍在处理中，请稍后刷新查看结果", "warning")
         }
       }
     }, 5000)
   },
 
-  /** 刷新当前角色的 AI 建议 */
-  async _refreshSuggestions(charId) {
-    const character = this._characters.find((c) => (c.id || c.character_id) === charId)
-    if (!character || !_state.currentProjectId) return
+  async _refreshCharacterList() {
+    if (!_state.currentProjectId) return
     try {
+      const data = await api.character.list({ novel_id: _state.currentProjectId })
+      this._characters = data.items || data || []
+      if (_state.selectedItem) {
+        const selId = _state.selectedItem.id || _state.selectedItem.character_id
+        const synced = this._characters.find((c) => (c.id || c.character_id) === selId)
+        if (synced) _state.selectedItem = synced
+      }
+    } catch {
+      // 静默处理
+    }
+  },
+
+  /** 刷新当前角色的 AI 建议 */
+  async _refreshSuggestions(charId, taskResult = null) {
+    const character = this._characters.find((c) => (c.id || c.character_id) === charId)
+    if (!character || !_state.currentProjectId) return { suggestionCount: 0 }
+    try {
+      for (const warning of (taskResult?.warnings || [])) {
+        toast(warning, "warning")
+      }
       const data = await api.character.getSuggestions(charId, _state.currentProjectId)
-      if (data && data.suggestions && Object.keys(data.suggestions).length > 0) {
+      const suggestions = (data && data.suggestions) || {}
+      const suggestionKeys = Object.keys(suggestions)
+      if (suggestionKeys.length > 0) {
         // 更新本地缓存
         if (!character.meta) character.meta = {}
-        character.meta.ai_suggestions = data.suggestions
+        character.meta.ai_suggestions = suggestions
         character.meta.ai_suggestions_at = data.updated_at
         // 如果当前在看的就是这个角色，刷新显示
         if (_state.selectedItem && (_state.selectedItem.id || _state.selectedItem.character_id) === charId) {
@@ -912,13 +965,41 @@ const characterView = {
           router.navigate("character", "detail", false)
         }
         toast("AI 建议已就绪，可在档案中查看", "info")
+        return { suggestionCount: suggestionKeys.length }
       }
-    } catch {
-      // 静默处理
+
+      if (taskResult?.status === "no_chunks") {
+        toast("人物抽取完成，但没有找到可提取的相关正文片段", "warning")
+      } else if (taskResult?.status === "llm_failed") {
+        toast(`人物抽取失败：${taskResult.error || "LLM 调用失败"}`, "error")
+      } else {
+        toast("人物抽取完成，但未提取到新的 AI 建议", "info")
+      }
+      return { suggestionCount: 0 }
+    } catch (err) {
+      toast("抽取完成，但刷新 AI 建议失败: " + (err.message || err), "warning")
+      return { suggestionCount: 0, error: err }
     }
   },
 
-  /** 应用所有 AI 建议 */
+  _syncAfterApply(character, updated) {
+    if (!updated) return
+    const charId = character.id || character.character_id
+    Object.assign(character, updated)
+    if (!character.meta) character.meta = {}
+    const remaining = updated.meta?.ai_suggestions
+    if (remaining && Object.keys(remaining).length > 0) {
+      character.meta.ai_suggestions = remaining
+    } else {
+      delete character.meta.ai_suggestions
+      delete character.meta.ai_suggestions_at
+    }
+    const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
+    if (idx >= 0) {
+      this._characters[idx] = { ...this._characters[idx], ...updated }
+    }
+  },
+
   async _applyAllSuggestions() {
     const character = _state.selectedItem
     if (!character) return
@@ -930,9 +1011,8 @@ const characterView = {
       return
     }
     try {
-      await api.character.applySuggestions(charId, _state.currentProjectId, fields)
-      // 更新本地缓存
-      if (character.meta) delete character.meta.ai_suggestions
+      const updated = await api.character.applySuggestions(charId, _state.currentProjectId, fields)
+      this._syncAfterApply(character, updated)
       toast(`已应用 ${fields.length} 个字段的 AI 建议`, "success")
       router.navigate("character", "detail", false)
     } catch (err) {
@@ -940,17 +1020,13 @@ const characterView = {
     }
   },
 
-  /** 应用单个字段的 AI 建议 */
   async _applySuggestion(field) {
     const character = _state.selectedItem
     if (!character) return
     const charId = character.id || character.character_id
     try {
-      await api.character.applySuggestions(charId, _state.currentProjectId, [field])
-      // 更新本地缓存
-      if (character.meta && character.meta.ai_suggestions) {
-        delete character.meta.ai_suggestions[field]
-      }
+      const updated = await api.character.applySuggestions(charId, _state.currentProjectId, [field])
+      this._syncAfterApply(character, updated)
       toast(`已应用「${field}」建议`, "success")
       router.navigate("character", "detail", false)
     } catch (err) {
@@ -964,24 +1040,23 @@ const characterView = {
     if (!character) return
     const charId = character.id || character.character_id
     try {
-      // 读取当前 suggestions，移除该字段后写回
       const data = await api.character.getSuggestions(charId, _state.currentProjectId)
       const remaining = { ...(data.suggestions || {}) }
       delete remaining[field]
-      // 通过 apply 空字段列表来清除
-      // 实际上我们只需应用空列表，保留其余建议
-      await api.character.applySuggestions(charId, _state.currentProjectId, [])
-      // 重新设置剩余的建议
       await api.character.update(charId, {
         meta: {
           ...(character.meta || {}),
           ai_suggestions: remaining,
-          ai_suggestions_at: data.updated_at,
+          ...(Object.keys(remaining).length === 0 ? { ai_suggestions_at: null } : {}),
         },
       }, _state.currentProjectId)
-      // 更新本地缓存
-      if (character.meta && character.meta.ai_suggestions) {
-        delete character.meta.ai_suggestions[field]
+      if (character.meta) {
+        character.meta.ai_suggestions = remaining
+        if (Object.keys(remaining).length === 0) delete character.meta.ai_suggestions_at
+      }
+      const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
+      if (idx >= 0 && character.meta) {
+        this._characters[idx].meta = { ...character.meta }
       }
       toast("已忽略该建议", "info")
       router.navigate("character", "detail", false)
@@ -991,6 +1066,10 @@ const characterView = {
   },
 
   onLeave() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer)
+      this._pollTimer = null
+    }
     this._characterKnowledge = []
   },
 }

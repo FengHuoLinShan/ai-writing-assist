@@ -14,7 +14,15 @@ describe("contextView", () => {
   })
 
   describe("compile", () => {
+    it("无项目时警告", async () => {
+      _state.currentProjectId = null
+      document.body.innerHTML = '<div id="ctx-output"></div><div id="ctx-task"></div>'
+      await contextView.compile()
+      expect(globalThis.toast).toHaveBeenCalledWith("请先选择项目", "warning")
+    })
+
     it("无任务描述时警告", async () => {
+      _state.currentProjectId = "p1"
       document.body.innerHTML = '<div id="ctx-output"></div><div id="ctx-task"></div>'
       await contextView.compile()
       expect(globalThis.toast).toHaveBeenCalledWith("请输入任务描述", "warning")

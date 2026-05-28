@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from modules.rag.contracts import RagChunkContract, RagQueryContract
+from modules.rag.contracts import RagChunkContract, RagIndexReport, RagQueryContract
 from modules.rag.facade import retrieve
 from modules.rag.models import RagChunk
 from modules.rag.schemas import (
@@ -22,6 +22,8 @@ __all__ = [
     "RagChunkResponse",
     "RagQuery",
     "RagQueryContract",
+    "RagIndexReport",
     "RagResult",
+    "SimilarEntity",
     "retrieve",
 ]

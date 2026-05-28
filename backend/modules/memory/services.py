@@ -281,6 +281,95 @@ class MemoryService:
             db, pid, decision="approved", decided_by=decided_by
         )
 
+        geo_mutations = payload.get("geo_mutations")
+        if geo_mutations:
+            import logging
+            _geo_logger = logging.getLogger(__name__)
+            chapter_index = proposal.chapter_index
+
+            for shift in geo_mutations.get("character_shifts", []):
+                try:
+                    char_name = shift.get("character_name", "")
+                    loc_name = shift.get("destination_location_name", "")
+                    movement_type = shift.get("movement_type", "")
+                    if not char_name or not loc_name:
+                        continue
+
+                    from modules.character.facade import find_character_id_by_name
+                    from modules.world.facade import find_entity_id_by_name
+                    from modules.character.facade import update_character_location
+
+                    char_id = await find_character_id_by_name(db, novel_id, char_name)
+                    loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
+
+                    if char_id and loc_id:
+                        text_state = f"目前正{movement_type}至{loc_name}。" if movement_type else f"目前位于{loc_name}。"
+                        await update_character_location(
+                            db, novel_id, char_id, loc_id, text_state, chapter_index or 0,
+                        )
+                    else:
+                        _geo_logger.warning(
+                            "角色位移分发跳过: char=%s found=%s, loc=%s found=%s",
+                            char_name, char_id is not None, loc_name, loc_id is not None,
+                        )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("角色位移分发失败: %s", e)
+
+            for shift in geo_mutations.get("faction_shifts", []):
+                try:
+                    faction_name = shift.get("faction_name", "")
+                    loc_name = shift.get("target_location_name", "")
+                    new_relation = shift.get("new_relation", "stationed_at")
+                    description = shift.get("description", "")
+                    if not faction_name or not loc_name:
+                        continue
+
+                    from modules.world.facade import find_entity_id_by_name, upsert_relationship
+
+                    faction_id = await find_entity_id_by_name(db, novel_id, faction_name, entity_type="faction")
+                    loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
+
+                    if faction_id and loc_id:
+                        await upsert_relationship(
+                            db, novel_id, faction_id, loc_id,
+                            "faction", "location", new_relation, description,
+                        )
+                    else:
+                        _geo_logger.warning(
+                            "势力割据分发跳过: faction=%s found=%s, loc=%s found=%s",
+                            faction_name, faction_id is not None, loc_name, loc_id is not None,
+                        )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("势力割据分发失败: %s", e)
+
+            try:
+                char_ids = []
+                entity_ids = []
+                for shift in geo_mutations.get("character_shifts", []):
+                    from modules.character.facade import find_character_id_by_name
+                    cid = await find_character_id_by_name(db, novel_id, shift.get("character_name", ""))
+                    if cid:
+                        char_ids.append(cid)
+                for shift in geo_mutations.get("faction_shifts", []):
+                    from modules.world.facade import find_entity_id_by_name
+                    fid = await find_entity_id_by_name(db, novel_id, shift.get("faction_name", ""), entity_type="faction")
+                    lid = await find_entity_id_by_name(db, novel_id, shift.get("target_location_name", ""), entity_type="location")
+                    if fid:
+                        entity_ids.append(fid)
+                    if lid:
+                        entity_ids.append(lid)
+
+                if char_ids or entity_ids:
+                    from modules.outline.facade import merge_chapter_involved_ids
+                    await merge_chapter_involved_ids(
+                        db, novel_id, chapter_index or 0, char_ids, entity_ids,
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("章节关联合并失败: %s", e)
+
         return MemoryRecordContext.model_validate(record)
 
     # ============================================================

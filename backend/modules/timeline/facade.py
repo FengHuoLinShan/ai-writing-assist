@@ -64,6 +64,30 @@ async def get_relevant_timeline_context(
     return events
 
 
+async def get_geo_effects_up_to_chapter(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> list[dict[str, Any]]:
+    """获取截止某章节的所有地理影响数据
+
+    供 Geo 模块调用，获取时间线事件中的 geo_effects 数据。
+    只返回 status='canonical' 且 chapter_index <= X（含 chapter_index 为 NULL 的全局事件）的事件的 geo_effects，
+    按事件 order_index 顺序合并。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        chapter_index: 截止章节索引
+
+    Returns:
+        list[dict]: 合并后的 geo_effects 列表
+    """
+    return await _service.get_geo_effects_up_to_chapter(
+        db, novel_id, chapter_index,
+    )
+
+
 async def check_timeline_conflicts(
     db: AsyncSession,
     novel_id: str,

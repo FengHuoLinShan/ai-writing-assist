@@ -36,15 +36,26 @@ class WritingDraftProvider(DraftProvider):
         start_chapter: int,
         end_chapter: int,
     ) -> list[dict[str, Any]]:
+        from modules.rag.facade import (
+            get_ordered_chapter_chunks,
+            index_chapter_with_report,
+        )
         from modules.writing.facade import get_latest_draft_for_chapter
 
         chapters: list[dict[str, Any]] = []
         for idx in range(start_chapter, end_chapter + 1):
             draft = await get_latest_draft_for_chapter(db, novel_id, idx)
             if draft and draft.content:
+                report = await index_chapter_with_report(db, novel_id, idx)
+                rag_chunks = await get_ordered_chapter_chunks(db, novel_id, idx)
+                content = "\n\n".join(
+                    f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
+                    for chunk in rag_chunks
+                ) or draft.content
                 chapters.append({
                     "chapter_index": idx,
                     "title": draft.title or f"第{idx}章",
-                    "content": draft.content,
+                    "content": content,
+                    "rag_warnings": report.warnings,
                 })
         return chapters

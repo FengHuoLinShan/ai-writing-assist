@@ -200,6 +200,91 @@ class CharacterRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def find_character_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        name: str,
+    ) -> str | None:
+        stmt = select(Character.id).where(
+            Character.novel_id == novel_id,
+            Character.name == name,
+            Character.status == "canonical",
+        ).limit(1)
+        result = await db.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row is not None:
+            return str(row)
+
+        alias_stmt = select(Character).where(
+            Character.novel_id == novel_id,
+            Character.status == "canonical",
+        )
+        alias_result = await db.execute(alias_stmt)
+        chars = alias_result.scalars().all()
+        for char in chars:
+            for alias_entry in (char.aliases or []):
+                if isinstance(alias_entry, dict) and alias_entry.get("alias") == name:
+                    return str(char.id)
+
+        return None
+
+    async def update_character_meta_location(
+        self,
+        db: AsyncSession,
+        character_id: uuid.UUID,
+        location_id: str,
+        text_state: str,
+        chapter_index: int,
+    ) -> None:
+        stmt = select(Character).where(Character.id == character_id)
+        result = await db.execute(stmt)
+        char = result.scalar_one_or_none()
+        if char is None:
+            return
+        meta = dict(char.meta or {})
+        meta["current_location_id"] = location_id
+        meta["last_updated_chapter"] = chapter_index
+        char.meta = meta
+        char.current_state = text_state
+        await db.flush()
+
+    async def find_characters_by_location(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        location_id: str,
+    ) -> list[dict]:
+        stmt = select(Character).where(
+            Character.novel_id == novel_id,
+            Character.status == "canonical",
+        )
+        result = await db.execute(stmt)
+        all_chars = result.scalars().all()
+        characters = []
+        for char in all_chars:
+            meta = char.meta or {}
+            if meta.get("current_location_id") == location_id:
+                characters.append({
+                    "id": str(char.id),
+                    "name": char.name,
+                    "current_state": char.current_state or "",
+                })
+        return characters
+
+    async def get_character_location_id(
+        self,
+        db: AsyncSession,
+        character_id: uuid.UUID,
+    ) -> str | None:
+        stmt = select(Character).where(Character.id == character_id)
+        result = await db.execute(stmt)
+        char = result.scalar_one_or_none()
+        if char is None:
+            return None
+        meta = char.meta or {}
+        return meta.get("current_location_id")
+
 
 class CharacterKnowledgeRepository:
     """人物知识数据访问"""

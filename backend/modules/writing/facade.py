@@ -7,13 +7,31 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.schemas import WritingDraftCreate, WritingDraftResponse
 from modules.writing.services import WritingDraftService
 
 _service = WritingDraftService()
+
+
+def _enqueue_rag_index(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> None:
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_index_chapter",
+        status="pending",
+        meta={"novel_id": novel_id, "chapter_index": chapter_index},
+        progress=0.0,
+    )
+    db.add(task)
 
 
 async def create_draft(
@@ -31,7 +49,9 @@ async def create_draft(
     Returns:
         WritingDraftResponse — 创建后的草稿信息
     """
-    return await _service.create_draft(db, data)
+    draft = await _service.create_draft(db, data)
+    _enqueue_rag_index(db, data.novel_id, data.chapter_index)
+    return draft
 
 
 async def get_draft(
