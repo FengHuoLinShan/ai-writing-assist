@@ -161,7 +161,11 @@ async def find_duplicate_entity_candidates(
     db, novel_id: str,
     candidate_id: str,
 ) -> list[DuplicateSuggestion]: ...
+
+async def list_entity_terms(db, novel_id: str, limit: int = 500) -> list[dict]: ...
 ```
+
+世界对象抽取通过 RAG 有序 chunk 组装章节正文材料，AI 输出仍只进入 `entity_candidates`。
 
 ## API 路由
 

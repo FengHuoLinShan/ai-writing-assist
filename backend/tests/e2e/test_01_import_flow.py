@@ -511,3 +511,20 @@ class TestAsyncTaskSubmission:
         """不存在的任务 ID 应返回 404"""
         resp = await async_client.get(f"/api/tasks/{uuid.uuid4()}")
         assert resp.status_code == 404
+
+
+class TestProjectMissingFlows:
+    @pytest_asyncio.fixture
+    async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
+        meta = await create_base_scene(db_session)
+        await db_session.flush()
+        return async_client, meta["project_id"]
+
+    async def test_update_project(self, ctx):
+        client, pid = ctx
+        resp = await client.put(
+            f"/api/projects/{pid}",
+            json={"title": "诡秘之主 第二部"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "诡秘之主 第二部"

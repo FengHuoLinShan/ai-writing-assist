@@ -14,6 +14,7 @@ character 模块属于**事实层**，负责人物档案、人物当前状态、
 - **人物语言风格**：记录人物的说话方式
 - **人物行为规则**：定义人物的行为约束
 - **人物知识边界**：管理角色知道什么、不知道什么、误解什么
+- **人物档案抽取**：通过 RAG 查找相关正文，写入 `meta.ai_suggestions` 等待用户采纳
 
 ## 不负责
 
@@ -94,6 +95,8 @@ async def filter_context_by_character_knowledge(
 | PUT | `/api/characters/knowledge/{kid}` | 更新知识 |
 | DELETE | `/api/characters/knowledge/{kid}` | 删除知识 |
 | POST | `/api/characters/{id}/filter-context` | 按知识过滤上下文 |
+
+人物档案抽取依赖 RAG chunk，并使用 `mode="extraction"`。若历史导入章节尚未建立 RAG 索引，抽取任务会先按人物名补建相关章节索引，再重新检索正文。RAG/LLM 降级信息会进入任务 `warnings`，前端用于提示“本次建议可能不准确”。
 
 ## 测试方式
 

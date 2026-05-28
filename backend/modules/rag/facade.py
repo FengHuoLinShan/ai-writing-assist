@@ -11,7 +11,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.rag.contracts import RagChunkContract, RagResultBundle
+from modules.rag.contracts import RagChunkContract, RagIndexReport, RagResultBundle
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate, RagChunkResponse
 from modules.rag.services import ChunkingService, IndexingService, RetrievalService
@@ -64,6 +64,67 @@ async def list_chunks(
     return [RagChunkResponse.model_validate(c) for c in items], total
 
 
+async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
+    """获取 RAG 索引诊断状态。"""
+    nid = uuid.UUID(hex=novel_id)
+    total = await _repo.count_by_novel(db, nid)
+    embedding_failed_count = await _repo.count_embedding_failed(db, nid)
+    warnings = []
+    if embedding_failed_count:
+        warnings.append(
+            f"有 {embedding_failed_count} 个片段 embedding 失败，检索和抽取可能不准确",
+        )
+    return {
+        "total": total,
+        "embedding_failed_count": embedding_failed_count,
+        "degraded": embedding_failed_count > 0,
+        "warnings": warnings,
+    }
+
+
+def _to_chunk_contract(chunk, score: float | None = None) -> RagChunkContract:
+    return RagChunkContract(
+        id=str(chunk.id),
+        novel_id=str(chunk.novel_id),
+        source_type=chunk.source_type,
+        source_id=str(chunk.source_id) if chunk.source_id else None,
+        chapter_index=chunk.chapter_index,
+        chunk_index=chunk.chunk_index,
+        start_offset=chunk.start_offset,
+        end_offset=chunk.end_offset,
+        char_count=chunk.char_count,
+        text=chunk.text,
+        summary=chunk.summary,
+        entity_ids=chunk.entity_ids or [],
+        character_ids=chunk.character_ids or [],
+        thread_ids=chunk.thread_ids or [],
+        visibility=chunk.visibility,
+        importance=chunk.importance,
+        index_version=chunk.index_version,
+        embedding_status=chunk.embedding_status,
+        embedding_error=chunk.embedding_error,
+        index_warnings=chunk.index_warnings or [],
+        score=round(score, 4) if score is not None else None,
+    )
+
+
+async def get_ordered_chapter_chunks(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int | None = None,
+) -> list[RagChunkContract]:
+    """按章节范围读取有序 RAG chunks，供正文抽取链路使用。"""
+    nid = uuid.UUID(hex=novel_id)
+    chunks = await _repo.find_by_chapter_range(
+        db,
+        nid,
+        start_chapter,
+        end_chapter or start_chapter,
+    )
+    return [_to_chunk_contract(chunk) for chunk in chunks]
+
+
 async def retrieve(
     db: AsyncSession,
     novel_id: str,
@@ -74,6 +135,7 @@ async def retrieve(
     thread_ids: list[str] | None = None,
     chapter_index: int | None = None,
     visibility: str | None = None,
+    mode: str = "search",
     top_k: int = 12,
 ) -> RagResultBundle:
     """混合检索 RAG 片段
@@ -95,34 +157,40 @@ async def retrieve(
     """
     nid = uuid.UUID(hex=novel_id)
     top_k = max(1, top_k)
+    warnings: list[str] = []
+    degraded = False
+    query_embedding: list[float] | None = None
+    if await _repo.has_embeddings(db, nid):
+        try:
+            from infrastructure.llm.client import LLMClient
+
+            embedding = await LLMClient().generate_embedding(query)
+            if (
+                isinstance(embedding, list)
+                and embedding
+                and isinstance(embedding[0], float)
+            ):
+                query_embedding = embedding  # type: ignore[assignment]
+        except Exception as exc:
+            degraded = True
+            warnings.append(f"embedding 生成失败，本次检索已降级，结果可能不准确: {exc}")
+
     scored_chunks = await _retrieval.hybrid_search(
         db,
         nid,
         query,
+        query_embedding=query_embedding,
         entity_ids=entity_ids,
         character_ids=character_ids,
         thread_ids=thread_ids,
         chapter_index=chapter_index,
         visibility=visibility,
+        mode=mode,
         top_k=top_k,
     )
 
     chunk_contracts = [
-        RagChunkContract(
-            id=str(chunk.id),
-            novel_id=str(chunk.novel_id),
-            source_type=chunk.source_type,
-            source_id=str(chunk.source_id) if chunk.source_id else None,
-            chapter_index=chunk.chapter_index,
-            text=chunk.text,
-            summary=chunk.summary,
-            entity_ids=chunk.entity_ids or [],
-            character_ids=chunk.character_ids or [],
-            thread_ids=chunk.thread_ids or [],
-            visibility=chunk.visibility,
-            importance=chunk.importance,
-            score=round(score, 4),
-        )
+        _to_chunk_contract(chunk, score)
         for chunk, score in scored_chunks
     ]
 
@@ -130,6 +198,8 @@ async def retrieve(
         chunks=chunk_contracts,
         total=len(scored_chunks),
         query=query,
+        warnings=warnings,
+        degraded=degraded,
     )
 
 
@@ -152,6 +222,16 @@ async def index_chapter(
     """
     nid = uuid.UUID(hex=novel_id)
     return await _indexing.index_chapter(db, nid, chapter_index)
+
+
+async def index_chapter_with_report(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> RagIndexReport:
+    """索引指定章节并返回诊断报告。"""
+    nid = uuid.UUID(hex=novel_id)
+    return await _indexing.index_chapter_with_report(db, nid, chapter_index)
 
 
 async def split_text_into_chunks(

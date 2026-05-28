@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
-import time
-from collections.abc import AsyncIterator, Callable
-from typing import Any, Generic, TypeVar
+from collections.abc import AsyncIterator
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from core.config import get_settings
-from infrastructure.llm.errors import LLMError, LLMInvalidResponseError
+from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.retry import retry_with_backoff
 from infrastructure.llm.schemas import (
@@ -234,6 +233,25 @@ class LLMClient:
         )
         response = await self.generate(request)
         return response.content
+
+    async def generate_embedding(
+        self,
+        text: str | list[str],
+        model: str | None = None,
+    ) -> list[float] | list[list[float]]:
+        """生成文本 embedding（带自动重试）。
+
+        Args:
+            text: 单文本或文本列表
+            model: embedding 模型名称，默认使用配置中的 embedding_model
+        """
+        return await retry_with_backoff(
+            self._provider.generate_embedding,
+            max_attempts=LLM_RETRY_MAX_ATTEMPTS,
+            base_delay=LLM_RETRY_BASE_DELAY,
+            text=text,
+            model=model,
+        )
 
     async def get_usage_stats(self) -> dict[str, Any]:
         """获取当前 provider 状态信息

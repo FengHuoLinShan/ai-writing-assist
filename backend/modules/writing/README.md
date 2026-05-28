@@ -13,6 +13,7 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 - 章节卡关联（通过 chapter_card_id）
 - 按章节索引获取最新草稿
 - 版本历史查看
+- 创建草稿后提交 `rag_index_chapter` 异步索引任务
 
 ## 不负责
 
@@ -57,9 +58,12 @@ class WritingDraftContract:
 ## Facade 入口
 
 ```python
+async def create_draft(db, data: WritingDraftCreate) -> WritingDraftResponse
 async def get_draft(db, draft_id: str) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 ```
+
+通过 facade 创建草稿同样会提交 RAG 章节索引任务，导入模块等内部调用方不需要直接访问 RAG 模块。
 
 ## API
 

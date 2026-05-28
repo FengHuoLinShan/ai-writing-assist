@@ -4,34 +4,6 @@
 
 memory 模块维护小说推进过程中的状态变化。它不是聊天记忆，也不是向量库。
 
-## MVP 简化
-
-- memory_records — 记忆记录
-- memory_update_proposals — 状态更新提案
-
-## 原则
-
-- AI 只生成 proposal
-- 用户确认后才写入 memory_records
-
-## memory_type
-
-chapter_state / event / character_state / knowledge / foreshadowing / resource / outline_drift / geo_history
-
-## 写后状态抽取流程
-
-```text
-用户手写正文 / 结构变更
-    ↓
-结构复查与状态抽取 Prompt
-    ↓
-memory_update_proposals
-    ↓
-用户确认 / 编辑 / 拒绝
-    ↓
-memory_records
-```
-
 ## Facade
 
 ```python

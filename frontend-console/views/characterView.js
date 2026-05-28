@@ -241,7 +241,7 @@ const characterView = {
             </p>
           </div>
           <div>
-            <button class="btn btn-primary" data-char-id="${charId}" id="btn-edit-character">编辑档案</button>
+            <button class="btn btn-primary" id="btn-edit-character" data-action="edit-character" data-id="${esc(charId)}">编辑档案</button>
             <button class="btn" id="btn-extract-single" data-action="extract-character" data-id="${esc(charId)}">提取档案</button>
             <button class="btn" data-action="nav-knowledge">知识边界</button>
           </div>
@@ -842,10 +842,6 @@ const characterView = {
     content.addEventListener("click", this._clickHandler)
 
     document.getElementById("btn-new-character")?.addEventListener("click", () => this._showCreateForm())
-    document.getElementById("btn-edit-character")?.addEventListener("click", () => {
-      const char = _state.selectedItem
-      if (char) this._editCharacter(char.id || char.character_id)
-    })
   },
 
   // ============================================================
@@ -876,7 +872,7 @@ const characterView = {
     try {
       const result = await api.character.extract(charId, _state.currentProjectId)
       toast("抽取任务已提交", "success")
-      this._pollExtractionTasks([result.task_id], () => this._refreshSuggestions(charId))
+      this._pollExtractionTasks([result.task_id], (tasks) => this._refreshSuggestions(charId, tasks?.[0]?.result))
     } catch (err) {
       toast("提交失败: " + (err.message || err), "error")
     }
@@ -889,9 +885,11 @@ const characterView = {
     this._pollTimer = setInterval(async () => {
       attempts++
       const remaining = []
+      const taskStates = []
       for (const tid of taskIds) {
         try {
           const data = await api.tasks.getStatus(tid)
+          taskStates.push(data)
           if (data.status !== "done" && data.status !== "failed") {
             remaining.push(tid)
           }
@@ -903,9 +901,28 @@ const characterView = {
         clearInterval(this._pollTimer)
         this._pollTimer = null
         if (remaining.length === 0) {
-          toast("人物抽取完成", "success")
+          const failedTask = taskStates.find((task) =>
+            task.status === "failed" || task.result?.status === "llm_failed"
+          )
+          if (failedTask) {
+            const message = failedTask.error_message || failedTask.result?.error || "请查看任务详情"
+            toast(`人物抽取失败：${message}`, "error")
+            return
+          }
+
           await this._refreshCharacterList()
-          if (onDone) onDone()
+          if (onDone) {
+            await onDone(taskStates)
+          } else {
+            const allNoChunks = taskStates.length > 0 && taskStates.every((task) => task.result?.status === "no_chunks")
+            if (allNoChunks) {
+              toast("人物抽取完成，但没有找到可提取的相关正文片段", "warning")
+            } else {
+              toast("人物抽取完成", "success")
+            }
+          }
+        } else {
+          toast("人物抽取仍在处理中，请稍后刷新查看结果", "warning")
         }
       }
     }, 5000)
@@ -927,15 +944,20 @@ const characterView = {
   },
 
   /** 刷新当前角色的 AI 建议 */
-  async _refreshSuggestions(charId) {
+  async _refreshSuggestions(charId, taskResult = null) {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
-    if (!character || !_state.currentProjectId) return
+    if (!character || !_state.currentProjectId) return { suggestionCount: 0 }
     try {
+      for (const warning of (taskResult?.warnings || [])) {
+        toast(warning, "warning")
+      }
       const data = await api.character.getSuggestions(charId, _state.currentProjectId)
-      if (data && data.suggestions && Object.keys(data.suggestions).length > 0) {
+      const suggestions = (data && data.suggestions) || {}
+      const suggestionKeys = Object.keys(suggestions)
+      if (suggestionKeys.length > 0) {
         // 更新本地缓存
         if (!character.meta) character.meta = {}
-        character.meta.ai_suggestions = data.suggestions
+        character.meta.ai_suggestions = suggestions
         character.meta.ai_suggestions_at = data.updated_at
         // 如果当前在看的就是这个角色，刷新显示
         if (_state.selectedItem && (_state.selectedItem.id || _state.selectedItem.character_id) === charId) {
@@ -943,9 +965,20 @@ const characterView = {
           router.navigate("character", "detail", false)
         }
         toast("AI 建议已就绪，可在档案中查看", "info")
+        return { suggestionCount: suggestionKeys.length }
       }
-    } catch {
-      // 静默处理
+
+      if (taskResult?.status === "no_chunks") {
+        toast("人物抽取完成，但没有找到可提取的相关正文片段", "warning")
+      } else if (taskResult?.status === "llm_failed") {
+        toast(`人物抽取失败：${taskResult.error || "LLM 调用失败"}`, "error")
+      } else {
+        toast("人物抽取完成，但未提取到新的 AI 建议", "info")
+      }
+      return { suggestionCount: 0 }
+    } catch (err) {
+      toast("抽取完成，但刷新 AI 建议失败: " + (err.message || err), "warning")
+      return { suggestionCount: 0, error: err }
     }
   },
 

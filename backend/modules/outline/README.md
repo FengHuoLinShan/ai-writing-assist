@@ -245,6 +245,8 @@ ChapterCard + scene_cards 候选
 用户确认入正史
 ```
 
+章节卡抽取会先确保目标章节已建立 RAG 索引，再使用有序 chunk 正文材料调用 `extract_chapter_scene` Prompt。AI 输出的章节卡保持 candidate 状态，等待用户确认。
+
 ## MVP
 
 第一阶段实现 plot_threads、outline_arcs、chapter_cards 的完整 CRUD 和 facade。

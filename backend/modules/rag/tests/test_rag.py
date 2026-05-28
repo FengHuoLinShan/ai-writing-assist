@@ -19,6 +19,7 @@ from modules.rag.facade import (
     retrieve,
     split_text_into_chunks,
 )
+from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import (
     RagChunkCreate,
@@ -107,6 +108,28 @@ class TestRagChunkRepository:
         assert chunk.importance == 0.8
         assert chunk.entity_ids == sample_chunk_data.entity_ids
         assert chunk.visibility == "author_only"
+
+    def test_postgres_json_filter_binds_json_array(
+        self,
+        repo: RagChunkRepository,
+    ) -> None:
+        """PostgreSQL JSONB contains 应绑定数组，而不是 JSON 字符串。"""
+        class _Dialect:
+            name = "postgresql"
+
+        class _Bind:
+            dialect = _Dialect()
+
+        class _Db:
+            def get_bind(self):
+                return _Bind()
+
+        expr = repo._json_array_contains_all(
+            _Db(), RagChunk.character_ids, ["char-1"],
+        )
+
+        assert getattr(expr.right, "value", None) == ["char-1"]
+        assert str(getattr(expr.right, "type", "")) == "JSONB"
 
     @pytest.mark.asyncio
     async def test_get(
@@ -338,6 +361,32 @@ class TestChunkingService:
         chunks = chunking.split_by_paragraphs(long_para, max_length=200)
         assert len(chunks) > 1
 
+    def test_split_chinese_novel_keeps_offsets_and_overlap(
+        self,
+        chunking: ChunkingService,
+    ) -> None:
+        """中文小说分块应保留正文位置，并为长正文创建前后文重叠。"""
+        text = "\n\n".join([
+            "周明瑞睁开眼睛，发现自己躺在陌生的房间里。" * 12,
+            "他按住额头，试图理清脑海里混乱的记忆。" * 12,
+            "窗外的煤气灯仍然亮着，克莱恩这个名字浮了出来。" * 12,
+        ])
+
+        chunks = chunking.split_chinese_novel(
+            text,
+            target_length=180,
+            max_length=260,
+            overlap=40,
+        )
+
+        assert len(chunks) >= 3
+        assert chunks[0].chunk_index == 0
+        assert all(c.text == text[c.start_offset:c.end_offset].strip() for c in chunks)
+        assert all(c.char_count == len(c.text) for c in chunks)
+        assert any(
+            chunks[i].start_offset < chunks[i - 1].end_offset
+            for i in range(1, len(chunks))
+        )
 
 
 
@@ -432,6 +481,101 @@ class TestRetrievalService:
         )
         assert len(results) >= 1
 
+    @pytest.mark.asyncio
+    async def test_retrieve_extraction_mode_allows_relation_only_match(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """抽取模式下，明确人物过滤命中时不要求字段关键词也出现在正文。"""
+        char_id = str(uuid.uuid4())
+        await create_chunk(
+            db_with_project, str(sample_novel_id),
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="周明瑞从梦中醒来，陌生的天花板映入眼帘。",
+                character_ids=[char_id],
+            ),
+        )
+        await db_with_project.flush()
+
+        result = await retrieve(
+            db_with_project,
+            str(sample_novel_id),
+            "克莱恩 欲望 目标 计划",
+            character_ids=[char_id],
+            mode="extraction",
+        )
+
+        assert result.total == 1
+        assert result.chunks[0].character_ids == [char_id]
+        assert result.degraded is False
+
+    @pytest.mark.asyncio
+    async def test_retrieve_expands_character_alias_terms(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """查询人物现名时，应召回正文里使用旧名/别名的 chunk。"""
+        from modules.character.models import Character
+
+        char_id = uuid.uuid4()
+        db_with_project.add(Character(
+            id=char_id,
+            novel_id=sample_novel_id,
+            name="克莱恩·莫雷蒂",
+            aliases=[{"alias": "周明瑞", "type": "original_name"}],
+            role="主角",
+        ))
+        await create_chunk(
+            db_with_project, str(sample_novel_id),
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="周明瑞从梦中醒来，脑袋抽痛异常。",
+                character_ids=[str(char_id)],
+            ),
+        )
+        await db_with_project.flush()
+
+        result = await retrieve(db_with_project, str(sample_novel_id), "克莱恩")
+
+        assert result.total == 1
+        assert "周明瑞" in result.chunks[0].text
+
+    @pytest.mark.asyncio
+    async def test_retrieve_reports_degraded_when_query_embedding_fails(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """已有 embedding 时查询向量失败应降级并返回 warning。"""
+        from unittest.mock import AsyncMock, patch
+
+        repo_local = RagChunkRepository()
+        chunk = await repo_local.create(
+            db_with_project, sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="周明瑞在灰雾中醒来。",
+            ),
+        )
+        chunk.embedding = [0.1] * 1024  # type: ignore[assignment]
+        await db_with_project.flush()
+
+        with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.generate_embedding = AsyncMock(side_effect=Exception("embedding down"))
+            mock_client_cls.return_value = mock_client
+
+            result = await retrieve(db_with_project, str(sample_novel_id), "灰雾")
+
+        assert result.total == 1
+        assert result.degraded is True
+        assert result.warnings
     @pytest.mark.asyncio
     async def test_score_computation(self) -> None:
         """测试评分计算"""

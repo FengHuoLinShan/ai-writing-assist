@@ -17,15 +17,7 @@ world_structure / geo_structure / plot_structure / chapter_cards / memory_update
 
 ## 检查策略
 
-| 策略 | 文件 | 职责 |
-|------|------|------|
-| SchemaCheck | schema_check.py | 必填字段 / UUID 格式 / 枚举值 |
-| EntityReferenceCheck | entity_reference_check.py | 引用实体/人物的存在性 |
-| EarlyRevealCheck | early_reveal_check.py | hidden_truth 泄露 / 揭示计划间隔 |
-| CharacterKnowledgeCheck | character_knowledge_check.py | 角色知识边界 / 进度重叠 |
-| TimelineCheck | timeline_check.py | 章节重复 / 伏笔顺序 / facade 委派 |
-| GeoCheck | geo_check.py | 地点引用存在性 |
-| DuplicateCheck | duplicate_check.py | 章节卡 / 实体名称 / 候选内部重复 |
+7 个策略均实现 CheckStrategy 协议：SchemaCheck（字段校验）、EntityReferenceCheck（引用存在性）、EarlyRevealCheck（剧透检测）、CharacterKnowledgeCheck（知识边界）、TimelineCheck（时间线冲突）、GeoCheck（地点引用）、DuplicateCheck（重复检测）。
 
 ## 数据表
 

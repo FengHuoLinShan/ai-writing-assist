@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -171,7 +171,7 @@ class MemoryUpdateProposal(Base, UUIDMixin, NovelMixin, TimestampMixin):
         comment="决策者标识",
     )
     decided_at: Mapped[datetime | None] = mapped_column(
-        # No server_default — explicitly set when decision made
+        DateTime(timezone=True),
         nullable=True,
         comment="决策时间",
     )

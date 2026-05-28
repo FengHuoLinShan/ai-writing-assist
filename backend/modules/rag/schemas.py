@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 # ============================================================
 # 请求 Schema
@@ -24,7 +23,9 @@ class RagChunkCreate(BaseModel):
         ...,
         min_length=1,
         max_length=64,
-        description="来源类型（chapter_text / world_entity / character / memory / outline）",
+        description=(
+            "来源类型（chapter_text / world_entity / character / memory / outline）"
+        ),
     )
     source_id: str | None = Field(
         None,
@@ -34,6 +35,26 @@ class RagChunkCreate(BaseModel):
         None,
         ge=1,
         description="关联章节索引（从 1 开始）",
+    )
+    chunk_index: int | None = Field(
+        None,
+        ge=0,
+        description="章节内 chunk 序号（从 0 开始）",
+    )
+    start_offset: int | None = Field(
+        None,
+        ge=0,
+        description="chunk 在原始章节正文中的起始字符位置",
+    )
+    end_offset: int | None = Field(
+        None,
+        ge=0,
+        description="chunk 在原始章节正文中的结束字符位置",
+    )
+    char_count: int | None = Field(
+        None,
+        ge=0,
+        description="chunk 正文字符数",
     )
     text: str = Field(
         ...,
@@ -66,6 +87,24 @@ class RagChunkCreate(BaseModel):
         ge=0.0,
         le=1.0,
         description="重要性评分（0.0-1.0）",
+    )
+    index_version: str = Field(
+        default="legacy",
+        max_length=32,
+        description="RAG 索引版本",
+    )
+    embedding_status: str = Field(
+        default="pending",
+        max_length=32,
+        description="embedding 状态",
+    )
+    embedding_error: str | None = Field(
+        None,
+        description="embedding 失败原因",
+    )
+    index_warnings: list[str] = Field(
+        default_factory=list,
+        description="索引过程告警",
     )
     meta: dict = Field(
         default_factory=dict,
@@ -102,6 +141,10 @@ class RagQuery(BaseModel):
         None,
         description="可见性过滤（author_only / reader_known / public，不传则不限制）",
     )
+    mode: Literal["search", "context", "extraction"] = Field(
+        default="search",
+        description="检索模式：search / context / extraction",
+    )
     top_k: int = Field(
         default=12,
         ge=1,
@@ -127,6 +170,10 @@ class RagChunkResponse(BaseModel):
     source_type: str
     source_id: str | None = None
     chapter_index: int | None = None
+    chunk_index: int | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    char_count: int | None = None
     text: str
     summary: str | None = None
     entity_ids: list[str] = []
@@ -134,6 +181,10 @@ class RagChunkResponse(BaseModel):
     thread_ids: list[str] = []
     visibility: str = "author_only"
     importance: float = 0.5
+    index_version: str = "legacy"
+    embedding_status: str = "pending"
+    embedding_error: str | None = None
+    index_warnings: list[str] = []
     meta: dict = {}
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -173,6 +224,10 @@ class RagResult(BaseModel):
     """匹配总数"""
     query: str
     """原始查询文本"""
+    warnings: list[str] = []
+    """检索过程告警"""
+    degraded: bool = False
+    """是否发生降级（如 embedding/LLM 不可用）"""
 
 
 class SimilarEntity(BaseModel):

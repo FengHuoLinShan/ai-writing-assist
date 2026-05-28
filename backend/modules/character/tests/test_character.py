@@ -1214,6 +1214,82 @@ class TestCharacterExtract:
         assert result["status"] == "ok", f"Expected ok after retry, got {result}"
         assert llm_call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_extract_indexes_existing_draft_when_rag_is_empty(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """历史导入未建 RAG 时，应从已有草稿补索引后再抽取人物档案。"""
+        from unittest import mock
+
+        from infrastructure.tasks.models import AsyncTask
+        from modules.rag.repositories import RagChunkRepository
+        from modules.writing.schemas import WritingDraftCreate
+        from modules.writing.services import WritingDraftService
+
+        repo = CharacterRepository()
+        data = CharacterCreate(
+            novel_id=sample_novel_id,
+            name="周明瑞",
+            role="protagonist",
+        )
+        character = await repo.create(db_session, data)
+
+        writing = WritingDraftService()
+        await writing.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_novel_id,
+                chapter_index=1,
+                title="第一章",
+                content="熟睡中的周明瑞只觉脑袋抽痛异常。他想要回家，也害怕失去对身体的控制。",
+            ),
+        )
+        await db_session.flush()
+
+        task = AsyncTask(
+            id=uuid.uuid4(),
+            task_type="character_extract",
+            status="pending",
+            meta={"novel_id": sample_novel_id, "character_id": str(character.id)},
+            progress=0.0,
+        )
+
+        class _MockExtractOutput:
+            desire = "回到原本的世界"
+            fear = "失去对身体的控制"
+            secret = None
+            weakness = None
+            current_goal = None
+            current_state = None
+            current_emotion = None
+            stance = None
+            voice_style = None
+            role = None
+
+        with mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
+             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
+             mock.patch("core.config.get_settings") as mock_settings:
+            mock_settings.return_value.llm_model = "test-model"
+
+            from modules.character.tasks import handle_character_extract
+            result = await handle_character_extract(db_session, task)
+
+        assert result["status"] == "ok"
+        assert result["fields"] == ["desire", "fear"]
+
+        chunks, total = await RagChunkRepository().get_multi(
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
+        )
+        assert total == 1
+        assert str(character.id) in (chunks[0].character_ids or [])
+
+        updated = await repo.get(db_session, character.id)
+        assert updated is not None
+        assert updated.meta["ai_suggestions"]["desire"] == "回到原本的世界"
+
 
 class TestGetCharacterLocationId:
     """测试 character.facade.get_character_location_id"""

@@ -35,17 +35,7 @@ def render_context_markdown(context: StructureContextBundle) -> str
 
 ## Context Budget
 
-| 类别 | 上限 |
-|------|------|
-| 核心对象 | 8 |
-| 普通对象 | 8 |
-| 人物 | 6 |
-| 记忆 | 10 |
-| 伏笔 | 5 |
-| 时间线 | 8 |
-| 地理关系 | 10 |
-| 关系边 | 12 |
-| RAG 片段 | 8 |
+各分类预算见 `contracts.py` 中的 `CONTEXT_BUDGET` 常量，编译时自动应用。
 
 ## Markdown 层次
 

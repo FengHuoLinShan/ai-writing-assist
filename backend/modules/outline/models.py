@@ -15,6 +15,7 @@ import uuid
 
 from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
@@ -428,11 +429,11 @@ class RevealPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         nullable=False,
         comment="揭示目标类型（world_entity / character / secret）",
     )
-    target_id: Mapped[str] = mapped_column(
-        String(36),
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         nullable=False,
         index=True,
-        comment="揭示目标 ID（UUID hex）",
+        comment="揭示目标 ID",
     )
     secret_summary: Mapped[str] = mapped_column(
         Text,

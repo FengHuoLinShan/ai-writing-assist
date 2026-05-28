@@ -618,22 +618,19 @@ const api = {
     async rebuild(payload) {
       const novelId = payload?.novel_id
       if (!novelId) throw new Error("重建索引需要先选择项目")
-      const chapters = await request(`/writing/chapters${qs({ novel_id: novelId })}`)
-      const indices = chapters.chapter_indices || []
-      const tasks = []
-      for (const chapterIndex of indices) {
-        tasks.push(await request("/tasks", {
-          method: "POST",
-          body: JSON.stringify({
-            task_type: "rag_index_chapter",
-            meta: { novel_id: novelId, chapter_index: chapterIndex },
-          }),
-        }))
-      }
+      const task = await request("/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          task_type: "rag_reindex_novel",
+          meta: { novel_id: novelId, force: true },
+        }),
+      })
       return {
-        status: tasks.length ? "pending" : "empty",
-        total: tasks.length,
-        task_ids: tasks.map((task) => task.task_id),
+        status: task.status || "pending",
+        total: task.task_id ? 1 : 0,
+        task_id: task.task_id,
+        task_ids: task.task_id ? [task.task_id] : [],
+        warnings: task.warnings || [],
       }
     },
 

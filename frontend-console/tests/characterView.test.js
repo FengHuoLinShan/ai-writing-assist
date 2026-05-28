@@ -14,6 +14,11 @@ beforeEach(() => {
   characterView._characters = []
   characterView._characterKnowledge = []
   characterView._apiAvailable = false
+  if (characterView._pollTimer) {
+    clearInterval(characterView._pollTimer)
+    characterView._pollTimer = null
+  }
+  vi.useRealTimers()
   vi.clearAllMocks()
 })
 
@@ -200,6 +205,19 @@ describe("_editCharacter", () => {
     const html = vi.mocked(showModal).mock.calls[0][1]
     expect(html).toContain("张三")
   })
+
+  it("详情内容动态刷新后点击编辑档案仍然打开表单", () => {
+    const char = { id: "c1", name: "张三", role: "protagonist" }
+    _state.selectedItem = char
+    characterView._characters = [char]
+    document.body.innerHTML = '<div id="workspace-content"><div class="subnav"></div></div>'
+    characterView._bindEvents()
+
+    document.getElementById("workspace-content").insertAdjacentHTML("beforeend", characterView._renderDetail())
+    document.getElementById("btn-edit-character").click()
+
+    expect(showModal).toHaveBeenCalled()
+  })
 })
 
 // ============================================================
@@ -321,6 +339,45 @@ describe("人物档案抽取流程", () => {
 
       expect(char.meta.ai_suggestions).toBeUndefined()
     })
+
+    it("抽取完成但没有建议时提示没有新内容", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞", meta: {} }
+      characterView._characters = [char]
+
+      api.character.getSuggestions.mockResolvedValue({
+        suggestions: {},
+        updated_at: null,
+      })
+
+      await characterView._refreshSuggestions("c1", { status: "no_chunks", fields: [] })
+
+      expect(toast).toHaveBeenCalledWith(
+        "人物抽取完成，但没有找到可提取的相关正文片段",
+        "warning",
+      )
+    })
+
+    it("抽取有降级告警时提示结果可能不准确", async () => {
+      _state.currentProjectId = "p1"
+      const char = { id: "c1", name: "周明瑞", meta: {} }
+      characterView._characters = [char]
+
+      api.character.getSuggestions.mockResolvedValue({
+        suggestions: { desire: "想要回家" },
+        updated_at: null,
+      })
+
+      await characterView._refreshSuggestions("c1", {
+        status: "ok",
+        warnings: ["embedding 生成失败，本次生成人物档案可能不准确"],
+      })
+
+      expect(toast).toHaveBeenCalledWith(
+        "embedding 生成失败，本次生成人物档案可能不准确",
+        "warning",
+      )
+    })
   })
 
   describe("_applyAllSuggestions", () => {
@@ -402,6 +459,25 @@ describe("人物档案抽取流程", () => {
       expect(api.character.extract).toHaveBeenCalledWith("c1", "p1")
       expect(characterView._pollTimer).not.toBeNull()
       clearInterval(characterView._pollTimer)
+    })
+
+    it("任务失败时提示失败而不是完成", async () => {
+      vi.useFakeTimers()
+      const onDone = vi.fn()
+
+      api.tasks.getStatus.mockResolvedValue({
+        status: "failed",
+        error_message: "LLM 调用失败",
+        result: {},
+      })
+
+      characterView._pollExtractionTasks(["t1"], onDone)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(onDone).not.toHaveBeenCalled()
+      expect(api.character.list).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith("人物抽取失败：LLM 调用失败", "error")
+      expect(toast).not.toHaveBeenCalledWith("人物抽取完成", "success")
     })
   })
 

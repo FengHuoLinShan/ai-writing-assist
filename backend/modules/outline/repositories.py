@@ -730,7 +730,7 @@ class RevealPlanRepository:
         entity = RevealPlan(
             novel_id=novel_id,
             target_type=data.target_type,
-            target_id=data.target_id,
+            target_id=uuid.UUID(hex=data.target_id) if isinstance(data.target_id, str) else data.target_id,
             secret_summary=data.secret_summary,
             reveal_stages=data.reveal_stages or [],
             status=data.status or "draft",
@@ -788,11 +788,10 @@ class RevealPlanRepository:
         target_type: str,
         target_id: str,
     ) -> list[RevealPlan]:
-        """获取指定目标的揭示计划"""
         stmt = select(RevealPlan).where(
             RevealPlan.novel_id == novel_id,
             RevealPlan.target_type == target_type,
-            RevealPlan.target_id == target_id,
+            RevealPlan.target_id == uuid.UUID(hex=target_id) if isinstance(target_id, str) else target_id,
         )
         result = await db.execute(stmt)
         items: Sequence[RevealPlan] = result.scalars().all()
@@ -812,13 +811,16 @@ class RevealPlanRepository:
         update_values: dict[str, Any] = {}
         for field in (
             "target_type",
-            "target_id",
             "secret_summary",
             "status",
         ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
+
+        if data.target_id is not None:
+            tid = data.target_id
+            update_values["target_id"] = uuid.UUID(hex=tid) if isinstance(tid, str) else tid
 
         if data.reveal_stages is not None:
             update_values["reveal_stages"] = data.reveal_stages

@@ -94,3 +94,156 @@ class TestCharacterKnowledge:
             },
         )
         assert resp.status_code == 200
+
+
+class TestCharacterMissingFlows:
+
+    @pytest_asyncio.fixture
+    async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
+        meta = await create_base_scene(db_session)
+        await db_session.flush()
+        return async_client, meta["project_id"], meta["character_ids"], meta["entity_ids"]
+
+    async def test_knowledge_list(self, ctx):
+        client, pid, cids, eids = ctx
+        cid = cids["克莱恩·莫雷蒂"]
+        resp = await client.get(f"/api/characters/{cid}/knowledge?novel_id={pid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "items" in data
+        assert "total" in data
+
+    async def test_add_knowledge(self, ctx):
+        client, pid, cids, eids = ctx
+        cid = cids["克莱恩·莫雷蒂"]
+        target_id = eids["源堡"]
+        resp = await client.post(
+            f"/api/characters/{cid}/knowledge?novel_id={pid}",
+            json={
+                "novel_id": pid,
+                "character_id": cid,
+                "target_type": "entity",
+                "target_id": target_id,
+                "knowledge_level": "partial",
+                "known_content": "克莱恩知道源堡的存在",
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["knowledge_level"] == "partial"
+        assert data["known_content"] == "克莱恩知道源堡的存在"
+        assert data["character_id"] == cid
+        assert data["target_type"] == "entity"
+
+    async def test_update_knowledge(self, ctx):
+        client, pid, cids, eids = ctx
+        cid = cids["克莱恩·莫雷蒂"]
+        target_id = eids["源堡"]
+        create_resp = await client.post(
+            f"/api/characters/{cid}/knowledge?novel_id={pid}",
+            json={
+                "novel_id": pid,
+                "character_id": cid,
+                "target_type": "entity",
+                "target_id": target_id,
+                "knowledge_level": "partial",
+                "known_content": "克莱恩知道源堡的存在",
+            },
+        )
+        assert create_resp.status_code == 201
+        kid = create_resp.json()["id"]
+
+        update_resp = await client.put(
+            f"/api/characters/knowledge/{kid}?novel_id={pid}",
+            json={
+                "knowledge_level": "full",
+                "known_content": "克莱恩完全了解源堡的秘密",
+            },
+        )
+        assert update_resp.status_code == 200
+        data = update_resp.json()
+        assert data["knowledge_level"] == "full"
+        assert data["known_content"] == "克莱恩完全了解源堡的秘密"
+
+    async def test_delete_knowledge(self, ctx):
+        client, pid, cids, eids = ctx
+        cid = cids["克莱恩·莫雷蒂"]
+        target_id = eids["源堡"]
+        create_resp = await client.post(
+            f"/api/characters/{cid}/knowledge?novel_id={pid}",
+            json={
+                "novel_id": pid,
+                "character_id": cid,
+                "target_type": "entity",
+                "target_id": target_id,
+                "knowledge_level": "partial",
+                "known_content": "克莱恩知道源堡的存在",
+            },
+        )
+        assert create_resp.status_code == 201
+        kid = create_resp.json()["id"]
+
+        delete_resp = await client.delete(
+            f"/api/characters/knowledge/{kid}?novel_id={pid}",
+        )
+        assert delete_resp.status_code == 204
+
+        list_resp = await client.get(f"/api/characters/{cid}/knowledge?novel_id={pid}")
+        items = list_resp.json()["items"]
+        remaining_ids = [item["id"] for item in items]
+        assert kid not in remaining_ids
+
+    async def test_single_character_extract(self, ctx):
+        client, pid, cids, eids = ctx
+        cid = cids["克莱恩·莫雷蒂"]
+        resp = await client.post(f"/api/characters/{cid}/extract?novel_id={pid}")
+        assert resp.status_code == 201
+        data = resp.json()
+        assert "task_id" in data
+        assert data["status"] == "pending"
+
+        task_id = data["task_id"]
+        task_resp = await client.get(f"/api/tasks/{task_id}")
+        assert task_resp.status_code == 200
+        task_data = task_resp.json()
+        assert task_data["status"] == "pending"
+        assert task_data["task_type"] == "character_extract"
+
+    async def test_apply_suggestions(self, ctx):
+        client, pid, cids, eids = ctx
+        cid = cids["克莱恩·莫雷蒂"]
+
+        await client.put(
+            f"/api/characters/{cid}?novel_id={pid}",
+            json={
+                "meta": {
+                    "ai_suggestions": {
+                        "desire": "探寻非凡世界的终极真相",
+                        "fear": "失去对自我的掌控",
+                    },
+                    "ai_suggestions_at": "2026-05-28T00:00:00Z",
+                },
+            },
+        )
+
+        resp = await client.put(
+            f"/api/characters/{cid}/apply-suggestions?novel_id={pid}",
+            json={"fields": ["desire", "fear"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["desire"] == "探寻非凡世界的终极真相"
+        assert data["fear"] == "失去对自我的掌控"
+        assert "desire" not in data.get("meta", {}).get("ai_suggestions", {})
+        assert "fear" not in data.get("meta", {}).get("ai_suggestions", {})
+
+    async def test_extract_all_characters(self, ctx):
+        client, pid, cids, eids = ctx
+        resp = await client.post(f"/api/characters/extract-all?novel_id={pid}")
+        assert resp.status_code == 201, f"extract-all: {resp.status_code} {resp.text[:300]}"
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        for item in data:
+            assert "task_id" in item
+            assert item["status"] == "pending"

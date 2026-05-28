@@ -4,10 +4,6 @@
 
 timeline 模块负责事件顺序和剧情防错。不是复杂时间推理系统。
 
-## 回答的问题
-
-- 哪些事件已经发生？发生顺序？位于哪章？读者是否知道？哪些角色知道？
-
 ## 数据表
 
 - timeline_events — order_index / chapter_index / title / summary / event_type / visibility / known_by_character_ids / related_* JSONB

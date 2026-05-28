@@ -58,6 +58,12 @@ PUT    /api/characters/{id}/apply-suggestions # 应用 AI 建议
 POST   /api/characters/{id}/filter-context
 ```
 
+人物档案抽取优先通过 RAG `mode="extraction"` 检索相关正文。若历史导入数据缺少 RAG 索引，抽取任务会按人物名从已有草稿中补建相关章节索引，再重新检索；仍无命中时返回 no_chunks。RAG/LLM 降级会写入任务 `warnings`，前端提示本次建议可能不准确。
+
+## 异步任务
+
+- `@task_handler("character_extract")` — 通过 RAG 检索人物相关 chunk，调用 LLM 逐字段抽取档案，结果写入 `meta.ai_suggestions`
+
 ## Context 输出重点
 
 当前目标、当前状态、当前已知、当前未知、当前误解、语言风格、行为边界。

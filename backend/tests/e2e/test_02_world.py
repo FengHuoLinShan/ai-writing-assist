@@ -212,3 +212,92 @@ class TestAliasCRUD:
         aid = create.json()["id"]
         del_resp = await client.delete(f"/api/world/aliases/{aid}?novel_id={pid}")
         assert del_resp.status_code == 204
+
+
+class TestWorldMissingFlows:
+    """候选对象接受/忽略、抽取任务、关联图谱"""
+
+    @pytest_asyncio.fixture
+    async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
+        meta = await create_base_scene(db_session)
+        await db_session.flush()
+        return async_client, meta["project_id"], meta["entity_ids"]
+
+    async def test_accept_candidate_creates_entity(self, ctx):
+        client, pid, _ = ctx
+        create_resp = await client.post(f"/api/world/candidates?novel_id={pid}", json={
+            "name": "夜之女王",
+            "entity_type": "character_ref",
+            "summary": "神秘的夜之统治者",
+            "suggested_action": "create_new",
+        })
+        assert create_resp.status_code == 201
+        candidate_id = create_resp.json()["id"]
+
+        accept_resp = await client.post(
+            f"/api/world/candidates/{candidate_id}/accept?novel_id={pid}"
+        )
+        assert accept_resp.status_code == 200
+        data = accept_resp.json()
+        assert data["name"] == "夜之女王"
+        assert data["entity_type"] == "character_ref"
+        assert data["status"] == "draft"
+
+        get_resp = await client.get(f"/api/world/entities/{data['id']}?novel_id={pid}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["name"] == "夜之女王"
+
+    async def test_ignore_candidate(self, ctx):
+        client, pid, _ = ctx
+        create_resp = await client.post(f"/api/world/candidates?novel_id={pid}", json={
+            "name": "路人甲",
+            "entity_type": "character_ref",
+            "summary": "一个不重要的角色",
+            "suggested_action": "needs_user_decision",
+        })
+        assert create_resp.status_code == 201
+        candidate_id = create_resp.json()["id"]
+        assert create_resp.json()["status"] == "pending"
+
+        update_resp = await client.put(
+            f"/api/world/candidates/{candidate_id}?novel_id={pid}",
+            json={"suggested_action": "ignore"},
+        )
+        assert update_resp.status_code == 200
+        data = update_resp.json()
+        assert data["suggested_action"] == "ignore"
+
+    async def test_entity_extraction_task(self, ctx):
+        client, pid, _ = ctx
+        submit_resp = await client.post("/api/tasks", json={
+            "task_type": "world_entity_extraction",
+            "meta": {
+                "novel_id": pid,
+                "start_chapter": 1,
+                "end_chapter": 1,
+            },
+        })
+        assert submit_resp.status_code == 201
+        data = submit_resp.json()
+        assert "task_id" in data
+        assert data["status"] == "pending"
+
+        task_id = data["task_id"]
+        status_resp = await client.get(f"/api/tasks/{task_id}")
+        assert status_resp.status_code == 200
+        status_data = status_resp.json()
+        assert status_data["task_type"] == "world_entity_extraction"
+        assert status_data["status"] in ("pending", "running", "completed", "failed")
+
+    async def test_related_entity_graph(self, ctx):
+        client, pid, eids = ctx
+        eid = eids["克莱恩·莫雷蒂"]
+        resp = await client.get(f"/api/world/entities/{eid}/related?novel_id={pid}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        if len(data) > 0:
+            item = data[0]
+            assert "entity_id" in item
+            assert "name" in item
+            assert "entity_type" in item

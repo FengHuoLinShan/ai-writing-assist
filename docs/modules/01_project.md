@@ -27,12 +27,3 @@ GET    /api/projects/{id}    # 项目详情
 PUT    /api/projects/{id}    # 更新项目
 DELETE /api/projects/{id}    # 删除项目
 ```
-
-## 测试
-
-- tests/test_project.py — CRUD + 异常路径（NotFound / 重复标题）
-
-## 依赖
-
-- 其他模块依赖本模块的 NovelMixin（projects.id FK）
-- 本模块不依赖其他模块的表

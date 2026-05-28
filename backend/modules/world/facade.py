@@ -17,7 +17,12 @@ from modules.world.schemas import (
     WorldEntityContext,
     WorldEntityResponse,
 )
-from modules.world.services import EntityCandidateService, EntityDedupService, RelationshipService, WorldEntityService
+from modules.world.services import (
+    EntityCandidateService,
+    EntityDedupService,
+    RelationshipService,
+    WorldEntityService,
+)
 
 _entity_service = WorldEntityService()
 _relationship_service = RelationshipService()
@@ -45,6 +50,42 @@ async def list_entities(
         {"id": item.id, "name": item.name, "entity_type": item.entity_type}
         for item in result.items
     ]
+
+
+async def list_entity_terms(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """获取世界对象检索词典项（名称 + 已确认别名）。
+
+    供 RAG 索引用于正文标注；返回轻量 dict，避免跨模块暴露 ORM。
+    """
+    from modules.world.repositories import EntityAliasRepository, WorldEntityRepository
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    entities, _ = await WorldEntityRepository().get_by_novel(db, nid, limit=limit)
+    aliases, _ = await EntityAliasRepository().get_by_novel(db, nid, limit=limit * 4)
+
+    alias_map: dict[str, list[str]] = {}
+    for alias in aliases:
+        alias_map.setdefault(str(alias.entity_id), []).append(alias.alias)
+
+    terms: list[dict[str, Any]] = []
+    for item in entities:
+        if item.status not in ("canonical", "draft"):
+            continue
+        item_terms = [item.name]
+        item_terms.extend(alias_map.get(str(item.id), []))
+        terms.append({
+            "id": str(item.id),
+            "name": item.name,
+            "entity_type": item.entity_type,
+            "terms": [t for t in item_terms if t],
+        })
+    return terms
 
 
 async def run_entity_extraction(

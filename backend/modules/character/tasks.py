@@ -32,6 +32,63 @@ _FIELD_QUERIES = {
 }
 
 
+async def _collect_character_chunks(
+    db,
+    novel_id: str,
+    character_id: str,
+    character_name: str,
+) -> tuple[list[str], list[str]]:
+    """按人物和字段意图从 RAG 收集正文片段。"""
+    from modules.rag.facade import retrieve as _rag_retrieve
+
+    all_chunks_text: list[str] = []
+    warnings: list[str] = []
+    for query_keywords in _FIELD_QUERIES.values():
+        query = f"{character_name} {query_keywords}"
+        try:
+            result = await _rag_retrieve(
+                db, novel_id, query,
+                character_ids=[character_id],
+                mode="extraction",
+                top_k=5,
+            )
+            if result.total == 0:
+                result = await _rag_retrieve(
+                    db, novel_id, query,
+                    mode="extraction",
+                    top_k=5,
+                )
+            warnings.extend(result.warnings or [])
+            for chunk in result.chunks:
+                if chunk.text not in all_chunks_text:
+                    all_chunks_text.append(chunk.text)
+        except Exception as exc:
+            logger.warning("RAG retrieve for %s failed: %s", query, exc)
+            warnings.append(f"RAG 检索失败，本次抽取可能不准确: {exc}")
+    return all_chunks_text, warnings
+
+
+async def _index_existing_drafts_for_character(
+    db,
+    novel_id: str,
+    character_name: str,
+) -> int:
+    """历史导入缺 RAG 时，按角色名补建已有草稿的章节索引。"""
+    from modules.rag.facade import index_chapter as _index_chapter
+    from modules.writing.facade import (
+        get_latest_draft_for_chapter,
+        list_chapter_indices,
+    )
+
+    indexed = 0
+    for chapter_index in await list_chapter_indices(db, novel_id):
+        draft = await get_latest_draft_for_chapter(db, novel_id, chapter_index)
+        if not draft or not draft.content or character_name not in draft.content:
+            continue
+        indexed += await _index_chapter(db, novel_id, chapter_index)
+    return indexed
+
+
 @task_handler("character_extract")
 async def handle_character_extract(db, task):
     """处理人物档案抽取任务
@@ -63,32 +120,32 @@ async def handle_character_extract(db, task):
         raise ValueError(f"Character {character_id} not found")
 
     # 2. 用 RAG 检索含该角色的 chunk（逐字段意图查询）
-    from modules.rag.facade import retrieve as _rag_retrieve
+    all_chunks_text, rag_warnings = await _collect_character_chunks(
+        db, novel_id, character_id, character.name,
+    )
 
-    all_chunks_text: list[str] = []
-    for query_keywords in _FIELD_QUERIES.values():
-        query = f"{character.name} {query_keywords}"
-        try:
-            result = await _rag_retrieve(
-                db, novel_id, query,
-                character_ids=[character_id],
-                top_k=5,
+    if not all_chunks_text:
+        indexed = await _index_existing_drafts_for_character(
+            db, novel_id, character.name,
+        )
+        if indexed:
+            logger.info(
+                "Backfilled %d RAG chunks for character %s before extraction",
+                indexed, character.name,
             )
-            if result.total == 0:
-                result = await _rag_retrieve(
-                    db, novel_id, query,
-                    top_k=5,
-                )
-            for chunk in result.chunks:
-                preview = chunk.text[:200]
-                if preview not in all_chunks_text:
-                    all_chunks_text.append(preview)
-        except Exception as exc:
-            logger.warning("RAG retrieve for %s failed: %s", query, exc)
+            all_chunks_text, retry_warnings = await _collect_character_chunks(
+                db, novel_id, character_id, character.name,
+            )
+            rag_warnings.extend(retry_warnings)
 
     if not all_chunks_text:
         logger.info("No RAG chunks found for character %s", character.name)
-        return {"character_id": character_id, "status": "no_chunks", "fields": []}
+        return {
+            "character_id": character_id,
+            "status": "no_chunks",
+            "fields": [],
+            "warnings": rag_warnings,
+        }
 
     chunk_context = "\n\n---\n\n".join(all_chunks_text)
 
@@ -149,10 +206,20 @@ async def handle_character_extract(db, task):
                 await asyncio.sleep(delay)
             else:
                 logger.error("LLM extraction failed for %s after %d attempts: %s", character.name, LLM_RETRY_MAX_ATTEMPTS, exc)
-                return {"character_id": character_id, "status": "llm_failed", "error": str(exc)}
+                return {
+                    "character_id": character_id,
+                    "status": "llm_failed",
+                    "error": str(exc),
+                    "warnings": rag_warnings + ["LLM 抽取失败，本次生成人物档案可能不准确"],
+                }
 
     if extract_result is None:
-        return {"character_id": character_id, "status": "llm_failed", "error": "No result after retries"}
+        return {
+            "character_id": character_id,
+            "status": "llm_failed",
+            "error": "No result after retries",
+            "warnings": rag_warnings + ["LLM 抽取失败，本次生成人物档案可能不准确"],
+        }
 
     # 4. 构建 ai_suggestions
     suggestions = {}
@@ -186,6 +253,7 @@ async def handle_character_extract(db, task):
         "character_id": character_id,
         "status": "ok",
         "fields": list(suggestions.keys()),
+        "warnings": rag_warnings,
     }
 
 

@@ -2,16 +2,7 @@
 
 ## 1. LLM 客户端
 
-### 目录
-
-```
-infrastructure/llm/
-├── client.py       — LLMClient（generate / generate_structured / generate_stream / generate_simple）
-├── providers.py    — Provider（OpenAI 兼容 API / response_format）
-├── retry.py        — 指数退避重试
-├── schemas.py      — LLMCallRequest / LLMCallResponse / LLMMessage / LLMStreamChunk
-└── errors.py       — LLMError / LLMInvalidResponseError
-```
+`infrastructure/llm/` 目录提供 OpenAI 兼容的 LLM 调用能力。
 
 ### 核心方法
 
@@ -33,33 +24,27 @@ text = await llm.generate_simple(system_prompt, user_prompt)
 
 ## 2. 异步任务系统
 
-### 目录
-
-```
-infrastructure/tasks/
-├── models.py       — AsyncTask ORM
-├── worker.py       — Worker 循环（FOR UPDATE SKIP LOCKED）
-├── registry.py     — @task_handler 装饰器注册
-└── api.py          — 任务提交/状态查询 API
-```
+基于 PostgreSQL 表 + 进程内 worker（FOR UPDATE SKIP LOCKED）。
 
 ### 任务类型
 
-- world_entity_extraction — 从章节正文抽取候选（已实现）
-- embedding_build / rag_reindex / world_structure_generate / plot_structure_generate / chapter_scene_generate / structure_review / memory_extract / import_text（预留）
-
-### 任务领取
-
-```sql
-SELECT * FROM async_tasks WHERE status = 'pending'
-ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED;
-```
+| 处理器 | 模块 | 说明 |
+|--------|------|------|
+| `world_entity_extraction` | world | 从章节正文抽取世界对象候选 |
+| `character_extract` | character | 人物档案 AI 抽取（RAG → LLM → ai_suggestions） |
+| `plot_structure_generate` | outline | 从正文生成剧情线+篇章纲 |
+| `chapter_card_extraction` | outline | 从正文提取章节卡字段 |
+| `rag_index_chapter` | rag | 单章 RAG 索引 |
+| `rag_reindex_novel` | rag | 全量/范围重建项目索引 |
+| `deep_import` | imports | 深度导入流水线（抽取→人物→剧情） |
+| `deep_import_resume` | imports | 候选确认后恢复深度导入 |
 
 ### API
 
 ```
-POST /api/tasks         # 提交任务
-GET  /api/tasks/{id}    # 查询任务状态
+POST /api/tasks            # 提交任务
+GET  /api/tasks/{id}       # 查询任务状态
+POST /api/tasks/{id}/cancel # 取消任务
 ```
 
 ## 不做
