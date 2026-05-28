@@ -201,8 +201,12 @@ const projectView = {
               genre: genre || project.genre,
               current_stage: stage,
             })
+            Object.assign(project, { title: title || project.title, genre: genre || project.genre, current_stage: stage })
+            if (_state.currentProjectId === id) {
+              _state.currentProject = { ..._state.currentProject, title: title || project.title, genre: genre || project.genre, current_stage: stage }
+            }
             toast("项目已更新", "success")
-            router.navigate("project")
+            closeModal()
           } catch (err) {
             toast(`保存失败：${err.message}`, "error")
           }
@@ -319,7 +323,8 @@ const projectView = {
         const result = await api.imports.upload(project.id, file)
         toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
       } catch (err) {
-        toast(err.message || "导入失败", "error")
+        const detail = err.message || "导入失败"
+        toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
       }
     }
     input.click()

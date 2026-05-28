@@ -15,7 +15,7 @@ frontend-console/
 ├── api.js            — 全模块 API 封装（character/world/geo/outline/writing/memory/timeline/rag/context/review/projects/imports/tasks）
 ├── commands.js       — Vim 风格命令系统
 ├── app.js            — 事件绑定 / 快捷键 / 生命周期
-└── views/            — 14 个视图
+└── views/            — 12 个视图
 ```
 
 ## 核心设计

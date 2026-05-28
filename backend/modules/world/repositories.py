@@ -332,40 +332,57 @@ class RelationshipRepository:
 
         一跳（depth=1）：直接连接的对象
         二跳（depth=2）：直接对象的直接连接对象（一跳扩展）
+
+        使用 UNION 合并 source/target 查询，避免 N+1 问题。
         """
         related: set[str] = set()
 
-        # 一跳：直接 source→target 和 target→source
-        source_rels = await self.get_by_source(db, novel_id, entity_id, limit=limit)
-        for rel in source_rels:
-            related.add(rel.target_id)
-
-        target_rels = await self.get_by_target(db, novel_id, entity_id, limit=limit)
-        for rel in target_rels:
-            related.add(rel.source_id)
+        one_hop_ids = await self._get_one_hop_ids(db, novel_id, entity_id)
+        related.update(one_hop_ids)
 
         if depth >= 2:
-            # 二跳：对一跳结果再扩展
-            for related_id in list(related):
+            for hop_id in list(one_hop_ids):
                 if len(related) >= limit:
                     break
-                second_source = await self.get_by_source(
-                    db, novel_id, related_id, limit=limit // 2,
+                second_hop = await self._get_one_hop_ids(
+                    db, novel_id, hop_id,
                 )
-                for rel in second_source:
-                    if len(related) >= limit:
-                        break
-                    related.add(rel.target_id)
-
-                second_target = await self.get_by_target(
-                    db, novel_id, related_id, limit=limit // 2,
-                )
-                for rel in second_target:
-                    if len(related) >= limit:
-                        break
-                    related.add(rel.source_id)
+                related.update(second_hop)
+                if len(related) >= limit:
+                    break
 
         return related
+
+    async def _get_one_hop_ids(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: str,
+    ) -> set[str]:
+        """单次 UNION 查询获取一跳相关的所有实体 ID
+
+        合并 source→target 和 target→source 为一条 SQL，
+        避免分别调用 get_by_source / get_by_target 造成的两次查询。
+        """
+        from sqlalchemy import union_all
+
+        src_stmt = (
+            select(Relationship.target_id.label("related_id"))
+            .where(
+                Relationship.novel_id == novel_id,
+                Relationship.source_id == entity_id,
+            )
+        )
+        tgt_stmt = (
+            select(Relationship.source_id.label("related_id"))
+            .where(
+                Relationship.novel_id == novel_id,
+                Relationship.target_id == entity_id,
+            )
+        )
+        combined = union_all(src_stmt, tgt_stmt)
+        result = await db.execute(combined)
+        return {row[0] for row in result.all()}
 
     async def update(
         self,

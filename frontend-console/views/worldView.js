@@ -15,7 +15,9 @@ const worldView = {
   _autoExtractTimer: null,
 
   async onEnter() {
-    // 清理上次的轮询
+    this._entities = []
+    this._candidates = []
+
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
       this._autoExtractTimer = null
@@ -50,6 +52,13 @@ const worldView = {
       }
     } catch {
       this._candidates = []
+    }
+  },
+
+  onLeave() {
+    if (this._autoExtractTimer) {
+      clearInterval(this._autoExtractTimer)
+      this._autoExtractTimer = null
     }
   },
 
@@ -211,12 +220,12 @@ const worldView = {
       const statusClass = `badge-${e.status || "canonical"}`
       const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
       html += `
-        <tr data-id="${e.id || e.entity_id}" class="clickable">
-          <td><span class="badge ${statusClass}">${statusText[e.status] || e.status}</span></td>
-          <td style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${e.entity_type || "-"}</td>
-          <td>${e.name}</td>
-          <td>${e.importance || e.importance_score || "-"}</td>
-          <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.summary || e.public_info || "-"}</td>
+        <tr data-id="${esc(e.id || e.entity_id)}" class="clickable">
+          <td><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
+          <td style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
+          <td>${esc(e.name)}</td>
+          <td>${esc(e.importance || e.importance_score || "-")}</td>
+          <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
             <button class="btn btn-sm btn-danger" data-action="delete-entity" data-id="${esc(e.id || e.entity_id)}">删除</button>
@@ -278,11 +287,11 @@ const worldView = {
       const isMergeCandidate = c.suggested_action === "alias_of_existing" || c.suggested_action === "merge_with_existing"
 
       html += `
-        <tr data-id="${c.id || c.candidate_id}">
-          <td>${c.name}</td>
-          <td style="color:var(--accent-dim);font-family:var(--font-mono)">${c.entity_type}</td>
-          <td>${c.importance_score || c.importance || "-"}</td>
-          <td style="color:var(--warning)">${actionMap[c.suggested_action] || c.suggested_action}</td>
+        <tr data-id="${esc(c.id || c.candidate_id)}">
+          <td>${esc(c.name)}</td>
+          <td style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
+          <td>${esc(c.importance_score || c.importance || "-")}</td>
+          <td style="color:var(--warning)">${esc(actionMap[c.suggested_action] || c.suggested_action)}</td>
           <td style="display:flex;gap:4px;flex-wrap:wrap;">
             <button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(c.id || c.candidate_id)}">确认</button>
             ${isMergeCandidate && c.suggested_existing_entity_name ? `
@@ -512,7 +521,7 @@ const worldView = {
     const formHtml = `
       <div class="form-group">
         <label>名称</label>
-        <input class="form-input" id="edit-entity-name" value="${entity.name}" />
+        <input class="form-input" id="edit-entity-name" value="${esc(entity.name)}" />
       </div>
       <div class="form-group">
         <label>类型</label>
@@ -526,7 +535,7 @@ const worldView = {
       </div>
       <div class="form-group">
         <label>概要</label>
-        <textarea class="form-textarea" id="edit-entity-summary" rows="3">${entity.summary || ""}</textarea>
+        <textarea class="form-textarea" id="edit-entity-summary" rows="3">${esc(entity.summary || "")}</textarea>
       </div>
     `
 

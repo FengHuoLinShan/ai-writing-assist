@@ -28,6 +28,13 @@ const outlineView = {
     ])
   },
 
+  onLeave() {
+    if (this._extractionTimer) {
+      clearInterval(this._extractionTimer)
+      this._extractionTimer = null
+    }
+  },
+
   async render() {
     const subView = _state.currentSubView || "threads"
     let html = `
@@ -116,18 +123,23 @@ const outlineView = {
     showModal("新建剧情线", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const name = document.getElementById("th-name")?.value
       if (!name) { toast("请输入名称", "warning"); return }
-      await api.outline.createThread({ name,
-        thread_type: document.getElementById("th-type")?.value || "main",
-        summary: document.getElementById("th-summary")?.value || "",
-        start_chapter: parseInt(document.getElementById("th-start")?.value) || undefined,
-        planned_payoff_chapter: parseInt(document.getElementById("th-end")?.value) || undefined,
-      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "threads")
+      try {
+        await api.outline.createThread({ name,
+          thread_type: document.getElementById("th-type")?.value || "main",
+          summary: document.getElementById("th-summary")?.value || "",
+          start_chapter: parseInt(document.getElementById("th-start")?.value) || undefined,
+          planned_payoff_chapter: parseInt(document.getElementById("th-end")?.value) || undefined,
+        }, _state.currentProjectId)
+        toast("已创建", "success")
+        await this._loadThreads()
+        router.navigate("outline", "threads")
+      } catch (err) { toast(err.message || "操作失败", "error") }
     } }])
   },
 
   _deleteThread(id) {
     confirmAction("确定删除此剧情线？", async () => {
-      try { await api.outline.deleteThread(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "threads") }
+      try { await api.outline.deleteThread(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadThreads(); router.navigate("outline", "threads") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -289,20 +301,25 @@ const outlineView = {
     showModal("新建篇章纲", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const title = document.getElementById("arc-title")?.value
       if (!title) { toast("请输入标题", "warning"); return }
-      await api.outline.createArc({ title,
-        start_chapter: parseInt(document.getElementById("arc-start")?.value) || undefined,
-        end_chapter: parseInt(document.getElementById("arc-end")?.value) || undefined,
-        arc_goal: document.getElementById("arc-goal")?.value || "",
-        core_conflict: document.getElementById("arc-conflict")?.value || "",
-        entry_hook: document.getElementById("arc-hook")?.value || "",
-        climax: document.getElementById("arc-climax")?.value || "",
-      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "arcs")
+      try {
+        await api.outline.createArc({ title,
+          start_chapter: parseInt(document.getElementById("arc-start")?.value) || undefined,
+          end_chapter: parseInt(document.getElementById("arc-end")?.value) || undefined,
+          arc_goal: document.getElementById("arc-goal")?.value || "",
+          core_conflict: document.getElementById("arc-conflict")?.value || "",
+          entry_hook: document.getElementById("arc-hook")?.value || "",
+          climax: document.getElementById("arc-climax")?.value || "",
+        }, _state.currentProjectId)
+        toast("已创建", "success")
+        await this._loadArcs()
+        router.navigate("outline", "arcs")
+      } catch (err) { toast(err.message || "操作失败", "error") }
     } }])
   },
 
   _deleteArc(id) {
     confirmAction("确定删除此篇章纲？", async () => {
-      try { await api.outline.deleteArc(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "arcs") }
+      try { await api.outline.deleteArc(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadArcs(); router.navigate("outline", "arcs") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -350,12 +367,17 @@ const outlineView = {
     showModal("新建章节卡", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const idx = parseInt(document.getElementById("ch-index")?.value)
       if (!idx) { toast("请输入章节序号", "warning"); return }
-      await api.outline.createChapterCard({
-        chapter_index: idx, title: document.getElementById("ch-title")?.value || "",
-        chapter_goal: document.getElementById("ch-goal")?.value || "",
-        main_conflict: document.getElementById("ch-conflict")?.value || "",
-        ending_hook: document.getElementById("ch-hook")?.value || "",
-      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "chapters")
+      try {
+        await api.outline.createChapterCard({
+          chapter_index: idx, title: document.getElementById("ch-title")?.value || "",
+          chapter_goal: document.getElementById("ch-goal")?.value || "",
+          main_conflict: document.getElementById("ch-conflict")?.value || "",
+          ending_hook: document.getElementById("ch-hook")?.value || "",
+        }, _state.currentProjectId)
+        toast("已创建", "success")
+        await this._loadChapters()
+        router.navigate("outline", "chapters")
+      } catch (err) { toast(err.message || "操作失败", "error") }
     } }])
   },
 
@@ -379,6 +401,7 @@ const outlineView = {
       try {
         await api.outline.updateChapterCard(cardId, { status: "canonical" }, _state.currentProjectId)
         toast(`「${title}」已确认`, "success")
+        await this._loadChapters()
         router.navigate("outline", "chapters")
       } catch (e) { toast(e.message || "确认失败", "error") }
     }, "确认")
@@ -422,6 +445,7 @@ const outlineView = {
           try {
             await api.outline.updateChapterCard(cardId, data, _state.currentProjectId)
             toast("已保存", "success")
+            await this._loadChapters()
             router.navigate("outline", "chapters")
           } catch (err) { toast(err.message || "保存失败", "error") }
         },
@@ -431,7 +455,7 @@ const outlineView = {
 
   _deleteChapter(id) {
     confirmAction("确定删除此章节卡？", async () => {
-      try { await api.outline.deleteChapterCard(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "chapters") }
+      try { await api.outline.deleteChapterCard(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadChapters(); router.navigate("outline", "chapters") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -439,15 +463,34 @@ const outlineView = {
   async _submitChapterCardExtraction() {
     if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
 
-    const chStartStr = prompt("起始章节：", "1")
-    if (!chStartStr) return
-    const chEndStr = prompt("结束章节：", "10")
-    if (!chEndStr) return
-    const chStart = parseInt(chStartStr, 10)
-    const chEnd = parseInt(chEndStr, 10)
-    if (chEnd < chStart) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+    const formHtml = `
+      <div class="form-row">
+        <div class="form-group">
+          <label>起始章节</label>
+          <input class="form-input" id="ext-ch-start" type="number" min="1" value="1" />
+        </div>
+        <div class="form-group">
+          <label>结束章节</label>
+          <input class="form-input" id="ext-ch-end" type="number" min="1" value="10" />
+        </div>
+      </div>
+    `
+    showModal("提取章节卡", formHtml, [
+      { text: "取消", handler: () => closeModal() },
+      {
+        text: "确认", class: "btn-primary",
+        handler: async () => {
+          const chStart = parseInt(document.getElementById("ext-ch-start")?.value || "1", 10)
+          const chEnd = parseInt(document.getElementById("ext-ch-end")?.value || "10", 10)
+          if (chEnd < chStart) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+          closeModal()
+          await this._doChapterCardExtraction(chStart, chEnd)
+        },
+      },
+    ])
+  },
 
-    // 查已有章节卡
+  async _doChapterCardExtraction(chStart, chEnd) {
     let existingCards = []
     try {
       const data = await api.outline.listChapterCards({
@@ -548,19 +591,24 @@ const outlineView = {
     showModal("新建伏笔", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const name = document.getElementById("fs-name")?.value
       if (!name) { toast("请输入名称", "warning"); return }
-      await api.outline.createForeshadowing({ name,
-        summary: document.getElementById("fs-summary")?.value || "",
-        surface_meaning: document.getElementById("fs-surface")?.value || "",
-        hidden_meaning: document.getElementById("fs-hidden")?.value || "",
-        planned_seed_chapter: parseInt(document.getElementById("fs-seed")?.value) || undefined,
-        planned_payoff_chapter: parseInt(document.getElementById("fs-payoff")?.value) || undefined,
-      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "foreshadowing")
+      try {
+        await api.outline.createForeshadowing({ name,
+          summary: document.getElementById("fs-summary")?.value || "",
+          surface_meaning: document.getElementById("fs-surface")?.value || "",
+          hidden_meaning: document.getElementById("fs-hidden")?.value || "",
+          planned_seed_chapter: parseInt(document.getElementById("fs-seed")?.value) || undefined,
+          planned_payoff_chapter: parseInt(document.getElementById("fs-payoff")?.value) || undefined,
+        }, _state.currentProjectId)
+        toast("已创建", "success")
+        await this._loadForeshadowing()
+        router.navigate("outline", "foreshadowing")
+      } catch (err) { toast(err.message || "操作失败", "error") }
     } }])
   },
 
   _deleteForeshadowing(id) {
     confirmAction("确定删除此伏笔？", async () => {
-      try { await api.outline.deleteForeshadowing(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "foreshadowing") }
+      try { await api.outline.deleteForeshadowing(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadForeshadowing(); router.navigate("outline", "foreshadowing") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -601,17 +649,22 @@ const outlineView = {
     showModal("新建揭示计划", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const targetId = document.getElementById("rv-target")?.value
       if (!targetId) { toast("请输入目标 ID", "warning"); return }
-      await api.outline.createReveal({
-        target_type: document.getElementById("rv-type")?.value || "world_entity",
-        target_id: targetId,
-        secret_summary: document.getElementById("rv-secret")?.value || "",
-      }, _state.currentProjectId); toast("已创建", "success"); router.navigate("outline", "reveals")
+      try {
+        await api.outline.createReveal({
+          target_type: document.getElementById("rv-type")?.value || "world_entity",
+          target_id: targetId,
+          secret_summary: document.getElementById("rv-secret")?.value || "",
+        }, _state.currentProjectId)
+        toast("已创建", "success")
+        await this._loadReveals()
+        router.navigate("outline", "reveals")
+      } catch (err) { toast(err.message || "操作失败", "error") }
     } }])
   },
 
   _deleteReveal(id) {
     confirmAction("确定删除此揭示计划？", async () => {
-      try { await api.outline.deleteReveal(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); router.navigate("outline", "reveals") }
+      try { await api.outline.deleteReveal(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadReveals(); router.navigate("outline", "reveals") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },

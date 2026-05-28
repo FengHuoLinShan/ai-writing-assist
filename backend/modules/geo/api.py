@@ -25,9 +25,11 @@ from modules.geo.schemas import (
     GeoLocationListResponse,
     GeoLocationResponse,
     GeoLocationUpdate,
+    RouteQueryRequest,
+    RouteQueryResponse,
     TravelConstraintResult,
 )
-from modules.geo.services import GeoEdgeService, GeoEraService, GeoLocationService, GeoQueryService
+from modules.geo.services import GeoEdgeService, GeoEraService, GeoLocationService, GeoQueryService, GeoTopologyService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/geo", tags=["geo"])
@@ -36,6 +38,7 @@ _location_service = GeoLocationService()
 _edge_service = GeoEdgeService()
 _era_service = GeoEraService()
 _query_service = GeoQueryService()
+_topology_service = GeoTopologyService()
 
 
 # ============================================================
@@ -288,4 +291,25 @@ async def get_geo_history_context(
 
     return await _query_service.get_geo_history_context(
         db, novel_id, era_id=era_id, location_ids=loc_ids,
+    )
+
+
+@router.post("/calculate-routing", response_model=RouteQueryResponse)
+async def calculate_routing(
+    db: DbSession,
+    data: RouteQueryRequest,
+) -> RouteQueryResponse:
+    """计算两地之间的最短旅行路径"""
+    result = await _topology_service.calculate_route(
+        db,
+        data.novel_id,
+        data.source_location_id,
+        data.target_location_id,
+        data.chapter_index,
+    )
+    return RouteQueryResponse(
+        is_reachable=result.is_reachable,
+        total_travel_hours=result.total_hours if result.is_reachable else -1.0,
+        recommended_path=result.path,
+        message=result.reason or "",
     )

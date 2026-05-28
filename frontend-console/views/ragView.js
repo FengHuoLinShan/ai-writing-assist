@@ -135,7 +135,7 @@ const ragView = {
               ${score ? `<span style="float:right;color:var(--accent);">${(score * 100).toFixed(0)}%</span>` : ""}
             </div>
             <p style="font-size:12px;color:var(--text);">${truncated}</p>
-            <div class="card-meta">${chunk.chapter_index ? `第 ${chunk.chapter_index} 章` : ""}</div>
+            <div class="card-meta">${chunk.chapter_index ? `第 ${esc(String(chunk.chapter_index))} 章` : ""}</div>
           </div>
         `
       }

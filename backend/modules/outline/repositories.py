@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import Select, asc, delete, or_, select, update
+from sqlalchemy import Select, asc, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import (
@@ -98,9 +98,9 @@ class PlotThreadRepository:
             conditions.append(PlotThread.status == status)
 
         # 计数
-        count_stmt = select(PlotThread.id).where(*conditions)
+        count_stmt = select(func.count(PlotThread.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 分页查询
         stmt = (
@@ -280,9 +280,9 @@ class OutlineArcRepository:
         if status:
             conditions.append(OutlineArc.status == status)
 
-        count_stmt = select(OutlineArc.id).where(*conditions)
+        count_stmt = select(func.count(OutlineArc.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(OutlineArc)
@@ -455,9 +455,9 @@ class ChapterCardRepository:
         if status:
             conditions.append(ChapterCard.status == status)
 
-        count_stmt = select(ChapterCard.id).where(*conditions)
+        count_stmt = select(func.count(ChapterCard.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(ChapterCard)
@@ -613,9 +613,9 @@ class ForeshadowingPlanRepository:
         if status:
             conditions.append(ForeshadowingPlan.status == status)
 
-        count_stmt = select(ForeshadowingPlan.id).where(*conditions)
+        count_stmt = select(func.count(ForeshadowingPlan.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(ForeshadowingPlan)
@@ -739,9 +739,9 @@ class RevealPlanRepository:
         if status:
             conditions.append(RevealPlan.status == status)
 
-        count_stmt = select(RevealPlan.id).where(*conditions)
+        count_stmt = select(func.count(RevealPlan.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         stmt = (
             select(RevealPlan)

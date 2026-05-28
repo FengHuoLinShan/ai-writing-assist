@@ -11,6 +11,10 @@ const memoryView = {
   async onEnter() {
     this._records = []
     this._proposals = []
+    if (!_state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
     await Promise.all([this._loadRecords(), this._loadProposals()])
   },
 
@@ -131,6 +135,7 @@ const memoryView = {
     try {
       await api.memory.confirmProposal(_state.currentProjectId, proposalId, {})
       toast("提案已确认", "success")
+      await this._loadProposals()
       router.navigate("memory", "proposals")
     } catch (err) { toast(err.message || "确认失败", "error") }
   },
@@ -140,6 +145,7 @@ const memoryView = {
       try {
         await api.memory.rejectProposal(_state.currentProjectId, proposalId, "user")
         toast("已拒绝", "success")
+        await this._loadProposals()
         router.navigate("memory", "proposals")
       } catch (err) { toast(err.message || "操作失败", "error") }
     }, "拒绝")

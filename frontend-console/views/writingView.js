@@ -190,6 +190,10 @@ const writingView = {
       clearInterval(this._deepImportTimer)
       this._deepImportTimer = null
     }
+    if (this._extractionTimer) {
+      clearInterval(this._extractionTimer)
+      this._extractionTimer = null
+    }
   },
 
   // ============================================================
@@ -368,7 +372,6 @@ const writingView = {
       html += this._cardCollapsible("剧情功能", card.plot_function)
       html += this._cardCollapsible("隐藏进展", card.hidden_progress)
       html += this._cardCollapsible("幕外进展", card.offscreen_progress)
-      html += this._cardCollapsible("尾钩", card.ending_hook)
     } else {
       html += `
         <div style="font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;">

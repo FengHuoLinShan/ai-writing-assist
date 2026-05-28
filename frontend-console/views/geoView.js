@@ -263,8 +263,8 @@ const geoView = {
       type: "location",
       content: `
         <div class="help-section">
-          <h4>${node.name}</h4>
-          <p>层级：${node.level || "未知"}</p>
+          <h4>${esc(node.name)}</h4>
+          <p>层级：${esc(node.level || "未知")}</p>
           <p style="color:var(--text-dim);font-size:12px;margin-top:8px;">
             <strong>相关操作</strong><br>
             <a style="cursor:pointer;color:var(--accent);" data-action="nav-history">查看地点历史</a><br>
@@ -324,11 +324,11 @@ const geoView = {
 
       html += `
         <tr>
-          <td>${srcName}</td>
-          <td style="color:var(--accent);font-family:var(--font-mono);font-size:12px;">${relMap[e.relation_type] || e.relation_type}</td>
-          <td>${tgtName}</td>
-          <td style="color:var(--text-muted)">${e.travel_time || e.distance_label || "-"}</td>
-          <td>${e.difficulty || "-"}</td>
+          <td>${esc(srcName)}</td>
+          <td style="color:var(--accent);font-family:var(--font-mono);font-size:12px;">${esc(relMap[e.relation_type] || e.relation_type)}</td>
+          <td>${esc(tgtName)}</td>
+          <td style="color:var(--text-muted)">${esc(e.travel_time || e.distance_label || "-")}</td>
+          <td>${esc(e.difficulty || "-")}</td>
         </tr>
       `
     }
@@ -372,8 +372,8 @@ const geoView = {
       html += `
         <tr>
           <td style="font-family:var(--font-mono);color:var(--text-dim);">${String(era.order_index || 0).padStart(3, "0")}</td>
-          <td><strong>${era.name}</strong></td>
-          <td style="color:var(--text-muted)">${era.summary || "-"}</td>
+          <td><strong>${esc(era.name)}</strong></td>
+          <td style="color:var(--text-muted)">${esc(era.summary || "-")}</td>
           <td><button class="btn btn-sm" onclick="toast('编辑历史时期功能开发中', 'info')">编辑</button></td>
         </tr>
       `

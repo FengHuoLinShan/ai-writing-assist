@@ -7,6 +7,9 @@ Geo 业务逻辑层
 
 from __future__ import annotations
 
+import heapq
+import logging
+import re
 import uuid
 from typing import Any
 
@@ -19,6 +22,7 @@ from modules.geo.contracts import (
     GeoEdgeContract,
     GeoEraContract,
     GeoLocationContract,
+    RouteCalculationResult,
     TravelConstraintContract,
 )
 from modules.geo.repositories import (
@@ -42,6 +46,31 @@ from modules.geo.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
+
+_logger = logging.getLogger(__name__)
+
+_CHINESE_NUM_MAP = {
+    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+    "半": 0.5,
+}
+
+
+def _parse_chinese_num(text: str) -> float | None:
+    if not text:
+        return None
+    if text in _CHINESE_NUM_MAP:
+        return float(_CHINESE_NUM_MAP[text])
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    if "十" in text:
+        parts = text.split("十")
+        tens = _CHINESE_NUM_MAP.get(parts[0], 1) if parts[0] else 1
+        ones = _CHINESE_NUM_MAP.get(parts[1], 0) if len(parts) > 1 and parts[1] else 0
+        return float(tens * 10 + ones)
+    return None
 
 
 # ============================================================
@@ -684,4 +713,172 @@ class GeoQueryService:
     # ============================================================
     # 内部工具
     # ============================================================
+
+
+# ============================================================
+# 地理拓扑服务
+# ============================================================
+
+class GeoTopologyService:
+    """地理拓扑服务 — 动态图编译与最短路径计算"""
+
+    def __init__(self) -> None:
+        self._edge_repo = GeoEdgeRepository()
+
+    @staticmethod
+    def _parse_time_to_hours(text: str | None) -> float:
+        if not text:
+            return 24.0
+        text = text.strip()
+
+        try:
+            val = float(text)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+
+        m = re.match(r'^([一二两三四五六七八九十半\d]+)\s*[天日]', text)
+        if m:
+            num_str = m.group(1)
+            val = _parse_chinese_num(num_str)
+            if val is not None:
+                return val * 24.0
+
+        m = re.match(r'^([一二两三四五六七八九十半\d]+)\s*小时', text)
+        if m:
+            num_str = m.group(1)
+            val = _parse_chinese_num(num_str)
+            if val is not None:
+                return val
+
+        m = re.match(r'^(\d+(?:\.\d+)?)\s*d(?:ays?)?', text, re.IGNORECASE)
+        if m:
+            return float(m.group(1)) * 24.0
+
+        m = re.match(r'^(\d+(?:\.\d+)?)\s*h(?:ours?)?', text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+
+        _logger.warning("无法解析旅行耗时: %r, 降级为 24.0 小时", text)
+        return 24.0
+
+    @staticmethod
+    async def _compile_active_graph(
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        all_edges: list[Any],
+    ) -> dict[str, list[tuple[str, float]]]:
+        from modules.timeline.facade import get_geo_effects_up_to_chapter
+
+        graph: dict[str, list[tuple[str, float]]] = {}
+
+        for edge in all_edges:
+            if edge.relation_type == "blocked_path":
+                continue
+            if edge.status != "canonical":
+                continue
+            src = str(edge.source_location_id)
+            tgt = str(edge.target_location_id)
+            hours = GeoTopologyService._parse_time_to_hours(edge.travel_time)
+            graph.setdefault(src, []).append((tgt, hours))
+
+        geo_effects = await get_geo_effects_up_to_chapter(db, novel_id, chapter_index)
+        for effect in geo_effects:
+            mutations = effect.get("edge_mutations", [])
+            for mut in mutations:
+                src = mut.get("source_id", "")
+                tgt = mut.get("target_id", "")
+                action = mut.get("action", "")
+                if not src or not tgt or not action:
+                    continue
+
+                if action == "block":
+                    if src in graph:
+                        graph[src] = [(t, h) for t, h in graph[src] if t != tgt]
+                    if tgt in graph:
+                        graph[tgt] = [(t, h) for t, h in graph[tgt] if t != src]
+                elif action in ("connect", "reveal_hidden"):
+                    travel_time = mut.get("travel_time")
+                    hours = GeoTopologyService._parse_time_to_hours(travel_time)
+                    existing_targets = {t for t, _ in graph.get(src, [])}
+                    if tgt not in existing_targets:
+                        graph.setdefault(src, []).append((tgt, hours))
+
+        return graph
+
+    @staticmethod
+    def _dijkstra(
+        graph: dict[str, list[tuple[str, float]]],
+        source_id: str,
+        target_id: str,
+    ) -> RouteCalculationResult:
+        if source_id == target_id:
+            return RouteCalculationResult(
+                is_reachable=True,
+                total_hours=0.0,
+                path=[source_id],
+            )
+
+        if source_id not in graph:
+            return RouteCalculationResult(
+                is_reachable=False,
+                total_hours=float('inf'),
+                path=[],
+                reason="起点在当前章节无通路连通外部",
+            )
+
+        dist: dict[str, float] = {source_id: 0.0}
+        prev: dict[str, str | None] = {source_id: None}
+        pq: list[tuple[float, str]] = [(0.0, source_id)]
+        visited: set[str] = set()
+
+        while pq:
+            d, u = heapq.heappop(pq)
+            if u in visited:
+                continue
+            visited.add(u)
+
+            if u == target_id:
+                path = []
+                node: str | None = target_id
+                while node is not None:
+                    path.append(node)
+                    node = prev.get(node)
+                path.reverse()
+                return RouteCalculationResult(
+                    is_reachable=True,
+                    total_hours=d,
+                    path=path,
+                )
+
+            for v, w in graph.get(u, []):
+                if v in visited:
+                    continue
+                new_dist = d + w
+                if new_dist < dist.get(v, float('inf')):
+                    dist[v] = new_dist
+                    prev[v] = u
+                    heapq.heappush(pq, (new_dist, v))
+
+        return RouteCalculationResult(
+            is_reachable=False,
+            total_hours=float('inf'),
+            path=[],
+            reason="受当前章节历史事件物理阻断，路线不通",
+        )
+
+    async def calculate_route(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        source_location_id: str,
+        target_location_id: str,
+        chapter_index: int,
+    ) -> RouteCalculationResult:
+        nid = parse_uuid(novel_id)
+        all_edges, _ = await self._edge_repo.get_multi(db, nid, skip=0, limit=10000)
+        graph = await self._compile_active_graph(db, novel_id, chapter_index, all_edges)
+        return self._dijkstra(graph, source_location_id, target_location_id)
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.timeline.models import TimelineEvent
@@ -111,9 +111,9 @@ class TimelineEventRepository:
                 )
 
         # 计数
-        count_stmt = select(TimelineEvent.id).where(*conditions)
+        count_stmt = select(func.count(TimelineEvent.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
-        total = len(count_result.all())
+        total = count_result.scalar() or 0
 
         # 分页排序（按 order_index 升序，同 order_index 按 created_at 升序确保确定性）
         stmt = (
@@ -204,6 +204,28 @@ class TimelineEventRepository:
         result = await db.execute(stmt)
         max_order: int | None = result.scalar_one_or_none()
         return max_order if max_order is not None else -1
+
+    async def get_geo_effects_up_to_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> list[TimelineEvent]:
+        stmt = (
+            select(TimelineEvent)
+            .where(
+                TimelineEvent.novel_id == novel_id,
+                TimelineEvent.status == "canonical",
+                or_(
+                    TimelineEvent.chapter_index <= chapter_index,
+                    TimelineEvent.chapter_index.is_(None),
+                ),
+            )
+            .order_by(TimelineEvent.order_index.asc(), TimelineEvent.created_at.asc())
+        )
+        result = await db.execute(stmt)
+        items: Sequence[TimelineEvent] = result.scalars().all()
+        return [e for e in items if isinstance(e.geo_effects, list) and len(e.geo_effects) > 0]
 
     async def get_all_by_novel(
         self,

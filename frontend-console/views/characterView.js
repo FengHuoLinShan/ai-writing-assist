@@ -19,6 +19,7 @@ const characterView = {
   async onEnter() {
     if (!_state.currentProjectId) {
       this._characters = []
+      _state.selectedItem = null
       return
     }
 
@@ -29,7 +30,10 @@ const characterView = {
     } catch {
       this._apiAvailable = false
       this._characters = []
-      toast("后端未连接，无法加载人物数据", "warning")
+    }
+
+    if (!_state.currentSubView || _state.currentSubView === "list") {
+      _state.selectedItem = null
     }
   },
 
@@ -108,7 +112,7 @@ const characterView = {
     for (const c of this._characters) {
       const charId = c.id || c.character_id
       html += `
-        <tr data-id="${esc(charId)}" class="clickable" data-action="select-character" data-id="${esc(charId)}">
+        <tr data-id="${esc(charId)}" class="clickable" data-action="select-character">
           <td><strong>${esc(c.name)}</strong></td>
           <td>${esc(c.role || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.current_goal || "-")}</td>
@@ -138,25 +142,40 @@ const characterView = {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
     if (!character) return
 
-    // 从 API 获取完整数据
+    _state.selectedItem = character
+
+    router.navigate("character", "detail")
+
     if (_state.currentProjectId) {
       try {
         const full = await api.character.get(charId, _state.currentProjectId)
-        if (full) Object.assign(character, full)
+        if (full) {
+          Object.assign(character, full)
+          _state.selectedItem = character
+          const content = document.getElementById("workspace-content")
+          if (content && _state.currentView === "character" && _state.currentSubView === "detail") {
+            const detailHtml = this._renderDetail()
+            const detailArea = content.querySelector(".subnav")
+            if (detailArea) {
+              const existing = detailArea.nextSibling
+              while (existing && existing.nextSibling) {
+                content.removeChild(content.lastChild)
+              }
+              detailArea.insertAdjacentHTML("afterend", detailHtml)
+            }
+          }
+        }
       } catch {
         // API 失败时使用列表数据降级
       }
     }
 
-    _state.selectedItem = character
-
-    // 更新右侧信息栏
     _state.rightPanel = {
       title: character.name,
       type: "character",
       content: `
         <div class="help-section">
-          <h4>${character.name}</h4>
+          <h4>${esc(character.name)}</h4>
           <p>定位：${character.role || "未设定"}</p>
           <p>当前目标：${character.current_goal || "-"}</p>
           <p>当前状态：${character.current_state || "-"}</p>
@@ -169,9 +188,6 @@ const characterView = {
         </div>
       `,
     }
-
-    // 切换到档案子标签
-    router.navigate("character", "detail")
   },
 
   // ============================================================
@@ -806,7 +822,7 @@ const characterView = {
       const t = e.target.closest("[data-action]")
       if (!t) return
       const a = t.getAttribute("data-action")
-      const id = t.getAttribute("data-id")
+      const id = t.getAttribute("data-id") || t.closest("[data-id]")?.getAttribute("data-id")
       switch (a) {
         case "nav-list": router.navigate("character", "list"); break
         case "nav-detail": router.navigate("character", "detail"); break
@@ -869,16 +885,14 @@ const characterView = {
   /** 轮询抽取任务完成 */
   _pollExtractionTasks(taskIds, onDone) {
     let attempts = 0
-    const maxAttempts = 60  // 最多等 5 分钟
-    const timer = setInterval(async () => {
+    const maxAttempts = 60
+    this._pollTimer = setInterval(async () => {
       attempts++
       const remaining = []
       for (const tid of taskIds) {
         try {
           const data = await api.tasks.getStatus(tid)
-          if (data.status === "done" || data.status === "failed") {
-            // 完成或失败，不再轮询
-          } else {
+          if (data.status !== "done" && data.status !== "failed") {
             remaining.push(tid)
           }
         } catch {
@@ -886,13 +900,25 @@ const characterView = {
         }
       }
       if (remaining.length === 0 || attempts >= maxAttempts) {
-        clearInterval(timer)
+        clearInterval(this._pollTimer)
+        this._pollTimer = null
         if (remaining.length === 0) {
           toast("人物抽取完成", "success")
+          this._refreshCharacterList()
           if (onDone) onDone()
         }
       }
     }, 5000)
+  },
+
+  async _refreshCharacterList() {
+    if (!_state.currentProjectId) return
+    try {
+      const data = await api.character.list({ novel_id: _state.currentProjectId })
+      this._characters = data.items || data || []
+    } catch {
+      // 静默处理
+    }
   },
 
   /** 刷新当前角色的 AI 建议 */
@@ -930,9 +956,16 @@ const characterView = {
       return
     }
     try {
-      await api.character.applySuggestions(charId, _state.currentProjectId, fields)
-      // 更新本地缓存
-      if (character.meta) delete character.meta.ai_suggestions
+      const updated = await api.character.applySuggestions(charId, _state.currentProjectId, fields)
+      if (updated) {
+        Object.assign(character, updated)
+        if (!character.meta) character.meta = {}
+        character.meta.ai_suggestions = updated.meta?.ai_suggestions || {}
+      }
+      const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
+      if (idx >= 0 && updated) {
+        this._characters[idx] = { ...this._characters[idx], ...updated }
+      }
       toast(`已应用 ${fields.length} 个字段的 AI 建议`, "success")
       router.navigate("character", "detail", false)
     } catch (err) {
@@ -946,10 +979,15 @@ const characterView = {
     if (!character) return
     const charId = character.id || character.character_id
     try {
-      await api.character.applySuggestions(charId, _state.currentProjectId, [field])
-      // 更新本地缓存
-      if (character.meta && character.meta.ai_suggestions) {
-        delete character.meta.ai_suggestions[field]
+      const updated = await api.character.applySuggestions(charId, _state.currentProjectId, [field])
+      if (updated) {
+        Object.assign(character, updated)
+        if (!character.meta) character.meta = {}
+        character.meta.ai_suggestions = updated.meta?.ai_suggestions || {}
+      }
+      const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
+      if (idx >= 0 && updated) {
+        this._characters[idx] = { ...this._characters[idx], ...updated }
       }
       toast(`已应用「${field}」建议`, "success")
       router.navigate("character", "detail", false)
@@ -964,24 +1002,23 @@ const characterView = {
     if (!character) return
     const charId = character.id || character.character_id
     try {
-      // 读取当前 suggestions，移除该字段后写回
       const data = await api.character.getSuggestions(charId, _state.currentProjectId)
       const remaining = { ...(data.suggestions || {}) }
       delete remaining[field]
-      // 通过 apply 空字段列表来清除
-      // 实际上我们只需应用空列表，保留其余建议
-      await api.character.applySuggestions(charId, _state.currentProjectId, [])
-      // 重新设置剩余的建议
       await api.character.update(charId, {
         meta: {
           ...(character.meta || {}),
           ai_suggestions: remaining,
-          ai_suggestions_at: data.updated_at,
+          ...(Object.keys(remaining).length === 0 ? { ai_suggestions_at: null } : {}),
         },
       }, _state.currentProjectId)
-      // 更新本地缓存
-      if (character.meta && character.meta.ai_suggestions) {
-        delete character.meta.ai_suggestions[field]
+      if (character.meta) {
+        character.meta.ai_suggestions = remaining
+        if (Object.keys(remaining).length === 0) delete character.meta.ai_suggestions_at
+      }
+      const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
+      if (idx >= 0 && character.meta) {
+        this._characters[idx].meta = { ...character.meta }
       }
       toast("已忽略该建议", "info")
       router.navigate("character", "detail", false)
@@ -991,6 +1028,10 @@ const characterView = {
   },
 
   onLeave() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer)
+      this._pollTimer = null
+    }
     this._characterKnowledge = []
   },
 }

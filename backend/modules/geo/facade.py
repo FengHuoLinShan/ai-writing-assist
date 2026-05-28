@@ -14,12 +14,14 @@ from modules.geo.contracts import (
     GeoEdgeContract,
     GeoEraContract,
     GeoLocationContract,
+    RouteCalculationResult,
     TravelConstraintContract,
 )
 from modules.geo.schemas import GeoContextBundle, LocationNode, TravelConstraintResult
-from modules.geo.services import GeoQueryService
+from modules.geo.services import GeoQueryService, GeoTopologyService
 
 _query_service = GeoQueryService()
+_topology_service = GeoTopologyService()
 
 
 async def get_location_context(
@@ -137,4 +139,31 @@ async def get_geo_history_context(
     """
     return await _query_service.get_geo_history_context(
         db, novel_id, era_id, location_ids,
+    )
+
+
+async def calculate_route(
+    db: AsyncSession,
+    novel_id: str,
+    source_location_id: str,
+    target_location_id: str,
+    chapter_index: int,
+) -> RouteCalculationResult:
+    """计算两地之间的最短旅行路径
+
+    基于当前章节的动态地理拓扑（静态边 + 时间线事件覆写），
+    使用 Dijkstra 算法计算最短可达路径与旅行耗时。
+
+    Args:
+        db: 数据库 session
+        novel_id: 项目 ID
+        source_location_id: 起点地点 ID
+        target_location_id: 终点地点 ID
+        chapter_index: 截止章节索引
+
+    Returns:
+        RouteCalculationResult: 路径计算结果
+    """
+    return await _topology_service.calculate_route(
+        db, novel_id, source_location_id, target_location_id, chapter_index,
     )

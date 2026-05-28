@@ -149,36 +149,47 @@ class GeoLocationRepository:
 
         通过 all_locations 参数传递全量地点列表时，在内存中行走父链，
         避免 N+1 逐级查询。各层级深度一般不超过 8 层。
+        未提供 all_locations 时，先查一次获取 novel_id，
+        再一次性加载该小说所有地点，在内存中遍历。
         """
-        if all_locations is not None:
-            loc_map = {str(loc.id): loc for loc in all_locations}
-            ancestors: list[GeoLocation] = []
-            current = loc_map.get(str(location_id))
-            while current is not None:
-                if current.parent_location_id:
-                    ancestors.append(current)
-                    current = loc_map.get(str(current.parent_location_id))
-                else:
-                    ancestors.append(current)
-                    break
-            return ancestors
+        if all_locations is None:
+            all_locations = await self._load_novel_locations_for_ancestors(
+                db, location_id,
+            )
 
-        # SQLite 回退：逐级查询
-        ancestors_db: list[GeoLocation] = []
-        current_id = location_id
-        for _ in range(16):
-            stmt = select(GeoLocation).where(GeoLocation.id == current_id)
-            result = await db.execute(stmt)
-            location = result.scalar_one_or_none()
-            if location is None:
-                break
-            if location.parent_location_id:
-                ancestors_db.append(location)
-                current_id = location.parent_location_id
+        loc_map = {str(loc.id): loc for loc in all_locations}
+        ancestors: list[GeoLocation] = []
+        current = loc_map.get(str(location_id))
+        while current is not None:
+            if current.parent_location_id:
+                ancestors.append(current)
+                current = loc_map.get(str(current.parent_location_id))
             else:
-                ancestors_db.append(location)
+                ancestors.append(current)
                 break
-        return ancestors_db  # 从最近父级到最远根
+        return ancestors
+
+    async def _load_novel_locations_for_ancestors(
+        self,
+        db: AsyncSession,
+        location_id: uuid.UUID,
+    ) -> list[GeoLocation]:
+        """一次性加载祖先链所需的所有地点，替代逐级查询
+
+        先查一次获取 novel_id，再一次性加载该小说所有地点。
+        单个小说的地点数量通常在百级以内，内存遍历远快于 N+1 查询。
+        """
+        anchor_stmt = select(GeoLocation.novel_id).where(
+            GeoLocation.id == location_id,
+        )
+        anchor_result = await db.execute(anchor_stmt)
+        novel_id = anchor_result.scalar_one_or_none()
+        if novel_id is None:
+            return []
+
+        stmt = select(GeoLocation).where(GeoLocation.novel_id == novel_id)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_tree(
         self,

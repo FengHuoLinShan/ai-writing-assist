@@ -258,11 +258,11 @@ async def create_character_knowledge(
     db: DbSession,
     character_id: str,
     data: CharacterKnowledgeCreate,
+    novel_id: str = Query(..., description="小说项目 ID"),
 ) -> CharacterKnowledgeResponse:
     """创建人物知识记录"""
-    # 确保 URL 中的 character_id 与请求体一致
     data.character_id = character_id
-    return await _service.create_knowledge(db, data)
+    return await _service.create_knowledge(db, data, novel_id=novel_id)
 
 
 @router.get(

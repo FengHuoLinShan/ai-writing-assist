@@ -52,11 +52,13 @@ POST/GET/DELETE /api/outline/reveals
 async def create_thread(db, novel_id, data) -> PlotThreadResponse
 async def update_thread(db, thread_id, data, novel_id) -> PlotThreadResponse
 async def list_thread_summaries(db, novel_id, limit=50) -> list[dict]
+async def get_active_threads(db, novel_id, limit=8) -> list[dict]
 
 # OutlineArc
 async def create_arc(db, novel_id, data) -> OutlineArcResponse
 async def update_arc(db, arc_id, data, novel_id) -> OutlineArcResponse
 async def list_arc_summaries(db, novel_id, limit=50) -> list[dict]
+async def get_arc_context(db, novel_id, arc_id=None) -> dict | None
 
 # ChapterCard
 async def get_chapter_card(db, novel_id, chapter_index) -> ChapterCardContext | None
