@@ -173,6 +173,19 @@ async def find_character_id_by_name(
     return await repo.find_character_by_name(db, nid, name)
 
 
+async def get_unknown_target_ids(
+    db: AsyncSession,
+    novel_id: str,
+    character_id: str,
+) -> dict[str, list[str]]:
+    """获取角色标记为 unknown 的目标 ID 集合
+
+    供 RAG 检索进行硬过滤，防止角色视角越权。
+    返回 {"entity_ids": [...], "character_ids": [...]}。
+    """
+    return await _service.get_unknown_target_ids(db, novel_id, character_id)
+
+
 async def update_character_location(
     db: AsyncSession,
     novel_id: str,

@@ -59,6 +59,19 @@ class OpenAIProvider:
             base_url=self._base_url,
             timeout=self._timeout,
         )
+
+        # 独立的 embedding 客户端：当配置了 EMBEDDING_BASE_URL 时使用独立端点
+        _emb_base_url = settings.embedding_base_url
+        _emb_api_key = settings.embedding_api_key or self._api_key
+        if _emb_base_url:
+            self._embedding_client = AsyncOpenAI(
+                api_key=_emb_api_key,
+                base_url=_emb_base_url,
+                timeout=self._timeout,
+            )
+        else:
+            self._embedding_client = self._client
+
         logger.info(
             "OpenAIProvider initialized — base_url=%s, default_model=%s",
             self._base_url,
@@ -76,7 +89,9 @@ class OpenAIProvider:
         """
         if hasattr(self, "_client"):
             await self._client.close()
-            logger.debug("OpenAIProvider HTTP connection closed")
+        if hasattr(self, "_embedding_client") and self._embedding_client is not self._client:
+            await self._embedding_client.close()
+            logger.debug("OpenAIProvider embedding HTTP connection closed")
 
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """调用 LLM 并返回完整响应"""
@@ -239,7 +254,7 @@ class OpenAIProvider:
 
         model_name = model or get_settings().embedding_model
 
-        response = await self._client.embeddings.create(
+        response = await self._embedding_client.embeddings.create(
             model=model_name,
             input=text,
         )

@@ -56,6 +56,16 @@ class ChunkingService:
     DEFAULT_CN_MAX_LENGTH: int = 1400
     DEFAULT_CN_OVERLAP: int = 160
 
+    SCENE_TRANSITION_PATTERNS: list[str] = [
+        "第二天", "次日", "翌日", "几日", "数日", "一个月后",
+        "不久之后", "转眼", "转眼间", "黄昏", "清晨",
+        "夜晚", "入夜", "黎明", "次日清晨", "翌日清晨", "半夜",
+        "过了几日", "又过了几日", "几个月后", "半年后", "一年后",
+        "三日后", "七日后", "十日后",
+        "与此同时", "另一边", "另一方面",
+        "***", "---", "===",
+    ]
+
     def split_by_paragraphs(
         self,
         text: str,
@@ -180,7 +190,7 @@ class ChunkingService:
             if hard_end >= text_len:
                 end = text_len
             else:
-                end = self._choose_cn_boundary(text, start, target, hard_end)
+                end = self._choose_cn_boundary_with_scenes(text, start, target, hard_end)
 
             raw = text[start:end]
             stripped = raw.strip()
@@ -212,6 +222,45 @@ class ChunkingService:
         while start < len(text) and text[start].isspace():
             start += 1
         return start
+
+    @classmethod
+    def _choose_cn_boundary_with_scenes(
+        cls,
+        text: str,
+        start: int,
+        target_length: int,
+        hard_end: int,
+    ) -> int:
+        """优先在场景转换关键词处切分，回退到标点边界。"""
+        min_end = min(start + max(80, target_length // 2), hard_end)
+        target_end = min(start + target_length, hard_end)
+
+        # 优先匹配场景转换关键词
+        best_scene_pos = -1
+        best_scene_dist = float("inf")
+        for pattern in cls.SCENE_TRANSITION_PATTERNS:
+            pos = text.rfind(pattern, min_end, hard_end)
+            if pos >= min_end:
+                dist = abs(pos - target_end)
+                if dist < best_scene_dist:
+                    best_scene_pos = pos
+                    best_scene_dist = dist
+
+        if best_scene_pos > start:
+            return best_scene_pos
+
+        # 回退到标点边界
+        boundary_patterns = ("\n\n", "\r\n\r\n", "。", "！", "？", "”", "」", "\n")
+        best = -1
+        for pattern in boundary_patterns:
+            pos = text.rfind(pattern, min_end, hard_end)
+            if pos >= min_end:
+                candidate = pos + len(pattern)
+                if abs(candidate - target_end) < abs(best - target_end) or best < 0:
+                    best = candidate
+        if best > start:
+            return best
+        return hard_end
 
     @staticmethod
     def _choose_cn_boundary(
@@ -340,6 +389,7 @@ class RetrievalService:
         visibility: str | None = None,
         mode: str = "search",
         top_k: int = 12,
+        reference_chapter_index: int | None = None,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量
 
@@ -348,9 +398,11 @@ class RetrievalService:
                 + 0.30 * keyword_score
                 + 0.15 * relation_score
                 + 0.10 * importance_score
+          然后对非 extraction 模式应用时序衰减。
 
         Args:
             query_embedding: 查询的 embedding 向量（启用向量检索时传入）
+            reference_chapter_index: 参考章节索引，用于时序衰减（即时记忆）
 
         Returns:
             list[(RagChunk, score)] — 按评分降序排列
@@ -450,6 +502,13 @@ class RetrievalService:
                 + RAG_IMPORTANCE_WEIGHT * importance_score
             )
 
+            # 时序衰减：近期章节权重更高
+            if reference_chapter_index is not None:
+                decay = self._compute_temporal_decay(
+                    chunk.chapter_index, reference_chapter_index, mode,
+                )
+                total_score *= decay
+
             scored_chunks.append((chunk, total_score))
 
         # Step 3: 按评分降序排列，取 top_k
@@ -496,6 +555,30 @@ class RetrievalService:
     # ============================================================
     # 内部评分方法
     # ============================================================
+
+    @staticmethod
+    def _compute_temporal_decay(
+        chunk_chapter_index: int | None,
+        reference_chapter_index: int | None,
+        mode: str,
+    ) -> float:
+        """计算时序衰减因子。
+
+        mode="extraction"（伏笔检索）：不衰减，返回 1.0。
+        mode="search"（即时记忆）：线性衰减，窗口 10 章，最小权重 0.5。
+        """
+        if mode == "extraction":
+            return 1.0
+        if reference_chapter_index is None or chunk_chapter_index is None:
+            return 1.0
+
+        MAX_WINDOW = 10
+        MIN_WEIGHT = 0.5
+        distance = abs(chunk_chapter_index - reference_chapter_index)
+
+        if distance >= MAX_WINDOW:
+            return MIN_WEIGHT
+        return 1.0 - (distance / MAX_WINDOW) * (1.0 - MIN_WEIGHT)
 
     @staticmethod
     def _compute_keyword_score(text: str, query_terms: list[str]) -> float:
@@ -776,6 +859,40 @@ class IndexingService:
         project_terms = await _load_project_terms(db, novel_id)
         await self._repo.delete_by_chapter(db, novel_id, "chapter_text", chapter_index)
 
+        # 获取实体重要性映射
+        entity_importance_map: dict[str, dict[str, object]] = {}
+        try:
+            from modules.world.facade import get_entity_importance_map
+
+            entity_importance_map = await get_entity_importance_map(db, str(novel_id))
+        except Exception:
+            pass
+
+        # 获取篇章和章节信息用于 embedding 上下文前缀
+        arc_name: str | None = None
+        chapter_title: str | None = None
+        try:
+            from modules.outline.facade import get_arc_for_chapter, get_chapter_card
+
+            arc_info = await get_arc_for_chapter(db, str(novel_id), chapter_index)
+            if arc_info:
+                arc_name = arc_info.get("title")
+            card = await get_chapter_card(db, str(novel_id), chapter_index)
+            if card and card.title:
+                chapter_title = card.title
+        except Exception:
+            pass
+
+        # 构建 embedding 前缀
+        prefix_parts: list[str] = []
+        if arc_name:
+            prefix_parts.append(f"[{arc_name}]")
+        if chapter_title:
+            prefix_parts.append(f"[第{chapter_index}章 {chapter_title}]")
+        else:
+            prefix_parts.append(f"[第{chapter_index}章]")
+        embedding_prefix = "".join(prefix_parts)
+
         import logging
 
         logger = logging.getLogger(__name__)
@@ -786,6 +903,22 @@ class IndexingService:
             character_ids, entity_ids, thread_ids = _match_project_terms(
                 cn_chunk.text, project_terms,
             )
+
+            # 根据匹配实体的重要性计算 chunk 重要性
+            chunk_importance = 0.5
+            if entity_ids and entity_importance_map:
+                max_imp = 0.5
+                has_core = False
+                for eid in entity_ids:
+                    info = entity_importance_map.get(eid)
+                    if info:
+                        imp_val = float(info["importance"])
+                        if imp_val > max_imp:
+                            max_imp = imp_val
+                        if info.get("importance_level") == "core":
+                            has_core = True
+                chunk_importance = min(1.0, max_imp + (0.2 if has_core else 0.0))
+
             chunk_data = RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=chapter_index,
@@ -799,12 +932,14 @@ class IndexingService:
                 character_ids=character_ids,
                 thread_ids=thread_ids,
                 visibility="author_only",
-                importance=0.5,
+                importance=chunk_importance,
                 index_version=RAG_INDEX_VERSION,
                 embedding_status="pending",
                 meta={
                     "chapter_index": chapter_index,
                     "chunk_index": cn_chunk.chunk_index,
+                    "arc_name": arc_name,
+                    "chapter_title": chapter_title,
                 },
             )
             chunk = await self._repo.create(db, novel_id, chunk_data)
@@ -818,7 +953,7 @@ class IndexingService:
                 from infrastructure.llm.client import LLMClient
 
                 llm = LLMClient()
-                texts = [chunk.text for chunk in created_chunks]
+                texts = [f"{embedding_prefix} {chunk.text}" for chunk in created_chunks]
                 embeddings = await llm.generate_embedding(texts)
                 if (
                     isinstance(embeddings, list)

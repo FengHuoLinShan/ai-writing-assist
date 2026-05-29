@@ -68,6 +68,8 @@ class Settings:
     embedding_model: str = field(default_factory=lambda: _env(
         "EMBEDDING_MODEL", "text-embedding-3-large",
     ))
+    embedding_base_url: str = field(default_factory=lambda: _env("EMBEDDING_BASE_URL", ""))
+    embedding_api_key: str = field(default_factory=lambda: _env("EMBEDDING_API_KEY", ""))
 
     # --- CORS ---
     allowed_origins: list[str] = field(default_factory=lambda: [

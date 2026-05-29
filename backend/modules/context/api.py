@@ -50,6 +50,8 @@ async def compile_context(
         character_ids=request.character_ids,
         location_ids=request.location_ids,
         reveal_mode=request.reveal_mode,
+        enable_geo_filter=request.enable_geo_filter,
+        viewpoint_character_id=request.viewpoint_character_id,
     )
 
     # 统计非空段落
@@ -123,6 +125,8 @@ async def render_context(
         character_ids=request.character_ids,
         location_ids=request.location_ids,
         reveal_mode=request.reveal_mode,
+        enable_geo_filter=request.enable_geo_filter,
+        viewpoint_character_id=request.viewpoint_character_id,
     )
 
     markdown = render_context_markdown(bundle)

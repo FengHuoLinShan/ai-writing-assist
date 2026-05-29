@@ -22,6 +22,61 @@ _retrieval = RetrievalService()
 _indexing = IndexingService()
 
 
+def _deduplicate_by_embedding(
+    scored_chunks: list[tuple],
+    threshold: float = 0.9,
+) -> list[tuple]:
+    """对检索结果进行语义去重。
+
+    利用 chunk 的 embedding 计算余弦相似度，相似度 > threshold 的两个 chunk
+    仅保留 char_count 更大者。无 embedding 时跳过。
+    """
+    if len(scored_chunks) <= 1:
+        return scored_chunks
+
+    keep: list[tuple] = []
+    removed_indices: set[int] = set()
+
+    for i, (chunk_a, score_a) in enumerate(scored_chunks):
+        if i in removed_indices:
+            continue
+        keep.append((chunk_a, score_a))
+
+        emb_a = chunk_a.embedding
+        if emb_a is None:
+            continue
+        if not isinstance(emb_a, list):
+            continue
+
+        for j, (chunk_b, _score_b) in enumerate(scored_chunks):
+            if j <= i or j in removed_indices:
+                continue
+
+            emb_b = chunk_b.embedding
+            if emb_b is None:
+                continue
+            if not isinstance(emb_b, list):
+                continue
+            if len(emb_a) != len(emb_b):
+                continue
+
+            sim = _retrieval._cosine_similarity(emb_a, emb_b)
+            if sim > threshold:
+                # 保留 char_count 更高的 chunk
+                count_a = chunk_a.char_count or 0
+                count_b = chunk_b.char_count or 0
+                if count_a >= count_b:
+                    removed_indices.add(j)
+                else:
+                    # chunk_b 更好，替换
+                    keep.pop()
+                    keep.append((chunk_b, _score_b))
+                    removed_indices.add(i)
+                    break
+
+    return keep
+
+
 async def create_chunk(
     db: AsyncSession,
     novel_id: str,
@@ -104,6 +159,7 @@ def _to_chunk_contract(chunk, score: float | None = None) -> RagChunkContract:
         embedding_status=chunk.embedding_status,
         embedding_error=chunk.embedding_error,
         index_warnings=chunk.index_warnings or [],
+        meta=chunk.meta or {},
         score=round(score, 4) if score is not None else None,
     )
 
@@ -137,6 +193,7 @@ async def retrieve(
     visibility: str | None = None,
     mode: str = "search",
     top_k: int = 12,
+    reference_chapter_index: int | None = None,
 ) -> RagResultBundle:
     """混合检索 RAG 片段
 
@@ -187,11 +244,15 @@ async def retrieve(
         visibility=visibility,
         mode=mode,
         top_k=top_k,
+        reference_chapter_index=reference_chapter_index,
     )
+
+    # 语义去重：移除余弦相似度 > 0.9 的冗余 chunk，保留 char_count 更大者
+    deduped_chunks = _deduplicate_by_embedding(scored_chunks, threshold=0.9)
 
     chunk_contracts = [
         _to_chunk_contract(chunk, score)
-        for chunk, score in scored_chunks
+        for chunk, score in deduped_chunks
     ]
 
     return RagResultBundle(

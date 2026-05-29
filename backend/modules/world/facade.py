@@ -88,6 +88,31 @@ async def list_entity_terms(
     return terms
 
 
+async def get_entity_importance_map(
+    db: AsyncSession,
+    novel_id: str,
+) -> dict[str, dict[str, object]]:
+    """获取所有正史实体的重要性映射
+
+    供 RAG 索引用于计算 chunk 重要性。
+    返回 {entity_id: {"importance": float, "importance_level": str}}。
+    """
+    from modules.world.repositories import WorldEntityRepository
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    entities, _ = await WorldEntityRepository().get_by_novel(db, nid, limit=2000)
+
+    result: dict[str, dict[str, object]] = {}
+    for item in entities:
+        if item.status in ("canonical", "draft"):
+            result[str(item.id)] = {
+                "importance": item.importance,
+                "importance_level": item.importance_level,
+            }
+    return result
+
+
 async def run_entity_extraction(
     db: AsyncSession,
     novel_id: str,

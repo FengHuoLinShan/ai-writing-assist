@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import typing
 from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
@@ -160,6 +161,14 @@ class LLMClient:
             try:
                 response = await self.generate(req)
                 data = json.loads(response.content)
+                # Auto-wrap bare list if schema expects a single list field
+                # (LLMs often return [...] instead of {"entities": [...]})
+                if isinstance(data, list):
+                    fields = list(schema.model_fields.keys())
+                    if len(fields) == 1:
+                        field_annotation = schema.model_fields[fields[0]].annotation
+                        if field_annotation is not None and typing.get_origin(field_annotation) is list:
+                            data = {fields[0]: data}
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
                 raw_content = response.content if locals().get("response") else ""

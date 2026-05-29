@@ -442,6 +442,17 @@ class CharacterService:
 
         return filtered_items, removed_count, replaced_count
 
+    async def get_unknown_target_ids(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        character_id: str,
+    ) -> dict[str, list[str]]:
+        """获取角色未知的目标 ID，供 RAG 检索硬过滤使用"""
+        nid = parse_uuid(novel_id)
+        cid = parse_uuid(character_id)
+        return await self._knowledge_repo.get_unknown_target_ids(db, nid, cid)
+
     # ============================================================
     # 内部工具
     # ============================================================

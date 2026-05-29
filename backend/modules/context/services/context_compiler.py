@@ -94,6 +94,7 @@ class ContextCompiler:
             chapter_index=options.chapter_index,
             arc_id=options.arc_id,
             reveal_mode=options.reveal_mode,
+            viewpoint_character_id=options.viewpoint_character_id,
             budget_used={k: 0 for k in CONTEXT_BUDGET},
         )
 

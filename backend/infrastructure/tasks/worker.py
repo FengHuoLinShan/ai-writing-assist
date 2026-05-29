@@ -201,12 +201,14 @@ class TaskWorker:
             logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
 
         except asyncio.CancelledError:
+            await session.rollback()
             task.mark_cancelled()
             await session.commit()
             self._stats["cancelled"] += 1
             logger.info("Task cancelled: %s (type=%s)", task.id, task.task_type)
 
         except Exception as e:
+            await session.rollback()
             task.mark_failed(f"{type(e).__name__}: {e}")
             await session.commit()
             self._stats["failed"] += 1

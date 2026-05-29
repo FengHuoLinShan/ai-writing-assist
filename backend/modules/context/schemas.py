@@ -34,7 +34,13 @@ class ContextCompileRequest(BaseModel):
     )
     reveal_mode: str = Field(
         default="author_safe",
-        description="揭示模式: author_safe / author_full / reader",
+        description="揭示模式: author_safe / author_full / reader / character",
+    )
+    viewpoint_character_id: str | None = Field(
+        None, description="视角人物 ID（reveal_mode=character 时必填）",
+    )
+    enable_geo_filter: bool = Field(
+        default=False, description="是否启用地缘可达性过滤",
     )
 
 
@@ -92,7 +98,13 @@ class ContextRenderRequest(BaseModel):
     )
     reveal_mode: str = Field(
         default="author_safe",
-        description="揭示模式: author_safe / author_full / reader",
+        description="揭示模式: author_safe / author_full / reader / character",
+    )
+    viewpoint_character_id: str | None = Field(
+        None, description="视角人物 ID（reveal_mode=character 时必填）",
+    )
+    enable_geo_filter: bool = Field(
+        default=False, description="是否启用地缘可达性过滤",
     )
 
 

@@ -99,6 +99,32 @@ async def list_arc_summaries(
     return await _arc_service.list_summaries(db, novel_id, limit=limit)
 
 
+async def get_arc_for_chapter(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> dict[str, Any] | None:
+    """获取指定章节所属的篇章信息
+
+    供 RAG 索引用于 embedding 上下文注入。
+    返回 {arc_id, title, arc_index, start_chapter, end_chapter} 或 None。
+    """
+    from shared.utils import parse_uuid
+    nid = parse_uuid(novel_id, "novel_id")
+    from modules.outline.repositories import OutlineArcRepository
+    repo = OutlineArcRepository()
+    arc = await repo.get_by_chapter(db, nid, chapter_index)
+    if arc is None:
+        return None
+    return {
+        "arc_id": str(arc.id),
+        "title": arc.title,
+        "arc_index": arc.arc_index,
+        "start_chapter": arc.start_chapter,
+        "end_chapter": arc.end_chapter,
+    }
+
+
 async def get_chapter_card(
     db: AsyncSession,
     novel_id: str,

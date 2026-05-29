@@ -59,7 +59,9 @@ class StructureContextBundle:
 
     # --- 元信息 ---
     reveal_mode: str = "author_safe"
-    """揭示模式（author_safe / author_full / reader）"""
+    """揭示模式（author_safe / author_full / reader / character）"""
+    viewpoint_character_id: str | None = None
+    """视角人物 ID（reveal_mode="character" 时使用）"""
     budget_used: dict = field(default_factory=dict)
     """各分类已使用的预算"""
     warnings: list = field(default_factory=list)

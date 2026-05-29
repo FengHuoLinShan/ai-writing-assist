@@ -20,7 +20,7 @@ Context Markdown 渲染器
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from modules.context.contracts import AUTHOR_ONLY_WARNING, StructureContextBundle
@@ -430,9 +430,39 @@ def _render_forbidden(context: StructureContextBundle) -> str:
 
 
 def _render_creative_materials(context: StructureContextBundle) -> str:
-    """渲染可用创作素材"""
+    """渲染可用创作素材（含实体标签和篇章信息）"""
     if not context.rag_chunks:
         return "无相关数据\n"
+
+    # 构建实体名称查找表（世界对象 + 人物）
+    entity_name_map: dict[str, str] = {}
+    for we in context.world_entities:
+        if isinstance(we, dict):
+            we_dict = we
+        elif is_dataclass(we):
+            we_dict = asdict(we)
+        elif hasattr(we, "model_dump"):
+            we_dict = we.model_dump()
+        else:
+            continue
+        eid = we_dict.get("id") or we_dict.get("entity_id")
+        ename = we_dict.get("name") or we_dict.get("entity_name")
+        if eid and ename:
+            entity_name_map[str(eid)] = str(ename)
+    # 同样从人物列表中查找
+    for char in context.characters:
+        if isinstance(char, dict):
+            char_dict = char
+        elif is_dataclass(char):
+            char_dict = asdict(char)
+        elif hasattr(char, "model_dump"):
+            char_dict = char.model_dump()
+        else:
+            continue
+        cid = char_dict.get("character_id") or char_dict.get("id")
+        cname = char_dict.get("name")
+        if cid and cname:
+            entity_name_map[str(cid)] = str(cname)
 
     lines: list[str] = []
     for chunk in context.rag_chunks:
@@ -440,15 +470,35 @@ def _render_creative_materials(context: StructureContextBundle) -> str:
         score = chunk.get("score")
         src_type = chunk.get("source_type", "")
         chap = chunk.get("chapter_index")
+        meta = chunk.get("meta", {})
+        entity_ids = chunk.get("entity_ids", [])
+        character_ids = chunk.get("character_ids", [])
 
-        parts = [f"- "]
+        parts = ["- "]
+        # 篇章名称
+        arc_in_meta = meta.get("arc_name") if isinstance(meta, dict) else None
+        if arc_in_meta:
+            parts.append(f"[{arc_in_meta}] ")
         if chap is not None:
             parts.append(f"[第 {chap} 章] ")
         if src_type:
             parts.append(f"[{src_type}] ")
         if score is not None:
             parts.append(f"(相关度: {score:.2f}) ")
-        parts.append(text[:200])  # 截断过长的片段
+
+        # 实体标签
+        tags: list[str] = []
+        for eid in (entity_ids or [])[:3]:
+            name = entity_name_map.get(eid, eid[:8] if eid else "?")
+            tags.append(f"#{name}")
+        for cid in (character_ids or [])[:2]:
+            name = entity_name_map.get(cid, cid[:8] if cid else "?")
+            tags.append(f"@{name}")
+
+        if tags:
+            parts.append("[" + ", ".join(tags) + "] ")
+
+        parts.append(text[:200])
 
         lines.append("".join(parts))
 

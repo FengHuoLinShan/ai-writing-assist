@@ -54,6 +54,8 @@ class RagChunkContract:
     """embedding 失败原因"""
     index_warnings: list[str] = field(default_factory=list)
     """索引过程告警"""
+    meta: dict | None = None
+    """扩展元数据（arc_name、chapter_title 等）"""
     score: float | None = None
     """检索评分（检索结果中填充）"""
 

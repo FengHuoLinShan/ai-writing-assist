@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,12 +47,55 @@ class RagChunksLoader(Loader):
             chapter_index=options.chapter_index,
             visibility=rag_visibility,
             top_k=rag_limit,
+            reference_chapter_index=options.chapter_index,
         )
         if result and result.chunks:
             bundle.rag_chunks = [
-                c.model_dump() if hasattr(c, "model_dump") else c
+                c.model_dump() if hasattr(c, "model_dump") else asdict(c)
                 for c in result.chunks
             ]
+
+        # --- Character Knowledge Filter ---
+        if (
+            options.reveal_mode == "character"
+            and options.viewpoint_character_id is not None
+            and bundle.rag_chunks
+        ):
+            try:
+                from modules.character.facade import get_unknown_target_ids
+
+                unknown = await get_unknown_target_ids(
+                    db, options.novel_id, options.viewpoint_character_id,
+                )
+                unknown_entity_set = set(unknown.get("entity_ids", []))
+                unknown_char_set = set(unknown.get("character_ids", []))
+
+                if unknown_entity_set or unknown_char_set:
+                    filtered: list[dict] = []
+                    removed_count = 0
+                    for chunk in bundle.rag_chunks:
+                        chunk_entities = set(chunk.get("entity_ids", []))
+                        chunk_chars = set(chunk.get("character_ids", []))
+                        if (chunk_entities & unknown_entity_set) or (
+                            chunk_chars & unknown_char_set
+                        ):
+                            removed_count += 1
+                            continue
+                        filtered.append(chunk)
+
+                    if removed_count > 0:
+                        logger.debug(
+                            "角色知识过滤：移除了 %d/%d 个 chunk（角色 %s）",
+                            removed_count,
+                            len(bundle.rag_chunks),
+                            options.viewpoint_character_id,
+                        )
+                    bundle.rag_chunks = filtered
+            except Exception as exc:
+                logger.warning(
+                    "角色知识过滤失败，使用未过滤结果: %s",
+                    str(exc),
+                )
 
         if (
             options.enable_geo_filter

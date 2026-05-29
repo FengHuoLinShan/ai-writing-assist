@@ -430,6 +430,34 @@ class CharacterKnowledgeRepository:
 
         return knowledge
 
+    async def get_unknown_target_ids(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        character_id: uuid.UUID,
+    ) -> dict[str, list[str]]:
+        """获取角色标记为 unknown/false_belief 的所有目标 ID
+
+        供 RAG 检索进行硬过滤，防止角色视角越权。
+        """
+        stmt = select(CharacterKnowledge).where(
+            CharacterKnowledge.novel_id == novel_id,
+            CharacterKnowledge.character_id == character_id,
+            CharacterKnowledge.knowledge_level.in_(["unknown", "false_belief"]),
+        )
+        result = await db.execute(stmt)
+        rows: Sequence[CharacterKnowledge] = result.scalars().all()
+
+        entity_ids: list[str] = []
+        char_ids: list[str] = []
+        for row in rows:
+            tid = str(row.target_id)
+            if row.target_type == "entity":
+                entity_ids.append(tid)
+            elif row.target_type == "character":
+                char_ids.append(tid)
+        return {"entity_ids": entity_ids, "character_ids": char_ids}
+
     async def delete(
         self,
         db: AsyncSession,
