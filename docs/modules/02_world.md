@@ -37,6 +37,7 @@ async def find_similar_entities(db, novel_id, name, aliases=None, entity_type=No
 async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> WorldEntityResponse
 async def list_entities(db, novel_id, entity_type=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, limit=500) -> list[dict]
+async def get_entity_importance_map(db, novel_id) -> dict
 async def count_pending_candidates(db, novel_id) -> int
 async def accept_candidate(db, novel_id, candidate_id, user_edits=None) -> WorldEntityResponse
 async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_size=5) -> dict

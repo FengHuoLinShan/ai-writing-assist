@@ -20,6 +20,18 @@ async for chunk in llm.generate_stream(request): ...
 
 # 简写（字符串入参，字符串出参）
 text = await llm.generate_simple(system_prompt, user_prompt)
+
+# Embedding 生成（单文本 → list[float]，文本列表 → list[list[float]]）
+embedding = await llm.generate_embedding(text)
+
+# 切换 Provider（关闭旧连接，创建新连接）
+await llm.switch_provider("openai", base_url="...")
+
+# 关闭 Provider（释放 HTTP 连接）
+await llm.close()
+
+# 获取 Provider 状态
+stats = await llm.get_usage_stats()
 ```
 
 ## 2. 异步任务系统

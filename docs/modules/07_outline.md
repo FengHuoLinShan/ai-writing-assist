@@ -50,6 +50,7 @@ async def get_arc_context(db, novel_id, arc_id) -> OutlineArcContext
 async def get_chapter_card(db, novel_id, chapter_index) -> ChapterCardContext | None
 async def create_chapter_cards_from_candidate(db, novel_id, candidate_payload) -> list[ChapterCardContext]
 async def merge_chapter_involved_ids(db, novel_id, chapter_index, character_ids, entity_ids) -> None
+async def get_arc_for_chapter(db, novel_id, chapter_index) -> dict | None
 
 # Plot Generation（跨模块入口，供 imports/workflow 等使用）
 async def generate_plot_structure(db, novel_id, start_chapter, end_chapter) -> dict

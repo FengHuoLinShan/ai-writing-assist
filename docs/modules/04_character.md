@@ -27,6 +27,7 @@ async def find_character_id_by_name(db, novel_id, name) -> str | None
 async def update_character_location(db, novel_id, character_id, location_id, text_state, chapter_index) -> None
 async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
 async def get_character_location_id(db, novel_id, character_id) -> str | None
+async def get_unknown_target_ids(db, novel_id, character_id) -> dict[str, list[str]]
 ```
 
 ## API

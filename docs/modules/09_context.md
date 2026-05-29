@@ -29,7 +29,7 @@ ContextCompiler 使用 Loader 策略模式，每个数据源独立一个 Loader 
 ## 核心函数
 
 ```python
-async def compile_structure_context(db, novel_id, task, scope, chapter_index=None, arc_id=None, entity_ids=None, character_ids=None, location_ids=None, reveal_mode="author_safe", enable_geo_filter=False) -> StructureContextBundle
+async def compile_structure_context(db, novel_id, task, scope, chapter_index=None, arc_id=None, entity_ids=None, character_ids=None, location_ids=None, reveal_mode="author_safe", enable_geo_filter=False, viewpoint_character_id=None) -> StructureContextBundle
 def render_context_markdown(context: StructureContextBundle) -> str
 ```
 
