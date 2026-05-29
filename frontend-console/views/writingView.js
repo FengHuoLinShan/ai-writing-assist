@@ -50,7 +50,7 @@ const writingView = {
   // ============================================================
 
   async onEnter() {
-    const saved = _state.viewStates.writing
+    const saved = state.viewStates.writing
 
     if (saved) {
       // 恢复保存的编辑状态（不重新加载服务器草稿）
@@ -84,7 +84,7 @@ const writingView = {
       this._extractionTimer = null
     }
 
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       this._loading = false
       return
     }
@@ -92,8 +92,8 @@ const writingView = {
     // 并行获取章节卡 + 有草稿的章节索引（始终刷新）
     try {
       const [cardData, draftData] = await Promise.all([
-        api.outline.listChapterCards({ novel_id: _state.currentProjectId, limit: 50 }),
-        api.writing.listChapters(_state.currentProjectId),
+        api.outline.listChapterCards({ novel_id: state.currentProjectId, limit: 50 }),
+        api.writing.listChapters(state.currentProjectId),
       ])
 
       const cards = cardData.items || []
@@ -131,7 +131,7 @@ const writingView = {
     if (deepImportSaved) {
       try {
         const parsed = JSON.parse(deepImportSaved)
-        if (parsed.taskId && parsed.projectId === _state.currentProjectId) {
+        if (parsed.taskId && parsed.projectId === state.currentProjectId) {
           this._deepImportTaskId = parsed.taskId
           this._pollDeepImportTask()
         } else {
@@ -180,7 +180,7 @@ const writingView = {
 
   onLeave() {
     // 保存当前编辑状态
-    _state.viewStates.writing = {
+    state.viewStates.writing = {
       currentChapter: this._currentChapter,
       currentContent: this._currentContent,
       currentDraftId: this._currentDraftId,
@@ -496,7 +496,7 @@ const writingView = {
 
   async _selectChapter(chapterIndex) {
     // 用户主动切换章节，清除已保存的编辑状态
-    delete _state.viewStates.writing
+    delete state.viewStates.writing
     this._currentChapter = chapterIndex
     this._currentContent = null
     this._currentDraftId = null
@@ -529,9 +529,9 @@ const writingView = {
   },
 
   async _loadDraft(chapterIndex) {
-    if (!_state.currentProjectId) return
+    if (!state.currentProjectId) return
     try {
-      const data = await api.writing.getDraft(chapterIndex, _state.currentProjectId)
+      const data = await api.writing.getDraft(chapterIndex, state.currentProjectId)
       if (data && (data.content || data.summary)) {
         this._currentContent = data.content || data.summary || ""
         this._currentDraftId = data.id
@@ -551,9 +551,9 @@ const writingView = {
   },
 
   async _loadChapterCard(chapterIndex) {
-    if (!_state.currentProjectId) return
+    if (!state.currentProjectId) return
     try {
-      const card = await api.outline.getChapterCardByIndex(chapterIndex, _state.currentProjectId)
+      const card = await api.outline.getChapterCardByIndex(chapterIndex, state.currentProjectId)
       if (card) {
         this._currentCard = card
         // 刷新右侧面板
@@ -594,7 +594,7 @@ const writingView = {
 
     try {
       const result = await api.writing.saveDraft({
-        novel_id: _state.currentProjectId,
+        novel_id: state.currentProjectId,
         chapter_index: this._currentChapter,
         title: `第${this._currentChapter}章`,
         content: content,
@@ -616,7 +616,7 @@ const writingView = {
         this._chapterList.sort((a, b) => a - b)
       }
 
-      delete _state.viewStates.writing
+      delete state.viewStates.writing
 
       this._updateStatusDisplay()
       toast("草稿已保存", "success")
@@ -640,7 +640,7 @@ const writingView = {
 
     try {
       const result = await api.writing.saveAndAnalyze(
-        _state.currentProjectId,
+        state.currentProjectId,
         this._currentChapter,
         content,
       )
@@ -663,10 +663,10 @@ const writingView = {
         this._chapterList.sort((a, b) => a - b)
       }
 
-      delete _state.viewStates.writing
+      delete state.viewStates.writing
 
       if (result.proposal_created) {
-        _state.pending_proposals_count = (_state.pending_proposals_count || 0) + 1
+        state.pending_proposals_count = (state.pending_proposals_count || 0) + 1
       }
 
       this._updateStatusDisplay()
@@ -700,7 +700,7 @@ const writingView = {
       return
     }
     try {
-      await api.writing.updateDraftStatus(this._currentDraftId, newStatus, _state.currentProjectId)
+      await api.writing.updateDraftStatus(this._currentDraftId, newStatus, state.currentProjectId)
       this._currentDraftStatus = newStatus
       this._updateStatusDisplay()
       toast(`状态已更新为：${newStatus}`, "success")
@@ -714,11 +714,11 @@ const writingView = {
   // ============================================================
 
   async _showVersionHistory() {
-    if (!this._currentChapter || !_state.currentProjectId) return
+    if (!this._currentChapter || !state.currentProjectId) return
 
     let versions = []
     try {
-      const data = await api.writing.getVersionHistory(this._currentChapter, _state.currentProjectId)
+      const data = await api.writing.getVersionHistory(this._currentChapter, state.currentProjectId)
       versions = data.versions || []
     } catch {
       toast("无法加载版本历史", "error")
@@ -767,7 +767,7 @@ const writingView = {
   // ============================================================
 
   async _submitWritingExtraction(stepKey, taskType) {
-    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
     const start = parseInt(document.getElementById("writing-ext-start")?.value || "1", 10)
     const end = parseInt(document.getElementById("writing-ext-end")?.value || "10", 10)
     if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
@@ -780,7 +780,7 @@ const writingView = {
 
     try {
       const result = await api.tasks.submit(taskType, {
-        novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
+        novel_id: state.currentProjectId, start_chapter: start, end_chapter: end,
       })
       this._extractionTasks[stepKey] = { taskId: result.task_id, status: "running", message: "" }
       this._extractionMessage = `${stepKey === "world" ? "世界对象" : "剧情结构"}抽取任务已提交`
@@ -825,7 +825,7 @@ const writingView = {
   // ============================================================
 
   async _submitChapterCardExtraction() {
-    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
 
     const chStart = parseInt(document.getElementById("writing-ext-start")?.value || "1", 10)
     const chEnd = parseInt(document.getElementById("writing-ext-end")?.value || "10", 10)
@@ -835,7 +835,7 @@ const writingView = {
     let existingCards = []
     try {
       const data = await api.outline.listChapterCards({
-        novel_id: _state.currentProjectId,
+        novel_id: state.currentProjectId,
         limit: 50,
       })
       existingCards = data.items || []
@@ -897,7 +897,7 @@ const writingView = {
           closeModal()
           try {
             await api.tasks.submit("chapter_card_extraction", {
-              novel_id: _state.currentProjectId,
+              novel_id: state.currentProjectId,
               start_chapter: start,
               end_chapter: end,
             })
@@ -914,13 +914,13 @@ const writingView = {
   // ============================================================
 
   async _submitDeepImport() {
-    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
     const chStart = parseInt(document.getElementById("deep-import-start")?.value || "1", 10)
     const chEnd = parseInt(document.getElementById("deep-import-end")?.value || "10", 10)
     if (chEnd < chStart) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
 
     try {
-      const result = await api.imports.deepImport(_state.currentProjectId, chStart, chEnd)
+      const result = await api.imports.deepImport(state.currentProjectId, chStart, chEnd)
       this._deepImportTaskId = result.task_id
       this._deepImportPhase = "pending"
       this._deepImportCompleted = []
@@ -928,7 +928,7 @@ const writingView = {
 
       localStorage.setItem("novel_deep_import_task", JSON.stringify({
         taskId: result.task_id,
-        projectId: _state.currentProjectId,
+        projectId: state.currentProjectId,
         startChapter: chStart,
         endChapter: chEnd,
       }))

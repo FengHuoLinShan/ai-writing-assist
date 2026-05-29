@@ -36,7 +36,7 @@ const outlineView = {
   },
 
   async render() {
-    const subView = _state.currentSubView || "threads"
+    const subView = state.currentSubView || "threads"
     let html = `
       <div class="subnav">
         <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-subview="threads" data-action="nav-threads">剧情线</span>
@@ -56,35 +56,35 @@ const outlineView = {
   },
 
   async _loadThreads() {
-    if (!_state.currentProjectId) { this._threads = []; return }
-    try { const d = await api.outline.listThreads({ novel_id: _state.currentProjectId }); this._threads = d.items || d || [] }
+    if (!state.currentProjectId) { this._threads = []; return }
+    try { const d = await api.outline.listThreads({ novel_id: state.currentProjectId }); this._threads = d.items || d || [] }
     catch { this._threads = [] }
   },
   async _loadArcs() {
-    if (!_state.currentProjectId) { this._arcs = []; return }
-    try { const d = await api.outline.listArcs({ novel_id: _state.currentProjectId }); this._arcs = d.items || d || [] }
+    if (!state.currentProjectId) { this._arcs = []; return }
+    try { const d = await api.outline.listArcs({ novel_id: state.currentProjectId }); this._arcs = d.items || d || [] }
     catch { this._arcs = [] }
   },
   async _loadChapters() {
-    if (!_state.currentProjectId) { this._chapters = []; return }
-    try { const d = await api.outline.listChapterCards({ novel_id: _state.currentProjectId }); this._chapters = d.items || d || [] }
+    if (!state.currentProjectId) { this._chapters = []; return }
+    try { const d = await api.outline.listChapterCards({ novel_id: state.currentProjectId }); this._chapters = d.items || d || [] }
     catch { this._chapters = [] }
   },
   async _loadForeshadowing() {
-    if (!_state.currentProjectId) { this._foreshadowing = []; return }
-    try { const d = await api.outline.listForeshadowing({ novel_id: _state.currentProjectId }); this._foreshadowing = d.items || d || [] }
+    if (!state.currentProjectId) { this._foreshadowing = []; return }
+    try { const d = await api.outline.listForeshadowing({ novel_id: state.currentProjectId }); this._foreshadowing = d.items || d || [] }
     catch { this._foreshadowing = [] }
   },
   async _loadReveals() {
-    if (!_state.currentProjectId) { this._reveals = []; return }
-    try { const d = await api.outline.listReveals({ novel_id: _state.currentProjectId }); this._reveals = d.items || d || [] }
+    if (!state.currentProjectId) { this._reveals = []; return }
+    try { const d = await api.outline.listReveals({ novel_id: state.currentProjectId }); this._reveals = d.items || d || [] }
     catch { this._reveals = [] }
   },
 
   // ============ 剧情线 ============
 
   async _renderThreads() {
-    if (!_state.currentProjectId) return empty("请先选择项目。")
+    if (!state.currentProjectId) return empty("请先选择项目。")
     const typeMap = { main: "主线", secondary: "支线", hidden: "暗线", relationship: "关系线", villain: "反派线", foreshadowing: "伏笔线" }
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理主线、支线、暗线等剧情线。</p>
       <div style="text-align:center;margin-bottom:8px;">
@@ -129,7 +129,7 @@ const outlineView = {
           summary: document.getElementById("th-summary")?.value || "",
           start_chapter: parseInt(document.getElementById("th-start")?.value) || undefined,
           planned_payoff_chapter: parseInt(document.getElementById("th-end")?.value) || undefined,
-        }, _state.currentProjectId)
+        }, state.currentProjectId)
         toast("已创建", "success")
         await this._loadThreads()
         router.navigate("outline", "threads")
@@ -139,7 +139,7 @@ const outlineView = {
 
   _deleteThread(id) {
     confirmAction("确定删除此剧情线？", async () => {
-      try { await api.outline.deleteThread(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadThreads(); router.navigate("outline", "threads") }
+      try { await api.outline.deleteThread(id, { novel_id: state.currentProjectId }); toast("已删除", "success"); await this._loadThreads(); router.navigate("outline", "threads") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -206,7 +206,7 @@ const outlineView = {
   },
 
   async _submitExtraction(stepKey, taskType) {
-    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
     const start = parseInt(document.getElementById("ext-start")?.value || "1", 10)
     const end = parseInt(document.getElementById("ext-end")?.value || "10", 10)
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
@@ -219,17 +219,17 @@ const outlineView = {
 
     try {
       const result = await api.tasks.submit(taskType, {
-        novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
+        novel_id: state.currentProjectId, start_chapter: start, end_chapter: end,
       })
       this._extractionTasks[stepKey] = { taskId: result.task_id, status: "running", message: "" }
       toast("任务已提交", "info")
-      router.navigate("outline", _state.currentSubView)
+      router.navigate("outline", state.currentSubView)
 
       // 启动共享轮询
       this._startPolling()
     } catch (err) {
       this._extractionTasks[stepKey] = { taskId: null, status: "failed", message: err.message }
-      router.navigate("outline", _state.currentSubView)
+      router.navigate("outline", state.currentSubView)
       toast(err.message || "提交失败", "error")
     }
   },
@@ -269,7 +269,7 @@ const outlineView = {
   // ============ 篇章纲 ============
 
   async _renderArcs() {
-    if (!_state.currentProjectId) return empty("请先选择项目。")
+    if (!state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">8-15 章的小剧情闭环。</p>
       <div style="margin-bottom:8px;"><button class="btn btn-primary" data-action="create-arc">新建篇章纲</button></div>`
     if (!this._arcs.length) return html + empty("暂无篇章纲。")
@@ -309,7 +309,7 @@ const outlineView = {
           core_conflict: document.getElementById("arc-conflict")?.value || "",
           entry_hook: document.getElementById("arc-hook")?.value || "",
           climax: document.getElementById("arc-climax")?.value || "",
-        }, _state.currentProjectId)
+        }, state.currentProjectId)
         toast("已创建", "success")
         await this._loadArcs()
         router.navigate("outline", "arcs")
@@ -319,7 +319,7 @@ const outlineView = {
 
   _deleteArc(id) {
     confirmAction("确定删除此篇章纲？", async () => {
-      try { await api.outline.deleteArc(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadArcs(); router.navigate("outline", "arcs") }
+      try { await api.outline.deleteArc(id, { novel_id: state.currentProjectId }); toast("已删除", "success"); await this._loadArcs(); router.navigate("outline", "arcs") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -327,7 +327,7 @@ const outlineView = {
   // ============ 章节卡 ============
 
   async _renderChapters() {
-    if (!_state.currentProjectId) return empty("请先选择项目。")
+    if (!state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">每章的结构化计划：目标、冲突、禁止事项、钩子。</p>
       <div style="margin-bottom:8px;display:flex;gap:8px;">
         <button class="btn btn-primary" data-action="create-chapter">新建章节卡</button>
@@ -373,7 +373,7 @@ const outlineView = {
           chapter_goal: document.getElementById("ch-goal")?.value || "",
           main_conflict: document.getElementById("ch-conflict")?.value || "",
           ending_hook: document.getElementById("ch-hook")?.value || "",
-        }, _state.currentProjectId)
+        }, state.currentProjectId)
         toast("已创建", "success")
         await this._loadChapters()
         router.navigate("outline", "chapters")
@@ -383,7 +383,7 @@ const outlineView = {
 
   async _viewChapter(cardId) {
     try {
-      const c = await api.outline.getChapterCard(cardId, _state.currentProjectId)
+      const c = await api.outline.getChapterCard(cardId, state.currentProjectId)
       const body = `
         <p><strong>章节：</strong>${c.chapter_index || "-"}</p>
         <p><strong>标题：</strong>${esc(c.title || "-")}</p>
@@ -399,7 +399,7 @@ const outlineView = {
   _confirmChapter(cardId, title) {
     confirmAction(`确认将「${title}」标记为正史？`, async () => {
       try {
-        await api.outline.updateChapterCard(cardId, { status: "canonical" }, _state.currentProjectId)
+        await api.outline.updateChapterCard(cardId, { status: "canonical" }, state.currentProjectId)
         toast(`「${title}」已确认`, "success")
         await this._loadChapters()
         router.navigate("outline", "chapters")
@@ -409,7 +409,7 @@ const outlineView = {
 
   async _editChapter(cardId) {
     let card
-    try { card = await api.outline.getChapterCard(cardId, _state.currentProjectId) }
+    try { card = await api.outline.getChapterCard(cardId, state.currentProjectId) }
     catch { toast("无法加载章节卡数据", "error"); return }
 
     const formHtml = `
@@ -443,7 +443,7 @@ const outlineView = {
           data.scene_cards = scenes
 
           try {
-            await api.outline.updateChapterCard(cardId, data, _state.currentProjectId)
+            await api.outline.updateChapterCard(cardId, data, state.currentProjectId)
             toast("已保存", "success")
             await this._loadChapters()
             router.navigate("outline", "chapters")
@@ -455,13 +455,13 @@ const outlineView = {
 
   _deleteChapter(id) {
     confirmAction("确定删除此章节卡？", async () => {
-      try { await api.outline.deleteChapterCard(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadChapters(); router.navigate("outline", "chapters") }
+      try { await api.outline.deleteChapterCard(id, { novel_id: state.currentProjectId }); toast("已删除", "success"); await this._loadChapters(); router.navigate("outline", "chapters") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
 
   async _submitChapterCardExtraction() {
-    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
 
     const formHtml = `
       <div class="form-row">
@@ -494,7 +494,7 @@ const outlineView = {
     let existingCards = []
     try {
       const data = await api.outline.listChapterCards({
-        novel_id: _state.currentProjectId, limit: 50,
+        novel_id: state.currentProjectId, limit: 50,
       })
       existingCards = data.items || []
     } catch {
@@ -544,7 +544,7 @@ const outlineView = {
           closeModal()
           try {
             await api.tasks.submit("chapter_card_extraction", {
-              novel_id: _state.currentProjectId, start_chapter: start, end_chapter: end,
+              novel_id: state.currentProjectId, start_chapter: start, end_chapter: end,
             })
             toast("章节卡提取任务已提交，请稍后刷新查看", "success")
           } catch (err) {
@@ -558,7 +558,7 @@ const outlineView = {
   // ============ 伏笔计划 ============
 
   async _renderForeshadowing() {
-    if (!_state.currentProjectId) return empty("请先选择项目。")
+    if (!state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理伏笔的埋设、强化和收束计划。</p>
       <div style="margin-bottom:8px;"><button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔</button></div>`
     if (!this._foreshadowing.length) return html + empty("暂无伏笔计划。")
@@ -598,7 +598,7 @@ const outlineView = {
           hidden_meaning: document.getElementById("fs-hidden")?.value || "",
           planned_seed_chapter: parseInt(document.getElementById("fs-seed")?.value) || undefined,
           planned_payoff_chapter: parseInt(document.getElementById("fs-payoff")?.value) || undefined,
-        }, _state.currentProjectId)
+        }, state.currentProjectId)
         toast("已创建", "success")
         await this._loadForeshadowing()
         router.navigate("outline", "foreshadowing")
@@ -608,7 +608,7 @@ const outlineView = {
 
   _deleteForeshadowing(id) {
     confirmAction("确定删除此伏笔？", async () => {
-      try { await api.outline.deleteForeshadowing(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadForeshadowing(); router.navigate("outline", "foreshadowing") }
+      try { await api.outline.deleteForeshadowing(id, { novel_id: state.currentProjectId }); toast("已删除", "success"); await this._loadForeshadowing(); router.navigate("outline", "foreshadowing") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -616,7 +616,7 @@ const outlineView = {
   // ============ 信息揭示 ============
 
   async _renderReveals() {
-    if (!_state.currentProjectId) return empty("请先选择项目。")
+    if (!state.currentProjectId) return empty("请先选择项目。")
     let html = `<p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">管理隐藏真相的分阶段揭示计划。</p>
       <div style="margin-bottom:8px;"><button class="btn btn-primary" data-action="create-reveal">新建揭示计划</button></div>`
     if (!this._reveals.length) return html + empty("暂无揭示计划。")
@@ -654,7 +654,7 @@ const outlineView = {
           target_type: document.getElementById("rv-type")?.value || "world_entity",
           target_id: targetId,
           secret_summary: document.getElementById("rv-secret")?.value || "",
-        }, _state.currentProjectId)
+        }, state.currentProjectId)
         toast("已创建", "success")
         await this._loadReveals()
         router.navigate("outline", "reveals")
@@ -664,7 +664,7 @@ const outlineView = {
 
   _deleteReveal(id) {
     confirmAction("确定删除此揭示计划？", async () => {
-      try { await api.outline.deleteReveal(id, { novel_id: _state.currentProjectId }); toast("已删除", "success"); await this._loadReveals(); router.navigate("outline", "reveals") }
+      try { await api.outline.deleteReveal(id, { novel_id: state.currentProjectId }); toast("已删除", "success"); await this._loadReveals(); router.navigate("outline", "reveals") }
       catch (e) { toast(e.message || "删除失败", "error") }
     }, "确认删除")
   },

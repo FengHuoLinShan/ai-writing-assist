@@ -166,7 +166,7 @@ const generateView = {
       const relatedIds = related ? related.split(",").map((s) => s.trim()).filter((s) => s) : undefined
 
       await api.context.compile({
-        novel_id: _state.currentProjectId, task: intent, scope,
+        novel_id: state.currentProjectId, task: intent, scope,
         reveal_mode: "author_safe", entity_ids: relatedIds, character_ids: relatedIds,
       })
 
@@ -181,7 +181,7 @@ const generateView = {
         chapter: api.generate.chapterScene,
         review: api.generate.reviewMemory,
       }
-      resp = await apiCalls[this._currentType]({ novel_id: _state.currentProjectId, intent, context: {} })
+      resp = await apiCalls[this._currentType]({ novel_id: state.currentProjectId, intent, context: {} })
 
       this._updateStep(3, resp ? "done" : "active")
       this._updateStep(4, "active")

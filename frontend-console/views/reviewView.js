@@ -43,7 +43,7 @@ const reviewView = {
 
     try {
       const data = await api.review.run({
-        novel_id: _state.currentProjectId,
+        novel_id: state.currentProjectId,
         target_type: "chapter_cards",
         candidate_payload: {},
       })

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 
 describe("setup smoke test", () => {
   it("globals are available", () => {
-    expect(globalThis._state).toBeDefined()
+    expect(globalThis.state).toBeDefined()
     expect(globalThis.esc).toBeDefined()
     expect(globalThis.router).toBeDefined()
     expect(globalThis.api).toBeDefined()

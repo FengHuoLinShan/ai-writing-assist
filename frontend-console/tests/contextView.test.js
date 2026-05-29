@@ -15,21 +15,21 @@ describe("contextView", () => {
 
   describe("compile", () => {
     it("无项目时警告", async () => {
-      _state.currentProjectId = null
+      state.currentProjectId = null
       document.body.innerHTML = '<div id="ctx-output"></div><div id="ctx-task"></div>'
       await contextView.compile()
       expect(globalThis.toast).toHaveBeenCalledWith("请先选择项目", "warning")
     })
 
     it("无任务描述时警告", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       document.body.innerHTML = '<div id="ctx-output"></div><div id="ctx-task"></div>'
       await contextView.compile()
       expect(globalThis.toast).toHaveBeenCalledWith("请输入任务描述", "warning")
     })
 
     it("调用 API 并渲染结果", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       document.body.innerHTML = `
         <div id="ctx-output"></div>
         <textarea id="ctx-task">生成章节卡</textarea>

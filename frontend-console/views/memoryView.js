@@ -11,7 +11,7 @@ const memoryView = {
   async onEnter() {
     this._records = []
     this._proposals = []
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
@@ -19,7 +19,7 @@ const memoryView = {
   },
 
   async render() {
-    const subView = _state.currentSubView || "records"
+    const subView = state.currentSubView || "records"
 
     setTimeout(() => {
       const content = document.getElementById("workspace-content")
@@ -53,23 +53,23 @@ const memoryView = {
   },
 
   async _loadRecords() {
-    if (!_state.currentProjectId) return
+    if (!state.currentProjectId) return
     try {
-      const data = await api.memory.listRecords({ novel_id: _state.currentProjectId })
+      const data = await api.memory.listRecords({ novel_id: state.currentProjectId })
       this._records = data.items || data || []
     } catch { this._records = [] }
   },
 
   async _loadProposals() {
-    if (!_state.currentProjectId) return
+    if (!state.currentProjectId) return
     try {
-      const data = await api.memory.listProposals(_state.currentProjectId)
+      const data = await api.memory.listProposals(state.currentProjectId)
       this._proposals = data.items || data || []
     } catch { this._proposals = [] }
   },
 
   async _renderRecords() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
     }
     if (this._records.length === 0) {
@@ -82,7 +82,7 @@ const memoryView = {
       `
     }
     const typeMap = {
-      chapter_state: "章节状态", event: "事件", character_state: "角色状态",
+      chapterstate: "章节状态", event: "事件", characterstate: "角色状态",
       knowledge: "知识变化", foreshadowing: "伏笔状态", outline_drift: "大纲偏离",
     }
     let html = `<table class="data-table"><thead><tr><th>章节</th><th>类型</th><th>标题</th><th>摘要</th><th>状态</th></tr></thead><tbody>`
@@ -101,7 +101,7 @@ const memoryView = {
   },
 
   async _renderProposals() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
     }
     if (this._proposals.length === 0) {
@@ -149,7 +149,7 @@ const memoryView = {
 
   async confirmProposal(proposalId) {
     try {
-      await api.memory.confirmProposal(_state.currentProjectId, proposalId, {})
+      await api.memory.confirmProposal(state.currentProjectId, proposalId, {})
       toast("提案已确认", "success")
       await this._loadProposals()
       router.navigate("memory", "proposals")
@@ -159,7 +159,7 @@ const memoryView = {
   async rejectProposal(proposalId) {
     confirmAction("确定拒绝此提案？", async () => {
       try {
-        await api.memory.rejectProposal(_state.currentProjectId, proposalId, "user")
+        await api.memory.rejectProposal(state.currentProjectId, proposalId, "user")
         toast("已拒绝", "success")
         await this._loadProposals()
         router.navigate("memory", "proposals")

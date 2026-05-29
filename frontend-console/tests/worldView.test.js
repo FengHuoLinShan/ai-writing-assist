@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import worldView from "../views/worldView.js"
 
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentSubView = null
+  state.currentProjectId = null
+  state.currentSubView = null
   worldView._entities = []
   worldView._candidates = []
   worldView._autoExtractOpen = false
@@ -25,7 +25,7 @@ beforeEach(() => {
 
 describe("onEnter", () => {
   it("加载实体和候选列表", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "王都" }] })
     api.world.listCandidates.mockResolvedValue({ items: [{ id: "c1", name: "神秘匕首" }] })
 
@@ -38,7 +38,7 @@ describe("onEnter", () => {
   })
 
   it("API 失败时设置空列表", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.world.listEntities.mockRejectedValue(new Error("失败"))
 
     await worldView.onEnter()
@@ -143,7 +143,7 @@ describe("候选处理", () => {
 
   describe("acceptCandidate", () => {
     it("调用 confirmAction 后调用 API", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       worldView._candidates = [{ id: "c1", name: "匕首", suggested_action: "create_new" }]
       api.world.acceptCandidate.mockResolvedValue({})
 
@@ -157,7 +157,7 @@ describe("候选处理", () => {
 
   describe("ignoreCandidate", () => {
     it("调用 confirmAction 后调用 API", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       worldView._candidates = [{ id: "c1", name: "匕首" }]
       api.world.confirmCandidate.mockResolvedValue({})
 
@@ -171,7 +171,7 @@ describe("候选处理", () => {
 
   describe("mergeCandidate", () => {
     it("调用 confirmAction 后调用 API", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.world.mergeCandidate.mockResolvedValue({ name: "旧王都" })
 
       worldView.mergeCandidate("c1", "e1", "旧王都")
@@ -195,7 +195,7 @@ describe("关系", () => {
     })
 
     it("渲染关系列表", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.world.listRelationships.mockResolvedValue({ items: [{ id: "r1", source_id: "src", target_id: "tgt", relation_type: "friend_of" }] })
       const html = await worldView._renderRelations()
       expect(html).toContain("data-action=\"delete-relation\"")
@@ -229,7 +229,7 @@ describe("别名", () => {
     })
 
     it("渲染别名列表", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.world.listAliases.mockResolvedValue({ items: [{ id: "a1", alias: "炎帝", alias_type: "title", entity_id: "e1", confidence: 0.8 }] })
       const html = await worldView._renderAliases()
       expect(html).toContain("炎帝")
@@ -261,7 +261,7 @@ describe("别名", () => {
 describe("AI 自动识别", () => {
   describe("_toggleAutoExtract", () => {
     it("切换展开状态并刷新视图", () => {
-      _state.currentSubView = "objects"
+      state.currentSubView = "objects"
       worldView._autoExtractOpen = false
       worldView._toggleAutoExtract()
       expect(worldView._autoExtractOpen).toBe(true)
@@ -276,7 +276,7 @@ describe("AI 自动识别", () => {
     })
 
     it("提交抽取任务", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       document.body.innerHTML = '<input id="w-extract-start" value="1"/> <input id="w-extract-end" value="5"/>'
       api.tasks.submit.mockResolvedValue({ task_id: "t1" })
 

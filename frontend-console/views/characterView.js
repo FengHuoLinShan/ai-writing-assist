@@ -17,14 +17,14 @@ const characterView = {
    * 进入视图时加载人物列表
    */
   async onEnter() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       this._characters = []
-      _state.selectedItem = null
+      state.selectedItem = null
       return
     }
 
     try {
-      const data = await api.character.list({ novel_id: _state.currentProjectId })
+      const data = await api.character.list({ novel_id: state.currentProjectId })
       this._characters = data.items || data || []
       this._apiAvailable = true
     } catch {
@@ -32,8 +32,8 @@ const characterView = {
       this._characters = []
     }
 
-    if (!_state.currentSubView || _state.currentSubView === "list") {
-      _state.selectedItem = null
+    if (!state.currentSubView || state.currentSubView === "list") {
+      state.selectedItem = null
     }
   },
 
@@ -41,7 +41,7 @@ const characterView = {
    * 渲染主视图
    */
   async render() {
-    const subView = _state.currentSubView || "list"
+    const subView = state.currentSubView || "list"
     let html = ''
 
     html += `
@@ -116,7 +116,7 @@ const characterView = {
           <td><strong>${esc(c.name)}</strong></td>
           <td>${esc(c.role || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.current_goal || "-")}</td>
-          <td>${esc(c.current_state || c.current_emotion || "-")}</td>
+          <td>${esc(c.currentstate || c.current_emotion || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="select-character" data-id="${esc(charId)}">查看</button>
             <button class="btn btn-sm" data-action="edit-character" data-id="${esc(charId)}">编辑</button>
@@ -142,18 +142,18 @@ const characterView = {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
     if (!character) return
 
-    _state.selectedItem = character
+    state.selectedItem = character
 
     router.navigate("character", "detail")
 
-    if (_state.currentProjectId) {
+    if (state.currentProjectId) {
       try {
-        const full = await api.character.get(charId, _state.currentProjectId)
+        const full = await api.character.get(charId, state.currentProjectId)
         if (full) {
           Object.assign(character, full)
-          _state.selectedItem = character
+          state.selectedItem = character
           const content = document.getElementById("workspace-content")
-          if (content && _state.currentView === "character" && _state.currentSubView === "detail") {
+          if (content && state.currentView === "character" && state.currentSubView === "detail") {
             const detailHtml = this._renderDetail()
             const detailArea = content.querySelector(".subnav")
             if (detailArea) {
@@ -170,7 +170,7 @@ const characterView = {
       }
     }
 
-    _state.rightPanel = {
+    state.rightPanel = {
       title: character.name,
       type: "character",
       content: `
@@ -178,7 +178,7 @@ const characterView = {
           <h4>${esc(character.name)}</h4>
           <p>定位：${character.role || "未设定"}</p>
           <p>当前目标：${character.current_goal || "-"}</p>
-          <p>当前状态：${character.current_state || "-"}</p>
+          <p>当前状态：${character.currentstate || "-"}</p>
           <p>语言风格：${character.voice_style || "-"}</p>
           <hr style="border-color:var(--border);margin:8px 0;">
           <p style="color:var(--text-dim);font-size:12px;">
@@ -195,7 +195,7 @@ const characterView = {
   // ============================================================
 
   _renderDetail() {
-    const character = _state.selectedItem
+    const character = state.selectedItem
 
     if (!character) {
       return `
@@ -223,7 +223,7 @@ const characterView = {
       { label: "秘密", value: character.secret, icon: "🔒", color: "var(--danger)" },
       { label: "弱点", value: character.weakness, icon: "💔", color: "var(--text-muted)" },
       { label: "当前目标", value: character.current_goal, icon: "🎯", color: "var(--accent)" },
-      { label: "当前状态", value: character.current_state, icon: "📌", color: "var(--info)" },
+      { label: "当前状态", value: character.currentstate, icon: "📌", color: "var(--info)" },
       { label: "当前情绪", value: character.current_emotion, icon: "💭", color: "var(--text)" },
       { label: "立场", value: character.stance, icon: "⚖️", color: "var(--text)" },
       { label: "语言风格", value: character.voice_style, icon: "🎙️", color: "var(--accent-dim)" },
@@ -291,7 +291,7 @@ const characterView = {
     if (suggestionKeys.length > 0) {
       const fieldLabelMap = {
         role: "定位", desire: "欲望", fear: "恐惧", secret: "秘密",
-        weakness: "弱点", current_goal: "当前目标", current_state: "当前状态",
+        weakness: "弱点", current_goal: "当前目标", currentstate: "当前状态",
         current_emotion: "当前情绪", stance: "立场", voice_style: "语言风格",
       }
       html += `
@@ -340,7 +340,7 @@ const characterView = {
   // ============================================================
 
   async _renderKnowledge() {
-    const character = _state.selectedItem
+    const character = state.selectedItem
 
     if (!character) {
       return `
@@ -363,7 +363,7 @@ const characterView = {
     let knowledges = []
     try {
       const charId = character.id || character.character_id
-      const data = await api.character.listKnowledge(charId, _state.currentProjectId)
+      const data = await api.character.listKnowledge(charId, state.currentProjectId)
       knowledges = data.items || data || []
       this._characterKnowledge = knowledges
     } catch {
@@ -483,7 +483,7 @@ const characterView = {
   // 编辑人物（修复：现在有完整表单和 API 调用）
   // ============================================================
 
-  _editCharacter(charId) {
+  editCharacter(charId) {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
     if (!character) {
       toast("未找到人物数据", "error")
@@ -540,7 +540,7 @@ const characterView = {
         </div>
         <div class="form-group">
           <label>当前状态</label>
-          <textarea class="form-textarea" id="edit-char-state" rows="2">${character.current_state || ""}</textarea>
+          <textarea class="form-textarea" id="edit-char-state" rows="2">${character.currentstate || ""}</textarea>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -578,7 +578,7 @@ const characterView = {
             secret: document.getElementById("edit-char-secret")?.value || "",
             weakness: document.getElementById("edit-char-weakness")?.value || "",
             current_goal: document.getElementById("edit-char-goal")?.value || "",
-            current_state: document.getElementById("edit-char-state")?.value || "",
+            currentstate: document.getElementById("edit-char-state")?.value || "",
             current_emotion: document.getElementById("edit-char-emotion")?.value || "",
             stance: document.getElementById("edit-char-stance")?.value || "",
             voice_style: document.getElementById("edit-char-voice")?.value || "",
@@ -589,15 +589,15 @@ const characterView = {
           }
 
           try {
-            await api.character.update(charId, data, _state.currentProjectId)
+            await api.character.update(charId, data, state.currentProjectId)
             // 更新本地缓存
             const idx = this._characters.findIndex((c) => (c.id || c.character_id) === charId)
             if (idx >= 0) {
               this._characters[idx] = { ...this._characters[idx], ...data }
             }
             // 如果当前选中的就是此人，同步更新 selectedItem
-            if (_state.selectedItem && (_state.selectedItem.id || _state.selectedItem.character_id) === charId) {
-              _state.selectedItem = { ..._state.selectedItem, ...data }
+            if (state.selectedItem && (state.selectedItem.id || state.selectedItem.character_id) === charId) {
+              state.selectedItem = { ...state.selectedItem, ...data }
             }
             toast(`人物 "${data.name}" 已保存`, "success")
             router.navigate("character", "detail")
@@ -657,7 +657,7 @@ const characterView = {
               knowledge_level: document.getElementById("edit-know-level")?.value || "unknown",
               known_content: document.getElementById("edit-know-content")?.value || "",
               misconception: document.getElementById("edit-know-misconception")?.value || "",
-            }, _state.currentProjectId)
+            }, state.currentProjectId)
             toast("已保存", "success")
             router.navigate("character", "detail")
           } catch (err) { toast(err.message || "保存失败", "error") }
@@ -670,7 +670,7 @@ const characterView = {
    * 添加知识边界
    */
   _addKnowledge() {
-    const character = _state.selectedItem
+    const character = state.selectedItem
     if (!character) {
       toast("请先选择人物", "warning")
       return
@@ -726,7 +726,7 @@ const characterView = {
               knowledge_level: document.getElementById("new-know-level")?.value || "unknown",
               known_content: document.getElementById("new-know-content")?.value || "",
               misconception: document.getElementById("new-know-misconception")?.value || "",
-            }, _state.currentProjectId)
+            }, state.currentProjectId)
             toast("已添加", "success")
             router.navigate("character", "detail")
           } catch (err) { toast(err.message || "添加失败", "error") }
@@ -738,7 +738,7 @@ const characterView = {
   _deleteKnowledge(knowledgeId) {
     confirmAction("确定删除此知识记录？", async () => {
       try {
-        await api.character.deleteKnowledge(knowledgeId, _state.currentProjectId)
+        await api.character.deleteKnowledge(knowledgeId, state.currentProjectId)
         toast("已删除", "success")
         router.navigate("character", "detail")
       } catch (err) { toast(err.message || "删除失败", "error") }
@@ -793,7 +793,7 @@ const characterView = {
 
           try {
             await api.character.create({
-              novel_id: _state.currentProjectId,
+              novel_id: state.currentProjectId,
               name,
               role: document.getElementById("create-char-role")?.value || "",
               desire: document.getElementById("create-char-desire")?.value || "",
@@ -828,7 +828,7 @@ const characterView = {
         case "nav-detail": router.navigate("character", "detail"); break
         case "nav-knowledge": router.navigate("character", "knowledge"); break
         case "select-character": if (id) this._selectCharacter(id); break
-        case "edit-character": if (id) this._editCharacter(id); break
+        case "edit-character": if (id) this.editCharacter(id); break
         case "extract-character": if (id) this._extractCharacter(id); break
         case "extract-all": this._extractAll(); break
         case "apply-all-suggestions": this._applyAllSuggestions(); break
@@ -849,12 +849,12 @@ const characterView = {
   // ============================================================
 
   async _extractAll() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
     try {
-      const result = await api.character.extractAll(_state.currentProjectId)
+      const result = await api.character.extractAll(state.currentProjectId)
       const tasks = Array.isArray(result) ? result : []
       toast(`已提交 ${tasks.length} 个人物的抽取任务`, "success")
       // 启动轮询检查任务完成
@@ -865,12 +865,12 @@ const characterView = {
   },
 
   async _extractCharacter(charId) {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
     try {
-      const result = await api.character.extract(charId, _state.currentProjectId)
+      const result = await api.character.extract(charId, state.currentProjectId)
       toast("抽取任务已提交", "success")
       this._pollExtractionTasks([result.task_id], (tasks) => this._refreshSuggestions(charId, tasks?.[0]?.result))
     } catch (err) {
@@ -929,14 +929,14 @@ const characterView = {
   },
 
   async _refreshCharacterList() {
-    if (!_state.currentProjectId) return
+    if (!state.currentProjectId) return
     try {
-      const data = await api.character.list({ novel_id: _state.currentProjectId })
+      const data = await api.character.list({ novel_id: state.currentProjectId })
       this._characters = data.items || data || []
-      if (_state.selectedItem) {
-        const selId = _state.selectedItem.id || _state.selectedItem.character_id
+      if (state.selectedItem) {
+        const selId = state.selectedItem.id || state.selectedItem.character_id
         const synced = this._characters.find((c) => (c.id || c.character_id) === selId)
-        if (synced) _state.selectedItem = synced
+        if (synced) state.selectedItem = synced
       }
     } catch {
       // 静默处理
@@ -946,12 +946,12 @@ const characterView = {
   /** 刷新当前角色的 AI 建议 */
   async _refreshSuggestions(charId, taskResult = null) {
     const character = this._characters.find((c) => (c.id || c.character_id) === charId)
-    if (!character || !_state.currentProjectId) return { suggestionCount: 0 }
+    if (!character || !state.currentProjectId) return { suggestionCount: 0 }
     try {
       for (const warning of (taskResult?.warnings || [])) {
         toast(warning, "warning")
       }
-      const data = await api.character.getSuggestions(charId, _state.currentProjectId)
+      const data = await api.character.getSuggestions(charId, state.currentProjectId)
       const suggestions = (data && data.suggestions) || {}
       const suggestionKeys = Object.keys(suggestions)
       if (suggestionKeys.length > 0) {
@@ -960,8 +960,8 @@ const characterView = {
         character.meta.ai_suggestions = suggestions
         character.meta.ai_suggestions_at = data.updated_at
         // 如果当前在看的就是这个角色，刷新显示
-        if (_state.selectedItem && (_state.selectedItem.id || _state.selectedItem.character_id) === charId) {
-          _state.selectedItem = character
+        if (state.selectedItem && (state.selectedItem.id || state.selectedItem.character_id) === charId) {
+          state.selectedItem = character
           router.navigate("character", "detail", false)
         }
         toast("AI 建议已就绪，可在档案中查看", "info")
@@ -1001,7 +1001,7 @@ const characterView = {
   },
 
   async _applyAllSuggestions() {
-    const character = _state.selectedItem
+    const character = state.selectedItem
     if (!character) return
     const charId = character.id || character.character_id
     const suggestions = (character.meta && character.meta.ai_suggestions) || {}
@@ -1011,7 +1011,7 @@ const characterView = {
       return
     }
     try {
-      const updated = await api.character.applySuggestions(charId, _state.currentProjectId, fields)
+      const updated = await api.character.applySuggestions(charId, state.currentProjectId, fields)
       this._syncAfterApply(character, updated)
       toast(`已应用 ${fields.length} 个字段的 AI 建议`, "success")
       router.navigate("character", "detail", false)
@@ -1021,11 +1021,11 @@ const characterView = {
   },
 
   async _applySuggestion(field) {
-    const character = _state.selectedItem
+    const character = state.selectedItem
     if (!character) return
     const charId = character.id || character.character_id
     try {
-      const updated = await api.character.applySuggestions(charId, _state.currentProjectId, [field])
+      const updated = await api.character.applySuggestions(charId, state.currentProjectId, [field])
       this._syncAfterApply(character, updated)
       toast(`已应用「${field}」建议`, "success")
       router.navigate("character", "detail", false)
@@ -1036,11 +1036,11 @@ const characterView = {
 
   /** 拒绝单个字段的 AI 建议（从 meta 中移除） */
   async _rejectSuggestion(field) {
-    const character = _state.selectedItem
+    const character = state.selectedItem
     if (!character) return
     const charId = character.id || character.character_id
     try {
-      const data = await api.character.getSuggestions(charId, _state.currentProjectId)
+      const data = await api.character.getSuggestions(charId, state.currentProjectId)
       const remaining = { ...(data.suggestions || {}) }
       delete remaining[field]
       await api.character.update(charId, {
@@ -1049,7 +1049,7 @@ const characterView = {
           ai_suggestions: remaining,
           ...(Object.keys(remaining).length === 0 ? { ai_suggestions_at: null } : {}),
         },
-      }, _state.currentProjectId)
+      }, state.currentProjectId)
       if (character.meta) {
         character.meta.ai_suggestions = remaining
         if (Object.keys(remaining).length === 0) delete character.meta.ai_suggestions_at

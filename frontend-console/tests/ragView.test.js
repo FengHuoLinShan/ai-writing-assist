@@ -6,13 +6,13 @@ beforeEach(() => { vi.clearAllMocks() })
 describe("ragView", () => {
   describe("render", () => {
     it("status 子视图包含索引状态", async () => {
-      _state.currentSubView = "status"
+      state.currentSubView = "status"
       const html = await ragView.render()
       expect(html).toContain("索引状态")
     })
 
     it("status 子视图显示索引降级提示", async () => {
-      _state.currentSubView = "status"
+      state.currentSubView = "status"
       ragView._apiAvailable = true
       ragView._loading = false
       ragView._totalChunks = 8
@@ -27,7 +27,7 @@ describe("ragView", () => {
     })
 
     it("search 子视图包含搜索框", async () => {
-      _state.currentSubView = "search"
+      state.currentSubView = "search"
       const html = await ragView.render()
       expect(html).toContain("搜索关键词")
     })
@@ -36,7 +36,7 @@ describe("ragView", () => {
   describe("_doSearch", () => {
     it("渲染搜索结果到 DOM", async () => {
       document.body.innerHTML = '<div id="rag-results"></div>'
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.rag.search.mockResolvedValue({
         chunks: [{ text: "测试结果", source_type: "chapter_text", score: 0.85 }],
       })
@@ -50,7 +50,7 @@ describe("ragView", () => {
 
     it("搜索降级时显示准确性提示", async () => {
       document.body.innerHTML = '<div id="rag-results"></div>'
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.rag.search.mockResolvedValue({
         degraded: true,
         warnings: ["embedding 生成失败，本次结果可能不准确"],
@@ -82,7 +82,7 @@ describe("ragView", () => {
 
   describe("_rebuildIndex", () => {
     it("无项目时显示警告", async () => {
-      _state.currentProjectId = null
+      state.currentProjectId = null
 
       await ragView._rebuildIndex()
 
@@ -90,7 +90,7 @@ describe("ragView", () => {
     })
 
     it("提交重建任务后刷新状态", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.rag.rebuild.mockResolvedValue({ total: 1, task_id: "task-1", warnings: ["embedding 失败"] })
       api.rag.status.mockResolvedValue({ total: 10 })
 

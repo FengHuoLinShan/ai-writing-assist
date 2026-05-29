@@ -13,14 +13,14 @@ const ragView = {
 
   async onEnter() {
     this._loading = true
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       this._totalChunks = null
       this._apiAvailable = false
       this._loading = false
       return
     }
     try {
-      const data = await api.rag.status(_state.currentProjectId)
+      const data = await api.rag.status(state.currentProjectId)
       this._totalChunks = data.total || 0
       this._embeddingFailedCount = data.embedding_failed_count || 0
       this._statusWarnings = data.warnings || []
@@ -39,7 +39,7 @@ const ragView = {
   onLeave() {},
 
   async render() {
-    const subView = _state.currentSubView || "status"
+    const subView = state.currentSubView || "status"
     let html = ""
 
     html += `
@@ -111,7 +111,7 @@ const ragView = {
       <div class="form-group">
         <label>搜索关键词</label>
         <div style="display:flex;gap:8px;">
-          <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${esc(_state.searchQuery || "")}" style="flex:1;" />
+          <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${esc(state.searchQuery || "")}" style="flex:1;" />
           <button class="btn btn-primary" data-action="do-search">搜索</button>
         </div>
       </div>
@@ -130,7 +130,7 @@ const ragView = {
     results.innerHTML = '<div class="loading">搜索中</div>'
 
     try {
-      const data = await api.rag.search({ query, top_k: 8, mode: "search" }, _state.currentProjectId)
+      const data = await api.rag.search({ query, top_k: 8, mode: "search" }, state.currentProjectId)
       const chunks = data.chunks || data || []
       if (chunks.length === 0) {
         results.innerHTML = '<div class="empty-state"><p style="color:var(--text-dim);">未找到匹配结果</p></div>'
@@ -172,13 +172,13 @@ const ragView = {
   },
 
   async _rebuildIndex() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
     try {
       toast("正在重建索引...", "info")
-      const result = await api.rag.rebuild({ novel_id: _state.currentProjectId })
+      const result = await api.rag.rebuild({ novel_id: state.currentProjectId })
       if (result.total > 0) {
         toast("索引重建任务已提交", "success")
       } else {

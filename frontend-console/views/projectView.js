@@ -16,7 +16,7 @@ const projectView = {
   _importSectionOpen: false,
 
   async render() {
-    const projects = _state.projects
+    const projects = state.projects
     let html = ''
 
     if (projects.length === 0) {
@@ -137,33 +137,33 @@ const projectView = {
   async onEnter() {
     try {
       const data = await api.projects.list()
-      _state.projects = data.items || data || []
-      if (_state.currentProjectId) {
-        const match = _state.projects.find(p => p.id === _state.currentProjectId)
+      state.projects = data.items || data || []
+      if (state.currentProjectId) {
+        const match = state.projects.find(p => p.id === state.currentProjectId)
         if (match) {
-          _state.currentProject = match
+          state.currentProject = match
         } else {
-          _state.currentProjectId = null
-          _state.currentProject = null
+          state.currentProjectId = null
+          state.currentProject = null
         }
       }
     } catch {
-      _state.projects = []
+      state.projects = []
     }
   },
 
   openProject(id) {
-    const project = _state.projects.find((p) => p.id === id)
+    const project = state.projects.find((p) => p.id === id)
     if (project) {
-      _state.currentProjectId = id
-      _state.currentProject = project
+      state.currentProjectId = id
+      state.currentProject = project
       toast(`已切换到项目：${project.title || project.name}`, "success")
       router.navigate("world", "objects")
     }
   },
 
   editProject(id) {
-    const project = _state.projects.find((p) => p.id === id)
+    const project = state.projects.find((p) => p.id === id)
     if (!project) return
 
     const formHtml = `
@@ -202,8 +202,8 @@ const projectView = {
               current_stage: stage,
             })
             Object.assign(project, { title: title || project.title, genre: genre || project.genre, current_stage: stage })
-            if (_state.currentProjectId === id) {
-              _state.currentProject = { ..._state.currentProject, title: title || project.title, genre: genre || project.genre, current_stage: stage }
+            if (state.currentProjectId === id) {
+              state.currentProject = { ...state.currentProject, title: title || project.title, genre: genre || project.genre, current_stage: stage }
             }
             toast("项目已更新", "success")
             closeModal()
@@ -216,16 +216,16 @@ const projectView = {
   },
 
   deleteProject(id) {
-    const project = _state.projects.find((p) => p.id === id)
+    const project = state.projects.find((p) => p.id === id)
     if (!project) return
     const name = project.title || project.name || "未命名"
     confirmAction(`确定要删除项目「${esc(name)}」吗？\n此操作不可恢复，所有关联数据（世界对象、人物、剧情等）将被一并删除。`, async () => {
       try {
         await api.projects.remove(id)
         toast(`项目「${name}」已删除`, "success")
-        if (_state.currentProjectId === id) {
-          _state.currentProjectId = null
-          _state.currentProject = null
+        if (state.currentProjectId === id) {
+          state.currentProjectId = null
+          state.currentProject = null
         }
         router.navigate("project")
       } catch (err) {
@@ -288,8 +288,8 @@ const projectView = {
               language: "zh",
             })
             toast(`项目 "${title}" 已创建`, "success")
-            _state.currentProjectId = project.id
-            _state.currentProject = project
+            state.currentProjectId = project.id
+            state.currentProject = project
             router.navigate("world", "objects")
           } catch (err) {
             toast(`创建失败：${err.message}`, "error")
@@ -315,10 +315,10 @@ const projectView = {
           tone: "",
           language: "zh",
         })
-        _state.currentProjectId = project.id
-        _state.currentProject = project
+        state.currentProjectId = project.id
+        state.currentProject = project
         const data = await api.projects.list()
-        _state.projects = data.items || data || []
+        state.projects = data.items || data || []
 
         const result = await api.imports.upload(project.id, file)
         toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
@@ -340,12 +340,12 @@ const projectView = {
   },
 
   _renderImportSection() {
-    const hasProject = !!_state.currentProjectId
+    const hasProject = !!state.currentProjectId
     return `
       <div style="border:1px solid var(--border);border-radius:4px;padding:12px;margin-top:12px;">
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
           将小说文件导入到当前选中的项目。
-          ${hasProject ? `当前项目：<strong>${esc(_state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}
+          ${hasProject ? `当前项目：<strong>${esc(state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}
         </div>
         <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
@@ -362,9 +362,9 @@ const projectView = {
   },
 
   async _loadImportRecords() {
-    if (!_state.currentProjectId) { this._importRecords = []; return }
+    if (!state.currentProjectId) { this._importRecords = []; return }
     try {
-      const data = await api.imports.list({ novel_id: _state.currentProjectId })
+      const data = await api.imports.list({ novel_id: state.currentProjectId })
       this._importRecords = data.items || []
     } catch { this._importRecords = [] }
   },
@@ -399,13 +399,13 @@ const projectView = {
     if (!input || !input.files || input.files.length === 0) {
       toast("请先选择文件", "warning"); return
     }
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       toast("请先点击项目行选择项目", "warning"); return
     }
     this._importUploading = true
     if (btn) btn.textContent = "上传中..."
     try {
-      const result = await api.imports.upload(_state.currentProjectId, input.files[0])
+      const result = await api.imports.upload(state.currentProjectId, input.files[0])
       toast(`导入完成：${result.imported_chapters} 章`, "success")
       input.value = ""
       this._renderImportHistory()

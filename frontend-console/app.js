@@ -70,12 +70,12 @@ const App = {
 
     // 聚焦/失焦
     input.addEventListener("focus", () => {
-      _state.mode = "COMMAND"
+      state.mode = "COMMAND"
     })
 
     input.addEventListener("blur", () => {
       if (!input.value) {
-        _state.mode = "NORMAL"
+        state.mode = "NORMAL"
       }
     })
 
@@ -85,7 +85,7 @@ const App = {
         e.preventDefault()
         const value = input.value.trim()
         input.value = ""
-        _state.mode = "NORMAL"
+        state.mode = "NORMAL"
 
         if (value) {
           await commands.execute(value)
@@ -98,7 +98,7 @@ const App = {
       if (e.key === "Escape") {
         input.value = ""
         input.blur()
-        _state.mode = "NORMAL"
+        state.mode = "NORMAL"
       }
 
       // 自动补全建议（Tab）
@@ -164,7 +164,7 @@ const App = {
         // Esc 退出输入
         if (e.key === "Escape") {
           e.target.blur()
-          _state.mode = "NORMAL"
+          state.mode = "NORMAL"
         }
         return
       }
@@ -192,9 +192,9 @@ const App = {
             document.getElementById("help-overlay").classList.add("hidden")
           } else {
             // 返回上一级
-            if (_state.currentSubView) {
-              const route = router.getRoute(_state.currentView)
-              router.navigate(_state.currentView, null)
+            if (state.currentSubView) {
+              const route = router.getRoute(state.currentView)
+              router.navigate(state.currentView, null)
             }
           }
           break
@@ -209,9 +209,9 @@ const App = {
           break
 
         case "s":
-          // 触发保存：检查当前视图是否有_editCharacter或saveDraft等方法
-          if (typeof window.characterView?._editCharacter === "function" && _state.selectedItem) {
-            window.characterView._editCharacter(_state.selectedItem.id || _state.selectedItem.character_id)
+          // 触发保存：检查当前视图是否有 editCharacter 或 saveDraft 等方法
+          if (typeof window.characterView?.editCharacter === "function" && state.selectedItem) {
+            window.characterView.editCharacter(state.selectedItem.id || state.selectedItem.character_id)
           } else if (typeof window.writingView?.saveDraft === "function") {
             window.writingView.saveDraft()
           } else {
@@ -325,8 +325,8 @@ const App = {
 
     let currentIdx = -1
     let currentId = null
-    if (_state.selectedItem) {
-      currentId = _state.selectedItem.id || _state.selectedItem.value
+    if (state.selectedItem) {
+      currentId = state.selectedItem.id || state.selectedItem.value
     }
 
     rows.forEach((row, i) => {
@@ -350,7 +350,7 @@ const App = {
     rows[nextIdx].scrollIntoView({ block: "nearest" })
 
     // 更新选中状态
-    _state.selectedItem = { id: rows[nextIdx].dataset.id || rows[nextIdx].dataset.value }
+    state.selectedItem = { id: rows[nextIdx].dataset.id || rows[nextIdx].dataset.value }
   },
 
   /**
@@ -425,11 +425,11 @@ const App = {
     try {
       const savedId = localStorage.getItem("novel_currentProjectId")
       if (savedId) {
-        _state.currentProjectId = savedId
+        state.currentProjectId = savedId
       }
       const savedProject = localStorage.getItem("novel_currentProject")
       if (savedProject) {
-        _state.currentProject = JSON.parse(savedProject)
+        state.currentProject = JSON.parse(savedProject)
       }
     } catch {}
   },
@@ -439,7 +439,7 @@ const App = {
    */
   async _checkBackendHealth() {
     const connected = await api.healthCheck()
-    _state.backendConnected = connected
+    state.backendConnected = connected
   },
 }
 

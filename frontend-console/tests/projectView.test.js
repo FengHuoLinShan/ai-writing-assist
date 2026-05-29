@@ -10,9 +10,9 @@ import projectView from "../views/projectView.js"
 
 // 清理全局状态，确保各测试隔离
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentProject = null
-  _state.projects = []
+  state.currentProjectId = null
+  state.currentProject = null
+  state.projects = []
   vi.clearAllMocks()
 })
 
@@ -32,7 +32,7 @@ describe("projectView", () => {
       await projectView.onEnter()
 
       expect(api.projects.list).toHaveBeenCalledOnce()
-      expect(_state.projects).toEqual(projects)
+      expect(state.projects).toEqual(projects)
     })
 
     it("API 不可用时设置空列表", async () => {
@@ -40,7 +40,7 @@ describe("projectView", () => {
 
       await projectView.onEnter()
 
-      expect(_state.projects).toEqual([])
+      expect(state.projects).toEqual([])
     })
 
     it("自动选中已保存的项目", async () => {
@@ -49,22 +49,22 @@ describe("projectView", () => {
         { id: "p2", title: "项目B" },
       ]
       api.projects.list.mockResolvedValue({ items: projects })
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
 
       await projectView.onEnter()
 
-      expect(_state.currentProject).toEqual(projects[0])
+      expect(state.currentProject).toEqual(projects[0])
     })
 
     it("已保存的项目被删除后清除状态", async () => {
       api.projects.list.mockResolvedValue({ items: [] })
-      _state.currentProjectId = "p1"
-      _state.currentProject = { id: "p1", title: "已删除项目" }
+      state.currentProjectId = "p1"
+      state.currentProject = { id: "p1", title: "已删除项目" }
 
       await projectView.onEnter()
 
-      expect(_state.currentProjectId).toBeNull()
-      expect(_state.currentProject).toBeNull()
+      expect(state.currentProjectId).toBeNull()
+      expect(state.currentProject).toBeNull()
     })
   })
 
@@ -74,12 +74,12 @@ describe("projectView", () => {
 
   describe("openProject", () => {
     it("选中项目并导航到 world 视图", () => {
-      _state.projects = [{ id: "p1", title: "项目A" }]
+      state.projects = [{ id: "p1", title: "项目A" }]
 
       projectView.openProject("p1")
 
-      expect(_state.currentProjectId).toBe("p1")
-      expect(_state.currentProject?.title).toBe("项目A")
+      expect(state.currentProjectId).toBe("p1")
+      expect(state.currentProject?.title).toBe("项目A")
       expect(router.navigate).toHaveBeenCalledWith("world", "objects")
       expect(globalThis.toast).toHaveBeenCalled()
     })
@@ -87,7 +87,7 @@ describe("projectView", () => {
     it("项目不存在时不操作", () => {
       projectView.openProject("nonexistent")
 
-      expect(_state.currentProjectId).toBeNull()
+      expect(state.currentProjectId).toBeNull()
       expect(router.navigate).not.toHaveBeenCalled()
     })
   })
@@ -118,7 +118,7 @@ describe("projectView", () => {
 
   describe("editProject", () => {
     it("项目存在时调用 showModal", () => {
-      _state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", current_stage: "writing" }]
+      state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", current_stage: "writing" }]
 
       projectView.editProject("p1")
 
@@ -143,7 +143,7 @@ describe("projectView", () => {
 
   describe("deleteProject", () => {
     it("调用 confirmAction 进行二次确认", () => {
-      _state.projects = [{ id: "p1", title: "项目A" }]
+      state.projects = [{ id: "p1", title: "项目A" }]
 
       projectView.deleteProject("p1")
 

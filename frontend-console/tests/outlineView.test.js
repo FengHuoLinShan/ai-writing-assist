@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import outlineView from "../views/outlineView.js"
 
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentSubView = null
+  state.currentProjectId = null
+  state.currentSubView = null
   outlineView._threads = []
   outlineView._arcs = []
   outlineView._chapters = []
@@ -36,7 +36,7 @@ describe("onEnter", () => {
   })
 
   it("有项目时加载全部 5 组数据", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listThreads.mockResolvedValue({ items: [{ id: "t1", name: "主线" }] })
     api.outline.listArcs.mockResolvedValue({ items: [{ id: "a1", title: "第一卷" }] })
     api.outline.listChapterCards.mockResolvedValue({ items: [{ id: "c1", chapter_index: 1 }] })
@@ -53,7 +53,7 @@ describe("onEnter", () => {
   })
 
   it("API 失败时数据为空", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listThreads.mockRejectedValue(new Error("失败"))
 
     await outlineView.onEnter()
@@ -68,7 +68,7 @@ describe("onEnter", () => {
 
 describe("render", () => {
   it("总是渲染子标签导航", async () => {
-    _state.currentSubView = "threads"
+    state.currentSubView = "threads"
     const html = await outlineView.render()
     expect(html).toContain("剧情线")
     expect(html).toContain("篇章纲")
@@ -80,14 +80,14 @@ describe("render", () => {
   })
 
   it("无项目时各子视图显示空提示", async () => {
-    _state.currentSubView = "threads"
+    state.currentSubView = "threads"
     const html = await outlineView.render()
     expect(html).toContain("请先选择项目")
   })
 
   it("有项目时渲染当前子视图", async () => {
-    _state.currentProjectId = "p1"
-    _state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
     outlineView._threads = [{ id: "t1", name: "主线", thread_type: "main" }]
     const html = await outlineView.render()
     expect(html).toContain("主线")
@@ -106,14 +106,14 @@ describe("剧情线", () => {
     })
 
     it("无数据显示空状态", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       outlineView._threads = []
       const html = await outlineView._renderThreads()
       expect(html).toContain("暂无剧情线")
     })
 
     it("渲染列表包含操作按钮", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       outlineView._threads = [
         { id: "t1", name: "主线", thread_type: "main", current_stage: "developing", planned_payoff_chapter: 20 },
       ]
@@ -158,13 +158,13 @@ describe("篇章纲", () => {
     })
 
     it("无数据显示空状态", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const html = await outlineView._renderArcs()
       expect(html).toContain("暂无篇章纲")
     })
 
     it("渲染卡片包含高潮和目标", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       outlineView._arcs = [{ id: "a1", title: "第一卷", start_chapter: 1, end_chapter: 10, arc_goal: "建立世界", core_conflict: "对抗", climax: "大战" }]
       const html = await outlineView._renderArcs()
       expect(html).toContain("第一卷")
@@ -195,7 +195,7 @@ describe("章节卡", () => {
     })
 
     it("渲染列表包含确认/编辑/删除按钮", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       outlineView._chapters = [
         { id: "c1", chapter_index: 1, title: "第一章", chapter_goal: "开场", status: "candidate" },
         { id: "c2", chapter_index: 2, title: "第二章", status: "canonical" },
@@ -210,7 +210,7 @@ describe("章节卡", () => {
 
   describe("_confirmChapter", () => {
     it("确认后调用 API 更新为正史", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.outline.updateChapterCard.mockResolvedValue({})
       outlineView._confirmChapter("c1", "第一章")
       // confirmAction 会异步调用回调
@@ -222,7 +222,7 @@ describe("章节卡", () => {
 
   describe("_deleteChapter", () => {
     it("二次确认后调用 API 删除", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.outline.deleteChapterCard.mockResolvedValue({})
       outlineView._deleteChapter("c1")
       const fn = vi.mocked(confirmAction).mock.calls[0][1]
@@ -244,7 +244,7 @@ describe("伏笔计划", () => {
     })
 
     it("渲染伏笔列表", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       outlineView._foreshadowing = [{ id: "f1", name: "神秘匕首", planned_seed_chapter: 3, planned_payoff_chapter: 15 }]
       const html = await outlineView._renderForeshadowing()
       expect(html).toContain("神秘匕首")
@@ -266,7 +266,7 @@ describe("信息揭示", () => {
     })
 
     it("渲染揭示列表", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       outlineView._reveals = [{ id: "r1", target_type: "character", target_id: "uuid-1234", secret_summary: "他就是凶手", reveal_stages: [{ stage: 1 }] }]
       const html = await outlineView._renderReveals()
       expect(html).toContain("character")
@@ -288,8 +288,8 @@ describe("提取任务", () => {
     })
 
     it("提交世界对象抽取任务", async () => {
-      _state.currentProjectId = "p1"
-      _state.currentSubView = "threads"
+      state.currentProjectId = "p1"
+      state.currentSubView = "threads"
       document.body.innerHTML = '<input id="ext-start" value="1"/> <input id="ext-end" value="5"/>'
       api.tasks.submit.mockResolvedValue({ task_id: "tw1" })
 
@@ -302,7 +302,7 @@ describe("提取任务", () => {
     })
 
     it("章节卡提取走独立方法", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       document.body.innerHTML = '<input id="ext-start" value="1"/> <input id="ext-end" value="3"/>'
       vi.mocked(prompt).mockReturnValueOnce("1").mockReturnValueOnce("3")
       api.outline.listChapterCards.mockResolvedValue({ items: [] })

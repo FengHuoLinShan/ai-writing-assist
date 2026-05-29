@@ -104,7 +104,7 @@ const contextView = {
     const exportBtn = document.querySelector('[data-action="export"]')
     if (!output) return
 
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
@@ -132,7 +132,7 @@ const contextView = {
 
     try {
       const data = await api.context.compile({
-        novel_id: _state.currentProjectId,
+        novel_id: state.currentProjectId,
         task, scope,
         chapter_index: chapterIndex,
         entity_ids: entityIds,
@@ -208,7 +208,7 @@ const contextView = {
 
     try {
       const data = await api.context.render({
-        novel_id: _state.currentProjectId, task, scope,
+        novel_id: state.currentProjectId, task, scope,
         chapter_index: chapterIndex, entity_ids: entityIds,
         character_ids: characterIds, reveal_mode: reveal,
       })
@@ -237,7 +237,7 @@ const contextView = {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `context-${_state.currentProject?.title || "project"}-${Date.now()}.md`
+      a.download = `context-${state.currentProject?.title || "project"}-${Date.now()}.md`
       a.click()
       URL.revokeObjectURL(url)
       toast("上下文已导出为 Markdown 文件", "success")

@@ -7,8 +7,8 @@
 | 根目录 `CLAUDE.md` | 只记录“不能做什么” |
 | 根目录 `AGENTS.md` | Codex 适配的“不能做什么”清单，原则上与 `CLAUDE.md` 同步 |
 | 模块目录 `CLAUDE.md` | 只记录该模块的特殊禁止事项、风险陷阱和不可绕过的边界 |
-| `DEVELOPMENT_GUIDE.md` | 开发命令、模块结构、架构原则、工程规则 |
-| `TESTING_GUIDE.md` | 测试要求、Review 分级、安全测试清单 |
+| `development-guide.md` | 开发命令、模块结构、架构原则、工程规则 |
+| `testing-guide.md` | 测试要求、Review 分级、安全测试清单 |
 | `docs/00_整体设计.md` | 项目定位、分层架构、目录结构、模块职责、技术栈 |
 | `docs/项目进度.md` | 里程碑状态、已交付内容、已知不足、后续维护项 |
 | 模块 README / `docs/modules/*.md` | 单模块职责、表、API、facade、测试方式 |
@@ -21,8 +21,8 @@
 本项目采用垂直模块化结构。进入模块开发时，优先读取：
 
 1. 根目录 `CLAUDE.md` 或 `AGENTS.md` — 禁止事项
-2. `DEVELOPMENT_GUIDE.md` — 开发规则、命令、架构
-3. `TESTING_GUIDE.md` — 测试要求、Review 分级
+2. `development-guide.md` — 开发规则、命令、架构
+3. `testing-guide.md` — 测试要求、Review 分级
 4. 模块目录下的 `CLAUDE.md`（若有）和 `README.md`
 5. `contracts.py` → `facade.py` → `models.py` → `services.py`
 

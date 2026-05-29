@@ -155,7 +155,7 @@ async def save_and_analyze(
 ) -> SaveAndAnalyzeResponse:
     from modules.writing.services import WritingDraftService
     import logging
-    _logger = logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
 
     draft_data = WritingDraftCreate(
         novel_id=data.novel_id,
@@ -175,7 +175,7 @@ async def save_and_analyze(
             db, data.novel_id, data.chapter_index, data.content,
         )
     except Exception as e:
-        _logger.error("地缘资产AI提取非致命性失败，已安全降级。详情: %s", str(e))
+        logger.error("地缘资产AI提取非致命性失败，已安全降级。详情: %s", str(e))
         proposal_created = False
         analysis_status = "failed"
 

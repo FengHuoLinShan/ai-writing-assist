@@ -6,7 +6,7 @@ beforeEach(() => { vi.clearAllMocks() })
 describe("memoryView", () => {
   describe("onEnter", () => {
     it("加载记录和提案", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.memory.listRecords.mockResolvedValue({ items: [{ id: "r1", title: "记忆1" }] })
       api.memory.listProposals.mockResolvedValue({ items: [{ id: "pr1", summary: "提案1" }] })
 
@@ -17,7 +17,7 @@ describe("memoryView", () => {
     })
 
     it("无项目时不加载", async () => {
-      _state.currentProjectId = null
+      state.currentProjectId = null
       await memoryView.onEnter()
       expect(memoryView._records).toEqual([])
       expect(memoryView._proposals).toEqual([])
@@ -26,7 +26,7 @@ describe("memoryView", () => {
 
   describe("render", () => {
     it("records 子视图包含 subnav", async () => {
-      _state.currentSubView = "records"
+      state.currentSubView = "records"
       const html = await memoryView.render()
       expect(html).toContain("记忆记录")
       expect(html).toContain("更新候选")
@@ -35,7 +35,7 @@ describe("memoryView", () => {
 
   describe("confirmProposal", () => {
     it("调用 API 并导航", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.memory.confirmProposal.mockResolvedValue({})
 
       await memoryView.confirmProposal("pr1")
@@ -47,7 +47,7 @@ describe("memoryView", () => {
 
   describe("rejectProposal", () => {
     it("调用 confirmAction 确认后拒绝", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.memory.rejectProposal.mockResolvedValue({})
 
       memoryView.rejectProposal("pr1")

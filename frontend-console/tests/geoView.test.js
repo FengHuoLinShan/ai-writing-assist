@@ -7,9 +7,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import geoView from "../views/geoView.js"
 
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentSubView = null
-  _state.rightPanel = null
+  state.currentProjectId = null
+  state.currentSubView = null
+  state.rightPanel = null
   geoView._locations = []
   geoView._locationTree = []
   geoView._eras = []
@@ -32,7 +32,7 @@ describe("onEnter", () => {
   })
 
   it("有项目时并行加载数据", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.geo.listLocations.mockResolvedValue({ items: [{ id: "l1", name: "王都" }] })
     api.geo.listEras.mockResolvedValue({ items: [{ id: "e1", name: "古代" }] })
     api.geo.listEdges.mockResolvedValue({ items: [{ id: "r1", source: "A", target: "B" }] })
@@ -46,7 +46,7 @@ describe("onEnter", () => {
   })
 
   it("地点 API 失败时使用演示树", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.geo.listLocations.mockRejectedValue(new Error("失败"))
     api.geo.listEras.mockResolvedValue({ items: [] })
     api.geo.listEdges.mockResolvedValue({ items: [] })
@@ -98,7 +98,7 @@ describe("地点树", () => {
       geoView._locationTree = [{ id: "l1", name: "王都", level: "city" }]
       geoView._onLocationClick("l1")
       expect(geoView._selectedLocation?.name).toBe("王都")
-      expect(_state.rightPanel?.title).toBe("王都")
+      expect(state.rightPanel?.title).toBe("王都")
     })
   })
 })
