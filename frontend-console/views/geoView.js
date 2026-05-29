@@ -26,7 +26,7 @@ const geoView = {
    * 进入视图时加载数据
    */
   async onEnter() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       this._locations = []
       this._locationTree = []
       this._eras = []
@@ -34,7 +34,7 @@ const geoView = {
       return
     }
 
-    const projectId = _state.currentProjectId
+    const projectId = state.currentProjectId
     this._apiAvailable = true
 
     // 并发加载地点、时期、关系
@@ -152,7 +152,7 @@ const geoView = {
   // ============================================================
 
   async render() {
-    const subView = _state.currentSubView || "tree"
+    const subView = state.currentSubView || "tree"
     let html = ''
 
     html += `
@@ -276,7 +276,7 @@ const geoView = {
       </div>
     `
 
-    _state.rightPanel = {
+    state.rightPanel = {
       title: node.name,
       type: "location",
       content: panelContent,
@@ -290,9 +290,9 @@ const geoView = {
 
   async _loadLocationFactions(locationId) {
     const container = document.getElementById("geo-factions-list")
-    if (!container || !_state.currentProjectId) return
+    if (!container || !state.currentProjectId) return
     try {
-      const data = await api.geo.getLocationFactions(locationId, _state.currentProjectId)
+      const data = await api.geo.getLocationFactions(locationId, state.currentProjectId)
       const factions = data.items || data || []
       if (factions.length === 0) {
         container.textContent = "暂无势力"
@@ -313,9 +313,9 @@ const geoView = {
 
   async _loadLocationCharacters(locationId) {
     const container = document.getElementById("geo-characters-list")
-    if (!container || !_state.currentProjectId) return
+    if (!container || !state.currentProjectId) return
     try {
-      const data = await api.geo.getLocationCharacters(locationId, _state.currentProjectId)
+      const data = await api.geo.getLocationCharacters(locationId, state.currentProjectId)
       const characters = data.items || data || []
       if (characters.length === 0) {
         container.textContent = "暂无活跃人物"

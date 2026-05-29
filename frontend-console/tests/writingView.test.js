@@ -7,9 +7,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import writingView from "../views/writingView.js"
 
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentProject = null
-  _state.viewStates = {}
+  state.currentProjectId = null
+  state.currentProject = null
+  state.viewStates = {}
   localStorage.removeItem("novel_deep_import_task")
   writingView._deepImportTaskId = null
   writingView._deepImportPhase = "idle"
@@ -63,7 +63,7 @@ describe("onEnter", () => {
   })
 
   it("有项目时加载章节卡和草稿索引", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listChapterCards.mockResolvedValue({
       items: [{ chapter_index: 1, title: "第一章", status: "draft" }],
     })
@@ -79,7 +79,7 @@ describe("onEnter", () => {
   })
 
   it("API 失败时设置空章节列表", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listChapterCards.mockRejectedValue(new Error("网络错误"))
 
     await writingView.onEnter()
@@ -89,13 +89,13 @@ describe("onEnter", () => {
   })
 
   it("恢复保存的编辑状态", async () => {
-    _state.viewStates.writing = {
+    state.viewStates.writing = {
       currentChapter: 3,
       currentContent: "现有内容",
       currentDraftId: "draft-1",
       currentDraftStatus: "draft",
     }
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listChapterCards.mockResolvedValue({ items: [] })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [] })
 
@@ -111,7 +111,7 @@ describe("onEnter", () => {
     localStorage.setItem("novel_deep_import_task", JSON.stringify({
       taskId: "task-1", projectId: "p1", startChapter: 1, endChapter: 3,
     }))
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listChapterCards.mockResolvedValue({ items: [] })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [] })
     api.tasks.get.mockResolvedValue({ status: "running", result: { phase: "running" } })
@@ -126,7 +126,7 @@ describe("onEnter", () => {
     localStorage.setItem("novel_deep_import_task", JSON.stringify({
       taskId: "task-1", projectId: "other-project",
     }))
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.outline.listChapterCards.mockResolvedValue({ items: [] })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [] })
 
@@ -150,7 +150,7 @@ describe("onLeave", () => {
 
     writingView.onLeave()
 
-    expect(_state.viewStates.writing).toEqual({
+    expect(state.viewStates.writing).toEqual({
       currentChapter: 2,
       currentContent: "正文内容",
       currentDraftId: "d-1",
@@ -242,7 +242,7 @@ describe("saveDraft", () => {
 
   it("调用 API 保存并更新状态", async () => {
     document.body.innerHTML = '<textarea id="writing-editor">正文内容</textarea>'
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     writingView._currentChapter = 1
     api.writing.saveDraft.mockResolvedValue({
       id: "draft-1", status: "draft", version_number: 1, updated_at: "2026-01-01T00:00:00Z",
@@ -265,7 +265,7 @@ describe("saveDraft", () => {
 
   it("保存失败时显示错误", async () => {
     document.body.innerHTML = '<textarea id="writing-editor">正文</textarea>'
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     writingView._currentChapter = 1
     api.writing.saveDraft.mockRejectedValue(new Error("保存失败"))
 
@@ -284,7 +284,7 @@ describe("_updateDraftStatus", () => {
 
   it("调用 API 更新状态", async () => {
     writingView._currentDraftId = "d-1"
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.writing.updateDraftStatus.mockResolvedValue({})
 
     await writingView._updateDraftStatus("candidate")
@@ -296,7 +296,7 @@ describe("_updateDraftStatus", () => {
 
   it("API 失败时显示错误", async () => {
     writingView._currentDraftId = "d-1"
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.writing.updateDraftStatus.mockRejectedValue(new Error("更新失败"))
 
     await writingView._updateDraftStatus("canonical")
@@ -320,7 +320,7 @@ describe("_exportDraft", () => {
 describe("_showVersionHistory", () => {
   it("调用 API 并显示 modal", async () => {
     writingView._currentChapter = 1
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({
       versions: [
         { id: "v1", version_number: 1, status: "draft", updated_at: "2026-01-01T00:00:00Z" },
@@ -340,7 +340,7 @@ describe("_showVersionHistory", () => {
 
   it("无版本时显示 info 提示", async () => {
     writingView._currentChapter = 1
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({ versions: [] })
 
     await writingView._showVersionHistory()
@@ -350,7 +350,7 @@ describe("_showVersionHistory", () => {
 
   it("API 失败时显示错误", async () => {
     writingView._currentChapter = 1
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockRejectedValue(new Error("请求失败"))
 
     await writingView._showVersionHistory()
@@ -370,7 +370,7 @@ describe("_submitWritingExtraction", () => {
   })
 
   it("提交世界对象抽取任务", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     document.body.innerHTML = `
       <input id="writing-ext-start" value="1" />
       <input id="writing-ext-end" value="3" />
@@ -387,7 +387,7 @@ describe("_submitWritingExtraction", () => {
   })
 
   it("章节卡提取走确认弹窗", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     document.body.innerHTML = `
       <input id="writing-ext-start" value="1" />
       <input id="writing-ext-end" value="3" />
@@ -402,7 +402,7 @@ describe("_submitWritingExtraction", () => {
   })
 
   it("结束章节小于起始章节时显示警告", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     document.body.innerHTML = `
       <input id="writing-ext-start" value="5" />
       <input id="writing-ext-end" value="3" />
@@ -459,7 +459,7 @@ describe("深度导入", () => {
     })
 
     it("提交深度导入并保存到 localStorage", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       document.body.innerHTML = `
         <input id="deep-import-start" value="1" />
         <input id="deep-import-end" value="5" />

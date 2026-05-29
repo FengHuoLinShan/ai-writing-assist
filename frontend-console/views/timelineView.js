@@ -13,7 +13,7 @@ const timelineView = {
   },
 
   async render() {
-    if (!_state.currentProjectId) {
+    if (!state.currentProjectId) {
       return `<div class="empty-state"><p>请先选择项目。</p></div>`
     }
 
@@ -80,13 +80,13 @@ const timelineView = {
   },
 
   async _loadEvents() {
-    if (!_state.currentProjectId) return
+    if (!state.currentProjectId) return
     try {
-      const data = await api.timeline.listEvents({ novel_id: _state.currentProjectId })
+      const data = await api.timeline.listEvents({ novel_id: state.currentProjectId })
       this._events = data.items || data || []
     } catch {
       this._events = []
-      if (_state.currentProjectId) toast("加载时间线事件失败", "warning")
+      if (state.currentProjectId) toast("加载时间线事件失败", "warning")
     }
   },
 
@@ -138,7 +138,7 @@ const timelineView = {
         if (!title) { toast("请输入事件标题", "warning"); return }
         try {
           await api.timeline.createEvent({
-            novel_id: _state.currentProjectId,
+            novel_id: state.currentProjectId,
             title, summary: document.getElementById("tl-summary")?.value || "",
             order_index: parseInt(document.getElementById("tl-order")?.value || "1", 10),
             chapter_index: parseInt(document.getElementById("tl-chapter")?.value || "0", 10) || undefined,
@@ -178,7 +178,7 @@ const timelineView = {
     showModal("编辑时间线事件", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         try {
-          await api.timeline.updateEvent(_state.currentProjectId, eventId, {
+          await api.timeline.updateEvent(state.currentProjectId, eventId, {
             title: document.getElementById("tl-title")?.value,
             summary: document.getElementById("tl-summary")?.value,
             order_index: parseInt(document.getElementById("tl-order")?.value || "1", 10),
@@ -194,7 +194,7 @@ const timelineView = {
   deleteEvent(eventId) {
     confirmAction("确定删除此事件？", async () => {
       try {
-        await api.timeline.updateEvent(_state.currentProjectId, eventId, { status: "deprecated" })
+        await api.timeline.updateEvent(state.currentProjectId, eventId, { status: "deprecated" })
         toast("已删除", "success")
         router.navigate("timeline")
       } catch (err) { toast(err.message || "删除失败", "error") }

@@ -55,7 +55,7 @@ function getRoute(name) {
  * @returns {string}
  */
 function getCurrentView() {
-  return _state.currentView
+  return state.currentView
 }
 
 /**
@@ -92,7 +92,7 @@ function getLastSubView(viewName) {
 }
 
 async function renderCurrentView() {
-  const viewName = _state.currentView
+  const viewName = state.currentView
   const content = document.getElementById("workspace-content")
 
   if (!content) return
@@ -105,10 +105,10 @@ async function renderCurrentView() {
   }
   _prevView = viewName
 
-  const isSameRender = _prevRenderedView === viewName && _prevRenderedSubView === (_state.currentSubView || "")
+  const isSameRender = _prevRenderedView === viewName && _prevRenderedSubView === (state.currentSubView || "")
   const renderer = viewRenderers[viewName]
 
-  _state.loading = true
+  state.loading = true
 
   try {
     if (renderer) {
@@ -137,15 +137,15 @@ async function renderCurrentView() {
       </div>
     `
   } finally {
-    _state.loading = false
+    state.loading = false
     _prevRenderedView = viewName
-    _prevRenderedSubView = _state.currentSubView || ""
+    _prevRenderedSubView = state.currentSubView || ""
   }
 
   updateRightPanelForView(viewName)
 
   for (const listener of _navListeners) {
-    try { listener(viewName, _state.currentSubView) } catch (e) { console.error(e) }
+    try { listener(viewName, state.currentSubView) } catch (e) { console.error(e) }
   }
 }
 
@@ -155,18 +155,18 @@ function navigate(viewName, subView = null, pushHistory = true) {
     return
   }
 
-  if (_state.currentView && _state.currentView !== viewName) {
-    _lastSubViewMap[_state.currentView] = _state.currentSubView
+  if (state.currentView && state.currentView !== viewName) {
+    _lastSubViewMap[state.currentView] = state.currentSubView
   }
 
-  const isSameView = _state.currentView === viewName
+  const isSameView = state.currentView === viewName
 
-  _state.currentView = viewName
-  _state.currentSubView = subView
+  state.currentView = viewName
+  state.currentSubView = subView
 
   if (!isSameView) {
-    _state.selectedItem = null
-    _state.selectedItems = []
+    state.selectedItem = null
+    state.selectedItems = []
   }
 
   // 更新 URL hash
@@ -191,10 +191,10 @@ function initRouter() {
   const subView = parts[1] || null
 
   if (routes[viewName]) {
-    _state.currentView = viewName
-    _state.currentSubView = subView
+    state.currentView = viewName
+    state.currentSubView = subView
   } else {
-    _state.currentView = "project"
+    state.currentView = "project"
   }
 
   // 监听浏览器前进/后退
@@ -209,8 +209,8 @@ function initRouter() {
     const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : subFromHash
 
     if (routes[targetView]) {
-      _state.currentView = targetView
-      _state.currentSubView = targetSubView
+      state.currentView = targetView
+      state.currentSubView = targetSubView
       renderCurrentView()
     }
   })

@@ -37,8 +37,8 @@ const worldView = {
     }
 
     try {
-      if (_state.currentProjectId) {
-        const data = await api.world.listEntities({ novel_id: _state.currentProjectId })
+      if (state.currentProjectId) {
+        const data = await api.world.listEntities({ novel_id: state.currentProjectId })
         this._entities = data.items || data || []
       }
     } catch {
@@ -46,8 +46,8 @@ const worldView = {
     }
 
     try {
-      if (_state.currentProjectId) {
-        const data = await api.world.listCandidates({ novel_id: _state.currentProjectId, status: "pending" })
+      if (state.currentProjectId) {
+        const data = await api.world.listCandidates({ novel_id: state.currentProjectId, status: "pending" })
         this._candidates = data.items || data || []
       }
     } catch {
@@ -63,7 +63,7 @@ const worldView = {
   },
 
   async render() {
-    const subView = _state.currentSubView || "objects"
+    const subView = state.currentSubView || "objects"
     let html = ''
 
     // 子标签导航
@@ -96,7 +96,7 @@ const worldView = {
 
   _toggleAutoExtract() {
     this._autoExtractOpen = !this._autoExtractOpen
-    router.navigate("world", _state.currentSubView)
+    router.navigate("world", state.currentSubView)
   },
 
   _renderAutoExtractPanel(taskType, label) {
@@ -119,14 +119,14 @@ const worldView = {
   },
 
   async _submitAutoExtract(taskType) {
-    if (!_state.currentProjectId) { toast("请先选择项目", "warning"); return }
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
     const start = parseInt(document.getElementById("w-extract-start")?.value || "1", 10)
     const end = parseInt(document.getElementById("w-extract-end")?.value || "10", 10)
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
 
     try {
       const result = await api.tasks.submit(taskType, {
-        novel_id: _state.currentProjectId,
+        novel_id: state.currentProjectId,
         start_chapter: start,
         end_chapter: end,
       })
@@ -135,7 +135,7 @@ const worldView = {
       this._updateExtractStatusDOM()
       try { localStorage.setItem("novel_world_extract_task", JSON.stringify({ taskId: result.task_id, status: "running" })) } catch {}
       toast("识别任务已提交", "info")
-      router.navigate("world", _state.currentSubView)
+      router.navigate("world", state.currentSubView)
 
       // 启动轮询
       if (this._autoExtractTimer) clearInterval(this._autoExtractTimer)
@@ -315,13 +315,13 @@ const worldView = {
     confirmAction(
       `将候选合并到「${esc(targetName)}」？\n\n候选名称会成为「${esc(targetName)}」的别名，概要等信息会追加合并。`,
       async () => {
-        if (!_state.currentProjectId) {
+        if (!state.currentProjectId) {
           toast("请先选择项目", "warning")
           return
         }
         try {
           const result = await api.world.mergeCandidate(targetEntityId, candidateId, {
-            novel_id: _state.currentProjectId,
+            novel_id: state.currentProjectId,
           })
           toast(`已合并到「${esc(result.name || targetName)}」`, "success")
           router.navigate("world", "candidates")
@@ -342,10 +342,10 @@ const worldView = {
         <button class="btn btn-primary" data-action="create-relation">新建关系</button>
       </div>
     `
-    if (!_state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
+    if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
     try {
-      const data = await api.world.listRelationships({ novel_id: _state.currentProjectId })
+      const data = await api.world.listRelationships({ novel_id: state.currentProjectId })
       const rels = data.items || data || []
       if (rels.length === 0) {
         return html + '<div class="empty-state"><p>暂无关系。</p></div>'
@@ -409,7 +409,7 @@ const worldView = {
             target_id: tgt, target_type: "entity",
             relation_type: document.getElementById("rel-type")?.value || "related_to",
             description: document.getElementById("rel-desc")?.value || "",
-          }, _state.currentProjectId)
+          }, state.currentProjectId)
           toast("关系已创建", "success")
           router.navigate("world", "relations")
         } catch (err) { toast(err.message || "创建失败", "error") }
@@ -420,7 +420,7 @@ const worldView = {
   deleteRelation(relId) {
     confirmAction("确定删除此关系？", async () => {
       try {
-        await api.world.deleteRelationship(relId, { novel_id: _state.currentProjectId })
+        await api.world.deleteRelationship(relId, { novel_id: state.currentProjectId })
         toast("已删除", "success")
         router.navigate("world", "relations")
       } catch (err) { toast(err.message || "删除失败", "error") }
@@ -436,10 +436,10 @@ const worldView = {
         <button class="btn btn-primary" data-action="create-alias">新建别名</button>
       </div>
     `
-    if (!_state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
+    if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
     try {
-      const data = await api.world.listAliases({ novel_id: _state.currentProjectId })
+      const data = await api.world.listAliases({ novel_id: state.currentProjectId })
       const aliases = data.items || data || []
       if (aliases.length === 0) {
         return html + '<div class="empty-state"><p>暂无别名。</p></div>'
@@ -493,7 +493,7 @@ const worldView = {
         if (!eid || !text) { toast("请输入对象 ID 和别名", "warning"); return }
         try {
           await api.world.createAlias({
-            novel_id: _state.currentProjectId,
+            novel_id: state.currentProjectId,
             entity_id: eid, alias: text,
             alias_type: document.getElementById("alias-type")?.value || "name",
           })
@@ -507,7 +507,7 @@ const worldView = {
   deleteAlias(aliasId) {
     confirmAction("确定删除此别名？", async () => {
       try {
-        await api.world.deleteAlias(aliasId, { novel_id: _state.currentProjectId })
+        await api.world.deleteAlias(aliasId, { novel_id: state.currentProjectId })
         toast("已删除", "success")
         router.navigate("world", "aliases")
       } catch (err) { toast(err.message || "删除失败", "error") }
@@ -549,7 +549,7 @@ const worldView = {
               name: document.getElementById("edit-entity-name")?.value,
               entity_type: document.getElementById("edit-entity-type")?.value,
               summary: document.getElementById("edit-entity-summary")?.value,
-            }, _state.currentProjectId)
+            }, state.currentProjectId)
             toast("已保存", "success")
             router.navigate("world", "objects")
           } catch (err) {
@@ -563,7 +563,7 @@ const worldView = {
   deleteEntity(id) {
     confirmAction("确定要删除此世界对象吗？此操作不可撤销。", async () => {
       try {
-        await api.world.deleteEntity(id, _state.currentProjectId)
+        await api.world.deleteEntity(id, state.currentProjectId)
         toast("已删除", "success")
         router.navigate("world", "objects")
       } catch (err) {
@@ -587,7 +587,7 @@ const worldView = {
       `确认将 "${candidate.name}" 处理为：${actionText[action] || action}？`,
       async () => {
         try {
-          await api.world.acceptCandidate(id, _state.currentProjectId)
+          await api.world.acceptCandidate(id, state.currentProjectId)
           toast(`候选 "${candidate.name}" 已接受`, "success")
           router.navigate("world", "candidates")
         } catch (err) {
@@ -604,7 +604,7 @@ const worldView = {
       `确定忽略候选 "${candidate?.name || id}"？`,
       async () => {
         try {
-          await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" }, _state.currentProjectId)
+          await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" }, state.currentProjectId)
           toast("已忽略", "success")
           router.navigate("world", "candidates")
         } catch (err) {
@@ -691,7 +691,7 @@ const worldView = {
               name,
               entity_type: document.getElementById("create-entity-type")?.value || "item",
               summary: document.getElementById("create-entity-summary")?.value || "",
-            }, _state.currentProjectId)
+            }, state.currentProjectId)
             toast(`对象 "${name}" 已创建`, "success")
             router.navigate("world", "objects")
           } catch (err) {

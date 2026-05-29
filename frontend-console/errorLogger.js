@@ -5,10 +5,10 @@
  * 前端只显示错误计数，AI 通过编号查询完整记录。
  *
  * 用法：
- *   window.__errorLog          → 返回全部日志数组
- *   window.__errorLogById(id)  → 返回单条日志
- *   window.__clearErrorLog()   → 清空日志 + 刷新 badge
- *   window.__latestErrorId     → 最新错误编号
+ *   window.errorLog.getAll()          → 返回全部日志数组
+ *   window.errorLog.getById(id)       → 返回单条日志
+ *   window.errorLog.clear()           → 清空日志 + 刷新 badge
+ *   window.errorLog.latestId          → 最新错误编号
  */
 ;(function () {
   const STORAGE_KEY = "_errorLog"
@@ -51,8 +51,8 @@
     const full = {
       id: _idCounter,
       timestamp: new Date().toISOString(),
-      view: (typeof _state !== "undefined" && _state.currentView) || "",
-      subView: (typeof _state !== "undefined" && _state.currentSubView) || "",
+      view: (typeof state !== "undefined" && state.currentView) || "",
+      subView: (typeof state !== "undefined" && state.currentSubView) || "",
       ...entry,
     }
     const entries = _read()
@@ -86,12 +86,12 @@
         if (confirm(
           `错误日志（共 ${log.length} 条）\n---\n${text}\n---\n点击「确定」清空所有日志\n点击「取消」关闭`,
         )) {
-          window.__clearErrorLog()
+          window.errorLog.clear()
         }
       })
       badge.addEventListener("contextmenu", (e) => {
         e.preventDefault()
-        window.__clearErrorLog()
+        window.errorLog.clear()
       })
       document.body.appendChild(badge)
     }
@@ -104,8 +104,8 @@
 
   function _patchedToast(message, type) {
     if (type === "error" || type === "warning") {
-      const reqCtx = window.__lastFailedRequest || undefined
-      window.__lastFailedRequest = undefined // 消费后清除
+      const reqCtx = window.errorLog._lastApiError || undefined
+      window.errorLog._lastApiError = null // 消费后清除
       _add({
         type: reqCtx ? "api_error" : type === "error" ? "runtime" : "validation",
         level: type,
@@ -120,7 +120,6 @@
   // 延迟挂载 patch（state.js 先加载，toast 定义在后）
   function _installToastPatch() {
     if (typeof window.toast === "function" && window.toast !== _patchedToast) {
-      window._origToast = window.toast
       window.toast = _patchedToast
     }
   }
@@ -147,21 +146,18 @@
   })
 
   // ── 公开 API ──
-  window.__errorLog = _read()
-  window.__clearErrorLog = function () {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {}
-    _idCounter = 0
-    _updateBadge(0)
+  window.errorLog = {
+    getAll() { return _read() },
+    getById(id) { return _read().find((e) => e.id === id) || null },
+    clear() {
+      try { localStorage.removeItem(STORAGE_KEY) } catch {}
+      _idCounter = 0
+      _updateBadge(0)
+    },
+    get latestId() { return _idCounter || null },
+    // 内部跨模块数据通道（api.js 写入请求上下文）
+    _lastApiError: null,
   }
-  window.__errorLogById = function (id) {
-    const entries = _read()
-    return entries.find((e) => e.id === id) || null
-  }
-  Object.defineProperty(window, "__latestErrorId", {
-    get: () => _idCounter || null,
-  })
 
   // ── 初始化 ──
   _installToastPatch()
@@ -177,5 +173,5 @@
   const count = _read().length
   _updateBadge(count)
 
-  console.log("[error-logger] 已加载，当前日志数:", count)
+  console.log("[errorLogger] 已加载，当前日志数:", count)
 })()

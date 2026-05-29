@@ -94,7 +94,7 @@ function onStateChange(listener) {
 /**
  * 状态代理 — 拦截 set 操作触发通知
  */
-const _state = new Proxy(appState, {
+const state = new Proxy(appState, {
   set(target, key, value) {
     const oldValue = target[key]
     if (oldValue === value) return true
@@ -257,7 +257,7 @@ function showToastNotification(toast) {
  * @param {"info"|"success"|"warning"|"error"} type - 消息类型
  */
 function toast(message, type = "info") {
-  _state.toast = { message, type }
+  state.toast = { message, type }
 }
 
 /**
@@ -396,7 +396,7 @@ function updateRightPanelForView(viewName) {
 }
 
 // 导出到全局
-window.appState = _state
+window.appState = state
 window.onStateChange = onStateChange
 window.toast = toast
 window.showModal = showModal

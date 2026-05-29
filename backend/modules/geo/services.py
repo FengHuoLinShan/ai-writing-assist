@@ -48,7 +48,7 @@ from modules.geo.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
 
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 _CHINESE_NUM_MAP = {
     "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
@@ -779,7 +779,7 @@ class GeoTopologyService:
         if m:
             return float(m.group(1))
 
-        _logger.warning("无法解析旅行耗时: %r, 降级为 24.0 小时", text)
+        logger.warning("无法解析旅行耗时: %r, 降级为 24.0 小时", text)
         return 24.0
 
     @staticmethod

@@ -6,7 +6,7 @@ beforeEach(() => { vi.clearAllMocks() })
 describe("timelineView", () => {
   describe("onEnter", () => {
     it("加载事件列表", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.timeline.listEvents.mockResolvedValue({ items: [{ id: "e1", title: "事件1" }] })
 
       await timelineView.onEnter()
@@ -17,13 +17,13 @@ describe("timelineView", () => {
 
   describe("render", () => {
     it("无项目时显示提示", async () => {
-      _state.currentProjectId = null
+      state.currentProjectId = null
       const html = await timelineView.render()
       expect(html).toContain("请先选择项目")
     })
 
     it("有项目时包含新建按钮", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const html = await timelineView.render()
       expect(html).toContain("data-action")
     })
@@ -40,7 +40,7 @@ describe("timelineView", () => {
 
   describe("deleteEvent", () => {
     it("确认后调用 API", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       api.timeline.updateEvent.mockResolvedValue({})
 
       timelineView.deleteEvent("e1")

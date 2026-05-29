@@ -7,10 +7,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import characterView from "../views/characterView.js"
 
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentSubView = null
-  _state.selectedItem = null
-  _state.rightPanel = null
+  state.currentProjectId = null
+  state.currentSubView = null
+  state.selectedItem = null
+  state.rightPanel = null
   characterView._characters = []
   characterView._characterKnowledge = []
   characterView._apiAvailable = false
@@ -33,7 +33,7 @@ describe("onEnter", () => {
   })
 
   it("有项目时加载人物列表", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.character.list.mockResolvedValue({ items: [{ id: "c1", name: "张三" }] })
 
     await characterView.onEnter()
@@ -44,7 +44,7 @@ describe("onEnter", () => {
   })
 
   it("API 失败时设置空列表", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     api.character.list.mockRejectedValue(new Error("网络错误"))
 
     await characterView.onEnter()
@@ -67,7 +67,7 @@ describe("render", () => {
   })
 
   it("列表子视图调用 _renderList", async () => {
-    _state.currentSubView = "list"
+    state.currentSubView = "list"
     characterView._apiAvailable = true
     const html = await characterView.render()
     expect(html).toContain("还没有人物档案")
@@ -94,7 +94,7 @@ describe("_renderList", () => {
   it("有数据时渲染表格", () => {
     characterView._apiAvailable = true
     characterView._characters = [
-      { id: "c1", name: "张三", role: "protagonist", current_goal: "寻宝", current_state: "健康" },
+      { id: "c1", name: "张三", role: "protagonist", current_goal: "寻宝", currentstate: "健康" },
     ]
     const html = characterView._renderList()
     expect(html).toContain("张三")
@@ -109,34 +109,34 @@ describe("_renderList", () => {
 
 describe("_selectCharacter", () => {
   it("从 API 获取完整数据并导航", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     characterView._characters = [{ id: "c1", name: "张三", role: "protagonist" }]
     api.character.get.mockResolvedValue({
       id: "c1", name: "张三", role: "protagonist",
       desire: "权力", fear: "失败", secret: "身世",
-      current_goal: "寻宝", current_state: "健康", current_emotion: "平静",
+      current_goal: "寻宝", currentstate: "健康", current_emotion: "平静",
       stance: "中立", voice_style: "冷静",
     })
 
     await characterView._selectCharacter("c1")
 
     expect(api.character.get).toHaveBeenCalledWith("c1", "p1")
-    expect(_state.selectedItem?.name).toBe("张三")
-    expect(_state.selectedItem?.desire).toBe("权力")
-    expect(_state.selectedItem?.secret).toBe("身世")
-    expect(_state.rightPanel?.title).toBe("张三")
+    expect(state.selectedItem?.name).toBe("张三")
+    expect(state.selectedItem?.desire).toBe("权力")
+    expect(state.selectedItem?.secret).toBe("身世")
+    expect(state.rightPanel?.title).toBe("张三")
     expect(router.navigate).toHaveBeenCalledWith("character", "detail")
   })
 
   it("API 失败时使用列表数据降级", async () => {
-    _state.currentProjectId = "p1"
+    state.currentProjectId = "p1"
     characterView._characters = [{ id: "c1", name: "张三", role: "protagonist" }]
     api.character.get.mockRejectedValue(new Error("网络错误"))
 
     await characterView._selectCharacter("c1")
 
     // 降级到列表数据
-    expect(_state.selectedItem?.name).toBe("张三")
+    expect(state.selectedItem?.name).toBe("张三")
     expect(router.navigate).toHaveBeenCalledWith("character", "detail")
   })
 
@@ -158,7 +158,7 @@ describe("_renderDetail", () => {
   })
 
   it("渲染人物字段网格", () => {
-    _state.selectedItem = { id: "c1", name: "张三", role: "protagonist", desire: "权力", fear: "失败" }
+    state.selectedItem = { id: "c1", name: "张三", role: "protagonist", desire: "权力", fear: "失败" }
     const html = characterView._renderDetail()
     expect(html).toContain("张三")
     expect(html).toContain("权力")
@@ -166,7 +166,7 @@ describe("_renderDetail", () => {
   })
 
   it("有 AI 建议时渲染建议区域", () => {
-    _state.selectedItem = {
+    state.selectedItem = {
       id: "c1", name: "张三", role: "protagonist",
       meta: { ai_suggestions: { desire: "财富" } },
     }
@@ -192,15 +192,15 @@ describe("_showCreateForm", () => {
   })
 })
 
-describe("_editCharacter", () => {
+describe("editCharacter", () => {
   it("未找到人物显示错误", () => {
-    characterView._editCharacter("nonexistent")
+    characterView.editCharacter("nonexistent")
     expect(toast).toHaveBeenCalledWith("未找到人物数据", "error")
   })
 
   it("找到人物时显示编辑模态框", () => {
     characterView._characters = [{ id: "c1", name: "张三", role: "protagonist" }]
-    characterView._editCharacter("c1")
+    characterView.editCharacter("c1")
     expect(showModal).toHaveBeenCalled()
     const html = vi.mocked(showModal).mock.calls[0][1]
     expect(html).toContain("张三")
@@ -208,7 +208,7 @@ describe("_editCharacter", () => {
 
   it("详情内容动态刷新后点击编辑档案仍然打开表单", () => {
     const char = { id: "c1", name: "张三", role: "protagonist" }
-    _state.selectedItem = char
+    state.selectedItem = char
     characterView._characters = [char]
     document.body.innerHTML = '<div id="workspace-content"><div class="subnav"></div></div>'
     characterView._bindEvents()
@@ -232,8 +232,8 @@ describe("知识边界", () => {
     })
 
     it("加载知识并渲染", async () => {
-      _state.selectedItem = { id: "c1", name: "张三" }
-      _state.currentProjectId = "p1"
+      state.selectedItem = { id: "c1", name: "张三" }
+      state.currentProjectId = "p1"
       api.character.listKnowledge.mockResolvedValue({
         items: [{ id: "k1", target_type: "location", target_name: "王都", knowledge_level: "full", known_content: "知道位置" }],
       })
@@ -245,8 +245,8 @@ describe("知识边界", () => {
     })
 
     it("API 失败时使用演示数据", async () => {
-      _state.selectedItem = { id: "c1", name: "张三" }
-      _state.currentProjectId = "p1"
+      state.selectedItem = { id: "c1", name: "张三" }
+      state.currentProjectId = "p1"
       api.character.listKnowledge.mockRejectedValue(new Error("失败"))
       const html = await characterView._renderKnowledge()
       expect(characterView._characterKnowledge.length).toBeGreaterThan(0)
@@ -261,7 +261,7 @@ describe("知识边界", () => {
     })
 
     it("有选中人物显示表单", () => {
-      _state.selectedItem = { id: "c1", name: "张三" }
+      state.selectedItem = { id: "c1", name: "张三" }
       characterView._addKnowledge()
       expect(showModal).toHaveBeenCalled()
     })
@@ -304,10 +304,10 @@ describe("_bindEvents", () => {
 describe("人物档案抽取流程", () => {
   describe("_refreshSuggestions", () => {
     it("更新本地缓存的 ai_suggestions 并刷新 selectedItem", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = { id: "c1", name: "周明瑞", meta: {} }
       characterView._characters = [char]
-      _state.selectedItem = char
+      state.selectedItem = char
 
       api.character.getSuggestions.mockResolvedValue({
         suggestions: { desire: "追求武道巅峰", fear: "失去至亲之人" },
@@ -321,12 +321,12 @@ describe("人物档案抽取流程", () => {
         fear: "失去至亲之人",
       })
       expect(char.meta.ai_suggestions_at).toBe("2025-01-01T00:00:00Z")
-      expect(_state.selectedItem).toBe(char)
+      expect(state.selectedItem).toBe(char)
       expect(router.navigate).toHaveBeenCalledWith("character", "detail", false)
     })
 
     it("无建议时不更新 meta", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = { id: "c1", name: "周明瑞", meta: {} }
       characterView._characters = [char]
 
@@ -341,7 +341,7 @@ describe("人物档案抽取流程", () => {
     })
 
     it("抽取完成但没有建议时提示没有新内容", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = { id: "c1", name: "周明瑞", meta: {} }
       characterView._characters = [char]
 
@@ -359,7 +359,7 @@ describe("人物档案抽取流程", () => {
     })
 
     it("抽取有降级告警时提示结果可能不准确", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = { id: "c1", name: "周明瑞", meta: {} }
       characterView._characters = [char]
 
@@ -382,7 +382,7 @@ describe("人物档案抽取流程", () => {
 
   describe("_applyAllSuggestions", () => {
     it("应用后正式字段更新且 ai_suggestions 被清除", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = {
         id: "c1",
         name: "周明瑞",
@@ -393,7 +393,7 @@ describe("人物档案抽取流程", () => {
           ai_suggestions_at: "2025-01-01T00:00:00Z",
         },
       }
-      _state.selectedItem = char
+      state.selectedItem = char
       characterView._characters = [char]
 
       api.character.applySuggestions.mockResolvedValue({
@@ -409,13 +409,13 @@ describe("人物档案抽取流程", () => {
       expect(api.character.applySuggestions).toHaveBeenCalledWith(
         "c1", "p1", ["desire", "fear"]
       )
-      expect(_state.selectedItem.desire).toBe("追求武道巅峰")
-      expect(_state.selectedItem.fear).toBe("失去至亲之人")
-      expect(_state.selectedItem.meta.ai_suggestions).toBeUndefined()
+      expect(state.selectedItem.desire).toBe("追求武道巅峰")
+      expect(state.selectedItem.fear).toBe("失去至亲之人")
+      expect(state.selectedItem.meta.ai_suggestions).toBeUndefined()
     })
 
     it("部分应用后剩余建议保留", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = {
         id: "c1",
         name: "周明瑞",
@@ -425,7 +425,7 @@ describe("人物档案抽取流程", () => {
           ai_suggestions_at: "2025-01-01T00:00:00Z",
         },
       }
-      _state.selectedItem = char
+      state.selectedItem = char
       characterView._characters = [char]
 
       api.character.applySuggestions.mockResolvedValue({
@@ -440,14 +440,14 @@ describe("人物档案抽取流程", () => {
 
       await characterView._applySuggestion("desire")
 
-      expect(_state.selectedItem.desire).toBe("追求武道巅峰")
-      expect(_state.selectedItem.meta.ai_suggestions).toEqual({ weakness: "过于重情" })
+      expect(state.selectedItem.desire).toBe("追求武道巅峰")
+      expect(state.selectedItem.meta.ai_suggestions).toEqual({ weakness: "过于重情" })
     })
   })
 
   describe("_extractCharacter + 轮询", () => {
     it("提交抽取任务并启动轮询", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = { id: "c1", name: "周明瑞" }
       characterView._characters = [char]
 
@@ -483,10 +483,10 @@ describe("人物档案抽取流程", () => {
 
   describe("_refreshCharacterList 同步 selectedItem", () => {
     it("刷新列表后 selectedItem 指向新列表中的对象", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const oldChar = { id: "c1", name: "周明瑞", desire: "" }
       characterView._characters = [oldChar]
-      _state.selectedItem = oldChar
+      state.selectedItem = oldChar
 
       api.character.list.mockResolvedValue({
         items: [{ id: "c1", name: "周明瑞", desire: "追求武道巅峰" }],
@@ -497,14 +497,14 @@ describe("人物档案抽取流程", () => {
       expect(characterView._characters).toHaveLength(1)
       const newChar = characterView._characters[0]
       expect(newChar.desire).toBe("追求武道巅峰")
-      expect(_state.selectedItem).toBe(newChar)
+      expect(state.selectedItem).toBe(newChar)
     })
 
     it("刷新列表后 selectedItem 不再指向旧对象", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const oldChar = { id: "c1", name: "周明瑞" }
       characterView._characters = [oldChar]
-      _state.selectedItem = oldChar
+      state.selectedItem = oldChar
 
       api.character.list.mockResolvedValue({
         items: [{ id: "c1", name: "周明瑞", desire: "追求武道巅峰" }],
@@ -512,13 +512,13 @@ describe("人物档案抽取流程", () => {
 
       await characterView._refreshCharacterList()
 
-      expect(_state.selectedItem).not.toBe(oldChar)
+      expect(state.selectedItem).not.toBe(oldChar)
     })
   })
 
   describe("_applyAllSuggestions meta 一致性", () => {
     it("全部应用后 meta 不应残留空 ai_suggestions", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = {
         id: "c1",
         name: "周明瑞",
@@ -528,7 +528,7 @@ describe("人物档案抽取流程", () => {
           ai_suggestions_at: "2025-01-01T00:00:00Z",
         },
       }
-      _state.selectedItem = char
+      state.selectedItem = char
       characterView._characters = [char]
 
       api.character.applySuggestions.mockResolvedValue({
@@ -540,19 +540,19 @@ describe("人物档案抽取流程", () => {
 
       await characterView._applyAllSuggestions()
 
-      expect(_state.selectedItem.desire).toBe("追求武道巅峰")
-      expect(_state.selectedItem.meta.ai_suggestions).toBeUndefined()
+      expect(state.selectedItem.desire).toBe("追求武道巅峰")
+      expect(state.selectedItem.meta.ai_suggestions).toBeUndefined()
     })
 
     it("列表条目同步更新正式字段", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       const char = {
         id: "c1",
         name: "周明瑞",
         desire: "",
         meta: { ai_suggestions: { desire: "追求武道巅峰" } },
       }
-      _state.selectedItem = char
+      state.selectedItem = char
       characterView._characters = [char]
 
       api.character.applySuggestions.mockResolvedValue({

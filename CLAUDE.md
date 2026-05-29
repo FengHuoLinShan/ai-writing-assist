@@ -11,7 +11,7 @@
 - 场景卡不拆独立表，放在 `chapter_cards.scene_cards` JSONB
 - 时间线不做复杂相对时间推理、日历系统、自动历史推演
 - 不把项目结构、目录设计、里程碑、实施计划写入根目录 `CLAUDE.md`；这些内容写入 `docs/00_整体设计.md` 和 `docs/项目进度.md`
-- 不把开发命令、测试策略、Review 分级写入根目录 `CLAUDE.md`；这些内容写入 `DEVELOPMENT_GUIDE.md` 和 `TESTING_GUIDE.md`
+- 不把开发命令、测试策略、Review 分级写入根目录 `CLAUDE.md`；这些内容写入 `development-guide.md` 和 `testing-guide.md`
 
 ### 文档维护
 - git push 后自动执行 `/structure-docs-update` 同步所有设计文档
@@ -43,6 +43,33 @@
 - 测试优先通过 facade + contracts 验证行为，而非直接 import 内部模块（repositories/services/models）
 - 修改 `contracts.py` / `facade.py` / API / DB schema 后，不允许漏更新 README / 测试 / 调用方 / docs
 - 不跑受影响模块测试不合并
+
+## 命名规范
+
+### 文件命名
+
+| 范围 | 规范 | 说明 |
+|---|---|---|
+| Python 源文件 | `snake_case.py` | PEP 8 |
+| JS 源文件 | `camelCase.js` | View 文件除外 |
+| JS View 文件 | `PascalCaseView.js` | 匹配导出对象名 |
+| JS 测试文件 | `*.test.js` | Vitest 单元测试 |
+| JS E2E 文件 | `*.spec.js` | Playwright 惯例 |
+| 根目录 md 文件 | `kebab-case.md` | 如 `development-guide.md` |
+| 文档目录 | `NN_主题.md` 或 `主题.md` | 按需编号 |
+| Alembic 迁移 | git-revision-hash 前缀 | Alembic 自动生成 |
+
+### 代码命名
+
+| 范围 | 规范 | 说明 |
+|---|---|---|
+| Python 类 | `PascalCase` | PEP 8 |
+| Python 函数/变量 | `snake_case` | PEP 8 |
+| Python 常量 | `SCREAMING_SNAKE_CASE` | PEP 8 |
+| Python 枚举成员 | `lowercase` | StrEnum 成员名=DB值，保留与 DB 一致 |
+| Python 模块级 logger | `logger` | 无下划线前缀：`logger = logging.getLogger(__name__)` |
+| JS 函数/变量 | `camelCase` | |
+| JS 私有方法 | `_camelCase` | 仅内部调用，外部通过公共方法调用 |
 
 ## 工作流
 

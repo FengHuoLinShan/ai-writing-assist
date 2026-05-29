@@ -27,7 +27,7 @@ const appState = {
   cache: {},
 }
 
-globalThis._state = new Proxy(appState, {
+globalThis.state = new Proxy(appState, {
   get(target, key) {
     return target[key]
   },
@@ -71,10 +71,10 @@ globalThis.router = {
     return _lastSubViewMap[viewName] || null
   },
   navigate: vi.fn((viewName) => {
-    _state.currentView = viewName
+    state.currentView = viewName
   }),
   registerView: vi.fn(),
-  getCurrentView: vi.fn(() => _state.currentView),
+  getCurrentView: vi.fn(() => state.currentView),
   onNavigate: vi.fn(),
   renderCurrentView: vi.fn(),
 }
