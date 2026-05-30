@@ -113,33 +113,41 @@ async def handle_character_extract(db, task):
 
     # 1. 获取角色信息
     from modules.character.facade import list_characters as _list_chars
+    from modules.world.facade import get_entity as _get_entity
 
     chars, _ = await _list_chars(db, novel_id, limit=999)
-    character = next((c for c in chars if c.id == character_id), None)
+    character = next((c for c in chars if c.entity_id == character_id), None)
     if not character:
         raise ValueError(f"Character {character_id} not found")
 
+    # 从 CoreEntity 获取 name（Character 扩展表不再持有 name）
+    try:
+        core = await _get_entity(db, character_id, novel_id)
+        character_name = core.name
+    except Exception:
+        character_name = str(character_id)
+
     # 2. 用 RAG 检索含该角色的 chunk（逐字段意图查询）
     all_chunks_text, rag_warnings = await _collect_character_chunks(
-        db, novel_id, character_id, character.name,
+        db, novel_id, character_id, character_name,
     )
 
     if not all_chunks_text:
         indexed = await _index_existing_drafts_for_character(
-            db, novel_id, character.name,
+            db, novel_id, character_name,
         )
         if indexed:
             logger.info(
                 "Backfilled %d RAG chunks for character %s before extraction",
-                indexed, character.name,
+                indexed, character_name,
             )
             all_chunks_text, retry_warnings = await _collect_character_chunks(
-                db, novel_id, character_id, character.name,
+                db, novel_id, character_id, character_name,
             )
             rag_warnings.extend(retry_warnings)
 
     if not all_chunks_text:
-        logger.info("No RAG chunks found for character %s", character.name)
+        logger.info("No RAG chunks found for character %s", character_name)
         return {
             "character_id": character_id,
             "status": "no_chunks",
@@ -175,7 +183,7 @@ async def handle_character_extract(db, task):
     from infrastructure.llm.prompt_loader import load_prompt
 
     system_prompt = load_prompt("extract_character",
-        character_name=character.name,
+        character_name=character_name,
         existing_info=existing_info,
     )
 
@@ -201,11 +209,11 @@ async def handle_character_extract(db, task):
                 delay = LLM_RETRY_BASE_DELAY * (2 ** attempt)
                 logger.warning(
                     "LLM extraction attempt %d/%d failed for %s, retrying in %.1fs: %s",
-                    attempt + 1, LLM_RETRY_MAX_ATTEMPTS, character.name, delay, exc,
+                    attempt + 1, LLM_RETRY_MAX_ATTEMPTS, character_name, delay, exc,
                 )
                 await asyncio.sleep(delay)
             else:
-                logger.error("LLM extraction failed for %s after %d attempts: %s", character.name, LLM_RETRY_MAX_ATTEMPTS, exc)
+                logger.error("LLM extraction failed for %s after %d attempts: %s", character_name, LLM_RETRY_MAX_ATTEMPTS, exc)
                 return {
                     "character_id": character_id,
                     "status": "llm_failed",
@@ -246,7 +254,7 @@ async def handle_character_extract(db, task):
 
     logger.info(
         "Extracted %d fields for character %s: %s",
-        len(suggestions), character.name, list(suggestions.keys()),
+        len(suggestions), character_name, list(suggestions.keys()),
     )
 
     return {

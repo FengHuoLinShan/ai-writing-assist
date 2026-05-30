@@ -49,33 +49,19 @@ class CharacterService:
         character = await self._repo.create(db, data)
         return CharacterResponse.model_validate(character)
 
-    async def get_character_id_by_world_entity(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        world_entity_id: str,
-    ) -> str | None:
-        """按 world_entity_id 查找已存在的人物 ID"""
-        nid = parse_uuid(novel_id)
-        weid = parse_uuid(world_entity_id)
-        character = await self._repo.get_by_world_entity(db, nid, weid)
-        if character is None:
-            return None
-        return str(character.id)
-
     async def get_character(
         self,
         db: AsyncSession,
-        character_id: str,
+        entity_id: str,
         novel_id: str | None = None,
     ) -> CharacterResponse:
-        """获取人物详情"""
-        cid = parse_uuid(character_id)
-        character = await self._repo.get(db, cid)
+        """获取人物扩展记录详情"""
+        eid = parse_uuid(entity_id)
+        character = await self._repo.get(db, eid)
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
+                detail=f"Character {entity_id} not found",
             )
         if novel_id and str(character.novel_id) != novel_id:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
@@ -99,56 +85,56 @@ class CharacterService:
     async def update_character(
         self,
         db: AsyncSession,
-        character_id: str,
+        entity_id: str,
         data: CharacterUpdate,
         novel_id: str | None = None,
     ) -> CharacterResponse:
-        """更新人物"""
-        cid = parse_uuid(character_id)
+        """更新人物扩展字段"""
+        eid = parse_uuid(entity_id)
         if novel_id:
-            existing = await self._repo.get(db, cid)
+            existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        character = await self._repo.update(db, cid, data)
+        character = await self._repo.update(db, eid, data)
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
+                detail=f"Character {entity_id} not found",
             )
         return CharacterResponse.model_validate(character)
 
     async def delete_character(
         self,
         db: AsyncSession,
-        character_id: str,
+        entity_id: str,
         novel_id: str | None = None,
     ) -> None:
-        """删除人物"""
-        cid = parse_uuid(character_id)
+        """删除人物扩展记录"""
+        eid = parse_uuid(entity_id)
         if novel_id:
-            existing = await self._repo.get(db, cid)
+            existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._repo.delete(db, cid)
+        deleted = await self._repo.delete(db, eid)
         if not deleted:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
+                detail=f"Character {entity_id} not found",
             )
 
     async def update_character_state(
         self,
         db: AsyncSession,
-        character_id: str,
+        entity_id: str,
         current_state: str | None = None,
         current_emotion: str | None = None,
         current_goal: str | None = None,
         novel_id: str | None = None,
     ) -> CharacterResponse:
-        """更新人物当前状态（状态变化时的便捷方法）"""
-        cid = parse_uuid(character_id)
+        """更新人物当前状态"""
+        eid = parse_uuid(entity_id)
         if novel_id:
-            existing = await self._repo.get(db, cid)
+            existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         update_data = CharacterUpdate(
@@ -156,11 +142,11 @@ class CharacterService:
             current_emotion=current_emotion,
             current_goal=current_goal,
         )
-        character = await self._repo.update(db, cid, update_data)
+        character = await self._repo.update(db, eid, update_data)
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
+                detail=f"Character {entity_id} not found",
             )
         return CharacterResponse.model_validate(character)
 
@@ -285,8 +271,7 @@ class CharacterService:
         items = []
         for char in characters:
             item = CharacterContextItem(
-                character_id=str(char.id),
-                name=char.name,
+                entity_id=str(char.entity_id),
                 role=char.role,
                 appearance=char.appearance,
                 personality=char.personality,

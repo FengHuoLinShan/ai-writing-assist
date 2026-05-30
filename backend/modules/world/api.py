@@ -1,8 +1,8 @@
 """
 World API 路由
 
-提供世界对象、关系、别名、候选对象的 RESTful API。
-API 层不写复杂业务逻辑，仅做参数校验和路由分发。
+提供核心实体、关系、候选对象的 RESTful API。
+别名操作已整合为核心实体 aliases JSONB 字段，通过实体更新接口管理。
 """
 
 from __future__ import annotations
@@ -12,10 +12,12 @@ from fastapi import status as http_status
 
 from core.dependencies import DbSession
 from modules.world.schemas import (
+    CoreEntityCreate,
+    CoreEntityListResponse,
+    CoreEntityResponse,
+    CoreEntityUpdate,
+    CoreEntityContext,
     DuplicateSuggestionResult,
-    EntityAliasCreate,
-    EntityAliasListResponse,
-    EntityAliasResponse,
     EntityCandidateCreate,
     EntityCandidateListResponse,
     EntityCandidateResponse,
@@ -25,86 +27,68 @@ from modules.world.schemas import (
     RelationshipResponse,
     RelationshipUpdate,
     WorldContextBundle,
-    WorldEntityContext,
-    WorldEntityCreate,
-    WorldEntityListResponse,
-    WorldEntityResponse,
-    WorldEntityUpdate,
 )
 from modules.world.services import (
-    AliasService,
+    CoreEntityService,
     EntityCandidateService,
     EntityDedupService,
     RelationshipService,
-    WorldEntityService,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/world", tags=["world"])
 
-_entity_service = WorldEntityService()
+_entity_service = CoreEntityService()
 _relationship_service = RelationshipService()
 _candidate_service = EntityCandidateService()
-_alias_service = AliasService()
 _dedup_service = EntityDedupService()
 
 
 # ============================================================
-# WorldEntity 路由
+# CoreEntity 路由
 # ============================================================
 
-@router.get("/entities", response_model=WorldEntityListResponse)
+@router.get("/entities", response_model=CoreEntityListResponse)
 async def list_entities(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
     entity_type: str | None = Query(None, description="对象类型过滤"),
     status: str | None = Query(None, description="状态过滤"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-) -> WorldEntityListResponse:
-    """获取世界对象列表"""
-    return await _entity_service.list(
-        db, novel_id,
-        entity_type=entity_type,
-        status=status,
-        skip=skip,
-        limit=limit,
-    )
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="每页条数"),
+) -> CoreEntityListResponse:
+    """获取核心实体列表"""
+    return await _entity_service.list(db, novel_id, entity_type=entity_type, status=status, skip=skip, limit=limit)
 
 
-@router.post("/entities", response_model=WorldEntityResponse, status_code=201)
+@router.post("/entities", response_model=CoreEntityResponse, status_code=201)
 async def create_entity(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
-    data: WorldEntityCreate = ...,
-) -> WorldEntityResponse:
-    """创建世界对象"""
+    data: CoreEntityCreate = ...,
+) -> CoreEntityResponse:
+    """创建核心实体（统一入口）"""
     return await _entity_service.create(db, novel_id, data)
 
 
-@router.get("/entities/{entity_id}", response_model=WorldEntityResponse)
+@router.get("/entities/{entity_id}", response_model=CoreEntityResponse)
 async def get_entity(
     db: DbSession,
     entity_id: str,
     novel_id: str = Query(..., description="项目 ID"),
-) -> WorldEntityResponse:
-    """获取世界对象详情"""
+) -> CoreEntityResponse:
+    """获取核心实体详情"""
     return await _entity_service.get(db, entity_id, novel_id=novel_id)
 
 
-@router.put("/entities/{entity_id}", response_model=WorldEntityResponse)
+@router.put("/entities/{entity_id}", response_model=CoreEntityResponse)
 async def update_entity(
     db: DbSession,
     entity_id: str,
-    data: WorldEntityUpdate,
+    data: CoreEntityUpdate,
     novel_id: str = Query(..., description="项目 ID"),
-) -> WorldEntityResponse:
-    """更新世界对象"""
+) -> CoreEntityResponse:
+    """更新核心实体（公共字段一次修改，全域生效）"""
     return await _entity_service.update(db, entity_id, data, novel_id=novel_id)
 
 
@@ -114,30 +98,50 @@ async def delete_entity(
     entity_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
-    """删除世界对象"""
+    """删除核心实体（ON DELETE CASCADE 自动清理扩展表）"""
     await _entity_service.delete(db, entity_id, novel_id=novel_id)
 
 
-@router.get("/entities/{entity_id}/related", response_model=list[WorldEntityContext])
+@router.get("/entities/{entity_id}/related", response_model=list[CoreEntityContext])
 async def get_related_entities(
     db: DbSession,
     entity_id: str,
     novel_id: str = Query(..., description="项目 ID"),
-    depth: int = Query(default=1, ge=1, le=2, description="扩展深度（1=一跳，2=二跳）"),
-    limit: int = Query(
-        default=20,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="最大返回数量",
-    ),
-) -> list[WorldEntityContext]:
+    depth: int = Query(default=1, ge=1, le=2, description="扩展深度"),
+    limit: int = Query(default=20, ge=1, le=MAX_PAGE_SIZE, description="最大返回数量"),
+) -> list[CoreEntityContext]:
     """获取对象的关联实体（关系一跳/二跳扩展）"""
     return await _relationship_service.expand_related(
-        db, novel_id,
-        seed_entity_ids=[entity_id],
-        depth=depth,
-        limit=limit,
+        db, novel_id, seed_entity_ids=[entity_id], depth=depth, limit=limit,
     )
+
+
+# ---- Alias (inline on CoreEntity) ----
+
+@router.post("/entities/{entity_id}/aliases", status_code=201)
+async def add_alias(
+    db: DbSession,
+    entity_id: str,
+    alias: str = Query(..., description="别名文本"),
+    alias_type: str = Query("name", description="别名类型"),
+    novel_id: str = Query(..., description="项目 ID"),
+) -> dict:
+    """向实体添加别名"""
+    ok = await _entity_service.add_alias(db, entity_id, alias, alias_type)
+    if not ok:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Entity not found")
+    return {"status": "ok"}
+
+
+@router.delete("/entities/{entity_id}/aliases", status_code=204)
+async def remove_alias(
+    db: DbSession,
+    entity_id: str,
+    alias: str = Query(..., description="要移除的别名"),
+    novel_id: str = Query(..., description="项目 ID"),
+) -> None:
+    """从实体移除别名"""
+    await _entity_service.remove_alias(db, entity_id, alias)
 
 
 # ============================================================
@@ -148,20 +152,11 @@ async def get_related_entities(
 async def list_relationships(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ) -> RelationshipListResponse:
     """获取关系列表"""
-    items, total = await _relationship_service.list(
-        db, novel_id,
-        skip=skip,
-        limit=limit,
-    )
+    items, total = await _relationship_service.list(db, novel_id, skip=skip, limit=limit)
     return RelationshipListResponse(items=items, total=total)
 
 
@@ -177,9 +172,7 @@ async def create_relationship(
 
 @router.put("/relationships/{rel_id}", response_model=RelationshipResponse)
 async def update_relationship(
-    db: DbSession,
-    rel_id: str,
-    data: RelationshipUpdate,
+    db: DbSession, rel_id: str, data: RelationshipUpdate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> RelationshipResponse:
     """更新关系"""
@@ -188,59 +181,11 @@ async def update_relationship(
 
 @router.delete("/relationships/{rel_id}", status_code=204)
 async def delete_relationship(
-    db: DbSession,
-    rel_id: str,
+    db: DbSession, rel_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除关系"""
     await _relationship_service.delete(db, rel_id, novel_id=novel_id)
-
-
-# ============================================================
-# EntityAlias 路由
-# ============================================================
-
-@router.get("/aliases", response_model=EntityAliasListResponse)
-async def list_aliases(
-    db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
-    entity_id: str | None = Query(None, description="所属对象 ID"),
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-) -> EntityAliasListResponse:
-    """获取别名列表"""
-    items, total = await _alias_service.list(
-        db, novel_id,
-        entity_id=entity_id,
-        skip=skip,
-        limit=limit,
-    )
-    return EntityAliasListResponse(items=items, total=total)
-
-
-@router.post("/aliases", response_model=EntityAliasResponse, status_code=201)
-async def create_alias(
-    db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
-    data: EntityAliasCreate = ...,
-) -> EntityAliasResponse:
-    """创建别名"""
-    return await _alias_service.create(db, novel_id, data)
-
-
-@router.delete("/aliases/{alias_id}", status_code=204)
-async def delete_alias(
-    db: DbSession,
-    alias_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
-) -> None:
-    """删除别名"""
-    await _alias_service.delete(db, alias_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -251,24 +196,13 @@ async def delete_alias(
 async def list_candidates(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
-    status: str | None = Query(None, description="状态过滤"),
-    suggested_action: str | None = Query(None, description="建议动作过滤"),
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
+    status: str | None = Query(None),
+    suggested_action: str | None = Query(None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ) -> EntityCandidateListResponse:
     """获取候选对象列表"""
-    return await _candidate_service.list(
-        db, novel_id,
-        status=status,
-        suggested_action=suggested_action,
-        skip=skip,
-        limit=limit,
-    )
+    return await _candidate_service.list(db, novel_id, status=status, suggested_action=suggested_action, skip=skip, limit=limit)
 
 
 @router.post("/candidates", response_model=EntityCandidateResponse, status_code=201)
@@ -283,8 +217,7 @@ async def create_candidate(
 
 @router.get("/candidates/{candidate_id}", response_model=EntityCandidateResponse)
 async def get_candidate(
-    db: DbSession,
-    candidate_id: str,
+    db: DbSession, candidate_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> EntityCandidateResponse:
     """获取候选对象详情"""
@@ -293,69 +226,46 @@ async def get_candidate(
 
 @router.put("/candidates/{candidate_id}", response_model=EntityCandidateResponse)
 async def update_candidate(
-    db: DbSession,
-    candidate_id: str,
-    data: EntityCandidateUpdate,
+    db: DbSession, candidate_id: str, data: EntityCandidateUpdate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> EntityCandidateResponse:
     """更新候选对象"""
     return await _candidate_service.update(db, candidate_id, data, novel_id=novel_id)
 
 
-@router.post(
-    "/candidates/{candidate_id}/accept",
-    response_model=WorldEntityResponse,
-)
+@router.post("/candidates/{candidate_id}/accept", response_model=CoreEntityResponse)
 async def accept_candidate(
-    db: DbSession,
-    candidate_id: str,
+    db: DbSession, candidate_id: str,
     novel_id: str = Query(..., description="项目 ID"),
-) -> WorldEntityResponse:
-    """接受候选对象：根据 suggested_action 创建实体/别名/合并"""
+) -> CoreEntityResponse:
+    """接受候选对象：创建 CoreEntity"""
     from modules.world.facade import accept_candidate as _accept
-
     return await _accept(db, novel_id, candidate_id)
 
 
 @router.delete("/candidates/{candidate_id}", status_code=204)
 async def delete_candidate(
-    db: DbSession,
-    candidate_id: str,
+    db: DbSession, candidate_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """删除候选对象"""
     await _candidate_service.delete(db, candidate_id, novel_id=novel_id)
 
 
-@router.post(
-    "/candidates/{candidate_id}/dedup",
-    response_model=list[DuplicateSuggestionResult],
-)
+@router.post("/candidates/{candidate_id}/dedup", response_model=list[DuplicateSuggestionResult])
 async def dedup_candidate(
-    db: DbSession,
-    candidate_id: str,
+    db: DbSession, candidate_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> list[DuplicateSuggestionResult]:
-    """对候选对象进行去重检查"""
+    """去重检查"""
     return await _dedup_service.find_duplicates(db, novel_id, candidate_id)
 
 
-@router.post(
-    "/entities/{entity_id}/merge-from-candidate/{candidate_id}",
-    response_model=WorldEntityResponse,
-)
+@router.post("/entities/{entity_id}/merge-from-candidate/{candidate_id}", response_model=CoreEntityResponse)
 async def merge_from_candidate(
-    db: DbSession,
-    entity_id: str,
-    candidate_id: str,
+    db: DbSession, entity_id: str, candidate_id: str,
     novel_id: str = Query(..., description="项目 ID"),
-) -> WorldEntityResponse:
-    """将候选对象合并到指定正史对象
-
-    候选的名称会成为正史对象的别名，summary/public_info/hidden_truth 追加合并。
-    合并后候选状态变为 canonical。
-    """
-    entity = await _dedup_service.merge_candidate_into_entity(
-        db, novel_id, candidate_id, entity_id,
-    )
-    return WorldEntityResponse.model_validate(entity)
+) -> CoreEntityResponse:
+    """将候选对象合并到指定 CoreEntity"""
+    entity = await _dedup_service.merge_candidate_into_entity(db, novel_id, candidate_id, entity_id)
+    return CoreEntityResponse.model_validate(entity)

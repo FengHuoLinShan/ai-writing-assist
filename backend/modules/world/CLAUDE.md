@@ -2,7 +2,7 @@
 
 ## 模块级禁止事项
 
-- 不给 `WorldEntity` 添加或假设存在 `aliases` 字段；别名只存储在 `entity_aliases`
+- 别名统一存储在 `core_entities.aliases` JSONB 中（不再使用独立 `entity_aliases` 表）
 - 不把别名当作新世界对象创建；候选应标记 `alias_of_existing` 并等待用户确认
 - 不自动合并正史对象；候选合并、废弃、删除必须有二次确认
 - 不跨 `novel_id` 合并候选、关系、别名或正史对象

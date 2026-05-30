@@ -152,7 +152,7 @@ async def extract_all_characters(
             id=uuid.uuid4(),
             task_type="character_extract",
             status="pending",
-            meta={"novel_id": novel_id, "character_id": char.id},
+            meta={"novel_id": novel_id, "character_id": str(char.entity_id)},
             progress=0.0,
         )
         db.add(task)

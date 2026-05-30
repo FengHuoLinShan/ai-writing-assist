@@ -160,7 +160,7 @@ class GeoLocationService:
         children_map: dict[str | None, list[Any]] = {}
         id_map: dict[str, Any] = {}
         for loc in all_locations:
-            loc_id = str(loc.id)
+            loc_id = str(loc.entity_id)
             id_map[loc_id] = loc
             pid = str(loc.parent_location_id) if loc.parent_location_id else None
             if pid not in children_map:
@@ -174,18 +174,17 @@ class GeoLocationService:
             """递归构建单个节点（深度受限防止栈溢出）"""
             children: list[LocationNode] = []
             if depth < max_depth:
-                loc_id_str = str(loc.id)
+                loc_id_str = str(loc.entity_id)
                 child_locs = children_map.get(loc_id_str, [])
                 for child in child_locs:
                     children.append(_build_node(child, depth + 1))
             return LocationNode(
-                id=str(loc.id),
+                entity_id=str(loc.entity_id),
                 location_level=loc.location_level,
                 position_label=loc.position_label,
                 x=loc.x,
                 y=loc.y,
                 access_level=loc.access_level,
-                summary=loc.summary,
                 children=children,
             )
 
@@ -455,7 +454,7 @@ class GeoQueryService:
 
         # 批量加载所有地点（供父级链内存行走和后续使用）
         all_locs, _ = await self._loc_repo.get_multi(db, nid, skip=0, limit=10000)
-        loc_map = {str(loc.id): loc for loc in all_locs}
+        loc_map = {str(loc.entity_id): loc for loc in all_locs}
         location = loc_map.get(str(lid))
 
         if location is None:
@@ -476,7 +475,7 @@ class GeoQueryService:
 
         parent_locations: list[GeoLocationResponse] = []
         for anc in ancestors:
-            if anc.id != lid:
+            if anc.entity_id != lid:
                 parent_locations.append(GeoLocationResponse.model_validate(anc))
 
         child_responses = [
@@ -541,7 +540,7 @@ class GeoQueryService:
         children_map: dict[str | None, list[Any]] = {}
         id_map: dict[str, Any] = {}
         for loc in all_locations:
-            loc_id = str(loc.id)
+            loc_id = str(loc.entity_id)
             id_map[loc_id] = loc
             pid = str(loc.parent_location_id) if loc.parent_location_id else None
             if pid not in children_map:
@@ -551,16 +550,16 @@ class GeoQueryService:
         def _build(loc: Any, depth: int = 0) -> dict:
             children: list[dict] = []
             if depth < max_depth:
-                for child in children_map.get(str(loc.id), []):
+                for child in children_map.get(str(loc.entity_id), []):
                     children.append(_build(child, depth + 1))
             return {
-                "id": str(loc.id),
+                "id": str(loc.entity_id),
                 "location_level": loc.location_level,
                 "position_label": loc.position_label,
                 "x": loc.x,
                 "y": loc.y,
                 "access_level": loc.access_level,
-                "summary": loc.summary,
+                "summary": "",
                 "children": children,
             }
 
@@ -696,8 +695,8 @@ class GeoQueryService:
                             break
 
                 entry["locations"].append({
-                    "location_id": str(loc.id),
-                    "location_name": loc.summary or str(loc.id),
+                    "location_id": str(loc.entity_id),
+                    "location_name": "" or str(loc.entity_id),
                     "location_level": loc.location_level,
                     "era_state": loc_era_state or {},
                 })

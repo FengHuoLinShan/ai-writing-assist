@@ -1,7 +1,8 @@
 """
 Geo Pydantic Schema 定义
 
-用于 API 请求/响应校验和 Facade 输出。
+GeoLocation 现在是扩展表（entity_id PK+FK → core_entities）。
+公共字段（name, summary, status）在 core_entities，此模块只处理地理特有字段。
 """
 
 from __future__ import annotations
@@ -12,10 +13,6 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
-# ============================================================
-# 通用的 UUID→str 转换函数
-# ============================================================
 
 def _coerce_uuid_to_str(v: object) -> str:
     """将 UUID 或字符串转为字符串"""
@@ -31,74 +28,24 @@ def _coerce_uuid_to_str(v: object) -> str:
 # ============================================================
 
 class GeoLocationCreate(BaseModel):
-    """创建地理地点请求"""
+    """创建地理地点扩展记录 — 在 core_entities 已创建后调用"""
 
-    novel_id: str = Field(
-        ...,
-        description="小说项目 ID",
-    )
-    world_entity_id: str = Field(
-        ...,
-        description="对应的世界对象 ID",
-    )
-    location_level: str = Field(
-        ...,
-        description="地点层级：continent/country/region/city/district/landmark/building/room",
-    )
-    parent_location_id: str | None = Field(
-        default=None,
-        description="父地点 ID（可选，用于构建地点层级树）",
-    )
-    x: float | None = Field(
-        default=None,
-        description="简易相对坐标 X",
-    )
-    y: float | None = Field(
-        default=None,
-        description="简易相对坐标 Y",
-    )
-    position_label: str | None = Field(
-        default=None,
-        max_length=128,
-        description="方位标签，如「王国北部」",
-    )
-    scale_label: str | None = Field(
-        default=None,
-        max_length=64,
-        description="规模标签，如「数十公里」",
-    )
-    terrain: str | None = Field(
-        default=None,
-        max_length=64,
-        description="地形",
-    )
-    climate: str | None = Field(
-        default=None,
-        max_length=64,
-        description="气候",
-    )
-    access_level: str = Field(
-        default="normal",
-        max_length=32,
-        description="访问级别",
-    )
-    summary: str | None = Field(
-        default=None,
-        description="地点概述",
-    )
-    content_json: dict = Field(
-        default_factory=dict,
-        description="扩展信息 JSON",
-    )
-    status: str = Field(
-        default="canonical",
-        max_length=32,
-        description="状态",
-    )
+    entity_id: str = Field(..., description="地点 entity_id = core_entities.id")
+    novel_id: str = Field(..., description="小说项目 ID")
+    location_level: str = Field(..., description="地点层级")
+    parent_location_id: str | None = Field(default=None, description="父地点 entity_id")
+    x: float | None = Field(default=None, description="简易相对坐标 X")
+    y: float | None = Field(default=None, description="简易相对坐标 Y")
+    position_label: str | None = Field(default=None, max_length=128, description="方位标签")
+    scale_label: str | None = Field(default=None, max_length=64, description="规模标签")
+    terrain: str | None = Field(default=None, max_length=64, description="地形")
+    climate: str | None = Field(default=None, max_length=64, description="气候")
+    access_level: str = Field(default="normal", max_length=32, description="访问级别")
+    content_json: dict = Field(default_factory=dict, description="扩展信息 JSON")
 
 
 class GeoLocationUpdate(BaseModel):
-    """更新地理地点请求（所有字段可选）"""
+    """更新地理地点扩展字段（所有字段可选）"""
 
     location_level: Annotated[str | None, Field(None, max_length=32)]
     parent_location_id: Annotated[str | None, Field(None)]
@@ -109,19 +56,16 @@ class GeoLocationUpdate(BaseModel):
     terrain: Annotated[str | None, Field(None, max_length=64)]
     climate: Annotated[str | None, Field(None, max_length=64)]
     access_level: Annotated[str | None, Field(None, max_length=32)]
-    summary: Annotated[str | None, Field(None)]
     content_json: Annotated[dict | None, Field(None)]
-    status: Annotated[str | None, Field(None, max_length=32)]
 
 
 class GeoLocationResponse(BaseModel):
-    """地理地点响应"""
+    """地理地点响应 — 不包含 summary/status（在 core_entities）"""
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    entity_id: str
     novel_id: str
-    world_entity_id: str
     location_level: str
     parent_location_id: str | None = None
     x: float | None = None
@@ -131,19 +75,13 @@ class GeoLocationResponse(BaseModel):
     terrain: str | None = None
     climate: str | None = None
     access_level: str = "normal"
-    summary: str | None = None
     content_json: dict = {}
-    status: str = "canonical"
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_validator(
-        "id", "novel_id", "world_entity_id", "parent_location_id",
-        mode="before",
-    )
+    @field_validator("entity_id", "novel_id", "parent_location_id", mode="before")
     @classmethod
     def coerce_ids_to_str(cls, v: object) -> str | None:
-        """将 UUID 转为字符串"""
         if v is None:
             return None
         return _coerce_uuid_to_str(v)
@@ -157,56 +95,27 @@ class GeoLocationListResponse(BaseModel):
 
 
 # ============================================================
-# GeoEdge Schema
+# GeoEdge Schema (unchanged except FK references core_entities)
 # ============================================================
 
 class GeoEdgeCreate(BaseModel):
     """创建地理关系边请求"""
 
     novel_id: str = Field(..., description="小说项目 ID")
-    source_location_id: str = Field(..., description="起点地点 ID")
-    target_location_id: str = Field(..., description="终点地点 ID")
-    relation_type: str = Field(
-        ...,
-        description="关系类型：road_to/river_to/inside/north_of/...",
-    )
-    direction_label: str | None = Field(
-        default=None,
-        max_length=64,
-        description="方向描述",
-    )
-    distance_label: str | None = Field(
-        default=None,
-        max_length=64,
-        description="距离描述",
-    )
-    travel_time: str | None = Field(
-        default=None,
-        max_length=64,
-        description="通行时间",
-    )
-    difficulty: str | None = Field(
-        default=None,
-        max_length=32,
-        description="通行难度",
-    )
-    visibility: str = Field(
-        default="public",
-        max_length=32,
-        description="可见性",
-    )
-    condition_text: str | None = Field(
-        default=None,
-        description="通行条件",
-    )
-    status: str = Field(
-        default="canonical",
-        max_length=32,
-    )
+    source_location_id: str = Field(..., description="起点地点 entity_id")
+    target_location_id: str = Field(..., description="终点地点 entity_id")
+    relation_type: str = Field(..., description="关系类型")
+    direction_label: str | None = Field(default=None, max_length=64, description="方向描述")
+    distance_label: str | None = Field(default=None, max_length=64, description="距离描述")
+    travel_time: str | None = Field(default=None, max_length=64, description="通行时间")
+    difficulty: str | None = Field(default=None, max_length=32, description="通行难度")
+    visibility: str = Field(default="public", max_length=32, description="可见性")
+    condition_text: str | None = Field(default=None, description="通行条件")
+    status: str = Field(default="canonical", max_length=32)
 
 
 class GeoEdgeUpdate(BaseModel):
-    """更新地理关系边请求（所有字段可选）"""
+    """更新地理关系边请求"""
 
     relation_type: Annotated[str | None, Field(None, max_length=32)]
     direction_label: Annotated[str | None, Field(None, max_length=64)]
@@ -238,10 +147,7 @@ class GeoEdgeResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_validator(
-        "id", "novel_id", "source_location_id", "target_location_id",
-        mode="before",
-    )
+    @field_validator("id", "novel_id", "source_location_id", "target_location_id", mode="before")
     @classmethod
     def coerce_ids_to_str(cls, v: object) -> str | None:
         if v is None:
@@ -257,32 +163,23 @@ class GeoEdgeListResponse(BaseModel):
 
 
 # ============================================================
-# GeoEra Schema
+# GeoEra Schema (unchanged)
 # ============================================================
 
 class GeoEraCreate(BaseModel):
     """创建历史时期请求"""
 
     novel_id: str = Field(..., description="小说项目 ID")
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=128,
-        description="历史时期名称",
-    )
-    order_index: int = Field(
-        ...,
-        ge=0,
-        description="时间顺序索引（小→大=古→今）",
-    )
+    name: str = Field(..., min_length=1, max_length=128)
+    order_index: int = Field(..., ge=0)
     summary: str | None = Field(default=None, description="时期概述")
-    start_event_id: str | None = Field(default=None, description="起始事件 ID")
-    end_event_id: str | None = Field(default=None, description="结束事件 ID")
+    start_event_id: str | None = Field(default=None)
+    end_event_id: str | None = Field(default=None)
     status: str = Field(default="canonical", max_length=32)
 
 
 class GeoEraUpdate(BaseModel):
-    """更新历史时期请求（所有字段可选）"""
+    """更新历史时期请求"""
 
     name: Annotated[str | None, Field(None, min_length=1, max_length=128)]
     order_index: Annotated[int | None, Field(None, ge=0)]
@@ -324,19 +221,18 @@ class GeoEraListResponse(BaseModel):
 
 
 # ============================================================
-# Facade 复合输出 Schema
+# Facade composite output schemas
 # ============================================================
 
 class LocationNode(BaseModel):
     """地点树节点"""
 
-    id: str
+    entity_id: str
     location_level: str
     position_label: str | None = None
     x: float | None = None
     y: float | None = None
     access_level: str = "normal"
-    summary: str | None = None
     children: list[LocationNode] = []
 
 
@@ -362,18 +258,18 @@ class RouteQueryRequest(BaseModel):
     """路径计算请求"""
 
     novel_id: str = Field(..., description="小说项目 ID")
-    source_location_id: str = Field(..., description="起点地点 ID")
-    target_location_id: str = Field(..., description="终点地点 ID")
-    chapter_index: int = Field(..., ge=0, description="截止章节索引")
+    source_location_id: str = Field(..., description="起点地点 entity_id")
+    target_location_id: str = Field(..., description="终点地点 entity_id")
+    chapter_index: int = Field(..., ge=0)
 
 
 class RouteQueryResponse(BaseModel):
     """路径计算响应"""
 
-    is_reachable: bool = Field(..., description="是否可达")
-    total_travel_hours: float = Field(..., description="总旅行耗时（小时），不可达时为 -1.0")
-    recommended_path: list[str] = Field(default_factory=list, description="途经节点 ID 列表")
-    message: str = Field(default="", description="附加信息（如不可达原因）")
+    is_reachable: bool
+    total_travel_hours: float
+    recommended_path: list[str] = []
+    message: str = ""
 
 
 class EraState(BaseModel):
@@ -383,22 +279,15 @@ class EraState(BaseModel):
     era_name: str
     era_order_index: int
     summary: str | None = None
-    # 地点在该时期的状态变化
     location_state: dict = {}
 
 
 class GeoContextBundle(BaseModel):
-    """地理上下文组合 — 供其他模块（如 Context Compiler）读取"""
+    """地理上下文组合"""
 
     location: GeoLocationResponse | None = None
-    """当前地点信息"""
     parent_locations: list[GeoLocationResponse] = []
-    """上级地点链（从父级到根）"""
     child_locations: list[GeoLocationResponse] = []
-    """直接子地点"""
     edges: list[GeoEdgeResponse] = []
-    """关联的地理关系边"""
     current_era: GeoEraResponse | None = None
-    """当前所在历史时期"""
     era_states: list[EraState] = []
-    """各历史时期下的地点状态"""

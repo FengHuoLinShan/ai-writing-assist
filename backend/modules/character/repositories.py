@@ -1,8 +1,8 @@
 """
 Character 数据访问层
 
-封装 characters 表和 character_knowledge 表的所有数据库操作。
-只处理 ORM ↔ DB 的基本 CRUD，不含业务逻辑。
+Character 以 entity_id 为 PK+FK（→ core_entities.id），仅存储扩展字段。
+公共字段（name, aliases, status）在 core_entities 中。
 """
 
 from __future__ import annotations
@@ -24,23 +24,17 @@ from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class CharacterRepository:
-    """人物数据访问"""
+    """人物扩展表数据访问 — PK 为 entity_id"""
 
     async def create(
         self,
         db: AsyncSession,
         data: CharacterCreate,
     ) -> Character:
-        """创建新人物"""
+        """创建人物扩展记录"""
         character = Character(
+            entity_id=uuid.UUID(hex=data.entity_id),
             novel_id=uuid.UUID(hex=data.novel_id),
-            world_entity_id=(
-                uuid.UUID(hex=data.world_entity_id)
-                if data.world_entity_id
-                else None
-            ),
-            name=data.name,
-            aliases=data.aliases or [],
             role=data.role,
             appearance=data.appearance,
             personality=data.personality,
@@ -56,7 +50,6 @@ class CharacterRepository:
             behavior_rules=data.behavior_rules or [],
             relationship_summary=data.relationship_summary,
             meta=data.meta or {},
-            status=data.status or "canonical",
         )
         db.add(character)
         await db.flush()
@@ -65,10 +58,10 @@ class CharacterRepository:
     async def get(
         self,
         db: AsyncSession,
-        character_id: uuid.UUID,
+        entity_id: uuid.UUID,
     ) -> Character | None:
-        """根据 ID 获取人物"""
-        stmt = select(Character).where(Character.id == character_id)
+        """根据 entity_id 获取人物扩展"""
+        stmt = select(Character).where(Character.entity_id == entity_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -79,56 +72,39 @@ class CharacterRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[Character], int]:
-        """根据小说 ID 获取人物列表（分页），返回 (items, total)"""
-        # 获取总数
+        """根据小说 ID 获取人物扩展列表（分页）"""
         count_stmt = (
-            select(func.count(Character.id))
+            select(func.count(Character.entity_id))
             .where(Character.novel_id == novel_id)
         )
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
 
-        # 获取分页数据
         stmt = (
             select(Character)
             .where(Character.novel_id == novel_id)
             .offset(skip)
             .limit(limit)
-            .order_by(Character.created_at.desc())
+            .order_by(Character.entity_id.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[Character] = result.scalars().all()
         return list(items), total
 
-    async def get_by_world_entity(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        world_entity_id: uuid.UUID,
-    ) -> Character | None:
-        """根据 world_entity_id 获取人物"""
-        stmt = (
-            select(Character)
-            .where(Character.novel_id == novel_id)
-            .where(Character.world_entity_id == world_entity_id)
-        )
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def get_by_ids(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
-        character_ids: list[uuid.UUID],
+        entity_ids: list[uuid.UUID],
     ) -> list[Character]:
-        """根据 ID 列表批量获取人物"""
-        if not character_ids:
+        """根据 entity_id 列表批量获取人物扩展"""
+        if not entity_ids:
             return []
         stmt = (
             select(Character)
             .where(Character.novel_id == novel_id)
-            .where(Character.id.in_(character_ids))
-            .order_by(Character.id.asc())
+            .where(Character.entity_id.in_(entity_ids))
+            .order_by(Character.entity_id.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[Character] = result.scalars().all()
@@ -137,19 +113,16 @@ class CharacterRepository:
     async def update(
         self,
         db: AsyncSession,
-        character_id: uuid.UUID,
+        entity_id: uuid.UUID,
         data: CharacterUpdate,
     ) -> Character | None:
-        """更新人物，返回更新后的对象（不存在返回 None）"""
-        character = await self.get(db, character_id)
+        """更新人物扩展字段"""
+        character = await self.get(db, entity_id)
         if character is None:
             return None
 
         update_values: dict[str, object] = {}
         field_map = {
-            "world_entity_id": "world_entity_id",
-            "name": "name",
-            "aliases": "aliases",
             "role": "role",
             "appearance": "appearance",
             "personality": "personality",
@@ -165,79 +138,46 @@ class CharacterRepository:
             "behavior_rules": "behavior_rules",
             "relationship_summary": "relationship_summary",
             "meta": "meta",
-            "status": "status",
         }
 
         for schema_field, model_field in field_map.items():
             value = getattr(data, schema_field, None)
             if value is not None:
-                # Handle UUID conversion
-                if schema_field == "world_entity_id" and isinstance(value, str):
-                    update_values[model_field] = uuid.UUID(hex=value)
-                else:
-                    update_values[model_field] = value
+                update_values[model_field] = value
 
         if update_values:
             stmt = (
                 update(Character)
-                .where(Character.id == character_id)
+                .where(Character.entity_id == entity_id)
                 .values(**update_values)
             )
             await db.execute(stmt)
             await db.flush()
-            character = await self.get(db, character_id)
+            character = await self.get(db, entity_id)
 
         return character
 
     async def delete(
         self,
         db: AsyncSession,
-        character_id: uuid.UUID,
+        entity_id: uuid.UUID,
     ) -> bool:
-        """删除人物，返回是否成功删除"""
-        stmt = delete(Character).where(Character.id == character_id)
+        """删除人物扩展记录"""
+        stmt = delete(Character).where(Character.entity_id == entity_id)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
 
-    async def find_character_by_name(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        name: str,
-    ) -> str | None:
-        stmt = select(Character.id).where(
-            Character.novel_id == novel_id,
-            Character.name == name,
-            Character.status == "canonical",
-        ).limit(1)
-        result = await db.execute(stmt)
-        row = result.scalar_one_or_none()
-        if row is not None:
-            return str(row)
-
-        alias_stmt = select(Character).where(
-            Character.novel_id == novel_id,
-            Character.status == "canonical",
-        )
-        alias_result = await db.execute(alias_stmt)
-        chars = alias_result.scalars().all()
-        for char in chars:
-            for alias_entry in (char.aliases or []):
-                if isinstance(alias_entry, dict) and alias_entry.get("alias") == name:
-                    return str(char.id)
-
-        return None
-
     async def update_character_meta_location(
         self,
         db: AsyncSession,
-        character_id: uuid.UUID,
+        entity_id: uuid.UUID,
         location_id: str,
         text_state: str,
         chapter_index: int,
     ) -> None:
-        stmt = select(Character).where(Character.id == character_id)
+        """更新人物当前位置元数据"""
+        stmt = select(Character).where(Character.entity_id == entity_id)
         result = await db.execute(stmt)
         char = result.scalar_one_or_none()
         if char is None:
@@ -255,9 +195,9 @@ class CharacterRepository:
         novel_id: uuid.UUID,
         location_id: str,
     ) -> list[dict]:
+        """获取当前在指定地点的人物列表（返回 entity_id）"""
         stmt = select(Character).where(
             Character.novel_id == novel_id,
-            Character.status == "canonical",
         )
         result = await db.execute(stmt)
         all_chars = result.scalars().all()
@@ -266,8 +206,7 @@ class CharacterRepository:
             meta = char.meta or {}
             if meta.get("current_location_id") == location_id:
                 characters.append({
-                    "id": str(char.id),
-                    "name": char.name,
+                    "id": str(char.entity_id),
                     "current_state": char.current_state or "",
                 })
         return characters
@@ -275,9 +214,10 @@ class CharacterRepository:
     async def get_character_location_id(
         self,
         db: AsyncSession,
-        character_id: uuid.UUID,
+        entity_id: uuid.UUID,
     ) -> str | None:
-        stmt = select(Character).where(Character.id == character_id)
+        """获取人物当前位置 ID"""
+        stmt = select(Character).where(Character.entity_id == entity_id)
         result = await db.execute(stmt)
         char = result.scalar_one_or_none()
         if char is None:
@@ -287,7 +227,7 @@ class CharacterRepository:
 
 
 class CharacterKnowledgeRepository:
-    """人物知识数据访问"""
+    """人物知识数据访问 — character_id 现在引用 core_entities.id"""
 
     async def create(
         self,
@@ -321,9 +261,7 @@ class CharacterKnowledgeRepository:
         knowledge_id: uuid.UUID,
     ) -> CharacterKnowledge | None:
         """根据 ID 获取知识记录"""
-        stmt = select(CharacterKnowledge).where(
-            CharacterKnowledge.id == knowledge_id
-        )
+        stmt = select(CharacterKnowledge).where(CharacterKnowledge.id == knowledge_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -364,17 +302,7 @@ class CharacterKnowledgeRepository:
         target_ids: list[uuid.UUID] | None = None,
         target_type: str | None = None,
     ) -> list[CharacterKnowledge]:
-        """获取人物对特定目标的知识记录
-
-        Args:
-            db: 数据库 session
-            novel_id: 小说 ID
-            character_id: 人物 ID
-            target_ids: 目标 ID 列表（可选，不传则返回所有目标的知识）
-                          传入空列表 [] 时返回空（区别于 None）
-            target_type: 目标类型过滤（可选）
-        """
-        # 空列表：明确要求查询 0 个目标，直接返回空
+        """获取人物对特定目标的知识记录"""
         if target_ids is not None and len(target_ids) == 0:
             return []
 
@@ -404,12 +332,8 @@ class CharacterKnowledgeRepository:
 
         update_values: dict[str, object] = {}
         for field in (
-            "knowledge_level",
-            "known_content",
-            "misconception",
-            "source_chapter_index",
-            "source_memory_id",
-            "status",
+            "knowledge_level", "known_content", "misconception",
+            "source_chapter_index", "source_memory_id", "status",
         ):
             value = getattr(data, field, None)
             if value is not None:
@@ -436,9 +360,7 @@ class CharacterKnowledgeRepository:
         knowledge_id: uuid.UUID,
     ) -> bool:
         """删除知识记录"""
-        stmt = delete(CharacterKnowledge).where(
-            CharacterKnowledge.id == knowledge_id
-        )
+        stmt = delete(CharacterKnowledge).where(CharacterKnowledge.id == knowledge_id)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0

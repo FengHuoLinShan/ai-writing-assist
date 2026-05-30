@@ -13,10 +13,6 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-# ============================================================
-# 内部工具
-# ============================================================
-
 def _uuid_validator(v: object) -> str:
     """将 UUID 原始值转为字符串"""
     if isinstance(v, uuid.UUID):
@@ -27,24 +23,28 @@ def _uuid_validator(v: object) -> str:
 
 
 # ============================================================
-# WorldEntity Schema
+# CoreEntity Schema
 # ============================================================
 
-class WorldEntityCreate(BaseModel):
-    """创建世界对象请求"""
+class CoreEntityCreate(BaseModel):
+    """创建核心实体请求 — 统一的实体创建入口"""
 
     entity_type: str = Field(
         ...,
         min_length=1,
         max_length=32,
-        pattern="^(location|faction|item|event|rule|power_system|secret|legend|resource|character_ref)$",
-        description="对象类型：location/faction/item/event/rule/power_system/secret/legend/resource/character_ref",
+        pattern="^(character|location|faction|item|event|rule|power_system|secret|legend|resource|concept|creature|skill|other)$",
+        description="对象类型",
     )
     name: str = Field(
         ...,
         min_length=1,
         max_length=255,
         description="对象名称",
+    )
+    aliases: list[dict] = Field(
+        default_factory=list,
+        description="别名列表 [{alias: str, type: str}]",
     )
     summary: str | None = Field(
         None,
@@ -72,7 +72,7 @@ class WorldEntityCreate(BaseModel):
     importance_level: str = Field(
         default="normal",
         max_length=16,
-        description="重要性级别：core/important/normal/temporary/alias",
+        description="重要性级别：core/important/normal/temporary",
     )
     reveal_level: str = Field(
         default="author_only",
@@ -92,11 +92,12 @@ class WorldEntityCreate(BaseModel):
     )
 
 
-class WorldEntityUpdate(BaseModel):
-    """更新世界对象请求（所有字段可选）"""
+class CoreEntityUpdate(BaseModel):
+    """更新核心实体请求（所有字段可选）"""
 
     entity_type: Annotated[str | None, Field(None, min_length=1, max_length=32)]
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
+    aliases: Annotated[list[dict] | None, Field(None)]
     summary: Annotated[str | None, Field(None)]
     public_info: Annotated[str | None, Field(None)]
     hidden_truth: Annotated[str | None, Field(None)]
@@ -108,8 +109,8 @@ class WorldEntityUpdate(BaseModel):
     approved_by: Annotated[str | None, Field(None, max_length=64)]
 
 
-class WorldEntityResponse(BaseModel):
-    """世界对象响应"""
+class CoreEntityResponse(BaseModel):
+    """核心实体响应"""
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -120,6 +121,7 @@ class WorldEntityResponse(BaseModel):
     novel_id: str
     entity_type: str
     name: str
+    aliases: list[dict] = []
     summary: str | None = None
     public_info: str | None = None
     hidden_truth: str | None = None
@@ -141,59 +143,25 @@ class WorldEntityResponse(BaseModel):
 
 
 # ============================================================
-# Relationship Schema
+# Relationship Schema (unchanged)
 # ============================================================
 
 class RelationshipCreate(BaseModel):
     """创建关系请求"""
 
-    source_type: str = Field(
-        ...,
-        max_length=32,
-        description="源对象类型",
-    )
-    source_id: str = Field(
-        ...,
-        description="源对象 ID",
-    )
-    target_type: str = Field(
-        ...,
-        max_length=32,
-        description="目标对象类型",
-    )
-    target_id: str = Field(
-        ...,
-        description="目标对象 ID",
-    )
-    relation_type: str = Field(
-        ...,
-        max_length=32,
-        description="关系类型",
-    )
-    description: str | None = Field(
-        None,
-        description="关系描述",
-    )
-    visibility: str = Field(
-        default="author_only",
-        max_length=20,
-        description="可见性：author_only/author_safe/reader_known/public",
-    )
-    strength: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="关系强度 0.0~1.0",
-    )
-    status: str = Field(
-        default="canonical",
-        max_length=32,
-        description="状态",
-    )
+    source_type: str = Field(..., max_length=32, description="源对象类型")
+    source_id: str = Field(..., description="源对象 ID (core_entities.id)")
+    target_type: str = Field(..., max_length=32, description="目标对象类型")
+    target_id: str = Field(..., description="目标对象 ID (core_entities.id)")
+    relation_type: str = Field(..., max_length=32, description="关系类型")
+    description: str | None = Field(None, description="关系描述")
+    visibility: str = Field(default="author_only", max_length=20)
+    strength: float = Field(default=0.5, ge=0.0, le=1.0)
+    status: str = Field(default="canonical", max_length=32)
 
 
 class RelationshipUpdate(BaseModel):
-    """更新关系请求（所有字段可选）"""
+    """更新关系请求"""
 
     source_type: Annotated[str | None, Field(None, max_length=32)]
     source_id: Annotated[str | None, Field(None)]
@@ -232,149 +200,27 @@ class RelationshipResponse(BaseModel):
 
 
 # ============================================================
-# EntityAlias Schema
-# ============================================================
-
-class EntityAliasCreate(BaseModel):
-    """创建别名请求"""
-
-    entity_id: uuid.UUID = Field(
-        ...,
-        description="所属世界对象 ID",
-    )
-    alias: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="别名文本",
-    )
-    alias_type: str = Field(
-        default="name",
-        max_length=20,
-        description="别名类型：name/title/nickname/alias/translation/abbreviation",
-    )
-    source_chapter_index: int | None = Field(
-        None,
-        ge=0,
-        description="首次出现的章节索引",
-    )
-    confidence: float = Field(
-        default=0.8,
-        ge=0.0,
-        le=1.0,
-        description="确认置信度",
-    )
-    status: str = Field(
-        default="confirmed",
-        max_length=32,
-        description="状态",
-    )
-
-
-class EntityAliasResponse(BaseModel):
-    """别名响应"""
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        # 允许 UUID → str 的序列化
-        loc_by_field_name=True,
-        arbitrary_types_allowed=True,
-    )
-
-    id: str
-    novel_id: str
-    entity_id: str
-
-    @classmethod
-    def model_validate(cls, obj: object, **kwargs: Any) -> "EntityAliasResponse":
-        """从 ORM 对象创建响应，自动将 UUID 转为字符串"""
-        if hasattr(obj, "__table__"):
-            data = {}
-            for col in obj.__table__.columns:
-                v = getattr(obj, col.name, None)
-                if isinstance(v, uuid.UUID):
-                    v = str(v)
-                data[col.name] = v
-            return cls(**data)
-        return super().model_validate(obj, **kwargs)
-    alias: str
-    alias_type: str = "name"
-    source_chapter_index: int | None = None
-    confidence: float = 0.8
-    status: str = "confirmed"
-    created_at: datetime | None = None
-
-    @field_validator("id", "novel_id", "entity_id", mode="before")
-    @classmethod
-    def coerce_uuid(cls, v: object) -> str:
-        return _uuid_validator(v)
-
-
-# ============================================================
-# EntityCandidate Schema
+# EntityCandidate Schema (unchanged)
 # ============================================================
 
 class EntityCandidateCreate(BaseModel):
     """创建候选对象请求"""
 
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="候选对象名称",
-    )
-    entity_type: str = Field(
-        ...,
-        max_length=32,
-        description="候选对象类型",
-    )
-    summary: str | None = Field(
-        None,
-        description="候选概要",
-    )
-    source_text: str | None = Field(
-        None,
-        description="来源文本摘录",
-    )
-    source_chapter_index: int | None = Field(
-        None,
-        ge=0,
-        description="来源章节索引",
-    )
-    importance_score: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="重要性评分",
-    )
-    confidence: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="置信度",
-    )
-    candidate_reason: str | None = Field(
-        None,
-        description="推荐理由",
-    )
-    suggested_action: str = Field(
-        default="needs_user_decision",
-        max_length=32,
-        description="建议动作",
-    )
-    suggested_existing_entity_id: str | None = Field(
-        None,
-        description="建议关联的已有对象 ID",
-    )
-    status: str = Field(
-        default="pending",
-        max_length=32,
-        description="状态",
-    )
+    name: str = Field(..., min_length=1, max_length=255)
+    entity_type: str = Field(..., max_length=32)
+    summary: str | None = Field(None)
+    source_text: str | None = Field(None)
+    source_chapter_index: int | None = Field(None, ge=0)
+    importance_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    candidate_reason: str | None = Field(None)
+    suggested_action: str = Field(default="needs_user_decision", max_length=32)
+    suggested_existing_entity_id: str | None = Field(None, description="建议关联的 core_entities.id")
+    status: str = Field(default="pending", max_length=32)
 
 
 class EntityCandidateUpdate(BaseModel):
-    """更新候选对象请求（所有字段可选）"""
+    """更新候选对象请求"""
 
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
     entity_type: Annotated[str | None, Field(None, max_length=32)]
@@ -417,13 +263,13 @@ class EntityCandidateResponse(BaseModel):
 
 
 # ============================================================
-# 列表响应
+# List responses
 # ============================================================
 
-class WorldEntityListResponse(BaseModel):
-    """世界对象列表响应"""
+class CoreEntityListResponse(BaseModel):
+    """核心实体列表响应"""
 
-    items: list[WorldEntityResponse]
+    items: list[CoreEntityResponse]
     total: int
 
 
@@ -431,13 +277,6 @@ class RelationshipListResponse(BaseModel):
     """关系列表响应"""
 
     items: list[RelationshipResponse]
-    total: int
-
-
-class EntityAliasListResponse(BaseModel):
-    """别名列表响应"""
-
-    items: list[EntityAliasResponse]
     total: int
 
 
@@ -449,11 +288,11 @@ class EntityCandidateListResponse(BaseModel):
 
 
 # ============================================================
-# Facade 输出 Schema（供其他模块读取）
+# Facade output schemas
 # ============================================================
 
-class WorldEntityContext(BaseModel):
-    """世界对象上下文 — 供其他模块读取的简化对象信息"""
+class CoreEntityContext(BaseModel):
+    """核心实体上下文 — 供其他模块读取"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -467,7 +306,7 @@ class WorldEntityContext(BaseModel):
     importance_level: str = "normal"
     reveal_level: str = "author_only"
     status: str = "draft"
-    aliases: list[str] = Field(default_factory=list)
+    aliases: list[dict] = Field(default_factory=list)
     related_entity_ids: list[str] = Field(default_factory=list)
 
     @field_validator("entity_id", mode="before")
@@ -477,10 +316,10 @@ class WorldEntityContext(BaseModel):
 
 
 class WorldContextBundle(BaseModel):
-    """世界上下文组合包 — 供 Context Compiler 或其他模块使用"""
+    """世界上下文组合包"""
 
     novel_id: str
-    entities: list[WorldEntityContext] = Field(default_factory=list)
+    entities: list[CoreEntityContext] = Field(default_factory=list)
     total_count: int = 0
     reveal_mode: str = "author_safe"
 

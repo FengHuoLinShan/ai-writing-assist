@@ -601,15 +601,8 @@ async def _load_project_terms(
 
     chars_list, _ = await _list_chars(db, novel_id_str, limit=999)
     for char in chars_list:
-        _add_term(terms, term=char.name, target_id=str(char.id), target_type="character")
-        for alias_entry in (char.aliases or []):
-            if isinstance(alias_entry, dict):
-                _add_term(
-                    terms,
-                    term=alias_entry.get("alias"),
-                    target_id=str(char.id),
-                    target_type="character",
-                )
+        # Note: char.name/aliases are now on CoreEntity, use entity_terms instead
+        _add_term(terms, term="", target_id=str(char.entity_id), target_type="character")
 
     try:
         from modules.world.facade import list_entity_terms

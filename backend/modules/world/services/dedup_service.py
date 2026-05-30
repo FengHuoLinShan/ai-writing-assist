@@ -8,17 +8,16 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.contracts import DuplicateSuggestion
-from modules.world.models import EntityAlias, WorldEntity
+from modules.world.models import CoreEntity
 from modules.world.repositories import (
-    EntityAliasRepository,
+    CoreEntityRepository,
     EntityCandidateRepository,
-    WorldEntityRepository,
 )
-from modules.world.schemas import DuplicateSuggestionResult, EntityAliasCreate
+from modules.world.schemas import DuplicateSuggestionResult
 from modules.world.services.helpers import (
     merge_text_field,
     normalize_name,
@@ -33,17 +32,13 @@ class EntityDedupService:
 
     提供三种去重方法：
     1. 名称精确匹配（exact_name）
-    2. pg_trgm 名称相似匹配（trgm_similar）— 在生产数据库中执行
-    3. pgvector 语义相似匹配（vector_similar）— 在生产数据库中执行
-
-    MVP 阶段仅实现规则级别的名称精确匹配，
-    pg_trgm 和 pgvector 相似匹配需在真实 PostgreSQL 上运行。
+    2. 别名匹配（alias_match）— 搜索 core_entities.aliases JSONB
+    3. 模糊名称匹配（fuzzy_name）— difflib
     """
 
     def __init__(self) -> None:
-        self._entity_repo = WorldEntityRepository()
+        self._entity_repo = CoreEntityRepository()
         self._candidate_repo = EntityCandidateRepository()
-        self._alias_repo = EntityAliasRepository()
 
     async def find_duplicates(
         self,
@@ -83,19 +78,17 @@ class EntityDedupService:
                     action="alias_of_existing",
                 ))
 
-        # 2. 别名匹配
-        alias_matches = await self._find_alias_matches(db, nid, candidate.name)
-        for alias_elem in alias_matches:
-            if alias_elem.entity_id not in seen_ids and alias_elem.entity_id:
-                seen_ids.add(alias_elem.entity_id)
-                eid = parse_uuid(alias_elem.entity_id, "entity_id")
-                entity = await self._entity_repo.get(db, eid)
-                entity_name = entity.name if entity else alias_elem.alias
+        # 2. 别名匹配（搜索 core_entities.aliases JSONB）
+        alias_matches = await self._find_alias_matches_in_jsonb(db, nid, candidate.name)
+        for match in alias_matches:
+            eid_str = str(match["entity_id"])
+            if eid_str not in seen_ids:
+                seen_ids.add(eid_str)
                 suggestions.append(DuplicateSuggestionResult(
                     candidate_id=candidate_id,
                     candidate_name=candidate.name,
-                    existing_entity_id=alias_elem.entity_id,
-                    existing_entity_name=entity_name,
+                    existing_entity_id=eid_str,
+                    existing_entity_name=match["entity_name"],
                     similarity_score=SIMILARITY_HIGH_CONFIDENCE,
                     match_method="alias_match",
                     action="alias_of_existing",
@@ -143,31 +136,22 @@ class EntityDedupService:
             if eid_str not in seen_ids:
                 seen_ids.add(eid_str)
                 suggestions.append(DuplicateSuggestionResult(
-                    candidate_id="",
-                    candidate_name=name,
-                    existing_entity_id=eid_str,
-                    existing_entity_name=match.name,
-                    similarity_score=1.0,
-                    match_method="exact_name",
-                    action="alias_of_existing",
+                    candidate_id="", candidate_name=name,
+                    existing_entity_id=eid_str, existing_entity_name=match.name,
+                    similarity_score=1.0, match_method="exact_name", action="alias_of_existing",
                 ))
 
         # 2. 别名匹配
-        alias_matches = await self._find_alias_matches(db, nid, name)
-        for alias_elem in alias_matches:
-            if alias_elem.entity_id not in seen_ids and alias_elem.entity_id:
-                seen_ids.add(alias_elem.entity_id)
-                eid = parse_uuid(alias_elem.entity_id, "entity_id")
-                entity = await self._entity_repo.get(db, eid)
-                entity_name = entity.name if entity else alias_elem.alias
+        alias_matches = await self._find_alias_matches_in_jsonb(db, nid, name)
+        for match in alias_matches:
+            eid_str = str(match["entity_id"])
+            if eid_str not in seen_ids:
+                seen_ids.add(eid_str)
                 suggestions.append(DuplicateSuggestionResult(
-                    candidate_id="",
-                    candidate_name=name,
-                    existing_entity_id=alias_elem.entity_id,
-                    existing_entity_name=entity_name,
+                    candidate_id="", candidate_name=name,
+                    existing_entity_id=eid_str, existing_entity_name=match["entity_name"],
                     similarity_score=SIMILARITY_HIGH_CONFIDENCE,
-                    match_method="alias_match",
-                    action="alias_of_existing",
+                    match_method="alias_match", action="alias_of_existing",
                 ))
 
         # 3. 模糊匹配
@@ -178,13 +162,9 @@ class EntityDedupService:
             if eid_str not in seen_ids:
                 seen_ids.add(eid_str)
                 suggestions.append(DuplicateSuggestionResult(
-                    candidate_id="",
-                    candidate_name=name,
-                    existing_entity_id=eid_str,
-                    existing_entity_name=fuzz["entity_name"],
-                    similarity_score=fuzz["score"],
-                    match_method="fuzzy_name",
-                    action=fuzz["action"],
+                    candidate_id="", candidate_name=name,
+                    existing_entity_id=eid_str, existing_entity_name=fuzz["entity_name"],
+                    similarity_score=fuzz["score"], match_method="fuzzy_name", action=fuzz["action"],
                 ))
 
         suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
@@ -196,8 +176,8 @@ class EntityDedupService:
         novel_id: str,
         candidate_id: str,
         target_entity_id: str,
-    ) -> WorldEntity:
-        """将候选对象合并到指定正史对象"""
+    ) -> CoreEntity:
+        """将候选对象合并到指定 CoreEntity"""
         nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(candidate_id, "candidate_id")
         teid = parse_uuid(target_entity_id, "target_entity_id")
@@ -209,54 +189,37 @@ class EntityDedupService:
                 detail=f"EntityCandidate {candidate_id} not found",
             )
         if candidate.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="Candidate does not belong to the same novel",
-            )
+            raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST,
+                               detail="Candidate does not belong to the same novel")
 
         entity = await self._entity_repo.get(db, teid)
         if entity is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {target_entity_id} not found",
+                detail=f"CoreEntity {target_entity_id} not found",
             )
         if entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="Target entity does not belong to the same novel",
-            )
+            raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST,
+                               detail="Target entity does not belong to the same novel")
 
-        merged_fields: list[str] = []
-        added_aliases: list[str] = []
-
-        # 合并别名
+        # 合并别名：添加到 core_entities.aliases JSONB（去重）
         if candidate.name != entity.name:
-            alias_data = EntityAliasCreate(
-                entity_id=str(entity.id),
-                alias=candidate.name,
-                alias_type="name",
-                source_chapter_index=candidate.source_chapter_index,
-                confidence=candidate.confidence or 0.8,
-            )
-            await EntityAliasRepository().create(db, nid, alias_data)
-            added_aliases.append(candidate.name)
-            merged_fields.append("aliases")
+            current_aliases: list[dict] = list(entity.aliases or [])
+            existing_alias_texts = {a.get("alias") for a in current_aliases if isinstance(a, dict)}
+            if candidate.name not in existing_alias_texts:
+                current_aliases.append({
+                    "alias": candidate.name,
+                    "type": "name",
+                    "source_chapter": candidate.source_chapter_index,
+                })
+                entity.aliases = current_aliases
 
-        # 合并 summary
+        # 合并文本字段
         entity.summary = merge_text_field(entity.summary, candidate.summary)
-        merged_fields.append("summary")
-
-        # 合并 public_info
         if candidate.source_text:
             entity.public_info = merge_text_field(entity.public_info, candidate.source_text)
-            merged_fields.append("public_info")
-
-        # 合并 hidden_truth
-        if candidate.source_text:
             entity.hidden_truth = merge_text_field(entity.hidden_truth, candidate.source_text)
-            merged_fields.append("hidden_truth")
 
-        # 合并 importance
         if candidate.importance_score is not None and candidate.importance_score > (entity.importance or 0):
             entity.importance = candidate.importance_score
 
@@ -269,7 +232,7 @@ class EntityDedupService:
         self,
         name: str,
         entity_type: str | None,
-        entities: list[WorldEntity],
+        entities: list[CoreEntity],
     ) -> list[dict[str, Any]]:
         """使用 difflib 进行模糊名称匹配"""
         if not name:
@@ -279,13 +242,8 @@ class EntityDedupService:
         for entity in entities:
             if not world_entity_types_compatible(entity_type, entity.entity_type):
                 continue
-            candidates = [entity.name]
             best_score = max(
-                (
-                    difflib.SequenceMatcher(None, normalized_name, normalize_name(c)).ratio()
-                    for c in candidates
-                    if c
-                ),
+                (difflib.SequenceMatcher(None, normalized_name, normalize_name(entity.name)).ratio(),),
                 default=0.0,
             )
             if 0.72 <= best_score < 1.0:
@@ -303,51 +261,47 @@ class EntityDedupService:
         novel_id: uuid.UUID,
         name: str,
         entity_type: str | None = None,
-    ) -> list[WorldEntity]:
-        """查找名称精确匹配的正史对象"""
-        conditions = [
-            WorldEntity.novel_id == novel_id,
-            WorldEntity.name == name,
-        ]
+    ) -> list[CoreEntity]:
+        """查找名称精确匹配的 CoreEntity"""
+        conditions = [CoreEntity.novel_id == novel_id, CoreEntity.name == name]
         if entity_type:
-            conditions.append(WorldEntity.entity_type == entity_type)
-
-        stmt = select(WorldEntity).where(*conditions)
+            conditions.append(CoreEntity.entity_type == entity_type)
+        stmt = select(CoreEntity).where(*conditions)
         result = await db.execute(stmt)
-        items = result.scalars().all()
-        return list(items)
+        return list(result.scalars().all())
 
-    async def _find_alias_matches(
+    async def _find_alias_matches_in_jsonb(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         alias_text: str,
-    ) -> list[EntityAlias]:
-        """查找别名精确匹配"""
-        stmt = select(EntityAlias).where(
-            EntityAlias.novel_id == novel_id,
-            EntityAlias.alias == alias_text,
+    ) -> list[dict[str, Any]]:
+        """搜索 core_entities.aliases JSONB 中的别名匹配"""
+        stmt = (
+            select(CoreEntity.id, CoreEntity.name)
+            .where(
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(["canonical", "draft"]),
+                func.jsonb_path_exists(
+                    CoreEntity.aliases,
+                    f'$[*] ? (@.alias == "{alias_text}")',
+                ),
+            )
         )
         result = await db.execute(stmt)
-        items = result.scalars().all()
-        return list(items)
+        return [
+            {"entity_id": str(row[0]), "entity_name": row[1]}
+            for row in result.all()
+        ]
 
     async def find_trgm_similar(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        name: str,
-        threshold: float = SIMILARITY_MEDIUM_CONFIDENCE,
+        self, db: AsyncSession, novel_id: uuid.UUID,
+        name: str, threshold: float = SIMILARITY_MEDIUM_CONFIDENCE,
     ) -> list[DuplicateSuggestionResult]:
-        """使用 pg_trgm 查找名称相似的对象（MVP 占位）"""
         return []
 
     async def find_vector_similar(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        embedding: list[float],
-        threshold: float = SIMILARITY_MEDIUM_CONFIDENCE,
+        self, db: AsyncSession, novel_id: uuid.UUID,
+        embedding: list[float], threshold: float = SIMILARITY_MEDIUM_CONFIDENCE,
     ) -> list[DuplicateSuggestionResult]:
-        """使用 pgvector 查找语义相似的对象（MVP 占位）"""
         return []

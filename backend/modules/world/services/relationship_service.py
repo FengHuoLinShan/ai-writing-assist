@@ -6,12 +6,12 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.repositories import RelationshipRepository, WorldEntityRepository
+from modules.world.repositories import RelationshipRepository, CoreEntityRepository
 from modules.world.schemas import (
     RelationshipCreate,
     RelationshipResponse,
     RelationshipUpdate,
-    WorldEntityContext,
+    CoreEntityContext,
 )
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -22,7 +22,7 @@ class RelationshipService:
 
     def __init__(self) -> None:
         self._repo = RelationshipRepository()
-        self._entity_repo = WorldEntityRepository()
+        self._entity_repo = CoreEntityRepository()
 
     async def create(
         self,
@@ -114,7 +114,7 @@ class RelationshipService:
         seed_entity_ids: list[str],
         depth: int = 1,
         limit: int = 20,
-    ) -> list[WorldEntityContext]:
+    ) -> list[CoreEntityContext]:
         """关系一跳/二跳扩展，返回相关对象的上下文列表"""
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
@@ -137,9 +137,9 @@ class RelationshipService:
         eids = [parse_uuid(eid, "entity_id") for eid in related_list]
         entities = await self._entity_repo.get_by_ids(db, nid, eids)
 
-        contexts: list[WorldEntityContext] = []
+        contexts: list[CoreEntityContext] = []
         for entity in entities:
-            contexts.append(WorldEntityContext(
+            contexts.append(CoreEntityContext(
                 entity_id=str(entity.id),
                 entity_type=entity.entity_type,
                 name=entity.name,

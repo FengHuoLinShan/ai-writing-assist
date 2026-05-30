@@ -1,14 +1,13 @@
 """
 World ORM 模型
 
-对应 4 张数据库表：
-- world_entities: 世界对象正史库
+数据库表：
+- core_entities: 共享核心实体表（取代 world_entities + entity_aliases）
 - relationships: 对象间关系
-- entity_aliases: 对象别名
 - entity_candidates: AI 生成的候选对象池
 
-生产环境 embedding 字段使用 pgvector Vector(1024) 类型。
-测试环境（SQLite）使用 Text 存储 JSON 序列化的浮点数列表。
+公共字段（name, aliases, summary 等）统一存储在 core_entities。
+character/geo 子系统通过 1:1 FK (entity_id = PK) 扩展核心表。
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
 
-# 尝试导入 pgvector Vector 类型；不可用时回退到 Text
 try:
     from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 
@@ -41,25 +39,32 @@ def _vector_column(dim: int = 1024):
 
 
 # ============================================================
-# WorldEntity — 世界对象正史库
+# CoreEntity — 共享核心实体表
 # ============================================================
 
-class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """世界对象 — 需要长期维护的结构化创作资产"""
+class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
+    """共享核心实体 — 所有子系统的公共字段统一存储"""
 
-    __tablename__ = "world_entities"
-    __table_args__ = {"comment": "世界对象正史库"}
+    __tablename__ = "core_entities"
+    __table_args__ = {"comment": "共享核心实体表"}
 
     entity_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         index=True,
-        comment="对象类型：location/faction/item/event/rule/power_system/secret/legend/resource/character_ref",
+        comment="对象类型：character/location/faction/item/concept/event/creature/skill/rule/other",
     )
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
         comment="对象名称",
+    )
+    aliases: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default="[]",
+        comment="别名列表 JSONB [{alias: str, type: str}]",
     )
     summary: Mapped[str | None] = mapped_column(
         Text,
@@ -69,7 +74,7 @@ class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     public_info: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="对外公开信息（读者已知或角色可获取）",
+        comment="对外公开信息",
     )
     hidden_truth: Mapped[str | None] = mapped_column(
         Text,
@@ -80,7 +85,7 @@ class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         JSON,
         nullable=True,
         default=dict,
-        comment="扩展信息 JSON（生产环境使用 JSONB）",
+        comment="扩展信息 JSON",
     )
     importance: Mapped[float] = mapped_column(
         Float,
@@ -92,7 +97,7 @@ class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         String(16),
         nullable=False,
         default="normal",
-        comment="重要性级别：core/important/normal/temporary/alias",
+        comment="重要性级别：core/important/normal/temporary",
     )
     reveal_level: Mapped[str] = mapped_column(
         String(16),
@@ -117,10 +122,25 @@ class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         comment="确认者标识",
     )
 
-    # 别名通过 EntityAliasRepository 查询，不定义 ORM relationship
+    # 延迟引用避免循环 import
+    character: Mapped["Character | None"] = relationship(
+        "Character", back_populates="core_entity", uselist=False,
+        cascade="all, delete-orphan",
+        primaryjoin="CoreEntity.id == foreign(Character.entity_id)",
+    )
+    geo_location: Mapped["GeoLocation | None"] = relationship(
+        "GeoLocation", back_populates="core_entity", uselist=False,
+        cascade="all, delete-orphan",
+        primaryjoin="CoreEntity.id == foreign(GeoLocation.entity_id)",
+    )
 
     def __repr__(self) -> str:
-        return f"<WorldEntity id={self.id} type={self.entity_type} name={self.name!r}>"
+        return f"<CoreEntity id={self.id} type={self.entity_type} name={self.name!r}>"
+
+
+# 延迟导入避免循环引用（SQLAlchemy 标准模式）
+from modules.character.models import Character  # noqa: E402, F401
+from modules.geo.models import GeoLocation  # noqa: E402, F401
 
 
 # ============================================================
@@ -128,7 +148,7 @@ class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # ============================================================
 
 class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """世界对象/人物之间的关系边"""
+    """对象间关系边 — source_id/target_id 指向 core_entities.id"""
 
     __tablename__ = "relationships"
     __table_args__ = {"comment": "对象间关系边"}
@@ -142,7 +162,7 @@ class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         String(36),
         nullable=False,
         index=True,
-        comment="源对象 ID（UUID hex，通用引用，不强制 FK）",
+        comment="源对象 ID（core_entities.id UUID hex）",
     )
     target_type: Mapped[str] = mapped_column(
         String(32),
@@ -153,7 +173,7 @@ class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         String(36),
         nullable=False,
         index=True,
-        comment="目标对象 ID（UUID hex，通用引用，不强制 FK）",
+        comment="目标对象 ID（core_entities.id UUID hex）",
     )
     relation_type: Mapped[str] = mapped_column(
         String(32),
@@ -181,60 +201,10 @@ class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     def __repr__(self) -> str:
         return (
             f"<Relationship id={self.id} "
-            f"{self.source_type}:{self.source_id} → "
-            f"{self.relation_type} → "
+            f"{self.source_type}:{self.source_id} -> "
+            f"{self.relation_type} -> "
             f"{self.target_type}:{self.target_id}>"
         )
-
-
-# ============================================================
-# EntityAlias — 对象别名
-# ============================================================
-
-class EntityAlias(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """世界对象的别名/称号/化名
-
-    别名不独立建 WorldEntity，而是关联到已有对象。
-    避免同一个概念因为不同名称而被重复创建。
-    """
-
-    __tablename__ = "entity_aliases"
-    __table_args__ = {"comment": "世界对象别名"}
-
-    entity_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("world_entities.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        comment="所属对象 ID（FK -> world_entities.id）",
-    )
-    alias: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        comment="别名文本",
-    )
-    alias_type: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        default="name",
-        comment="别名类型：name/title/nickname/alias/translation/abbreviation",
-    )
-    source_chapter_index: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-        comment="首次出现的章节索引",
-    )
-    confidence: Mapped[float] = mapped_column(
-        Float,
-        nullable=False,
-        default=0.8,
-        comment="别名确认置信度 0.0~1.0",
-    )
-
-    # 所属实体通过 EntityAliasRepository 查询，不定义 ORM relationship
-
-    def __repr__(self) -> str:
-        return f"<EntityAlias id={self.id} alias={self.alias!r} → entity={self.entity_id}>"
 
 
 # ============================================================
@@ -242,11 +212,7 @@ class EntityAlias(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # ============================================================
 
 class EntityCandidate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """AI 生成的世界对象候选
-
-    AI 不直接创建正史对象。
-    所有结构化生成的候选先进入此表，经去重、复查和用户确认后才进入 world_entities。
-    """
+    """AI 生成的世界对象候选 — 确认后进入 core_entities"""
 
     __tablename__ = "entity_candidates"
     __table_args__ = {"comment": "世界对象候选池"}
@@ -297,12 +263,12 @@ class EntityCandidate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         String(32),
         nullable=False,
         default="needs_user_decision",
-        comment="建议动作：create_new/merge_with_existing/alias_of_existing/ignore/temporary_only/needs_user_decision",
+        comment="建议动作",
     )
     suggested_existing_entity_id: Mapped[str | None] = mapped_column(
         String(36),
         nullable=True,
-        comment="建议关联的已有对象 ID（当 suggested_action 为 merge/alias 时使用）",
+        comment="建议关联的已有对象 ID（core_entities.id）",
     )
     embedding_text: Mapped[str | None] = mapped_column(
         Text,
