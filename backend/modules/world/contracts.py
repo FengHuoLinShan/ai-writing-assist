@@ -65,24 +65,6 @@ class RelationshipContract:
 
 
 @dataclass(frozen=True)
-class EntityAliasContract:
-    """别名契约 — 其他模块通过此契约获取别名信息"""
-
-    novel_id: str
-    """项目 ID"""
-    alias_id: str
-    """别名 ID"""
-    entity_id: str
-    """所属对象 ID"""
-    alias: str
-    """别名文本"""
-    alias_type: str = "name"
-    """别名类型"""
-    confidence: float = 0.8
-    """置信度"""
-
-
-@dataclass(frozen=True)
 class EntityCandidateContract:
     """候选对象契约 — 其他模块通过此契约获取候选信息"""
 
@@ -126,9 +108,9 @@ class DuplicateSuggestion:
 
 # facade 返回类型（Pydantic schema），供跨模块导入使用
 from modules.world.schemas import (  # noqa: F401
-    DuplicateSuggestionResult,  # facade.find_duplicate_entity_candidates / find_similar_entities 返回
-    WorldContextBundle,         # facade.get_world_context 返回
-    WorldEntityContext,         # facade.expand_related_entities 返回
-    WorldEntityResponse,        # facade.merge_candidate_into_entity 返回
+    DuplicateSuggestionResult,
+    WorldContextBundle,
+    CoreEntityContext,
+    CoreEntityResponse,
 )
 

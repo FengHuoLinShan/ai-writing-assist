@@ -1,8 +1,8 @@
 """
 Geo ORM 模型
 
-对应数据库表：
-- geo_locations：地理地点（地点层级、相对坐标、地形气候）
+数据库表：
+- geo_locations：地理地点扩展表（entity_id PK+FK → core_entities）
 - geo_edges：地点之间的通行/关系边
 - geo_eras：宏观历史时期
 """
@@ -17,34 +17,22 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.base import Base, TimestampMixin
 
 
-class GeoLocation(Base, TimestampMixin):
-    """地理地点 — 小说世界的空间位置
-
-    地点本体属于 world_entities（entity_type = location），
-    此表仅提供地理扩展信息：层级、坐标、地形气候等。
-
-    支持父子层级（self-referential FK via parent_location_id）。
-    """
+class GeoLocation(Base):
+    """地理地点扩展表 — 仅存储地理特有字段，公共字段在 core_entities"""
 
     __tablename__ = "geo_locations"
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    entity_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
         primary_key=True,
-        default=uuid.uuid4,
+        comment="地点 entity_id = core_entities.id",
     )
     novel_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-    )
-    world_entity_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("world_entities.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        comment="对应的世界对象 ID（entity_type = location）",
     )
     location_level: Mapped[str] = mapped_column(
         String(32),
@@ -54,10 +42,10 @@ class GeoLocation(Base, TimestampMixin):
     )
     parent_location_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("geo_locations.id", ondelete="SET NULL"),
+        ForeignKey("core_entities.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="父地点 ID（自引用外键，构建地点树）",
+        comment="父地点的 entity_id（自引用，指向 core_entities）",
     )
     x: Mapped[float | None] = mapped_column(
         Float,
@@ -95,33 +83,27 @@ class GeoLocation(Base, TimestampMixin):
         default="normal",
         comment="访问级别：normal/restricted/dangerous/forbidden/secret",
     )
-    summary: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="地点概述",
-    )
     content_json: Mapped[dict] = mapped_column(
         JSON(none_as_null=True),
         nullable=False,
         default=dict,
         comment="扩展信息，可包含 era_states 历史时期状态",
     )
-    status: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="canonical",
-        index=True,
-        comment="状态：draft/candidate/canonical/deprecated",
-    )
+    created_at = TimestampMixin.created_at  # type: ignore[assignment]
+    updated_at = TimestampMixin.updated_at  # type: ignore[assignment]
 
     # ORM 关系
-    parent_location: Mapped[GeoLocation | None] = relationship(
+    core_entity: Mapped["CoreEntity"] = relationship(
+        "CoreEntity", back_populates="geo_location",
+        primaryjoin="GeoLocation.entity_id == foreign(CoreEntity.id)",
+    )
+    parent_location: Mapped["GeoLocation | None"] = relationship(
         "GeoLocation",
-        remote_side="GeoLocation.id",
+        remote_side="GeoLocation.entity_id",
         back_populates="child_locations",
         foreign_keys=[parent_location_id],
     )
-    child_locations: Mapped[list[GeoLocation]] = relationship(
+    child_locations: Mapped[list["GeoLocation"]] = relationship(
         "GeoLocation",
         back_populates="parent_location",
         foreign_keys=[parent_location_id],
@@ -129,17 +111,13 @@ class GeoLocation(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return (
-            f"<GeoLocation id={self.id} level={self.location_level} "
+            f"<GeoLocation entity_id={self.entity_id} level={self.location_level} "
             f"x={self.x} y={self.y}>"
         )
 
 
 class GeoEdge(Base, TimestampMixin):
-    """地理关系边 — 地点间的通行/方位关系
-
-    关系类型包括：道路连接、水路连接、位于内部、方向关系、
-    附近、隐藏通道、阻断路径、接壤等。
-    """
+    """地理关系边 — 地点间的通行/方位关系"""
 
     __tablename__ = "geo_edges"
 
@@ -156,39 +134,38 @@ class GeoEdge(Base, TimestampMixin):
     )
     source_location_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("geo_locations.id", ondelete="CASCADE"),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="起点地点 ID",
+        comment="起点地点的 entity_id",
     )
     target_location_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("geo_locations.id", ondelete="CASCADE"),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="终点地点 ID",
+        comment="终点地点的 entity_id",
     )
     relation_type: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         index=True,
-        comment="关系类型：road_to/river_to/inside/north_of/south_of/"
-        "east_of/west_of/near/hidden_path/blocked_path/borders",
+        comment="关系类型：road_to/river_to/inside/north_of等",
     )
     direction_label: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="方向描述，如「沿河而下」「翻越山脉」",
+        comment="方向描述",
     )
     distance_label: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="距离描述，如「三日路程」「五百里」",
+        comment="距离描述",
     )
     travel_time: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="通行时间，如「步行三日」「快马一日」",
+        comment="通行时间",
     )
     difficulty: Mapped[str | None] = mapped_column(
         String(32),
@@ -204,7 +181,7 @@ class GeoEdge(Base, TimestampMixin):
     condition_text: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="通行条件，如「需通关文牒」「冬季封路」",
+        comment="通行条件",
     )
     status: Mapped[str] = mapped_column(
         String(32),
@@ -222,13 +199,7 @@ class GeoEdge(Base, TimestampMixin):
 
 
 class GeoEra(Base, TimestampMixin):
-    """宏观历史时期 — 小说世界的历史阶段
-
-    用于表示不同历史时期下地理和社会状态的变化，
-    如王朝兴衰、迁都、战争时期、和平时期等。
-
-    start_event_id / end_event_id 可关联 timeline_events。
-    """
+    """宏观历史时期"""
 
     __tablename__ = "geo_eras"
 
@@ -246,12 +217,12 @@ class GeoEra(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
-        comment="历史时期名称，如「古王朝时期」「焚城前」「主线开始时」",
+        comment="历史时期名称",
     )
     order_index: Mapped[int] = mapped_column(
         nullable=False,
         index=True,
-        comment="时间顺序索引（小→大表示从古至今）",
+        comment="时间顺序索引",
     )
     summary: Mapped[str | None] = mapped_column(
         Text,
@@ -261,12 +232,12 @@ class GeoEra(Base, TimestampMixin):
     start_event_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         nullable=True,
-        comment="起始事件 ID（关联 timeline_events）",
+        comment="起始事件 ID",
     )
     end_event_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         nullable=True,
-        comment="结束事件 ID（关联 timeline_events）",
+        comment="结束事件 ID",
     )
     status: Mapped[str] = mapped_column(
         String(32),
@@ -280,3 +251,7 @@ class GeoEra(Base, TimestampMixin):
             f"<GeoEra id={self.id} name={self.name!r} "
             f"order_index={self.order_index}>"
         )
+
+
+# 延迟导入避免循环引用
+from modules.world.models import CoreEntity  # noqa: E402, F401

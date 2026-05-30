@@ -1,8 +1,8 @@
 """
 World 数据访问层
 
-封装 4 张表的所有数据库操作。
-只处理 ORM ↔ DB 的基本 CRUD，不含业务逻辑。
+封装 core_entities、relationships、entity_candidates 三张表的数据库操作。
+别名已整合为 core_entities.aliases JSONB，不再使用独立的 entity_aliases 表。
 """
 
 from __future__ import annotations
@@ -10,40 +10,41 @@ from __future__ import annotations
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import Select, delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import JSON
 
-from modules.world.models import EntityAlias, EntityCandidate, Relationship, WorldEntity
+from modules.world.models import CoreEntity, EntityCandidate, Relationship
 from modules.world.schemas import (
-    EntityAliasCreate,
+    CoreEntityCreate,
+    CoreEntityUpdate,
     EntityCandidateCreate,
     EntityCandidateUpdate,
     RelationshipCreate,
     RelationshipUpdate,
-    WorldEntityCreate,
-    WorldEntityUpdate,
 )
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
 # ============================================================
-# WorldEntityRepository
+# CoreEntityRepository
 # ============================================================
 
-class WorldEntityRepository:
-    """世界对象数据访问"""
+class CoreEntityRepository:
+    """核心实体数据访问 — 取代原 WorldEntityRepository + EntityAliasRepository"""
 
     async def create(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
-        data: WorldEntityCreate,
-    ) -> WorldEntity:
-        """创建世界对象"""
-        entity = WorldEntity(
+        data: CoreEntityCreate,
+    ) -> CoreEntity:
+        """创建核心实体"""
+        entity = CoreEntity(
             novel_id=novel_id,
             entity_type=data.entity_type,
             name=data.name,
+            aliases=data.aliases or [],
             summary=data.summary,
             public_info=data.public_info,
             hidden_truth=data.hidden_truth,
@@ -62,9 +63,9 @@ class WorldEntityRepository:
         self,
         db: AsyncSession,
         entity_id: uuid.UUID,
-    ) -> WorldEntity | None:
-        """根据 ID 获取世界对象"""
-        stmt = select(WorldEntity).where(WorldEntity.id == entity_id)
+    ) -> CoreEntity | None:
+        """根据 ID 获取核心实体"""
+        stmt = select(CoreEntity).where(CoreEntity.id == entity_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -77,30 +78,27 @@ class WorldEntityRepository:
         status: str | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[WorldEntity], int]:
-        """获取小说的世界对象列表（分页），返回 (items, total)"""
-        # 构建查询条件
-        conditions = [WorldEntity.novel_id == novel_id]
+    ) -> tuple[list[CoreEntity], int]:
+        """获取小说的核心实体列表（分页）"""
+        conditions = [CoreEntity.novel_id == novel_id]
         if entity_type:
-            conditions.append(WorldEntity.entity_type == entity_type)
+            conditions.append(CoreEntity.entity_type == entity_type)
         if status:
-            conditions.append(WorldEntity.status == status)
+            conditions.append(CoreEntity.status == status)
 
-        # 计数
-        count_stmt = select(func.count(WorldEntity.id)).where(*conditions)
+        count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
 
-        # 分页查询
         stmt = (
-            select(WorldEntity)
+            select(CoreEntity)
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(WorldEntity.importance.desc(), WorldEntity.name)
+            .order_by(CoreEntity.importance.desc(), CoreEntity.name)
         )
         result = await db.execute(stmt)
-        items: Sequence[WorldEntity] = result.scalars().all()
+        items: Sequence[CoreEntity] = result.scalars().all()
         return list(items), total
 
     async def get_by_ids(
@@ -108,16 +106,16 @@ class WorldEntityRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         entity_ids: list[uuid.UUID],
-    ) -> list[WorldEntity]:
-        """批量获取指定 ID 的世界对象"""
+    ) -> list[CoreEntity]:
+        """批量获取指定 ID 的核心实体"""
         if not entity_ids:
             return []
-        stmt = select(WorldEntity).where(
-            WorldEntity.novel_id == novel_id,
-            WorldEntity.id.in_(entity_ids),
+        stmt = select(CoreEntity).where(
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.id.in_(entity_ids),
         )
         result = await db.execute(stmt)
-        items: Sequence[WorldEntity] = result.scalars().all()
+        items: Sequence[CoreEntity] = result.scalars().all()
         return list(items)
 
     async def get_by_type_and_status(
@@ -127,31 +125,31 @@ class WorldEntityRepository:
         entity_type: str | None = None,
         status: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> list[WorldEntity]:
+    ) -> list[CoreEntity]:
         """按类型和状态查询"""
-        conditions = [WorldEntity.novel_id == novel_id]
+        conditions = [CoreEntity.novel_id == novel_id]
         if entity_type:
-            conditions.append(WorldEntity.entity_type == entity_type)
+            conditions.append(CoreEntity.entity_type == entity_type)
         if status:
-            conditions.append(WorldEntity.status == status)
+            conditions.append(CoreEntity.status == status)
 
         stmt = (
-            select(WorldEntity)
+            select(CoreEntity)
             .where(*conditions)
             .limit(limit)
-            .order_by(WorldEntity.importance.desc())
+            .order_by(CoreEntity.importance.desc())
         )
         result = await db.execute(stmt)
-        items: Sequence[WorldEntity] = result.scalars().all()
+        items: Sequence[CoreEntity] = result.scalars().all()
         return list(items)
 
     async def update(
         self,
         db: AsyncSession,
         entity_id: uuid.UUID,
-        data: WorldEntityUpdate,
-    ) -> WorldEntity | None:
-        """更新世界对象，返回更新后的对象（不存在返回 None）"""
+        data: CoreEntityUpdate,
+    ) -> CoreEntity | None:
+        """更新核心实体"""
         entity = await self.get(db, entity_id)
         if entity is None:
             return None
@@ -160,6 +158,7 @@ class WorldEntityRepository:
         for field in (
             "entity_type",
             "name",
+            "aliases",
             "summary",
             "public_info",
             "hidden_truth",
@@ -178,8 +177,8 @@ class WorldEntityRepository:
 
         if update_values:
             stmt = (
-                update(WorldEntity)
-                .where(WorldEntity.id == entity_id)
+                update(CoreEntity)
+                .where(CoreEntity.id == entity_id)
                 .values(**update_values)
             )
             await db.execute(stmt)
@@ -193,8 +192,8 @@ class WorldEntityRepository:
         db: AsyncSession,
         entity_id: uuid.UUID,
     ) -> bool:
-        """删除世界对象，返回是否成功删除"""
-        stmt = delete(WorldEntity).where(WorldEntity.id == entity_id)
+        """删除核心实体（ON DELETE CASCADE 自动清理扩展表）"""
+        stmt = delete(CoreEntity).where(CoreEntity.id == entity_id)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
@@ -206,31 +205,33 @@ class WorldEntityRepository:
         name: str,
         entity_type: str | None = None,
     ) -> str | None:
+        """按名称查找实体 — 先精确匹配 name，再搜 aliases JSONB"""
         conditions = [
-            WorldEntity.novel_id == novel_id,
-            WorldEntity.name == name,
-            WorldEntity.status == "canonical",
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.name == name,
+            CoreEntity.status == "canonical",
         ]
         if entity_type:
-            conditions.append(WorldEntity.entity_type == entity_type)
-        stmt = select(WorldEntity.id).where(*conditions).limit(1)
+            conditions.append(CoreEntity.entity_type == entity_type)
+        stmt = select(CoreEntity.id).where(*conditions).limit(1)
         result = await db.execute(stmt)
         row = result.scalar_one_or_none()
         if row is not None:
             return str(row)
 
-        alias_stmt = (
-            select(EntityAlias.entity_id)
-            .join(WorldEntity, WorldEntity.id == EntityAlias.entity_id)
-            .where(
-                EntityAlias.alias == name,
-                WorldEntity.novel_id == novel_id,
-                WorldEntity.status == "canonical",
-            )
-        )
+        # Search aliases JSONB: check if any alias entry has matching alias text
+        alias_conditions = [
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.status == "canonical",
+            # PostgreSQL JSONB containment: check if aliases array contains {"alias": name}
+            func.jsonb_path_exists(
+                CoreEntity.aliases,
+                f'$[*] ? (@.alias == "{name}")',
+            ),
+        ]
         if entity_type:
-            alias_stmt = alias_stmt.where(WorldEntity.entity_type == entity_type)
-        alias_stmt = alias_stmt.limit(1)
+            alias_conditions.append(CoreEntity.entity_type == entity_type)
+        alias_stmt = select(CoreEntity.id).where(*alias_conditions).limit(1)
         alias_result = await db.execute(alias_stmt)
         alias_row = alias_result.scalar_one_or_none()
         if alias_row is not None:
@@ -238,9 +239,61 @@ class WorldEntityRepository:
 
         return None
 
+    async def add_alias(
+        self,
+        db: AsyncSession,
+        entity_id: uuid.UUID,
+        alias: str,
+        alias_type: str = "name",
+    ) -> bool:
+        """向实体的 aliases JSONB 数组添加别名（去重）"""
+        entity = await self.get(db, entity_id)
+        if entity is None:
+            return False
+
+        current_aliases: list[dict] = entity.aliases or []
+        existing = {a.get("alias") for a in current_aliases if isinstance(a, dict)}
+        if alias in existing:
+            return True  # already exists
+
+        current_aliases.append({"alias": alias, "type": alias_type})
+        stmt = (
+            update(CoreEntity)
+            .where(CoreEntity.id == entity_id)
+            .values(aliases=current_aliases)
+        )
+        await db.execute(stmt)
+        await db.flush()
+        return True
+
+    async def remove_alias(
+        self,
+        db: AsyncSession,
+        entity_id: uuid.UUID,
+        alias: str,
+    ) -> bool:
+        """从实体的 aliases JSONB 数组移除别名"""
+        entity = await self.get(db, entity_id)
+        if entity is None:
+            return False
+
+        current_aliases: list[dict] = list(entity.aliases or [])
+        filtered = [a for a in current_aliases if a.get("alias") != alias]
+        if len(filtered) == len(current_aliases):
+            return False  # nothing removed
+
+        stmt = (
+            update(CoreEntity)
+            .where(CoreEntity.id == entity_id)
+            .values(aliases=filtered)
+        )
+        await db.execute(stmt)
+        await db.flush()
+        return True
+
 
 # ============================================================
-# RelationshipRepository
+# RelationshipRepository (unchanged except WorldEntity→CoreEntity)
 # ============================================================
 
 class RelationshipRepository:
@@ -252,7 +305,6 @@ class RelationshipRepository:
         novel_id: uuid.UUID,
         data: RelationshipCreate,
     ) -> Relationship:
-        """创建关系"""
         rel = Relationship(
             novel_id=novel_id,
             source_type=data.source_type,
@@ -269,27 +321,16 @@ class RelationshipRepository:
         await db.flush()
         return rel
 
-    async def get(
-        self,
-        db: AsyncSession,
-        rel_id: uuid.UUID,
-    ) -> Relationship | None:
-        """根据 ID 获取关系"""
+    async def get(self, db: AsyncSession, rel_id: uuid.UUID) -> Relationship | None:
         stmt = select(Relationship).where(Relationship.id == rel_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_novel(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        *,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
+        self, db: AsyncSession, novel_id: uuid.UUID, *,
+        skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[Relationship], int]:
-        """获取小说的关系列表（分页）"""
         conditions = [Relationship.novel_id == novel_id]
-
         count_stmt = select(func.count(Relationship.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
@@ -306,183 +347,94 @@ class RelationshipRepository:
         return list(items), total
 
     async def get_by_source(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        source_id: str,
-        *,
-        relation_type: str | None = None,
-        limit: int = DEFAULT_PAGE_SIZE,
+        self, db: AsyncSession, novel_id: uuid.UUID, source_id: str, *,
+        relation_type: str | None = None, limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[Relationship]:
-        """获取以指定对象为源的关系"""
-        conditions = [
-            Relationship.novel_id == novel_id,
-            Relationship.source_id == source_id,
-        ]
+        conditions = [Relationship.novel_id == novel_id, Relationship.source_id == source_id]
         if relation_type:
             conditions.append(Relationship.relation_type == relation_type)
-
         stmt = (
-            select(Relationship)
-            .where(*conditions)
-            .limit(limit)
-            .order_by(Relationship.strength.desc())
+            select(Relationship).where(*conditions)
+            .limit(limit).order_by(Relationship.strength.desc())
         )
         result = await db.execute(stmt)
-        items: Sequence[Relationship] = result.scalars().all()
-        return list(items)
+        return list(result.scalars().all())
 
     async def get_by_target(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        target_id: str,
-        *,
-        relation_type: str | None = None,
-        limit: int = DEFAULT_PAGE_SIZE,
+        self, db: AsyncSession, novel_id: uuid.UUID, target_id: str, *,
+        relation_type: str | None = None, limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[Relationship]:
-        """获取以指定对象为目标的关系"""
-        conditions = [
-            Relationship.novel_id == novel_id,
-            Relationship.target_id == target_id,
-        ]
+        conditions = [Relationship.novel_id == novel_id, Relationship.target_id == target_id]
         if relation_type:
             conditions.append(Relationship.relation_type == relation_type)
-
         stmt = (
-            select(Relationship)
-            .where(*conditions)
-            .limit(limit)
-            .order_by(Relationship.strength.desc())
+            select(Relationship).where(*conditions)
+            .limit(limit).order_by(Relationship.strength.desc())
         )
         result = await db.execute(stmt)
-        items: Sequence[Relationship] = result.scalars().all()
-        return list(items)
+        return list(result.scalars().all())
 
     async def get_related_entity_ids(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        entity_id: str,
-        depth: int = 1,
-        limit: int = 20,
+        self, db: AsyncSession, novel_id: uuid.UUID, entity_id: str,
+        depth: int = 1, limit: int = 20,
     ) -> set[str]:
-        """获取与指定对象直接相关的实体 ID 集合
-
-        一跳（depth=1）：直接连接的对象
-        二跳（depth=2）：直接对象的直接连接对象（一跳扩展）
-
-        使用 UNION 合并 source/target 查询，避免 N+1 问题。
-        """
         related: set[str] = set()
-
         one_hop_ids = await self._get_one_hop_ids(db, novel_id, entity_id)
         related.update(one_hop_ids)
-
         if depth >= 2:
             for hop_id in list(one_hop_ids):
                 if len(related) >= limit:
                     break
-                second_hop = await self._get_one_hop_ids(
-                    db, novel_id, hop_id,
-                )
+                second_hop = await self._get_one_hop_ids(db, novel_id, hop_id)
                 related.update(second_hop)
                 if len(related) >= limit:
                     break
-
         return related
 
     async def _get_one_hop_ids(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        entity_id: str,
+        self, db: AsyncSession, novel_id: uuid.UUID, entity_id: str,
     ) -> set[str]:
-        """单次 UNION 查询获取一跳相关的所有实体 ID
-
-        合并 source→target 和 target→source 为一条 SQL，
-        避免分别调用 get_by_source / get_by_target 造成的两次查询。
-        """
         from sqlalchemy import union_all
-
-        src_stmt = (
-            select(Relationship.target_id.label("related_id"))
-            .where(
-                Relationship.novel_id == novel_id,
-                Relationship.source_id == entity_id,
-            )
+        src_stmt = select(Relationship.target_id.label("related_id")).where(
+            Relationship.novel_id == novel_id, Relationship.source_id == entity_id,
         )
-        tgt_stmt = (
-            select(Relationship.source_id.label("related_id"))
-            .where(
-                Relationship.novel_id == novel_id,
-                Relationship.target_id == entity_id,
-            )
+        tgt_stmt = select(Relationship.source_id.label("related_id")).where(
+            Relationship.novel_id == novel_id, Relationship.target_id == entity_id,
         )
         combined = union_all(src_stmt, tgt_stmt)
         result = await db.execute(combined)
         return {row[0] for row in result.all()}
 
     async def update(
-        self,
-        db: AsyncSession,
-        rel_id: uuid.UUID,
-        data: RelationshipUpdate,
+        self, db: AsyncSession, rel_id: uuid.UUID, data: RelationshipUpdate,
     ) -> Relationship | None:
-        """更新关系"""
         rel = await self.get(db, rel_id)
         if rel is None:
             return None
-
         update_values: dict[str, Any] = {}
-        for field in (
-            "source_type",
-            "source_id",
-            "target_type",
-            "target_id",
-            "relation_type",
-            "description",
-            "visibility",
-            "strength",
-            "status",
-        ):
+        for field in ("source_type", "source_id", "target_type", "target_id",
+                       "relation_type", "description", "visibility", "strength", "status"):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
-
         if update_values:
-            stmt = (
-                update(Relationship)
-                .where(Relationship.id == rel_id)
-                .values(**update_values)
-            )
+            stmt = update(Relationship).where(Relationship.id == rel_id).values(**update_values)
             await db.execute(stmt)
             await db.flush()
             rel = await self.get(db, rel_id)
-
         return rel
 
-    async def delete(
-        self,
-        db: AsyncSession,
-        rel_id: uuid.UUID,
-    ) -> bool:
-        """删除关系"""
+    async def delete(self, db: AsyncSession, rel_id: uuid.UUID) -> bool:
         stmt = delete(Relationship).where(Relationship.id == rel_id)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
 
     async def upsert_relationship(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        source_id: str,
-        target_id: str,
-        source_type: str,
-        target_type: str,
-        relation_type: str,
-        description: str | None = None,
+        self, db: AsyncSession, novel_id: uuid.UUID,
+        source_id: str, target_id: str,
+        source_type: str, target_type: str,
+        relation_type: str, description: str | None = None,
     ) -> None:
         stmt = select(Relationship).where(
             Relationship.novel_id == novel_id,
@@ -493,29 +445,20 @@ class RelationshipRepository:
         ).limit(1)
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
-
         if existing is not None:
             existing.description = description
         else:
             new_rel = Relationship(
-                novel_id=novel_id,
-                source_id=source_id,
-                target_id=target_id,
-                source_type=source_type,
-                target_type=target_type,
-                relation_type=relation_type,
-                description=description,
-                status="canonical",
+                novel_id=novel_id, source_id=source_id, target_id=target_id,
+                source_type=source_type, target_type=target_type,
+                relation_type=relation_type, description=description, status="canonical",
             )
             db.add(new_rel)
         await db.flush()
 
     async def get_factions_for_location(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        location_id: str,
-        entity_repo: "WorldEntityRepository",
+        self, db: AsyncSession, novel_id: uuid.UUID,
+        location_id: str, entity_repo: "CoreEntityRepository",
     ) -> list[dict[str, Any]]:
         stmt = select(Relationship).where(
             Relationship.novel_id == novel_id,
@@ -525,20 +468,17 @@ class RelationshipRepository:
         )
         result = await db.execute(stmt)
         relationships = result.scalars().all()
-
         faction_ids = list({r.source_id for r in relationships})
         if not faction_ids:
             return []
-
         from shared.utils import parse_uuid
-        entity_stmt = select(WorldEntity).where(
-            WorldEntity.id.in_([parse_uuid(fid) for fid in faction_ids]),
-            WorldEntity.status == "canonical",
+        entity_stmt = select(CoreEntity).where(
+            CoreEntity.id.in_([parse_uuid(fid) for fid in faction_ids]),
+            CoreEntity.status == "canonical",
         )
         entity_result = await db.execute(entity_stmt)
         entities = entity_result.scalars().all()
         entity_map = {str(e.id): e for e in entities}
-
         factions = []
         for r in relationships:
             entity = entity_map.get(r.source_id)
@@ -553,131 +493,18 @@ class RelationshipRepository:
 
 
 # ============================================================
-# EntityAliasRepository
-class EntityAliasRepository:
-    """别名数据访问"""
-
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        data: EntityAliasCreate,
-    ) -> EntityAlias:
-        """创建别名"""
-        alias = EntityAlias(
-            novel_id=novel_id,
-            entity_id=data.entity_id,
-            alias=data.alias,
-            alias_type=data.alias_type or "name",
-            source_chapter_index=data.source_chapter_index,
-            confidence=data.confidence or 0.8,
-            status=data.status or "confirmed",
-        )
-        db.add(alias)
-        await db.flush()
-        return alias
-
-    async def get(
-        self,
-        db: AsyncSession,
-        alias_id: uuid.UUID,
-    ) -> EntityAlias | None:
-        """根据 ID 获取别名"""
-        stmt = select(EntityAlias).where(EntityAlias.id == alias_id)
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_by_novel(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        *,
-        entity_id: uuid.UUID | None = None,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[EntityAlias], int]:
-        """获取小说的别名列表（分页）"""
-        conditions = [EntityAlias.novel_id == novel_id]
-        if entity_id is not None:
-            conditions.append(EntityAlias.entity_id == entity_id)
-
-        count_stmt = select(func.count(EntityAlias.id)).where(*conditions)
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar() or 0
-
-        stmt = (
-            select(EntityAlias)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(EntityAlias.alias)
-        )
-        result = await db.execute(stmt)
-        items: Sequence[EntityAlias] = result.scalars().all()
-        return list(items), total
-
-    async def get_by_entity(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        entity_id: str,
-    ) -> list[EntityAlias]:
-        """获取指定对象的所有别名"""
-        stmt = select(EntityAlias).where(
-            EntityAlias.novel_id == novel_id,
-            EntityAlias.entity_id == entity_id,
-        )
-        result = await db.execute(stmt)
-        items: Sequence[EntityAlias] = result.scalars().all()
-        return list(items)
-
-    async def find_by_alias_text(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        alias_text: str,
-    ) -> list[EntityAlias]:
-        """通过别名文本查找（精确匹配）"""
-        stmt = select(EntityAlias).where(
-            EntityAlias.novel_id == novel_id,
-            EntityAlias.alias == alias_text,
-        )
-        result = await db.execute(stmt)
-        items: Sequence[EntityAlias] = result.scalars().all()
-        return list(items)
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        alias_id: uuid.UUID,
-    ) -> bool:
-        """删除别名"""
-        stmt = delete(EntityAlias).where(EntityAlias.id == alias_id)
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
-
-
-# ============================================================
-# EntityCandidateRepository
+# EntityCandidateRepository (unchanged)
 # ============================================================
 
 class EntityCandidateRepository:
     """候选对象数据访问"""
 
     async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        data: EntityCandidateCreate,
+        self, db: AsyncSession, novel_id: uuid.UUID, data: EntityCandidateCreate,
     ) -> EntityCandidate:
-        """创建候选对象"""
         candidate = EntityCandidate(
-            novel_id=novel_id,
-            name=data.name,
-            entity_type=data.entity_type,
-            summary=data.summary,
-            source_text=data.source_text,
+            novel_id=novel_id, name=data.name, entity_type=data.entity_type,
+            summary=data.summary, source_text=data.source_text,
             source_chapter_index=data.source_chapter_index,
             importance_score=data.importance_score or 0.5,
             confidence=data.confidence or 0.5,
@@ -690,131 +517,77 @@ class EntityCandidateRepository:
         await db.flush()
         return candidate
 
-    async def get(
-        self,
-        db: AsyncSession,
-        candidate_id: uuid.UUID,
-    ) -> EntityCandidate | None:
-        """根据 ID 获取候选对象"""
+    async def get(self, db: AsyncSession, candidate_id: uuid.UUID) -> EntityCandidate | None:
         stmt = select(EntityCandidate).where(EntityCandidate.id == candidate_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_novel(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        *,
-        status: str | None = None,
-        suggested_action: str | None = None,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
+        self, db: AsyncSession, novel_id: uuid.UUID, *,
+        status: str | None = None, suggested_action: str | None = None,
+        skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[EntityCandidate], int]:
-        """获取小说的候选对象列表（分页）"""
         conditions = [EntityCandidate.novel_id == novel_id]
         if status:
             conditions.append(EntityCandidate.status == status)
         if suggested_action:
             conditions.append(EntityCandidate.suggested_action == suggested_action)
-
         count_stmt = select(func.count(EntityCandidate.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
-
         stmt = (
-            select(EntityCandidate)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
+            select(EntityCandidate).where(*conditions)
+            .offset(skip).limit(limit)
             .order_by(EntityCandidate.importance_score.desc())
         )
         result = await db.execute(stmt)
-        items: Sequence[EntityCandidate] = result.scalars().all()
-        return list(items), total
+        return list(result.scalars().all()), total
 
     async def get_by_status(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        status: str,
+        self, db: AsyncSession, novel_id: uuid.UUID, status: str,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[EntityCandidate]:
-        """按状态查询候选"""
         stmt = (
             select(EntityCandidate)
-            .where(
-                EntityCandidate.novel_id == novel_id,
-                EntityCandidate.status == status,
-            )
-            .limit(limit)
-            .order_by(EntityCandidate.importance_score.desc())
+            .where(EntityCandidate.novel_id == novel_id, EntityCandidate.status == status)
+            .limit(limit).order_by(EntityCandidate.importance_score.desc())
         )
         result = await db.execute(stmt)
-        items: Sequence[EntityCandidate] = result.scalars().all()
-        return list(items)
+        return list(result.scalars().all())
 
     async def update(
-        self,
-        db: AsyncSession,
-        candidate_id: uuid.UUID,
-        data: EntityCandidateUpdate,
+        self, db: AsyncSession, candidate_id: uuid.UUID, data: EntityCandidateUpdate,
     ) -> EntityCandidate | None:
-        """更新候选对象"""
         candidate = await self.get(db, candidate_id)
         if candidate is None:
             return None
-
         update_values: dict[str, Any] = {}
-        for field in (
-            "name",
-            "entity_type",
-            "summary",
-            "source_text",
-            "source_chapter_index",
-            "importance_score",
-            "confidence",
-            "candidate_reason",
-            "suggested_action",
-            "suggested_existing_entity_id",
-            "status",
-        ):
+        for field in ("name", "entity_type", "summary", "source_text",
+                       "source_chapter_index", "importance_score", "confidence",
+                       "candidate_reason", "suggested_action",
+                       "suggested_existing_entity_id", "status"):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
-
         if update_values:
-            stmt = (
-                update(EntityCandidate)
-                .where(EntityCandidate.id == candidate_id)
-                .values(**update_values)
-            )
+            stmt = update(EntityCandidate).where(
+                EntityCandidate.id == candidate_id
+            ).values(**update_values)
             await db.execute(stmt)
             await db.flush()
             candidate = await self.get(db, candidate_id)
-
         return candidate
 
     async def update_status(
-        self,
-        db: AsyncSession,
-        candidate_id: uuid.UUID,
-        status: str,
+        self, db: AsyncSession, candidate_id: uuid.UUID, status: str,
     ) -> None:
-        """更新候选对象状态"""
-        stmt = (
-            update(EntityCandidate)
-            .where(EntityCandidate.id == candidate_id)
-            .values(status=status)
-        )
+        stmt = update(EntityCandidate).where(
+            EntityCandidate.id == candidate_id
+        ).values(status=status)
         await db.execute(stmt)
         await db.flush()
 
-    async def delete(
-        self,
-        db: AsyncSession,
-        candidate_id: uuid.UUID,
-    ) -> bool:
-        """删除候选对象"""
+    async def delete(self, db: AsyncSession, candidate_id: uuid.UUID) -> bool:
         stmt = delete(EntityCandidate).where(EntityCandidate.id == candidate_id)
         result = await db.execute(stmt)
         await db.flush()

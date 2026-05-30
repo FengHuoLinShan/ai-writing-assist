@@ -1,42 +1,39 @@
 """
 Character ORM 模型
 
-对应数据库 characters 表和 character_knowledge 表。
-Person 模块属于事实层，依赖 project 模块提供 novel_id。
+对应数据库 characters 扩展表和 character_knowledge 表。
+Character 以 entity_id 为 PK+FK（1:1 关联 core_entities），仅存储人物特有字段。
+公共字段（name, aliases, summary 等）在 core_entities 中。
 """
 
 from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
+from core.base import Base, StatusMixin, TimestampMixin, UUIDMixin
 
 
-class Character(Base, UUIDMixin, NovelMixin, TimestampMixin, StatusMixin):
-    """人物档案 — 小说人物核心数据"""
+class Character(Base):
+    """人物档案扩展表 — 仅存储人物特有字段，公共字段在 core_entities"""
 
     __tablename__ = "characters"
 
-    world_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+    entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        nullable=True,
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="人物 entity_id = core_entities.id",
+    )
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
-        comment="关联的世界对象 ID（可选）",
-    )
-    name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        comment="人物名称",
-    )
-    aliases: Mapped[list] = mapped_column(
-        JSON,
-        nullable=False,
-        default=list,
-        comment="别名列表 JSONB（[{alias: str, type: str}]）",
+        comment="小说项目 ID",
     )
     role: Mapped[str | None] = mapped_column(
         String(64),
@@ -115,9 +112,17 @@ class Character(Base, UUIDMixin, NovelMixin, TimestampMixin, StatusMixin):
         default=dict,
         comment="扩展元数据（AI 抽取建议等）",
     )
+    created_at = TimestampMixin.created_at  # type: ignore[assignment]
+    updated_at = TimestampMixin.updated_at  # type: ignore[assignment]
+
+    # ORM 关系：1:1 回到 core_entities
+    core_entity: Mapped["CoreEntity"] = relationship(
+        "CoreEntity", back_populates="character",
+        primaryjoin="Character.entity_id == foreign(CoreEntity.id)",
+    )
 
     def __repr__(self) -> str:
-        return f"<Character id={self.id} name={self.name!r}>"
+        return f"<Character entity_id={self.entity_id}>"
 
 
 class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
@@ -133,9 +138,10 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
     )
     character_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="人物 ID",
+        comment="人物 entity_id（core_entities.id, entity_type='character'）",
     )
     target_type: Mapped[str] = mapped_column(
         String(64),
@@ -181,3 +187,7 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
             f"target={self.target_type}:{self.target_id} "
             f"level={self.knowledge_level}>"
         )
+
+
+# 延迟导入避免循环引用
+from modules.world.models import CoreEntity  # noqa: E402, F401

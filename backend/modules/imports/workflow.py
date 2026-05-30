@@ -105,40 +105,35 @@ class DeepImportWorkflow:
         db: AsyncSession,
         novel_id: str,
     ) -> dict[str, Any]:
-        """将已确认的「人物」类型 world_entity 同步到人物档案"""
-        from modules.character.facade import (
-            create_character,
-            get_character_id_by_world_entity,
-        )
+        """为已确认的「人物」类型 CoreEntity 创建 Character 扩展表记录"""
+        from modules.character.facade import create_character_extension, get_character
         from modules.world.facade import list_entities
 
-        # 通过 world facade 查询所有 character_ref 实体
+        # 查询所有 character 类型实体
         character_entities = await list_entities(
             db, novel_id,
-            entity_type="character_ref",
+            entity_type="character",
         )
 
         total_synced = 0
         for entity in character_entities:
-            # 通过 character facade 检查是否已存在
-            existing = await get_character_id_by_world_entity(
-                db, novel_id, entity["id"],
-            )
-            if existing is not None:
-                continue
+            entity_id = entity["id"]
+            # 检查 Character 扩展表是否已有记录
+            try:
+                await get_character(db, entity_id, novel_id)
+                continue  # already exists
+            except Exception:
+                pass
 
             try:
-                await create_character(
-                    db=db,
-                    novel_id=novel_id,
-                    name=entity["name"],
-                    world_entity_id=entity["id"],
+                await create_character_extension(
+                    db=db, entity_id=entity_id, novel_id=novel_id,
                 )
                 total_synced += 1
             except Exception as exc:
                 logger.warning(
-                    "Failed to create Character for entity %s: %s",
-                    entity["name"], exc,
+                    "Failed to create Character extension for entity %s: %s",
+                    entity_id, exc,
                 )
 
         await db.flush()
