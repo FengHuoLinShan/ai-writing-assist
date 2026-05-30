@@ -121,6 +121,7 @@ async def handle_character_extract(db, task):
         raise ValueError(f"Character {character_id} not found")
 
     # 从 CoreEntity 获取 name（Character 扩展表不再持有 name）
+    core = None
     try:
         core = await _get_entity(db, character_id, novel_id)
         character_name = core.name
@@ -174,17 +175,32 @@ async def handle_character_extract(db, task):
         current_emotion: str | None = None
         stance: str | None = None
         voice_style: str | None = None
+        summary: str | None = None
+        aliases: list[dict] | None = None
 
     existing_info = "\n".join(
         f"{f}: {getattr(character, f, '') or '(空)'}"
         for f in _EXTRACTABLE_FIELDS
     )
 
+    # 构建已有概要/别名文本用于 prompt
+    existing_summary = core.summary if core and core.summary else "(空)"
+    if core and core.aliases:
+        existing_aliases_str = ", ".join(
+            f"{a.get('alias', '')} ({a.get('type', 'name')})"
+            for a in core.aliases
+            if isinstance(a, dict) and a.get("alias")
+        ) or "(无)"
+    else:
+        existing_aliases_str = "(无)"
+
     from infrastructure.llm.prompt_loader import load_prompt
 
     system_prompt = load_prompt("extract_character",
         character_name=character_name,
         existing_info=existing_info,
+        existing_summary=existing_summary,
+        existing_aliases=existing_aliases_str,
     )
 
     settings = get_settings()
@@ -256,6 +272,49 @@ async def handle_character_extract(db, task):
         "Extracted %d fields for character %s: %s",
         len(suggestions), character_name, list(suggestions.keys()),
     )
+
+    # 6. 同步到 core_entities（摘要 + 别名）
+    if core is not None:
+        # 6a. 更新概要
+        extract_summary = getattr(extract_result, "summary", None)
+        if extract_summary and isinstance(extract_summary, str) and extract_summary.strip():
+            try:
+                from modules.world.facade import update_entity as _update_entity
+                await _update_entity(db, character_id, novel_id, summary=extract_summary.strip())
+                logger.info("Synced summary to core_entity %s", character_id)
+            except Exception as exc:
+                logger.warning("Failed to sync summary for %s: %s", character_name, exc)
+
+        # 6b. 追加别名（使用 add_alias 保持已有别名不丢失）
+        extract_aliases = getattr(extract_result, "aliases", None)
+        if extract_aliases and isinstance(extract_aliases, list):
+            from modules.world.facade import add_alias as _add_alias
+            for alias_entry in extract_aliases:
+                if not isinstance(alias_entry, dict):
+                    continue
+                alias_name = alias_entry.get("alias")
+                if not alias_name or not str(alias_name).strip():
+                    continue
+                alias_type = alias_entry.get("type", "name")
+                if not isinstance(alias_type, str) or not alias_type.strip():
+                    alias_type = "name"
+                try:
+                    await _add_alias(
+                        db, character_id,
+                        str(alias_name).strip(),
+                        alias_type.strip(),
+                        novel_id=novel_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to add alias '%s' for %s: %s",
+                        alias_name, character_name, exc,
+                    )
+    else:
+        logger.info(
+            "Skipping core_entity sync for character %s: core_entity not found",
+            character_name,
+        )
 
     return {
         "character_id": character_id,

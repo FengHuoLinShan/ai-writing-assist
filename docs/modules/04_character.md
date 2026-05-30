@@ -26,6 +26,7 @@ async def list_characters(db, novel_id, skip=0, limit=100) -> tuple[list[Charact
 async def get_characters_context(db, novel_id, entity_ids, reveal_mode="author_safe") -> CharacterContextBundle
 async def get_character_knowledge_context(db, novel_id, character_id, target_ids=None) -> list
 async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
+async def find_character_id_by_name(db, novel_id, name) -> str | None
 async def get_unknown_target_ids(db, novel_id, character_id) -> dict[str, list[str]]
 async def update_character_location(db, novel_id, entity_id, location_id, text_state, chapter_index) -> None
 async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
@@ -45,6 +46,7 @@ DELETE /api/characters/{id}
 # 知识边界
 POST   /api/characters/{id}/knowledge
 GET    /api/characters/{id}/knowledge
+GET    /api/characters/knowledge/{id}
 PUT    /api/characters/knowledge/{id}
 DELETE /api/characters/knowledge/{id}
 
