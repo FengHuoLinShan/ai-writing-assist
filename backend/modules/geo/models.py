@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.base import Base, TimestampMixin
 
 
-class GeoLocation(Base):
+class GeoLocation(Base, TimestampMixin):
     """地理地点扩展表 — 仅存储地理特有字段，公共字段在 core_entities"""
 
     __tablename__ = "geo_locations"
@@ -89,22 +89,21 @@ class GeoLocation(Base):
         default=dict,
         comment="扩展信息，可包含 era_states 历史时期状态",
     )
-    created_at = TimestampMixin.created_at  # type: ignore[assignment]
-    updated_at = TimestampMixin.updated_at  # type: ignore[assignment]
-
     # ORM 关系
     core_entity: Mapped["CoreEntity"] = relationship(
         "CoreEntity", back_populates="geo_location",
-        primaryjoin="GeoLocation.entity_id == foreign(CoreEntity.id)",
+        primaryjoin="foreign(GeoLocation.entity_id) == CoreEntity.id",
     )
     parent_location: Mapped["GeoLocation | None"] = relationship(
         "GeoLocation",
+        primaryjoin="foreign(GeoLocation.parent_location_id) == remote(GeoLocation.entity_id)",
         remote_side="GeoLocation.entity_id",
         back_populates="child_locations",
         foreign_keys=[parent_location_id],
     )
     child_locations: Mapped[list["GeoLocation"]] = relationship(
         "GeoLocation",
+        primaryjoin="GeoLocation.entity_id == foreign(GeoLocation.parent_location_id)",
         back_populates="parent_location",
         foreign_keys=[parent_location_id],
     )

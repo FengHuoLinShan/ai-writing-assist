@@ -128,16 +128,26 @@ class RagChunksLoader(Loader):
             loc_data = loc_ctx.get("location") if isinstance(loc_ctx, dict) else None
             if loc_data is None:
                 continue
-            we_id = (
-                loc_data.world_entity_id
-                if hasattr(loc_data, "world_entity_id")
-                else loc_data.get("world_entity_id")
+            entity_id = RagChunksLoader._read_value(
+                loc_data, "entity_id", "world_entity_id", "id",
             )
-            loc_id = (
-                loc_data.id
-                if hasattr(loc_data, "id")
-                else loc_data.get("id")
+            location_id = RagChunksLoader._read_value(
+                loc_data, "entity_id", "id",
             )
-            if we_id and loc_id:
-                mapping[str(we_id)] = str(loc_id)
+            if entity_id and location_id:
+                mapping[str(entity_id)] = str(location_id)
         return mapping
+
+    @staticmethod
+    def _read_value(source: object, *keys: str) -> object | None:
+        if isinstance(source, dict):
+            for key in keys:
+                value = source.get(key)
+                if value:
+                    return value
+            return None
+        for key in keys:
+            value = getattr(source, key, None)
+            if value:
+                return value
+        return None

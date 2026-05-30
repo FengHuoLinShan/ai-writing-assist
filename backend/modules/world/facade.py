@@ -156,18 +156,20 @@ async def add_alias(
     entity_id: str,
     alias: str,
     alias_type: str = "name",
+    novel_id: str | None = None,
 ) -> bool:
     """向核心实体添加别名"""
-    return await _entity_service.add_alias(db, entity_id, alias, alias_type)
+    return await _entity_service.add_alias(db, entity_id, alias, alias_type, novel_id=novel_id)
 
 
 async def remove_alias(
     db: AsyncSession,
     entity_id: str,
     alias: str,
+    novel_id: str | None = None,
 ) -> bool:
     """从核心实体移除别名"""
-    return await _entity_service.remove_alias(db, entity_id, alias)
+    return await _entity_service.remove_alias(db, entity_id, alias, novel_id=novel_id)
 
 
 # ---- Entity Context ----

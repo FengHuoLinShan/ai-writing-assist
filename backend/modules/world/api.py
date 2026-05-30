@@ -127,7 +127,7 @@ async def add_alias(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> dict:
     """向实体添加别名"""
-    ok = await _entity_service.add_alias(db, entity_id, alias, alias_type)
+    ok = await _entity_service.add_alias(db, entity_id, alias, alias_type, novel_id=novel_id)
     if not ok:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Entity not found")
     return {"status": "ok"}
@@ -141,7 +141,9 @@ async def remove_alias(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     """从实体移除别名"""
-    await _entity_service.remove_alias(db, entity_id, alias)
+    ok = await _entity_service.remove_alias(db, entity_id, alias, novel_id=novel_id)
+    if not ok:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Entity alias not found")
 
 
 # ============================================================

@@ -9,6 +9,7 @@ from modules.character.contracts import CharacterContract, CharacterKnowledgeCon
 from modules.character.facade import (
     create_character,
     filter_context_by_character_knowledge,
+    find_character_id_by_name,
     get_character_knowledge_context,
     get_characters_context,
 )
@@ -40,5 +41,6 @@ __all__ = [
     "get_characters_context",
     "get_character_knowledge_context",
     "filter_context_by_character_knowledge",
+    "find_character_id_by_name",
     "create_character",
 ]

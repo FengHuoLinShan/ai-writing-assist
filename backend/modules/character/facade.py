@@ -7,6 +7,8 @@ Character 以 entity_id 为 PK (= core_entities.id)，仅管理扩展字段。
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.character.schemas import (
@@ -17,6 +19,7 @@ from modules.character.schemas import (
 )
 from modules.character.services import CharacterService
 
+logger = logging.getLogger(__name__)
 _service = CharacterService()
 
 
@@ -84,10 +87,18 @@ async def list_characters(
 async def get_characters_context(
     db: AsyncSession,
     novel_id: str,
-    entity_ids: list[str],
+    character_ids: list[str] | None = None,
     reveal_mode: str = "author_safe",
+    *,
+    entity_ids: list[str] | None = None,
 ) -> CharacterContextBundle:
-    return await _service.get_characters_context(db, novel_id, entity_ids, reveal_mode)
+    if entity_ids is not None and character_ids is not None:
+        logger.warning(
+            "get_characters_context: both entity_ids and character_ids provided; "
+            "entity_ids takes priority (character_ids ignored)",
+        )
+    ids = entity_ids if entity_ids is not None else (character_ids or [])
+    return await _service.get_characters_context(db, novel_id, ids, reveal_mode)
 
 
 async def get_character_knowledge_context(
@@ -111,12 +122,15 @@ async def filter_context_by_character_knowledge(
     return filtered
 
 
-async def get_unknown_target_ids(
+async def find_character_id_by_name(
     db: AsyncSession,
     novel_id: str,
-    character_id: str,
-) -> dict[str, list[str]]:
-    return await _service.get_unknown_target_ids(db, novel_id, character_id)
+    name: str,
+) -> str | None:
+    """按正史人物名/别名查找人物 entity_id。"""
+    from modules.world.facade import find_entity_id_by_name
+
+    return await find_entity_id_by_name(db, novel_id, name, entity_type="character")
 
 
 async def get_unknown_target_ids(

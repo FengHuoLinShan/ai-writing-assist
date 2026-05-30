@@ -8,7 +8,7 @@ from __future__ import annotations
 
 # LLM 输出中文 → 系统标准英文类型映射
 ENTITY_TYPE_MAP: dict[str, str] = {
-    "人物": "character_ref", "人": "character_ref", "角色": "character_ref",
+    "人物": "character", "人": "character", "角色": "character",
     "地点": "location", "场所": "location", "位置": "location",
     "组织": "faction", "势力": "faction", "派系": "faction",
     "物品": "item", "道具": "item", "物品/装备": "item",
@@ -34,6 +34,6 @@ def is_entity_type_valid(entity_type: str) -> bool:
     """判断实体类型是否为系统支持的标准类型"""
     import re
     return bool(re.match(
-        r"^(location|faction|item|event|rule|power_system|secret|legend|resource|character_ref)$",
+        r"^(character|location|faction|item|event|rule|power_system|secret|legend|resource|concept|creature|skill|other)$",
         entity_type,
     ))

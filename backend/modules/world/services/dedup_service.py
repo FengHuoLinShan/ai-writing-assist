@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.contracts import DuplicateSuggestion
@@ -278,21 +278,20 @@ class EntityDedupService:
     ) -> list[dict[str, Any]]:
         """搜索 core_entities.aliases JSONB 中的别名匹配"""
         stmt = (
-            select(CoreEntity.id, CoreEntity.name)
+            select(CoreEntity)
             .where(
                 CoreEntity.novel_id == novel_id,
                 CoreEntity.status.in_(["canonical", "draft"]),
-                func.jsonb_path_exists(
-                    CoreEntity.aliases,
-                    f'$[*] ? (@.alias == "{alias_text}")',
-                ),
             )
         )
         result = await db.execute(stmt)
-        return [
-            {"entity_id": str(row[0]), "entity_name": row[1]}
-            for row in result.all()
-        ]
+        matches: list[dict[str, Any]] = []
+        for entity in result.scalars().all():
+            for alias_entry in entity.aliases or []:
+                if isinstance(alias_entry, dict) and alias_entry.get("alias") == alias_text:
+                    matches.append({"entity_id": str(entity.id), "entity_name": entity.name})
+                    break
+        return matches
 
     async def find_trgm_similar(
         self, db: AsyncSession, novel_id: uuid.UUID,

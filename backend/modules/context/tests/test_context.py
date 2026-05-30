@@ -118,6 +118,25 @@ class TestStructureContextBundle:
         assert len(bundle.characters) == 1
         assert bundle.chapter_index == 5
 
+    def test_geo_filter_map_uses_core_entity_id(self) -> None:
+        """地缘过滤应兼容 core_entities 重构后的 entity_id。"""
+        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
+
+        bundle = StructureContextBundle(
+            novel_id="test-id",
+            task="测试",
+            scope="full",
+            geo_locations=[
+                {"location": {"entity_id": "location-core-id"}},
+                {"location": {"world_entity_id": "legacy-world-id", "id": "legacy-location-id"}},
+            ],
+        )
+
+        assert RagChunksLoader._build_entity_to_location_map(bundle) == {
+            "location-core-id": "location-core-id",
+            "legacy-world-id": "legacy-location-id",
+        }
+
 
 # ============================================================
 # Context Compiler 核心测试
@@ -864,5 +883,5 @@ class TestRagChunksLoaderGeoFilter:
             await loader.load(mock.AsyncMock(), options, bundle)
 
         assert len(bundle.rag_chunks) == 1
-        assert bundle.rag_chunks[0].importance == 0.8
+        assert bundle.rag_chunks[0]["importance"] == 0.8
         assert bundle.geo_filtered is False

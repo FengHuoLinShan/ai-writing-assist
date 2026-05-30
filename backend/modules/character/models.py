@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.base import Base, StatusMixin, TimestampMixin, UUIDMixin
 
 
-class Character(Base):
+class Character(Base, TimestampMixin):
     """人物档案扩展表 — 仅存储人物特有字段，公共字段在 core_entities"""
 
     __tablename__ = "characters"
@@ -112,13 +112,10 @@ class Character(Base):
         default=dict,
         comment="扩展元数据（AI 抽取建议等）",
     )
-    created_at = TimestampMixin.created_at  # type: ignore[assignment]
-    updated_at = TimestampMixin.updated_at  # type: ignore[assignment]
-
     # ORM 关系：1:1 回到 core_entities
     core_entity: Mapped["CoreEntity"] = relationship(
         "CoreEntity", back_populates="character",
-        primaryjoin="Character.entity_id == foreign(CoreEntity.id)",
+        primaryjoin="foreign(Character.entity_id) == CoreEntity.id",
     )
 
     def __repr__(self) -> str:

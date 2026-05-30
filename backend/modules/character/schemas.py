@@ -210,6 +210,7 @@ class CharacterContextItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     entity_id: str
+    character_id: str | None = None
     role: str | None = None
     appearance: str | None = None
     personality: str | None = None

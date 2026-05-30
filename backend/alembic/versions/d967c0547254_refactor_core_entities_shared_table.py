@@ -22,36 +22,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ---------------------------------------------------------------
-    # Phase 1: Drop tables that depend on tables we need to change
+    # Phase 1: Create new core table while legacy tables are intact.
     # ---------------------------------------------------------------
-
-    # entity_aliases is replaced by core_entities.aliases JSONB
-    op.drop_table("entity_aliases")
-
-    # character_knowledge depends on characters.id (PK changing)
-    op.drop_table("character_knowledge")
-
-    # geo_edges depends on geo_locations.id (PK changing)
-    op.drop_table("geo_edges")
-
-    # ---------------------------------------------------------------
-    # Phase 2: Drop tables whose PKs are changing
-    # ---------------------------------------------------------------
-
-    # characters: id → entity_id (PK+FK → core_entities)
-    op.drop_table("characters")
-
-    # geo_locations: id → entity_id (PK+FK → core_entities)
-    op.drop_table("geo_locations")
-
-    # world_entities is replaced by core_entities
-    op.drop_table("world_entities")
-
-    # ---------------------------------------------------------------
-    # Phase 3: Create new tables
-    # ---------------------------------------------------------------
-
-    # 3a. core_entities — shared core table
     op.create_table(
         "core_entities",
         sa.Column("id", sa.UUID(), nullable=False),
@@ -81,9 +53,110 @@ def upgrade() -> None:
     op.create_index("ix_core_entities_novel_id", "core_entities", ["novel_id"])
     op.create_index("ix_core_entities_name", "core_entities", ["name"])
 
-    # 3b. characters — extension table (entity_id is PK + FK)
+    # Copy world_entities and fold entity_aliases into aliases JSON.
+    # Deprecated aliases (status = 'deprecated') are intentionally excluded:
+    # they represent LLM extraction errors or user-rejected candidates and
+    # have no ongoing value in the unified aliases JSONB.
+    op.execute(sa.text("""
+        INSERT INTO core_entities (
+            id, novel_id, entity_type, name, aliases, summary,
+            public_info, hidden_truth, content_json, importance,
+            importance_level, reveal_level, embedding_text, embedding,
+            created_by, approved_by, status, created_at, updated_at
+        )
+        SELECT
+            we.id,
+            we.novel_id,
+            CASE
+                WHEN we.entity_type = 'character_ref' THEN 'character'
+                ELSE we.entity_type
+            END,
+            we.name,
+            COALESCE((
+                SELECT json_agg(json_build_object(
+                    'alias', ea.alias,
+                    'type', ea.alias_type,
+                    'source_chapter_index', ea.source_chapter_index,
+                    'confidence', ea.confidence
+                ))
+                FROM entity_aliases ea
+                WHERE ea.entity_id = we.id
+                  AND ea.status != 'deprecated'
+            ), '[]'::json),
+            we.summary,
+            we.public_info,
+            we.hidden_truth,
+            COALESCE(we.content_json, '{}'::json),
+            we.importance,
+            we.importance_level,
+            we.reveal_level,
+            we.embedding_text,
+            we.embedding,
+            we.created_by,
+            we.approved_by,
+            we.status,
+            we.created_at,
+            we.updated_at
+        FROM world_entities we
+    """))
+
+    # Characters that were not linked to world_entities still need a core row.
+    op.execute(sa.text("""
+        INSERT INTO core_entities (
+            id, novel_id, entity_type, name, aliases, summary,
+            content_json, importance, importance_level, reveal_level,
+            status, created_at, updated_at
+        )
+        SELECT
+            c.id,
+            c.novel_id,
+            'character',
+            c.name,
+            COALESCE((
+                SELECT json_agg(
+                    CASE
+                        WHEN json_typeof(alias_item) = 'object'
+                            THEN alias_item
+                        ELSE json_build_object(
+                            'alias', alias_item #>> '{}',
+                            'type', 'legacy'
+                        )
+                    END
+                )
+                FROM json_array_elements(COALESCE(c.aliases, '[]'::json)) alias_item
+            ), '[]'::json),
+            c.current_state,
+            COALESCE(c.meta, '{}'::json),
+            0.5,
+            'normal',
+            'author_only',
+            c.status,
+            c.created_at,
+            c.updated_at
+        FROM characters c
+        WHERE c.world_entity_id IS NULL
+    """))
+
+    # Legacy extension rows determine the canonical subtype of linked core rows.
+    op.execute(sa.text("""
+        UPDATE core_entities ce
+        SET entity_type = 'character'
+        FROM characters c
+        WHERE c.world_entity_id = ce.id
+    """))
+    op.execute(sa.text("""
+        UPDATE core_entities ce
+        SET entity_type = 'location',
+            summary = COALESCE(ce.summary, gl.summary)
+        FROM geo_locations gl
+        WHERE gl.world_entity_id = ce.id
+    """))
+
+    # ---------------------------------------------------------------
+    # Phase 2: Create temporary extension tables and copy legacy data.
+    # ---------------------------------------------------------------
     op.create_table(
-        "characters",
+        "characters_new",
         sa.Column("entity_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
         sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
         sa.Column("role", sa.String(64), nullable=True),
@@ -107,11 +180,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("entity_id"),
         comment="人物档案扩展表",
     )
-    op.create_index("ix_characters_novel_id", "characters", ["novel_id"])
 
-    # 3c. character_knowledge — FK → core_entities.id (via characters PK)
     op.create_table(
-        "character_knowledge",
+        "character_knowledge_new",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
         sa.Column("character_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
@@ -128,12 +199,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         comment="人物知识边界",
     )
-    op.create_index("ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"])
-    op.create_index("ix_character_knowledge_char_id", "character_knowledge", ["character_id"])
 
-    # 3d. geo_locations — extension table (entity_id is PK + FK)
     op.create_table(
-        "geo_locations",
+        "geo_locations_new",
         sa.Column("entity_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
         sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
         sa.Column("location_level", sa.String(32), nullable=False, index=True),
@@ -152,12 +220,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("entity_id"),
         comment="地理地点扩展表",
     )
-    op.create_index("ix_geo_locations_novel_id", "geo_locations", ["novel_id"])
-    op.create_index("ix_geo_locations_parent", "geo_locations", ["parent_location_id"])
 
-    # 3e. geo_edges — FK → core_entities.id
     op.create_table(
-        "geo_edges",
+        "geo_edges_new",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
         sa.Column("source_location_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
@@ -175,13 +240,160 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         comment="地理关系边",
     )
+
+    op.execute(sa.text("""
+        INSERT INTO characters_new (
+            entity_id, novel_id, role, appearance, personality,
+            desire, fear, secret, weakness, current_goal, current_state,
+            current_emotion, stance, voice_style, behavior_rules,
+            relationship_summary, meta, created_at, updated_at
+        )
+        SELECT
+            COALESCE(c.world_entity_id, c.id),
+            c.novel_id,
+            c.role,
+            c.appearance,
+            c.personality,
+            c.desire,
+            c.fear,
+            c.secret,
+            c.weakness,
+            c.current_goal,
+            c.current_state,
+            c.current_emotion,
+            c.stance,
+            c.voice_style,
+            COALESCE(c.behavior_rules, '[]'::json),
+            c.relationship_summary,
+            COALESCE(c.meta, '{}'::json),
+            c.created_at,
+            c.updated_at
+        FROM characters c
+    """))
+
+    # target_id may reference legacy characters.id or geo_locations.id,
+    # so we LEFT JOIN both extension tables to resolve the canonical core entity ID.
+    op.execute(sa.text("""
+        INSERT INTO character_knowledge_new (
+            id, novel_id, character_id, target_type, target_id,
+            knowledge_level, known_content, misconception,
+            source_chapter_index, source_memory_id, status,
+            created_at, updated_at
+        )
+        SELECT
+            ck.id,
+            ck.novel_id,
+            COALESCE(c.world_entity_id, c.id),
+            ck.target_type,
+            COALESCE(
+                target_char.world_entity_id,
+                target_char.id,
+                target_geo.world_entity_id,
+                ck.target_id
+            ),
+            ck.knowledge_level,
+            ck.known_content,
+            ck.misconception,
+            ck.source_chapter_index,
+            ck.source_memory_id,
+            ck.status,
+            ck.created_at,
+            ck.updated_at
+        FROM character_knowledge ck
+        JOIN characters c ON c.id = ck.character_id
+        LEFT JOIN characters target_char ON target_char.id = ck.target_id
+        LEFT JOIN geo_locations target_geo ON target_geo.id = ck.target_id
+    """))
+
+    op.execute(sa.text("""
+        INSERT INTO geo_locations_new (
+            entity_id, novel_id, location_level, parent_location_id,
+            x, y, position_label, scale_label, terrain, climate,
+            access_level, content_json, created_at, updated_at
+        )
+        SELECT
+            gl.world_entity_id,
+            gl.novel_id,
+            gl.location_level,
+            parent.world_entity_id,
+            gl.x,
+            gl.y,
+            gl.position_label,
+            gl.scale_label,
+            gl.terrain,
+            gl.climate,
+            gl.access_level,
+            COALESCE(gl.content_json, '{}'::json),
+            gl.created_at,
+            gl.updated_at
+        FROM geo_locations gl
+        LEFT JOIN geo_locations parent ON parent.id = gl.parent_location_id
+    """))
+
+    # Edges referencing geo_locations without a world_entity_id are orphaned
+    # data (legacy cleanup leftovers) and are intentionally dropped here.
+    op.execute(sa.text("""
+        INSERT INTO geo_edges_new (
+            id, novel_id, source_location_id, target_location_id,
+            relation_type, direction_label, distance_label, travel_time,
+            difficulty, visibility, condition_text, status,
+            created_at, updated_at
+        )
+        SELECT
+            ge.id,
+            ge.novel_id,
+            source.world_entity_id,
+            target.world_entity_id,
+            ge.relation_type,
+            ge.direction_label,
+            ge.distance_label,
+            ge.travel_time,
+            ge.difficulty,
+            ge.visibility,
+            ge.condition_text,
+            ge.status,
+            ge.created_at,
+            ge.updated_at
+        FROM geo_edges ge
+        LEFT JOIN geo_locations source ON source.id = ge.source_location_id
+        LEFT JOIN geo_locations target ON target.id = ge.target_location_id
+        WHERE source.world_entity_id IS NOT NULL
+          AND target.world_entity_id IS NOT NULL
+    """))
+
+    # ---------------------------------------------------------------
+    # Phase 3: Drop legacy tables after the data copy, then promote
+    # temporary tables to their final names and create final indexes.
+    # ---------------------------------------------------------------
+    op.drop_table("character_knowledge")
+    op.drop_table("geo_edges")
+    op.drop_table("characters")
+    op.drop_table("geo_locations")
+    op.drop_table("entity_aliases")
+    op.drop_table("world_entities")
+
+    op.rename_table("characters_new", "characters")
+    op.rename_table("character_knowledge_new", "character_knowledge")
+    op.rename_table("geo_locations_new", "geo_locations")
+    op.rename_table("geo_edges_new", "geo_edges")
+
+    op.create_index("ix_characters_novel_id", "characters", ["novel_id"])
+    op.create_index("ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"])
+    op.create_index("ix_character_knowledge_char_id", "character_knowledge", ["character_id"])
+    op.create_index("ix_geo_locations_novel_id", "geo_locations", ["novel_id"])
+    op.create_index("ix_geo_locations_parent", "geo_locations", ["parent_location_id"])
     op.create_index("ix_geo_edges_novel_id", "geo_edges", ["novel_id"])
     op.create_index("ix_geo_edges_source", "geo_edges", ["source_location_id"])
     op.create_index("ix_geo_edges_target", "geo_edges", ["target_location_id"])
 
 
 def downgrade() -> None:
-    """Revert to pre-core_entities schema."""
+    """Revert to pre-core_entities schema.
+
+    WARNING: This downgrade does NOT preserve data — it drops the new tables
+    and recreates empty legacy tables. Use only for development rollback.
+    Production downgrades require a separate data-backfill script.
+    """
     op.drop_table("geo_edges")
     op.drop_table("geo_locations")
     op.drop_table("character_knowledge")

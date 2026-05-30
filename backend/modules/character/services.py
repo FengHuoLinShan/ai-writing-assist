@@ -272,6 +272,7 @@ class CharacterService:
         for char in characters:
             item = CharacterContextItem(
                 entity_id=str(char.entity_id),
+                character_id=str(char.entity_id),
                 role=char.role,
                 appearance=char.appearance,
                 personality=char.personality,
@@ -441,4 +442,3 @@ class CharacterService:
     # ============================================================
     # 内部工具
     # ============================================================
-

@@ -219,23 +219,21 @@ class CoreEntityRepository:
         if row is not None:
             return str(row)
 
-        # Search aliases JSONB: check if any alias entry has matching alias text
+        # Search aliases in Python so the lookup works on both PostgreSQL and
+        # SQLite tests, and so alias text never gets interpolated into SQL.
+        # LIMIT caps memory usage for novels with many entities.
         alias_conditions = [
             CoreEntity.novel_id == novel_id,
             CoreEntity.status == "canonical",
-            # PostgreSQL JSONB containment: check if aliases array contains {"alias": name}
-            func.jsonb_path_exists(
-                CoreEntity.aliases,
-                f'$[*] ? (@.alias == "{name}")',
-            ),
         ]
         if entity_type:
             alias_conditions.append(CoreEntity.entity_type == entity_type)
-        alias_stmt = select(CoreEntity.id).where(*alias_conditions).limit(1)
+        alias_stmt = select(CoreEntity).where(*alias_conditions).limit(500)
         alias_result = await db.execute(alias_stmt)
-        alias_row = alias_result.scalar_one_or_none()
-        if alias_row is not None:
-            return str(alias_row)
+        for entity in alias_result.scalars().all():
+            for alias_entry in entity.aliases or []:
+                if isinstance(alias_entry, dict) and alias_entry.get("alias") == name:
+                    return str(entity.id)
 
         return None
 
@@ -245,9 +243,11 @@ class CoreEntityRepository:
         entity_id: uuid.UUID,
         alias: str,
         alias_type: str = "name",
+        entity: CoreEntity | None = None,
     ) -> bool:
         """向实体的 aliases JSONB 数组添加别名（去重）"""
-        entity = await self.get(db, entity_id)
+        if entity is None:
+            entity = await self.get(db, entity_id)
         if entity is None:
             return False
 
@@ -271,9 +271,11 @@ class CoreEntityRepository:
         db: AsyncSession,
         entity_id: uuid.UUID,
         alias: str,
+        entity: CoreEntity | None = None,
     ) -> bool:
         """从实体的 aliases JSONB 数组移除别名"""
-        entity = await self.get(db, entity_id)
+        if entity is None:
+            entity = await self.get(db, entity_id)
         if entity is None:
             return False
 
