@@ -6,8 +6,8 @@ geo 模块不是专业地图系统，而是小说地理关系与宏观历史辅�
 
 ## 数据表
 
-- geo_locations — 地理扩展（关联 world_entity_id，含父级/坐标/地形/气候/访问级别，era_states 放 content_json）
-- geo_edges — 地理关系边（road_to / river_to / inside / north_of / borders 等）
+- geo_locations — 地理扩展表（entity_id PK+FK → core_entities.id，仅存储地点层级/坐标/地形/气候/访问级别等地理特有字段；公共字段 name/summary/status 在 core_entities 中。parent_location_id 和边 FK 也引用 core_entities.id。era_states 放 content_json）
+- geo_edges — 地理关系边（source_location_id / target_location_id → core_entities.id）
 - geo_eras — 历史时期
 
 ## 服务
@@ -21,6 +21,7 @@ geo 模块不是专业地图系统，而是小说地理关系与宏观历史辅�
 ## Facade
 
 ```python
+async def create_location_extension(db, entity_id, novel_id, **kwargs) -> GeoLocationResponse
 async def get_location_context(db, novel_id, location_id, depth=1) -> GeoContextBundle
 async def get_locations_context_batch(db, novel_id, location_ids, depth=1) -> list[GeoContextBundle]
 async def get_location_tree(db, novel_id) -> list[dict]

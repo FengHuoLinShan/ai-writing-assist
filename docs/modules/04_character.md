@@ -6,8 +6,8 @@ character 模块负责人物档案、当前状态和知识边界。当前阶段�
 
 ## 数据表
 
-- characters — 人物档案（name / role / appearance / personality / desire / fear / secret / weakness / current_goal / current_state / current_emotion / stance / voice_style / behavior_rules / relationship_summary / aliases JSONB / meta JSONB）
-- character_knowledge — 知识边界（target_type / target_id / knowledge_level: unknown|rumor|partial|full|false_belief）
+- characters — 人物扩展表（entity_id PK+FK → core_entities.id，仅存储角色定位/外貌/性格/渴望/恐惧/秘密/弱点/当前目标/当前状态/当前情绪/立场/语言风格/行为规则/人物关系摘要/meta 等人物特有字段；公共字段 name/aliases/status 在 core_entities 中）
+- character_knowledge — 知识边界（character_id → core_entities.id / target_type / target_id / knowledge_level: unknown|rumor|partial|full|false_belief）
 
 ## 服务
 
@@ -17,17 +17,19 @@ character 模块负责人物档案、当前状态和知识边界。当前阶段�
 ## Facade
 
 ```python
+async def create_character_extension(db, entity_id, novel_id, **kwargs) -> CharacterResponse
+async def create_character(db, novel_id, entity_id) -> CharacterResponse
+async def get_character(db, entity_id, novel_id=None) -> CharacterResponse
+async def update_character(db, entity_id, novel_id=None, **fields) -> CharacterResponse
+async def delete_character(db, entity_id, novel_id=None) -> None
 async def list_characters(db, novel_id, skip=0, limit=100) -> tuple[list[CharacterResponse], int]
-async def get_characters_context(db, novel_id, character_ids, reveal_mode="author_safe") -> CharacterContextBundle
+async def get_characters_context(db, novel_id, entity_ids, reveal_mode="author_safe") -> CharacterContextBundle
 async def get_character_knowledge_context(db, novel_id, character_id, target_ids=None) -> list
 async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
-async def create_character(db, novel_id, name, world_entity_id=None) -> CharacterResponse
-async def get_character_id_by_world_entity(db, novel_id, world_entity_id) -> str | None
-async def find_character_id_by_name(db, novel_id, name) -> str | None
-async def update_character_location(db, novel_id, character_id, location_id, text_state, chapter_index) -> None
-async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
-async def get_character_location_id(db, novel_id, character_id) -> str | None
 async def get_unknown_target_ids(db, novel_id, character_id) -> dict[str, list[str]]
+async def update_character_location(db, novel_id, entity_id, location_id, text_state, chapter_index) -> None
+async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
+async def get_character_location_id(db, novel_id, entity_id) -> str | None
 ```
 
 ## API
