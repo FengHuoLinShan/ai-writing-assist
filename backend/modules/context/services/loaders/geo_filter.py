@@ -45,7 +45,7 @@ class GeoReachabilityFilter:
         if not character_ids or chapter_index is None:
             return chunks
 
-        from modules.character.facade import get_character_location_id
+        from modules.world.facade import get_character_location_id
 
         char_location_id = await get_character_location_id(
             db, novel_id, character_ids[0],

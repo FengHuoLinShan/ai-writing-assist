@@ -11,13 +11,13 @@ from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
 from modules.context.services.loaders import (
     ChapterCardLoader,
     CharactersLoader,
+    EventsLoader,
     GeoLocationsLoader,
     MemoryRecordsLoader,
     OutlineArcLoader,
     PlotThreadsLoader,
     ProjectLoader,
     RagChunksLoader,
-    TimelineEventsLoader,
     WorldEntitiesLoader,
 )
 from modules.context.services.protocol import Loader
@@ -31,17 +31,17 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "world_character": ["project", "world_entities", "characters"],
     "arc": [
         "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "timeline_events", "plot_threads", "outline_arc",
+        "memory_records", "events", "plot_threads", "outline_arc",
         "rag_chunks",
     ],
     "chapter": [
         "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "timeline_events", "plot_threads", "chapter_card",
+        "memory_records", "events", "plot_threads", "chapter_card",
         "rag_chunks",
     ],
     "full": [
         "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "timeline_events", "plot_threads", "outline_arc",
+        "memory_records", "events", "plot_threads", "outline_arc",
         "chapter_card", "rag_chunks",
     ],
 }
@@ -69,7 +69,7 @@ class ContextCompiler:
             CharactersLoader(),
             GeoLocationsLoader(),
             MemoryRecordsLoader(),
-            TimelineEventsLoader(),
+            EventsLoader(),
             PlotThreadsLoader(),
             OutlineArcLoader(),
             ChapterCardLoader(),

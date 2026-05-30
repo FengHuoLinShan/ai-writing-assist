@@ -1,10 +1,11 @@
-"""
-Geo ORM 模型
+"""Geo ORM 模型 — v3 适配
 
 数据库表：
 - geo_locations：地理地点扩展表（entity_id PK+FK → core_entities）
 - geo_edges：地点之间的通行/关系边
 - geo_eras：宏观历史时期
+
+地点本体属于 core_entities（entity_type = location），此表仅提供地理扩展信息。
 """
 
 from __future__ import annotations
@@ -18,7 +19,11 @@ from core.base import Base, TimestampMixin
 
 
 class GeoLocation(Base, TimestampMixin):
+<<<<<<< HEAD
     """地理地点扩展表 — 仅存储地理特有字段，公共字段在 core_entities"""
+=======
+    """地理地点 — 小说世界的空间位置"""
+>>>>>>> origin/worktree-grill-v3
 
     __tablename__ = "geo_locations"
 
@@ -34,6 +39,16 @@ class GeoLocation(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+<<<<<<< HEAD
+=======
+    world_entity_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="对应的核心实体 ID（entity_type = location）",
+    )
+>>>>>>> origin/worktree-grill-v3
     location_level: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

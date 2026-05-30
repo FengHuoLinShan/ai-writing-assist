@@ -1,16 +1,12 @@
-"""EntityDedupService — 对象去重与合并"""
+"""EntityDedupService — 已废弃（候选池去重不再需要）"""
 
 from __future__ import annotations
 
-import difflib
-import uuid
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+<<<<<<< HEAD
 from modules.world.contracts import DuplicateSuggestion
 from modules.world.models import CoreEntity
 from modules.world.repositories import (
@@ -23,11 +19,20 @@ from modules.world.services.helpers import (
     normalize_name,
     parse_uuid,
     world_entity_types_compatible,
+=======
+from modules.world.repositories import CoreEntityRepository
+from modules.world.schemas import (
+    CoreEntityUpdate,
+    DuplicateSuggestionResult,
+    WorldEntityResponse,
+>>>>>>> origin/worktree-grill-v3
 )
+from modules.world.services.helpers import parse_uuid
 from shared.constants import SIMILARITY_HIGH_CONFIDENCE, SIMILARITY_MEDIUM_CONFIDENCE
 
 
 class EntityDedupService:
+<<<<<<< HEAD
     """对象去重业务服务
 
     提供三种去重方法：
@@ -39,6 +44,12 @@ class EntityDedupService:
     def __init__(self) -> None:
         self._entity_repo = CoreEntityRepository()
         self._candidate_repo = EntityCandidateRepository()
+=======
+    """去重服务（已废弃 — AI 直写 canonical 不再需要去重）"""
+
+    def __init__(self) -> None:
+        self._entity_repo = CoreEntityRepository()
+>>>>>>> origin/worktree-grill-v3
 
     async def find_duplicates(
         self,
@@ -46,6 +57,7 @@ class EntityDedupService:
         novel_id: str,
         candidate_id: str,
     ) -> list[DuplicateSuggestionResult]:
+<<<<<<< HEAD
         """对指定候选对象进行去重检查"""
         nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(candidate_id, "candidate_id")
@@ -115,6 +127,9 @@ class EntityDedupService:
 
         suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
         return suggestions
+=======
+        return []
+>>>>>>> origin/worktree-grill-v3
 
     async def find_similar_entities(
         self,
@@ -124,6 +139,7 @@ class EntityDedupService:
         aliases: list[str] | None = None,
         entity_type: str | None = None,
     ) -> list[DuplicateSuggestionResult]:
+<<<<<<< HEAD
         """对指定名称查找相似的正史对象（供 EntityExtractionService 使用）"""
         nid = parse_uuid(novel_id, "novel_id")
         suggestions: list[DuplicateSuggestionResult] = []
@@ -169,6 +185,9 @@ class EntityDedupService:
 
         suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
         return suggestions
+=======
+        return []
+>>>>>>> origin/worktree-grill-v3
 
     async def merge_candidate_into_entity(
         self,
@@ -176,6 +195,7 @@ class EntityDedupService:
         novel_id: str,
         candidate_id: str,
         target_entity_id: str,
+<<<<<<< HEAD
     ) -> CoreEntity:
         """将候选对象合并到指定 CoreEntity"""
         nid = parse_uuid(novel_id, "novel_id")
@@ -193,9 +213,20 @@ class EntityDedupService:
                                detail="Candidate does not belong to the same novel")
 
         entity = await self._entity_repo.get(db, teid)
+=======
+    ) -> Any:
+        """合并候选到正史对象（已废弃 — 直接更新 entity status）"""
+        cid = parse_uuid(candidate_id, "candidate_id")
+        teid = parse_uuid(target_entity_id, "target_entity_id")
+
+        entity = await self._entity_repo.get(db, cid)
+>>>>>>> origin/worktree-grill-v3
         if entity is None:
+            from fastapi import HTTPException
+            from fastapi import status as http_status
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
+<<<<<<< HEAD
                 detail=f"CoreEntity {target_entity_id} not found",
             )
         if entity.novel_id != nid:
@@ -309,3 +340,11 @@ class EntityDedupService:
         embedding: list[float], threshold: float = SIMILARITY_MEDIUM_CONFIDENCE,
     ) -> list[DuplicateSuggestionResult]:
         return []
+=======
+                detail=f"Entity {candidate_id} not found",
+            )
+
+        update_data = CoreEntityUpdate(status="canonical")
+        entity = await self._entity_repo.update(db, teid, update_data)
+        return entity
+>>>>>>> origin/worktree-grill-v3

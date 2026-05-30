@@ -1,9 +1,4 @@
-"""
-Character 业务逻辑层
-
-调用 repository 完成业务操作。
-服务层可包含业务规则，但不直接操作数据库。
-"""
+"""CharacterService — 人物业务（从 character 模块迁入）"""
 
 from __future__ import annotations
 
@@ -13,11 +8,11 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.character.repositories import (
+from modules.world.repositories import (
     CharacterKnowledgeRepository,
     CharacterRepository,
 )
-from modules.character.schemas import (
+from modules.world.schemas import (
     CharacterContextBundle,
     CharacterContextItem,
     CharacterCreate,
@@ -25,12 +20,12 @@ from modules.character.schemas import (
     CharacterKnowledgeCreate,
     CharacterKnowledgeResponse,
     CharacterKnowledgeUpdate,
+    CharacterListResponse,
     CharacterResponse,
     CharacterUpdate,
 )
+from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from shared.enums import KnowledgeLevel
-from shared.utils import parse_uuid
 
 
 class CharacterService:
@@ -45,7 +40,6 @@ class CharacterService:
         db: AsyncSession,
         data: CharacterCreate,
     ) -> CharacterResponse:
-        """创建新人物"""
         character = await self._repo.create(db, data)
         return CharacterResponse.model_validate(character)
 
@@ -55,9 +49,14 @@ class CharacterService:
         entity_id: str,
         novel_id: str | None = None,
     ) -> CharacterResponse:
+<<<<<<< HEAD:backend/modules/character/services.py
         """获取人物扩展记录详情"""
         eid = parse_uuid(entity_id)
         character = await self._repo.get(db, eid)
+=======
+        cid = parse_uuid(character_id)
+        character = await self._repo.get(db, cid)
+>>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
@@ -73,14 +72,16 @@ class CharacterService:
         novel_id: str,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[CharacterResponse], int]:
-        """获取人物列表"""
+    ) -> CharacterListResponse:
         nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
             db, nid, skip=skip, limit=limit,
         )
-        return [CharacterResponse.model_validate(c) for c in items], total
+        return CharacterListResponse(
+            items=[CharacterResponse.model_validate(c) for c in items],
+            total=total,
+        )
 
     async def update_character(
         self,
@@ -89,8 +90,12 @@ class CharacterService:
         data: CharacterUpdate,
         novel_id: str | None = None,
     ) -> CharacterResponse:
+<<<<<<< HEAD:backend/modules/character/services.py
         """更新人物扩展字段"""
         eid = parse_uuid(entity_id)
+=======
+        cid = parse_uuid(character_id)
+>>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -109,8 +114,12 @@ class CharacterService:
         entity_id: str,
         novel_id: str | None = None,
     ) -> None:
+<<<<<<< HEAD:backend/modules/character/services.py
         """删除人物扩展记录"""
         eid = parse_uuid(entity_id)
+=======
+        cid = parse_uuid(character_id)
+>>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -131,8 +140,12 @@ class CharacterService:
         current_goal: str | None = None,
         novel_id: str | None = None,
     ) -> CharacterResponse:
+<<<<<<< HEAD:backend/modules/character/services.py
         """更新人物当前状态"""
         eid = parse_uuid(entity_id)
+=======
+        cid = parse_uuid(character_id)
+>>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if novel_id:
             existing = await self._repo.get(db, eid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -160,7 +173,6 @@ class CharacterService:
         data: CharacterKnowledgeCreate,
         novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
-        """创建人物知识记录"""
         if novel_id:
             char = await self._repo.get(db, parse_uuid(data.character_id))
             if char is None or str(char.novel_id) != novel_id:
@@ -177,7 +189,6 @@ class CharacterService:
         knowledge_id: str,
         novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
-        """获取单条知识记录"""
         kid = parse_uuid(knowledge_id)
         knowledge = await self._knowledge_repo.get(db, kid)
         if knowledge is None:
@@ -197,7 +208,6 @@ class CharacterService:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CharacterKnowledgeResponse], int]:
-        """获取人物知识列表"""
         nid = parse_uuid(novel_id)
         cid = parse_uuid(character_id)
         limit = min(limit, MAX_PAGE_SIZE)
@@ -215,7 +225,6 @@ class CharacterService:
         data: CharacterKnowledgeUpdate,
         novel_id: str | None = None,
     ) -> CharacterKnowledgeResponse:
-        """更新知识记录"""
         kid = parse_uuid(knowledge_id)
         if novel_id:
             existing = await self._knowledge_repo.get(db, kid)
@@ -235,7 +244,6 @@ class CharacterService:
         knowledge_id: str,
         novel_id: str | None = None,
     ) -> None:
-        """删除知识记录"""
         kid = parse_uuid(knowledge_id)
         if novel_id:
             existing = await self._knowledge_repo.get(db, kid)
@@ -259,11 +267,6 @@ class CharacterService:
         character_ids: list[str],
         reveal_mode: str = "author_safe",
     ) -> CharacterContextBundle:
-        """获取人物上下文包
-
-        根据 character_ids 获取人物信息，供 Context Compiler 等模块使用。
-        reveal_mode 控制哪些字段返回（author_safe 不返回 secret）。
-        """
         nid = parse_uuid(novel_id)
         cids = [parse_uuid(cid) for cid in character_ids]
         characters = await self._repo.get_by_ids(db, nid, cids)
@@ -271,8 +274,13 @@ class CharacterService:
         items = []
         for char in characters:
             item = CharacterContextItem(
+<<<<<<< HEAD:backend/modules/character/services.py
                 entity_id=str(char.entity_id),
                 character_id=str(char.entity_id),
+=======
+                character_id=str(char.entity_id),
+                name=char.name,
+>>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
                 role=char.role,
                 appearance=char.appearance,
                 personality=char.personality,
@@ -287,7 +295,6 @@ class CharacterService:
                 behavior_rules=char.behavior_rules or [],
                 relationship_summary=char.relationship_summary,
             )
-            # reveal_mode 控制：非 author_only 模式不返回 secret
             if reveal_mode == "author_only":
                 item.secret = char.secret
             items.append(item)
@@ -305,10 +312,6 @@ class CharacterService:
         character_id: str,
         target_ids: list[str] | None = None,
     ) -> list[CharacterKnowledgeContext]:
-        """获取人物知识上下文
-
-        返回角色对所有指定目标的知识情况。
-        """
         nid = parse_uuid(novel_id)
         cid = parse_uuid(character_id)
         tids = (
@@ -338,38 +341,17 @@ class CharacterService:
         character_id: str,
         context_items: list[dict],
     ) -> tuple[list[dict], int, int]:
-        """按人物知识过滤上下文项
-
-        这是 Character 模块的核心功能：
-        - 如果 knowledge_level=unknown → 移除该项
-        - 如果 knowledge_level=false_belief → 用角色的误解内容替换
-        - 其他（rumor/partial/full）→ 保留该项的 known_content
-
-        Args:
-            db: 数据库 session
-            novel_id: 小说 ID
-            character_id: 人物 ID
-            context_items: 待过滤的上下文项列表。
-                            每项应包含 target_type 和 target_id 字段用于匹配知识记录。
-
-        Returns:
-            (filtered_items, removed_count, replaced_count)
-        """
         cid = parse_uuid(character_id)
         nid = parse_uuid(novel_id)
 
-        # 收集所有目标的 ID
         target_ids_map: dict[str, set[str]] = {}
         for item in context_items:
             t_type = item.get("target_type", "")
             t_id = item.get("target_id", "")
             if t_type and t_id:
-                if t_type not in target_ids_map:
-                    target_ids_map[t_type] = set()
-                target_ids_map[t_type].add(t_id)
+                target_ids_map.setdefault(t_type, set()).add(t_id)
 
-        # 按 target_type 分批查询知识记录
-        knowledge_map: dict[str, dict] = {}  # key: "type:id" -> knowledge
+        knowledge_map: dict[str, dict] = {}
         for t_type, t_ids in target_ids_map.items():
             tid_uuids = [parse_uuid(tid) for tid in t_ids]
             records = await self._knowledge_repo.get_by_target(
@@ -392,21 +374,16 @@ class CharacterService:
             knowledge = knowledge_map.get(key)
 
             if knowledge is None:
-                # 没有知识记录 = 角色不知道 → 移除
                 removed_count += 1
                 continue
 
             level = knowledge["knowledge_level"]
 
-            if level == KnowledgeLevel.unknown:
-                # 不知道 → 移除
+            if level == "unknown":
                 removed_count += 1
-            elif level == KnowledgeLevel.false_belief:
-                # 误解 → 用 misconception 替换 original_content
-                filtered_item = dict(item)  # copy
-                filtered_item["original_content"] = filtered_item.get(
-                    "content", ""
-                )
+            elif level == "false_belief":
+                filtered_item = dict(item)
+                filtered_item["original_content"] = filtered_item.get("content", "")
                 filtered_item["content"] = (
                     knowledge["misconception"]
                     or knowledge["known_content"]
@@ -417,7 +394,6 @@ class CharacterService:
                 filtered_items.append(filtered_item)
                 replaced_count += 1
             else:
-                # rumor/partial/full → 保留，附上 knowledge_level
                 filtered_item = dict(item)
                 filtered_item["knowledge_level"] = level
                 if knowledge["known_content"]:
@@ -427,6 +403,7 @@ class CharacterService:
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
+<<<<<<< HEAD:backend/modules/character/services.py
 
     async def get_unknown_target_ids(
         self,
@@ -442,3 +419,5 @@ class CharacterService:
     # ============================================================
     # 内部工具
     # ============================================================
+=======
+>>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py

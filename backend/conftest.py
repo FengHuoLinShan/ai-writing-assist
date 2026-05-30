@@ -20,10 +20,10 @@ from core.base import Base
 # 导入所有 ORM 模型注册到 Base.metadata
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
-import modules.character.models  # noqa: F401
+# character 模型已迁入 modules.world.models
 import modules.geo.models  # noqa: F401
 import modules.memory.models  # noqa: F401
-import modules.timeline.models  # noqa: F401
+# timeline 模型已移除（事件迁入 world）
 import modules.outline.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.review.models  # noqa: F401

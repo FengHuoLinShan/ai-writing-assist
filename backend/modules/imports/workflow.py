@@ -105,8 +105,16 @@ class DeepImportWorkflow:
         db: AsyncSession,
         novel_id: str,
     ) -> dict[str, Any]:
+<<<<<<< HEAD
         """为已确认的「人物」类型 CoreEntity 创建 Character 扩展表记录"""
         from modules.character.facade import create_character_extension, get_character
+=======
+        """将已确认的「人物」类型 world_entity 同步到人物档案"""
+        from modules.world.facade import (
+            create_character,
+            get_character_id_by_world_entity,
+        )
+>>>>>>> origin/worktree-grill-v3
         from modules.world.facade import list_entities
 
         # 查询所有 character 类型实体

@@ -295,9 +295,9 @@ class MemoryService:
                     if not char_name or not loc_name:
                         continue
 
-                    from modules.character.facade import find_character_id_by_name
+                    from modules.world.facade import find_character_id_by_name
                     from modules.world.facade import find_entity_id_by_name
-                    from modules.character.facade import update_character_location
+                    from modules.world.facade import update_character_location
 
                     char_id = await find_character_id_by_name(db, novel_id, char_name)
                     loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
@@ -348,7 +348,7 @@ class MemoryService:
                 char_ids = []
                 entity_ids = []
                 for shift in geo_mutations.get("character_shifts", []):
-                    from modules.character.facade import find_character_id_by_name
+                    from modules.world.facade import find_character_id_by_name
                     cid = await find_character_id_by_name(db, novel_id, shift.get("character_name", ""))
                     if cid:
                         char_ids.append(cid)

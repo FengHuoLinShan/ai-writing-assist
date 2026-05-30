@@ -34,7 +34,7 @@ class CharactersLoader(Loader):
             limited_ids = await self._infer_character_ids(db, options, char_limit)
 
         if limited_ids:
-            from modules.character.facade import get_characters_context
+            from modules.world.facade import get_characters_context
 
             ctx = await get_characters_context(
                 db, options.novel_id,
@@ -46,7 +46,7 @@ class CharactersLoader(Loader):
 
         # 知识边界过滤
         if limited_ids and bundle.world_entities and options.scope != "project":
-            from modules.character.facade import filter_context_by_character_knowledge
+            from modules.world.facade import filter_context_by_character_knowledge
 
             try:
                 filtered = await filter_context_by_character_knowledge(

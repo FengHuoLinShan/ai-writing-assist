@@ -1,4 +1,4 @@
-"""RelationshipService — 旧关系 CRUD（委派到新 EntityRelationService）"""
+"""EntityRelationService — 关系 CRUD"""
 
 from __future__ import annotations
 
@@ -6,96 +6,51 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-<<<<<<< HEAD
-from modules.world.repositories import RelationshipRepository, CoreEntityRepository
-=======
 from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
->>>>>>> origin/worktree-grill-v3
 from modules.world.schemas import (
     EntityRelationCreate,
+    EntityRelationListResponse,
     EntityRelationResponse,
     EntityRelationUpdate,
-    RelationshipCreate,
-    RelationshipResponse,
-<<<<<<< HEAD
-    RelationshipUpdate,
-    CoreEntityContext,
-=======
     WorldEntityContext,
->>>>>>> origin/worktree-grill-v3
 )
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-class RelationshipService:
-    """关系业务服务（向后兼容，内部委托给 EntityRelationService）"""
+class EntityRelationService:
+    """关系业务服务"""
 
     def __init__(self) -> None:
-<<<<<<< HEAD
-        self._repo = RelationshipRepository()
-=======
         self._repo = EntityRelationRepository()
->>>>>>> origin/worktree-grill-v3
         self._entity_repo = CoreEntityRepository()
 
     async def create(
         self,
         db: AsyncSession,
         novel_id: str,
-        data: RelationshipCreate,
-    ) -> RelationshipResponse:
+        data: EntityRelationCreate,
+    ) -> EntityRelationResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        # 将旧 RelationshipCreate 转为新 EntityRelationCreate
-        new_data = EntityRelationCreate(
-            source_id=data.source_id,
-            target_id=data.target_id,
-            relation_type=data.relation_type,
-            description=data.description,
-            strength=data.strength,
-        )
-        rel = await self._repo.create(db, nid, new_data)
-        return RelationshipResponse(
-            id=str(rel.id),
-            novel_id=str(rel.novel_id),
-            source_type="",
-            source_id=str(rel.source_id),
-            target_type="",
-            target_id=str(rel.target_id),
-            relation_type=rel.relation_type,
-            description=rel.description,
-            strength=rel.strength,
-            status=rel.status,
-            visibility=getattr(data, 'visibility', 'author_only'),
-        )
+        rel = await self._repo.create(db, nid, data)
+        return EntityRelationResponse.model_validate(rel)
 
     async def get(
         self,
         db: AsyncSession,
         rel_id: str,
         novel_id: str | None = None,
-    ) -> RelationshipResponse:
-        rid = parse_uuid(rel_id, "relationship_id")
+    ) -> EntityRelationResponse:
+        rid = parse_uuid(rel_id, "relation_id")
         rel = await self._repo.get(db, rid)
         if rel is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Relationship {rel_id} not found",
+                detail=f"EntityRelation {rel_id} not found",
             )
         if novel_id and str(rel.novel_id) != novel_id:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return RelationshipResponse(
-            id=str(rel.id),
-            novel_id=str(rel.novel_id),
-            source_type="",
-            source_id=str(rel.source_id),
-            target_type="",
-            target_id=str(rel.target_id),
-            relation_type=rel.relation_type,
-            description=rel.description,
-            strength=rel.strength,
-            status=rel.status,
-        )
+        return EntityRelationResponse.model_validate(rel)
 
     async def list(
         self,
@@ -104,62 +59,31 @@ class RelationshipService:
         *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[RelationshipResponse], int]:
+    ) -> tuple[list[EntityRelationResponse], int]:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(db, nid, skip=skip, limit=limit)
-        result = []
-        for r in items:
-            result.append(RelationshipResponse(
-                id=str(r.id),
-                novel_id=str(r.novel_id),
-                source_type="",
-                source_id=str(r.source_id),
-                target_type="",
-                target_id=str(r.target_id),
-                relation_type=r.relation_type,
-                description=r.description,
-                strength=r.strength,
-                status=r.status,
-            ))
-        return result, total
+        return [EntityRelationResponse.model_validate(r) for r in items], total
 
     async def update(
         self,
         db: AsyncSession,
         rel_id: str,
-        data: RelationshipUpdate,
+        data: EntityRelationUpdate,
         novel_id: str | None = None,
-    ) -> RelationshipResponse:
-        rid = parse_uuid(rel_id, "relationship_id")
+    ) -> EntityRelationResponse:
+        rid = parse_uuid(rel_id, "relation_id")
         if novel_id:
             existing = await self._repo.get(db, rid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        new_data = EntityRelationUpdate(
-            relation_type=data.relation_type,
-            description=data.description,
-            strength=data.strength,
-            status=data.status,
-        )
-        rel = await self._repo.update(db, rid, new_data)
+        rel = await self._repo.update(db, rid, data)
         if rel is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Relationship {rel_id} not found",
+                detail=f"EntityRelation {rel_id} not found",
             )
-        return RelationshipResponse(
-            id=str(rel.id),
-            novel_id=str(rel.novel_id),
-            source_type="",
-            source_id=str(rel.source_id),
-            target_type="",
-            target_id=str(rel.target_id),
-            relation_type=rel.relation_type,
-            description=rel.description,
-            strength=rel.strength,
-            status=rel.status,
-        )
+        return EntityRelationResponse.model_validate(rel)
 
     async def delete(
         self,
@@ -167,7 +91,7 @@ class RelationshipService:
         rel_id: str,
         novel_id: str | None = None,
     ) -> None:
-        rid = parse_uuid(rel_id, "relationship_id")
+        rid = parse_uuid(rel_id, "relation_id")
         if novel_id:
             existing = await self._repo.get(db, rid)
             if existing is None or str(existing.novel_id) != novel_id:
@@ -176,8 +100,23 @@ class RelationshipService:
         if not deleted:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Relationship {rel_id} not found",
+                detail=f"EntityRelation {rel_id} not found",
             )
+
+    async def get_traceable_relations(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_id: str,
+    ) -> EntityRelationListResponse:
+        """获取某章节建立的所有可追溯关系"""
+        nid = parse_uuid(novel_id, "novel_id")
+        cid = parse_uuid(chapter_id, "chapter_id")
+        relations = await self._repo.get_traceable_relations(db, nid, cid)
+        return EntityRelationListResponse(
+            items=[EntityRelationResponse.model_validate(r) for r in relations],
+            total=len(relations),
+        )
 
     async def expand_related(
         self,
@@ -186,12 +125,7 @@ class RelationshipService:
         seed_entity_ids: list[str],
         depth: int = 1,
         limit: int = 20,
-<<<<<<< HEAD
-    ) -> list[CoreEntityContext]:
-        """关系一跳/二跳扩展，返回相关对象的上下文列表"""
-=======
     ) -> list[WorldEntityContext]:
->>>>>>> origin/worktree-grill-v3
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
 
@@ -210,9 +144,9 @@ class RelationshipService:
         eids = [parse_uuid(eid, "entity_id") for eid in related_list]
         entities = await self._entity_repo.get_by_ids(db, nid, eids)
 
-        contexts: list[CoreEntityContext] = []
+        contexts: list[WorldEntityContext] = []
         for entity in entities:
-            contexts.append(CoreEntityContext(
+            contexts.append(WorldEntityContext(
                 entity_id=str(entity.id),
                 entity_type=entity.entity_type,
                 name=entity.name,
@@ -226,3 +160,21 @@ class RelationshipService:
             ))
 
         return contexts
+
+    async def upsert(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        source_id: str,
+        target_id: str,
+        relation_type: str,
+        description: str | None = None,
+    ) -> EntityRelationResponse:
+        """创建或更新关系（按 source_id + target_id + relation_type 去重）"""
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(source_id, "source_id")
+        tid = parse_uuid(target_id, "target_id")
+        rel = await self._repo.upsert(
+            db, nid, sid, tid, relation_type, description=description,
+        )
+        return EntityRelationResponse.model_validate(rel)

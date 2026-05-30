@@ -60,7 +60,7 @@ class CharacterKnowledgeCheck(CheckStrategy):
 
         # 对每个角色检查知识边界
         try:
-            from modules.character.facade import get_character_knowledge_context
+            from modules.world.facade import get_character_knowledge_context
 
             for cid in list(character_ids):
                 if not is_valid_uuid(cid):
