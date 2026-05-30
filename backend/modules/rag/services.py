@@ -597,7 +597,7 @@ async def _load_project_terms(
     terms: list[dict[str, str]] = []
     novel_id_str = str(novel_id)
 
-    from modules.character.facade import list_characters as _list_chars
+    from modules.world.facade import list_characters as _list_chars
 
     chars_list, _ = await _list_chars(db, novel_id_str, limit=999)
     for char in chars_list:

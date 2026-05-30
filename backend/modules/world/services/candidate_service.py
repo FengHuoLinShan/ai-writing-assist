@@ -1,37 +1,31 @@
-"""EntityCandidateService — 候选对象池 CRUD + 晋升/合并"""
+"""EntityCandidateService — 已废弃，仅保持接口兼容"""
 
 from __future__ import annotations
-
-from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.repositories import (
-    EntityAliasRepository,
-    EntityCandidateRepository,
-    WorldEntityRepository,
-)
+from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
-    EntityAliasCreate,
+    CoreEntityCreate,
+    CoreEntityListResponse,
+    CoreEntityResponse,
     EntityCandidateCreate,
     EntityCandidateListResponse,
     EntityCandidateResponse,
     EntityCandidateUpdate,
-    WorldEntityCreate,
     WorldEntityResponse,
-    WorldEntityUpdate,
 )
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
 class EntityCandidateService:
-    """候选对象池业务服务"""
+    """候选对象服务（已废弃 — AI 直写 canonical + 快照）"""
 
     def __init__(self) -> None:
-        self._repo = EntityCandidateRepository()
+        self._repo = CoreEntityRepository()
 
     async def create(
         self,
@@ -39,10 +33,22 @@ class EntityCandidateService:
         novel_id: str,
         data: EntityCandidateCreate,
     ) -> EntityCandidateResponse:
-        """创建候选对象"""
         nid = parse_uuid(novel_id, "novel_id")
-        candidate = await self._repo.create(db, nid, data)
-        return EntityCandidateResponse.model_validate(candidate)
+        create_data = CoreEntityCreate(
+            entity_type=data.entity_type or "unknown",
+            name=data.name,
+            summary=data.summary,
+            status=data.status or "pending",
+        )
+        entity = await self._repo.create(db, nid, create_data)
+        return EntityCandidateResponse(
+            id=str(entity.id),
+            novel_id=str(entity.novel_id),
+            name=entity.name,
+            entity_type=entity.entity_type,
+            summary=entity.summary,
+            status=entity.status,
+        )
 
     async def get(
         self,
@@ -50,17 +56,21 @@ class EntityCandidateService:
         candidate_id: str,
         novel_id: str | None = None,
     ) -> EntityCandidateResponse:
-        """获取候选对象详情"""
         cid = parse_uuid(candidate_id, "candidate_id")
-        candidate = await self._repo.get(db, cid)
-        if candidate is None:
+        entity = await self._repo.get(db, cid)
+        if entity is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"EntityCandidate {candidate_id} not found",
+                detail=f"Entity {candidate_id} not found",
             )
-        if novel_id and str(candidate.novel_id) != novel_id:
-            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return EntityCandidateResponse.model_validate(candidate)
+        return EntityCandidateResponse(
+            id=str(entity.id),
+            novel_id=str(entity.novel_id),
+            name=entity.name,
+            entity_type=entity.entity_type,
+            summary=entity.summary,
+            status=entity.status,
+        )
 
     async def list(
         self,
@@ -72,18 +82,20 @@ class EntityCandidateService:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> EntityCandidateListResponse:
-        """获取候选对象列表"""
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
-            status=status,
-            suggested_action=suggested_action,
-            skip=skip,
-            limit=limit,
+            db, nid, status=status, skip=skip, limit=limit,
         )
         return EntityCandidateListResponse(
-            items=[EntityCandidateResponse.model_validate(c) for c in items],
+            items=[EntityCandidateResponse(
+                id=str(e.id),
+                novel_id=str(e.novel_id),
+                name=e.name,
+                entity_type=e.entity_type,
+                summary=e.summary,
+                status=e.status,
+            ) for e in items],
             total=total,
         )
 
@@ -94,19 +106,27 @@ class EntityCandidateService:
         data: EntityCandidateUpdate,
         novel_id: str | None = None,
     ) -> EntityCandidateResponse:
-        """更新候选对象"""
         cid = parse_uuid(candidate_id, "candidate_id")
         if novel_id:
             existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        candidate = await self._repo.update(db, cid, data)
-        if candidate is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"EntityCandidate {candidate_id} not found",
-            )
-        return EntityCandidateResponse.model_validate(candidate)
+        from modules.world.schemas import CoreEntityUpdate
+        update_data = CoreEntityUpdate(
+            name=data.name,
+            entity_type=data.entity_type,
+            summary=data.summary,
+            status=data.status,
+        )
+        entity = await self._repo.update(db, cid, update_data)
+        return EntityCandidateResponse(
+            id=str(entity.id),
+            novel_id=str(entity.novel_id),
+            name=entity.name,
+            entity_type=entity.entity_type,
+            summary=entity.summary,
+            status=entity.status,
+        )
 
     async def delete(
         self,
@@ -114,17 +134,12 @@ class EntityCandidateService:
         candidate_id: str,
         novel_id: str | None = None,
     ) -> None:
-        """删除候选对象"""
         cid = parse_uuid(candidate_id, "candidate_id")
-        if novel_id:
-            existing = await self._repo.get(db, cid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         deleted = await self._repo.delete(db, cid)
         if not deleted:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"EntityCandidate {candidate_id} not found",
+                detail=f"Entity {candidate_id} not found",
             )
 
     async def accept_candidate(
@@ -132,151 +147,25 @@ class EntityCandidateService:
         db: AsyncSession,
         novel_id: str,
         candidate_id: str,
-        *,
-        user_edits: dict[str, Any] | None = None,
+        user_edits: dict | None = None,
     ) -> WorldEntityResponse:
-        """将候选对象晋升为正史世界对象
-
-        1. 获取候选对象
-        2. 根据候选数据 + 用户编辑创建 WorldEntity
-        3. 根据 suggested_action 处理：
-           - create_new: 创建新实体
-           - alias_of_existing: 在已有实体上创建别名
-           - merge_with_existing: 将候选信息合并到已有实体
-           - ignore/temporary_only: 标记候选为 ignored
-        4. 更新候选状态为 canonical/ignored
-
-        Args:
-            db: 数据库 session
-            novel_id: 项目 ID
-            candidate_id: 候选对象 ID
-            user_edits: 用户编辑的可选覆盖字段
-
-        Returns:
-            WorldEntityResponse — 创建/更新后的正史对象
-        """
-        nid = parse_uuid(novel_id, "novel_id")
+        """接受候选（已废弃 — 简单晋升为 canonical）"""
         cid = parse_uuid(candidate_id, "candidate_id")
+        nid = parse_uuid(novel_id, "novel_id")
 
-        candidate = await self._repo.get(db, cid)
-        if candidate is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"EntityCandidate {candidate_id} not found",
-            )
+        existing = await self._repo.get(db, cid)
+        if existing is None:
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
 
-        action = candidate.suggested_action
-        edits = user_edits or {}
+        from modules.world.schemas import CoreEntityUpdate
+        update_data = CoreEntityUpdate(status="canonical")
+        if user_edits:
+            if "name" in user_edits:
+                update_data.name = user_edits["name"]
+            if "entity_type" in user_edits:
+                update_data.entity_type = user_edits["entity_type"]
+            if "summary" in user_edits:
+                update_data.summary = user_edits["summary"]
 
-        if action in ("ignore", "temporary_only"):
-            await self._repo.update_status(db, cid, "ignored")
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"Candidate suggested action is '{action}', cannot promote to canonical",
-            )
-
-        if action == "alias_of_existing" and candidate.suggested_existing_entity_id:
-            existing_eid = parse_uuid(
-                candidate.suggested_existing_entity_id, "entity_id",
-            )
-            alias_repo = EntityAliasRepository()
-            alias_data = EntityAliasCreate(
-                entity_id=candidate.suggested_existing_entity_id,
-                alias=candidate.name,
-                alias_type="name",
-                source_chapter_index=candidate.source_chapter_index,
-                confidence=candidate.confidence,
-            )
-            await alias_repo.create(db, nid, alias_data)
-            await self._repo.update_status(db, cid, "canonical")
-            entity_repo = WorldEntityRepository()
-            entity = await entity_repo.get(db, existing_eid)
-            if entity is None:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Suggested existing entity {candidate.suggested_existing_entity_id} not found",
-                )
-            if str(entity.novel_id) != str(nid):
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="Suggested entity does not belong to the same novel",
-                )
-            return WorldEntityResponse.model_validate(entity)
-
-        if action == "merge_with_existing" and candidate.suggested_existing_entity_id:
-            existing_eid = parse_uuid(
-                candidate.suggested_existing_entity_id, "entity_id",
-            )
-            entity_repo = WorldEntityRepository()
-
-            entity = await entity_repo.get(db, existing_eid)
-            if entity is None:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Entity to merge into {candidate.suggested_existing_entity_id} not found",
-                )
-            if str(entity.novel_id) != str(nid):
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="Suggested entity does not belong to the same novel",
-                )
-
-            merge_fields: dict[str, Any] = {
-                "summary": candidate.summary or None,
-                "importance": candidate.importance_score,
-            }
-            if edits:
-                merge_fields.update(edits)
-
-            update_data = WorldEntityUpdate(**{
-                k: v for k, v in merge_fields.items() if v is not None
-            })
-            entity = await entity_repo.update(db, existing_eid, update_data)
-            if entity is None:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Entity to merge into {candidate.suggested_existing_entity_id} not found",
-                )
-            await self._repo.update_status(db, cid, "canonical")
-            return WorldEntityResponse.model_validate(entity)
-
-        # create_new
-        # 映射中文/LLM 输出的实体类型到标准英文类型
-        from modules.world.services.entity_types import map_entity_type
-
-        raw_type = edits.get("entity_type", candidate.entity_type)
-        mapped_type = map_entity_type(raw_type)
-        create_fields: dict[str, Any] = {
-            "name": edits.get("name", candidate.name),
-            "entity_type": mapped_type,
-            "summary": edits.get("summary", candidate.summary or ""),
-            "public_info": edits.get("public_info", ""),
-            "hidden_truth": edits.get("hidden_truth", ""),
-            "importance": edits.get("importance", candidate.importance_score),
-            "importance_level": edits.get("importance_level", "normal"),
-            "reveal_level": edits.get("reveal_level", "author_only"),
-        }
-        create_data = WorldEntityCreate(**create_fields)
-
-        entity_repo = WorldEntityRepository()
-        entity = await entity_repo.create(db, nid, create_data)
-        await self._repo.update_status(db, cid, "canonical")
-
-        # 自动同步：entity_type=人物 → 创建 Character 记录
-        if mapped_type == "character_ref":
-            import logging
-            try:
-                from modules.character.facade import create_character
-                await create_character(
-                    db=db,
-                    novel_id=novel_id,
-                    name=candidate.name,
-                    world_entity_id=str(entity.id),
-                )
-            except Exception as exc:
-                logging.getLogger(__name__).warning(
-                    "Failed to auto-create Character for candidate %s: %s",
-                    candidate.name, exc,
-                )
-
+        entity = await self._repo.update(db, cid, update_data)
         return WorldEntityResponse.model_validate(entity)

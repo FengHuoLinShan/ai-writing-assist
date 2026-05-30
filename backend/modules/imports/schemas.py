@@ -37,3 +37,21 @@ class ImportChapterItem(BaseModel):
     title: str | None = Field(None, description="章节标题")
     word_count: int = Field(0, description="字数")
     draft_id: str = Field(..., description="关联草稿 ID")
+
+
+class ImportedChapterResponse(BaseModel):
+    """已导入章节响应"""
+    id: str = Field(..., description="章节 ID")
+    novel_id: str = Field(..., description="小说项目 ID")
+    import_record_id: str = Field(..., description="导入记录 ID")
+    chapter_index: int = Field(..., description="章节序号")
+    title: str = Field(..., description="章节标题")
+    content: str = Field(..., description="章节正文")
+    is_analyzed: bool = Field(False, description="是否已分析")
+    created_at: datetime | None = Field(None, description="创建时间")
+
+
+class ImportedChapterListResponse(BaseModel):
+    """已导入章节列表响应"""
+    items: list[ImportedChapterResponse]
+    total: int

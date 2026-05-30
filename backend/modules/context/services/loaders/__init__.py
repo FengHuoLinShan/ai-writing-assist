@@ -9,7 +9,7 @@ from modules.context.services.loaders.outline_arc_loader import OutlineArcLoader
 from modules.context.services.loaders.plot_threads_loader import PlotThreadsLoader
 from modules.context.services.loaders.project_loader import ProjectLoader
 from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
-from modules.context.services.loaders.timeline_events_loader import TimelineEventsLoader
+from modules.context.services.loaders.events_loader import EventsLoader
 from modules.context.services.loaders.world_entities_loader import WorldEntitiesLoader
 
 __all__ = [
@@ -18,7 +18,7 @@ __all__ = [
     "CharactersLoader",
     "GeoLocationsLoader",
     "MemoryRecordsLoader",
-    "TimelineEventsLoader",
+    "EventsLoader",
     "PlotThreadsLoader",
     "OutlineArcLoader",
     "ChapterCardLoader",

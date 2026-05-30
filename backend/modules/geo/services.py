@@ -726,7 +726,7 @@ class GeoQueryService:
         novel_id: str,
         location_id: str,
     ) -> list[dict]:
-        from modules.character.facade import get_characters_at_location
+        from modules.world.facade import get_characters_at_location
         return await get_characters_at_location(db, novel_id, location_id)
 
     # ============================================================
@@ -789,7 +789,7 @@ class GeoTopologyService:
         chapter_index: int,
         all_edges: list[Any],
     ) -> dict[str, list[tuple[str, float]]]:
-        from modules.timeline.facade import get_geo_effects_up_to_chapter
+        from modules.world.facade import get_geo_effects_up_to_chapter
 
         graph: dict[str, list[tuple[str, float]]] = {}
 

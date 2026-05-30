@@ -1,10 +1,11 @@
-"""
-Geo ORM 模型
+"""Geo ORM 模型 — v3 适配
 
 对应数据库表：
 - geo_locations：地理地点（地点层级、相对坐标、地形气候）
 - geo_edges：地点之间的通行/关系边
 - geo_eras：宏观历史时期
+
+地点本体属于 core_entities（entity_type = location），此表仅提供地理扩展信息。
 """
 
 from __future__ import annotations
@@ -18,13 +19,7 @@ from core.base import Base, TimestampMixin
 
 
 class GeoLocation(Base, TimestampMixin):
-    """地理地点 — 小说世界的空间位置
-
-    地点本体属于 world_entities（entity_type = location），
-    此表仅提供地理扩展信息：层级、坐标、地形气候等。
-
-    支持父子层级（self-referential FK via parent_location_id）。
-    """
+    """地理地点 — 小说世界的空间位置"""
 
     __tablename__ = "geo_locations"
 
@@ -41,10 +36,10 @@ class GeoLocation(Base, TimestampMixin):
     )
     world_entity_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("world_entities.id", ondelete="CASCADE"),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="对应的世界对象 ID（entity_type = location）",
+        comment="对应的核心实体 ID（entity_type = location）",
     )
     location_level: Mapped[str] = mapped_column(
         String(32),

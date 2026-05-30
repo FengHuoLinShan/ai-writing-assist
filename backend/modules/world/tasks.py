@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from infrastructure.tasks.registry import task_handler
-from modules.world.services import EntityExtractionService
+from modules.world.services.extraction_service import EntityExtractionService
 
 logger = logging.getLogger(__name__)
 

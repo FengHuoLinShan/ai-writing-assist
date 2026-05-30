@@ -21,12 +21,12 @@ from modules.world.facade import (
     upsert_relationship,
 )
 from modules.world.repositories import (
-    EntityAliasRepository,
-    EntityCandidateRepository,
-    RelationshipRepository,
-    WorldEntityRepository,
+    CoreEntityRepository,
+    EntityRelationRepository,
 )
 from modules.world.schemas import (
+    CoreEntityCreate,
+    CoreEntityResponse,
     EntityAliasCreate,
     EntityAliasResponse,
     EntityCandidateCreate,
@@ -39,12 +39,12 @@ from modules.world.schemas import (
     WorldEntityUpdate,
 )
 from modules.world.services import (
-    AliasService,
-    EntityCandidateService,
-    EntityDedupService,
     RelationshipService,
     WorldEntityService,
 )
+from modules.world.services.alias_service import AliasService
+from modules.world.services.candidate_service import EntityCandidateService
+from modules.world.services.dedup_service import EntityDedupService
 
 
 # ============================================================
@@ -57,23 +57,13 @@ def novel_id() -> str:
 
 
 @pytest.fixture
-def entity_repo() -> WorldEntityRepository:
-    return WorldEntityRepository()
+def entity_repo() -> CoreEntityRepository:
+    return CoreEntityRepository()
 
 
 @pytest.fixture
-def rel_repo() -> RelationshipRepository:
-    return RelationshipRepository()
-
-
-@pytest.fixture
-def alias_repo() -> EntityAliasRepository:
-    return EntityAliasRepository()
-
-
-@pytest.fixture
-def candidate_repo() -> EntityCandidateRepository:
-    return EntityCandidateRepository()
+def rel_repo() -> EntityRelationRepository:
+    return EntityRelationRepository()
 
 
 @pytest.fixture

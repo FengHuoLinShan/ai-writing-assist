@@ -106,7 +106,7 @@ class DeepImportWorkflow:
         novel_id: str,
     ) -> dict[str, Any]:
         """将已确认的「人物」类型 world_entity 同步到人物档案"""
-        from modules.character.facade import (
+        from modules.world.facade import (
             create_character,
             get_character_id_by_world_entity,
         )

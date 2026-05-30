@@ -97,7 +97,7 @@ class EntityReferenceCheck(CheckStrategy):
         # 验证人物引用
         if referenced_ids["character"]:
             try:
-                from modules.character.facade import get_characters_context
+                from modules.world.facade import get_characters_context
                 ctx = await get_characters_context(
                     db, novel_id,
                     character_ids=referenced_ids["character"],

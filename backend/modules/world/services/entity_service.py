@@ -1,4 +1,4 @@
-"""WorldEntityService — 世界对象 CRUD"""
+"""CoreEntityService — 核心实体 CRUD"""
 
 from __future__ import annotations
 
@@ -6,54 +6,52 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.models import WorldEntity
-from modules.world.repositories import WorldEntityRepository
+from modules.world.models import CoreEntity
+from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
+    CoreEntityCreate,
+    CoreEntityListResponse,
+    CoreEntityResponse,
+    CoreEntityUpdate,
     WorldContextBundle,
     WorldEntityContext,
-    WorldEntityCreate,
-    WorldEntityListResponse,
-    WorldEntityResponse,
-    WorldEntityUpdate,
 )
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
 class WorldEntityService:
-    """世界对象业务服务"""
+    """核心实体业务服务"""
 
     def __init__(self) -> None:
-        self._repo = WorldEntityRepository()
+        self._repo = CoreEntityRepository()
 
     async def create(
         self,
         db: AsyncSession,
         novel_id: str,
-        data: WorldEntityCreate,
-    ) -> WorldEntityResponse:
-        """创建世界对象"""
+        data: CoreEntityCreate,
+    ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
         entity = await self._repo.create(db, nid, data)
-        return WorldEntityResponse.model_validate(entity)
+        return CoreEntityResponse.model_validate(entity)
 
     async def get(
         self,
         db: AsyncSession,
         entity_id: str,
         novel_id: str | None = None,
-    ) -> WorldEntityResponse:
-        """获取世界对象详情"""
+    ) -> CoreEntityResponse:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self._repo.get(db, eid)
         if entity is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {entity_id} not found",
+                detail=f"CoreEntity {entity_id} not found",
             )
         if novel_id and str(entity.novel_id) != novel_id:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return WorldEntityResponse.model_validate(entity)
+        return CoreEntityResponse.model_validate(entity)
 
     async def list(
         self,
@@ -64,8 +62,7 @@ class WorldEntityService:
         status: str | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> WorldEntityListResponse:
-        """获取世界对象列表"""
+    ) -> CoreEntityListResponse:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
@@ -75,8 +72,8 @@ class WorldEntityService:
             skip=skip,
             limit=limit,
         )
-        return WorldEntityListResponse(
-            items=[WorldEntityResponse.model_validate(e) for e in items],
+        return CoreEntityListResponse(
+            items=[CoreEntityResponse.model_validate(e) for e in items],
             total=total,
         )
 
@@ -84,10 +81,9 @@ class WorldEntityService:
         self,
         db: AsyncSession,
         entity_id: str,
-        data: WorldEntityUpdate,
+        data: CoreEntityUpdate,
         novel_id: str | None = None,
-    ) -> WorldEntityResponse:
-        """更新世界对象"""
+    ) -> CoreEntityResponse:
         eid = parse_uuid(entity_id, "entity_id")
         if novel_id:
             existing = await self._repo.get(db, eid)
@@ -97,9 +93,9 @@ class WorldEntityService:
         if entity is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {entity_id} not found",
+                detail=f"CoreEntity {entity_id} not found",
             )
-        return WorldEntityResponse.model_validate(entity)
+        return CoreEntityResponse.model_validate(entity)
 
     async def delete(
         self,
@@ -107,7 +103,6 @@ class WorldEntityService:
         entity_id: str,
         novel_id: str | None = None,
     ) -> None:
-        """删除世界对象"""
         eid = parse_uuid(entity_id, "entity_id")
         if novel_id:
             existing = await self._repo.get(db, eid)
@@ -117,7 +112,7 @@ class WorldEntityService:
         if not deleted:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {entity_id} not found",
+                detail=f"CoreEntity {entity_id} not found",
             )
 
     async def get_entity_context(
@@ -128,7 +123,6 @@ class WorldEntityService:
         reveal_mode: str = "author_safe",
         limit: int = 20,
     ) -> WorldContextBundle:
-        """获取世界对象上下文包（供其他模块使用）"""
         nid = parse_uuid(novel_id, "novel_id")
 
         if entity_ids:
@@ -149,12 +143,26 @@ class WorldEntityService:
             reveal_mode=reveal_mode,
         )
 
+    async def list_entity_summaries(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        entity_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        nid = parse_uuid(novel_id, "novel_id")
+        result = await self._repo.get_by_type_and_status(db, nid, entity_type=entity_type, limit=limit)
+        return [
+            {"id": item.id, "name": item.name, "entity_type": item.entity_type}
+            for item in result
+        ]
+
 
 def _entity_to_context(
-    entity: WorldEntity,
+    entity: CoreEntity,
     reveal_mode: str,
 ) -> WorldEntityContext:
-    """将 ORM 模型转为上下文对象，根据 reveal_mode 过滤信息"""
     hidden = None
     if reveal_mode == "author_only":
         hidden = entity.hidden_truth

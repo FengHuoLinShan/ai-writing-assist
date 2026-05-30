@@ -1,22 +1,15 @@
-"""AliasService — 别名 CRUD"""
+"""AliasService — 别名 CRUD（已废弃，保持兼容）"""
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.repositories import EntityAliasRepository
 from modules.world.schemas import EntityAliasCreate, EntityAliasResponse
-from modules.world.services.helpers import parse_uuid
-from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class AliasService:
-    """别名业务服务"""
-
-    def __init__(self) -> None:
-        self._repo = EntityAliasRepository()
+    """别名业务服务（已废弃，别名存储在 core_entities.content_json.aliases 中）"""
 
     async def create(
         self,
@@ -24,10 +17,16 @@ class AliasService:
         novel_id: str,
         data: EntityAliasCreate,
     ) -> EntityAliasResponse:
-        """创建别名"""
-        nid = parse_uuid(novel_id, "novel_id")
-        alias = await self._repo.create(db, nid, data)
-        return EntityAliasResponse.model_validate(alias)
+        return EntityAliasResponse(
+            id=str(data.entity_id),
+            novel_id=novel_id,
+            entity_id=str(data.entity_id),
+            alias=data.alias,
+            alias_type=data.alias_type,
+            source_chapter_index=data.source_chapter_index,
+            confidence=data.confidence,
+            status="confirmed",
+        )
 
     async def list(
         self,
@@ -38,17 +37,15 @@ class AliasService:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[EntityAliasResponse], int]:
-        """获取别名列表"""
-        nid = parse_uuid(novel_id, "novel_id")
-        limit = min(limit, MAX_PAGE_SIZE)
-        eid = parse_uuid(entity_id, "entity_id") if entity_id else None
-        items, total = await self._repo.get_by_novel(
-            db, nid,
-            entity_id=eid,
-            skip=skip,
-            limit=limit,
-        )
-        return [EntityAliasResponse.model_validate(a) for a in items], total
+        return [], 0
+
+    async def get(
+        self,
+        db: AsyncSession,
+        alias_id: str,
+        novel_id: str | None = None,
+    ) -> EntityAliasResponse | None:
+        return None
 
     async def delete(
         self,
@@ -56,15 +53,4 @@ class AliasService:
         alias_id: str,
         novel_id: str | None = None,
     ) -> None:
-        """删除别名"""
-        aid = parse_uuid(alias_id, "alias_id")
-        if novel_id:
-            existing = await self._repo.get(db, aid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._repo.delete(db, aid)
-        if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"EntityAlias {alias_id} not found",
-            )
+        pass

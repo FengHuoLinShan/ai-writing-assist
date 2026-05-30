@@ -19,7 +19,7 @@
 - 不只更新 `AGENTS.md` 而忘记同步 `CLAUDE.md` 中等价的 Claude 禁止事项
 
 ### 数据与安全
-- AI 输出绝不直接写入 canonical，必须经 candidate / proposal → review → 用户确认
+- 导入管线全自动直写 canonical，实体和关系不经候选池审核；用户通过手动 CRUD 事后修正
 - API 不允许跨 `novel_id` 读写数据
 - 不拼接原始 SQL，使用 SQLAlchemy 参数绑定
 - API Key 不写日志、不返回前端；`.env` 不提交仓库

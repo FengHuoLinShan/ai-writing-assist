@@ -8,8 +8,7 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.repositories import EntityCandidateRepository, WorldEntityRepository
-from modules.world.schemas import EntityCandidateCreate
+from modules.world.repositories import CoreEntityRepository
 from modules.world.services.dedup_service import EntityDedupService
 from modules.world.services.draft_provider import DraftProvider, WritingDraftProvider
 from modules.world.services.helpers import parse_uuid
@@ -45,8 +44,8 @@ class EntityExtractionService:
     """
 
     def __init__(self, draft_provider: DraftProvider | None = None) -> None:
-        self._entity_repo = WorldEntityRepository()
-        self._candidate_repo = EntityCandidateRepository()
+        self._entity_repo = CoreEntityRepository()
+        self._candidate_repo = CoreEntityRepository()
         self._dedup_service = EntityDedupService()
         self._draft_provider = draft_provider or WritingDraftProvider()
 

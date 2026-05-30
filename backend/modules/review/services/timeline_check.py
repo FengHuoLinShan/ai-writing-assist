@@ -27,7 +27,7 @@ class TimelineCheck(CheckStrategy):
         warnings: list[ReviewWarning] = []
 
         try:
-            from modules.timeline.facade import check_timeline_conflicts
+            from modules.world.facade import check_timeline_conflicts
             conflict_result = await check_timeline_conflicts(db, novel_id, candidate_payload)
             for conflict in conflict_result:
                 warnings.append(
