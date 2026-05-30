@@ -35,8 +35,8 @@ class EntityType(StrEnum):
     """传说 — 神话、民间传说、未证实的历史"""
     resource = "resource"
     """资源 — 稀有材料、矿产资源、特殊物品"""
-    character_ref = "character_ref"
-    """人物引用 — 作为世界对象被引用的角色"""
+    character = "character"
+    """人物 — 可作为人物模块主实体的正史角色"""
 
 
 class ObjectStatus(StrEnum):

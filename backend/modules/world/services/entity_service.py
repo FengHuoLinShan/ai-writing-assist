@@ -183,14 +183,13 @@ class CoreEntityService:
         alias_type: str = "name",
         novel_id: str | None = None,
     ) -> bool:
-        """添加别名到实体的 aliases JSONB"""
+        """添加别名到实体的 aliases JSONB（先验证归属）"""
         eid = parse_uuid(entity_id, "entity_id")
-        entity = None
         if novel_id:
             entity = await self._repo.get(db, eid)
             if entity is None or str(entity.novel_id) != novel_id:
                 return False
-        return await self._repo.add_alias(db, eid, alias, alias_type, entity=entity)
+        return await self._repo.add_alias(db, eid, alias, alias_type)
 
     async def remove_alias(
         self,
@@ -199,14 +198,13 @@ class CoreEntityService:
         alias: str,
         novel_id: str | None = None,
     ) -> bool:
-        """从实体的 aliases JSONB 移除别名"""
+        """从实体的 aliases JSONB 移除别名（先验证归属）"""
         eid = parse_uuid(entity_id, "entity_id")
-        entity = None
         if novel_id:
             entity = await self._repo.get(db, eid)
             if entity is None or str(entity.novel_id) != novel_id:
                 return False
-        return await self._repo.remove_alias(db, eid, alias, entity=entity)
+        return await self._repo.remove_alias(db, eid, alias)
 
 
 def _entity_to_context(

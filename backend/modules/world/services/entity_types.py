@@ -16,9 +16,13 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "规则": "rule", "规则/系统": "rule",
     "力量体系": "power_system", "超凡体系": "power_system",
     "秘密": "secret", "秘密/真相": "secret",
-    "概念": "secret", "设定": "secret",
+    "概念": "concept", "概念（抽象）": "concept", "设定": "secret",
     "传说": "legend", "传说/神话": "legend",
     "资源": "resource", "资源/材料": "resource",
+    # 新增类型映射（is_entity_type_valid 已接受）
+    "生物": "creature", "怪物": "creature", "生物/怪物": "creature",
+    "技能": "skill", "能力": "skill", "技能/能力": "skill",
+    "其他": "other",
 }
 
 
@@ -26,7 +30,10 @@ def map_entity_type(raw_type: str) -> str:
     """将 LLM 输出/中文类型映射为标准英文类型
 
     如无法映射则返回原始值（由调用方决定是否报错）。
+    向后兼容：DB 迁移已将存量 character_ref 转为 character。
     """
+    if raw_type == "character_ref":
+        return "character"
     return ENTITY_TYPE_MAP.get(raw_type, raw_type)
 
 

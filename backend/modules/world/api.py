@@ -140,10 +140,9 @@ async def remove_alias(
     alias: str = Query(..., description="要移除的别名"),
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
-    """从实体移除别名"""
-    ok = await _entity_service.remove_alias(db, entity_id, alias, novel_id=novel_id)
-    if not ok:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Entity alias not found")
+    """从实体移除别名（幂等：不存在即 204）"""
+    await _entity_service.remove_alias(db, entity_id, alias, novel_id=novel_id)
+    # 幂等删除：不检查返回值，不存在也返回 204
 
 
 # ============================================================

@@ -30,7 +30,7 @@ class SchemaCheck(CheckStrategy):
     ENUM_CHECKS: dict[str, list[str]] = {
         "entity_type": [
             "location", "faction", "item", "event", "rule",
-            "power_system", "secret", "legend", "resource", "character_ref",
+            "power_system", "secret", "legend", "resource", "character",
         ],
         "knowledge_level": [
             "unknown", "rumor", "partial", "full", "false_belief",

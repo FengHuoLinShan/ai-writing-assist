@@ -31,3 +31,23 @@ def world_entity_types_compatible(left: str | None, right: str | None) -> bool:
     left = (left or "other").strip().casefold()
     right = (right or "other").strip().casefold()
     return "other" in {left, right} or left == right
+
+
+def find_alias_in_entity(entity, alias_text: str) -> bool:
+    """检查 CoreEntity 的 aliases JSONB 中是否包含指定别名文本"""
+    if not alias_text:
+        return False
+    for entry in entity.aliases or []:
+        if isinstance(entry, dict) and entry.get("alias") == alias_text:
+            return True
+    return False
+
+
+def find_alias_in_list(aliases: list | None, alias_text: str) -> bool:
+    """检查 JSONB 别名列表（原始 list[dict]）是否包含指定别名文本"""
+    if not alias_text:
+        return False
+    for entry in aliases or []:
+        if isinstance(entry, dict) and entry.get("alias") == alias_text:
+            return True
+    return False

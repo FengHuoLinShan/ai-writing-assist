@@ -134,7 +134,7 @@ class RagChunksLoader(Loader):
             location_id = RagChunksLoader._read_value(
                 loc_data, "entity_id", "id",
             )
-            if entity_id and location_id:
+            if entity_id is not None and location_id is not None:
                 mapping[str(entity_id)] = str(location_id)
         return mapping
 
@@ -143,11 +143,11 @@ class RagChunksLoader(Loader):
         if isinstance(source, dict):
             for key in keys:
                 value = source.get(key)
-                if value:
+                if value is not None:
                     return value
             return None
         for key in keys:
             value = getattr(source, key, None)
-            if value:
+            if value is not None:
                 return value
         return None

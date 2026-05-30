@@ -227,7 +227,7 @@ class TestWorldMissingFlows:
         client, pid, _ = ctx
         create_resp = await client.post(f"/api/world/candidates?novel_id={pid}", json={
             "name": "夜之女王",
-            "entity_type": "character_ref",
+            "entity_type": "character",
             "summary": "神秘的夜之统治者",
             "suggested_action": "create_new",
         })
@@ -240,7 +240,7 @@ class TestWorldMissingFlows:
         assert accept_resp.status_code == 200
         data = accept_resp.json()
         assert data["name"] == "夜之女王"
-        assert data["entity_type"] == "character_ref"
+        assert data["entity_type"] == "character"
         assert data["status"] == "draft"
 
         get_resp = await client.get(f"/api/world/entities/{data['id']}?novel_id={pid}")
@@ -251,7 +251,7 @@ class TestWorldMissingFlows:
         client, pid, _ = ctx
         create_resp = await client.post(f"/api/world/candidates?novel_id={pid}", json={
             "name": "路人甲",
-            "entity_type": "character_ref",
+            "entity_type": "character",
             "summary": "一个不重要的角色",
             "suggested_action": "needs_user_decision",
         })

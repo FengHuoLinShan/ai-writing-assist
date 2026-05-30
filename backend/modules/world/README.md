@@ -47,7 +47,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 - `id` — UUID 主键
 - `novel_id` — 项目 ID（FK → projects.id）
-- `entity_type` — 对象类型（location / faction / item / event / rule / power_system / secret / legend / resource / character_ref）
+- `entity_type` — 对象类型（location / faction / item / event / rule / power_system / secret / legend / resource / character）
 - `name` — 对象名称
 - `summary` — 概要
 - `public_info` — 对外公开信息

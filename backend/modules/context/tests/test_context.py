@@ -137,6 +137,29 @@ class TestStructureContextBundle:
             "legacy-world-id": "legacy-location-id",
         }
 
+    def test_read_value_handles_falsy_values(self) -> None:
+        """_read_value 应正确处理空字符串等 falsy 值，避免回退到错误 key。"""
+        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
+
+        # 空字符串 entity_id 应被返回（不回退到下一个 key）
+        assert RagChunksLoader._read_value({"entity_id": "", "id": "loc-123"}, "entity_id", "id") == ""
+
+        # None 值应回退到下一个 key
+        assert RagChunksLoader._read_value({"entity_id": None, "id": "loc-123"}, "entity_id", "id") == "loc-123"
+
+        # 第一个 key 非空应直接返回
+        assert RagChunksLoader._read_value({"entity_id": "real-id", "id": "other-id"}, "entity_id", "id") == "real-id"
+
+        # 所有 key 均为 None 返回 None
+        assert RagChunksLoader._read_value({"entity_id": None, "id": None}, "entity_id", "id") is None
+
+        # 对象形式（非 dict）也应正确处理
+        class MockLoc:
+            entity_id = ""
+            id = "loc-obj"
+
+        assert RagChunksLoader._read_value(MockLoc(), "entity_id", "id") == ""
+
 
 # ============================================================
 # Context Compiler 核心测试

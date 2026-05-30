@@ -276,21 +276,26 @@ class EntityDedupService:
         novel_id: uuid.UUID,
         alias_text: str,
     ) -> list[dict[str, Any]]:
-        """搜索 core_entities.aliases JSONB 中的别名匹配"""
+        """搜索 core_entities.aliases JSONB 中的别名匹配
+
+        列投影 + Python 遍历：只加载需要的列，避免大字段传输。
+        LIMIT 2000 作为安全防护，与 facade.get_entities_by_novel 上限一致。
+        """
+        from modules.world.services.helpers import find_alias_in_list
+
         stmt = (
-            select(CoreEntity)
+            select(CoreEntity.id, CoreEntity.name, CoreEntity.aliases)
             .where(
                 CoreEntity.novel_id == novel_id,
                 CoreEntity.status.in_(["canonical", "draft"]),
             )
+            .limit(2000)
         )
         result = await db.execute(stmt)
         matches: list[dict[str, Any]] = []
-        for entity in result.scalars().all():
-            for alias_entry in entity.aliases or []:
-                if isinstance(alias_entry, dict) and alias_entry.get("alias") == alias_text:
-                    matches.append({"entity_id": str(entity.id), "entity_name": entity.name})
-                    break
+        for row in result.all():
+            if find_alias_in_list(row.aliases, alias_text):
+                matches.append({"entity_id": str(row.id), "entity_name": row.name})
         return matches
 
     async def find_trgm_similar(

@@ -221,19 +221,22 @@ class CoreEntityRepository:
 
         # Search aliases in Python so the lookup works on both PostgreSQL and
         # SQLite tests, and so alias text never gets interpolated into SQL.
-        # LIMIT caps memory usage for novels with many entities.
+        # Full scan (no LIMIT) is safe here because the exact-name match above
+        # returns immediately for the common case; alias fallback only runs
+        # when the name wasn't found as a primary name.
+        from modules.world.services.helpers import find_alias_in_entity
+
         alias_conditions = [
             CoreEntity.novel_id == novel_id,
             CoreEntity.status == "canonical",
         ]
         if entity_type:
             alias_conditions.append(CoreEntity.entity_type == entity_type)
-        alias_stmt = select(CoreEntity).where(*alias_conditions).limit(500)
+        alias_stmt = select(CoreEntity).where(*alias_conditions)
         alias_result = await db.execute(alias_stmt)
         for entity in alias_result.scalars().all():
-            for alias_entry in entity.aliases or []:
-                if isinstance(alias_entry, dict) and alias_entry.get("alias") == name:
-                    return str(entity.id)
+            if find_alias_in_entity(entity, name):
+                return str(entity.id)
 
         return None
 

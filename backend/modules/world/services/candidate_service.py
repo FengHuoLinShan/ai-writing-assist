@@ -174,7 +174,7 @@ class EntityCandidateService:
         await self._repo.update_status(db, cid, "canonical")
 
         # 自动创建扩展表记录
-        if mapped_type in ("character", "character_ref"):
+        if mapped_type == "character":
             try:
                 from modules.character.facade import create_character_extension
                 await create_character_extension(

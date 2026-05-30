@@ -42,7 +42,7 @@ POST /api/imports/deep/resume     # 继续深度导入（确认候选后）
 DeepImportWorkflow 将三步串成有状态流水线，完成后进入 checkpoint 等待用户确认：
 
 1. **extract_world** — 调用 world facade 从章节正文抽取世界对象候选
-2. **sync_characters** — 将已确认的 character_ref 实体同步到人物档案
+2. **sync_characters** — 将已确认的 character 实体同步到人物档案
 3. **generate_plot** — 调用 LLM 生成剧情线和篇章纲（增量更新）
 
 状态转换：`pending → running → awaiting_review → running → done`

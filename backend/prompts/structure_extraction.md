@@ -24,7 +24,7 @@
 输出 JSON 数组，每个元素包含：
 
 - name: 对象名称
-- entity_type: 对象类型（location/faction/item/event/rule/power_system/secret/legend/resource/character_ref）
+- entity_type: 对象类型（location/faction/item/event/rule/power_system/secret/legend/resource/character）
 - summary: 一句话概要
 - public_info: 读者和角色已知的信息
 - hidden_truth: 仅作者知道的隐藏真相（如果没有留空）

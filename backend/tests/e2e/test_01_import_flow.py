@@ -157,7 +157,7 @@ class TestEntityCandidateAPI:
 
         payload = {
             "name": "克莱恩·莫雷蒂",
-            "entity_type": "character_ref",
+            "entity_type": "character",
             "summary": "本书主角，被抽取出来的候选",
             "source_text": "克莱恩·莫雷蒂从沉睡中醒来",
             "source_chapter_index": 1,
@@ -218,7 +218,7 @@ class TestEntityCandidateAPI:
                 f"/api/world/candidates?novel_id={pid}",
                 json={
                     "name": name,
-                    "entity_type": "character_ref",
+                    "entity_type": "character",
                     "suggested_action": action,
                     "source_chapter_index": i + 1,
                 },
@@ -249,7 +249,7 @@ class TestEntityCandidateAPI:
 
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "罗塞尔", "entity_type": "character_ref", "suggested_action": "create_new"},
+            json={"name": "罗塞尔", "entity_type": "character", "suggested_action": "create_new"},
         )
         cid = create_resp.json()["id"]
 
@@ -332,7 +332,7 @@ class TestEntityDedupMerge:
             f"/api/world/candidates?novel_id={pid}",
             json={
                 "name": "克莱恩·莫雷蒂",
-                "entity_type": "character_ref",
+                "entity_type": "character",
                 "suggested_action": "needs_user_decision",
             },
         )
@@ -360,7 +360,7 @@ class TestEntityDedupMerge:
             f"/api/world/candidates?novel_id={pid}",
             json={
                 "name": "克菜恩·莫雷蒂",  # 故意错字
-                "entity_type": "character_ref",
+                "entity_type": "character",
                 "suggested_action": "needs_user_decision",
             },
         )
@@ -391,7 +391,7 @@ class TestEntityDedupMerge:
             f"/api/world/candidates?novel_id={pid}",
             json={
                 "name": "愚者",
-                "entity_type": "character_ref",
+                "entity_type": "character",
                 "suggested_action": "alias_of_existing",
                 "suggested_existing_entity_id": klein_id,
                 "summary": "克莱恩在塔罗会的代号",

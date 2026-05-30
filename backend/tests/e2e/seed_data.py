@@ -48,7 +48,7 @@ async def create_project(session: AsyncSession) -> dict[str, Any]:
 WORLD_ENTITY_DATA = [
     {
         "name": "克莱恩·莫雷蒂",
-        "entity_type": "character_ref",
+        "entity_type": "character",
         "importance_level": "core",
         "importance": 0.95,
         "public_info": "主角，历史系毕业生，值夜者成员",
@@ -57,7 +57,7 @@ WORLD_ENTITY_DATA = [
     },
     {
         "name": "罗塞尔·古斯塔夫",
-        "entity_type": "character_ref",
+        "entity_type": "character",
         "importance_level": "important",
         "importance": 0.85,
         "public_info": "前任大帝，已逝，留下了神秘的日记",
@@ -131,7 +131,7 @@ WORLD_ENTITY_DATA = [
     },
     {
         "name": "邓恩·史密斯",
-        "entity_type": "character_ref",
+        "entity_type": "character",
         "importance_level": "normal",
         "importance": 0.60,
         "public_info": "廷根市值夜者小队队长",

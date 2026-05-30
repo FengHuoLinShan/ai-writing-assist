@@ -291,9 +291,10 @@ const api = {
       })
     },
 
-    /** 删除别名 */
-    async deleteAlias(id, params = {}) {
-      return request(`/world/aliases/${id}` + buildQueryString(params), { method: "DELETE" })
+    /** 删除别名（core_entities.aliases JSONB） */
+    async deleteAlias(entityId, alias, params = {}) {
+      params.alias = alias
+      return request(`/world/entities/${entityId}/aliases` + buildQueryString(params), { method: "DELETE" })
     },
 
     /** 将候选合并到正史对象（候选名称成为别名，信息合并） */

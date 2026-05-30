@@ -457,7 +457,7 @@ const worldView = {
           <td>${esc(a.alias)}</td>
           <td>${typeMap[a.alias_type] || esc(a.alias_type)}</td>
           <td>${a.confidence ? (a.confidence * 100).toFixed(0) + "%" : "-"}</td>
-          <td><button class="btn btn-sm btn-danger" data-action="delete-alias" data-id="${esc(a.id || a.alias_id)}">删除</button></td>
+          <td><button class="btn btn-sm btn-danger" data-action="delete-alias" data-entity-id="${esc(a.entity_id)}" data-alias="${esc(a.alias)}">删除</button></td>
         </tr>`
       }
       html += '</tbody></table>'
@@ -504,14 +504,19 @@ const worldView = {
     }])
   },
 
-  deleteAlias(aliasId) {
-    confirmAction("确定删除此别名？", async () => {
+  deleteAlias(entityId, e) {
+    const alias = (e && e.target) ? e.target.getAttribute("data-alias") : null
+    if (!entityId || !alias) {
+      toast("参数错误：缺少实体 ID 或别名", "error")
+      return
+    }
+    confirmAction(`确定删除别名 "${alias}"？`, async () => {
       try {
-        await api.world.deleteAlias(aliasId, { novel_id: state.currentProjectId })
+        await api.world.deleteAlias(entityId, alias, { novel_id: state.currentProjectId })
         toast("已删除", "success")
         router.navigate("world", "aliases")
       } catch (err) { toast(err.message || "删除失败", "error") }
-    }, "确认删除")
+    }, `确认删除别名 "${alias}"`)
   },
 
   editEntity(id) {
@@ -640,7 +645,7 @@ const worldView = {
         case "create-relation": this.showRelationCreateForm(); break
         case "delete-relation": if (id) this.deleteRelation(id); break
         case "create-alias": this.showAliasCreateForm(); break
-        case "delete-alias": if (id) this.deleteAlias(id); break
+        case "delete-alias": { const eid = t.getAttribute("data-entity-id"); if (eid) this.deleteAlias(eid, e); break }
       }
     }
     content.addEventListener("click", this._clickHandler)
