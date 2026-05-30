@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 长篇小说结构化创作引擎 — 架构图</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --pink: #f778ba;
+    --fact: #58a6ff;
+    --struct: #d29922;
+    --aux: #3fb950;
+    --infra: #f778ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    padding: 24px;
+    overflow-x: hidden;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+  .nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .nav button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all .15s;
+    font-family: inherit;
+  }
+  .nav button:hover { border-color: var(--accent); color: var(--accent); }
+  .nav button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .diagram { display: none; }
+  .diagram.active { display: block; }
+
+  /* === Entity Diagram === */
+  .entity-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .entity-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: border-color .15s;
+    cursor: default;
+  }
+  .entity-card:hover { border-color: var(--accent); }
+  .entity-card .layer-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  .entity-card.fact .layer-badge { background: rgba(88,166,255,.15); color: var(--fact); }
+  .entity-card.struct .layer-badge { background: rgba(210,153,34,.15); color: var(--struct); }
+  .entity-card.aux .layer-badge { background: rgba(63,185,80,.15); color: var(--aux); }
+  .entity-card.infra .layer-badge { background: rgba(247,120,186,.15); color: var(--infra); }
+  .entity-card h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .entity-card .table-name {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', monospace;
+    margin-bottom: 8px;
+  }
+  .entity-card .fields {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  .entity-card .fields .key { color: var(--accent); }
+  .entity-card .fields .fk { color: var(--orange); }
+
+  .rel-section {
+    margin: 28px 0 16px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .rel-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-dim);
+  }
+  .rel-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 6px;
+  }
+  .rel-item {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,.03);
+  }
+  .rel-item .arrow { color: var(--accent); margin: 0 6px; }
+  .rel-item .label { color: var(--orange); font-size: 11px; }
+
+  .layer-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .layer-box {
+    padding: 14px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .layer-box.fact { border-left: 3px solid var(--fact); }
+  .layer-box.struct { border-left: 3px solid var(--struct); }
+  .layer-box.aux { border-left: 3px solid var(--aux); }
+  .layer-box.infra { border-left: 3px solid var(--infra); }
+  .layer-box h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .layer-box p {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* === Class Diagram === */
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 20px 0 24px;
+  }
+  .stack-layer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    position: relative;
+  }
+  .stack-layer .layer-label {
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 100px;
+    text-align: right;
+    color: var(--text-dim);
+  }
+  .stack-layer .layer-desc {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .stack-layer .layer-items {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .stack-layer .layer-items span {
+    background: rgba(255,255,255,.05);
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .module-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .mod-detail {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .mod-detail h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .mod-detail .mod-path {
+    font-size: 11px;
+    font-family: 'SF Mono', monospace;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .mod-detail .mod-desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .mod-detail .mod-tables {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', monospace;
+  }
+  .mod-detail .mod-tables span { color: var(--accent); }
+
+  .flow-viz { padding: 16px 0; }
+  .flow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 6px 0;
+    flex-wrap: wrap;
+  }
+  .flow-box {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .flow-box.highlight-accent { border-color: var(--accent); background: rgba(88,166,255,.08); }
+  .flow-box.highlight-green { border-color: var(--green); background: rgba(63,185,80,.08); }
+  .flow-box.highlight-purple { border-color: var(--purple); background: rgba(188,140,255,.08); }
+  .flow-arrow-sym { color: var(--text-dim); font-size: 16px; }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-item .swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  /* === Sequence Diagram === */
+  .seq-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+  }
+  .seq-container h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .seq-container h3 .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .seq-auto .step {
+    display: flex;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    line-height: 1.5;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .seq-auto .step:last-child { border-bottom: none; }
+  .seq-auto .step-num {
+    color: var(--text-dim);
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    min-width: 24px;
+    text-align: right;
+  }
+  .seq-auto .step-from { color: var(--accent); font-weight: 500; min-width: 80px; }
+  .seq-auto .step-to { color: var(--orange); font-weight: 500; min-width: 80px; }
+  .seq-auto .arrow-mid { color: var(--text-dim); margin: 0 4px; }
+  .seq-auto .step-desc { color: var(--text-dim); }
+
+  @media (max-width: 768px) {
+    .entity-grid { grid-template-columns: 1fr; }
+    .module-detail-grid { grid-template-columns: 1fr; }
+    .rel-list { grid-template-columns: 1fr; }
+    .layer-summary { grid-template-columns: 1fr; }
+    .stack-layer { flex-wrap: wrap; }
+    .stack-layer .layer-label { text-align: left; min-width: auto; }
+  }
+</style>
+</head>
+<body>
+
+<h1><span>&#x1F3D7;</span> AI 长篇小说结构化创作引擎</h1>
+<p class="subtitle">实体架构 &middot; 模块分层 &middot; 核心时序 &middot; 代码驱动 v2.0</p>
+
+<div class="nav">
+  <button class="active" onclick="switchTab('entity')">&#x1F4CA; 实体架构图</button>
+  <button onclick="switchTab('class')">&#x1F9E9; 模块类图</button>
+  <button onclick="switchTab('sequence')">&#x23F1; 核心时序图</button>
+</div>
+
+<!-- ============================================================ -->
+<!-- TAB 1: Entity Architecture -->
+<!-- ============================================================ -->
+<div id="tab-entity" class="diagram active">
+
+<div class="layer-summary">
+  <div class="layer-box fact">
+    <h4 style="color:var(--fact)">事实层</h4>
+    <p>维护小说当前正史事实 &mdash; project, world, character, geo, memory, timeline</p>
+  </div>
+  <div class="layer-box struct">
+    <h4 style="color:var(--struct)">结构层</h4>
+    <p>把事实组织成可执行的剧情计划 &mdash; outline (threads, arcs, chapter_cards, foreshadowing, reveals)</p>
+  </div>
+  <div class="layer-box aux">
+    <h4 style="color:var(--aux)">辅助层</h4>
+    <p>检索、上下文编译、审查与导入导出 &mdash; rag, context, review, writing, imports</p>
+  </div>
+  <div class="layer-box infra">
+    <h4 style="color:var(--infra)">基础设施</h4>
+    <p>LLM 客户端 &amp; 异步任务队列 &mdash; infrastructure (llm, tasks)</p>
+  </div>
+</div>
+
+<div class="entity-grid">
+
+  <!-- === Fact Layer === -->
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>Project</h3>
+    <div class="table-name">projects</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      title &middot; genre &middot; tone &middot; language<br>
+      target_length &middot; current_stage<br>
+      default_reveal_policy
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>WorldEntity</h3>
+    <div class="table-name">world_entities</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      entity_type &middot; name &middot; summary<br>
+      public_info &middot; <span class="fk">hidden_truth</span><br>
+      importance &middot; reveal_level<br>
+      embedding &middot; embedding_text<br>
+      created_by &middot; approved_by
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>Relationship</h3>
+    <div class="table-name">relationships</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      source_id &middot; target_id<br>
+      source_type &middot; target_type<br>
+      relation_type &middot; description<br>
+      visibility &middot; strength
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>EntityAlias</h3>
+    <div class="table-name">entity_aliases</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      <span class="fk">entity_id</span> FK &rarr; world_entities<br>
+      alias &middot; alias_type<br>
+      source_chapter_index &middot; confidence
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>EntityCandidate</h3>
+    <div class="table-name">entity_candidates</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      name &middot; entity_type &middot; summary<br>
+      source_text &middot; importance_score<br>
+      suggested_action &middot; confidence<br>
+      embedding
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>Character</h3>
+    <div class="table-name">characters</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      world_entity_id (opt)<br>
+      name &middot; role &middot; personality<br>
+      desire &middot; fear &middot; secret &middot; weakness<br>
+      current_goal &middot; current_state<br>
+      stance &middot; voice_style &middot; meta
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>CharacterKnowledge</h3>
+    <div class="table-name">character_knowledge</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span><br>
+      character_id &middot; target_id<br>
+      target_type<br>
+      knowledge_level<br>
+      known_content &middot; misconception<br>
+      source_chapter_index
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>GeoLocation</h3>
+    <div class="table-name">geo_locations</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      <span class="fk">world_entity_id</span> FK &rarr; world_entities<br>
+      location_level &middot; parent_location_id (self-ref)<br>
+      x &middot; y &middot; terrain &middot; climate<br>
+      access_level
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>GeoEdge</h3>
+    <div class="table-name">geo_edges</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      <span class="fk">source_location_id</span> FK &rarr; geo_locations<br>
+      <span class="fk">target_location_id</span> FK &rarr; geo_locations<br>
+      relation_type &middot; travel_time<br>
+      difficulty &middot; visibility
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>GeoEra</h3>
+    <div class="table-name">geo_eras</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      name &middot; order_index &middot; summary<br>
+      start_event_id / end_event_id (opt)
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>MemoryRecord</h3>
+    <div class="table-name">memory_records</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      memory_type &middot; chapter_index<br>
+      title &middot; summary &middot; content_json<br>
+      visibility &middot; importance
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>MemoryUpdateProposal</h3>
+    <div class="table-name">memory_update_proposals</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      chapter_id &middot; chapter_index<br>
+      proposal_type &middot; payload (JSON)<br>
+      confidence &middot; decision
+    </div>
+  </div>
+
+  <div class="entity-card fact">
+    <span class="layer-badge">&#x2714; 事实层</span>
+    <h3>TimelineEvent</h3>
+    <div class="table-name">timeline_events</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      title &middot; summary &middot; order_index<br>
+      chapter_index &middot; event_type<br>
+      visibility &middot; status
+    </div>
+  </div>
+
+  <!-- === Structure Layer === -->
+  <div class="entity-card struct">
+    <span class="layer-badge">&#x1F3D7; 结构层</span>
+    <h3>PlotThread</h3>
+    <div class="table-name">plot_threads</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      name &middot; thread_type (main/secondary/hidden/villain)<br>
+      visible_goal &middot; hidden_truth<br>
+      start_chapter &middot; planned_payoff_chapter
+    </div>
+  </div>
+
+  <div class="entity-card struct">
+    <span class="layer-badge">&#x1F3D7; 结构层</span>
+    <h3>OutlineArc</h3>
+    <div class="table-name">outline_arcs</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      arc_index &middot; start/end_chapter<br>
+      entry_hook &middot; midpoint_turn<br>
+      climax &middot; result &middot; next_hook<br>
+      arc_goal &middot; core_conflict
+    </div>
+  </div>
+
+  <div class="entity-card struct">
+    <span class="layer-badge">&#x1F3D7; 结构层</span>
+    <h3>ChapterCard</h3>
+    <div class="table-name">chapter_cards</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      chapter_index (unique per novel)<br>
+      arc_id &middot; chapter_goal &middot; main_conflict<br>
+      must_happen &middot; must_not_happen<br>
+      visible/hidden/offscreen_progress<br>
+      foreshadowing_actions &middot; ending_hook<br>
+      <span class="fk">scene_cards</span> (JSONB inline)
+    </div>
+  </div>
+
+  <div class="entity-card struct">
+    <span class="layer-badge">&#x1F3D7; 结构层</span>
+    <h3>ForeshadowingPlan</h3>
+    <div class="table-name">foreshadowing_plans</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      name &middot; surface_meaning &middot; hidden_meaning<br>
+      planned_seed/reinforce/payoff_chapter<br>
+      lifecycle: planned &rarr; seeded &rarr; reinforced &rarr; paid_off
+    </div>
+  </div>
+
+  <div class="entity-card struct">
+    <span class="layer-badge">&#x1F3D7; 结构层</span>
+    <h3>RevealPlan</h3>
+    <div class="table-name">reveal_plans</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      target_type &middot; target_id<br>
+      secret_summary<br>
+      reveal_stages (JSONB): {chapter_index, hint_level, content}
+    </div>
+  </div>
+
+  <!-- === Aux Layer === -->
+  <div class="entity-card aux">
+    <span class="layer-badge">&#x2699; 辅助层</span>
+    <h3>RagChunk</h3>
+    <div class="table-name">rag_chunks</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      source_type &middot; chapter_index<br>
+      text &middot; summary &middot; char_count<br>
+      embedding (pgvector) &middot; embedding_status<br>
+      visibility &middot; importance
+    </div>
+  </div>
+
+  <div class="entity-card aux">
+    <span class="layer-badge">&#x2699; 辅助层</span>
+    <h3>ReviewReport</h3>
+    <div class="table-name">review_reports</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      target_type &middot; target_id<br>
+      decision (pass/minor/major/reject)<br>
+      problems &middot; conflict_warnings<br>
+      early_reveal &middot; duplicate &middot; geo_warnings
+    </div>
+  </div>
+
+  <div class="entity-card aux">
+    <span class="layer-badge">&#x2699; 辅助层</span>
+    <h3>WritingDraft</h3>
+    <div class="table-name">writing_drafts</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      chapter_index<br>
+      <span class="fk">chapter_card_id</span> FK &rarr; chapter_cards<br>
+      title &middot; content<br>
+      version_number &middot; status
+    </div>
+  </div>
+
+  <div class="entity-card aux">
+    <span class="layer-badge">&#x2699; 辅助层</span>
+    <h3>ImportRecord</h3>
+    <div class="table-name">import_records</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      <span class="fk">novel_id</span> FK &rarr; projects<br>
+      file_name &middot; file_type<br>
+      file_size &middot; imported_chapters<br>
+      status &middot; error_message
+    </div>
+  </div>
+
+  <div class="entity-card infra">
+    <span class="layer-badge">&#x2699;&#xFE0F; 基础设施</span>
+    <h3>AsyncTask</h3>
+    <div class="table-name">async_tasks</div>
+    <div class="fields">
+      <span class="key">id</span> UUID PK<br>
+      task_type &middot; status &middot; progress<br>
+      meta &middot; result &middot; error_message<br>
+      started_at &middot; finished_at<br>
+      heartbeat_at
+    </div>
+  </div>
+
+</div>
+
+<!-- Entity Relationships -->
+<div class="rel-section">
+  <h3>&#x1F517; 关键实体关系</h3>
+  <div class="rel-list">
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> WorldEntity <span class="label">[1:N] novel_id FK, CASCADE</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> Character <span class="label">[1:N] novel_id FK, CASCADE</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> GeoLocation <span class="label">[1:N] novel_id FK, CASCADE</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> GeoEdge <span class="label">[1:N] novel_id FK</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> PlotThread / OutlineArc / ChapterCard <span class="label">[1:N] novel_id FK</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> MemoryRecord / TimelineEvent <span class="label">[1:N] novel_id FK</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> WritingDraft / ImportRecord <span class="label">[1:N] novel_id FK</span></div>
+    <div class="rel-item">Project <span class="arrow">&rarr;</span> RagChunk <span class="label">[1:N] novel_id FK</span></div>
+    <div class="rel-item">WorldEntity <span class="arrow">&rarr;</span> EntityAlias <span class="label">[1:N] entity_id FK, CASCADE</span></div>
+    <div class="rel-item">WorldEntity <span class="arrow">&rarr;</span> GeoLocation <span class="label">[1:1] world_entity_id FK, CASCADE</span></div>
+    <div class="rel-item">WorldEntity <span class="arrow">&rarr;</span> Character <span class="label">[opt 1:1] world_entity_id</span></div>
+    <div class="rel-item">GeoLocation <span class="arrow">&rarr;</span> GeoLocation <span class="label">[self-ref] parent_location_id, SET NULL</span></div>
+    <div class="rel-item">GeoLocation <span class="arrow">&rarr;</span> GeoEdge <span class="label">[1:N] source/target_location_id FK, CASCADE</span></div>
+    <div class="rel-item">ChapterCard <span class="arrow">&rarr;</span> OutlineArc <span class="label">[N:1] arc_id (logic FK)</span></div>
+    <div class="rel-item">ChapterCard <span class="arrow">&rarr;</span> WritingDraft <span class="label">[1:N] chapter_card_id FK, SET NULL</span></div>
+    <div class="rel-item">Character <span class="arrow">&rarr;</span> CharacterKnowledge <span class="label">[1:N] character_id</span></div>
+  </div>
+</div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- TAB 2: Class / Layer Diagram -->
+<!-- ============================================================ -->
+<div id="tab-class" class="diagram">
+
+<div class="legend">
+  <div class="legend-item"><div class="swatch" style="background:var(--accent)"></div> API 路由层</div>
+  <div class="legend-item"><div class="swatch" style="background:var(--green)"></div> Facade 对外门面</div>
+  <div class="legend-item"><div class="swatch" style="background:var(--purple)"></div> Contracts 跨模块契约</div>
+  <div class="legend-item"><div class="swatch" style="background:var(--orange)"></div> Services 业务逻辑</div>
+  <div class="legend-item"><div class="swatch" style="background:var(--pink)"></div> Repositories 数据访问</div>
+</div>
+
+<!-- Architecture Stack -->
+<div class="stack">
+  <div class="stack-layer" style="border-left: 3px solid var(--accent);">
+    <span class="layer-label" style="color:var(--accent)">API Layer</span>
+    <div class="layer-items">
+      <span style="border:1px solid rgba(88,166,255,.3);">modules/*/api.py</span>
+      <span style="border:1px solid rgba(88,166,255,.3);">FastAPI Router</span>
+      <span style="border:1px solid rgba(88,166,255,.3);">DbSession DI</span>
+      <span style="border:1px solid rgba(88,166,255,.3);">Pydantic Schemas</span>
+    </div>
+    <span class="layer-desc">HTTP 端点定义 &middot; 无业务逻辑</span>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:10px;padding:2px 0;">&#x2193; 调用 facade / service</div>
+  <div class="stack-layer" style="border-left: 3px solid var(--green);">
+    <span class="layer-label" style="color:var(--green)">Facade Layer</span>
+    <div class="layer-items">
+      <span style="border:1px solid rgba(63,185,80,.3);">modules/*/facade.py</span>
+    </div>
+    <span class="layer-desc">稳定对外入口 &middot; 组合服务调用 &middot; 无复杂业务逻辑</span>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:10px;padding:2px 0;">&#x2193; 调用 services</div>
+  <div class="stack-layer" style="border-left: 3px solid var(--orange);">
+    <span class="layer-label" style="color:var(--orange)">Service Layer</span>
+    <div class="layer-items">
+      <span style="border:1px solid rgba(210,153,34,.3);">modules/*/services.py</span>
+      <span style="border:1px solid rgba(210,153,34,.3);">world/services/* (7个)</span>
+      <span style="border:1px solid rgba(210,153,34,.3);">review/services/* (7个)</span>
+      <span style="border:1px solid rgba(210,153,34,.3);">context/services/*</span>
+    </div>
+    <span class="layer-desc">核心业务逻辑 &middot; 编排 Repository 调用</span>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:10px;padding:2px 0;">&#x2193; 调用 repositories</div>
+  <div class="stack-layer" style="border-left: 3px solid var(--pink);">
+    <span class="layer-label" style="color:var(--pink)">Repository Layer</span>
+    <div class="layer-items">
+      <span style="border:1px solid rgba(247,120,186,.3);">modules/*/repositories.py</span>
+      <span style="border:1px solid rgba(247,120,186,.3);">SQLAlchemy async queries</span>
+    </div>
+    <span class="layer-desc">数据访问 &middot; 参数绑定 &middot; 无业务逻辑</span>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:10px;padding:2px 0;">&#x2193; ORM / SQL</div>
+  <div class="stack-layer" style="border-left: 3px solid var(--purple);">
+    <span class="layer-label" style="color:var(--purple)">DB Layer</span>
+    <div class="layer-items">
+      <span style="border:1px solid rgba(188,140,255,.3);">PostgreSQL 17 + pgvector</span>
+      <span style="border:1px solid rgba(188,140,255,.3);">Alembic 迁移</span>
+    </div>
+    <span class="layer-desc">12 个模块 &middot; 24+ 数据库表 &middot; pg_trgm + vector 扩展</span>
+  </div>
+</div>
+
+<!-- Cross-module rules -->
+<div class="rel-section" style="margin-top:8px;">
+  <h3>&#x1F4D0; 跨模块通信规则</h3>
+  <div class="flow-viz">
+    <div class="flow-row">
+      <span class="flow-box highlight-accent">模块 A<br><small>facade.py</small></span>
+      <span class="flow-arrow-sym">&rarr;</span>
+      <span class="flow-box highlight-purple">模块 B<br><small>contracts.py</small></span>
+      <span style="color:var(--text-dim);font-size:12px;">&#x2190; 只能导入 contracts 和 facade</span>
+    </div>
+    <div class="flow-row">
+      <span class="flow-box highlight-accent">API</span>
+      <span class="flow-arrow-sym">&rarr;</span>
+      <span class="flow-box highlight-green">Facade</span>
+      <span class="flow-arrow-sym">&rarr;</span>
+      <span class="flow-box" style="border-color:var(--orange);">Service</span>
+      <span class="flow-arrow-sym">&rarr;</span>
+      <span class="flow-box" style="border-color:var(--pink);">Repository</span>
+      <span class="flow-arrow-sym">&rarr;</span>
+      <span class="flow-box" style="border-color:var(--purple);">DB</span>
+    </div>
+    <div class="flow-row">
+      <span style="color:var(--red);font-size:11px;">&#x2717; 禁止: API &rarr; Service 直接调用</span>
+      <span style="color:var(--red);font-size:11px;">&#x2717; 禁止: 跨模块 import models.py</span>
+      <span style="color:var(--red);font-size:11px;">&#x2717; 禁止: Facade 写复杂业务逻辑</span>
+      <span style="color:var(--red);font-size:11px;">&#x2717; 禁止: API 层拼接原始 SQL</span>
+    </div>
+  </div>
+</div>
+
+<!-- Module detail -->
+<div style="margin:20px 0 12px;display:flex;align-items:center;gap:8px;">
+  <h3 style="font-size:15px;font-weight:600;">&#x1F9E9; 12 个业务模块</h3>
+  <span style="font-size:11px;color:var(--text-dim);">( 每个模块: models / repositories / services / facade / api / schemas / contracts / tests )</span>
+</div>
+
+<div class="module-detail-grid">
+
+  <div class="mod-detail">
+    <h4 style="color:var(--fact)">project</h4>
+    <div class="mod-path">modules/project/</div>
+    <div class="mod-desc">小说项目根聚合 &middot; 创建/配置/元信息 &middot; 系统根实体</div>
+    <div class="mod-tables">表: <span>projects</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--fact)">world</h4>
+    <div class="mod-path">modules/world/</div>
+    <div class="mod-desc">世界对象正史库 &middot; 关系网络 &middot; 别名 &middot; 候选抽取 &middot; 去重合并</div>
+    <div class="mod-tables">表: <span>world_entities / relationships / entity_aliases / entity_candidates</span></div>
+    <div class="mod-desc" style="margin-top:3px;font-size:11px;">子服务: EntityService / RelationshipService / AliasService / CandidateService / DedupService / ExtractionService</div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--fact)">character</h4>
+    <div class="mod-path">modules/character/</div>
+    <div class="mod-desc">人物档案 &middot; 角色定位 &middot; 性格情感目标 &middot; 知识边界管理</div>
+    <div class="mod-tables">表: <span>characters / character_knowledge</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--fact)">geo</h4>
+    <div class="mod-path">modules/geo/</div>
+    <div class="mod-desc">地理地点层级 &middot; 通行关系网 &middot; 宏观历史时期 &middot; 可达性计算</div>
+    <div class="mod-tables">表: <span>geo_locations (self-ref) / geo_edges / geo_eras</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--fact)">memory</h4>
+    <div class="mod-path">modules/memory/</div>
+    <div class="mod-desc">长期记忆记录 &middot; AI 生成记忆更新提案 &middot; 8 种记忆类型</div>
+    <div class="mod-tables">表: <span>memory_records / memory_update_proposals</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--fact)">timeline</h4>
+    <div class="mod-path">modules/timeline/</div>
+    <div class="mod-desc">正史事件顺序 &middot; 按 order_index 排序 &middot; 9 种事件类型</div>
+    <div class="mod-tables">表: <span>timeline_events</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--struct)">outline</h4>
+    <div class="mod-path">modules/outline/</div>
+    <div class="mod-desc">结构层核心 &middot; 剧情线/篇章纲/章节卡/伏笔/揭示 &middot; 三幕结构驱动</div>
+    <div class="mod-tables">表: <span>plot_threads / outline_arcs / chapter_cards / foreshadowing_plans / reveal_plans</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--aux)">rag</h4>
+    <div class="mod-path">modules/rag/</div>
+    <div class="mod-desc">语义检索 &middot; 混合评分 (vector 0.45 + keyword 0.30 + relation 0.15 + importance 0.10)</div>
+    <div class="mod-tables">表: <span>rag_chunks (pgvector)</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--aux)">context</h4>
+    <div class="mod-path">modules/context/</div>
+    <div class="mod-desc">上下文编译器 &middot; 从 8+ 模块拉取数据 &middot; 编译 LLM Prompt 上下文</div>
+    <div class="mod-tables">无独立表 (组合层)</div>
+    <div class="mod-desc" style="margin-top:3px;font-size:11px;">10 个 Loader + MarkdownRenderer &middot; 支持 reveal_mode / geo_filter / budget</div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--aux)">review</h4>
+    <div class="mod-path">modules/review/</div>
+    <div class="mod-desc">结构一致性复查 &middot; 7 个检查维度 &middot; 输出 decision/score/warnings</div>
+    <div class="mod-tables">表: <span>review_reports</span></div>
+    <div class="mod-desc" style="margin-top:3px;font-size:11px;">检查器: schema / duplicate / early_reveal / knowledge / timeline / geo / entity_reference</div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--aux)">writing</h4>
+    <div class="mod-path">modules/writing/</div>
+    <div class="mod-desc">正文草稿管理 &middot; 版本号自动递增 &middot; 保存时触发 RAG 索引</div>
+    <div class="mod-tables">表: <span>writing_drafts (unique novel+chapter+version)</span></div>
+  </div>
+
+  <div class="mod-detail">
+    <h4 style="color:var(--aux)">imports</h4>
+    <div class="mod-path">modules/imports/</div>
+    <div class="mod-desc">文件导入 (txt/epub/html/mobi/azw3, &le;50MB) &middot; 解析 &rarr; WritingDraft &middot; deep 模式触发抽取管道</div>
+    <div class="mod-tables">表: <span>import_records (元数据, 不存正文)</span></div>
+  </div>
+
+</div>
+
+<!-- Infrastructure -->
+<div style="margin:20px 0 12px;">
+  <h3 style="font-size:15px;font-weight:600;">&#x2699;&#xFE0F; 基础设施 &amp; 核心库</h3>
+</div>
+
+<div class="module-detail-grid">
+  <div class="mod-detail">
+    <h4 style="color:var(--pink)">infrastructure/llm</h4>
+    <div class="mod-path">infrastructure/llm/</div>
+    <div class="mod-desc">
+      LLM 客户端 &middot; OpenAI 兼容 API<br>
+      &middot; generate / generate_structured / generate_stream<br>
+      &middot; 指数退避重试 &middot; 自动 response_format 校验<br>
+      &middot; prompt_loader 从 backend/prompts/ 加载
+    </div>
+  </div>
+  <div class="mod-detail">
+    <h4 style="color:var(--pink)">infrastructure/tasks</h4>
+    <div class="mod-path">infrastructure/tasks/</div>
+    <div class="mod-desc">
+      异步任务队列 &middot; PostgreSQL FOR UPDATE SKIP LOCKED<br>
+      &middot; Worker 后台循环 &middot; @task_handler 注册<br>
+      &middot; 进度/心跳/取消 &middot; 8 种任务类型
+    </div>
+  </div>
+  <div class="mod-detail">
+    <h4 style="color:var(--purple)">core</h4>
+    <div class="mod-path">core/</div>
+    <div class="mod-desc">
+      ORM 基类 (UUIDMixin / TimestampMixin / StatusMixin / NovelMixin)<br>
+      &middot; Settings dataclass 单例 &middot; DatabaseManager<br>
+      &middot; FastAPI 依赖注入 (DbSession / AppSettings)
+    </div>
+  </div>
+  <div class="mod-detail">
+    <h4 style="color:var(--purple)">prompts</h4>
+    <div class="mod-path">backend/prompts/ (8 个文件)</div>
+    <div class="mod-desc">
+      4 个核心创作 Prompt + 3 个工具型抽取 Prompt + 1 个共享规则<br>
+      &middot; structure_world_character &middot; structure_plot<br>
+      &middot; structure_chapter_scene &middot; structure_review_memory<br>
+      &middot; extract_chapter_scene &middot; extract_character &middot; structure_extraction
+    </div>
+  </div>
+  <div class="mod-detail">
+    <h4 style="color:var(--purple)">shared</h4>
+    <div class="mod-path">shared/</div>
+    <div class="mod-desc">
+      20+ StrEnum 枚举 &middot; 类型别名 (NovelID / EntityID 等)<br>
+      &middot; 常量 (embedding dim / page sizes / thresholds / budgets)
+    </div>
+  </div>
+  <div class="mod-detail">
+    <h4 style="color:var(--cyan)">frontend</h4>
+    <div class="mod-path">frontend-console/</div>
+    <div class="mod-desc">
+      Vanilla JS SPA &middot; 12 个 View &middot; hash 路由<br>
+      &middot; Proxy 响应式状态 &middot; API 客户端带缓存<br>
+      &middot; 命令系统 (:command + /search)
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- TAB 3: Sequence Diagrams -->
+<!-- ============================================================ -->
+<div id="tab-sequence" class="diagram">
+
+<!-- 1. AI Generation -->
+<div class="seq-container">
+  <h3>
+    &#x1F9E0; AI 结构化生成流程
+    <span class="badge" style="background:rgba(88,166,255,.15);color:var(--accent)">候选先行 &middot; Schema 校验 &middot; Review &middot; 人工确认</span>
+  </h3>
+  <div class="seq-auto">
+    <div class="step">
+      <span class="step-num">1</span>
+      <span class="step-from">用户/API</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">AsyncTask</span>
+      <span class="step-desc">提交生成任务 (world/plot/chapter/review/memory 等)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">2</span>
+      <span class="step-from">Worker</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">task_handler</span>
+      <span class="step-desc">FOR UPDATE SKIP LOCKED 抢占任务 &rarr; 标记 running</span>
+    </div>
+    <div class="step">
+      <span class="step-num">3</span>
+      <span class="step-from">Context</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">各模块 Facade</span>
+      <span class="step-desc">编译结构化上下文 (project / world / character / geo / memory / timeline / outline / rag)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">4</span>
+      <span class="step-from">LLMClient</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">OpenAI API</span>
+      <span class="step-desc">发送 Prompt + Context，请求 response_format 结构化输出</span>
+    </div>
+    <div class="step">
+      <span class="step-num">5</span>
+      <span class="step-from">LLMClient</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Pydantic 校验</span>
+      <span class="step-desc">validate(response_format) &middot; 自动 retry &middot; 最多 3 次</span>
+    </div>
+    <div class="step">
+      <span class="step-num">6</span>
+      <span class="step-from">存储</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Candidate 表</span>
+      <span class="step-desc">写入候选池 (entity_candidates / memory_update_proposals / chapter card drafts)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">7</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">7 个 Checker</span>
+      <span class="step-desc">结构复查: Schema / 重复 / 知识边界 / 提前揭示 / 地理 / 时间线 / 实体引用</span>
+    </div>
+    <div class="step">
+      <span class="step-num">8</span>
+      <span class="step-from">用户</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Facade</span>
+      <span class="step-desc">人工审核候选 &rarr; 编辑/接受/拒绝</span>
+    </div>
+    <div class="step">
+      <span class="step-num">9</span>
+      <span class="step-from">Facade</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Canonical 表</span>
+      <span class="step-desc">确认后写入正史 (world_entities / memory_records / chapter_cards)</span>
+    </div>
+  </div>
+</div>
+
+<!-- 2. Import Flow -->
+<div class="seq-container">
+  <h3>
+    &#x1F4E5; 小说导入流程
+    <span class="badge" style="background:rgba(63,185,80,.15);color:var(--green)">文件 &rarr; 解析 &rarr; 正文 &rarr; 结构化抽取</span>
+  </h3>
+  <div class="seq-auto">
+    <div class="step">
+      <span class="step-num">1</span>
+      <span class="step-from">用户</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Imports API</span>
+      <span class="step-desc">上传文件 (txt/epub/html/mobi/azw3, &le;50MB)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">2</span>
+      <span class="step-from">API</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Imports Facade</span>
+      <span class="step-desc">验证文件类型 &middot; 大小 &middot; 路径安全 (os.path.basename)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">3</span>
+      <span class="step-from">Service</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Parser</span>
+      <span class="step-desc">解析文件 &rarr; list[{title, content}]</span>
+    </div>
+    <div class="step">
+      <span class="step-num">4</span>
+      <span class="step-from">Facade</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Writing Facade</span>
+      <span class="step-desc">跨模块写入 WritingDraft (每章一条记录)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">5</span>
+      <span class="step-from">Facade</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">ImportRecord</span>
+      <span class="step-desc">记录导入元信息 (文件名/类型/章节数/状态)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">6</span>
+      <span class="step-from">deep 模式</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">抽取管道</span>
+      <span class="step-desc">依次触发: world extraction &rarr; character extraction &rarr; plot structure generation</span>
+    </div>
+    <div class="step">
+      <span class="step-num">7</span>
+      <span class="step-from">Writing 保存</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">RAG Task</span>
+      <span class="step-desc">自动入队 rag_index_chapter 异步任务</span>
+    </div>
+  </div>
+</div>
+
+<!-- 3. Context Compilation -->
+<div class="seq-container">
+  <h3>
+    &#x1F4CB; 上下文编译流程
+    <span class="badge" style="background:rgba(210,153,34,.15);color:var(--struct)">组合层 &middot; 按需加载 &middot; 预算控制</span>
+  </h3>
+  <div class="seq-auto">
+    <div class="step">
+      <span class="step-num">1</span>
+      <span class="step-from">LLM Task</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Context Facade</span>
+      <span class="step-desc">compile(scope + chapter_index + reveal_mode + viewpoint)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">2</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Project Facade</span>
+      <span class="step-desc">项目元信息</span>
+    </div>
+    <div class="step">
+      <span class="step-num">3</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">World Facade</span>
+      <span class="step-desc">世界对象 (按 reveal_mode 过滤 hidden_truth)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">4</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Character Facade</span>
+      <span class="step-desc">人物档案 + 知识边界</span>
+    </div>
+    <div class="step">
+      <span class="step-num">5</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Geo Facade</span>
+      <span class="step-desc">地理信息 (可选地缘可达性过滤 + 历史时期)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">6</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Memory Facade</span>
+      <span class="step-desc">长期记忆 (按 chapter_index 过滤 &le; 当前章)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">7</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Timeline Facade</span>
+      <span class="step-desc">时间线事件</span>
+    </div>
+    <div class="step">
+      <span class="step-num">8</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Outline Facade</span>
+      <span class="step-desc">剧情线 / 篇章纲 / 章节卡 / 伏笔 / 揭示</span>
+    </div>
+    <div class="step">
+      <span class="step-num">9</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">RAG Facade</span>
+      <span class="step-desc">相似度检索相关片段 (混合评分排序)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">10</span>
+      <span class="step-from">Compiler</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">LLM Task</span>
+      <span class="step-desc">返回 StructureContextBundle (含 budget_used / warnings)</span>
+    </div>
+  </div>
+</div>
+
+<!-- 4. Review Process -->
+<div class="seq-container">
+  <h3>
+    &#x1F50D; 结构复查流程
+    <span class="badge" style="background:rgba(188,140,255,.15);color:var(--purple)">7 个检查维度 &middot; pass/minor/major/reject</span>
+  </h3>
+  <div class="seq-auto">
+    <div class="step">
+      <span class="step-num">1</span>
+      <span class="step-from">用户/Worker</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Review Facade</span>
+      <span class="step-desc">submit(target_type, target_id) &rarr; async task</span>
+    </div>
+    <div class="step">
+      <span class="step-num">2</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Schema Checker</span>
+      <span class="step-desc">必要字段完整性校验</span>
+    </div>
+    <div class="step">
+      <span class="step-num">3</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Duplicate Checker</span>
+      <span class="step-desc">候选 vs 正史查重 (精确名称 + 模糊 + 向量)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">4</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Early Reveal Checker</span>
+      <span class="step-desc">检查是否过早揭示秘密 (与 reveal_plans 对比)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">5</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Knowledge Checker</span>
+      <span class="step-desc">人物知识边界一致性 (角色是否知道不该知道的)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">6</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Geo Checker</span>
+      <span class="step-desc">地理一致性 (地点/通行/历史时期冲突)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">7</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Timeline Checker</span>
+      <span class="step-desc">时间线一致性 (事件顺序/因果链)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">8</span>
+      <span class="step-from">ReviewService</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Entity Ref Checker</span>
+      <span class="step-desc">实体引用有效性 (引用的 ID 是否存在于正史)</span>
+    </div>
+    <div class="step">
+      <span class="step-num">9</span>
+      <span class="step-from">Review Facade</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">调用方</span>
+      <span class="step-desc">ReviewReport {decision, score, problems[], warnings[], revision_instructions[]}</span>
+    </div>
+  </div>
+</div>
+
+<!-- 5. Data Flow Overview -->
+<div class="seq-container">
+  <h3>
+    &#x1F500; 完整数据流全景
+    <span class="badge" style="background:rgba(57,210,192,.15);color:var(--cyan)">创作流程端到端</span>
+  </h3>
+  <div class="seq-auto">
+    <div class="step">
+      <span class="step-num">&#x2460;</span>
+      <span class="step-from">World Building</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">WorldEntity</span>
+      <span class="step-desc">创建世界对象、关系网络、地理层级、历史时期</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2461;</span>
+      <span class="step-from">Character</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">CharacterKnowledge</span>
+      <span class="step-desc">创建人物档案、定义知识边界、角色关系</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2462;</span>
+      <span class="step-from">Plot Structure</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Outline Layer</span>
+      <span class="step-desc">剧情线 &rarr; 篇章纲(三幕) &rarr; 章节卡 &rarr; 伏笔/揭示计划</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2463;</span>
+      <span class="step-from">Writing</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">WritingDraft</span>
+      <span class="step-desc">按章节卡撰写正文 &rarr; 自动触发 RAG 索引</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2464;</span>
+      <span class="step-from">Memory</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">MemoryRecord</span>
+      <span class="step-desc">AI 从正文抽取状态变化 &rarr; 生成 memory proposals &rarr; 用户确认</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2465;</span>
+      <span class="step-from">Timeline</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">TimelineEvent</span>
+      <span class="step-desc">维护正史事件顺序 &middot; 关联人物/实体/地点/剧情线</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2466;</span>
+      <span class="step-from">Review</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">ReviewReport</span>
+      <span class="step-desc">对候选/正史做 7 维度一致性检查</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2467;</span>
+      <span class="step-from">Context</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Bundle</span>
+      <span class="step-desc">聚合所有模块数据 &rarr; 编译为 LLM 可读的结构化上下文</span>
+    </div>
+    <div class="step">
+      <span class="step-num">&#x2468;</span>
+      <span class="step-from">RAG</span>
+      <span class="arrow-mid">&rarr;</span>
+      <span class="step-to">Retrieval</span>
+      <span class="step-desc">语义检索 (向量 + 关键词 + 关系 + 重要性 混合评分)</span>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.diagram').forEach(function(d) { d.classList.remove('active'); });
+  document.querySelectorAll('.nav button').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelector('.nav button[onclick*="' + tab + '"]').classList.add('active');
+}
+</script>
+
+</body>
+</html>
