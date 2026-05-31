@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,9 +34,9 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         index=True,
         comment="章节索引",
     )
+    # minimal-core: FK to chapter_cards 已移除（outline 模块暂时切分）
     chapter_card_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("chapter_cards.id", ondelete="SET NULL"),
         nullable=True,
         comment="关联的章节卡 ID",
     )

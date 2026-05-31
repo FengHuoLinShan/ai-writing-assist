@@ -256,15 +256,10 @@ async def root():
         "modules": [
             "projects",
             "world",
-            "characters",
-            "geo",
-            "memory",
-            "timeline",
-            "outline",
             "rag",
             "context",
-            "review",
             "writing",
+            "imports",
             "tasks",
         ],
     }
@@ -279,33 +274,21 @@ async def root():
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
 
 from infrastructure.tasks import api as tasks_api
+# geo/memory/outline/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api
-# from modules.character import api as character_api
 from modules.imports import api as imports_api
 import modules.world.tasks  # noqa: F401 — 注册任务处理器
 from modules.context import api as context_api
-from modules.geo import api as geo_api
-from modules.memory import api as memory_api
-from modules.outline import api as outline_api
 from modules.project import api as project_api
 from modules.rag import api as rag_api
-from modules.review import api as review_api
-# timeline API 已移除（事件迁入 world）
-# from modules.timeline import api as timeline_api
 from modules.world import api as world_api
 from modules.writing import api as writing_api
 
 app.include_router(project_api.router)
 app.include_router(imports_api.router)
 app.include_router(world_api.router)
-# app.include_router(character_api.router)  # 已迁入 world
-app.include_router(geo_api.router)
-app.include_router(memory_api.router)
-# app.include_router(timeline_api.router)  # 已移除
-app.include_router(outline_api.router)
 app.include_router(rag_api.router)
 app.include_router(context_api.router)
-app.include_router(review_api.router)
 app.include_router(writing_api.router)
 app.include_router(tasks_api.router)
 

@@ -28,13 +28,8 @@ from core.dependencies import get_db
 import modules.imports.models  # noqa: F401
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
-# character 模型已迁入 modules.world.models
-import modules.geo.models  # noqa: F401
-import modules.memory.models  # noqa: F401
-# timeline 模型已移除（事件迁入 world）
-import modules.outline.models  # noqa: F401
+# character/geo/memory/outline/review/timeline 已从 minimal-core 移除
 import modules.rag.models  # noqa: F401
-import modules.review.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 import infrastructure.tasks.models  # noqa: F401
 
@@ -99,11 +94,11 @@ async def test_project_id(db_session: AsyncSession) -> str:
 @pytest_asyncio.fixture
 async def test_entity_id(db_session: AsyncSession, test_project_id: str) -> str:
     """创建一个测试世界对象并返回其 ID"""
-    from modules.world.models import WorldEntity
+    from modules.world.models import CoreEntity
     import uuid
 
     eid = uuid.uuid4()
-    e = WorldEntity(
+    e = CoreEntity(
         id=eid,
         novel_id=uuid.UUID(hex=test_project_id),
         entity_type="item",
@@ -118,17 +113,19 @@ async def test_entity_id(db_session: AsyncSession, test_project_id: str) -> str:
 
 @pytest_asyncio.fixture
 async def test_character_id(db_session: AsyncSession, test_project_id: str) -> str:
-    """创建一个测试人物并返回其 ID"""
-    from modules.character.models import Character
+    """创建一个测试人物并返回其 entity_id (v3: 通过 CoreEntity)"""
+    from modules.world.models import CoreEntity
     import uuid
 
     cid = uuid.uuid4()
-    c = Character(
+    e = CoreEntity(
         id=cid,
         novel_id=uuid.UUID(hex=test_project_id),
+        entity_type="character",
         name="测试主角",
-        role="主角",
+        summary="测试角色",
+        status="canonical",
     )
-    db_session.add(c)
+    db_session.add(e)
     await db_session.flush()
     return str(cid)

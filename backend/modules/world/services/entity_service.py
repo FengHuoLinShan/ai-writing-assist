@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-"""CoreEntityService — 共享核心实体 CRUD + 统一去重入口"""
-=======
 """CoreEntityService — 核心实体 CRUD"""
->>>>>>> origin/worktree-grill-v3
 
 from __future__ import annotations
 
@@ -13,31 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.world.models import CoreEntity
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
-<<<<<<< HEAD
-    CoreEntityContext,
-=======
->>>>>>> origin/worktree-grill-v3
     CoreEntityCreate,
     CoreEntityListResponse,
     CoreEntityResponse,
     CoreEntityUpdate,
     WorldContextBundle,
-<<<<<<< HEAD
-=======
     WorldEntityContext,
->>>>>>> origin/worktree-grill-v3
 )
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-<<<<<<< HEAD
-class CoreEntityService:
-    """共享核心实体业务服务 — 统一创建/去重入口"""
-=======
 class WorldEntityService:
     """核心实体业务服务"""
->>>>>>> origin/worktree-grill-v3
 
     def __init__(self) -> None:
         self._repo = CoreEntityRepository()
@@ -47,44 +31,10 @@ class WorldEntityService:
         db: AsyncSession,
         novel_id: str,
         data: CoreEntityCreate,
-<<<<<<< HEAD
-        skip_dedup: bool = False,
     ) -> CoreEntityResponse:
-        """创建核心实体（统一入口）
-
-        在此处进行去重检查，确保同名同类型不重复创建。
-        创建后，调用方可通过 facade 联动创建扩展表记录。
-        """
-=======
-    ) -> CoreEntityResponse:
->>>>>>> origin/worktree-grill-v3
         nid = parse_uuid(novel_id, "novel_id")
-
-        if not skip_dedup:
-            await self._check_duplicate(db, nid, data.name, data.entity_type)
-
         entity = await self._repo.create(db, nid, data)
         return CoreEntityResponse.model_validate(entity)
-<<<<<<< HEAD
-
-    async def _check_duplicate(
-        self,
-        db: AsyncSession,
-        novel_id,
-        name: str,
-        entity_type: str,
-    ) -> None:
-        """检查同名同类型实体是否已存在"""
-        existing_id = await self._repo.find_entity_by_name(
-            db, novel_id, name, entity_type=entity_type,
-        )
-        if existing_id is not None:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail=f'实体 "{name}"（类型 {entity_type}）已存在（id={existing_id}）',
-            )
-=======
->>>>>>> origin/worktree-grill-v3
 
     async def get(
         self,
@@ -92,10 +42,6 @@ class WorldEntityService:
         entity_id: str,
         novel_id: str | None = None,
     ) -> CoreEntityResponse:
-<<<<<<< HEAD
-        """获取核心实体详情"""
-=======
->>>>>>> origin/worktree-grill-v3
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self._repo.get(db, eid)
         if entity is None:
@@ -117,10 +63,6 @@ class WorldEntityService:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> CoreEntityListResponse:
-<<<<<<< HEAD
-        """获取核心实体列表"""
-=======
->>>>>>> origin/worktree-grill-v3
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
@@ -142,10 +84,6 @@ class WorldEntityService:
         data: CoreEntityUpdate,
         novel_id: str | None = None,
     ) -> CoreEntityResponse:
-<<<<<<< HEAD
-        """更新核心实体 — 公共字段一次修改，全域生效"""
-=======
->>>>>>> origin/worktree-grill-v3
         eid = parse_uuid(entity_id, "entity_id")
         if novel_id:
             existing = await self._repo.get(db, eid)
@@ -165,10 +103,6 @@ class WorldEntityService:
         entity_id: str,
         novel_id: str | None = None,
     ) -> None:
-<<<<<<< HEAD
-        """删除核心实体（ON DELETE CASCADE 自动清理扩展表）"""
-=======
->>>>>>> origin/worktree-grill-v3
         eid = parse_uuid(entity_id, "entity_id")
         if novel_id:
             existing = await self._repo.get(db, eid)
@@ -189,10 +123,6 @@ class WorldEntityService:
         reveal_mode: str = "author_safe",
         limit: int = 20,
     ) -> WorldContextBundle:
-<<<<<<< HEAD
-        """获取核心实体上下文包（供其他模块使用）"""
-=======
->>>>>>> origin/worktree-grill-v3
         nid = parse_uuid(novel_id, "novel_id")
 
         if entity_ids:
@@ -201,7 +131,7 @@ class WorldEntityService:
         else:
             entities, _ = await self._repo.get_by_novel(db, nid, limit=limit)
 
-        contexts: list[CoreEntityContext] = []
+        contexts: list[WorldEntityContext] = []
         for entity in entities:
             ctx = _entity_to_context(entity, reveal_mode)
             contexts.append(ctx)
@@ -213,38 +143,6 @@ class WorldEntityService:
             reveal_mode=reveal_mode,
         )
 
-<<<<<<< HEAD
-    async def add_alias(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        alias: str,
-        alias_type: str = "name",
-        novel_id: str | None = None,
-    ) -> bool:
-        """添加别名到实体的 aliases JSONB（先验证归属）"""
-        eid = parse_uuid(entity_id, "entity_id")
-        if novel_id:
-            entity = await self._repo.get(db, eid)
-            if entity is None or str(entity.novel_id) != novel_id:
-                return False
-        return await self._repo.add_alias(db, eid, alias, alias_type)
-
-    async def remove_alias(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        alias: str,
-        novel_id: str | None = None,
-    ) -> bool:
-        """从实体的 aliases JSONB 移除别名（先验证归属）"""
-        eid = parse_uuid(entity_id, "entity_id")
-        if novel_id:
-            entity = await self._repo.get(db, eid)
-            if entity is None or str(entity.novel_id) != novel_id:
-                return False
-        return await self._repo.remove_alias(db, eid, alias)
-=======
     async def list_entity_summaries(
         self,
         db: AsyncSession,
@@ -259,23 +157,17 @@ class WorldEntityService:
             {"id": item.id, "name": item.name, "entity_type": item.entity_type}
             for item in result
         ]
->>>>>>> origin/worktree-grill-v3
 
 
 def _entity_to_context(
     entity: CoreEntity,
     reveal_mode: str,
-<<<<<<< HEAD
-) -> CoreEntityContext:
-    """将 ORM 模型转为上下文对象，根据 reveal_mode 过滤信息"""
-=======
 ) -> WorldEntityContext:
->>>>>>> origin/worktree-grill-v3
     hidden = None
     if reveal_mode == "author_only":
         hidden = entity.hidden_truth
 
-    return CoreEntityContext(
+    return WorldEntityContext(
         entity_id=str(entity.id),
         entity_type=entity.entity_type,
         name=entity.name,
@@ -286,5 +178,4 @@ def _entity_to_context(
         importance_level=entity.importance_level,
         reveal_level=entity.reveal_level,
         status=entity.status,
-        aliases=entity.aliases or [],
     )

@@ -6,23 +6,14 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-<<<<<<< HEAD
-from modules.world.repositories import RelationshipRepository, CoreEntityRepository
-=======
 from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
->>>>>>> origin/worktree-grill-v3
 from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationResponse,
     EntityRelationUpdate,
     RelationshipCreate,
     RelationshipResponse,
-<<<<<<< HEAD
-    RelationshipUpdate,
-    CoreEntityContext,
-=======
     WorldEntityContext,
->>>>>>> origin/worktree-grill-v3
 )
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -32,11 +23,7 @@ class RelationshipService:
     """关系业务服务（向后兼容，内部委托给 EntityRelationService）"""
 
     def __init__(self) -> None:
-<<<<<<< HEAD
-        self._repo = RelationshipRepository()
-=======
         self._repo = EntityRelationRepository()
->>>>>>> origin/worktree-grill-v3
         self._entity_repo = CoreEntityRepository()
 
     async def create(
@@ -186,12 +173,7 @@ class RelationshipService:
         seed_entity_ids: list[str],
         depth: int = 1,
         limit: int = 20,
-<<<<<<< HEAD
-    ) -> list[CoreEntityContext]:
-        """关系一跳/二跳扩展，返回相关对象的上下文列表"""
-=======
     ) -> list[WorldEntityContext]:
->>>>>>> origin/worktree-grill-v3
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
 
@@ -210,9 +192,9 @@ class RelationshipService:
         eids = [parse_uuid(eid, "entity_id") for eid in related_list]
         entities = await self._entity_repo.get_by_ids(db, nid, eids)
 
-        contexts: list[CoreEntityContext] = []
+        contexts: list[WorldEntityContext] = []
         for entity in entities:
-            contexts.append(CoreEntityContext(
+            contexts.append(WorldEntityContext(
                 entity_id=str(entity.id),
                 entity_type=entity.entity_type,
                 name=entity.name,

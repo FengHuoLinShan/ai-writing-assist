@@ -19,7 +19,8 @@ ContextCompiler 使用 Loader 策略模式，每个数据源独立一个 Loader 
 | CharactersLoader | character.facade.get_characters_context |
 | GeoLocationsLoader | geo.facade.get_location_context（批量） |
 | MemoryRecordsLoader | memory.facade.get_recent_story_memory |
-| TimelineEventsLoader | timeline.facade.get_relevant_timeline_context |
+| TimelineEventsLoader | timeline.facade.get_relevant_timeline_context（已废弃，待迁移到 EventsLoader） |
+| EventsLoader | world.facade.get_events_context（v3 新增） |
 | PlotThreadsLoader | outline.facade.get_active_threads |
 | OutlineArcLoader | outline.facade.get_arc_context |
 | ChapterCardLoader | outline.facade.get_chapter_card |

@@ -46,21 +46,15 @@ class CharacterService:
     async def get_character(
         self,
         db: AsyncSession,
-        entity_id: str,
+        character_id: str,
         novel_id: str | None = None,
     ) -> CharacterResponse:
-<<<<<<< HEAD:backend/modules/character/services.py
-        """获取人物扩展记录详情"""
-        eid = parse_uuid(entity_id)
-        character = await self._repo.get(db, eid)
-=======
         cid = parse_uuid(character_id)
         character = await self._repo.get(db, cid)
->>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {entity_id} not found",
+                detail=f"Character {character_id} not found",
             )
         if novel_id and str(character.novel_id) != novel_id:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
@@ -86,68 +80,53 @@ class CharacterService:
     async def update_character(
         self,
         db: AsyncSession,
-        entity_id: str,
+        character_id: str,
         data: CharacterUpdate,
         novel_id: str | None = None,
     ) -> CharacterResponse:
-<<<<<<< HEAD:backend/modules/character/services.py
-        """更新人物扩展字段"""
-        eid = parse_uuid(entity_id)
-=======
         cid = parse_uuid(character_id)
->>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if novel_id:
-            existing = await self._repo.get(db, eid)
+            existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        character = await self._repo.update(db, eid, data)
+        character = await self._repo.update(db, cid, data)
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {entity_id} not found",
+                detail=f"Character {character_id} not found",
             )
         return CharacterResponse.model_validate(character)
 
     async def delete_character(
         self,
         db: AsyncSession,
-        entity_id: str,
+        character_id: str,
         novel_id: str | None = None,
     ) -> None:
-<<<<<<< HEAD:backend/modules/character/services.py
-        """删除人物扩展记录"""
-        eid = parse_uuid(entity_id)
-=======
         cid = parse_uuid(character_id)
->>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if novel_id:
-            existing = await self._repo.get(db, eid)
+            existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._repo.delete(db, eid)
+        deleted = await self._repo.delete(db, cid)
         if not deleted:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {entity_id} not found",
+                detail=f"Character {character_id} not found",
             )
 
     async def update_character_state(
         self,
         db: AsyncSession,
-        entity_id: str,
+        character_id: str,
         current_state: str | None = None,
         current_emotion: str | None = None,
         current_goal: str | None = None,
         novel_id: str | None = None,
     ) -> CharacterResponse:
-<<<<<<< HEAD:backend/modules/character/services.py
-        """更新人物当前状态"""
-        eid = parse_uuid(entity_id)
-=======
         cid = parse_uuid(character_id)
->>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
         if novel_id:
-            existing = await self._repo.get(db, eid)
+            existing = await self._repo.get(db, cid)
             if existing is None or str(existing.novel_id) != novel_id:
                 raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
         update_data = CharacterUpdate(
@@ -155,11 +134,11 @@ class CharacterService:
             current_emotion=current_emotion,
             current_goal=current_goal,
         )
-        character = await self._repo.update(db, eid, update_data)
+        character = await self._repo.update(db, cid, update_data)
         if character is None:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {entity_id} not found",
+                detail=f"Character {character_id} not found",
             )
         return CharacterResponse.model_validate(character)
 
@@ -274,13 +253,8 @@ class CharacterService:
         items = []
         for char in characters:
             item = CharacterContextItem(
-<<<<<<< HEAD:backend/modules/character/services.py
-                entity_id=str(char.entity_id),
-                character_id=str(char.entity_id),
-=======
                 character_id=str(char.entity_id),
                 name=char.name,
->>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py
                 role=char.role,
                 appearance=char.appearance,
                 personality=char.personality,
@@ -403,21 +377,3 @@ class CharacterService:
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
-<<<<<<< HEAD:backend/modules/character/services.py
-
-    async def get_unknown_target_ids(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        character_id: str,
-    ) -> dict[str, list[str]]:
-        """获取角色未知的目标 ID，供 RAG 检索硬过滤使用"""
-        nid = parse_uuid(novel_id)
-        cid = parse_uuid(character_id)
-        return await self._knowledge_repo.get_unknown_target_ids(db, nid, cid)
-
-    # ============================================================
-    # 内部工具
-    # ============================================================
-=======
->>>>>>> origin/worktree-grill-v3:backend/modules/world/services/character_service.py

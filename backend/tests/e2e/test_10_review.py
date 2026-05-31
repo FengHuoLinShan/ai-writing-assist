@@ -51,7 +51,7 @@ class TestReviewMissingFlows:
         create_resp = await client.post("/api/review", json={
             "novel_id": pid,
             "target_type": "entity_candidates",
-            "candidate_payload": {"name": "详情测试实体", "entity_type": "character", "importance": 0.7},
+            "candidate_payload": {"name": "详情测试实体", "entity_type": "character_ref", "importance": 0.7},
         })
         assert create_resp.status_code == 201
         review_id = create_resp.json()["id"]

@@ -483,68 +483,6 @@ async def create_chapter_cards(
     return {"chapter_card_ids": result}
 
 
-# ---- 时间线事件 ---------------------------------------------------------
-
-TIMELINE_EVENT_DATA = [
-    {
-        "title": "克莱恩穿越",
-        "order_index": 1,
-        "chapter_index": 1,
-        "event_type": "plot",
-        "summary": "克莱恩·莫雷蒂在灰雾之上穿越到异世界",
-    },
-    {
-        "title": "加入值夜者",
-        "order_index": 2,
-        "chapter_index": 1,
-        "event_type": "plot",
-        "summary": "克莱恩正式成为廷根市值夜者成员",
-    },
-    {
-        "title": "发现罗塞尔日记",
-        "order_index": 3,
-        "chapter_index": 1,
-        "event_type": "discovery",
-        "summary": "克莱恩在旧书店发现罗塞尔大帝的日记",
-    },
-    {
-        "title": "首次非凡事件调查",
-        "order_index": 4,
-        "chapter_index": 2,
-        "event_type": "plot",
-        "summary": "克莱恩参与历史学家离奇死亡事件的调查",
-    },
-]
-
-
-async def create_timeline_events(
-    session: AsyncSession,
-    project_id: uuid.UUID,
-) -> dict[str, Any]:
-    """创建时间线事件。"""
-    from modules.timeline.models import TimelineEvent
-
-    result = {}
-    for data in TIMELINE_EVENT_DATA:
-        eid = uuid.uuid4()
-        event = TimelineEvent(
-            id=eid,
-            novel_id=project_id,
-            title=data["title"],
-            summary=data["summary"],
-            order_index=data["order_index"],
-            chapter_index=data["chapter_index"],
-            event_type=data["event_type"],
-            visibility="author_safe",
-            status="canonical",
-        )
-        session.add(event)
-        result[data["title"]] = str(eid)
-
-    await session.flush()
-    return {"event_ids": result}
-
-
 # ---- 组合函数 ------------------------------------------------------------
 
 async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
@@ -579,7 +517,7 @@ async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
 
 async def create_full_scene(session: AsyncSession) -> dict[str, Any]:
     """
-    创建全场景数据：基础 + 剧情线 + 篇章纲 + 章节卡 + 时间线。
+    创建全场景数据：基础 + 剧情线 + 篇章纲 + 章节卡。
 
     返回所有对象 ID 的嵌套字典。
     """
@@ -589,12 +527,10 @@ async def create_full_scene(session: AsyncSession) -> dict[str, Any]:
     threads = await create_threads(session, pid)
     arcs = await create_arc(session, pid)
     cards = await create_chapter_cards(session, pid, arcs["arc_id"])
-    events = await create_timeline_events(session, pid)
 
     return {
         **meta,
         **threads,
         **arcs,
         **cards,
-        **events,
     }

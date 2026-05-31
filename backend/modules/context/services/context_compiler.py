@@ -9,16 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
 from modules.context.services.loaders import (
-    ChapterCardLoader,
     CharactersLoader,
     EventsLoader,
-    GeoLocationsLoader,
-    MemoryRecordsLoader,
-    OutlineArcLoader,
-    PlotThreadsLoader,
     ProjectLoader,
     RagChunksLoader,
     WorldEntitiesLoader,
+    is_loader_available,
 )
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
@@ -63,18 +59,15 @@ class ContextCompiler:
 
     @staticmethod
     def _default_loaders() -> list[Loader]:
-        return [
+        loaders: list[Loader] = [
             ProjectLoader(),
             WorldEntitiesLoader(),
             CharactersLoader(),
-            GeoLocationsLoader(),
-            MemoryRecordsLoader(),
             EventsLoader(),
-            PlotThreadsLoader(),
-            OutlineArcLoader(),
-            ChapterCardLoader(),
             RagChunksLoader(),
         ]
+        # geo/memory/outline 模块暂时切分 — 对应 loader 不可用
+        return loaders
 
     async def compile(
         self,

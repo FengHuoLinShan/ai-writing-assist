@@ -14,6 +14,10 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+# ============================================================
+# 内部工具
+# ============================================================
+
 def _uuid_validator(v: object) -> str:
     """将 UUID 原始值转为字符串"""
     if isinstance(v, uuid.UUID):
@@ -31,20 +35,6 @@ def _optional_uuid_validator(v: object) -> str | None:
 
 
 # ============================================================
-<<<<<<< HEAD
-# CoreEntity Schema
-# ============================================================
-
-class CoreEntityCreate(BaseModel):
-    """创建核心实体请求 — 统一的实体创建入口"""
-
-    entity_type: str = Field(
-        ...,
-        min_length=1,
-        max_length=32,
-        pattern="^(character|location|faction|item|event|rule|power_system|secret|legend|resource|concept|creature|skill|other)$",
-        description="对象类型",
-=======
 # AI 提取契约
 # ============================================================
 
@@ -54,7 +44,6 @@ class ExtractedEntity(BaseModel):
     entity_type: str = Field(
         ...,
         description="实体类型（自由字符串，如 character/faction/item）",
->>>>>>> origin/worktree-grill-v3
     )
     name: str = Field(
         ...,
@@ -135,10 +124,6 @@ class CoreEntityCreate(BaseModel):
         max_length=255,
         description="实体名称",
     )
-    aliases: list[dict] = Field(
-        default_factory=list,
-        description="别名列表 [{alias: str, type: str}]",
-    )
     summary: str | None = Field(
         None,
         max_length=5000,
@@ -189,7 +174,6 @@ class CoreEntityUpdate(BaseModel):
 
     entity_type: Annotated[str | None, Field(None, min_length=1, max_length=64)]
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
-    aliases: Annotated[list[dict] | None, Field(None)]
     summary: Annotated[str | None, Field(None)]
     public_info: Annotated[str | None, Field(None)]
     hidden_truth: Annotated[str | None, Field(None)]
@@ -213,7 +197,6 @@ class CoreEntityResponse(BaseModel):
     novel_id: str
     entity_type: str
     name: str
-    aliases: list[dict] = []
     summary: str | None = None
     public_info: str | None = None
     hidden_truth: str | None = None
@@ -242,11 +225,7 @@ class CoreEntityListResponse(BaseModel):
 
 
 # ============================================================
-<<<<<<< HEAD
-# Relationship Schema (unchanged)
-=======
 # Event Schema
->>>>>>> origin/worktree-grill-v3
 # ============================================================
 
 class EventCreate(BaseModel):
@@ -320,21 +299,6 @@ class EventListResponse(BaseModel):
 class EntityRelationCreate(BaseModel):
     """创建关系请求"""
 
-<<<<<<< HEAD
-    source_type: str = Field(..., max_length=32, description="源对象类型")
-    source_id: str = Field(..., description="源对象 ID (core_entities.id)")
-    target_type: str = Field(..., max_length=32, description="目标对象类型")
-    target_id: str = Field(..., description="目标对象 ID (core_entities.id)")
-    relation_type: str = Field(..., max_length=32, description="关系类型")
-    description: str | None = Field(None, description="关系描述")
-    visibility: str = Field(default="author_only", max_length=20)
-    strength: float = Field(default=0.5, ge=0.0, le=1.0)
-    status: str = Field(default="canonical", max_length=32)
-
-
-class RelationshipUpdate(BaseModel):
-    """更新关系请求"""
-=======
     source_id: str = Field(
         ...,
         description="源实体 ID",
@@ -539,7 +503,6 @@ class CharacterCreate(BaseModel):
 
 class CharacterUpdate(BaseModel):
     """更新人物请求（所有字段可选）"""
->>>>>>> origin/worktree-grill-v3
 
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
     aliases: Annotated[list[dict] | None, Field(None)]
@@ -603,35 +566,6 @@ class CharacterResponse(BaseModel):
         return _uuid_validator(v)
 
 
-<<<<<<< HEAD
-# ============================================================
-# EntityCandidate Schema (unchanged)
-# ============================================================
-
-class EntityCandidateCreate(BaseModel):
-    """创建候选对象请求"""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    entity_type: str = Field(..., max_length=32)
-    summary: str | None = Field(None)
-    source_text: str | None = Field(None)
-    source_chapter_index: int | None = Field(None, ge=0)
-    importance_score: float = Field(default=0.5, ge=0.0, le=1.0)
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    candidate_reason: str | None = Field(None)
-    suggested_action: str = Field(default="needs_user_decision", max_length=32)
-    suggested_existing_entity_id: str | None = Field(None, description="建议关联的 core_entities.id")
-    status: str = Field(default="pending", max_length=32)
-
-
-class EntityCandidateUpdate(BaseModel):
-    """更新候选对象请求"""
-
-    name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
-    entity_type: Annotated[str | None, Field(None, max_length=32)]
-    summary: Annotated[str | None, Field(None)]
-    source_text: Annotated[str | None, Field(None)]
-=======
 class CharacterListResponse(BaseModel):
     """人物列表响应"""
 
@@ -669,7 +603,6 @@ class CharacterKnowledgeUpdate(BaseModel):
     knowledge_level: Annotated[str | None, Field(None, max_length=32)]
     known_content: Annotated[str | None, Field(None)]
     misconception: Annotated[str | None, Field(None)]
->>>>>>> origin/worktree-grill-v3
     source_chapter_index: Annotated[int | None, Field(None, ge=0)]
     source_memory_id: Annotated[str | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
@@ -705,48 +638,19 @@ class CharacterKnowledgeResponse(BaseModel):
         return _optional_uuid_validator(v)
 
 
-<<<<<<< HEAD
-# ============================================================
-# List responses
-# ============================================================
-
-class CoreEntityListResponse(BaseModel):
-    """核心实体列表响应"""
-
-    items: list[CoreEntityResponse]
-    total: int
-
-
-class RelationshipListResponse(BaseModel):
-    """关系列表响应"""
-
-    items: list[RelationshipResponse]
-    total: int
-
-
-class EntityCandidateListResponse(BaseModel):
-    """候选对象列表响应"""
-
-    items: list[EntityCandidateResponse]
-=======
 class CharacterKnowledgeListResponse(BaseModel):
     """人物知识列表响应"""
 
     items: list[CharacterKnowledgeResponse]
->>>>>>> origin/worktree-grill-v3
     total: int
 
 
 # ============================================================
-<<<<<<< HEAD
-# Facade output schemas
-=======
 # Facade 输出 Schema（供其他模块读取/使用）
->>>>>>> origin/worktree-grill-v3
 # ============================================================
 
-class CoreEntityContext(BaseModel):
-    """核心实体上下文 — 供其他模块读取"""
+class WorldEntityContext(BaseModel):
+    """世界对象上下文 — 供其他模块读取的简化对象信息"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -760,7 +664,7 @@ class CoreEntityContext(BaseModel):
     importance_level: str = "normal"
     reveal_level: str = "author_only"
     status: str = "draft"
-    aliases: list[dict] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
     related_entity_ids: list[str] = Field(default_factory=list)
 
     @field_validator("entity_id", mode="before")
@@ -770,10 +674,10 @@ class CoreEntityContext(BaseModel):
 
 
 class WorldContextBundle(BaseModel):
-    """世界上下文组合包"""
+    """世界上下文组合包 — 供 Context Compiler 或其他模块使用"""
 
     novel_id: str
-    entities: list[CoreEntityContext] = Field(default_factory=list)
+    entities: list[WorldEntityContext] = Field(default_factory=list)
     total_count: int = 0
     reveal_mode: str = "author_safe"
 

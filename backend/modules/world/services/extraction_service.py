@@ -8,12 +8,8 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-<<<<<<< HEAD
-from modules.world.repositories import EntityCandidateRepository, CoreEntityRepository
-from modules.world.schemas import EntityCandidateCreate
-=======
 from modules.world.repositories import CoreEntityRepository
->>>>>>> origin/worktree-grill-v3
+from modules.world.schemas import EntityCandidateCreate
 from modules.world.services.dedup_service import EntityDedupService
 from modules.world.services.draft_provider import DraftProvider, WritingDraftProvider
 from modules.world.services.helpers import parse_uuid
@@ -50,11 +46,7 @@ class EntityExtractionService:
 
     def __init__(self, draft_provider: DraftProvider | None = None) -> None:
         self._entity_repo = CoreEntityRepository()
-<<<<<<< HEAD
-        self._candidate_repo = EntityCandidateRepository()
-=======
         self._candidate_repo = CoreEntityRepository()
->>>>>>> origin/worktree-grill-v3
         self._dedup_service = EntityDedupService()
         self._draft_provider = draft_provider or WritingDraftProvider()
 
@@ -178,13 +170,15 @@ class EntityExtractionService:
                     ),
                 )
                 try:
-                    candidate = await self._candidate_repo.create(db, nid, candidate_data)
+                    candidate = await self._candidate_repo.create_candidate(db, nid, candidate_data)
                     total_created += 1
+                    # suggested_action 存储在 content_json 中
+                    action = (candidate.content_json or {}).get("suggested_action", "needs_user_decision")
                     created_items.append({
                         "candidate_id": str(candidate.id),
                         "name": candidate.name,
                         "entity_type": candidate.entity_type,
-                        "suggested_action": candidate.suggested_action,
+                        "suggested_action": action,
                     })
                 except ValueError:
                     total_skipped += 1

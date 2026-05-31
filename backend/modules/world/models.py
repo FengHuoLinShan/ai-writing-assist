@@ -1,12 +1,6 @@
 """
 World ORM 模型 — v3 因果时空网
 
-<<<<<<< HEAD
-数据库表：
-- core_entities: 共享核心实体表（取代 world_entities + entity_aliases）
-- relationships: 对象间关系
-- entity_candidates: AI 生成的候选对象池
-=======
 7 张表：
 - core_entities: 统一核心实体（原 world_entities 改名）
 - events: 事件扩展表（entity_id PK+FK）
@@ -14,10 +8,9 @@ World ORM 模型 — v3 因果时空网
 - entity_revisions: 快照版本表
 - characters: 人物扩展表（entity_id PK+FK，从 character 模块迁入）
 - character_knowledge: 知识边界（从 character 模块迁入）
->>>>>>> origin/worktree-grill-v3
 
-公共字段（name, aliases, summary 等）统一存储在 core_entities。
-character/geo 子系统通过 1:1 FK (entity_id = PK) 扩展核心表。
+生产环境 embedding 字段使用 pgvector Vector(1024) 类型。
+测试环境（SQLite）使用 Text 存储 JSON 序列化的浮点数列表。
 """
 
 from __future__ import annotations
@@ -32,6 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
 
+# 尝试导入 pgvector Vector 类型；不可用时回退到 Text
 try:
     from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 
@@ -50,16 +44,6 @@ def _vector_column(dim: int = 1024):
 
 
 # ============================================================
-<<<<<<< HEAD
-# CoreEntity — 共享核心实体表
-# ============================================================
-
-class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """共享核心实体 — 所有子系统的公共字段统一存储"""
-
-    __tablename__ = "core_entities"
-    __table_args__ = {"comment": "共享核心实体表"}
-=======
 # CoreEntity — 统一核心实体
 # ============================================================
 
@@ -68,29 +52,17 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 
     __tablename__ = "core_entities"
     __table_args__ = {"comment": "统一核心实体（原 world_entities）"}
->>>>>>> origin/worktree-grill-v3
 
     entity_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         index=True,
-<<<<<<< HEAD
-        comment="对象类型：character/location/faction/item/concept/event/creature/skill/rule/other",
-=======
         comment="实体类型（自由字符串，如 character/faction/item/location/event）",
->>>>>>> origin/worktree-grill-v3
     )
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
         comment="实体名称",
-    )
-    aliases: Mapped[list] = mapped_column(
-        JSON,
-        nullable=False,
-        default=list,
-        server_default="[]",
-        comment="别名列表 JSONB [{alias: str, type: str}]",
     )
     summary: Mapped[str | None] = mapped_column(
         Text,
@@ -111,11 +83,7 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         JSON,
         nullable=True,
         default=dict,
-<<<<<<< HEAD
-        comment="扩展信息 JSON",
-=======
         comment="扩展信息 JSON（含动态属性、别名等）",
->>>>>>> origin/worktree-grill-v3
     )
     importance: Mapped[float] = mapped_column(
         Float,
@@ -152,18 +120,6 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         comment="确认者标识",
     )
 
-<<<<<<< HEAD
-    # 延迟引用避免循环 import
-    character: Mapped["Character | None"] = relationship(
-        "Character", back_populates="core_entity", uselist=False,
-        cascade="all, delete-orphan",
-        primaryjoin="CoreEntity.id == foreign(Character.entity_id)",
-    )
-    geo_location: Mapped["GeoLocation | None"] = relationship(
-        "GeoLocation", back_populates="core_entity", uselist=False,
-        cascade="all, delete-orphan",
-        primaryjoin="CoreEntity.id == foreign(GeoLocation.entity_id)",
-=======
     # 1:1 扩展
     event: Mapped["Event | None"] = relationship(
         "Event", back_populates="core_entity", uselist=False,
@@ -184,37 +140,18 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         foreign_keys="EntityRelation.target_id",
     )
 
-    # geo_location 使用字符串引用避免循环导入（详见 geo/models.py）
-    geo_location: Mapped[list["GeoLocation"]] = relationship(
-        "GeoLocation", uselist=False,
-        primaryjoin="CoreEntity.id == foreign(GeoLocation.world_entity_id)",
-        viewonly=True,
->>>>>>> origin/worktree-grill-v3
-    )
+    # minimal-core: geo_location 关系已移除（geo 模块暂时切分）
 
     def __repr__(self) -> str:
         return f"<CoreEntity id={self.id} type={self.entity_type} name={self.name!r}>"
-<<<<<<< HEAD
-
-
-# 延迟导入避免循环引用（SQLAlchemy 标准模式）
-from modules.character.models import Character  # noqa: E402, F401
-from modules.geo.models import GeoLocation  # noqa: E402, F401
-=======
->>>>>>> origin/worktree-grill-v3
 
 
 # ============================================================
 # Event — 事件扩展
 # ============================================================
 
-<<<<<<< HEAD
-class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """对象间关系边 — source_id/target_id 指向 core_entities.id"""
-=======
 class Event(Base, NovelMixin):
     """事件扩展表 — entity_id 为 PK+FK 1:1 绑定 CoreEntity"""
->>>>>>> origin/worktree-grill-v3
 
     __tablename__ = "events"
     __table_args__ = {"comment": "事件扩展表"}
@@ -271,10 +208,6 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-<<<<<<< HEAD
-        comment="源对象 ID（core_entities.id UUID hex）",
-=======
->>>>>>> origin/worktree-grill-v3
     )
     source_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -287,10 +220,6 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
         ForeignKey("core_entities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-<<<<<<< HEAD
-        comment="目标对象 ID（core_entities.id UUID hex）",
-=======
->>>>>>> origin/worktree-grill-v3
     )
     relation_type: Mapped[str] = mapped_column(
         String(64),
@@ -343,29 +272,12 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return (
-<<<<<<< HEAD
-            f"<Relationship id={self.id} "
-            f"{self.source_type}:{self.source_id} -> "
-            f"{self.relation_type} -> "
-            f"{self.target_type}:{self.target_id}>"
-=======
             f"<EntityRelation id={self.id} "
             f"{self.source_id} → {self.relation_type} → {self.target_id}>"
->>>>>>> origin/worktree-grill-v3
         )
 
 
 # ============================================================
-<<<<<<< HEAD
-# EntityCandidate — 候选对象池
-# ============================================================
-
-class EntityCandidate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    """AI 生成的世界对象候选 — 确认后进入 core_entities"""
-
-    __tablename__ = "entity_candidates"
-    __table_args__ = {"comment": "世界对象候选池"}
-=======
 # EntityRevision — 实体快照版本
 # ============================================================
 
@@ -422,7 +334,6 @@ class Character(Base, TimestampMixin, StatusMixin):
 
     __tablename__ = "characters"
     __table_args__ = {"comment": "人物档案"}
->>>>>>> origin/worktree-grill-v3
 
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -602,26 +513,6 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
         nullable=True,
         comment="关联的 memory 记录 ID",
     )
-<<<<<<< HEAD
-    suggested_action: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="needs_user_decision",
-        comment="建议动作",
-    )
-    suggested_existing_entity_id: Mapped[str | None] = mapped_column(
-        String(36),
-        nullable=True,
-        comment="建议关联的已有对象 ID（core_entities.id）",
-    )
-    embedding_text: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-        comment="用于向量化的文本",
-    )
-    embedding = _vector_column()
-=======
->>>>>>> origin/worktree-grill-v3
 
     def __repr__(self) -> str:
         return (

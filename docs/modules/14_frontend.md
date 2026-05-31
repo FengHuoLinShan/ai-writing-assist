@@ -26,7 +26,7 @@ SPA 入口 `index.html`，文件职责：`state.js`（Proxy 响应式）、`rout
 | geoView | 地点树/关系边/历史时期 |
 | characterView | 人物 CRUD + 知识边界 CRUD + AI 抽取（全部更新/单人物） + AI 建议对比确认 |
 | memoryView | 记录列表 + 提案确认/拒绝 |
-| timelineView | 事件 CRUD + 排序 |
+| timelineView | 事件 CRUD + 排序（v3 中 API 已迁移至 /api/world/events） |
 | outlineView | 五标签 + 统一提取面板（世界对象抽取/剧情线生成/章节卡提取）|
 | ragView | 检索 + 索引重建 + 状态 |
 | contextView | 上下文编译 + 预算配置 |

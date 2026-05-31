@@ -32,32 +32,6 @@ class EventContract:
     """事件契约"""
 
     novel_id: str
-<<<<<<< HEAD
-    """项目 ID"""
-    relationship_id: str
-    """关系 ID"""
-    source_type: str
-    """源对象类型"""
-    source_id: str
-    """源对象 ID"""
-    target_type: str
-    """目标对象类型"""
-    target_id: str
-    """目标对象 ID"""
-    relation_type: str
-    """关系类型"""
-    description: str | None = None
-    """关系描述"""
-    visibility: str = "author_only"
-    """可见性"""
-    strength: float = 0.5
-    """关系强度"""
-
-
-@dataclass(frozen=True)
-class EntityCandidateContract:
-    """候选对象契约 — 其他模块通过此契约获取候选信息"""
-=======
     entity_id: str
     entity_name: str
     entity_type: str = "event"
@@ -70,7 +44,6 @@ class EntityCandidateContract:
 @dataclass(frozen=True)
 class EntityRelationContract:
     """关系契约"""
->>>>>>> origin/worktree-grill-v3
 
     novel_id: str
     relation_id: str
@@ -134,12 +107,6 @@ class DuplicateSuggestion:
 
 # facade 返回类型（Pydantic schema），供跨模块导入使用
 from modules.world.schemas import (  # noqa: F401
-<<<<<<< HEAD
-    DuplicateSuggestionResult,
-    WorldContextBundle,
-    CoreEntityContext,
-    CoreEntityResponse,
-=======
     CharacterContextBundle,
     CharacterKnowledgeContext,
     CharacterResponse,
@@ -150,5 +117,4 @@ from modules.world.schemas import (  # noqa: F401
     EventsContextBundle,
     WorldContextBundle,
     WorldEntityContext,
->>>>>>> origin/worktree-grill-v3
 )
