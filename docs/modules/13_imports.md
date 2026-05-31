@@ -39,16 +39,15 @@ POST /api/imports/deep/resume     # 继续深度导入（确认候选后）
 
 ## 深度导入流水线
 
-DeepImportWorkflow 将三步串成有状态流水线，完成后进入 checkpoint 等待用户确认：
+DeepImportWorkflow 将三步串成全自动流水线，直接入库无需用户中途确认：
 
-1. **extract_world** — 调用 world facade 从章节正文抽取世界对象候选
-2. **sync_characters** — 将已确认的 character 实体同步到人物档案
-3. **generate_plot** — 调用 LLM 生成剧情线和篇章纲（增量更新）
+1. **extract_world** — 调用 world facade 从章节正文抽取世界对象（LLM → 去重 → 自动入库 `status="canonical"`）
+2. **sync_characters** — 将已确认的 character_ref 实体同步到人物档案
+3. **generate_plot** — 调用 LLM 生成剧情线和篇章纲（增量更新；minimal-core 中 outline 模块不可用时静默跳过）
 
-状态转换：`pending → running → awaiting_review → running → done`
+状态转换：`pending → running → done`
 
-Checkpoint 机制：step1 完成后 task 以 done 结束，progress.phase = "awaiting_review"。
-用户处理完所有 pending 候选后调用 resume 继续 step2+3。
+每步完成后不等待用户确认直接进入下一步。候选管理已拆除，所有实体不经候选池直接入库。
 
 ## 跨模块依赖
 
