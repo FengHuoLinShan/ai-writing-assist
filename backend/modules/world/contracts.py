@@ -105,6 +105,30 @@ class DuplicateSuggestion:
     action: str = "needs_user_decision"
 
 
+@dataclass(frozen=True)
+class MergeResult:
+    """合并结果 — candidate 合并到 target 的统计信息"""
+
+    target_entity_id: str
+    candidate_entity_id: str
+    aliases_inherited: int = 0
+    relations_migrated: int = 0
+    relations_deduplicated: int = 0
+    self_loops_cleaned: int = 0
+    character_synced: bool = False
+    conflicts_archived: int = 0
+
+
+@dataclass(frozen=True)
+class ResolveResult:
+    """候选实体自动决议结果"""
+
+    action: str  # "merged" | "promoted" | "needs_user_decision"
+    merge_result: MergeResult | None = None
+    promoted_entity_id: str | None = None
+    suggestions: list = field(default_factory=list)
+
+
 # facade 返回类型（Pydantic schema），供跨模块导入使用
 from modules.world.schemas import (  # noqa: F401
     CharacterContextBundle,

@@ -499,9 +499,11 @@ async def find_similar_entities(
     name: str,
     aliases: list[str] | None = None,
     entity_type: str | None = None,
+    query_embedding: list[float] | None = None,
 ) -> list:
     return await _dedup_service.find_similar_entities(
         db, novel_id, name, aliases=aliases, entity_type=entity_type,
+        query_embedding=query_embedding,
     )
 
 
@@ -510,8 +512,7 @@ async def merge_candidate_into_entity(
     novel_id: str,
     candidate_id: str,
     target_entity_id: str,
-) -> WorldEntityResponse:
-    entity = await _dedup_service.merge_candidate_into_entity(
+) -> Any:  # MergeResult
+    return await _dedup_service.merge_candidate_into_entity(
         db, novel_id, candidate_id, target_entity_id,
     )
-    return WorldEntityResponse.model_validate(entity)

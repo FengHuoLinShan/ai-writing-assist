@@ -109,6 +109,11 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         comment="用于向量化的文本",
     )
     embedding = _vector_column()
+    search_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="虚拟生成列：name + 别名聚合，用于 pg_trgm 模糊搜索（DB 自动维护，ORM 只读）",
+    )
     created_by: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,

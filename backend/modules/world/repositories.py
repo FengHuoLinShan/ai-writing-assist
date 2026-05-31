@@ -7,11 +7,15 @@ World 数据访问层 — v3 因果时空网
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Sequence
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Text, delete, func, or_, select, text, update
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from modules.world.models import (
     Character,
@@ -287,6 +291,132 @@ class CoreEntityRepository:
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
         return list(items)
+
+    async def find_similar_by_search_text(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        query_name: str,
+        *,
+        entity_type: str | None = None,
+        status_filter: list[str] | None = None,
+        min_similarity: float = 0.4,
+        top_k: int = 50,
+    ) -> list[tuple[CoreEntity, float]]:
+        """使用 pg_trgm similarity() 对 search_text 虚拟列做模糊匹配。
+
+        search_text 是虚拟生成列（name + content_json->>'aliases'），
+        一行 similarity() 同时匹配 name 和所有 JSONB 别名。
+
+        SQLite 环境自动回退为 ILIKE + Python 端 difflib 评分。
+        """
+        statuses = status_filter or ["canonical", "draft"]
+        conditions = [
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.status.in_(statuses),
+        ]
+        if entity_type:
+            conditions.append(CoreEntity.entity_type == entity_type)
+
+        try:
+            sim_expr = func.similarity(CoreEntity.search_text, query_name)
+            conditions.append(sim_expr >= min_similarity)
+            stmt = (
+                select(CoreEntity, sim_expr.label("similarity"))
+                .where(*conditions)
+                .order_by(text("similarity DESC"))
+                .limit(top_k)
+            )
+            result = await db.execute(stmt)
+            rows = result.all()
+            return [(row[0], float(row[1])) for row in rows]
+        except (OperationalError, ProgrammingError):
+            logger.warning("pg_trgm similarity() unavailable, falling back to ILIKE")
+            # SQLite / 缺失 pg_trgm 回退：ILIKE name + JSON alias 粗筛
+            conditions = [
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+                or_(
+                    CoreEntity.name.ilike(f"%{query_name}%"),
+                    # JSON 别名也做 LIKE 匹配（content_json 在 SQLite 中为 Text）
+                    CoreEntity.content_json.cast(Text).ilike(f"%{query_name}%"),
+                ),
+            ]
+            if entity_type:
+                conditions.append(CoreEntity.entity_type == entity_type)
+            stmt = (
+                select(CoreEntity)
+                .where(*conditions)
+                .limit(top_k)
+                .order_by(CoreEntity.importance.desc())
+            )
+            result = await db.execute(stmt)
+            items: Sequence[CoreEntity] = result.scalars().all()
+            return [(entity, 0.0) for entity in items]
+
+    async def find_similar_by_embedding(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        query_embedding: list[float],
+        *,
+        entity_type: str | None = None,
+        status_filter: list[str] | None = None,
+        top_k: int = 50,
+    ) -> list[tuple[CoreEntity, float]]:
+        """使用 pgvector <=> 余弦距离做向量相似度搜索。
+
+        返回余弦相似度（1=完全相同，0=完全无关）。
+        无 embedding 的实体自动跳过。
+        SQLite 环境返回空列表。
+        """
+        try:
+            statuses = status_filter or ["canonical", "draft"]
+            conditions = [
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+                CoreEntity.embedding.isnot(None),
+            ]
+            if entity_type:
+                conditions.append(CoreEntity.entity_type == entity_type)
+
+            # pgvector <=> 是余弦距离（0=相同，2=相反），转换为相似度
+            stmt = (
+                select(
+                    CoreEntity,
+                    text("1.0 - (embedding <=> :emb)").label("similarity"),
+                )
+                .where(*conditions)
+                .order_by(text("embedding <=> :emb"))
+                .limit(top_k)
+            )
+            result = await db.execute(stmt, {"emb": query_embedding})
+            rows = result.all()
+            return [(row[0], max(0.0, float(row[1]))) for row in rows]
+        except (OperationalError, ProgrammingError):
+            logger.warning("pgvector embedding search unavailable, returning empty")
+            return []
+
+    async def has_embeddings(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> bool:
+        """检查该 novel 是否有任何实体已生成 embedding。"""
+        try:
+            stmt = (
+                select(func.count(CoreEntity.id))
+                .where(
+                    CoreEntity.novel_id == novel_id,
+                    CoreEntity.embedding.isnot(None),
+                )
+                .limit(1)
+            )
+            result = await db.execute(stmt)
+            return (result.scalar() or 0) > 0
+        except (OperationalError, ProgrammingError):
+            logger.warning("pgvector has_embeddings check failed, returning False")
+            return False
 
 
 # ============================================================
@@ -673,6 +803,76 @@ class EntityRelationRepository:
         db.add(rel)
         await db.flush()
         return rel
+
+    async def get_all_for_entity(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+    ) -> list[EntityRelation]:
+        """获取某实体参与的所有关系（作为 source 或 target）。"""
+        stmt = select(EntityRelation).where(
+            EntityRelation.novel_id == novel_id,
+            or_(
+                EntityRelation.source_id == entity_id,
+                EntityRelation.target_id == entity_id,
+            ),
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_endpoint(
+        self,
+        db: AsyncSession,
+        rel_id: uuid.UUID,
+        *,
+        source_id: uuid.UUID | None = None,
+        target_id: uuid.UUID | None = None,
+    ) -> None:
+        """重定向关系端点。绕过 EntityRelationUpdate 不含 source_id/target_id 的限制。"""
+        values: dict[str, Any] = {}
+        if source_id is not None:
+            values["source_id"] = source_id
+        if target_id is not None:
+            values["target_id"] = target_id
+        if values:
+            stmt = update(EntityRelation).where(EntityRelation.id == rel_id).values(**values)
+            await db.execute(stmt)
+
+    async def find_duplicate_relation(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+        relation_type: str,
+    ) -> EntityRelation | None:
+        """查找已存在的同类型同方向关系。"""
+        stmt = select(EntityRelation).where(
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.source_id == source_id,
+            EntityRelation.target_id == target_id,
+            EntityRelation.relation_type == relation_type,
+            EntityRelation.status != "deprecated",
+        ).limit(1)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def delete_self_loops(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+    ) -> int:
+        """删除自环关系（source == target），返回删除数。"""
+        stmt = delete(EntityRelation).where(
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.source_id == entity_id,
+            EntityRelation.target_id == entity_id,
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount or 0
 
 
 # ============================================================

@@ -121,6 +121,27 @@ VECTOR_INDEX_M: Final[int] = 16
 """HNSW M 参数默认值"""
 
 # ============================================================
+# 去重（Dedup）
+# ============================================================
+
+DEDUP_RRF_K: Final[int] = 60
+"""RRF 平滑常数 k — 排名 1 的得分为 1/(k+1)"""
+
+DEDUP_FUSION_TOP_K: Final[int] = 50
+"""各通道（词法/语义）最大召回数"""
+
+DEDUP_PGTRGM_MIN_SIMILARITY: Final[float] = 0.4
+"""pg_trgm similarity() DB 层粗筛最低阈值"""
+
+DEDUP_MIN_FINAL_SCORE: Final[float] = 0.58
+"""去重建议最终展示最低分"""
+
+DEDUP_CONFLICT_FIELDS: Final[list[str]] = [
+    "weapon", "ability", "affiliation", "title", "species", "gender", "age",
+]
+"""content_json 中需检测冲突的关键字段"""
+
+# ============================================================
 # 应用信息
 # ============================================================
 

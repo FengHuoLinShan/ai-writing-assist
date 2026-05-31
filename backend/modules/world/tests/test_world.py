@@ -593,7 +593,273 @@ class TestEntityDedupService:
         assert len(exact_match) >= 1
         assert exact_match[0].candidate_name == "黑暗森林"
         assert exact_match[0].similarity_score == 1.0
-        assert exact_match[0].action == "alias_of_existing"
+        assert exact_match[0].action in ("merge_with_existing", "alias_of_existing")
+
+    # ============================================================
+    # TDD 路径 1.1：高置信度静默合并
+    # ============================================================
+
+    @pytest.mark.asyncio
+    async def test_high_confidence_silent_merge(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        dedup_service: EntityDedupService,
+        novel_id: str,
+    ) -> None:
+        """路径 1.1：精确名称匹配 → 自动合并，别名继承，无需 LLM 仲裁"""
+        import uuid as _uuid
+
+        nid = _uuid.UUID(novel_id)
+
+        # Given: 正史实体 "李四"
+        target = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="李四", status="canonical",
+        )
+
+        # Given: 候选实体 "李四"（带别名）
+        candidate = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="李四", status="draft",
+            content_json={"aliases": [{"alias": "四哥", "type": "nickname"}]},
+        )
+
+        # When: 去重检测
+        suggestions = await dedup_service.find_similar_entities(
+            db_session, novel_id, name="李四", entity_type="character",
+        )
+
+        # Then: 高置信度匹配
+        assert len(suggestions) >= 1
+        exact = [s for s in suggestions if s.match_method == "exact_name"]
+        assert len(exact) >= 1
+        assert exact[0].similarity_score == 1.0
+        assert exact[0].action == "merge_with_existing"
+
+        # When: 执行合并
+        result = await dedup_service.merge_candidate_into_entity(
+            db_session, novel_id, str(candidate.id), str(target.id),
+        )
+
+        # Then: 合并统计
+        assert result.aliases_inherited >= 1
+        assert result.target_entity_id == str(target.id)
+        assert result.candidate_entity_id == str(candidate.id)
+
+        # Then: candidate 状态 → merged
+        await db_session.refresh(candidate)
+        assert candidate.status == "merged"
+        assert candidate.content_json.get("merged_into") == str(target.id)
+        assert "merged_at" in candidate.content_json
+
+        # Then: target 别名增加
+        await db_session.refresh(target)
+        target_aliases = target.content_json.get("aliases", [])
+        alias_texts = [
+            a.get("alias", "") if isinstance(a, dict) else str(a)
+            for a in target_aliases
+        ]
+        assert "四哥" in alias_texts
+        assert target.status == "canonical"
+
+    # ============================================================
+    # TDD 路径 1.2：低置信度独立建档
+    # ============================================================
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_independent_filing(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        dedup_service: EntityDedupService,
+        novel_id: str,
+    ) -> None:
+        """路径 1.2：无匹配候选 → 自动提升为 canonical"""
+        import uuid as _uuid
+
+        nid = _uuid.UUID(novel_id)
+
+        # Given: 正史实体 "李四"
+        await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="李四", status="canonical",
+        )
+
+        # Given: 候选实体 "王五"（完全无关的名字）
+        candidate = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="王五", status="draft",
+        )
+
+        # When: 自动决议
+        result = await dedup_service.resolve_candidate(
+            db_session, novel_id, str(candidate.id),
+        )
+
+        # Then: 无匹配 → 提升为 canonical
+        assert result.action == "promoted"
+        assert result.merge_result is None
+        assert result.promoted_entity_id == str(candidate.id)
+
+        # Then: candidate 状态已变更
+        await db_session.refresh(candidate)
+        assert candidate.status == "canonical"
+
+    # ============================================================
+    # TDD 路径 1.3：事务性关系重定向与自环清理
+    # ============================================================
+
+    @pytest.mark.asyncio
+    async def test_relation_redirection_and_self_loop_cleanup(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        dedup_service: EntityDedupService,
+        novel_id: str,
+    ) -> None:
+        """路径 1.3：A' 合并入 A，关系重定向，迁移自环被清理"""
+        import uuid as _uuid
+
+        nid = _uuid.UUID(novel_id)
+
+        # Given: 正史实体 A, B, C
+        entity_a = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="A", status="canonical",
+        )
+        entity_b = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="B", status="canonical",
+        )
+        entity_c = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="C", status="canonical",
+        )
+
+        # Given: 候选实体 A'（draft）
+        candidate_a = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="A'", status="draft",
+        )
+
+        # Given: A → B（A 认识 B）
+        await rel_repo.upsert(
+            db_session, nid, entity_a.id, entity_b.id,
+            "knows", "A 认识 B",
+        )
+        # Given: A' → C（A' 认识 C）
+        await rel_repo.upsert(
+            db_session, nid, candidate_a.id, entity_c.id,
+            "knows", "A' 认识 C",
+        )
+        # Given: A' → A（A' 怀疑 A — 合并后会变自环）
+        await rel_repo.upsert(
+            db_session, nid, candidate_a.id, entity_a.id,
+            "suspects", "A' 怀疑 A",
+        )
+
+        # When: 合并 A' → A
+        result = await dedup_service.merge_candidate_into_entity(
+            db_session, novel_id, str(candidate_a.id), str(entity_a.id),
+        )
+
+        # Then: 关系迁移统计
+        assert result.relations_migrated == 2  # A'→C 重定向为 A→C, A'→A 重定向为 A→A
+        assert result.self_loops_cleaned == 1  # A→A 自环被标记 deprecated
+
+        # Then: A 的关系查询
+        all_rels = await rel_repo.get_all_for_entity(db_session, nid, entity_a.id)
+        # A→B (canonical) + A→C (canonical) + 可能的 A→A (deprecated)
+        canonical_rels = [r for r in all_rels if r.status == "canonical"]
+        assert len(canonical_rels) >= 2
+
+        # Then: A→C 重定向成功
+        a_to_c = [
+            r for r in all_rels
+            if r.source_id == entity_a.id and r.target_id == entity_c.id
+            and r.status == "canonical"
+        ]
+        assert len(a_to_c) == 1
+        assert a_to_c[0].relation_type == "knows"
+
+        # Then: A→B 不受影响
+        a_to_b = [
+            r for r in all_rels
+            if r.source_id == entity_a.id and r.target_id == entity_b.id
+            and r.status == "canonical"
+        ]
+        assert len(a_to_b) == 1
+
+        # Then: 自环关系被标记 deprecated
+        self_loops = [
+            r for r in all_rels
+            if r.source_id == entity_a.id and r.target_id == entity_a.id
+        ]
+        for sl in self_loops:
+            assert sl.status == "deprecated", \
+                f"自环 {sl.id} 应为 deprecated，实际为 {sl.status}"
+
+    # ============================================================
+    # TDD 路径 1.4：设定冲突的静默归档
+    # ============================================================
+
+    @pytest.mark.asyncio
+    async def test_conflict_silent_archiving(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        dedup_service: EntityDedupService,
+        novel_id: str,
+    ) -> None:
+        """路径 1.4：content_json 冲突字段 → 正史值保留，候选值写入 conflict_notes"""
+        import uuid as _uuid
+
+        nid = _uuid.UUID(novel_id)
+
+        # Given: 正史实体 A（使用长剑、御剑术）
+        entity_a = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="剑客A", status="canonical",
+            content_json={
+                "weapon": "使用长剑",
+                "ability": "御剑术",
+            },
+        )
+
+        # Given: 候选实体 A'（使用断刀、御剑术）
+        candidate_a = await entity_repo.create_raw(
+            db_session, novel_id=nid, entity_type="character",
+            name="剑客A", status="draft",
+            content_json={
+                "weapon": "使用断刀",
+                "ability": "御剑术",
+            },
+        )
+
+        # When: 合并 A' → A
+        result = await dedup_service.merge_candidate_into_entity(
+            db_session, novel_id, str(candidate_a.id), str(entity_a.id),
+        )
+
+        # Then: 冲突统计
+        assert result.conflicts_archived == 1  # 只有 weapon 冲突
+
+        # Then: target weapon 保持正史值
+        await db_session.refresh(entity_a)
+        assert entity_a.content_json.get("weapon") == "使用长剑"
+
+        # Then: conflict_notes 记录冲突
+        conflict_notes = entity_a.content_json.get("meta", {}).get("conflict_notes", [])
+        assert len(conflict_notes) == 1
+        assert conflict_notes[0]["field"] == "weapon"
+        assert conflict_notes[0]["canonical_value"] == "使用长剑"
+        assert conflict_notes[0]["candidate_value"] == "使用断刀"
+        assert conflict_notes[0]["candidate_id"] == str(candidate_a.id)
+
+        # Then: ability 不产生冲突（双方一致）
+        assert entity_a.content_json.get("ability") == "御剑术"
 
 
 # ============================================================
