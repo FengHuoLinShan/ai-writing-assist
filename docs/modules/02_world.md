@@ -24,7 +24,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - EventService — 事件 CRUD（v3 新增，entity_type="event"）
 - EntityRevisionService — 实体版本管理（list / rollback）
 - EntityCandidateService — 候选池管理（晋升/合并/别名，已标记废弃）
-- EntityDedupService — 模糊去重（difflib 0.72）+ 合并
+- EntityDedupService — 混合去重（pg_trgm 词法 + pgvector 语义 RRF 融合）+ 深度事务合并
 - EntityExtractionService — RAG 有序 chunk → LLM 抽取 → 候选
 - CharacterService — 人物 CRUD + 知识边界（v3 从 character 模块迁入）
 - AliasService — 旧别名兼容路由（从 content_json 读取）
@@ -56,11 +56,11 @@ async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_
 # ---- Candidates ----
 async def count_pending_candidates(db, novel_id) -> int
 async def accept_candidate(db, novel_id, candidate_id, user_edits=None) -> CoreEntityResponse
-async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> CoreEntityResponse
+async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
 
 # ---- Dedup ----
 async def find_duplicate_entity_candidates(db, novel_id, candidate_id) -> list[DuplicateSuggestionResult]
-async def find_similar_entities(db, novel_id, name, aliases=None, entity_type=None) -> list[DuplicateSuggestionResult]
+async def find_similar_entities(db, novel_id, name, aliases=None, entity_type=None, query_embedding=None) -> list[DuplicateSuggestionResult]
 
 # ---- Relationships (thin proxy) ----
 async def find_entity_id_by_name(db, novel_id, name, entity_type=None) -> str | None
