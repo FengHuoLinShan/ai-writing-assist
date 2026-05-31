@@ -71,16 +71,19 @@ class CharactersLoader(Loader):
         char_ids: list[str] = []
 
         if options.chapter_index is not None:
-            from modules.outline.facade import get_chapter_card
+            try:
+                from modules.outline.facade import get_chapter_card
 
-            card = await get_chapter_card(db, options.novel_id, options.chapter_index)
-            if card and card.involved_character_ids:
-                char_ids.extend(card.involved_character_ids)
+                card = await get_chapter_card(db, options.novel_id, options.chapter_index)
+                if card and card.involved_character_ids:
+                    char_ids.extend(card.involved_character_ids)
+            except Exception:
+                pass
 
         if not char_ids and options.arc_id is not None:
-            from modules.outline.facade import get_arc_context
-
             try:
+                from modules.outline.facade import get_arc_context
+
                 arc = await get_arc_context(db, options.novel_id, options.arc_id)
                 if arc and arc.related_character_ids:
                     char_ids.extend(arc.related_character_ids)

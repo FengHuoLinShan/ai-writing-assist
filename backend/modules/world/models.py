@@ -338,7 +338,7 @@ class Character(Base, TimestampMixin, StatusMixin):
     """人物档案 — entity_id PK+FK → core_entities"""
 
     __tablename__ = "characters"
-    __table_args__ = {"comment": "人物档案"}
+    __table_args__ = {"comment": "人物档案", "extend_existing": True}
 
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),

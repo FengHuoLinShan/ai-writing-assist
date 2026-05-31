@@ -1,7 +1,7 @@
 """Deep Import 工作流编排器
 
 将世界对象抽取、人物同步、剧情结构生成三步串成流水线，
-每步完成后退回到 checkpoint，用户确认后继续。
+全自动执行，无需用户中途确认。
 """
 
 from __future__ import annotations
@@ -29,33 +29,24 @@ class DeepImportWorkflow:
     ) -> DeepImportProgress:
         if progress.phase == "pending":
             progress.phase = "running"
+
+            # Step 1: 世界对象抽取
             progress.current_step = DeepImportStep.extract_world
             progress.message = "正在从章节正文中抽取世界对象..."
-
             result = await self._extract_world(db, novel_id, start_chapter, end_chapter)
             progress.completed_steps.append(DeepImportStep.extract_world.value)
-            progress.current_step = None
-            progress.phase = "awaiting_review"
             progress.message = (
-                f"世界对象抽取完成，共创建 {result['total_created']} 个候选。"
-                "请在「对象库」视图中审查并确认候选，然后继续深度导入。"
+                f"世界对象抽取完成，共创建 {result['total_created']} 个对象。"
             )
 
-        elif progress.phase == "awaiting_review":
-            pending_count = await count_pending_candidates(db, novel_id)
-            if pending_count > 0:
-                raise ValueError(
-                    f"还有 {pending_count} 个候选对象未处理。"
-                    "请在「世界对象 → 对象库」中确认或忽略所有候选后再继续。"
-                )
-
-            progress.phase = "running"
-
+            # Step 2: 人物同步
             progress.current_step = DeepImportStep.sync_characters
             progress.message = "正在同步人物档案..."
             char_result = await self._sync_characters(db, novel_id)
             progress.completed_steps.append(DeepImportStep.sync_characters.value)
+            progress.message = f"人物同步完成，共同步 {char_result['total_synced']} 个人物。"
 
+            # Step 3: 剧情生成
             progress.current_step = DeepImportStep.generate_plot
             progress.message = "正在生成剧情线和篇章纲..."
             plot_result = await self._generate_plot(db, novel_id, start_chapter, end_chapter)
@@ -86,7 +77,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        """调用 world facade 从章节正文抽取世界对象候选"""
+        """调用 world facade 从章节正文抽取世界对象"""
         from modules.world.facade import run_entity_extraction
 
         return await run_entity_extraction(
@@ -156,15 +147,10 @@ class DeepImportWorkflow:
         end_chapter: int,
     ) -> dict[str, Any]:
         """调用 outline facade 生成剧情线和篇章纲"""
-        from modules.outline.facade import generate_plot_structure
+        try:
+            from modules.outline.facade import generate_plot_structure
 
-        return await generate_plot_structure(db, novel_id, start_chapter, end_chapter)
-
-
-async def count_pending_candidates(
-    db: AsyncSession,
-    novel_id: str,
-) -> int:
-    """统计待处理的候选对象数量（facade 封装）"""
-    from modules.world.facade import count_pending_candidates as _count
-    return await _count(db, novel_id)
+            return await generate_plot_structure(db, novel_id, start_chapter, end_chapter)
+        except (ImportError, ModuleNotFoundError):
+            logger.warning("outline 模块不可用（minimal-core），跳过剧情结构生成")
+            return {"total_threads": 0, "total_arcs": 0, "threads": [], "arcs": []}

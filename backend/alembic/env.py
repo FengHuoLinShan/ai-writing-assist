@@ -23,15 +23,20 @@ from core.base import Base
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
 # character 模型已迁入 modules.world.models
-import modules.geo.models  # noqa: F401
 import modules.imports.models  # noqa: F401
-import modules.memory.models  # noqa: F401
-# timeline 模型已移除
-import modules.outline.models  # noqa: F401
 import modules.rag.models  # noqa: F401
-import modules.review.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 import infrastructure.tasks.models  # noqa: F401
+
+# minimal-core: memory/outline/review 模块暂不含模型
+import modules.geo.models  # noqa: F401
+
+for _mod_name in ("modules.memory.models", "modules.outline.models",
+                  "modules.review.models"):
+    try:
+        __import__(_mod_name)
+    except (ImportError, ModuleNotFoundError):
+        pass
 
 target_metadata = Base.metadata
 
