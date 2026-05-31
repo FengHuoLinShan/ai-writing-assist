@@ -12,8 +12,8 @@ from typing import Final
 # Embedding
 # ============================================================
 
-DEFAULT_EMBEDDING_DIM: Final[int] = 1024
-"""默认 embedding 向量维度（OpenAI text-embedding-3-large）"""
+DEFAULT_EMBEDDING_DIM: Final[int] = 768
+"""默认 embedding 向量维度（bge-base-zh-v1.5）"""
 
 # ============================================================
 # 分页
@@ -42,13 +42,13 @@ SIMILARITY_LOW_CONFIDENCE: Final[float] = 0.65
 # 检索评分权重（混合检索）
 # ============================================================
 
-RAG_VECTOR_WEIGHT: Final[float] = 0.45
-"""向量检索权重"""
-RAG_KEYWORD_WEIGHT: Final[float] = 0.30
+RAG_VECTOR_WEIGHT: Final[float] = 0.50
+"""向量检索权重（BGE 中文语义质量更高，适当提高）"""
+RAG_KEYWORD_WEIGHT: Final[float] = 0.25
 """关键词检索权重"""
-RAG_RELATION_WEIGHT: Final[float] = 0.15
+RAG_RELATION_WEIGHT: Final[float] = 0.12
 """关系扩展权重"""
-RAG_IMPORTANCE_WEIGHT: Final[float] = 0.10
+RAG_IMPORTANCE_WEIGHT: Final[float] = 0.13
 """重要性/时效性权重"""
 
 # ============================================================

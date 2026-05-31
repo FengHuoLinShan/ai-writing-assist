@@ -247,13 +247,36 @@ class LLMClient:
         self,
         text: str | list[str],
         model: str | None = None,
+        *,
+        is_query: bool = False,
     ) -> list[float] | list[list[float]]:
-        """生成文本 embedding（带自动重试）。
+        """生成文本 embedding。
+
+        根据 EMBEDDING_PROVIDER 配置自动路由：
+        - bge_onnx → 本地 BGE ONNX/sentence-transformers worker
+        - openai → OpenAI API (保留为 fallback)
 
         Args:
             text: 单文本或文本列表
             model: embedding 模型名称，默认使用配置中的 embedding_model
+            is_query: 是否为查询文本（BGE 模式会自动拼接指令前缀）
         """
+        settings = get_settings()
+        provider = settings.embedding_provider
+
+        if provider == "bge_onnx":
+            from infrastructure.embedding.client import BgeEmbeddingClient
+
+            client = await BgeEmbeddingClient.get_instance()
+            try:
+                return await client.generate_embedding(text, is_query=is_query)
+            except Exception:
+                logger.warning(
+                    "BGE embedding failed, falling back to OpenAI"
+                )
+                raise
+
+        # OpenAI / 其他远程 API
         return await retry_with_backoff(
             self._provider.generate_embedding,
             max_attempts=LLM_RETRY_MAX_ATTEMPTS,

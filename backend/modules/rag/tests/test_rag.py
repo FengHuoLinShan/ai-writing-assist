@@ -1,7 +1,7 @@
 """
 RAG 模块测试
 
-测试 CRUD、检索、分块和服务。
+测试 CRUD、检索、分块、服务以及任务处理器注册。
 使用 pytest-asyncio 测试异步数据库操作。
 """
 
@@ -10,6 +10,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+
+from infrastructure.tasks.registry import TaskRegistry
+from modules.rag import tasks as rag_tasks  # noqa: F401 — 注册任务处理器
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.contracts import RagChunkContract, RagQueryContract, RagResultBundle
@@ -29,6 +33,20 @@ from modules.rag.schemas import (
     SimilarEntity,
 )
 from modules.rag.services import ChunkingService, RetrievalService
+
+
+# ============================================================
+# 任务处理器注册测试
+# ============================================================
+
+def test_rag_task_handlers_are_registered() -> None:
+    """rag_reindex_novel 和 rag_index_chapter 应在 TaskRegistry 中注册"""
+    registry = TaskRegistry()
+    assert "rag_reindex_novel" in registry
+    assert "rag_index_chapter" in registry
+    handler = registry.get_handler("rag_reindex_novel")
+    assert handler is not None
+    assert callable(handler)
 
 
 # ============================================================
@@ -563,7 +581,7 @@ class TestRetrievalService:
                 text="周明瑞在灰雾中醒来。",
             ),
         )
-        chunk.embedding = [0.1] * 1024  # type: ignore[assignment]
+        chunk.embedding = [0.1] * 768  # type: ignore[assignment]
         await db_with_project.flush()
 
         with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:

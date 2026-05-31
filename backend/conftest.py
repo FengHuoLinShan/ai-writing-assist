@@ -6,6 +6,11 @@
 
 from __future__ import annotations
 
+# 必须在所有项目 import 之前设置，防止 lru_cache 缓存 bge_onnx 默认值
+import os
+
+os.environ.setdefault("EMBEDDING_PROVIDER", "openai")
+
 from typing import AsyncGenerator
 
 import pytest_asyncio

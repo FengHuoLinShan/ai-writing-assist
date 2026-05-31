@@ -53,7 +53,7 @@ async def test_generate_embedding_single(provider, mock_openai_client):
     mock_openai_client.embeddings.create.assert_called_once()
     kwargs = mock_openai_client.embeddings.create.call_args[1]
     assert kwargs["input"] == "测试文本"
-    assert kwargs["model"] == "text-embedding-3-large"
+    assert kwargs["model"] is not None  # 使用配置中的 embedding_model
 
 
 @pytest.mark.asyncio

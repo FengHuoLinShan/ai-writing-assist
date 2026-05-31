@@ -64,18 +64,35 @@ class Settings:
     llm_timeout: int = int(_env("LLM_TIMEOUT", "60"))
 
     # --- Embedding ---
-    embedding_dim: int = int(_env("EMBEDDING_DIM", "1024"))
+    embedding_dim: int = int(_env("EMBEDDING_DIM", "768"))
     embedding_model: str = field(default_factory=lambda: _env(
-        "EMBEDDING_MODEL", "text-embedding-3-large",
+        "EMBEDDING_MODEL", "bge-base-zh-v1.5",
+    ))
+    embedding_provider: str = field(default_factory=lambda: _env(
+        "EMBEDDING_PROVIDER", "bge_onnx",
     ))
     embedding_base_url: str = field(default_factory=lambda: _env("EMBEDDING_BASE_URL", ""))
     embedding_api_key: str = field(default_factory=lambda: _env("EMBEDDING_API_KEY", ""))
+
+    # --- BGE / ONNX Inference ---
+    bge_onnx_model_path: str = field(default_factory=lambda: _env(
+        "BGE_ONNX_MODEL_PATH", "BAAI/bge-base-zh-v1.5",
+    ))
+    bge_onnx_device: str = field(default_factory=lambda: _env("BGE_ONNX_DEVICE", "cpu"))
+    bge_onnx_quantization: str = field(default_factory=lambda: _env(
+        "BGE_ONNX_QUANTIZATION", "int8",
+    ))
+    inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "5.0"))
+    inference_worker_max_batch: int = int(_env("INFERENCE_WORKER_MAX_BATCH", "64"))
 
     # --- CORS ---
     allowed_origins: list[str] = field(default_factory=lambda: [
         o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",")
         if o.strip()
     ])
+
+    # --- 重排序 ---
+    reranker_enabled: bool = _env("RERANKER_ENABLED", "false").lower() == "true"
 
     # --- 应用 ---
     app_name: str = "ai-novel-structural-engine"

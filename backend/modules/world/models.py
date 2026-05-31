@@ -9,7 +9,7 @@ World ORM 模型 — v3 因果时空网
 - characters: 人物扩展表（entity_id PK+FK，从 character 模块迁入）
 - character_knowledge: 知识边界（从 character 模块迁入）
 
-生产环境 embedding 字段使用 pgvector Vector(1024) 类型。
+生产环境 embedding 字段使用 pgvector Vector(768) 类型（bge-base-zh-v1.5）。
 测试环境（SQLite）使用 Text 存储 JSON 序列化的浮点数列表。
 """
 
@@ -34,7 +34,7 @@ except ImportError:
     _HAS_PGVECTOR = False
 
 
-def _vector_column(dim: int = 1024):
+def _vector_column(dim: int = 768):
     """返回 pgvector Vector 列或 Text 回退列（用于 SQLite 测试）"""
     if _HAS_PGVECTOR:
         from pgvector.sqlalchemy import Vector

@@ -57,7 +57,14 @@ async def list_rag_chunks(
     """获取 RAG 片段列表"""
     items, total = await list_chunks(db, novel_id, skip=skip, limit=limit)
     status = await get_index_status(db, novel_id)
-    return {"items": items, "total": total, **status}
+    from modules.rag.circuit_breaker import get_circuit_breaker
+
+    return {
+        "items": items,
+        "total": total,
+        **status,
+        "circuit_breaker": get_circuit_breaker().status["state"],
+    }
 
 
 @router.post("/retrieve", response_model=RagResult)
@@ -118,6 +125,18 @@ async def retrieve_chunks(
         warnings=result.warnings,
         degraded=result.degraded,
     )
+
+
+@router.get("/metrics", response_model=dict)
+async def get_rag_metrics() -> dict:
+    """获取 RAG 检索运行时指标。"""
+    from modules.rag.metrics import get_metrics
+    from modules.rag.circuit_breaker import get_circuit_breaker
+
+    return {
+        "metrics": get_metrics().snapshot,
+        "circuit_breaker": get_circuit_breaker().status,
+    }
 
 
 @router.post("/chunks/split", response_model=dict)

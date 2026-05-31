@@ -57,13 +57,26 @@ class ChunkingService:
     DEFAULT_CN_OVERLAP: int = 160
 
     SCENE_TRANSITION_PATTERNS: list[str] = [
+        # 时间跳跃
         "第二天", "次日", "翌日", "几日", "数日", "一个月后",
         "不久之后", "转眼", "转眼间", "黄昏", "清晨",
         "夜晚", "入夜", "黎明", "次日清晨", "翌日清晨", "半夜",
         "过了几日", "又过了几日", "几个月后", "半年后", "一年后",
         "三日后", "七日后", "十日后",
+        "那一年", "从此", "多年后", "曾经", "从前", "后来",
+        "此刻", "就在这时", "突然", "不一会儿",
+        # 空间/视角切换
         "与此同时", "另一边", "另一方面",
+        "画面一转", "镜头一转", "视角切",
+        # 分隔符
         "***", "---", "===",
+        "——", "……",
+    ]
+
+    # 地点转换动词 — 在这些词之后紧跟地点时，优先作为切分点
+    LOCATION_TRANSITION_VERBS: list[str] = [
+        "回到", "来到", "走进", "离开", "返回", "前往",
+        "抵达", "步入", "踏入", "跨入",
     ]
 
     def split_by_paragraphs(
@@ -231,35 +244,61 @@ class ChunkingService:
         target_length: int,
         hard_end: int,
     ) -> int:
-        """优先在场景转换关键词处切分，回退到标点边界。"""
+        """优先在语义边界（场景转换/地点转换/段落）处切分，回退到标点。
+
+        优先级：场景转换关键词 > 地点转换 > 段落边界 > 句子边界 > 硬截断
+        """
         min_end = min(start + max(80, target_length // 2), hard_end)
         target_end = min(start + target_length, hard_end)
 
-        # 优先匹配场景转换关键词
-        best_scene_pos = -1
-        best_scene_dist = float("inf")
+        # 搜索窗口内的候选切分点，记录 (位置, 优先级, 距离目标偏差)
+        candidates: list[tuple[int, int, float]] = []
+        # 优先级: 1=场景转换关键词, 2=地点转换, 3=段落边界, 4=句子边界
+
+        # 1) 场景转换关键词（最高优先级）
         for pattern in cls.SCENE_TRANSITION_PATTERNS:
             pos = text.rfind(pattern, min_end, hard_end)
             if pos >= min_end:
                 dist = abs(pos - target_end)
-                if dist < best_scene_dist:
-                    best_scene_pos = pos
-                    best_scene_dist = dist
+                candidates.append((pos, 1, dist))
 
-        if best_scene_pos > start:
-            return best_scene_pos
+        # 2) 地点转换（段落开头出现地点动词）
+        for verb in cls.LOCATION_TRANSITION_VERBS:
+            # 在段落开头搜索
+            para_start = text.rfind("\n\n", min_end, hard_end)
+            if para_start < 0:
+                para_start = text.rfind("\n", min_end, hard_end)
+            if para_start >= min_end:
+                para_text = text[para_start:hard_end]
+                if verb in para_text[:20]:
+                    dist = abs(para_start - target_end)
+                    candidates.append((para_start, 2, dist))
 
-        # 回退到标点边界
-        boundary_patterns = ("\n\n", "\r\n\r\n", "。", "！", "？", "”", "」", "\n")
-        best = -1
-        for pattern in boundary_patterns:
-            pos = text.rfind(pattern, min_end, hard_end)
+        # 3) 段落边界
+        para_pos = text.rfind("\n\n", min_end, hard_end)
+        if para_pos >= min_end:
+            dist = abs(para_pos - target_end)
+            candidates.append((para_pos + 2, 3, dist))
+        else:
+            para_pos = text.rfind("\n", min_end, hard_end)
+            if para_pos >= min_end:
+                dist = abs(para_pos - target_end)
+                candidates.append((para_pos + 1, 3, dist))
+
+        # 4) 句子边界
+        for punct in ("。", "！", "？", "”", "」"):
+            pos = text.rfind(punct, min_end, hard_end)
             if pos >= min_end:
-                candidate = pos + len(pattern)
-                if abs(candidate - target_end) < abs(best - target_end) or best < 0:
-                    best = candidate
-        if best > start:
-            return best
+                dist = abs(pos - target_end)
+                candidates.append((pos + 1, 4, dist))
+
+        # 按优先级排序，同优先级按距离
+        if candidates:
+            candidates.sort(key=lambda x: (x[1], x[2]))
+            return candidates[0][0]
+
+        # 无可用边界，硬截断到 target_end
+        return min(target_end, hard_end)
         return hard_end
 
     @staticmethod
@@ -353,6 +392,34 @@ class RetrievalService:
         return min(1.0, overlap_ratio + proximity_bonus)
 
     @staticmethod
+    def _compute_dynamic_weights(
+        query: str,
+    ) -> tuple[float, float, float, float]:
+        """根据查询长度动态调整权重。
+
+        短查询（<10 字，如人名/地名）：偏向关键词匹配
+        长查询（>50 字，如段落描述）：偏向语义向量
+        """
+        vw = RAG_VECTOR_WEIGHT
+        kw = RAG_KEYWORD_WEIGHT
+        rw = RAG_RELATION_WEIGHT
+        iw = RAG_IMPORTANCE_WEIGHT
+
+        qlen = len(query.strip())
+        if qlen < 10:
+            # 短查询：关键词更重要
+            vw *= 0.6
+            kw *= 1.5
+        elif qlen > 50:
+            # 长查询：语义向量更重要
+            vw *= 1.2
+            kw *= 0.6
+
+        # 重新归一化到和为 1.0
+        total = vw + kw + rw + iw
+        return (vw / total, kw / total, rw / total, iw / total)
+
+    @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
         """计算余弦相似度
 
@@ -390,23 +457,23 @@ class RetrievalService:
         mode: str = "search",
         top_k: int = 12,
         reference_chapter_index: int | None = None,
+        weights: tuple[float, float, float, float] | None = None,
     ) -> list[tuple[RagChunk, float]]:
         """混合检索：关键词 + 关系 + 重要性 + 向量
 
         评分公式：
-          score = 0.45 * vector_score
-                + 0.30 * keyword_score
-                + 0.15 * relation_score
-                + 0.10 * importance_score
-          然后对非 extraction 模式应用时序衰减。
+          score = vw * vector_score + kw * keyword_score
+                + rw * relation_score + iw * importance_score
 
         Args:
             query_embedding: 查询的 embedding 向量（启用向量检索时传入）
             reference_chapter_index: 参考章节索引，用于时序衰减（即时记忆）
+            weights: 可选的权重覆盖 (v, k, r, i)，用于调优；默认使用模块常量
 
         Returns:
             list[(RagChunk, score)] — 按评分降序排列
         """
+        vw, kw, rw, iw = weights or self._compute_dynamic_weights(query)
         # Step 1: 关键词检索
         expanded_query = await _expand_query_with_project_terms(
             db,
@@ -494,12 +561,12 @@ class RetrievalService:
                 # 余弦相似度范围 [-1, 1] 映射到 [0, 1] 作为评分
                 vector_score = max(0.0, vector_score)
 
-            # 综合评分
+            # 综合评分（权重可覆盖，用于调优）
             total_score = (
-                RAG_VECTOR_WEIGHT * vector_score
-                + RAG_KEYWORD_WEIGHT * keyword_score
-                + RAG_RELATION_WEIGHT * relation_score
-                + RAG_IMPORTANCE_WEIGHT * importance_score
+                vw * vector_score
+                + kw * keyword_score
+                + rw * relation_score
+                + iw * importance_score
             )
 
             # 时序衰减：近期章节权重更高
@@ -861,31 +928,8 @@ class IndexingService:
         except Exception:
             pass
 
-        # 获取篇章和章节信息用于 embedding 上下文前缀
-        arc_name: str | None = None
-        chapter_title: str | None = None
-        try:
-            from modules.outline.facade import get_arc_for_chapter, get_chapter_card
-
-            arc_info = await get_arc_for_chapter(db, str(novel_id), chapter_index)
-            if arc_info:
-                arc_name = arc_info.get("title")
-            card = await get_chapter_card(db, str(novel_id), chapter_index)
-            if card and card.title:
-                chapter_title = card.title
-        except Exception:
-            pass
-
-        # 构建 embedding 前缀
-        prefix_parts: list[str] = []
-        if arc_name:
-            prefix_parts.append(f"[{arc_name}]")
-        if chapter_title:
-            prefix_parts.append(f"[第{chapter_index}章 {chapter_title}]")
-        else:
-            prefix_parts.append(f"[第{chapter_index}章]")
-        embedding_prefix = "".join(prefix_parts)
-
+        # 构建 embedding 文本：BGE 模型直接使用原始 chunk 文本，不需要上下文前缀
+        # OpenAI embedding 模式下前缀在 facade 层拼接（见 facade.retrieve）
         import logging
 
         logger = logging.getLogger(__name__)
@@ -931,8 +975,6 @@ class IndexingService:
                 meta={
                     "chapter_index": chapter_index,
                     "chunk_index": cn_chunk.chunk_index,
-                    "arc_name": arc_name,
-                    "chapter_title": chapter_title,
                 },
             )
             chunk = await self._repo.create(db, novel_id, chunk_data)
@@ -946,7 +988,7 @@ class IndexingService:
                 from infrastructure.llm.client import LLMClient
 
                 llm = LLMClient()
-                texts = [f"{embedding_prefix} {chunk.text}" for chunk in created_chunks]
+                texts = [chunk.text for chunk in created_chunks]
                 embeddings = await llm.generate_embedding(texts)
                 if (
                     isinstance(embeddings, list)
@@ -971,6 +1013,126 @@ class IndexingService:
                     chunk.embedding_status = "failed"
                     chunk.embedding_error = str(exc)[:1000]
                     chunk.index_warnings = [warning]
+                await db.flush()
+
+        return RagIndexReport(
+            chapter_index=chapter_index,
+            chunks_created=len(created_chunks),
+            warnings=warnings,
+            embedding_failed_count=embedding_failed_count,
+            chunks_created_ids=[str(c.id) for c in created_chunks],
+        )
+
+    async def index_chapter_incremental(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        old_content: str,
+        new_content: str,
+    ) -> RagIndexReport:
+        """增量索引：仅重建变更区域的 chunk。
+
+        使用 difflib.SequenceMatcher 识别文本变更，保留未变区域的已有 chunk。
+        变更率 >= 30% 时自动回退到全量重建，避免大量碎片。
+
+        注意：此方法要求 old_content 是上次索引时的原文。
+        """
+        from modules.rag.contracts import RagIndexReport
+
+        import difflib
+
+        warnings: list[str] = []
+
+        # 变更率检查
+        change_ratio = len(new_content) / max(len(old_content), 1)
+        if change_ratio > 1.3 or change_ratio < 0.7:
+            warnings.append(
+                f"文本变更率 {abs(1 - change_ratio):.0%} >= 30%，自动回退全量重建"
+            )
+            return await self.index_chapter_with_report(db, novel_id, chapter_index)
+
+        # 计算 diff
+        matcher = difflib.SequenceMatcher(None, old_content, new_content)
+        opcodes = matcher.get_opcodes()
+
+        # 读取已有 chunks
+        old_chunks = await self._repo.find_by_chapter(db, novel_id, chapter_index)
+        old_by_offset: dict[tuple[int, int], RagChunk] = {}
+        for c in old_chunks:
+            if c.start_offset is not None and c.end_offset is not None:
+                old_by_offset[(c.start_offset, c.end_offset)] = c
+
+        project_terms = await _load_project_terms(db, novel_id)
+        created_chunks: list[RagChunk] = []
+        embedding_failed_count = 0
+
+        for tag, i1, i2, j1, j2 in opcodes:
+            if tag == "equal":
+                # 未变区域：保留已有 chunk（匹配 offset）
+                for (start, end), chunk in old_by_offset.items():
+                    if start >= i1 and end <= i2:
+                        created_chunks.append(chunk)
+                        del old_by_offset[(start, end)]
+
+            elif tag in ("replace", "insert"):
+                # 变更区域：重新分块 + embedding
+                new_text = new_content[j1:j2]
+                if not new_text.strip():
+                    continue
+
+                cn_chunks = self._chunking.split_chinese_novel(new_text)
+                for cn_chunk in cn_chunks:
+                    character_ids, entity_ids, thread_ids = _match_project_terms(
+                        cn_chunk.text, project_terms,
+                    )
+                    chunk_data = RagChunkCreate(
+                        source_type="chapter_text",
+                        chapter_index=chapter_index,
+                        chunk_index=len(created_chunks),
+                        start_offset=j1 + cn_chunk.start_offset,
+                        end_offset=j1 + cn_chunk.end_offset,
+                        char_count=cn_chunk.char_count,
+                        text=cn_chunk.text,
+                        summary=self._chunking.extract_summary(cn_chunk.text),
+                        entity_ids=entity_ids,
+                        character_ids=character_ids,
+                        thread_ids=thread_ids,
+                        visibility="author_only",
+                        importance=0.5,
+                        index_version=RAG_INDEX_VERSION,
+                        embedding_status="pending",
+                    )
+                    chunk = await self._repo.create(db, novel_id, chunk_data)
+                    created_chunks.append(chunk)
+
+        # 删除不再匹配的旧 chunk
+        for (start, end), chunk in old_by_offset.items():
+            if chunk.id not in {c.id for c in created_chunks}:
+                await self._repo.delete(db, chunk.id)
+
+        await db.flush()
+
+        # 仅对新创建的 chunk 生成 embedding
+        new_chunks = [c for c in created_chunks if c.embedding_status == "pending"]
+        if new_chunks:
+            try:
+                from infrastructure.llm.client import LLMClient
+
+                texts = [c.text for c in new_chunks]
+                embeddings = await LLMClient().generate_embedding(texts)
+                if isinstance(embeddings, list) and len(embeddings) == len(new_chunks):
+                    for chunk, emb in zip(new_chunks, embeddings):
+                        await self._repo.update_embedding(db, chunk.id, emb)
+                        chunk.embedding_status = "succeeded"
+                    await db.flush()
+            except Exception as exc:
+                warning = f"增量 embedding 失败: {exc}"
+                warnings.append(warning)
+                embedding_failed_count = len(new_chunks)
+                for chunk in new_chunks:
+                    chunk.embedding_status = "failed"
+                    chunk.embedding_error = str(exc)[:1000]
                 await db.flush()
 
         return RagIndexReport(

@@ -179,8 +179,8 @@ async def test_index_chapter_with_embeddings(
     db_session.add(draft)
     await db_session.flush()
 
-    # mock embedding provider（使用 1024 维匹配 Vector(1024) 列定义）
-    fake_embedding = [0.1] * 1024
+    # mock embedding provider（使用 768 维匹配 Vector(768) 列定义）
+    fake_embedding = [0.1] * 768
 
     with patch(
         "infrastructure.llm.client.LLMClient",
@@ -218,7 +218,10 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     from unittest.mock import AsyncMock, patch
 
     from modules.character.models import Character
-    from modules.outline.models import PlotThread
+    try:
+        from modules.outline.models import PlotThread
+    except (ImportError, ModuleNotFoundError):
+        PlotThread = None
     from modules.rag.facade import index_chapter_with_report
     from modules.world.models import EntityAlias, WorldEntity
     from modules.writing.models import WritingDraft

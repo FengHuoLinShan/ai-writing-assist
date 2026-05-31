@@ -22,6 +22,15 @@ _retrieval = RetrievalService()
 _indexing = IndexingService()
 
 
+def _is_rerank_enabled(mode: str) -> bool:
+    """检查是否启用 LLM 重排序。extraction 模式且配置开启时生效。"""
+    from core.config import get_settings
+
+    if mode not in ("extraction",):
+        return False
+    return get_settings().reranker_enabled
+
+
 def _deduplicate_by_embedding(
     scored_chunks: list[tuple],
     threshold: float = 0.9,
@@ -121,18 +130,32 @@ async def list_chunks(
 
 async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     """获取 RAG 索引诊断状态。"""
+    from core.config import get_settings
+
     nid = uuid.UUID(hex=novel_id)
     total = await _repo.count_by_novel(db, nid)
     embedding_failed_count = await _repo.count_embedding_failed(db, nid)
+    pending_vectorization = await _repo.count_pending_vectorization(db, nid)
+    settings = get_settings()
+
     warnings = []
+    if pending_vectorization:
+        warnings.append(
+            f"有 {pending_vectorization} 个片段待重新向量化（维度迁移后），检索可能暂时不准确",
+        )
     if embedding_failed_count:
         warnings.append(
             f"有 {embedding_failed_count} 个片段 embedding 失败，检索和抽取可能不准确",
         )
+
     return {
         "total": total,
+        "embedding_provider": settings.embedding_provider,
+        "embedding_model": settings.embedding_model,
+        "embedding_dim": settings.embedding_dim,
         "embedding_failed_count": embedding_failed_count,
-        "degraded": embedding_failed_count > 0,
+        "pending_vectorization": pending_vectorization,
+        "degraded": embedding_failed_count > 0 or pending_vectorization > 0,
         "warnings": warnings,
     }
 
@@ -212,25 +235,43 @@ async def retrieve(
     Returns:
         RagResultBundle — 检索结果
     """
+    import time as _time
+
+    _t0 = _time.monotonic()
     nid = uuid.UUID(hex=novel_id)
     top_k = max(1, top_k)
     warnings: list[str] = []
     degraded = False
     query_embedding: list[float] | None = None
-    if await _repo.has_embeddings(db, nid):
-        try:
-            from infrastructure.llm.client import LLMClient
 
-            embedding = await LLMClient().generate_embedding(query)
-            if (
-                isinstance(embedding, list)
-                and embedding
-                and isinstance(embedding[0], float)
-            ):
-                query_embedding = embedding  # type: ignore[assignment]
-        except Exception as exc:
+    # 尝试生成查询 embedding（带熔断保护）
+    if await _repo.has_embeddings(db, nid):
+        from modules.rag.circuit_breaker import get_circuit_breaker
+
+        cb = get_circuit_breaker()
+        if cb.allow_request():
+            try:
+                from infrastructure.llm.client import LLMClient
+
+                embedding = await LLMClient().generate_embedding(query, is_query=True)
+                if (
+                    isinstance(embedding, list)
+                    and embedding
+                    and isinstance(embedding[0], float)
+                ):
+                    query_embedding = embedding  # type: ignore[assignment]
+                    cb.record_success()
+                else:
+                    cb.record_failure()
+                    degraded = True
+                    warnings.append("embedding 返回格式异常，已降级")
+            except Exception as exc:
+                cb.record_failure()
+                degraded = True
+                warnings.append(f"embedding 生成失败，本次检索已降级，结果可能不准确: {exc}")
+        else:
             degraded = True
-            warnings.append(f"embedding 生成失败，本次检索已降级，结果可能不准确: {exc}")
+            warnings.append("BGE 服务熔断中，本次检索已降级为关键词匹配")
 
     scored_chunks = await _retrieval.hybrid_search(
         db,
@@ -250,10 +291,32 @@ async def retrieve(
     # 语义去重：移除余弦相似度 > 0.9 的冗余 chunk，保留 char_count 更大者
     deduped_chunks = _deduplicate_by_embedding(scored_chunks, threshold=0.9)
 
+    # LLM 重排序（可选，仅 extraction 模式或显式开启）
+    rerank_enabled = _is_rerank_enabled(mode)
+    if rerank_enabled and len(deduped_chunks) > top_k:
+        try:
+            from modules.rag.reranker import rerank_results
+
+            deduped_chunks = await rerank_results(
+                query, deduped_chunks, top_k=top_k,
+            )
+        except Exception as exc:
+            warnings.append(f"重排序失败，使用原始排序: {exc}")
+
     chunk_contracts = [
         _to_chunk_contract(chunk, score)
         for chunk, score in deduped_chunks
     ]
+
+    # 记录检索指标
+    _latency_ms = (_time.monotonic() - _t0) * 1000
+    from modules.rag.metrics import get_metrics
+
+    get_metrics().record(
+        latency_ms=_latency_ms,
+        degraded=degraded,
+        empty=len(chunk_contracts) == 0,
+    )
 
     return RagResultBundle(
         chunks=chunk_contracts,
@@ -293,6 +356,25 @@ async def index_chapter_with_report(
     """索引指定章节并返回诊断报告。"""
     nid = uuid.UUID(hex=novel_id)
     return await _indexing.index_chapter_with_report(db, nid, chapter_index)
+
+
+async def index_chapter_incremental(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    old_content: str,
+    new_content: str,
+) -> RagIndexReport:
+    """增量索引章节，仅重建变更区域。
+
+    Args:
+        old_content: 上次索引时的章节原文
+        new_content: 当前的章节原文
+    """
+    nid = uuid.UUID(hex=novel_id)
+    return await _indexing.index_chapter_incremental(
+        db, nid, chapter_index, old_content, new_content,
+    )
 
 
 async def split_text_into_chunks(

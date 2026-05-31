@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -389,15 +389,52 @@ class RagChunkRepository:
         embedding: list[float],
         *,
         top_k: int = 12,
+        ef_search: int = 40,
     ) -> list[tuple[RagChunk, float]]:
-        """向量检索 — 余弦相似度排序
+        """向量检索 — pgvector <#> 内积操作符 + HNSW 索引
 
-        遍历该 novel 所有有 embedding 的 chunk，按余弦相似度排序。
-        生产环境可优化为 pgvector <=> SQL 查询。
+        L2 归一化后内积等价于余弦相似度。PostgreSQL 使用 pgvector
+        原生 <#> 操作符走 HNSW 索引；SQLite 回退到 Python 层计算。
 
         Returns:
             list[(RagChunk, score)] — 按相似度降序排列
         """
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name != "postgresql":
+            return await self._vector_search_python(
+                db, novel_id, embedding, top_k=top_k
+            )
+
+        # PostgreSQL: 使用 pgvector <#> 内积操作符 + HNSW 索引
+        await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
+
+        stmt = (
+            select(
+                RagChunk,
+                RagChunk.embedding.op("<#>")(embedding).label("score"),
+            )
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.embedding.is_not(None),
+            )
+            .order_by(text("score DESC"))
+            .limit(top_k)
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+        return [(row[0], float(row[1])) for row in rows]
+
+    async def _vector_search_python(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        embedding: list[float],
+        *,
+        top_k: int = 12,
+    ) -> list[tuple[RagChunk, float]]:
+        """SQLite 回退：Python 层计算余弦相似度"""
+        import math
+
         stmt = (
             select(RagChunk)
             .where(
@@ -411,14 +448,21 @@ class RagChunkRepository:
         if not chunks:
             return []
 
-        from modules.rag.services import RetrievalService as _RetrievalService
+        def _dot(a: list[float], b: list[float]) -> float:
+            return sum(x * y for x, y in zip(a, b))
+
+        def _norm(a: list[float]) -> float:
+            return math.sqrt(sum(x * x for x in a))
 
         scored: list[tuple[RagChunk, float]] = []
+        norm_q = _norm(embedding)
         for c in chunks:
             chunk_emb = c.embedding
             if isinstance(chunk_emb, list) and len(chunk_emb) == len(embedding):
-                sim = _RetrievalService._cosine_similarity(embedding, chunk_emb)
-                scored.append((c, max(0.0, sim)))
+                norm_c = _norm(chunk_emb)
+                if norm_c > 0 and norm_q > 0:
+                    sim = _dot(embedding, chunk_emb) / (norm_q * norm_c)
+                    scored.append((c, max(0.0, sim)))
 
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
@@ -468,6 +512,22 @@ class RagChunkRepository:
             .where(
                 RagChunk.novel_id == novel_id,
                 RagChunk.embedding_status == "failed",
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one() or 0
+
+    async def count_pending_vectorization(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> int:
+        """统计待重新向量化的 chunk 数（维度迁移后）。"""
+        stmt = (
+            select(func.count(RagChunk.id))
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.embedding_status == "pending_vectorization",
             )
         )
         result = await db.execute(stmt)

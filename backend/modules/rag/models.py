@@ -24,7 +24,7 @@ except ImportError:
     _HAS_PGVECTOR = False
 
 
-def _embedding_column(dim: int = 1024):
+def _embedding_column(dim: int = 768):
     """返回 pgvector Vector 列或 LargeBinary 回退列（用于 SQLite 测试）"""
     if _HAS_PGVECTOR:
         return mapped_column(Vector(dim), nullable=True)
@@ -130,7 +130,7 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         String(32),
         nullable=False,
         default="pending",
-        comment="embedding 状态：pending/succeeded/failed/skipped",
+        comment="embedding 状态：pending/pending_vectorization/succeeded/failed/skipped",
     )
     embedding_error: Mapped[str | None] = mapped_column(
         Text,

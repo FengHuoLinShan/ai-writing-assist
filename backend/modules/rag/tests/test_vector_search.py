@@ -86,8 +86,8 @@ async def test_hybrid_search_with_query_embedding(
         importance=0.8,
     ))
 
-    # 设置 embedding（列定义为 Vector(1024)）
-    test_emb = [0.1 * (i % 3 + 1) for i in range(1024)]
+    # 设置 embedding（列定义为 Vector(768)）
+    test_emb = [0.1 * (i % 3 + 1) for i in range(768)]
     chunk.embedding = test_emb  # type: ignore[assignment]
     await db_session.flush()
 
