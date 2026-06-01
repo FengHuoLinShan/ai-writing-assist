@@ -15,13 +15,11 @@ from modules.world.schemas import (
     CharacterContextBundle,
     CharacterKnowledgeContext,
     CharacterResponse,
-    CoreEntityResponse,
     EntityRelationResponse,
     EventContext,
     EventsContextBundle,
     WorldContextBundle,
     WorldEntityContext,
-    WorldEntityResponse,
 )
 from modules.world.services import (
     CharacterService,
@@ -30,13 +28,12 @@ from modules.world.services import (
     EventService,
     WorldEntityService,
 )
+
 # 已废弃服务直接导入（不在 services/__init__ 中重导出）
-from modules.world.services.candidate_service import EntityCandidateService
 from modules.world.services.dedup_service import EntityDedupService
 
 _entity_service = WorldEntityService()
 _relation_service = EntityRelationService()
-_candidate_service = EntityCandidateService()
 _dedup_service = EntityDedupService()
 _revision_service = EntityRevisionService()
 _event_service = EventService()
@@ -64,29 +61,8 @@ async def list_entity_terms(
     *,
     limit: int = 500,
 ) -> list[dict[str, Any]]:
-    """获取世界对象检索词典项（名称 + 已确认别名）"""
-    from modules.world.repositories import CoreEntityRepository
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    entity_repo = CoreEntityRepository()
-    entities, _ = await entity_repo.get_by_novel(db, nid, limit=limit)
-
-    terms: list[dict[str, Any]] = []
-    for item in entities:
-        if item.status not in ("canonical", "draft"):
-            continue
-        item_terms = [item.name]
-        # 别名存储在 content_json 中
-        aliases = (item.content_json or {}).get("aliases", [])
-        item_terms.extend(a if isinstance(a, str) else a.get("alias", "") for a in aliases)
-        terms.append({
-            "id": str(item.id),
-            "name": item.name,
-            "entity_type": item.entity_type,
-            "terms": [t for t in item_terms if t],
-        })
-    return terms
+    """获取世界对象检索词典项（名称 + 已确认别名）。"""
+    return await _entity_service.list_entity_terms(db, novel_id, limit=limit)
 
 
 async def get_world_context(
@@ -127,11 +103,10 @@ async def find_entity_id_by_name(
     name: str,
     entity_type: str | None = None,
 ) -> str | None:
-    from shared.utils import parse_uuid
-    nid = parse_uuid(novel_id, "novel_id")
-    from modules.world.repositories import CoreEntityRepository
-    repo = CoreEntityRepository()
-    return await repo.find_entity_by_name(db, nid, name, entity_type=entity_type)
+    """按名称查正史实体 ID。"""
+    return await _entity_service.find_by_name(
+        db, novel_id, name, entity_type=entity_type,
+    )
 
 
 async def upsert_relationship(
@@ -158,82 +133,14 @@ async def upsert_relationship(
 # 兼容性 facade（其他模块仍在调用）
 # ============================================================
 
-async def get_location_factions(
-    db: AsyncSession,
-    novel_id: str,
-    location_id: str,
-) -> list[dict[str, Any]]:
-    """获取控制/驻扎某地点的势力列表（兼容旧接口）"""
-    return []
-
-
 async def get_character_id_by_world_entity(
     db: AsyncSession,
     novel_id: str,
     world_entity_id: str,
 ) -> str | None:
-    """按核心实体 ID 查找人物（新模型中 entity_id == character PK）"""
-    from shared.utils import parse_uuid
-    nid = parse_uuid(novel_id, "novel_id")
-    weid = parse_uuid(world_entity_id, "entity_id")
-    from modules.world.repositories import CharacterRepository
-    repo = CharacterRepository()
-    char = await repo.get(db, weid)
-    if char is None:
-        return None
-    return str(char.entity_id)
-
-
-async def check_timeline_conflicts(
-    db: AsyncSession,
-    novel_id: str,
-    payload: dict,
-) -> list[dict]:
-    """时间线冲突检查（v3 暂未实现，返回空列表）"""
-    return []
-
-
-async def get_geo_effects_up_to_chapter(
-    db: AsyncSession,
-    novel_id: str,
-    chapter_index: int,
-) -> list[dict]:
-    """获取截止到某章节的地理影响（v3 暂未实现，返回空列表）"""
-    return []
-
-
-# ============================================================
-# 候选池 facade（保持兼容，但已标记废弃）
-# ============================================================
-
-async def count_pending_candidates(
-    db: AsyncSession,
-    novel_id: str,
-) -> int:
-    result = await _candidate_service.list(
-        db, novel_id,
-        status="pending",
-        limit=1,
-    )
-    return result.total
-
-
-async def find_duplicate_entity_candidates(
-    db: AsyncSession,
-    novel_id: str,
-    candidate_id: str,
-) -> list:
-    return await _dedup_service.find_duplicates(db, novel_id, candidate_id)
-
-
-async def accept_candidate(
-    db: AsyncSession,
-    novel_id: str,
-    candidate_id: str,
-    user_edits: dict[str, Any] | None = None,
-) -> WorldEntityResponse:
-    return await _candidate_service.accept_candidate(
-        db, novel_id, candidate_id, user_edits=user_edits,
+    """按核心实体 ID 查找人物（新模型中 entity_id == character PK）。"""
+    return await _character_service.get_id_by_world_entity(
+        db, novel_id, world_entity_id,
     )
 
 
@@ -357,12 +264,9 @@ async def create_character(
 ) -> CharacterResponse:
     from modules.world.schemas import CharacterCreate
     entity_id = world_entity_id or ""
-    data = CharacterCreate(
-        novel_id=novel_id,
-        name=name,
-        entity_id=entity_id,
-    )
-    return await _character_service.create_character(db, data)
+    data = CharacterCreate(name=name, entity_id=entity_id)
+    # base 的 CrudService.create 接收 (db, novel_id, data)
+    return await _character_service.create(db, novel_id, data)
 
 
 async def get_characters_context(
@@ -404,11 +308,8 @@ async def find_character_id_by_name(
     novel_id: str,
     name: str,
 ) -> str | None:
-    from shared.utils import parse_uuid
-    nid = parse_uuid(novel_id, "novel_id")
-    from modules.world.repositories import CharacterRepository
-    repo = CharacterRepository()
-    return await repo.find_character_by_name(db, nid, name)
+    """按 character name 查正史 character 的 entity_id。"""
+    return await _character_service.find_by_name(db, novel_id, name)
 
 
 async def update_character_location(
@@ -419,12 +320,10 @@ async def update_character_location(
     text_state: str,
     chapter_index: int,
 ) -> None:
-    from shared.utils import parse_uuid
-    cid = parse_uuid(character_id, "character_id")
-    loc_id = parse_uuid(location_id, "location_id")
-    from modules.world.repositories import CharacterRepository
-    repo = CharacterRepository()
-    await repo.update_character_meta_location(db, cid, loc_id, text_state, chapter_index)
+    """更新 character 的位置元数据。"""
+    await _character_service.update_location(
+        db, novel_id, character_id, location_id, text_state, chapter_index,
+    )
 
 
 async def get_characters_at_location(
@@ -432,12 +331,10 @@ async def get_characters_at_location(
     novel_id: str,
     location_id: str,
 ) -> list[dict]:
-    from shared.utils import parse_uuid
-    nid = parse_uuid(novel_id, "novel_id")
-    loc_id = parse_uuid(location_id, "location_id")
-    from modules.world.repositories import CharacterRepository
-    repo = CharacterRepository()
-    return await repo.find_characters_by_location(db, nid, loc_id)
+    """查某 location 下的所有正史 character。"""
+    return await _character_service.get_characters_at_location(
+        db, novel_id, location_id,
+    )
 
 
 async def get_character_location_id(
@@ -445,11 +342,8 @@ async def get_character_location_id(
     novel_id: str,
     character_id: str,
 ) -> str | None:
-    from shared.utils import parse_uuid
-    cid = parse_uuid(character_id, "character_id")
-    from modules.world.repositories import CharacterRepository
-    repo = CharacterRepository()
-    return await repo.get_character_location_id(db, cid)
+    """查 character 的 location_id, 返 str 或 None。"""
+    return await _character_service.get_location_id(db, novel_id, character_id)
 
 
 async def list_characters(
@@ -458,10 +352,11 @@ async def list_characters(
     skip: int = 0,
     limit: int = 100,
 ) -> tuple[list[CharacterResponse], int]:
-    result = await _character_service.list_characters(
+    result = await _character_service.list(
         db, novel_id, skip=skip, limit=limit,
     )
-    return result.items, result.total
+    # CharacterService.list 返 (items, total) tuple (per design — 非 ListResponse 包装)
+    return result[0], result[1]
 
 
 # ============================================================
@@ -516,3 +411,20 @@ async def merge_candidate_into_entity(
     return await _dedup_service.merge_candidate_into_entity(
         db, novel_id, candidate_id, target_entity_id,
     )
+
+
+# ============================================================
+# 完整状态导出（供 memory 模块快照用）
+# ============================================================
+
+async def get_full_state(
+    db: AsyncSession,
+    novel_id: str,
+) -> dict[str, Any]:
+    """导出当前世界完整状态，供 memory 模块捕捉快照。
+
+    委托给 state_assembler.assemble, 保留跨模块契约。
+    ADR-0001: 真正的实现归 world.state_assembler, facade 只剩薄代理。
+    """
+    from modules.world.state_assembler import assemble
+    return await assemble(db, novel_id)

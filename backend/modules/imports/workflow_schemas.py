@@ -23,7 +23,7 @@ class DeepImportProgress(BaseModel):
 
     phase: str = Field(
         default="pending",
-        description="阶段: pending / running / awaiting_review / done / failed",
+        description="阶段: pending / running / done / failed",
     )
     current_step: DeepImportStep | None = Field(
         default=None,

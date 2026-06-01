@@ -30,10 +30,6 @@ const generateView = {
                 <strong>3. 章节与场景结构</strong>
                 <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">章节卡和场景卡</p>
               </div>
-              <div class="clickable generate-card ${this._currentType === "review" ? "active" : ""}" data-action="select-type" data-type="review">
-                <strong>4. 结构复查与状态抽取</strong>
-                <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">检查冲突，抽取状态变化</p>
-              </div>
             </div>
           </div>
 
@@ -154,7 +150,7 @@ const generateView = {
     const resultEl = document.getElementById("generate-result")
     if (!resultEl) return
 
-    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构", review: "结构复查与状态抽取" }
+    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构" }
 
     this._updateStep(1, "done")
     this._updateStep(2, "active")
@@ -179,7 +175,6 @@ const generateView = {
         world_character: api.generate.worldCharacter,
         plot: api.generate.plotStructure,
         chapter: api.generate.chapterScene,
-        review: api.generate.reviewMemory,
       }
       resp = await apiCalls[this._currentType]({ novel_id: state.currentProjectId, intent, context: {} })
 

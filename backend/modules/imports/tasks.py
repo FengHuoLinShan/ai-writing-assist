@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @task_handler("deep_import")
 async def handle_deep_import(db, task) -> dict[str, Any]:
-    """处理深度导入任务 — Step 1: 世界对象抽取
+    """处理深度导入任务 — 全自动三步（抽取 + 人物同步 + 剧情生成）
 
     Task meta 参数：
     - novel_id: 项目 ID
@@ -47,7 +47,7 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
     )
 
     logger.info(
-        "Deep import step 1 complete — phase=%s, completed=%s",
+        "Deep import complete — phase=%s, completed=%s",
         progress.phase,
         progress.completed_steps,
     )
@@ -62,58 +62,14 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
 
 @task_handler("deep_import_resume")
 async def handle_deep_import_resume(db, task) -> dict[str, Any]:
-    """继续深度导入任务 — Step 2+3
+    """（已废弃）候选管理已移除，深度导入全自动执行。
 
-    Task meta 参数：
-    - prev_task_id: 前一个 deep_import 任务的 ID
-    - novel_id: 项目 ID
-    - start_chapter: 起始章节
-    - end_chapter: 结束章节
+    保留 handler 注册以兼容已有队列任务。
     """
-    meta = task.meta or {}
-    prev_task_id = meta.get("prev_task_id", "")
-    novel_id = meta.get("novel_id", "")
-    start_chapter = int(meta.get("start_chapter", 1))
-    end_chapter = int(meta.get("end_chapter", 5))
-
-    if not novel_id or not prev_task_id:
-        raise ValueError("novel_id and prev_task_id are required for deep_import_resume")
-
-    # 读取前一个任务的进度信息
-    stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(prev_task_id))
-    result = await db.execute(stmt)
-    prev_task = result.scalar_one_or_none()
-    if prev_task is None:
-        raise ValueError(f"Previous task not found: {prev_task_id}")
-
-    prev_result = prev_task.result or {}
-    completed = prev_result.get("completed_steps", [])
-
-    progress = DeepImportProgress(
-        phase="awaiting_review",
-        completed_steps=completed,
-    )
-
-    workflow = DeepImportWorkflow()
-    progress = await workflow.run_step(
-        db,
-        novel_id=novel_id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        progress=progress,
-    )
-
-    logger.info(
-        "Deep import resume complete — phase=%s, completed=%s",
-        progress.phase,
-        progress.completed_steps,
-    )
-
+    logger.warning("deep_import_resume 已废弃 — 深度导入已改为全自动。忽略 resume 请求。")
     return {
-        "phase": progress.phase,
-        "current_step": progress.current_step.value if progress.current_step else None,
-        "completed_steps": progress.completed_steps,
-        "message": progress.message,
+        "phase": "done",
+        "current_step": None,
+        "completed_steps": ["extract_world", "sync_characters", "generate_plot"],
+        "message": "候选管理已移除，深度导入全自动执行。",
     }
-
-

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import Text, delete, func, or_, select, text, update
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -39,7 +40,6 @@ from modules.world.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE
 from shared.utils import parse_uuid
-
 
 # ============================================================
 # CoreEntityRepository
@@ -418,6 +418,81 @@ class CoreEntityRepository:
             logger.warning("pgvector has_embeddings check failed, returning False")
             return False
 
+    async def get_recent_auto_ingested(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> list[CoreEntity]:
+        """查询最近自动入库的实体
+
+        通过 content_json['_meta']['auto_ingested'] 过滤。
+        支持 PostgreSQL JSONB 和 SQLite。
+        """
+        from sqlalchemy import Text, cast
+
+        conditions = [
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.status == "canonical",
+        ]
+        # 通过 JSON 文本包含来判断
+        conditions.append(
+            cast(CoreEntity.content_json, Text).contains('"auto_ingested": true')
+        )
+
+        if since:
+            conditions.append(CoreEntity.created_at >= since)
+
+        stmt = (
+            select(CoreEntity)
+            .where(*conditions)
+            .order_by(CoreEntity.created_at.desc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        items: Sequence[CoreEntity] = result.scalars().all()
+        return list(items)
+
+    async def get_entity_batches(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """按批次分组查询自动入库的实体
+
+        返回每个 batch 的概要信息及实体列表。
+        SQLite 兼容模式 — 在内存中分组。
+        """
+        recent = await self.get_recent_auto_ingested(db, novel_id, limit=200)
+        batches: dict[str, dict[str, Any]] = {}
+        for entity in recent:
+            meta = entity.content_json.get("_meta", {}) if entity.content_json else {}
+            batch_id = meta.get("batch_id", "_unknown")
+            if batch_id not in batches:
+                batches[batch_id] = {
+                    "batch_id": batch_id,
+                    "ingested_at": meta.get("ingested_at", ""),
+                    "entity_count": 0,
+                    "entities": [],
+                }
+            batches[batch_id]["entity_count"] += 1
+            batches[batch_id]["entities"].append({
+                "id": str(entity.id),
+                "name": entity.name,
+                "entity_type": entity.entity_type,
+            })
+
+        sorted_batches = sorted(
+            batches.values(),
+            key=lambda b: b["ingested_at"],
+            reverse=True,
+        )
+        return sorted_batches[:limit]
+
 
 # ============================================================
 # EventRepository
@@ -692,7 +767,6 @@ class EntityRelationRepository:
         depth: int = 1,
         limit: int = 20,
     ) -> set[uuid.UUID]:
-        from sqlalchemy import union_all
 
         related: set[uuid.UUID] = set()
 
@@ -946,11 +1020,12 @@ class CharacterRepository:
     async def create(
         self,
         db: AsyncSession,
+        novel_id: uuid.UUID,
         data: CharacterCreate,
     ) -> Character:
         character = Character(
             entity_id=parse_uuid(data.entity_id),
-            novel_id=parse_uuid(data.novel_id),
+            novel_id=novel_id,
             name=data.name,
             aliases=data.aliases or [],
             role=data.role,
@@ -1158,10 +1233,11 @@ class CharacterKnowledgeRepository:
     async def create(
         self,
         db: AsyncSession,
+        novel_id: uuid.UUID,
         data: CharacterKnowledgeCreate,
     ) -> CharacterKnowledge:
         knowledge = CharacterKnowledge(
-            novel_id=parse_uuid(data.novel_id),
+            novel_id=novel_id,
             character_id=parse_uuid(data.character_id),
             target_type=data.target_type,
             target_id=parse_uuid(data.target_id),
@@ -1207,6 +1283,29 @@ class CharacterKnowledgeRepository:
             .offset(skip)
             .limit(limit)
             .order_by(CharacterKnowledge.target_type)
+        )
+        result = await db.execute(stmt)
+        items: Sequence[CharacterKnowledge] = result.scalars().all()
+        return list(items), total
+
+    async def get_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> tuple[list[CharacterKnowledge], int]:
+        conditions = [CharacterKnowledge.novel_id == novel_id]
+        count_stmt = select(func.count(CharacterKnowledge.id)).where(*conditions)
+        total = (await db.execute(count_stmt)).scalar() or 0
+
+        stmt = (
+            select(CharacterKnowledge)
+            .where(*conditions)
+            .offset(skip)
+            .limit(limit)
+            .order_by(CharacterKnowledge.character_id)
         )
         result = await db.execute(stmt)
         items: Sequence[CharacterKnowledge] = result.scalars().all()
@@ -1275,9 +1374,4 @@ class CharacterKnowledgeRepository:
         return result.rowcount > 0
 
 
-# ============================================================
-# 向后兼容别名（候选池/别名已废弃）
-# ============================================================
-
-WorldEntityRepository = CoreEntityRepository
 RelationshipRepository = EntityRelationRepository

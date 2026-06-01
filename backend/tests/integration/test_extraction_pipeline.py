@@ -264,15 +264,6 @@ class TestEntityExtraction:
 class TestAliasAndDedup:
     """别名识别与候选去重"""
 
-    async def test_candidate_list_accessible(
-        self, db_session: AsyncSession, novel_id: str
-    ):
-        """候选计数接口可用"""
-        from modules.world.facade import count_pending_candidates
-
-        count = await count_pending_candidates(db_session, novel_id)
-        assert count >= 0
-
     async def test_find_similar_entities_exact_match(
         self, db_session: AsyncSession, novel_id: str
     ):

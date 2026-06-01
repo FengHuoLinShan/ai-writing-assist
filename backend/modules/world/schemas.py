@@ -13,7 +13,6 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 内部工具
 # ============================================================
@@ -225,6 +224,27 @@ class CoreEntityListResponse(BaseModel):
 
 
 # ============================================================
+# Auto-Ingest Batch Schema
+# ============================================================
+
+class AutoIngestBatchItem(BaseModel):
+    """自动入库批次内的实体概要"""
+
+    id: str
+    name: str
+    entity_type: str
+
+
+class AutoIngestBatchResponse(BaseModel):
+    """自动入库批次分组响应"""
+
+    batch_id: str
+    ingested_at: str = ""
+    entity_count: int = 0
+    entities: list[AutoIngestBatchItem] = []
+
+
+# ============================================================
 # Event Schema
 # ============================================================
 
@@ -411,11 +431,12 @@ class RollbackRequest(BaseModel):
 # ============================================================
 
 class CharacterCreate(BaseModel):
-    """创建人物请求"""
+    """创建人物请求。novel_id 由 service 注入 (per ADR-0002),
+    Create schema 不再要求, 但保留字段以兼容外部测试 fixture 显式传值。"""
 
-    novel_id: str = Field(
-        ...,
-        description="小说项目 ID",
+    novel_id: str | None = Field(
+        default=None,
+        description="小说项目 ID (由 service 注入, 通常不传)",
     )
     entity_id: str = Field(
         ...,
@@ -574,9 +595,12 @@ class CharacterListResponse(BaseModel):
 
 
 class CharacterKnowledgeCreate(BaseModel):
-    """创建人物知识记录请求"""
+    """创建人物知识记录请求。novel_id 由 service 注入。"""
 
-    novel_id: str = Field(..., description="小说项目 ID")
+    novel_id: str | None = Field(
+        default=None,
+        description="小说项目 ID (由 service 注入, 通常不传)",
+    )
     character_id: str = Field(..., description="人物 ID")
     target_type: str = Field(
         ..., max_length=64,

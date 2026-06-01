@@ -50,7 +50,7 @@ class TestSystemEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert "modules" in data
-        assert len(data["modules"]) >= 11
+        assert len(data["modules"]) >= 7
 
 
 # ============================================================
@@ -134,14 +134,6 @@ class TestWorldAPI:
         )
         assert resp.status_code == 422
 
-    async def test_create_candidate(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/world/candidates",
-            params={"novel_id": test_project_id},
-            json={"name": "候选物品", "entity_type": "item"},
-        )
-        assert resp.status_code in (200, 201)
-
     async def test_dedup_not_found(self, async_client: AsyncClient, test_project_id: str):
         resp = await async_client.post(
             f"/api/world/candidates/00000000-0000-0000-0000-000000000000/dedup",
@@ -151,13 +143,11 @@ class TestWorldAPI:
 
     async def test_create_relationship(self, async_client: AsyncClient, test_project_id: str, test_entity_id: str):
         resp = await async_client.post(
-            "/api/world/relationships",
+            "/api/world/relations",
             params={"novel_id": test_project_id},
             json={
                 "source_id": test_entity_id,
-                "source_type": "world_entity",
                 "target_id": "00000000-0000-0000-0000-000000000001",
-                "target_type": "world_entity",
                 "relation_type": "ally_of",
             },
         )
@@ -165,239 +155,72 @@ class TestWorldAPI:
 
 
 # ============================================================
-# Character — 人物档案
-# ============================================================
-
-class TestCharacterAPI:
-    async def test_create(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/characters",
-            json={"novel_id": test_project_id, "name": "测试角色", "role": "主角"},
-        )
-        assert resp.status_code in (200, 201)
-
-    async def test_get_not_found(self, async_client: AsyncClient):
-        resp = await async_client.get(
-            "/api/characters/00000000-0000-0000-0000-000000000000",
-        )
-        # Character API handles this via the service which may return 422 for UUID
-        # or 404 if the ID is valid but not found
-        assert resp.status_code in (404, 422)
-
-    async def test_list(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            "/api/characters",
-            params={"novel_id": test_project_id},
-        )
-        assert resp.status_code == 200
-
-    async def test_update(self, async_client: AsyncClient, test_character_id: str):
-        resp = await async_client.put(
-            f"/api/characters/{test_character_id}",
-            json={"role": "反派"},
-        )
-        assert resp.status_code in (200, 204, 422)
-
-    async def test_delete(self, async_client: AsyncClient, test_character_id: str):
-        resp = await async_client.delete(f"/api/characters/{test_character_id}")
-        assert resp.status_code in (200, 204, 422)
-
-
-# ============================================================
-# Geo — 地理历史
-# ============================================================
-
-class TestGeoAPI:
-    async def test_create_location(self, async_client: AsyncClient, test_project_id: str, test_entity_id: str):
-        resp = await async_client.post(
-            "/api/geo/locations",
-            json={
-                "novel_id": test_project_id,
-                "world_entity_id": test_entity_id,
-                "location_level": "kingdom",
-            },
-        )
-        assert resp.status_code in (200, 201)
-
-    async def test_list_locations(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            "/api/geo/locations",
-            params={"novel_id": test_project_id},
-        )
-        assert resp.status_code == 200
-
-    async def test_location_tree(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            "/api/geo/locations/tree",
-            params={"novel_id": test_project_id},
-        )
-        assert resp.status_code == 200
-
-    async def test_create_era(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/geo/eras",
-            json={"novel_id": test_project_id, "name": "旧王朝", "order_index": 1},
-        )
-        assert resp.status_code in (200, 201)
-
-    async def test_create_edge(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/geo/edges",
-            json={
-                "novel_id": test_project_id,
-                "source_location_id": "00000000-0000-0000-0000-000000000000",
-                "target_location_id": "00000000-0000-0000-0000-000000000001",
-                "relation_type": "road_to",
-            },
-        )
-        assert resp.status_code in (200, 201, 422)
-
-
-# ============================================================
-# Memory — 长期记忆
+# Memory — 事件溯源世界全景
 # ============================================================
 
 class TestMemoryAPI:
-    async def test_create_record(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            f"/api/novels/{test_project_id}/memories/records",
-            json={
-                "memory_type": "event",
-                "summary": "测试记忆事件",
-                "chapter_index": 1,
-            },
-        )
-        assert resp.status_code in (200, 201)
-
-    async def test_list_records(self, async_client: AsyncClient, test_project_id: str):
+    async def test_get_panorama_empty(self, async_client: AsyncClient, test_project_id: str):
+        """无数据时返回空全景"""
         resp = await async_client.get(
-            f"/api/novels/{test_project_id}/memories/records",
+            f"/api/novels/{test_project_id}/memories/panorama?chapter_index=1",
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "items" in data or isinstance(data, list)
+        assert data["entities"] == []
+        assert data["relations"] == []
 
-    async def test_get_not_found(self, async_client: AsyncClient, test_project_id: str):
+    async def test_list_events_empty(self, async_client: AsyncClient, test_project_id: str):
+        """无事件时返回空列表"""
         resp = await async_client.get(
-            f"/api/novels/{test_project_id}/memories/records/00000000-0000-0000-0000-000000000000",
-        )
-        assert resp.status_code == 404
-
-    async def test_list_proposals(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            f"/api/novels/{test_project_id}/memories/proposals/pending",
+            f"/api/novels/{test_project_id}/memories/events",
         )
         assert resp.status_code == 200
-
-
-# ============================================================
-# Timeline — 时间线
-# ============================================================
-
-class TestTimelineAPI:
-    async def test_create_event(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            f"/api/novels/{test_project_id}/timeline/events",
-            json={
-                "title": "测试事件",
-                "summary": "事件描述",
-                "order_index": 1,
-            },
-        )
-        assert resp.status_code in (200, 201)
-
-    async def test_list_events(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            f"/api/novels/{test_project_id}/timeline/events",
-        )
-        assert resp.status_code == 200
-
-    async def test_get_not_found(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            f"/api/novels/{test_project_id}/timeline/events/00000000-0000-0000-0000-000000000000",
-        )
-        assert resp.status_code == 404
-
-
-# ============================================================
-# Outline — 剧情结构
-# ============================================================
-
-class TestOutlineAPI:
-    async def test_create_thread(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/outline/threads",
-            params={"novel_id": test_project_id},
-            json={"name": "主线", "thread_type": "main"},
-        )
-        assert resp.status_code in (200, 201)
-
-    async def test_list_threads(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.get(
-            "/api/outline/threads",
-            params={"novel_id": test_project_id},
-        )
-        assert resp.status_code == 200
-
-    async def test_create_arc(self, async_client: AsyncClient, test_project_id: str):
-        # OutlineArcCreate requires: title, arc_goal, core_conflict, climax, result
-        resp = await async_client.post(
-            "/api/outline/arcs",
-            params={"novel_id": test_project_id},
-            json={
-                "title": "第一篇",
-                "arc_goal": "交代世界观",
-                "core_conflict": "生存",
-                "climax": "真相揭露",
-                "result": "进入下一阶段",
-            },
-        )
-        assert resp.status_code in (200, 201)
         data = resp.json()
-        assert "arc_goal" in data
+        assert "items" in data
+        assert data["total"] == 0
 
-    async def test_create_chapter_card(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/outline/chapters",
-            params={"novel_id": test_project_id},
-            json={
-                "chapter_index": 1,
-                "chapter_goal": "开头",
-                "main_conflict": "引入冲突",
-            },
+    async def test_entity_timeline_not_found(self, async_client: AsyncClient, test_project_id: str):
+        """查询不存在实体的时间线返回空"""
+        resp = await async_client.get(
+            f"/api/novels/{test_project_id}/memories/events/00000000-0000-0000-0000-000000000000/timeline",
         )
-        assert resp.status_code in (200, 201)
+        assert resp.status_code == 200
         data = resp.json()
-        assert data.get("chapter_index") == 1
+        assert data["total"] == 0
 
-    async def test_create_foreshadowing(self, async_client: AsyncClient, test_project_id: str):
+    async def test_capture_snapshot_returns_201(self, async_client: AsyncClient, test_project_id: str):
+        """快照生成返回 201"""
         resp = await async_client.post(
-            "/api/outline/foreshadowing",
-            params={"novel_id": test_project_id},
-            json={"name": "王印秘密", "summary": "伏笔"},
+            f"/api/novels/{test_project_id}/memories/snapshots/capture?chapter_index=1",
         )
-        assert resp.status_code in (200, 201)
+        assert resp.status_code == 201
 
-    async def test_create_reveal(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/outline/reveals",
-            params={"novel_id": test_project_id},
-            json={
-                "target_type": "world_entity",
-                "target_id": "00000000-0000-0000-0000-000000000000",
-                "secret_summary": "秘密",
-            },
+    async def test_list_snapshots_empty(self, async_client: AsyncClient, test_project_id: str):
+        """无快照时返回空列表"""
+        resp = await async_client.get(
+            f"/api/novels/{test_project_id}/memories/snapshots",
         )
-        assert resp.status_code in (200, 201)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "items" in data
+        assert data["total"] == 0
 
-    async def test_from_candidate_empty(self, async_client: AsyncClient):
-        """当传入空列表时不应崩溃"""
+    async def test_trigger_rebuild(self, async_client: AsyncClient, test_project_id: str):
+        """全更新请求可执行"""
         resp = await async_client.post(
-            "/api/outline/chapters/from-candidate",
-            json={"novel_id": "00000000-0000-0000-0000-000000000000", "cards": []},
+            f"/api/novels/{test_project_id}/memories/rebuild?from_chapter=1",
         )
-        # Invalid UUID may trigger 422 or service returns []
-        assert resp.status_code in (200, 201, 422)
+        assert resp.status_code == 200
+
+    async def test_get_status(self, async_client: AsyncClient, test_project_id: str):
+        """状态查询返回正确结构"""
+        resp = await async_client.get(
+            f"/api/novels/{test_project_id}/memories/status",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "has_stale" in data
+        assert "latest_chapter" in data
 
 
 # ============================================================
@@ -439,17 +262,6 @@ class TestRagAPI:
             "/api/rag/retrieve",
             params={"novel_id": test_project_id},
             json={"query": "测试", "top_k": 0},
-        )
-        assert resp.status_code in (200, 201, 422)
-
-    async def test_similar_entities(self, async_client: AsyncClient, test_project_id: str):
-        # similar-entities uses query params, not body
-        resp = await async_client.post(
-            "/api/rag/similar-entities",
-            params={
-                "novel_id": test_project_id,
-                "candidate_embedding": "0.1,0.2,0.3",
-            },
         )
         assert resp.status_code in (200, 201, 422)
 
@@ -503,43 +315,6 @@ class TestContextAPI:
         assert resp.status_code in (200, 201)
         data = resp.json()
         assert "markdown" in data
-
-
-# ============================================================
-# Review — 结构复查
-# ============================================================
-
-class TestReviewAPI:
-    async def test_run_review(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/review",
-            json={
-                "novel_id": test_project_id,
-                "target_type": "world_structure",
-                "candidate_payload": {"world_entities": []},
-            },
-        )
-        assert resp.status_code in (200, 201)
-        data = resp.json()
-        assert "decision" in data
-
-    async def test_run_review_invalid_type(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.post(
-            "/api/review",
-            json={
-                "novel_id": test_project_id,
-                "target_type": "invalid_type",
-                "candidate_payload": {},
-            },
-        )
-        # Invalid type may be accepted (fallback) or rejected
-        assert resp.status_code in (200, 201, 422)
-
-    async def test_get_report_not_found(self, async_client: AsyncClient):
-        resp = await async_client.get(
-            "/api/review/00000000-0000-0000-0000-000000000000",
-        )
-        assert resp.status_code in (404, 422)
 
 
 # ============================================================

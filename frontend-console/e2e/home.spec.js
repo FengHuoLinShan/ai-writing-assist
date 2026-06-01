@@ -15,7 +15,7 @@ test.describe("首页加载", () => {
   test("侧边栏导航项可见", async ({ page }) => {
     await page.goto("http://localhost:8080")
 
-    const navItems = ["project", "world", "character", "outline", "writing"]
+    const navItems = ["project", "world", "writing", "rag", "context", "generate"]
     for (const item of navItems) {
       await expect(page.locator(`[data-view="${item}"]`)).toBeVisible()
     }

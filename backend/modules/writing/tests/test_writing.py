@@ -760,59 +760,32 @@ class TestWritingFacade:
 class TestSaveAndAnalyze:
 
     @pytest.mark.asyncio
-    async def test_save_and_analyze_creates_proposal(
+    async def test_save_and_analyze_captures_snapshot(
         self,
         db_session: AsyncSession,
     ) -> None:
+        """analyze_chapter 调用 memory.capture_snapshot 并返回成功"""
         from unittest.mock import AsyncMock, patch
-        from modules.memory.schemas import ChapterStateExtraction, CharacterLocationShift, FactionControlShift
-        from modules.memory.schemas import MemoryUpdateProposalContext
 
         novel_id = str(uuid.uuid4())
         content = "李明御剑飞往北境，天剑宗全面控制了北境。"
 
-        mock_extraction = ChapterStateExtraction(
-            summary="主角前往北境",
-            character_shifts=[
-                CharacterLocationShift(
-                    character_name="李明",
-                    destination_location_name="北境",
-                    movement_type="御剑飞行",
-                )
-            ],
-            faction_shifts=[
-                FactionControlShift(
-                    faction_name="天剑宗",
-                    target_location_name="北境",
-                    new_relation="controls",
-                    description="天剑宗全面控制北境",
-                )
-            ],
-        )
-
-        mock_proposals = [
-            MemoryUpdateProposalContext(
-                id=str(uuid.uuid4()),
-                proposal_type="create_memory",
-                payload={"summary": "test"},
-                confidence=0.8,
-            )
-        ]
+        mock_snapshot = AsyncMock()
+        mock_snapshot.id = "snap-1"
 
         with patch(
-            "infrastructure.llm.client.LLMClient.generate_structured",
+            "modules.memory.facade.capture_snapshot",
             new_callable=AsyncMock,
-            return_value=mock_extraction,
-        ), patch(
-            "modules.memory.facade.create_memory_update_proposals",
-            new_callable=AsyncMock,
-            return_value=mock_proposals,
-        ):
+            return_value=mock_snapshot,
+        ) as mock_capture:
             service = WritingAnalysisService()
             result = await service.analyze_chapter(
                 db_session, novel_id, 1, content,
             )
             assert result == (True, "success")
+            mock_capture.assert_called_once_with(
+                db_session, novel_id, 1,
+            )
 
     @pytest.mark.asyncio
     async def test_save_and_analyze_llm_failure_graceful(
@@ -837,4 +810,5 @@ class TestSaveAndAnalyze:
             )
             response = await save_and_analyze(db_session, data)
             assert response.draft_id is not None
-            assert response.proposal_created is False
+            # 新版 analyze_chapter 不依赖 LLM，快照成功则 proposal_created=True
+            assert response.proposal_created is True

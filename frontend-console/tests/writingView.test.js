@@ -35,13 +35,12 @@ describe("render", () => {
     writingView._chapterList = []
     const html = await writingView.render()
     expect(html).toContain("暂无章节")
-    expect(html).toContain("data-action=\"nav-chapters\"")
   })
 
   it("有章节时渲染三栏布局", async () => {
     writingView._loading = false
     writingView._chapterList = [1, 2]
-    writingView._chapters = { 1: { hasCard: true, hasDraft: false, cardTitle: "开头", cardStatus: "draft" }, 2: { hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null } }
+    writingView._chapters = { 1: { hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null }, 2: { hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null } }
     const html = await writingView.render()
     expect(html).toContain("章节（2）")
     expect(html).toContain("第 1 章")
@@ -58,29 +57,24 @@ describe("onEnter", () => {
   it("无项目时设置 loading=false 不调 API", async () => {
     await writingView.onEnter()
     expect(writingView._loading).toBe(false)
-    expect(api.outline.listChapterCards).not.toHaveBeenCalled()
     expect(api.writing.listChapters).not.toHaveBeenCalled()
   })
 
-  it("有项目时加载章节卡和草稿索引", async () => {
+  it("有项目时加载草稿索引", async () => {
     state.currentProjectId = "p1"
-    api.outline.listChapterCards.mockResolvedValue({
-      items: [{ chapter_index: 1, title: "第一章", status: "draft" }],
-    })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [1, 2] })
 
     await writingView.onEnter()
 
-    expect(api.outline.listChapterCards).toHaveBeenCalledWith({ novel_id: "p1", limit: 50 })
     expect(api.writing.listChapters).toHaveBeenCalledWith("p1")
     expect(writingView._chapterList).toEqual([1, 2])
-    expect(writingView._chapters[1]).toEqual({ hasCard: true, hasDraft: true, cardTitle: "第一章", cardStatus: "draft" })
+    expect(writingView._chapters[1]).toEqual({ hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null })
     expect(writingView._chapters[2]).toEqual({ hasCard: false, hasDraft: true, cardTitle: null, cardStatus: null })
   })
 
   it("API 失败时设置空章节列表", async () => {
     state.currentProjectId = "p1"
-    api.outline.listChapterCards.mockRejectedValue(new Error("网络错误"))
+    api.writing.listChapters.mockRejectedValue(new Error("网络错误"))
 
     await writingView.onEnter()
 
@@ -96,7 +90,6 @@ describe("onEnter", () => {
       currentDraftStatus: "draft",
     }
     state.currentProjectId = "p1"
-    api.outline.listChapterCards.mockResolvedValue({ items: [] })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [] })
 
     await writingView.onEnter()
@@ -104,7 +97,6 @@ describe("onEnter", () => {
     expect(writingView._currentChapter).toBe(3)
     expect(writingView._currentContent).toBe("现有内容")
     expect(writingView._currentDraftId).toBe("draft-1")
-    expect(api.outline.getChapterCardByIndex).toHaveBeenCalledWith(3, "p1")
   })
 
   it("恢复深度导入任务（从 localStorage）", async () => {
@@ -112,7 +104,6 @@ describe("onEnter", () => {
       taskId: "task-1", projectId: "p1", startChapter: 1, endChapter: 3,
     }))
     state.currentProjectId = "p1"
-    api.outline.listChapterCards.mockResolvedValue({ items: [] })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [] })
     api.tasks.get.mockResolvedValue({ status: "running", result: { phase: "running" } })
 
@@ -127,7 +118,6 @@ describe("onEnter", () => {
       taskId: "task-1", projectId: "other-project",
     }))
     state.currentProjectId = "p1"
-    api.outline.listChapterCards.mockResolvedValue({ items: [] })
     api.writing.listChapters.mockResolvedValue({ chapter_indices: [] })
 
     await writingView.onEnter()
@@ -386,21 +376,6 @@ describe("_submitWritingExtraction", () => {
     expect(toast).toHaveBeenCalledWith("任务已提交", "info")
   })
 
-  it("章节卡提取走确认弹窗", async () => {
-    state.currentProjectId = "p1"
-    document.body.innerHTML = `
-      <input id="writing-ext-start" value="1" />
-      <input id="writing-ext-end" value="3" />
-    `
-    api.outline.listChapterCards.mockResolvedValue({ items: [] })
-
-    // 不会直接提交 tasks.submit
-    await writingView._submitWritingExtraction("cards", "chapter_card_extraction")
-
-    expect(showModal).toHaveBeenCalled()
-    expect(api.tasks.submit).not.toHaveBeenCalled()
-  })
-
   it("结束章节小于起始章节时显示警告", async () => {
     state.currentProjectId = "p1"
     document.body.innerHTML = `
@@ -465,7 +440,6 @@ describe("深度导入", () => {
         <input id="deep-import-end" value="5" />
       `
       api.imports.deepImport.mockResolvedValue({ task_id: "di-1" })
-      // 模拟 _updateDeepImportUI 和 _pollDeepImportTask
       const updateUiSpy = vi.spyOn(writingView, "_updateDeepImportUI").mockImplementation(() => {})
       const pollSpy = vi.spyOn(writingView, "_pollDeepImportTask").mockImplementation(() => {})
 
@@ -482,22 +456,15 @@ describe("深度导入", () => {
   })
 
   describe("_resumeDeepImport", () => {
-    it("继续深度导入并更新 localStorage", async () => {
+    it("已废弃，深度导入全自动执行", async () => {
       writingView._deepImportTaskId = "di-1"
-      api.imports.resumeDeepImport.mockResolvedValue({ task_id: "di-2" })
-      const stored = JSON.stringify({ taskId: "di-1", projectId: "p1" })
-      localStorage.setItem("novel_deep_import_task", stored)
-      const updateUiSpy = vi.spyOn(writingView, "_updateDeepImportUI").mockImplementation(() => {})
-      const pollSpy = vi.spyOn(writingView, "_pollDeepImportTask").mockImplementation(() => {})
+      localStorage.setItem("novel_deep_import_task", JSON.stringify({ taskId: "di-1" }))
 
       await writingView._resumeDeepImport()
 
-      expect(api.imports.resumeDeepImport).toHaveBeenCalledWith("di-1")
-      expect(writingView._deepImportTaskId).toBe("di-2")
-      const updated = JSON.parse(localStorage.getItem("novel_deep_import_task"))
-      expect(updated.taskId).toBe("di-2")
-      updateUiSpy.mockRestore()
-      pollSpy.mockRestore()
+      expect(writingView._deepImportTaskId).toBeNull()
+      expect(localStorage.getItem("novel_deep_import_task")).toBeNull()
+      expect(toast).toHaveBeenCalledWith("深度导入已全自动执行，无需手动继续", "info")
     })
   })
 
@@ -510,9 +477,9 @@ describe("深度导入", () => {
             <p id="deep-import-status"></p>
           </div>
           <div id="deep-import-steps">
-            <div id="step-extract_world"><span class="step-icon">☐</span></div>
-            <div id="step-sync_characters"><span class="step-icon">☐</span></div>
-            <div id="step-generate_plot"><span class="step-icon">☐</span></div>
+            <div id="step-extract_world"><span class="step-icon">○</span></div>
+            <div id="step-sync_characters"><span class="step-icon">○</span></div>
+            <div id="step-generate_plot"><span class="step-icon">○</span></div>
           </div>
           <div id="deep-import-actions">
             <button id="btn-deep-goto-review">前往审查</button>

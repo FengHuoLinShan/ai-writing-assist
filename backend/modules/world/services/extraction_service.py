@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -9,7 +11,7 @@ from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.repositories import CoreEntityRepository
-from modules.world.schemas import EntityCandidateCreate
+from modules.world.schemas import CoreEntityCreate
 from modules.world.services.dedup_service import EntityDedupService
 from modules.world.services.draft_provider import DraftProvider, WritingDraftProvider
 from modules.world.services.helpers import parse_uuid
@@ -37,11 +39,11 @@ class ExtractionResult:
 
 
 class EntityExtractionService:
-    """从章节正文中抽取世界对象候选
+    """从章节正文中抽取世界对象
 
     流程：
     WritingDraft chapters → batch group(5章/批) → LLM extract →
-    dedup → EntityCandidate
+    dedup → CoreEntity(canonical，直接自动入库)
     """
 
     def __init__(self, draft_provider: DraftProvider | None = None) -> None:
@@ -85,6 +87,7 @@ class EntityExtractionService:
         total_skipped = 0
         created_items: list[dict[str, Any]] = []
         batches = [chapters[i:i + batch_size] for i in range(0, len(chapters), batch_size)]
+        run_batch_id = str(uuid.uuid4())
 
         for batch_idx, batch in enumerate(batches):
             batch_text = "\n\n".join(
@@ -137,7 +140,7 @@ class EntityExtractionService:
                 )
                 continue
 
-            # 4. 对每个结果：去重 + 创建候选
+            # 4. 对每个结果：去重 + 直接创建 canonical 实体
             for extracted in result.entities:
                 if not extracted.name or not extracted.name.strip():
                     total_skipped += 1
@@ -155,30 +158,34 @@ class EntityExtractionService:
 
                 src_ch = extracted.source_chapter or batch[0]["chapter_index"]
 
-                candidate_data = EntityCandidateCreate(
+                entity_data = CoreEntityCreate(
                     name=extracted.name.strip(),
                     entity_type=extracted.entity_type,
                     summary=extracted.summary[:2000] if extracted.summary else None,
-                    source_text=extracted.summary[:500] or None,
-                    source_chapter_index=src_ch,
-                    importance_score=min(max(extracted.importance, 0.0), 1.0),
-                    confidence=min(max(extracted.confidence, 0.0), 1.0),
-                    candidate_reason=extracted.candidate_reason[:500] if extracted.candidate_reason else None,
-                    suggested_action=extracted.suggested_action,
-                    suggested_existing_entity_id=(
-                        suggestions[0].existing_entity_id if suggestions else None
-                    ),
+                    public_info=extracted.public_info,
+                    hidden_truth=extracted.hidden_truth,
+                    importance=min(max(extracted.importance, 0.0), 1.0),
+                    status="canonical",
+                    created_by="ai_import",
+                    content_json={
+                        "_meta": {
+                            "auto_ingested": True,
+                            "ingested_at": datetime.now(UTC).isoformat(),
+                            "batch_id": run_batch_id,
+                            "source_chapter_index": src_ch,
+                            "confidence": min(max(extracted.confidence, 0.0), 1.0),
+                        },
+                    },
                 )
                 try:
-                    candidate = await self._candidate_repo.create_candidate(db, nid, candidate_data)
+                    entity = await self._entity_repo.create(db, nid, entity_data)
                     total_created += 1
-                    # suggested_action 存储在 content_json 中
-                    action = (candidate.content_json or {}).get("suggested_action", "needs_user_decision")
                     created_items.append({
-                        "candidate_id": str(candidate.id),
-                        "name": candidate.name,
-                        "entity_type": candidate.entity_type,
-                        "suggested_action": action,
+                        "id": str(entity.id),
+                        "name": entity.name,
+                        "entity_type": entity.entity_type,
+                        "batch_id": run_batch_id,
+                        "auto_ingested": True,
                     })
                 except ValueError:
                     total_skipped += 1

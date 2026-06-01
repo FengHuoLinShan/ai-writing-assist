@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HTML 转义函数 — 防止 XSS
  * 将用户/LLM/API 数据安全地插入 innerHTML
  * 在所有脚本之前定义，所有视图均可使用
@@ -338,51 +338,20 @@ function updateRightPanelForView(viewName) {
   const helpTexts = {
     project: {
       title: "项目管理",
-      content: '<div class="help-section"><h4>小说项目</h4><p>项目是其他所有模块的根。</p><h4>创作流程</h4><ol><li>创建项目</li><li>构建世界对象与人物</li><li>设计地理与宏观历史</li><li>生成剧情结构</li><li>复查结构</li><li>确认候选入正史</li></ol></div>',
+      content: '<div class="help-section"><h4>小说项目</h4><p>项目是其他所有模块的根。</p><h4>创作流程</h4><ol><li>创建项目</li><li>导入正文 → 世界对象自动抽取</li><li>查阅 RAG 知识索引</li><li>编译上下文 → 导出草稿</li></ol></div>',
     },
     world: {
       title: "世界对象",
-      content: '<div class="help-section"><h4>世界对象</h4><p>AI 抽取的对象先进入候选池，经过去重和确认后才成为正史。</p><h4>候选清洗</h4><ul><li>低重要度对象设为临时</li><li>疑似别名合并到已有对象</li></ul></div>',
+      content: '<div class="help-section"><h4>世界对象</h4><p>AI 抽取的创作资产直接以正史状态入库。</p><p>通过手动 CRUD 修正和细化。</p></div>',
     },
-    geo: {
-      title: "地理历史",
-      content: '<div class="help-section"><h4>地理与宏观历史</h4><p>管理地点层级、通行关系、历史时期变化。</p></div>',
-    },
-    character: {
-      title: "人物档案",
-      content: '<div class="help-section"><h4>人物档案</h4><p>记录人物的欲望、恐惧、秘密、当前状态。</p><h4>知识边界</h4><p>知识等级：未知→传闻→部分知道→完全知道→错误认知</p></div>',
-    },
-    memory: {
-      title: "长期记忆",
-      content: '<div class="help-section"><h4>长期记忆</h4><p>记录小说推进中的状态变化。AI 只生成提案。</p></div>',
-    },
-    timeline: {
-      title: "时间线",
-      content: '<div class="help-section"><h4>轻量时间线</h4><p>维护事件顺序，防止剧情冲突。</p></div>',
-    },
-    outline: {
-      title: "剧情结构",
-      content: '<div class="help-section"><h4>结构化剧情</h4><ul><li>剧情线：主线/暗线</li><li>篇章纲：8-15 章闭环</li><li>章节卡：目标+冲突+变化</li><li>伏笔计划：埋设→强化→收束</li></ul></div>',
-    },
-    rag: {
-      title: "RAG 检索",
-      content: '<div class="help-section"><h4>检索增强</h4><p>从知识库中检索相关信息。用于调试。</p></div>',
-    },
-    context: {
-      title: "上下文编译",
-      content: '<div class="help-section"><h4>Context Compiler</h4><p>按需加载、预算控制、防止剧透。</p></div>',
-    },
-    review: {
-      title: "结构复查",
-      content: '<div class="help-section"><h4>结构复查</h4><ul><li>Schema 校验</li><li>引用检查</li><li>提前揭示检测</li><li>知识边界验证</li><li>时间线/地理冲突</li></ul></div>',
-    },
+
     writing: {
       title: "草稿导出",
       content: '<div class="help-section"><h4>草稿与导出</h4><p>承载手写正文，导出创作包。</p></div>',
     },
     generate: {
       title: "生成中心",
-      content: '<div class="help-section"><h4>生成中心</h4><p>按流程生成结构化资产。先候选，后入正史。</p></div>',
+      content: '<div class="help-section"><h4>生成中心</h4><p>按流程生成结构化资产。</p></div>',
     },
   }
 

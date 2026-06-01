@@ -164,26 +164,7 @@ class RevealLevel(StrEnum):
     """读者和角色都知道"""
 
 
-# ============================================================
-# 剧情相关
-# ============================================================
-
-class PlotThreadType(StrEnum):
-    """剧情线类型"""
-
-    main = "main"
-    """主线"""
-    secondary = "secondary"
-    """支线"""
-    hidden = "hidden"
-    """暗线"""
-    relationship = "relationship"
-    """关系线"""
-    villain = "villain"
-    """反派线"""
-    foreshadowing = "foreshadowing"
-    """伏笔线"""
-
+# outline / review 模块已移除，PlotThreadType / ReviewDecision 已删除
 
 # ============================================================
 # 事件与时间线
@@ -212,97 +193,7 @@ class EventType(StrEnum):
     """幕外事件"""
 
 
-# ============================================================
-# 记忆相关
-# ============================================================
-
-class MemoryType(StrEnum):
-    """长期记忆记录类型"""
-
-    chapter_state = "chapter_state"
-    """章节结束时的状态快照"""
-    event = "event"
-    """重要事件"""
-    character_state = "character_state"
-    """人物状态变化"""
-    knowledge = "knowledge"
-    """知识/信息变化"""
-    foreshadowing = "foreshadowing"
-    """伏笔状态"""
-    resource = "resource"
-    """资源状态变化"""
-    outline_drift = "outline_drift"
-    """大纲偏离记录"""
-    geo_history = "geo_history"
-    """地理/历史变化"""
-
-
-# ============================================================
-# 地理相关
-# ============================================================
-
-class LocationLevel(StrEnum):
-    """地理层级"""
-
-    continent = "continent"
-    """大陆"""
-    country = "country"
-    """国家"""
-    region = "region"
-    """地区/省"""
-    city = "city"
-    """城市/城镇"""
-    district = "district"
-    """区/街区"""
-    landmark = "landmark"
-    """地标"""
-    building = "building"
-    """建筑"""
-    room = "room"
-    """房间/室内"""
-
-
-class GeoEdgeType(StrEnum):
-    """地理关系类型"""
-
-    road_to = "road_to"
-    """道路连接"""
-    river_to = "river_to"
-    """水路连接"""
-    inside = "inside"
-    """位于内部"""
-    north_of = "north_of"
-    """在...北面"""
-    south_of = "south_of"
-    """在...南面"""
-    east_of = "east_of"
-    """在...东面"""
-    west_of = "west_of"
-    """在...西面"""
-    near = "near"
-    """附近"""
-    hidden_path = "hidden_path"
-    """隐藏通道"""
-    blocked_path = "blocked_path"
-    """阻断路径"""
-    borders = "borders"
-    """接壤"""
-
-
-class AccessLevel(StrEnum):
-    """地点访问级别"""
-
-    normal = "normal"
-    """普通 — 可自由出入"""
-    restricted = "restricted"
-    """限制 — 需许可/条件"""
-    dangerous = "dangerous"
-    """危险 — 有生命危险"""
-    forbidden = "forbidden"
-    """禁止 — 不可进入"""
-    secret = "secret"
-    """秘密 — 不为人知"""
-
+# geo 模块已移除，LocationLevel / GeoEdgeType / AccessLevel 已删除
 
 # ============================================================
 # 关系相关
@@ -352,22 +243,7 @@ class RelationDirection(StrEnum):
     """无向 — 双向含义相同"""
 
 
-# ============================================================
-# 复查相关
-# ============================================================
-
-class ReviewDecision(StrEnum):
-    """结构复查决策结果"""
-
-    pass_ = "pass"
-    """通过 — 无问题"""
-    minor_revision = "minor_revision"
-    """小修 — 有轻微问题需调整"""
-    major_revision = "major_revision"
-    """大修 — 有重大问题需修改"""
-    reject = "reject"
-    """拒绝 — 不可接受"""
-
+# review 模块已移除，ReviewDecision 已删除
 
 # ============================================================
 # 任务相关
@@ -414,17 +290,6 @@ class ExtractionMode(StrEnum):
     """正常 — 抽取 importance >= 0.45 的常规对象"""
     full = "full"
     """全面 — 尽量全面，但只作为 Mention 或候选"""
-
-
-class ProposalType(StrEnum):
-    """memory update proposal 类型"""
-
-    create_memory = "create_memory"
-    update_memory = "update_memory"
-    update_character_state = "update_character_state"
-    update_knowledge = "update_knowledge"
-    add_timeline_event = "add_timeline_event"
-    update_foreshadowing = "update_foreshadowing"
 
 
 class AliasType(StrEnum):

@@ -342,23 +342,73 @@ def _render_plot_threads(context: StructureContextBundle) -> str:
 
 
 def _render_memory(context: StructureContextBundle) -> str:
-    """渲染长期记忆"""
-    if not context.memory_records:
+    """渲染长期记忆（全景格式）"""
+    records = context.memory_records
+
+    # 兼容旧格式：list of dicts
+    if isinstance(records, list):
+        if not records:
+            return "无相关数据\n"
+        lines: list[str] = []
+        for mem in records:
+            mtype = mem.get("memory_type", "event")
+            title = mem.get("title", "")
+            summary = mem.get("summary", "")
+            chap = mem.get("chapter_index")
+            chap_str = f" (第 {chap} 章)" if chap is not None else ""
+            header = f"- **[{mtype}]{chap_str}**: "
+            if title:
+                header += f"{title} — "
+            header += summary
+            lines.append(header)
+        return "\n".join(lines) + "\n"
+
+    # 新格式：ChapterPanorama dict
+    if not records or not isinstance(records, dict):
         return "无相关数据\n"
 
-    lines: list[str] = []
-    for mem in context.memory_records:
-        mtype = mem.get("memory_type", "event")
-        title = mem.get("title", "")
-        summary = mem.get("summary", "")
-        chap = mem.get("chapter_index")
-        chap_str = f" (第 {chap} 章)" if chap is not None else ""
+    lines = []
+    entities = records.get("entities", [])
+    relations = records.get("relations", [])
+    locations = records.get("character_locations", {})
+    chapter = records.get("chapter_index", "?")
 
-        header = f"- **[{mtype}]{chap_str}**: "
-        if title:
-            header += f"{title} — "
-        header += summary
-        lines.append(header)
+    lines.append(f"===== 第 {chapter} 章关系全景 =====")
+
+    if entities:
+        lines.append("**实体**")
+        for e in entities:
+            name = e.get("name", "?")
+            etype = e.get("entity_type", "?")
+            summary = e.get("summary", "")
+            importance = e.get("importance", 0.5)
+            star = "★" if importance >= 0.8 else "☆" if importance >= 0.5 else ""
+            line = f"- {name} ({etype}){star}"
+            if summary:
+                line += f": {summary}"
+            lines.append(line)
+
+    if relations:
+        lines.append("**关系**")
+        for r in relations:
+            src = r.get("source_id", "?")[:8]
+            tgt = r.get("target_id", "?")[:8]
+            rtype = r.get("relation_type", "?")
+            desc = r.get("description", "")
+            line = f"- {src} → {tgt} [{rtype}]"
+            if desc:
+                line += f" {desc}"
+            lines.append(line)
+
+    if locations:
+        lines.append("**角色位置**")
+        loc_map = {}
+        for cid, loc in locations.items():
+            loc_name = loc.get("location_id", "?")[:8]
+            text_state = loc.get("text_state", "")
+            loc_map.setdefault(loc_name, []).append(cid[:8])
+        for loc_name, chars in loc_map.items():
+            lines.append(f"- {loc_name}: {', '.join(chars)}")
 
     return "\n".join(lines) + "\n"
 

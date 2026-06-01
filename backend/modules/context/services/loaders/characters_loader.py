@@ -67,27 +67,5 @@ class CharactersLoader(Loader):
         options: CompileOptions,
         limit: int,
     ) -> list[str]:
-        """推断相关人物 ID"""
-        char_ids: list[str] = []
-
-        if options.chapter_index is not None:
-            try:
-                from modules.outline.facade import get_chapter_card
-
-                card = await get_chapter_card(db, options.novel_id, options.chapter_index)
-                if card and card.involved_character_ids:
-                    char_ids.extend(card.involved_character_ids)
-            except Exception:
-                pass
-
-        if not char_ids and options.arc_id is not None:
-            try:
-                from modules.outline.facade import get_arc_context
-
-                arc = await get_arc_context(db, options.novel_id, options.arc_id)
-                if arc and arc.related_character_ids:
-                    char_ids.extend(arc.related_character_ids)
-            except Exception:
-                pass
-
-        return char_ids[:limit]
+        """推断相关人物 ID — outline 模块已移除，暂时返回空"""
+        return []

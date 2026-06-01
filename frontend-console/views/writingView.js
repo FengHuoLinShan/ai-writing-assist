@@ -89,32 +89,21 @@ const writingView = {
       return
     }
 
-    // 并行获取章节卡 + 有草稿的章节索引（始终刷新）
+    // 获取有草稿的章节索引
     try {
-      const [cardData, draftData] = await Promise.all([
-        api.outline.listChapterCards({ novel_id: state.currentProjectId, limit: 50 }),
-        api.writing.listChapters(state.currentProjectId),
-      ])
-
-      const cards = cardData.items || []
+      const draftData = await api.writing.listChapters(state.currentProjectId)
       const draftIndices = draftData.chapter_indices || []
 
-      const allIndices = new Set([
-        ...cards.map((c) => c.chapter_index),
-        ...draftIndices,
-      ])
-
-      for (const idx of allIndices) {
-        const card = cards.find((c) => c.chapter_index === idx)
+      for (const idx of draftIndices) {
         this._chapters[idx] = {
-          hasCard: !!card,
-          hasDraft: draftIndices.includes(idx),
-          cardTitle: card?.title || null,
-          cardStatus: card?.status || null,
+          hasCard: false,
+          hasDraft: true,
+          cardTitle: null,
+          cardStatus: null,
         }
       }
 
-      this._chapterList = [...allIndices].sort((a, b) => a - b)
+      this._chapterList = [...draftIndices].sort((a, b) => a - b)
     } catch {
       // 加载失败时显示空列表
     }
@@ -422,10 +411,6 @@ const writingView = {
                 <div id="step-sync_characters" class="deep-step" style="margin-top:2px;"><span class="step-icon">☐</span> 2. 同步人物档案</div>
                 <div id="step-generate_plot" class="deep-step" style="margin-top:2px;"><span class="step-icon">☐</span> 3. 剧情结构生成</div>
               </div>
-              <div id="deep-import-actions" style="margin-top:4px;display:none;">
-                <button class="btn btn-sm" data-action="goto-review" id="btn-deep-goto-review">前往审查</button>
-                <button class="btn btn-sm btn-primary" data-action="resume-deep-import" id="btn-deep-resume" style="display:none;">继续深度导入</button>
-              </div>
             </div>
           </div>
         </div>
@@ -437,7 +422,6 @@ const writingView = {
     const steps = [
       { key: "world", label: "世界对象抽取", taskType: "world_entity_extraction" },
       { key: "plot", label: "剧情线/篇章纲生成", taskType: "plot_structure_generate" },
-      { key: "cards", label: "章节卡提取", taskType: "chapter_card_extraction" },
     ]
 
     let html = ""
@@ -551,20 +535,8 @@ const writingView = {
   },
 
   async _loadChapterCard(chapterIndex) {
-    if (!state.currentProjectId) return
-    try {
-      const card = await api.outline.getChapterCardByIndex(chapterIndex, state.currentProjectId)
-      if (card) {
-        this._currentCard = card
-        // 刷新右侧面板
-        const sidePanel = document.querySelector(".card:last-child")
-        if (sidePanel && sidePanel.parentElement) {
-          // 本版本简单全量重绘右侧
-        }
-      }
-    } catch {
-      this._currentCard = null
-    }
+    // 章节卡模块已移除，不加载
+    this._currentCard = null
   },
 
   _updateStatusDisplay() {
@@ -772,12 +744,6 @@ const writingView = {
     const end = parseInt(document.getElementById("writing-ext-end")?.value || "10", 10)
     if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
 
-    // 章节卡提取走确认弹窗
-    if (stepKey === "cards") {
-      this._submitChapterCardExtraction()
-      return
-    }
-
     try {
       const result = await api.tasks.submit(taskType, {
         novel_id: state.currentProjectId, start_chapter: start, end_chapter: end,
@@ -820,97 +786,7 @@ const writingView = {
     }
   },
 
-  // ============================================================
-  // 章节卡提取
-  // ============================================================
-
-  async _submitChapterCardExtraction() {
-    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
-
-    const chStart = parseInt(document.getElementById("writing-ext-start")?.value || "1", 10)
-    const chEnd = parseInt(document.getElementById("writing-ext-end")?.value || "10", 10)
-    if (chEnd < chStart) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
-
-    // 查已有章节卡
-    let existingCards = []
-    try {
-      const data = await api.outline.listChapterCards({
-        novel_id: state.currentProjectId,
-        limit: 50,
-      })
-      existingCards = data.items || []
-    } catch {
-      toast("无法加载章节卡信息", "error")
-      return
-    }
-
-    // 构建跳过信息
-    const skipped = existingCards.filter((c) => c.chapter_index >= chStart && c.chapter_index <= chEnd)
-    const extractList = []
-    for (let i = chStart; i <= chEnd; i++) {
-      if (!skipped.find((c) => c.chapter_index === i)) {
-        extractList.push(i)
-      }
-    }
-
-    if (extractList.length === 0) {
-      toast("所选范围内所有章节已有章节卡，无需提取", "info")
-      return
-    }
-
-    // showModal 确认
-    let modalHtml = `
-      <div style="font-size:13px;">
-        <p style="margin-bottom:8px;">将提取以下 <strong>${extractList.length}</strong> 章：</p>
-        <div style="max-height:200px;overflow-y:auto;background:var(--panel);padding:8px;border-radius:4px;margin-bottom:8px;">
-    `
-    for (const idx of extractList) {
-      modalHtml += `<div style="font-size:12px;padding:2px 0;">✅ 第 ${idx} 章</div>`
-    }
-
-    if (skipped.length > 0) {
-      modalHtml += `
-        <p style="margin-top:8px;color:var(--text-dim);">已跳过 <strong>${skipped.length}</strong> 章（已有章节卡）：</p>
-      `
-      for (const c of skipped) {
-        modalHtml += `<div style="font-size:11px;color:var(--text-dim);padding:2px 0;">⏭ 第 ${c.chapter_index} 章 — ${esc(c.title || "")}</div>`
-      }
-    }
-
-    modalHtml += `</div>
-      <p style="color:var(--text-dim);font-size:11px;">提取结果将保存为「候选」状态，请在章节卡视图中审核确认。</p>
-    `
-
-    const start = chStart
-    const end = chEnd
-
-    showModal("确认提取章节卡", modalHtml, [
-      {
-        text: "取消",
-        class: "",
-        handler: () => closeModal(),
-      },
-      {
-        text: "确认提取",
-        class: "btn-primary",
-        handler: async () => {
-          closeModal()
-          try {
-            await api.tasks.submit("chapter_card_extraction", {
-              novel_id: state.currentProjectId,
-              start_chapter: start,
-              end_chapter: end,
-            })
-            toast("章节卡提取任务已提交，请稍后刷新查看", "success")
-          } catch (err) {
-            toast(err.message || "提交失败", "error")
-          }
-        },
-      },
-    ])
-  },
-
-  // 深度导入流水线（保持不变）
+  // 深度导入流水线
   // ============================================================
 
   async _submitDeepImport() {
@@ -942,23 +818,10 @@ const writingView = {
   },
 
   async _resumeDeepImport() {
-    if (!this._deepImportTaskId) return
-    try {
-      const result = await api.imports.resumeDeepImport(this._deepImportTaskId)
-      this._deepImportTaskId = result.task_id
-      const saved = localStorage.getItem("novel_deep_import_task")
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        parsed.taskId = result.task_id
-        localStorage.setItem("novel_deep_import_task", JSON.stringify(parsed))
-      }
-      this._deepImportPhase = "running"
-      this._updateDeepImportUI()
-      toast("继续深度导入任务已提交", "success")
-      this._pollDeepImportTask()
-    } catch (err) {
-      toast(err.message || "继续失败", "error")
-    }
+    // （已废弃）候选管理已移除，深度导入全自动执行，无需 resume
+    this._deepImportTaskId = null
+    localStorage.removeItem("novel_deep_import_task")
+    toast("深度导入已全自动执行，无需手动继续", "info")
   },
 
   async _pollDeepImportTask() {
@@ -991,9 +854,7 @@ const writingView = {
     const completed = this._deepImportCompleted.length
     this._deepImportProgress = Math.round((completed / 3) * 100)
 
-    if (task.status === "done" && this._deepImportPhase === "awaiting_review") {
-      this._deepImportProgress = 33
-    } else if (task.status === "done" && this._deepImportPhase === "done") {
+    if (task.status === "done" && this._deepImportPhase === "done") {
       this._deepImportProgress = 100
       if (this._deepImportTimer) { clearInterval(this._deepImportTimer); this._deepImportTimer = null }
       localStorage.removeItem("novel_deep_import_task")
@@ -1014,9 +875,6 @@ const writingView = {
     const progressDiv = document.getElementById("deep-import-progress")
     const bar = document.getElementById("deep-import-bar")
     const statusEl = document.getElementById("deep-import-status")
-    const actionsDiv = document.getElementById("deep-import-actions")
-    const gotoBtn = document.getElementById("btn-deep-goto-review")
-    const resumeBtn = document.getElementById("btn-deep-resume")
     const startBtn = document.getElementById("btn-deep-import-start")
 
     if (!progressDiv || !bar || !statusEl) return
@@ -1030,20 +888,8 @@ const writingView = {
 
     ;["extract_world", "sync_characters", "generate_plot"].forEach((step) => this._updateStepUI(step))
 
-    if (actionsDiv) {
-      if (this._deepImportPhase === "awaiting_review") {
-        actionsDiv.style.display = "block"
-        if (gotoBtn) gotoBtn.style.display = "inline-block"
-        if (resumeBtn) resumeBtn.style.display = "inline-block"
-      } else if (this._deepImportPhase === "done") {
-        actionsDiv.style.display = "none"
-      } else if (this._deepImportPhase === "failed") {
-        actionsDiv.style.display = "block"
-        if (gotoBtn) gotoBtn.style.display = "none"
-        if (resumeBtn) resumeBtn.style.display = "none"
-      } else {
-        actionsDiv.style.display = "none"
-      }
+    if (this._deepImportPhase === "failed") {
+      // 失败时显示重试按钮等操作
     }
   },
 
@@ -1054,7 +900,7 @@ const writingView = {
     if (!icon) return
     if (this._deepImportCompleted.includes(stepName)) {
       icon.textContent = "✅"
-      stepEl.style.color = stepName === "extract_world" && this._deepImportPhase === "awaiting_review" ? "var(--accent)" : "var(--text-dim)"
+      stepEl.style.color = "var(--text-dim)"
     } else if (this._deepImportPhase === "running") {
       icon.textContent = "⏳"
       stepEl.style.color = "var(--accent)"
@@ -1091,7 +937,7 @@ const writingView = {
         case "update-status": this._updateDraftStatus(t.getAttribute("data-status")); break
         case "show-version-history": this._showVersionHistory(); break
         case "select-chapter": this._selectChapter(parseInt(t.getAttribute("data-chapter"), 10)); break
-        case "nav-chapters": router.navigate("outline", "chapters"); break
+        case "nav-chapters": toast("章节卡管理已移除", "info"); break
         case "submit-deep-import": this._submitDeepImport(); break
         case "goto-review": this._gotoReview(); break
         case "resume-deep-import": this._resumeDeepImport(); break

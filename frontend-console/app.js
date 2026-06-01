@@ -209,10 +209,7 @@ const App = {
           break
 
         case "s":
-          // 触发保存：检查当前视图是否有 editCharacter 或 saveDraft 等方法
-          if (typeof window.characterView?.editCharacter === "function" && state.selectedItem) {
-            window.characterView.editCharacter(state.selectedItem.id || state.selectedItem.character_id)
-          } else if (typeof window.writingView?.saveDraft === "function") {
+          if (typeof window.writingView?.saveDraft === "function") {
             window.writingView.saveDraft()
           } else {
             this._triggerAction("save") || toast("没有可保存的内容", "info")
@@ -223,17 +220,6 @@ const App = {
           this._triggerAction("generate")
           break
 
-        case "r":
-          this._triggerAction("review")
-          break
-
-        case "c":
-          this._triggerAction("confirm")
-          break
-
-        case "i":
-          this._triggerAction("ignore")
-          break
 
         case "x":
           this._triggerAction("delete")
@@ -441,18 +427,6 @@ const App = {
     const connected = await api.healthCheck()
     state.backendConnected = connected
   },
-}
-
-/**
- * 切换"更多"导航折叠
- */
-function toggleMoreNav() {
-  const container = document.getElementById("more-nav-items")
-  const toggle = document.getElementById("more-toggle")
-  if (!container || !toggle) return
-  const isHidden = container.style.display === "none" || !container.style.display
-  container.style.display = isHidden ? "block" : "none"
-  toggle.textContent = isHidden ? "▾" : "▸"
 }
 
 // 页面加载完成后启动

@@ -12,15 +12,9 @@
  */
 const routes = {
   project: { title: "项目", subViews: [] },
-  world: { title: "世界对象", subViews: ["objects", "candidates", "relations", "aliases"] },
-  geo: { title: "地理历史", subViews: ["tree", "edges", "eras", "history", "map"] },
-  character: { title: "人物档案", subViews: ["list", "detail", "knowledge"] },
-  memory: { title: "长期记忆", subViews: ["records", "proposals", "by_chapter", "by_entity"] },
-  timeline: { title: "时间线", subViews: [] },
-  outline: { title: "剧情结构", subViews: ["threads", "arcs", "chapters", "foreshadowing", "reveals"] },
+  world: { title: "世界对象", subViews: ["objects", "relations", "aliases"] },
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
-  review: { title: "结构复查", subViews: [] },
   writing: { title: "手动工作台", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
 }

@@ -1,7 +1,7 @@
 /**
  * worldView 测试
  *
- * 覆盖生命周期、4 个子视图、实体 CRUD、候选处理、关系和别名管理。
+ * 覆盖生命周期、3 个子视图（候选清洗已移除）、实体 CRUD、关系和别名管理。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import worldView from "../views/worldView.js"
@@ -10,7 +10,7 @@ beforeEach(() => {
   state.currentProjectId = null
   state.currentSubView = null
   worldView._entities = []
-  worldView._candidates = []
+  worldView._batches = []
   worldView._autoExtractOpen = false
   worldView._autoExtractTaskId = null
   worldView._autoExtractStatus = "就绪"
@@ -24,17 +24,17 @@ beforeEach(() => {
 // ============================================================
 
 describe("onEnter", () => {
-  it("加载实体和候选列表", async () => {
+  it("加载实体列表和批次信息", async () => {
     state.currentProjectId = "p1"
     api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "王都" }] })
-    api.world.listCandidates.mockResolvedValue({ items: [{ id: "c1", name: "神秘匕首" }] })
+    api.world.listEntityBatches.mockResolvedValue([{ batch_id: "b1", entities: [{ id: "e1", name: "王都", entity_type: "location" }] }])
 
     await worldView.onEnter()
 
     expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1" })
-    expect(api.world.listCandidates).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
+    expect(api.world.listEntityBatches).toHaveBeenCalledWith({ novel_id: "p1" })
     expect(worldView._entities).toHaveLength(1)
-    expect(worldView._candidates).toHaveLength(1)
+    expect(worldView._batches).toHaveLength(1)
   })
 
   it("API 失败时设置空列表", async () => {
@@ -52,10 +52,10 @@ describe("onEnter", () => {
 // ============================================================
 
 describe("render", () => {
-  it("渲染子标签导航", async () => {
+  it("渲染子标签导航（无候选清洗）", async () => {
     const html = await worldView.render()
     expect(html).toContain("对象库")
-    expect(html).toContain("候选清洗")
+    expect(html).not.toContain("候选清洗")
     expect(html).toContain("关系")
     expect(html).toContain("别名")
   })
@@ -70,7 +70,7 @@ describe("对象库", () => {
     it("空列表显示空状态", () => {
       const html = worldView._renderEntityList()
       expect(html).toContain("还没有世界对象")
-      expect(html).toContain("data-action=\"new\"")
+      expect(html).toContain('data-action="new"')
     })
 
     it("渲染实体表格", () => {
@@ -79,8 +79,8 @@ describe("对象库", () => {
       expect(html).toContain("王都")
       expect(html).toContain("location")
       expect(html).toContain("正史")
-      expect(html).toContain("data-action=\"edit-entity\"")
-      expect(html).toContain("data-action=\"delete-entity\"")
+      expect(html).toContain('data-action="edit-entity"')
+      expect(html).toContain('data-action="delete-entity"')
     })
 
     it("自动识别面板展开时显示", () => {
@@ -122,68 +122,6 @@ describe("对象库", () => {
 })
 
 // ============================================================
-// 候选处理
-// ============================================================
-
-describe("候选处理", () => {
-  describe("_renderCandidatesList", () => {
-    it("空列表显示空状态", () => {
-      const html = worldView._renderCandidatesList()
-      expect(html).toContain("没有待处理的候选对象")
-    })
-
-    it("渲染候选表格", () => {
-      worldView._candidates = [{ id: "c1", name: "神秘匕首", entity_type: "item", suggested_action: "create_new" }]
-      const html = worldView._renderCandidatesList()
-      expect(html).toContain("神秘匕首")
-      expect(html).toContain("data-action=\"accept-candidate\"")
-      expect(html).toContain("data-action=\"ignore-candidate\"")
-    })
-  })
-
-  describe("acceptCandidate", () => {
-    it("调用 confirmAction 后调用 API", async () => {
-      state.currentProjectId = "p1"
-      worldView._candidates = [{ id: "c1", name: "匕首", suggested_action: "create_new" }]
-      api.world.acceptCandidate.mockResolvedValue({})
-
-      worldView.acceptCandidate("c1")
-      const fn = vi.mocked(confirmAction).mock.calls[0][1]
-      await fn()
-
-      expect(api.world.acceptCandidate).toHaveBeenCalledWith("c1", "p1")
-    })
-  })
-
-  describe("ignoreCandidate", () => {
-    it("调用 confirmAction 后调用 API", async () => {
-      state.currentProjectId = "p1"
-      worldView._candidates = [{ id: "c1", name: "匕首" }]
-      api.world.confirmCandidate.mockResolvedValue({})
-
-      worldView.ignoreCandidate("c1")
-      const fn = vi.mocked(confirmAction).mock.calls[0][1]
-      await fn()
-
-      expect(api.world.confirmCandidate).toHaveBeenCalledWith("c1", { suggested_action: "ignore", status: "ignored" }, "p1")
-    })
-  })
-
-  describe("mergeCandidate", () => {
-    it("调用 confirmAction 后调用 API", async () => {
-      state.currentProjectId = "p1"
-      api.world.mergeCandidate.mockResolvedValue({ name: "旧王都" })
-
-      worldView.mergeCandidate("c1", "e1", "旧王都")
-      const fn = vi.mocked(confirmAction).mock.calls[0][1]
-      await fn()
-
-      expect(api.world.mergeCandidate).toHaveBeenCalledWith("e1", "c1", { novel_id: "p1" })
-    })
-  })
-})
-
-// ============================================================
 // 关系
 // ============================================================
 
@@ -198,7 +136,7 @@ describe("关系", () => {
       state.currentProjectId = "p1"
       api.world.listRelationships.mockResolvedValue({ items: [{ id: "r1", source_id: "src", target_id: "tgt", relation_type: "friend_of" }] })
       const html = await worldView._renderRelations()
-      expect(html).toContain("data-action=\"delete-relation\"")
+      expect(html).toContain('data-action="delete-relation"')
     })
   })
 
@@ -235,7 +173,7 @@ describe("别名", () => {
       expect(html).toContain("炎帝")
       expect(html).toContain("称号")
       expect(html).toContain("80%")
-      expect(html).toContain("data-action=\"delete-alias\"")
+      expect(html).toContain('data-action="delete-alias"')
     })
   })
 
@@ -248,7 +186,9 @@ describe("别名", () => {
 
   describe("deleteAlias", () => {
     it("调用 confirmAction", () => {
-      worldView.deleteAlias("a1")
+      const fakeEvent = { target: document.createElement("button") }
+      fakeEvent.target.setAttribute("data-alias", "炎帝")
+      worldView.deleteAlias("a1", fakeEvent)
       expect(confirmAction).toHaveBeenCalled()
     })
   })
@@ -290,14 +230,17 @@ describe("AI 自动识别", () => {
   })
 
   describe("_pollAutoExtract", () => {
-    it("任务完成时清理定时器", async () => {
+    it("任务完成时清理定时器并刷新列表", async () => {
       worldView._autoExtractTimer = setInterval(() => {}, 1000)
+      state.currentProjectId = "p1"
       api.tasks.getStatus.mockResolvedValue({ status: "done" })
+      api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "新实体" }] })
 
       await worldView._pollAutoExtract("t1")
 
       expect(worldView._autoExtractTimer).toBeNull()
       expect(localStorage.getItem("novel_world_extract_task")).toBeNull()
+      expect(api.world.listEntities).toHaveBeenCalled()
     })
   })
 })
@@ -320,15 +263,6 @@ describe("_bindEvents", () => {
     worldView._bindEvents()
     document.querySelector("button").click()
     expect(spy).toHaveBeenCalledWith("e1")
-    spy.mockRestore()
-  })
-
-  it("接受候选", () => {
-    const spy = vi.spyOn(worldView, "acceptCandidate").mockImplementation(() => {})
-    document.body.innerHTML = '<div id="workspace-content"><button data-action="accept-candidate" data-id="c1">确认</button></div>'
-    worldView._bindEvents()
-    document.querySelector("button").click()
-    expect(spy).toHaveBeenCalledWith("c1")
     spy.mockRestore()
   })
 })

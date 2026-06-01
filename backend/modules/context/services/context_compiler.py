@@ -11,6 +11,7 @@ from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
 from modules.context.services.loaders import (
     CharactersLoader,
     EventsLoader,
+    MemoryRecordsLoader,
     ProjectLoader,
     RagChunksLoader,
     WorldEntitiesLoader,
@@ -26,19 +27,16 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "world": ["project", "world_entities"],
     "world_character": ["project", "world_entities", "characters"],
     "arc": [
-        "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "events", "plot_threads", "outline_arc",
-        "rag_chunks",
+        "project", "world_entities", "characters",
+        "memory_records", "events", "rag_chunks",
     ],
     "chapter": [
-        "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "events", "plot_threads", "chapter_card",
-        "rag_chunks",
+        "project", "world_entities", "characters",
+        "memory_records", "events", "rag_chunks",
     ],
     "full": [
-        "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "events", "plot_threads", "outline_arc",
-        "chapter_card", "rag_chunks",
+        "project", "world_entities", "characters",
+        "memory_records", "events", "rag_chunks",
     ],
 }
 
@@ -59,15 +57,14 @@ class ContextCompiler:
 
     @staticmethod
     def _default_loaders() -> list[Loader]:
-        loaders: list[Loader] = [
+        return [
             ProjectLoader(),
             WorldEntitiesLoader(),
             CharactersLoader(),
             EventsLoader(),
+            MemoryRecordsLoader(),
             RagChunksLoader(),
         ]
-        # geo/memory/outline 模块暂时切分 — 对应 loader 不可用
-        return loaders
 
     async def compile(
         self,

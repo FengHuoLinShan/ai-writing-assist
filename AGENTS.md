@@ -1,77 +1,84 @@
 # AGENTS.md
 
-## Prohibitions (不做xx)
+AI 长篇小说结构化创作引擎 v2.0 — Python FastAPI / async SQLAlchemy / PostgreSQL 17 + pgvector backend + vanilla JS SPA frontend. **Not a full-novel text generator** — produces structured creative assets (entities, plot threads, memory, context).
 
-### 架构与模块
-- 不跨模块直接导入 `models.py` / `repositories.py` / `services.py`，跨模块只能通过 `contracts.py` 和 `facade.py`
-- API 层不写复杂业务逻辑，facade 不写复杂业务逻辑
-- 不构建复杂多 Agent 系统；核心创作 Prompt 保持 4 个，工具型抽取 Prompt 不扩展成 Agent 体系
-- 不以全文正文生成为核心目标
-- 不主动实现 Neo4j / Qdrant / PostGIS / GraphRAG 社区摘要 / 多用户权限 / 商业功能，除非用户明确要求
-- 场景卡不拆独立表，放在 `chapter_cards.scene_cards` JSONB
-- 时间线不做复杂相对时间推理、日历系统、自动历史推演
-- 不把项目结构、目录设计、里程碑、实施计划写入根目录 `AGENTS.md`；这些内容写入 `docs/00_整体设计.md` 和 `docs/项目进度.md`
-- 不把开发命令、测试策略、Review 分级写入根目录 `AGENTS.md`；这些内容写入 `development-guide.md` 和 `testing-guide.md`
+## Essential commands
 
-### 文档维护
-- git push 后自动执行 `/structure-docs-update` 同步所有设计文档
-- 任何时候也可手动执行 `/structure-docs-update` 同步
-- 不只更新 `AGENTS.md` 而忘记同步 `CLAUDE.md` 中等价的 Claude 禁止事项
+| Action | Command |
+|--------|---------|
+| Start all services | `make dev` |
+| Stop all services | `make kill` |
+| Backend tests | `make test` or `make test-v` |
+| Single test | `make test ARGS="-k test_name -xvs"` |
+| Frontend tests | `(cd frontend-console && npm test)` |
+| Lint / format check | `make lint` / `make format` |
+| DB up + migrate | `make db && make migrate` |
+| Install backend | `pip install -e ".[dev]"` from `backend/` |
 
-### 数据与安全
-- 导入管线全自动直写 canonical，实体和关系不经候选池审核；用户通过手动 CRUD 事后修正
-- API 不允许跨 `novel_id` 读写数据
-- 不拼接原始 SQL，使用 SQLAlchemy 参数绑定
-- API Key 不写日志、不返回前端；`.env` 不提交仓库
-- 文件上传不允许白名单外格式、超过 50MB、路径穿越
-- 不 `eval` / `exec` LLM 输出
-- 合并 / 删除 / 废弃操作不做无二次确认
+See `development-guide.md` for full reference, `testing-guide.md` for test conventions.
 
-### 实体抽取
-- 实体抽取不是 NER，不抽取路人、普通道具、代词、一次性场景元素
-- 别名不创建新对象，标记 `alias_of_existing`
-- 不自动合并正史对象
+## Architecture
 
-### 前端
-- UI 不暴露工程术语，显示“正史”而非 `canonical`
-- 不使用富文本编辑器、复杂图谱可视化、专业地图编辑器
-- 不引入重型 UI 组件库
-- 用户 / AI 内容不通过 `innerHTML` 直接渲染，必须使用 `textContent` 或统一转义
-- 不做无空状态提示、无操作确认、无错误提示的页面
+Two-package layout: `backend/` (FastAPI) + `frontend-console/` (vanilla JS, zero build step, zero framework, no TypeScript).
 
-### 测试
-- 测试优先通过 facade + contracts 验证行为，而非直接 import 内部模块（repositories/services/models）
-- 修改 `contracts.py` / `facade.py` / API / DB schema 后，不允许漏更新 README / 测试 / 调用方 / docs
-- 不跑受影响模块测试不合并
+**8 active backend modules** (`app/main.py:289-296`): `project`, `imports`, `world`, `memory`, `rag`, `context`, `writing`, `tasks`. Removed: `geo`, `outline`, `review`, `character`, `timeline`. Character lives in `modules/world`.
 
-## 命名规范
+Each module: `contracts.py` → `models.py` → `repositories.py` → `services.py` → `facade.py` → `api.py`; tasks in `tasks.py`.
 
-### 文件命名
+**Cross-module imports (strict):** Only `contracts.py` and `facade.py` — never `models.py`, `repositories.py`, or `services.py`. Facade/API are thin delegators with no complex business logic.
 
-| 范围 | 规范 | 说明 |
-|---|---|---|
-| Python 源文件 | `snake_case.py` | PEP 8 |
-| JS 源文件 | `camelCase.js` | View 文件除外 |
-| JS View 文件 | `PascalCaseView.js` | 匹配导出对象名 |
-| JS 测试文件 | `*.test.js` | Vitest 单元测试 |
-| JS E2E 文件 | `*.spec.js` | Playwright 惯例 |
-| 根目录 md 文件 | `kebab-case.md` | 如 `development-guide.md` |
-| 文档目录 | `NN_主题.md` 或 `主题.md` | 按需编号 |
-| Alembic 迁移 | git-revision-hash 前缀 | Alembic 自动生成 |
+**Entrypoints:**
+- Backend API: `backend/app/main.py` (FastAPI app, run via `uvicorn app.main:app`)
+- Worker: `backend/run_worker.py` (async task worker, PostgreSQL-based queue, no Redis/Celery)
+- Frontend: `frontend-console/index.html` (serve via `python -m http.server 8080`)
 
-### 代码命名
+## Domain conventions
 
-| 范围 | 规范 | 说明 |
-|---|---|---|
-| Python 类 | `PascalCase` | PEP 8 |
-| Python 函数/变量 | `snake_case` | PEP 8 |
-| Python 常量 | `SCREAMING_SNAKE_CASE` | PEP 8 |
-| Python 枚举成员 | `lowercase` | StrEnum 成员名=DB值，保留与 DB 一致 |
-| Python 模块级 logger | `logger` | 无下划线前缀：`logger = logging.getLogger(__name__)` |
-| JS 函数/变量 | `camelCase` | |
-| JS 私有方法 | `_camelCase` | 仅内部调用，外部通过公共方法调用 |
+- **Candidate → Canonical**: AI output enters as "candidate"; user reviews and promotes. No auto-promotion.
+- **Status over deletion**: Use status fields (`draft`/`candidate`/`canonical`/`deprecated`/`ignored`/`conflicted`), never hard DELETE.
+- **Entity extraction ≠ NER**: Extract only long-term creative assets (not passersby, generic items, pronouns, one-shot elements).
+- **Aliases**: Stored inline in `core_entities.aliases` JSONB, tagged `alias_of_existing`.
+- **Scene cards**: Stored in `chapter_cards.scene_cards` JSONB (no separate table).
+- **novel_id isolation**: Every API enforces cross-novel access control at service layer.
+- **No innerHTML**: Use `textContent` or `esc()` (defined in `frontend-console/state.js:6`) for user/AI content.
+- **No eval/exec on LLM output**.
+- **No complex multi-agent**: 4 core creative prompts + 3 tool extraction prompts only.
+- **API keys**: Env vars only, never logged or returned to frontend.
+- **Merge/delete/deprecate**: Must have user confirmation before executing.
+- **File upload**: Whitelist formats only, ≤50MB, no path traversal.
 
-## 工作流
+## Testing
 
-- 代码开发（新功能、bug 修复、重构）：调用 `/tdd` 技能，遵循 RED→GREEN→REFACTOR 循环
-- 方案讨论、设计决策、需求澄清：调用 `/grill-with-docs` 技能，逐个深入直到达成共识
+| Context | DB | Pattern |
+|---------|----|---------|
+| Unit/Integration | SQLite in-memory (`aiosqlite`) | Fresh tables per test session |
+| E2E | Real PostgreSQL | Docker PG via `docker compose` |
+
+- **Test through facades**: Prefer `from modules.x.facade import func` over importing internals.
+- **Import FK models**: Each test `conftest.py` must import all models with FK dependencies (always `modules.project.models`).
+- **Mock-free E2E**: `tests/e2e/test_extraction_real_file.py` uses real LLM calls.
+- **pytest-asyncio**: `asyncio_mode = "auto"` in `pyproject.toml`.
+- **Run affected modules before merge**: "不跑受影响模块测试不合并".
+
+## Toolchain quirks
+
+- **Ruff**: line-length=90, target py312, rules E/F/W/I/N/UP, **double quotes**.
+- **No mypy/pyright** configured — only ruff for static analysis.
+- **Alembic**: git-revision-hash prefix naming (auto-generated).
+- **No `.env` committed**: Copy `backend/.env.example`.
+- **pgvector**: Vector fields stored as JSON-serialized text in SQLite test mode.
+
+## Naming (non-obvious)
+
+| Convention | Rule |
+|------------|------|
+| Python enum members | `lowercase` (StrEnum member name = DB value) |
+| Python module-level logger | `logger` (no underscore prefix) |
+| JS private methods | `_camelCase` (internal only, public via non-underscore methods) |
+| JS View files | `PascalCaseView.js` (matches exported object name) |
+
+## Meta
+
+- Keep AGENTS.md ↔ CLAUDE.md equivalent prohibitions in sync.
+- After `git push`, run `/structure-docs-update` to sync design docs.
+- Skills: `/tdd` for code dev (RED→GREEN→REFACTOR), `/grill-with-docs` for design decisions.

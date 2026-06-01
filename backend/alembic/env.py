@@ -22,17 +22,17 @@ from core.base import Base
 # 显式导入所有模块的模型，确保 alembic autogenerate 能检测到所有表
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
-# character 模型已迁入 modules.world.models
+# character 模块已删除，模型在 modules.world.models
 import modules.imports.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 import infrastructure.tasks.models  # noqa: F401
 
-# minimal-core: memory/outline/review 模块暂不含模型
-import modules.geo.models  # noqa: F401
+import modules.memory.models  # noqa: F401
 
-for _mod_name in ("modules.memory.models", "modules.outline.models",
-                  "modules.review.models"):
+# geo/outline/review 模块已从 minimal-core 移除
+for _mod_name in ("modules.geo.models",
+                  "modules.outline.models", "modules.review.models"):
     try:
         __import__(_mod_name)
     except (ImportError, ModuleNotFoundError):

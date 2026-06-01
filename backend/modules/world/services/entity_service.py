@@ -1,9 +1,11 @@
-"""CoreEntityService — 核心实体 CRUD"""
+"""WorldEntityService — 核心实体 CRUD。继承 BaseCRUDService (ADR-0002)。
+
+list 加 entity_type / status filter + 返 ListResponse (per design B3,
+subclass override)。
+"""
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import CoreEntity
@@ -16,44 +18,33 @@ from modules.world.schemas import (
     WorldContextBundle,
     WorldEntityContext,
 )
+from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-class WorldEntityService:
-    """核心实体业务服务"""
+class WorldEntityService(
+    CrudService[
+        CoreEntity, CoreEntityCreate, CoreEntityUpdate, CoreEntityResponse,
+    ],
+):
+    """核心实体业务服务。
 
-    def __init__(self) -> None:
-        self._repo = CoreEntityRepository()
+    5 verb 继承自 base; list 加 filter (entity_type / status) + 返 ListResponse;
+    4 个特例方法 (get_entity_context / list_entity_summaries / list_entity_terms /
+    find_by_name) 留本地。
+    """
 
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        data: CoreEntityCreate,
-    ) -> CoreEntityResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        entity = await self._repo.create(db, nid, data)
-        return CoreEntityResponse.model_validate(entity)
+    repo = CoreEntityRepository()
+    response = CoreEntityResponse
+    label = "CoreEntity"
+    id_param = "entity_id"
 
-    async def get(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        novel_id: str | None = None,
-    ) -> CoreEntityResponse:
-        eid = parse_uuid(entity_id, "entity_id")
-        entity = await self._repo.get(db, eid)
-        if entity is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found",
-            )
-        if novel_id and str(entity.novel_id) != novel_id:
-            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return CoreEntityResponse.model_validate(entity)
+    # ============================================================
+    # Override: list 加 filter kwargs + 返 ListResponse 包装
+    # ============================================================
 
-    async def list(
+    async def list(  # type: ignore[override]
         self,
         db: AsyncSession,
         novel_id: str,
@@ -63,9 +54,10 @@ class WorldEntityService:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> CoreEntityListResponse:
+        """带 filter 的 list, 返 ListResponse 包装 (不是 tuple)。"""
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.get_by_novel(
+        items, total = await self.repo.get_by_novel(
             db, nid,
             entity_type=entity_type,
             status=status,
@@ -77,43 +69,9 @@ class WorldEntityService:
             total=total,
         )
 
-    async def update(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        data: CoreEntityUpdate,
-        novel_id: str | None = None,
-    ) -> CoreEntityResponse:
-        eid = parse_uuid(entity_id, "entity_id")
-        if novel_id:
-            existing = await self._repo.get(db, eid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        entity = await self._repo.update(db, eid, data)
-        if entity is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found",
-            )
-        return CoreEntityResponse.model_validate(entity)
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        novel_id: str | None = None,
-    ) -> None:
-        eid = parse_uuid(entity_id, "entity_id")
-        if novel_id:
-            existing = await self._repo.get(db, eid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._repo.delete(db, eid)
-        if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found",
-            )
+    # ============================================================
+    # 特例方法
+    # ============================================================
 
     async def get_entity_context(
         self,
@@ -127,14 +85,13 @@ class WorldEntityService:
 
         if entity_ids:
             eids = [parse_uuid(eid, "entity_id") for eid in entity_ids]
-            entities = await self._repo.get_by_ids(db, nid, eids)
+            entities = await self.repo.get_by_ids(db, nid, eids)
         else:
-            entities, _ = await self._repo.get_by_novel(db, nid, limit=limit)
+            entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
 
-        contexts: list[WorldEntityContext] = []
-        for entity in entities:
-            ctx = _entity_to_context(entity, reveal_mode)
-            contexts.append(ctx)
+        contexts = [
+            _entity_to_context(entity, reveal_mode) for entity in entities
+        ]
 
         return WorldContextBundle(
             novel_id=novel_id,
@@ -152,11 +109,57 @@ class WorldEntityService:
         limit: int = 100,
     ) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        result = await self._repo.get_by_type_and_status(db, nid, entity_type=entity_type, limit=limit)
+        result = await self.repo.get_by_type_and_status(
+            db, nid, entity_type=entity_type, limit=limit,
+        )
         return [
             {"id": item.id, "name": item.name, "entity_type": item.entity_type}
             for item in result
         ]
+
+    async def list_entity_terms(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        limit: int = 500,
+    ) -> list[dict]:
+        """获取正史 + 草稿实体的检索词典项 (name + content_json.aliases)。
+
+        别名存储约定见 core_entities.content_json.aliases (per world/CLAUDE.md)。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
+        terms: list[dict] = []
+        for item in entities:
+            if item.status not in ("canonical", "draft"):
+                continue
+            item_terms = [item.name]
+            aliases = (item.content_json or {}).get("aliases", [])
+            item_terms.extend(
+                a if isinstance(a, str) else a.get("alias", "")
+                for a in aliases
+            )
+            terms.append({
+                "id": str(item.id),
+                "name": item.name,
+                "entity_type": item.entity_type,
+                "terms": [t for t in item_terms if t],
+            })
+        return terms
+
+    async def find_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        name: str,
+        entity_type: str | None = None,
+    ) -> str | None:
+        """按名称查正史实体 ID, 返 str 或 None。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        return await self.repo.find_entity_by_name(
+            db, nid, name, entity_type=entity_type,
+        )
 
 
 def _entity_to_context(

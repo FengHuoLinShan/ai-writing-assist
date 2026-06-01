@@ -1,13 +1,16 @@
-"""CharacterService — 人物业务（从 character 模块迁入）"""
+"""CharacterService — 人物业务。继承 BaseCRUDService (ADR-0002)。
+
+知识边界 (CharacterKnowledge) 的 CRUD 移到 CharacterKnowledgeService (独立子类)。
+本 service 只保留:
+- 5 verb 继承自 base
+- 8 个特例方法 (人物上下文 / 知识过滤 / facade 跨模块 leak)
+"""
 
 from __future__ import annotations
 
-import uuid
-
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.models import Character
 from modules.world.repositories import (
     CharacterKnowledgeRepository,
     CharacterRepository,
@@ -16,227 +19,83 @@ from modules.world.schemas import (
     CharacterContextBundle,
     CharacterContextItem,
     CharacterCreate,
-    CharacterKnowledgeContext,
-    CharacterKnowledgeCreate,
-    CharacterKnowledgeResponse,
-    CharacterKnowledgeUpdate,
-    CharacterListResponse,
     CharacterResponse,
     CharacterUpdate,
 )
+from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-class CharacterService:
-    """人物业务服务"""
+class CharacterService(
+    CrudService[Character, CharacterCreate, CharacterUpdate, CharacterResponse],
+):
+    """人物业务服务。
 
+    5 verb 继承自 base; 知识 CRUD 在独立 CharacterKnowledgeService。
+    """
+
+    repo = CharacterRepository()
+    response = CharacterResponse
+    label = "Character"
+    id_param = "character_id"  # Character PK 是 entity_id, parse_uuid 报错字段名
+
+    # knowledge 业务方法不属 base 5 verb, 显式注入第二个 repo
     def __init__(self) -> None:
-        self._repo = CharacterRepository()
         self._knowledge_repo = CharacterKnowledgeRepository()
 
-    async def create_character(
-        self,
-        db: AsyncSession,
-        data: CharacterCreate,
-    ) -> CharacterResponse:
-        character = await self._repo.create(db, data)
-        return CharacterResponse.model_validate(character)
+    # ============================================================
+    # 5 verb 继承自 base
+    # (list 加 clamp, 其它 4 verb 透传)
+    # ============================================================
 
-    async def get_character(
-        self,
-        db: AsyncSession,
-        character_id: str,
-        novel_id: str | None = None,
-    ) -> CharacterResponse:
-        cid = parse_uuid(character_id)
-        character = await self._repo.get(db, cid)
-        if character is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
-            )
-        if novel_id and str(character.novel_id) != novel_id:
-            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return CharacterResponse.model_validate(character)
-
-    async def list_characters(
+    async def list(  # type: ignore[override]
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> CharacterListResponse:
-        nid = parse_uuid(novel_id)
+    ) -> tuple[list[CharacterResponse], int]:
+        """返 (items, total) tuple (非 ListResponse 包装, 与 WorldEntityService 不同)。"""
+        nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.get_by_novel(
+        items, total = await self.repo.get_by_novel(
             db, nid, skip=skip, limit=limit,
         )
-        return CharacterListResponse(
-            items=[CharacterResponse.model_validate(c) for c in items],
-            total=total,
-        )
+        return [CharacterResponse.model_validate(c) for c in items], total
 
-    async def update_character(
-        self,
-        db: AsyncSession,
-        character_id: str,
-        data: CharacterUpdate,
-        novel_id: str | None = None,
-    ) -> CharacterResponse:
-        cid = parse_uuid(character_id)
-        if novel_id:
-            existing = await self._repo.get(db, cid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        character = await self._repo.update(db, cid, data)
-        if character is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
-            )
-        return CharacterResponse.model_validate(character)
-
-    async def delete_character(
-        self,
-        db: AsyncSession,
-        character_id: str,
-        novel_id: str | None = None,
-    ) -> None:
-        cid = parse_uuid(character_id)
-        if novel_id:
-            existing = await self._repo.get(db, cid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._repo.delete(db, cid)
-        if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
-            )
+    # ============================================================
+    # CharacterState 更新 (跨多字段, 非 5 verb 标准 update)
+    # ============================================================
 
     async def update_character_state(
         self,
         db: AsyncSession,
         character_id: str,
+        *,
         current_state: str | None = None,
         current_emotion: str | None = None,
         current_goal: str | None = None,
-        novel_id: str | None = None,
+        novel_id: str,
     ) -> CharacterResponse:
-        cid = parse_uuid(character_id)
-        if novel_id:
-            existing = await self._repo.get(db, cid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
+        cid = parse_uuid(character_id, "character_id")
+        nid = parse_uuid(novel_id, "novel_id")
+        existing = await self.repo.get(db, cid)
+        if existing is None or existing.novel_id != nid:
+            self._raise_404(character_id)
         update_data = CharacterUpdate(
             current_state=current_state,
             current_emotion=current_emotion,
             current_goal=current_goal,
         )
-        character = await self._repo.update(db, cid, update_data)
+        character = await self.repo.update(db, cid, update_data)
         if character is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Character {character_id} not found",
-            )
+            self._raise_404(character_id)
         return CharacterResponse.model_validate(character)
 
     # ============================================================
-    # CharacterKnowledge
-    # ============================================================
-
-    async def create_knowledge(
-        self,
-        db: AsyncSession,
-        data: CharacterKnowledgeCreate,
-        novel_id: str | None = None,
-    ) -> CharacterKnowledgeResponse:
-        if novel_id:
-            char = await self._repo.get(db, parse_uuid(data.character_id))
-            if char is None or str(char.novel_id) != novel_id:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail="Character not found in this novel",
-                )
-        knowledge = await self._knowledge_repo.create(db, data)
-        return CharacterKnowledgeResponse.model_validate(knowledge)
-
-    async def get_knowledge(
-        self,
-        db: AsyncSession,
-        knowledge_id: str,
-        novel_id: str | None = None,
-    ) -> CharacterKnowledgeResponse:
-        kid = parse_uuid(knowledge_id)
-        knowledge = await self._knowledge_repo.get(db, kid)
-        if knowledge is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Knowledge record {knowledge_id} not found",
-            )
-        if novel_id and str(knowledge.novel_id) != novel_id:
-            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return CharacterKnowledgeResponse.model_validate(knowledge)
-
-    async def list_knowledge(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        character_id: str,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[CharacterKnowledgeResponse], int]:
-        nid = parse_uuid(novel_id)
-        cid = parse_uuid(character_id)
-        limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._knowledge_repo.get_by_character(
-            db, nid, cid, skip=skip, limit=limit,
-        )
-        return [
-            CharacterKnowledgeResponse.model_validate(k) for k in items
-        ], total
-
-    async def update_knowledge(
-        self,
-        db: AsyncSession,
-        knowledge_id: str,
-        data: CharacterKnowledgeUpdate,
-        novel_id: str | None = None,
-    ) -> CharacterKnowledgeResponse:
-        kid = parse_uuid(knowledge_id)
-        if novel_id:
-            existing = await self._knowledge_repo.get(db, kid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        knowledge = await self._knowledge_repo.update(db, kid, data)
-        if knowledge is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Knowledge record {knowledge_id} not found",
-            )
-        return CharacterKnowledgeResponse.model_validate(knowledge)
-
-    async def delete_knowledge(
-        self,
-        db: AsyncSession,
-        knowledge_id: str,
-        novel_id: str | None = None,
-    ) -> None:
-        kid = parse_uuid(knowledge_id)
-        if novel_id:
-            existing = await self._knowledge_repo.get(db, kid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._knowledge_repo.delete(db, kid)
-        if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Knowledge record {knowledge_id} not found",
-            )
-
-    # ============================================================
-    # 人物上下文（供其他模块使用）
+    # 人物上下文 (供 context module 用)
     # ============================================================
 
     async def get_characters_context(
@@ -246,9 +105,9 @@ class CharacterService:
         character_ids: list[str],
         reveal_mode: str = "author_safe",
     ) -> CharacterContextBundle:
-        nid = parse_uuid(novel_id)
-        cids = [parse_uuid(cid) for cid in character_ids]
-        characters = await self._repo.get_by_ids(db, nid, cids)
+        nid = parse_uuid(novel_id, "novel_id")
+        cids = [parse_uuid(cid, "character_id") for cid in character_ids]
+        characters = await self.repo.get_by_ids(db, nid, cids)
 
         items = []
         for char in characters:
@@ -285,9 +144,11 @@ class CharacterService:
         novel_id: str,
         character_id: str,
         target_ids: list[str] | None = None,
-    ) -> list[CharacterKnowledgeContext]:
-        nid = parse_uuid(novel_id)
-        cid = parse_uuid(character_id)
+    ) -> list:
+        """返回 knowledge 上下文, 留为返回 dict (避免循环 import schema)。"""
+        from modules.world.schemas import CharacterKnowledgeContext
+        nid = parse_uuid(novel_id, "novel_id")
+        cid = parse_uuid(character_id, "character_id")
         tids = (
             [parse_uuid(tid) for tid in target_ids]
             if target_ids
@@ -315,8 +176,8 @@ class CharacterService:
         character_id: str,
         context_items: list[dict],
     ) -> tuple[list[dict], int, int]:
-        cid = parse_uuid(character_id)
-        nid = parse_uuid(novel_id)
+        cid = parse_uuid(character_id, "character_id")
+        nid = parse_uuid(novel_id, "novel_id")
 
         target_ids_map: dict[str, set[str]] = {}
         for item in context_items:
@@ -377,3 +238,71 @@ class CharacterService:
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
+
+    # ============================================================
+    # 跨模块 facade leak (PR 2)
+    # ============================================================
+
+    async def get_id_by_world_entity(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        world_entity_id: str,
+    ) -> str | None:
+        """按核心实体 ID 查 character entity_id。返 str 或 None。
+
+        注: novel_id 接收但不传给 repo — character PK 是 entity_id,
+        repo.get 不需 novel_id 过滤。novel_id 参数保留是为了 facade 跨模块契约稳定。
+        """
+        weid = parse_uuid(world_entity_id, "entity_id")
+        char = await self.repo.get(db, weid)
+        if char is None:
+            return None
+        return str(char.entity_id)
+
+    async def find_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        name: str,
+    ) -> str | None:
+        """按 character name 查正史 character 的 entity_id。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        return await self.repo.find_character_by_name(db, nid, name)
+
+    async def update_location(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        character_id: str,
+        location_id: str,
+        text_state: str,
+        chapter_index: int,
+    ) -> None:
+        """更新 character 的位置元数据。"""
+        cid = parse_uuid(character_id, "character_id")
+        loc_id = parse_uuid(location_id, "location_id")
+        await self.repo.update_character_meta_location(
+            db, cid, loc_id, text_state, chapter_index,
+        )
+
+    async def get_characters_at_location(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        location_id: str,
+    ) -> list[dict]:
+        """查某 location 下的所有正史 character。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        loc_id = parse_uuid(location_id, "location_id")
+        return await self.repo.find_characters_by_location(db, nid, loc_id)
+
+    async def get_location_id(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        character_id: str,
+    ) -> str | None:
+        """查 character 的 location_id, 返 str 或 None。"""
+        cid = parse_uuid(character_id, "character_id")
+        return await self.repo.get_character_location_id(db, cid)

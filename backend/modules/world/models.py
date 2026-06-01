@@ -16,10 +16,9 @@ World ORM 模型 — v3 因果时空网
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
-from sqlalchemy import JSON
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -126,21 +125,21 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     )
 
     # 1:1 扩展
-    event: Mapped["Event | None"] = relationship(
+    event: Mapped[Event | None] = relationship(
         "Event", back_populates="core_entity", uselist=False,
         foreign_keys="Event.entity_id",
     )
-    character: Mapped["Character | None"] = relationship(
+    character: Mapped[Character | None] = relationship(
         "Character", back_populates="core_entity", uselist=False,
         foreign_keys="Character.entity_id",
     )
 
     # 1:N 关系
-    source_relations: Mapped[list["EntityRelation"]] = relationship(
+    source_relations: Mapped[list[EntityRelation]] = relationship(
         "EntityRelation", back_populates="source",
         foreign_keys="EntityRelation.source_id",
     )
-    target_relations: Mapped[list["EntityRelation"]] = relationship(
+    target_relations: Mapped[list[EntityRelation]] = relationship(
         "EntityRelation", back_populates="target",
         foreign_keys="EntityRelation.target_id",
     )
@@ -189,7 +188,7 @@ class Event(Base, NovelMixin):
         comment="发生时间标签（如'三年前'）",
     )
 
-    core_entity: Mapped["CoreEntity"] = relationship(
+    core_entity: Mapped[CoreEntity] = relationship(
         "CoreEntity", back_populates="event",
         foreign_keys=[entity_id],
     )
@@ -266,11 +265,11 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
         comment="状态：canonical/deprecated",
     )
 
-    source: Mapped["CoreEntity"] = relationship(
+    source: Mapped[CoreEntity] = relationship(
         "CoreEntity", back_populates="source_relations",
         foreign_keys=[source_id],
     )
-    target: Mapped["CoreEntity"] = relationship(
+    target: Mapped[CoreEntity] = relationship(
         "CoreEntity", back_populates="target_relations",
         foreign_keys=[target_id],
     )
@@ -323,7 +322,7 @@ class EntityRevision(Base, UUIDMixin):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.timezone("utc", func.now()),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
     )
 
     def __repr__(self) -> str:
@@ -440,7 +439,7 @@ class Character(Base, TimestampMixin, StatusMixin):
         comment="扩展元数据（AI 抽取建议等）",
     )
 
-    core_entity: Mapped["CoreEntity"] = relationship(
+    core_entity: Mapped[CoreEntity] = relationship(
         "CoreEntity", back_populates="character",
     )
 
@@ -528,5 +527,4 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
 
 
 # 需要 datetime/function 用于 EntityRevision.created_at
-from datetime import datetime, timezone  # noqa: E402
 from sqlalchemy import DateTime, func  # noqa: E402

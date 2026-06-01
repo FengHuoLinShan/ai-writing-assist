@@ -125,18 +125,6 @@ class TestSecurity:
         )
         assert resp.status_code in (200, 201, 422)
 
-    async def test_very_long_summary(self, async_client: AsyncClient, test_project_id: str):
-        """记忆记录的超长摘要不应崩溃"""
-        resp = await async_client.post(
-            f"/api/novels/{test_project_id}/memories/records",
-            json={
-                "memory_type": "event",
-                "summary": "C" * 10000,
-                "chapter_index": 1,
-            },
-        )
-        assert resp.status_code in (200, 201, 422)
-
     # ============================================================
     # 非法枚举值
     # ============================================================

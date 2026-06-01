@@ -537,15 +537,24 @@ class TestRetrievalService:
         sample_novel_id: uuid.UUID,
     ) -> None:
         """查询人物现名时，应召回正文里使用旧名/别名的 chunk。"""
-        from modules.character.models import Character
+        from modules.world.models import Character, CoreEntity
 
         char_id = uuid.uuid4()
-        db_with_project.add(Character(
+        db_with_project.add(CoreEntity(
             id=char_id,
+            novel_id=sample_novel_id,
+            entity_type="character",
+            name="克莱恩·莫雷蒂",
+            content_json={"aliases": [{"alias": "周明瑞", "type": "original_name"}]},
+            status="canonical",
+        ))
+        db_with_project.add(Character(
+            entity_id=char_id,
             novel_id=sample_novel_id,
             name="克莱恩·莫雷蒂",
             aliases=[{"alias": "周明瑞", "type": "original_name"}],
             role="主角",
+            status="canonical",
         ))
         await create_chunk(
             db_with_project, str(sample_novel_id),

@@ -101,12 +101,13 @@ async def test_index_chapter_creates_chunks_with_character_ids(
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert len(chunks) > 0, "应能找到第 1 章的 chunk"
 
-    all_char_ids = []
+    # CoreEntity 角色的 ID 出现在 entity_ids（list_entity_terms 返回 type="entity"）
+    all_entity_ids = []
     for c in chunks:
-        all_char_ids.extend(c.character_ids or [])
-    assert test_character_id in all_char_ids, (
-        f"chunk 应包含角色 ID {test_character_id}，"
-        f"实际包含: {all_char_ids}"
+        all_entity_ids.extend(c.entity_ids or [])
+    assert test_character_id in all_entity_ids, (
+        f"chunk 应包含角色 entity ID {test_character_id}，"
+        f"实际包含: {all_entity_ids}"
     )
 
 
@@ -217,48 +218,36 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     """索引应记录显式位置字段，并用人物/世界/剧情线词典标注 chunk。"""
     from unittest.mock import AsyncMock, patch
 
-    from modules.character.models import Character
-    try:
-        from modules.outline.models import PlotThread
-    except (ImportError, ModuleNotFoundError):
-        PlotThread = None
     from modules.rag.facade import index_chapter_with_report
-    from modules.world.models import EntityAlias, WorldEntity
+    from modules.world.models import Character, CoreEntity
     from modules.writing.models import WritingDraft
 
     nid_uuid = uuid.UUID(hex=test_project_id)
     char_id = uuid.uuid4()
     entity_id = uuid.uuid4()
-    thread_id = uuid.uuid4()
 
-    db_session.add(Character(
+    db_session.add(CoreEntity(
         id=char_id,
+        novel_id=nid_uuid,
+        entity_type="character",
+        name="克莱恩·莫雷蒂",
+        content_json={"aliases": [{"alias": "周明瑞", "type": "original_name"}]},
+        status="canonical",
+    ))
+    db_session.add(Character(
+        entity_id=char_id,
         novel_id=nid_uuid,
         name="克莱恩·莫雷蒂",
         aliases=[{"alias": "周明瑞", "type": "original_name"}],
         role="主角",
+        status="canonical",
     ))
-    db_session.add(WorldEntity(
+    db_session.add(CoreEntity(
         id=entity_id,
         novel_id=nid_uuid,
         entity_type="secret",
         name="灰雾",
         summary="神秘空间",
-        status="canonical",
-    ))
-    db_session.add(EntityAlias(
-        id=uuid.uuid4(),
-        novel_id=nid_uuid,
-        entity_id=entity_id,
-        alias="神秘空间",
-        alias_type="name",
-    ))
-    db_session.add(PlotThread(
-        id=thread_id,
-        novel_id=nid_uuid,
-        name="穿越谜团",
-        thread_type="hidden",
-        summary="主角穿越相关暗线",
         status="canonical",
     ))
     db_session.add(WritingDraft(
@@ -292,9 +281,9 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     assert all(c.chunk_index is not None for c in chunks)
     assert all(c.start_offset is not None and c.end_offset is not None for c in chunks)
     assert all(c.char_count == len(c.text) for c in chunks)
-    assert any(str(char_id) in (c.character_ids or []) for c in chunks)
+    # CoreEntity 角色的 ID 作为 entity_id（item["type"] == "entity"）匹配
+    assert any(str(char_id) in (c.entity_ids or []) for c in chunks)
     assert any(str(entity_id) in (c.entity_ids or []) for c in chunks)
-    assert any(str(thread_id) in (c.thread_ids or []) for c in chunks)
     assert all(c.embedding_status == "failed" for c in chunks)
 
 

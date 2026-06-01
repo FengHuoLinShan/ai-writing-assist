@@ -1,7 +1,7 @@
 """实体类型映射工具
 
 定义 LLM 输出中文类型到系统标准英文类型的映射。
-给 extraction_service 和 candidate_service 共享使用。
+给 extraction_service 共享使用 (candidate_service 已废弃, 直接入库 canonical)。
 """
 
 from __future__ import annotations

@@ -6,8 +6,7 @@ World API 路由 — v3 因果时空网
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi import status as http_status
+from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.world.schemas import (
@@ -31,19 +30,15 @@ from modules.world.schemas import (
     EventListResponse,
     EventResponse,
     EventUpdate,
-    WorldContextBundle,
-    WorldEntityContext,
 )
 from modules.world.services import (
+    CharacterKnowledgeService,
     CharacterService,
     EntityRelationService,
     EntityRevisionService,
     EventService,
     WorldEntityService,
 )
-# 已废弃服务直接导入
-from modules.world.services.alias_service import AliasService
-from modules.world.services.candidate_service import EntityCandidateService
 from modules.world.services.dedup_service import EntityDedupService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -51,12 +46,11 @@ router = APIRouter(prefix="/api/world", tags=["world"])
 
 _entity_service = WorldEntityService()
 _relation_service = EntityRelationService()
-_candidate_service = EntityCandidateService()
-_alias_service = AliasService()
 _dedup_service = EntityDedupService()
 _revision_service = EntityRevisionService()
 _event_service = EventService()
 _character_service = CharacterService()
+_knowledge_service = CharacterKnowledgeService()
 
 
 # ============================================================
@@ -286,9 +280,10 @@ async def list_characters(
         description="每页条数",
     ),
 ) -> CharacterListResponse:
-    return await _character_service.list_characters(
+    items, total = await _character_service.list(
         db, novel_id, skip=skip, limit=limit,
     )
+    return CharacterListResponse(items=items, total=total)
 
 
 @router.post("/characters", response_model=CharacterResponse, status_code=201)
@@ -297,7 +292,7 @@ async def create_character(
     novel_id: str = Query(..., description="项目 ID"),
     data: CharacterCreate = ...,
 ) -> CharacterResponse:
-    return await _character_service.create_character(db, data)
+    return await _character_service.create(db, novel_id, data)
 
 
 @router.get("/characters/{character_id}", response_model=CharacterResponse)
@@ -306,7 +301,9 @@ async def get_character(
     character_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterResponse:
-    return await _character_service.get_character(db, character_id, novel_id=novel_id)
+    return await _character_service.get(
+        db, character_id, novel_id=novel_id,
+    )
 
 
 @router.put("/characters/{character_id}", response_model=CharacterResponse)
@@ -316,7 +313,7 @@ async def update_character(
     data: CharacterUpdate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterResponse:
-    return await _character_service.update_character(
+    return await _character_service.update(
         db, character_id, data, novel_id=novel_id,
     )
 
@@ -327,14 +324,17 @@ async def delete_character(
     character_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
-    await _character_service.delete_character(db, character_id, novel_id=novel_id)
+    await _character_service.delete(db, character_id, novel_id=novel_id)
 
 
 # ============================================================
-# CharacterKnowledge 路由
+# CharacterKnowledge 路由 (独立 CharacterKnowledgeService)
 # ============================================================
 
-@router.get("/characters/{character_id}/knowledge", response_model=CharacterKnowledgeListResponse)
+@router.get(
+    "/characters/{character_id}/knowledge",
+    response_model=CharacterKnowledgeListResponse,
+)
 async def list_knowledge(
     db: DbSession,
     character_id: str,
@@ -345,10 +345,9 @@ async def list_knowledge(
         description="每页条数",
     ),
 ) -> CharacterKnowledgeListResponse:
-    items, total = await _character_service.list_knowledge(
+    return await _knowledge_service.list(
         db, novel_id, character_id, skip=skip, limit=limit,
     )
-    return CharacterKnowledgeListResponse(items=items, total=total)
 
 
 @router.post(
@@ -362,9 +361,7 @@ async def create_knowledge(
     data: CharacterKnowledgeCreate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterKnowledgeResponse:
-    return await _character_service.create_knowledge(
-        db, data, novel_id=novel_id,
-    )
+    return await _knowledge_service.create(db, novel_id, data)
 
 
 @router.put(
@@ -377,7 +374,7 @@ async def update_knowledge(
     data: CharacterKnowledgeUpdate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterKnowledgeResponse:
-    return await _character_service.update_knowledge(
+    return await _knowledge_service.update(
         db, knowledge_id, data, novel_id=novel_id,
     )
 
@@ -388,69 +385,25 @@ async def delete_knowledge(
     knowledge_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
-    await _character_service.delete_knowledge(db, knowledge_id, novel_id=novel_id)
-
-
-# ============================================================
-# 保留的旧路由（兼容）
-# ============================================================
-
-from modules.world.schemas import (  # noqa: E402
-    EntityAliasListResponse,
-    EntityAliasResponse,
-    WorldEntityListResponse,
-    WorldEntityResponse,
-)
-# 已废弃服务 — 直接导入子模块
-from modules.world.services.alias_service import AliasService  # noqa: E402
-from modules.world.services.candidate_service import EntityCandidateService  # noqa: E402
-
-@router.get("/relationships", response_model=EntityRelationListResponse)
-async def list_relationships(
-    db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-) -> EntityRelationListResponse:
-    """旧关系路由 — 委派到新的 relations 路由"""
-    items, total = await _relation_service.list(db, novel_id, skip=skip, limit=limit)
-    return EntityRelationListResponse(items=items, total=total)
-
-
-@router.get("/aliases", response_model=EntityAliasListResponse)
-async def list_aliases(
-    db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
-    entity_id: str | None = Query(None, description="所属对象 ID"),
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-) -> EntityAliasListResponse:
-    """旧别名路由 — 从 content_json 读取"""
-    items, total = await _alias_service.list(
-        db, novel_id, entity_id=entity_id, skip=skip, limit=limit,
+    await _knowledge_service.delete(
+        db, knowledge_id, novel_id=novel_id,
     )
-    return EntityAliasListResponse(items=items, total=total)
 
 
-@router.get("/candidates", response_model=WorldEntityListResponse)
-async def list_candidates(
+@router.get("/entity-batches")
+async def list_entity_batches(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
-    status: str | None = Query(None, description="状态过滤"),
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-) -> WorldEntityListResponse:
-    """旧候选路由 — 基本兼容实现"""
-    items, total = await _candidate_service.list(
-        db, novel_id, status=status, skip=skip, limit=limit,
-    )
-    return WorldEntityListResponse(items=items, total=total)
+    limit: int = Query(default=10, ge=1, le=50, description="最多返回的批次数量"),
+) -> list[dict]:
+    """获取自动入库实体的批次分组列表
+
+    每次 LLM 抽取生成一个 batch_id，同一批次的实体归为一组。
+    按入库时间倒序排列。
+    """
+    from modules.world.repositories import CoreEntityRepository
+    from shared.utils import parse_uuid as _parse
+
+    nid = _parse(novel_id, "novel_id")
+    repo = CoreEntityRepository()
+    return await repo.get_entity_batches(db, nid, limit=limit)

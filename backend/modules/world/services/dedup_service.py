@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import difflib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -347,7 +347,7 @@ class EntityDedupService:
         # 7. 标记 candidate 为 merged
         merged_content = dict(candidate.content_json or {})
         merged_content["merged_into"] = str(tid)
-        merged_content["merged_at"] = datetime.now(timezone.utc).isoformat()
+        merged_content["merged_at"] = datetime.now(UTC).isoformat()
         await self._entity_repo.update(db, cid, CoreEntityUpdate(
             status="merged",
             content_json=merged_content,
@@ -565,6 +565,7 @@ class EntityDedupService:
     ) -> bool:
         """若 candidate 有 Character 扩展行，将其数据合并到 target 的 Character。"""
         import uuid as _uuid
+
         from modules.world.schemas import CharacterUpdate
 
         cid = _uuid.UUID(candidate_id)
@@ -657,7 +658,7 @@ class EntityDedupService:
                 "canonical_value": canonical_val,
                 "candidate_value": candidate_val,
                 "candidate_id": str(candidate.id),
-                "resolved_at": datetime.now(timezone.utc).isoformat(),
+                "resolved_at": datetime.now(UTC).isoformat(),
             })
 
         if not conflicts:

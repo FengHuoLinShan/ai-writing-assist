@@ -26,20 +26,9 @@
           <li data-view="writing" class="nav-item">手动工作台</li>
           <li class="nav-section">创作核心</li>
           <li data-view="world" class="nav-item">世界对象</li>
-          <li data-view="character" class="nav-item">人物档案</li>
-          <li data-view="outline" class="nav-item">剧情结构</li>
-          <li data-view="geo" class="nav-item">地理历史</li>
-          <li data-view="timeline" class="nav-item">时间线</li>
-          <li data-view="memory" class="nav-item">长期记忆</li>
-          <li class="nav-section nav-collapsible" onclick="toggleMoreNav()" style="cursor:pointer;">
-            <span id="more-toggle">▸</span> 更多
-          </li>
-          <div id="more-nav-items" style="display:none;">
-            <li data-view="rag" class="nav-item">RAG 检索</li>
-            <li data-view="context" class="nav-item">上下文</li>
-            <li data-view="review" class="nav-item">结构复查</li>
-            <li data-view="generate" class="nav-item">生成中心</li>
-          </div>
+          <li data-view="rag" class="nav-item">RAG 检索</li>
+          <li data-view="context" class="nav-item">上下文</li>
+          <li data-view="generate" class="nav-item">生成中心</li>
         </ul>
       </nav>
 
@@ -75,11 +64,9 @@
             <h4>创作流程</h4>
             <ol>
               <li>创建项目</li>
-              <li>构建世界对象与人物</li>
-              <li>设计地理与宏观历史</li>
-              <li>生成剧情线与章节卡</li>
-              <li>复查结构一致性</li>
-              <li>确认候选入正史</li>
+              <li>导入正文 → 世界对象自动抽取</li>
+              <li>查阅 RAG 知识索引</li>
+              <li>编译上下文 → 导出草稿</li>
             </ol>
           </div>
         </div>
@@ -148,14 +135,8 @@
   <!-- 视图 -->
   <script type="module" src="views/projectView.js"></script>
   <script type="module" src="views/worldView.js"></script>
-  <script type="module" src="views/geoView.js"></script>
-  <script type="module" src="views/characterView.js"></script>
-  <script type="module" src="views/memoryView.js"></script>
-  <script type="module" src="views/timelineView.js"></script>
-  <script type="module" src="views/outlineView.js"></script>
   <script type="module" src="views/ragView.js"></script>
   <script type="module" src="views/contextView.js"></script>
-  <script type="module" src="views/reviewView.js"></script>
   <script type="module" src="views/writingView.js"></script>
   <script type="module" src="views/generateView.js"></script>
 </body>

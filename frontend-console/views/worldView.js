@@ -6,7 +6,7 @@ const worldView = {
   _entities: [],
 
   /** @type {Array} */
-  _candidates: [],
+  _batches: [],
 
   /** AI 自动识别状态 */
   _autoExtractOpen: false,
@@ -16,7 +16,7 @@ const worldView = {
 
   async onEnter() {
     this._entities = []
-    this._candidates = []
+    this._batches = []
 
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
@@ -47,11 +47,10 @@ const worldView = {
 
     try {
       if (state.currentProjectId) {
-        const data = await api.world.listCandidates({ novel_id: state.currentProjectId, status: "pending" })
-        this._candidates = data.items || data || []
+        this._batches = await api.world.listEntityBatches({ novel_id: state.currentProjectId })
       }
     } catch {
-      this._candidates = []
+      this._batches = []
     }
   },
 
@@ -66,11 +65,10 @@ const worldView = {
     const subView = state.currentSubView || "objects"
     let html = ''
 
-    // 子标签导航
+    // 子标签导航（移除了"候选清洗"）
     html += `
       <div class="subnav">
         <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
-        <span class="subnav-item ${subView === "candidates" ? "active" : ""}" data-subview="candidates" data-action="nav-candidates">候选清洗</span>
         <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
         <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
       </div>
@@ -78,8 +76,6 @@ const worldView = {
 
     if (subView === "objects") {
       html += this._renderEntityList()
-    } else if (subView === "candidates") {
-      html += this._renderCandidatesList()
     } else if (subView === "relations") {
       html += await this._renderRelations()
     } else if (subView === "aliases") {
@@ -160,7 +156,16 @@ const worldView = {
         }
         try { localStorage.removeItem("novel_world_extract_task") } catch {}
         if (data.status === "done") {
-          toast("识别任务已完成，请查看候选清洗", "success")
+          toast("识别任务已完成，对象已自动入库", "success")
+          // 刷新列表
+          if (state.currentProjectId) {
+            const entitiesData = await api.world.listEntities({ novel_id: state.currentProjectId })
+            this._entities = entitiesData.items || entitiesData || []
+            try {
+              this._batches = await api.world.listEntityBatches({ novel_id: state.currentProjectId })
+            } catch {}
+          }
+          router.navigate("world", state.currentSubView)
         } else if (data.status === "failed") {
           toast(`识别任务失败: ${data.error_message || "未知错误"}`, "error")
         }
@@ -189,7 +194,7 @@ const worldView = {
             <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
             <button class="btn" data-action="toggle-extract">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
           </div>
-          ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象候选") : ""}
+          ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
         </div>
       `
     }
@@ -201,29 +206,99 @@ const worldView = {
           ${this._autoExtractOpen ? "▾" : "▸"} 自动识别
         </button>
       </div>
-      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象候选") : ""}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>状态</th>
-            <th>类型</th>
-            <th>名称</th>
-            <th>重要度</th>
-            <th>摘要</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
+      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
     `
 
-    for (const e of this._entities) {
+    // 判断是否有自动入库批次
+    const hasBatches = this._batches && this._batches.length > 0
+
+    if (hasBatches) {
+      // 收集所有自动入库实体的 ID
+      const autoIngestedIds = new Set()
+      const batchEntityIds = new Map() // entity_id -> { batch_id, ingested_at }
+      for (const batch of this._batches) {
+        for (const entity of (batch.entities || [])) {
+          autoIngestedIds.add(entity.id)
+          batchEntityIds.set(entity.id, {
+            batch_id: batch.batch_id,
+            ingested_at: batch.ingested_at,
+          })
+        }
+      }
+
+      // 分两组：自动入库 vs 手动/其他
+      const autoEntities = []
+      const manualEntities = []
+      for (const e of this._entities) {
+        const eid = e.id || e.entity_id
+        if (autoIngestedIds.has(eid)) {
+          autoEntities.push(e)
+        } else {
+          manualEntities.push(e)
+        }
+      }
+
+      // 渲染自动入库批次折叠区
+      if (autoEntities.length > 0) {
+        html += `<div style="margin-bottom:12px;">`
+        html += `<details open style="border:1px solid var(--border);border-radius:4px;overflow:hidden;">`
+        html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
+          <span style="color:var(--accent);">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
+        </summary>`
+        html += this._renderEntityTable(autoEntities, { showNewBadge: true })
+        html += `</details></div>`
+      }
+
+      // 渲染手动创建区
+      if (manualEntities.length > 0) {
+        html += `<details ${!autoEntities.length > 0 ? "open" : ""} style="border:1px solid var(--border);border-radius:4px;overflow:hidden;">`
+        html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
+          其他对象 — ${manualEntities.length} 个
+        </summary>`
+        html += this._renderEntityTable(manualEntities, { showNewBadge: false })
+        html += `</details>`
+      }
+    } else {
+      // 没有自动入库记录，用普通表格
+      html += this._renderEntityTable(this._entities, { showNewBadge: false })
+    }
+
+    return html
+  },
+
+  _formatBatchTime(isoStr) {
+    if (!isoStr) return ""
+    try {
+      const d = new Date(isoStr)
+      const pad = (n) => String(n).padStart(2, "0")
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    } catch { return isoStr }
+  },
+
+  _renderEntityTable(entities, { showNewBadge }) {
+    let html = `<table class="data-table" style="border-top:none;">
+      <thead>
+        <tr>
+          <th>状态</th>
+          <th>类型</th>
+          <th>名称</th>
+          <th>重要度</th>
+          <th>摘要</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+    `
+
+    for (const e of entities) {
       const statusClass = `badge-${e.status || "canonical"}`
       const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
+      const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;">新</span>' : ""
       html += `
         <tr data-id="${esc(e.id || e.entity_id)}" class="clickable">
           <td><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
           <td style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
-          <td>${esc(e.name)}</td>
+          <td>${esc(e.name)}${isNew}</td>
           <td>${esc(e.importance || e.importance_score || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
@@ -235,102 +310,7 @@ const worldView = {
     }
 
     html += '</tbody></table>'
-    html += `
-      <div style="margin-top:12px;text-align:center;">
-        <button class="btn" data-action="nav-candidates">查看候选（${this._candidates.length}）</button>
-      </div>
-    `
     return html
-  },
-
-  _renderCandidatesList() {
-    if (this._candidates.length === 0) {
-      return `
-        <div class="empty-state">
-          <div class="empty-icon">&#128269;</div>
-          <p>没有待处理的候选对象。</p>
-          <p>AI 从文本中抽取的候选对象会出现在这里，你可以决定如何处置它们。</p>
-          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
-            <button class="btn" data-action="nav-generate">去生成中心创建候选</button>
-          </div>
-        </div>
-      `
-    }
-
-    let html = `
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        以下是从文本中抽取的候选对象。请检查并决定如何处理。
-      </p>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>类型</th>
-            <th>重要度</th>
-            <th>建议动作</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-    `
-
-    for (const c of this._candidates) {
-      const actionMap = {
-        create_new: "创建新对象",
-        alias_of_existing: "作为别名",
-        merge_with_existing: "合并到已有",
-        temporary_only: "设为临时",
-        ignore: "忽略",
-        needs_user_decision: "需用户决定",
-      }
-
-      const isMergeCandidate = c.suggested_action === "alias_of_existing" || c.suggested_action === "merge_with_existing"
-
-      html += `
-        <tr data-id="${esc(c.id || c.candidate_id)}">
-          <td>${esc(c.name)}</td>
-          <td style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
-          <td>${esc(c.importance_score || c.importance || "-")}</td>
-          <td style="color:var(--warning)">${esc(actionMap[c.suggested_action] || c.suggested_action)}</td>
-          <td style="display:flex;gap:4px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(c.id || c.candidate_id)}">确认</button>
-            ${isMergeCandidate && c.suggested_existing_entity_name ? `
-              <button class="btn btn-sm" data-action="merge-candidate" data-id="${esc(c.id || c.candidate_id)}" data-entity-id="${esc(c.suggested_existing_entity_id)}" data-entity-name="${esc(c.suggested_existing_entity_name)}">合并到</button>
-            ` : ""}
-            <button class="btn btn-sm btn-danger" data-action="ignore-candidate" data-id="${esc(c.id || c.candidate_id)}">忽略</button>
-          </td>
-        </tr>
-      `
-    }
-
-    html += '</tbody></table>'
-    return html
-  },
-
-  async mergeCandidate(candidateId, targetEntityId, targetName) {
-    candidateId = candidateId || ""
-    targetEntityId = targetEntityId || ""
-    targetName = targetName || ""
-
-    confirmAction(
-      `将候选合并到「${esc(targetName)}」？\n\n候选名称会成为「${esc(targetName)}」的别名，概要等信息会追加合并。`,
-      async () => {
-        if (!state.currentProjectId) {
-          toast("请先选择项目", "warning")
-          return
-        }
-        try {
-          const result = await api.world.mergeCandidate(targetEntityId, candidateId, {
-            novel_id: state.currentProjectId,
-          })
-          toast(`已合并到「${esc(result.name || targetName)}」`, "success")
-          router.navigate("world", "candidates")
-        } catch (err) {
-          toast(`合并失败：${err.message}`, "error")
-        }
-      },
-      "确认合并"
-    )
   },
 
   async _renderRelations() {
@@ -577,49 +557,6 @@ const worldView = {
     }, "确认删除")
   },
 
-  acceptCandidate(id) {
-    const candidate = this._candidates.find((c) => (c.id || c.candidate_id) === id)
-    if (!candidate) return
-
-    const action = candidate.suggested_action || "create_new"
-    const actionText = {
-      create_new: "创建为新世界对象",
-      alias_of_existing: `作为 "${candidate.suggested_existing_entity_name || "已有对象"}" 的别名`,
-      merge_with_existing: `合并到 "${candidate.suggested_existing_entity_name || "已有对象"}"`,
-    }
-
-    confirmAction(
-      `确认将 "${candidate.name}" 处理为：${actionText[action] || action}？`,
-      async () => {
-        try {
-          await api.world.acceptCandidate(id, state.currentProjectId)
-          toast(`候选 "${candidate.name}" 已接受`, "success")
-          router.navigate("world", "candidates")
-        } catch (err) {
-          toast(`处理失败：${err.message}`, "error")
-        }
-      },
-      "确认"
-    )
-  },
-
-  ignoreCandidate(id) {
-    const candidate = this._candidates.find((c) => (c.id || c.candidate_id) === id)
-    confirmAction(
-      `确定忽略候选 "${candidate?.name || id}"？`,
-      async () => {
-        try {
-          await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" }, state.currentProjectId)
-          toast("已忽略", "success")
-          router.navigate("world", "candidates")
-        } catch (err) {
-          toast(`操作失败：${err.message}`, "error")
-        }
-      },
-      "忽略"
-    )
-  },
-
   _bindEvents() {
     const content = document.getElementById("workspace-content")
     if (!content) return
@@ -631,7 +568,6 @@ const worldView = {
       const id = t.getAttribute("data-id")
       switch (a) {
         case "nav-objects": router.navigate("world", "objects"); break
-        case "nav-candidates": router.navigate("world", "candidates"); break
         case "nav-relations": router.navigate("world", "relations"); break
         case "nav-aliases": router.navigate("world", "aliases"); break
         case "nav-generate": router.navigate("generate"); break
@@ -639,9 +575,6 @@ const worldView = {
         case "submit-extract": this._submitAutoExtract(t.getAttribute("data-type")); break
         case "edit-entity": if (id) this.editEntity(id); break
         case "delete-entity": if (id) this.deleteEntity(id); break
-        case "accept-candidate": if (id) this.acceptCandidate(id); break
-        case "merge-candidate": if (id) this.mergeCandidate(id, t.getAttribute("data-entity-id"), t.getAttribute("data-entity-name")); break
-        case "ignore-candidate": if (id) this.ignoreCandidate(id); break
         case "create-relation": this.showRelationCreateForm(); break
         case "delete-relation": if (id) this.deleteRelation(id); break
         case "create-alias": this.showAliasCreateForm(); break

@@ -15,11 +15,8 @@ from modules.world.contracts import (
     EventContract,
 )
 from modules.world.facade import (
-    accept_candidate,
-    count_pending_candidates,
     create_character,
     expand_related_entities,
-    find_duplicate_entity_candidates,
     find_similar_entities,
     get_characters_context,
     get_events_context,
@@ -32,36 +29,27 @@ from modules.world.models import (
     Character,
     CharacterKnowledge,
     CoreEntity,
-    EntityAlias,
-    EntityCandidate,
     EntityRelation,
     EntityRevision,
     Event,
-    Relationship,
-    WorldEntity,
 )
 from modules.world.schemas import (
     CharacterContextBundle,
     CharacterKnowledgeContext,
     CharacterResponse,
     CoreEntityResponse,
-    EntityAliasCreate,
-    EntityAliasResponse,
-    EntityCandidateCreate,
-    EntityCandidateResponse,
     EntityRelationCreate,
     EntityRelationResponse,
     EventContext,
-    EventsContextBundle,
     EventResponse,
-    RelationshipCreate,
-    RelationshipResponse,
+    EventsContextBundle,
     WorldContextBundle,
     WorldEntityContext,
     WorldEntityCreate,
     WorldEntityResponse,
     WorldEntityUpdate,
 )
+
 # 注意：不导出 Services — 其他模块只能通过 contracts/facade 访问
 
 __all__ = [
@@ -72,10 +60,6 @@ __all__ = [
     "EntityRevision",
     "Character",
     "CharacterKnowledge",
-    "WorldEntity",
-    "Relationship",
-    "EntityAlias",
-    "EntityCandidate",
     # Pydantic Schemas
     "CoreEntityResponse",
     "EventResponse",
@@ -89,12 +73,6 @@ __all__ = [
     "WorldEntityCreate",
     "WorldEntityUpdate",
     "WorldEntityResponse",
-    "RelationshipCreate",
-    "RelationshipResponse",
-    "EntityAliasCreate",
-    "EntityAliasResponse",
-    "EntityCandidateCreate",
-    "EntityCandidateResponse",
     "WorldEntityContext",
     "WorldContextBundle",
     # Contracts
@@ -107,12 +85,9 @@ __all__ = [
     # Facade
     "get_world_context",
     "expand_related_entities",
-    "find_duplicate_entity_candidates",
     "find_similar_entities",
     "merge_candidate_into_entity",
-    "accept_candidate",
     "list_entities",
-    "count_pending_candidates",
     "run_entity_extraction",
     "get_events_context",
     "create_character",

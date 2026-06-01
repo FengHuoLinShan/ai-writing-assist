@@ -20,35 +20,11 @@ EntityID: TypeAlias = str
 CharacterID: TypeAlias = str
 """人物 ID (UUID hex string)"""
 
-LocationID: TypeAlias = str
-"""地理地点 ID (UUID hex string)"""
-
 RelationshipID: TypeAlias = str
 """关系 ID (UUID hex string)"""
 
-MemoryRecordID: TypeAlias = str
-"""记忆记录 ID (UUID hex string)"""
-
-TimelineEventID: TypeAlias = str
-"""时间线事件 ID (UUID hex string)"""
-
-PlotThreadID: TypeAlias = str
-"""剧情线 ID (UUID hex string)"""
-
-ArcID: TypeAlias = str
-"""篇章 ID (UUID hex string)"""
-
-ChapterCardID: TypeAlias = str
-"""章节卡 ID (UUID hex string)"""
-
-ForeshadowingPlanID: TypeAlias = str
-"""伏笔计划 ID (UUID hex string)"""
-
-RevealPlanID: TypeAlias = str
-"""揭示计划 ID (UUID hex string)"""
-
-ReviewReportID: TypeAlias = str
-"""复查报告 ID (UUID hex string)"""
+SnapshotID: TypeAlias = str
+"""记忆快照 ID (UUID hex string)"""
 
 DraftID: TypeAlias = str
 """正文草稿 ID (UUID hex string)"""

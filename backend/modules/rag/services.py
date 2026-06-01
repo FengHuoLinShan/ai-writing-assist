@@ -770,19 +770,7 @@ async def _load_project_terms(
         # 世界对象词典失败不应阻断章节索引。
         pass
 
-    try:
-        from modules.outline.facade import list_thread_summaries
-
-        threads = await list_thread_summaries(db, novel_id_str, limit=200)
-        for thread in threads:
-            _add_term(
-                terms,
-                term=thread.get("name"),
-                target_id=str(thread.get("id")),
-                target_type="thread",
-            )
-    except Exception:
-        pass
+    # outline 模块已移除，剧情线术语不再录入
 
     terms.sort(key=lambda x: len(x["term"]), reverse=True)
     return terms
