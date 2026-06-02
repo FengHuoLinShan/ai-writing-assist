@@ -28,7 +28,8 @@ from core.dependencies import get_db
 import modules.imports.models  # noqa: F401
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
-# character/geo/memory/outline/review/timeline 已从 minimal-core 移除
+# character/geo/review/timeline 已从 minimal-core 移除
+import modules.outline.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 import infrastructure.tasks.models  # noqa: F401
