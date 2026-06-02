@@ -20,6 +20,8 @@ const writingView = {
   _loading: true,
   _publishTimer: null,
   _errorModalVisible: false,
+  _outlineThreads: [],
+  _outlineArc: null,
 
   // ============================================================
   // 生命周期
@@ -52,6 +54,8 @@ const writingView = {
     this._errorModalVisible = false
     this._loading = true
     this._publishTimer = null
+    this._outlineThreads = []
+    this._outlineArc = null
 
     if (!state.currentProjectId) {
       this._loading = false
@@ -73,6 +77,7 @@ const writingView = {
 
     if (saved && saved.currentChapter) {
       this._refreshVersions(saved.currentChapter)
+      this._loadOutlineData(saved.currentChapter)
     }
   },
 
@@ -100,9 +105,10 @@ const writingView = {
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px;">
         手动工作台 — 选择章节，撰写正文。
       </p>
-      <div style="display:grid;grid-template-columns:220px 1fr;gap:12px;align-items:start;">
+      <div style="display:grid;grid-template-columns:200px 1fr 260px;gap:12px;align-items:start;">
         ${this._renderChapterTree()}
         ${this._renderEditor()}
+        ${this._renderOutlinePanel()}
       </div>
       ${this._renderPublishBar()}
     `
@@ -235,6 +241,63 @@ const writingView = {
     return html
   },
 
+  // ============================================================
+  // 右侧：大纲面板
+  // ============================================================
+
+  _renderOutlinePanel() {
+    let html = `
+      <div class="card" style="max-height:600px;overflow-y:auto;font-size:12px;">
+        <div style="font-size:13px;font-weight:bold;margin-bottom:8px;">大纲</div>
+    `
+
+    if (this._outlineArc) {
+      const a = this._outlineArc
+      html += `
+        <div style="margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:bold;color:var(--accent);">${esc(a.title)}</div>
+          <div style="color:var(--text-dim);font-size:11px;">第 ${a.start_chapter}-${a.end_chapter} 章</div>
+          ${a.arc_goal ? `<div style="margin-top:4px;color:var(--text);">${esc(a.arc_goal)}</div>` : ''}
+          ${a.core_conflict ? `<div style="margin-top:3px;color:var(--text-dim);font-size:11px;">冲突：${esc(a.core_conflict)}</div>` : ''}
+          ${a.entry_hook ? `<div style="margin-top:3px;color:var(--text-dim);font-size:11px;">开篇：${esc(a.entry_hook)}</div>` : ''}
+          ${a.climax ? `<div style="margin-top:3px;color:var(--text-dim);font-size:11px;">高潮：${esc(a.climax)}</div>` : ''}
+        </div>
+        <hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">
+      `
+    } else {
+      html += `<div style="color:var(--text-dim);margin-bottom:8px;">未找到当前章节所属篇章</div><hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">`
+    }
+
+    if (this._outlineThreads.length > 0) {
+      html += `<div style="font-size:12px;font-weight:bold;margin-bottom:6px;">剧情线 (${this._outlineThreads.length})</div>`
+      for (const t of this._outlineThreads) {
+        const typeLabel = {
+          main: "主线", secondary: "副线", hidden: "暗线",
+          relationship: "关系线", villain: "反派线", foreshadowing: "伏笔线",
+        }[t.thread_type] || t.thread_type
+        html += `
+          <div style="margin-bottom:8px;padding:4px 6px;border-left:2px solid ${t.thread_type === 'main' ? 'var(--accent)' : 'var(--border)'};border-radius:0 3px 3px 0;">
+            <div style="font-weight:bold;font-size:12px;">${esc(t.name)} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${esc(typeLabel)}</span></div>
+            ${t.current_stage ? `<div style="color:var(--text-dim);font-size:11px;">阶段：${esc(t.current_stage)}</div>` : ''}
+            ${t.visible_goal ? `<div style="color:var(--text);font-size:11px;margin-top:2px;">${esc(t.visible_goal)}</div>` : ''}
+            ${t.summary ? `<div style="color:var(--text-dim);font-size:10px;margin-top:2px;">${esc(t.summary)}</div>` : ''}
+          </div>
+        `
+      }
+    } else {
+      html += `<div style="color:var(--text-dim);font-size:11px;">暂无活跃剧情线</div>`
+    }
+
+    html += `
+      <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);">
+        <button class="btn btn-sm" data-action="open-outline" style="font-size:11px;width:100%;">管理大纲</button>
+      </div>
+    `
+
+    html += '</div>'
+    return html
+  },
+
   _renderPublishBar() {
     if (!this._publishProgress) return ''
 
@@ -266,6 +329,26 @@ const writingView = {
   // 章节操作
   // ============================================================
 
+  async _loadOutlineData(chapterIndex) {
+    if (!state.currentProjectId) return
+    try {
+      const [threadsRes, arcsRes] = await Promise.all([
+        api.outline.listThreads(state.currentProjectId).catch(() => ({ items: [] })),
+        api.outline.listArcs(state.currentProjectId).catch(() => ({ items: [] })),
+      ])
+      this._outlineThreads = (threadsRes && threadsRes.items) || []
+      if (arcsRes && arcsRes.items) {
+        const arcs = arcsRes.items
+        this._outlineArc = arcs.find(a => a.start_chapter <= chapterIndex && a.end_chapter >= chapterIndex) || null
+      } else {
+        this._outlineArc = null
+      }
+    } catch {
+      this._outlineThreads = []
+      this._outlineArc = null
+    }
+  },
+
   async _selectChapter(chapterIndex) {
     delete state.viewStates.writing
     this._currentChapter = chapterIndex
@@ -277,7 +360,10 @@ const writingView = {
     this._isReadonly = false
     this._restoreSourceVersion = null
 
-    await this._refreshVersions(chapterIndex)
+    await Promise.all([
+      this._refreshVersions(chapterIndex),
+      this._loadOutlineData(chapterIndex),
+    ])
     await this._rerender()
   },
 
@@ -548,6 +634,81 @@ const writingView = {
     }
   },
 
+  _openOutlineManager() {
+    const novelId = state.currentProjectId
+    if (!novelId) return
+
+    let threadsHtml = ''
+    let arcsHtml = ''
+
+    Promise.all([
+      api.outline.listThreads(novelId).catch(() => ({ items: [] })),
+      api.outline.listArcs(novelId).catch(() => ({ items: [] })),
+    ]).then(([threadsRes, arcsRes]) => {
+      const threads = threadsRes.items || []
+      const arcs = arcsRes.items || []
+
+      threadsHtml = threads.map(t => `
+        <div style="margin-bottom:6px;padding:6px;background:var(--hover-bg);border-radius:4px;">
+          <div style="font-weight:bold;font-size:12px;">${esc(t.name)} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${esc(t.thread_type)}</span></div>
+          <div style="color:var(--text-dim);font-size:11px;">阶段：${esc(t.current_stage || '-')} | 起止：第${t.start_chapter || '?'}章 → 第${t.planned_payoff_chapter || '?'}章</div>
+          ${t.visible_goal ? `<div style="color:var(--text);font-size:11px;margin-top:2px;">${esc(t.visible_goal)}</div>` : ''}
+        </div>
+      `).join('') || '<div style="color:var(--text-dim);">暂无剧情线</div>'
+
+      arcsHtml = arcs.map(a => `
+        <div style="margin-bottom:6px;padding:6px;background:var(--hover-bg);border-radius:4px;">
+          <div style="font-weight:bold;font-size:12px;">${esc(a.title)}</div>
+          <div style="color:var(--text-dim);font-size:11px;">第 ${a.start_chapter || '?'}-${a.end_chapter || '?'} 章 | ${esc(a.current_stage || a.arc_goal || '')}</div>
+        </div>
+      `).join('') || '<div style="color:var(--text-dim);">暂无篇章纲</div>'
+
+      showModal("大纲管理", `
+        <div style="max-height:400px;overflow-y:auto;">
+          <div style="font-size:13px;font-weight:bold;margin-bottom:8px;">篇章纲 (${arcs.length})</div>
+          ${arcsHtml}
+          <hr style="border:none;border-top:1px solid var(--border);margin:10px 0;">
+          <div style="font-size:13px;font-weight:bold;margin-bottom:8px;">剧情线 (${threads.length})</div>
+          ${threadsHtml}
+          <hr style="border:none;border-top:1px solid var(--border);margin:10px 0;">
+          <div style="font-size:12px;color:var(--text-dim);">
+            <p>大纲由 AI 生成或手动管理。</p>
+            <button class="btn btn-primary" id="btn-generate-outline" style="width:100%;margin-top:8px;">AI 生成剧情结构</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:6px;justify-content:flex-end;">
+          <button class="btn" onclick="closeModal()">关闭</button>
+        </div>
+      `)
+      setTimeout(() => {
+        const genBtn = document.getElementById("btn-generate-outline")
+        if (genBtn) genBtn.onclick = () => {
+          closeModal()
+          this._generateOutline()
+        }
+      }, 100)
+    })
+  },
+
+  async _generateOutline() {
+    if (!state.currentProjectId) return
+    const start = prompt("起始章节：", "1")
+    if (!start) return
+    const end = prompt("结束章节：", "10")
+    if (!end) return
+
+    try {
+      const result = await api.outline.generate(state.currentProjectId, parseInt(start), parseInt(end))
+      toast(`已生成 ${result.total_threads} 条剧情线、${result.total_arcs} 个篇章纲`, "success")
+      if (this._currentChapter) {
+        await this._loadOutlineData(this._currentChapter)
+        await this._rerender()
+      }
+    } catch (err) {
+      toast("生成失败：" + (err.message || "未知错误"), "error")
+    }
+  },
+
   _dismissPublishError() {
     this._publishProgress = null
     this._publishTaskId = null
@@ -636,6 +797,7 @@ const writingView = {
         case "restore-from-version": this._restoreFromVersion(); break
         case "delete-version": this._deleteVersion(); break
         case "dismiss-publish-error": this._dismissPublishError(); break
+        case "open-outline": this._openOutlineManager(); break
       }
     }
     content.addEventListener("click", this._clickHandler)

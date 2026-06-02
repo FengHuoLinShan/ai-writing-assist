@@ -274,13 +274,15 @@ async def root():
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
 
 from infrastructure.tasks import api as tasks_api
-# geo/outline/review — 已从 minimal-core 移除
+# geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api
 from modules.memory import api as memory_api
 import modules.world.tasks  # noqa: F401 — 注册世界模块任务处理器
 import modules.rag.tasks  # noqa: F401 — 注册 RAG 索引/重建任务处理器
+import modules.outline.tasks  # noqa: F401 — 注册剧情结构生成任务处理器
 from modules.context import api as context_api
+from modules.outline import api as outline_api
 from modules.project import api as project_api
 from modules.rag import api as rag_api
 from modules.world import api as world_api
@@ -290,6 +292,7 @@ app.include_router(project_api.router)
 app.include_router(imports_api.router)
 app.include_router(world_api.router)
 app.include_router(memory_api.router)
+app.include_router(outline_api.router)
 app.include_router(rag_api.router)
 app.include_router(context_api.router)
 app.include_router(writing_api.router)

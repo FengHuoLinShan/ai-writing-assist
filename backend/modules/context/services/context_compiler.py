@@ -12,6 +12,8 @@ from modules.context.services.loaders import (
     CharactersLoader,
     EventsLoader,
     MemoryRecordsLoader,
+    OutlineArcLoader,
+    PlotThreadsLoader,
     ProjectLoader,
     RagChunksLoader,
     WorldEntitiesLoader,
@@ -29,14 +31,17 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "arc": [
         "project", "world_entities", "characters",
         "memory_records", "events", "rag_chunks",
+        "plot_threads", "outline_arc",
     ],
     "chapter": [
         "project", "world_entities", "characters",
         "memory_records", "events", "rag_chunks",
+        "plot_threads", "outline_arc",
     ],
     "full": [
         "project", "world_entities", "characters",
         "memory_records", "events", "rag_chunks",
+        "plot_threads", "outline_arc",
     ],
 }
 
@@ -64,6 +69,8 @@ class ContextCompiler:
             EventsLoader(),
             MemoryRecordsLoader(),
             RagChunksLoader(),
+            PlotThreadsLoader(),
+            OutlineArcLoader(),
         ]
 
     async def compile(

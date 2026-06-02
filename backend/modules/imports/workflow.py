@@ -146,6 +146,21 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        """outline 模块已移除（minimal-core），跳过剧情结构生成"""
-        logger.warning("outline 模块已移除，跳过剧情结构生成")
-        return {"total_threads": 0, "total_arcs": 0, "threads": [], "arcs": []}
+        """调用 outline 模块生成剧情结构和篇章纲"""
+        from modules.outline.facade import generate_plot_structure
+
+        try:
+            result = await generate_plot_structure(
+                db, novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+            logger.info(
+                "剧情结构生成完成: %d 条剧情线, %d 个篇章纲",
+                result["total_threads"],
+                result["total_arcs"],
+            )
+            return result
+        except Exception as exc:
+            logger.warning("剧情结构生成失败: %s", exc)
+            return {"total_threads": 0, "total_arcs": 0, "threads": [], "arcs": []}

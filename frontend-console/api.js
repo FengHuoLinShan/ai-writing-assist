@@ -477,6 +477,62 @@ const api = {
   },
 
   // ============================================================
+  // 大纲
+  // ============================================================
+  outline: {
+    /** 列出剧情线 */
+    async listThreads(novelId) {
+      return request("/outline/threads" + buildQueryString({ novel_id: novelId }))
+    },
+
+    /** 创建剧情线 */
+    async createThread(novelId, data) {
+      return request(`/outline/threads?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+
+    /** 更新剧情线 */
+    async updateThread(threadId, novelId, data) {
+      return request(`/outline/threads/${threadId}?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+
+    /** 删除剧情线 */
+    async deleteThread(threadId, novelId) {
+      return request(`/outline/threads/${threadId}?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "DELETE",
+      })
+    },
+
+    /** 列出篇章纲 */
+    async listArcs(novelId) {
+      return request("/outline/arcs" + buildQueryString({ novel_id: novelId }))
+    },
+
+    /** 创建篇章纲 */
+    async createArc(novelId, data) {
+      return request(`/outline/arcs?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+
+    /** 生成剧情结构 */
+    async generate(novelId, startChapter, endChapter) {
+      return request(`/outline/generate?novel_id=${encodeURIComponent(novelId)}&start_chapter=${startChapter}&end_chapter=${endChapter}`, {
+        method: "POST",
+      })
+    },
+  },
+
+  // ============================================================
   // 任务（异步操作）
   // ============================================================
   tasks: {
