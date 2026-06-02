@@ -33,3 +33,11 @@
 - suggested_existing_entity_name: 如果 suggested_action 是 alias_of_existing 或 merge_with_existing，填写匹配的已有对象名称
 - candidate_reason: 为什么抽取此对象
 - confidence: 置信度 0.0~1.0
+- aliases: 章节中出现的别名/称号列表（list[{alias: str, type: str}] | null）
+
+## 别名规则
+
+1. 如果章节中有对某对象的新称呼（非已有名称），填入 aliases
+2. 不要为已有对象的正名填入别名（正名已作为 name 输出）
+3. type 可选值: nickname / title / alias / codename / honorific
+4. 如果没有新别名，aliases 输出 null

@@ -128,6 +128,7 @@ class EntityExtractionService:
                     candidate_reason: str
                     confidence: float
                     source_chapter: int | None = None
+                    aliases: list[dict] | None = None
 
                 class _ExtractionOutput(BaseModel):
                     entities: list[_ExtractedEntity]
@@ -140,7 +141,7 @@ class EntityExtractionService:
                 )
                 continue
 
-            # 4. 对每个结果：去重 + 直接创建 canonical 实体
+            # 4. 对每个结果：去重 + 别名同步 + 创建 canonical 实体
             for extracted in result.entities:
                 if not extracted.name or not extracted.name.strip():
                     total_skipped += 1
@@ -153,10 +154,33 @@ class EntityExtractionService:
 
                 high_confidence = [s for s in suggestions if s.similarity_score >= 0.88]
                 if high_confidence:
+                    # 别名同步：若有别名，追加到已有实体
+                    if extracted.aliases:
+                        best = high_confidence[0]
+                        existing_id = best.existing_entity_id
+                        await self._sync_aliases_to_existing(
+                            db, existing_id, novel_id, extracted.aliases,
+                        )
                     total_skipped += 1
                     continue
 
                 src_ch = extracted.source_chapter or batch[0]["chapter_index"]
+
+                content_json: dict[str, Any] = {
+                    "_meta": {
+                        "auto_ingested": True,
+                        "ingested_at": datetime.now(UTC).isoformat(),
+                        "batch_id": run_batch_id,
+                        "source_chapter_index": src_ch,
+                        "confidence": min(max(extracted.confidence, 0.0), 1.0),
+                    },
+                }
+                if extracted.aliases:
+                    content_json["aliases"] = [
+                        {"alias": a.get("alias", "").strip(), "type": a.get("type", "name")}
+                        for a in extracted.aliases
+                        if isinstance(a, dict) and a.get("alias")
+                    ]
 
                 entity_data = CoreEntityCreate(
                     name=extracted.name.strip(),
@@ -167,15 +191,7 @@ class EntityExtractionService:
                     importance=min(max(extracted.importance, 0.0), 1.0),
                     status="canonical",
                     created_by="ai_import",
-                    content_json={
-                        "_meta": {
-                            "auto_ingested": True,
-                            "ingested_at": datetime.now(UTC).isoformat(),
-                            "batch_id": run_batch_id,
-                            "source_chapter_index": src_ch,
-                            "confidence": min(max(extracted.confidence, 0.0), 1.0),
-                        },
-                    },
+                    content_json=content_json,
                 )
                 try:
                     entity = await self._entity_repo.create(db, nid, entity_data)
@@ -197,6 +213,45 @@ class EntityExtractionService:
             total_skipped=total_skipped,
             items=created_items,
         )
+
+    async def _sync_aliases_to_existing(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        novel_id: str,
+        aliases: list[dict],
+    ) -> None:
+        """将别名追加到已有实体的 content_json.aliases，去重。"""
+        from modules.world.services.helpers import find_alias_in_list
+
+        eid = parse_uuid(entity_id, "entity_id")
+        entity = await self._entity_repo.get(db, eid)
+        if entity is None:
+            return
+
+        content = entity.content_json or {}
+        existing = content.get("aliases", [])
+        if not isinstance(existing, list):
+            existing = []
+        changed = False
+        for entry in aliases:
+            if not isinstance(entry, dict):
+                continue
+            alias_text = entry.get("alias", "")
+            if not alias_text or not alias_text.strip():
+                continue
+            if find_alias_in_list(existing, alias_text.strip()):
+                continue
+            existing.append({
+                "alias": alias_text.strip(),
+                "type": entry.get("type", "name"),
+            })
+            changed = True
+
+        if changed:
+            content["aliases"] = existing
+            entity.content_json = content
+            await db.flush()
 
     async def _load_chapters(
         self,

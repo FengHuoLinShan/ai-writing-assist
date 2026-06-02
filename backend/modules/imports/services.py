@@ -13,6 +13,8 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
+from shared.enums import TaskStatus as TaskStatusEnum
 from modules.imports.models import ImportRecord
 from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_file
 from modules.imports.repositories import ImportRecordRepository
@@ -66,7 +68,7 @@ class ImportService:
                     detail="文件中未解析出任何章节",
                 )
 
-            # 逐章创建 WritingDraft
+            # 逐章创建 WritingDraft + 排 RAG 索引任务
             imported = 0
             for idx, ch in enumerate(chapters, start=1):
                 draft_data = WritingDraftCreate(
@@ -77,6 +79,15 @@ class ImportService:
                 )
                 _, __ = await create_draft(db, draft_data)
                 imported += 1
+
+                task = AsyncTask(
+                    id=uuid.uuid4(),
+                    task_type="rag_index_chapter",
+                    status=TaskStatusEnum.pending.value,
+                    meta={"novel_id": novel_id, "chapter_index": idx},
+                    progress=0.0,
+                )
+                db.add(task)
 
             # 更新记录为完成
             record = await self._repo.update_status(

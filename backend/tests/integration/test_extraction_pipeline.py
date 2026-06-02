@@ -231,7 +231,7 @@ class TestEntityExtraction:
         )
         assert len(result["items"]) > 0
         for item in result["items"]:
-            assert "candidate_id" in item
+            assert "id" in item, f"item missing 'id': {item}"
             assert "name" in item
             assert "entity_type" in item
 
