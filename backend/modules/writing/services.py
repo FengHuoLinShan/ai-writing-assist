@@ -2,13 +2,10 @@
 Writing 业务逻辑层
 
 调用 repository 完成业务操作。
-服务层可包含业务规则，但不直接操作数据库。
 """
-
 from __future__ import annotations
 
 import logging
-import uuid
 
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -39,7 +36,7 @@ class WritingDraftService:
         db: AsyncSession,
         data: WritingDraftCreate,
     ) -> WritingDraftResponse:
-        """创建新草稿（自动创建新版本）"""
+        """创建新草稿版本（发布）"""
         draft = await self._repo.create(db, data)
         return WritingDraftResponse.model_validate(draft)
 
@@ -67,7 +64,7 @@ class WritingDraftService:
         data: WritingDraftUpdate,
         novel_id: str,
     ) -> WritingDraftResponse:
-        """更新草稿"""
+        """暂存草稿（原地更新最新版本，不创建新版本）"""
         did = parse_uuid(draft_id, "draft")
         nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -76,8 +73,13 @@ class WritingDraftService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
-        draft = await self._repo.update(db, did, data)
-        return WritingDraftResponse.model_validate(draft)
+        updated = await self._repo.update(db, did, data)
+        if updated is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Draft {draft_id} not found",
+            )
+        return WritingDraftResponse.model_validate(updated)
 
     async def delete_draft(
         self,
@@ -85,7 +87,7 @@ class WritingDraftService:
         draft_id: str,
         novel_id: str,
     ) -> None:
-        """删除草稿"""
+        """删除单个版本（至少保留 1 个版本）"""
         did = parse_uuid(draft_id, "draft")
         nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -94,7 +96,22 @@ class WritingDraftService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
-        await self._repo.delete(db, did)
+        ok = await self._repo.delete(db, did)
+        if not ok:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete the last version of a chapter",
+            )
+
+    async def delete_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+    ) -> int:
+        """删除整章所有版本。返回删除的版本数。"""
+        nid = parse_uuid(novel_id, "novel")
+        return await self._repo.delete_all_versions(db, nid, chapter_index)
 
     async def get_latest_draft(
         self,
@@ -160,11 +177,9 @@ class WritingDraftService:
         return WritingDraftContract(
             novel_id=str(draft.novel_id),  # type: ignore[union-attr]
             chapter_index=draft.chapter_index,  # type: ignore[union-attr]
-            chapter_card_id=str(draft.chapter_card_id) if draft.chapter_card_id else None,
             title=draft.title,  # type: ignore[union-attr]
             content=draft.content,  # type: ignore[union-attr]
             version_number=draft.version_number,  # type: ignore[union-attr]
-            status=draft.status,  # type: ignore[union-attr]
         )
 
     async def list_chapter_indices(
@@ -175,34 +190,3 @@ class WritingDraftService:
         """列出该小说所有有草稿的章节索引"""
         nid = parse_uuid(novel_id, "novel")
         return await self._repo.list_chapter_indices(db, nid)
-
-    # ============================================================
-    # 内部工具
-    # ============================================================
-
-
-class WritingAnalysisService:
-
-    async def analyze_chapter(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        chapter_index: int,
-        content: str,
-    ) -> tuple[bool, str]:
-        """完成章节后捕获世界状态快照
-
-        调用 memory 模块记录当前章节的世界全景。
-        LLM 地缘分析将在后续版本中接入事件溯源流。
-        """
-        try:
-            from modules.memory.facade import capture_snapshot
-            snapshot = await capture_snapshot(db, novel_id, chapter_index)
-            logger.info(
-                "Chapter %d snapshot captured: %s", chapter_index, snapshot.id,
-            )
-            return True, "success"
-        except Exception:
-            logger.warning("Failed to capture snapshot for chapter %d", chapter_index, exc_info=True)
-            return False, "failed"
-

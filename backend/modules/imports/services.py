@@ -75,7 +75,7 @@ class ImportService:
                     title=ch.get("title") or f"第{idx}章",
                     content=ch.get("content", ""),
                 )
-                await create_draft(db, draft_data)
+                _, __ = await create_draft(db, draft_data)
                 imported += 1
 
             # 更新记录为完成

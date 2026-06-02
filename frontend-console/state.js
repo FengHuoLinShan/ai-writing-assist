@@ -346,8 +346,8 @@ function updateRightPanelForView(viewName) {
     },
 
     writing: {
-      title: "草稿导出",
-      content: '<div class="help-section"><h4>草稿与导出</h4><p>承载手写正文，导出创作包。</p></div>',
+      title: "手动工作台",
+      content: '<div class="help-section"><h4>手动工作台</h4><p>按章节撰写正文。支持暂存、发布、版本管理。</p><p>发布时自动存入 RAG 索引并创建世界状态快照。</p></div>',
     },
     generate: {
       title: "生成中心",

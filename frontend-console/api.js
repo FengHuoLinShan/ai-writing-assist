@@ -345,23 +345,44 @@ const api = {
   // 草稿
   // ============================================================
   writing: {
-    /** 获取章节草稿 */
-    async getDraft(chapterIndex, novelId) {
-      return request(`/writing/chapters/${chapterIndex}/draft${buildQueryString({ novel_id: novelId })}`)
-    },
-
-    /** 保存草稿 */
-    async saveDraft(payload) {
+    /** 发布章节（创建新版本 + RAG 索引 + memory 快照） */
+    async publish(payload) {
       return request("/writing/drafts", {
         method: "POST",
         body: JSON.stringify(payload),
       })
     },
 
-    /** 导出 */
-    async export(payload) {
-      // 导出功能通过 API 或直接生成
-      return request("/writing/drafts" + buildQueryString(payload))
+    /** 暂存草稿（原地更新最新版本，不创建新版本） */
+    async autosave(draftId, payload, novelId) {
+      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 获取章节最新草稿 */
+    async getDraft(chapterIndex, novelId) {
+      return request(`/writing/chapters/${chapterIndex}/draft${buildQueryString({ novel_id: novelId })}`)
+    },
+
+    /** 获取指定草稿 */
+    async get(draftId, novelId) {
+      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`)
+    },
+
+    /** 删除单个版本 */
+    async deleteDraft(draftId, novelId) {
+      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
+    },
+
+    /** 删除整章所有版本 */
+    async deleteChapter(chapterIndex, novelId) {
+      return request(`/writing/chapters/${chapterIndex}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
     },
 
     /** 获取有草稿的章节索引列表 */
@@ -369,26 +390,10 @@ const api = {
       return request(`/writing/chapters${buildQueryString({ novel_id: novelId })}`)
     },
 
-    /** 更新草稿状态 */
-    async updateDraftStatus(draftId, status, novelId) {
-      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PUT",
-        body: JSON.stringify({ status }),
-      })
-    },
-
-    async saveAndAnalyze(novelId, chapterIndex, content) {
-      return request("/writing/save-and-analyze", {
-        method: "POST",
-        body: JSON.stringify({ novel_id: novelId, chapter_index: chapterIndex, content }),
-      })
-    },
-
     /** 获取章节版本历史 */
     async getVersionHistory(chapterIndex, novelId) {
       return request(`/writing/chapters/${chapterIndex}/versions${buildQueryString({ novel_id: novelId })}`)
     },
-
   },
 
   // ============================================================

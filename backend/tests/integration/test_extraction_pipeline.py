@@ -96,12 +96,11 @@ async def chapter_draft(db_session: AsyncSession, novel_id: str) -> dict:
     from modules.writing.facade import create_draft
     from modules.writing.schemas import WritingDraftCreate
 
-    draft = await create_draft(
+    draft, _ = await create_draft(
         db_session,
         WritingDraftCreate(
             novel_id=novel_id,
             chapter_index=1,
-            chapter_card_id=None,
             title="落星阁",
             content=TEST_CHAPTER_TEXT,
         ),

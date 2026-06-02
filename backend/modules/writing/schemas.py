@@ -19,9 +19,9 @@ from shared.types import ChapterIndex
 # ============================================================
 
 class WritingDraftCreate(BaseModel):
-    """创建/保存草稿请求
+    """创建/发布草稿请求
 
-    如果相同 novel_id + chapter_index 已有草稿，应创建新版本。
+    每次调用自动递增版本号。
     """
 
     novel_id: str = Field(
@@ -32,10 +32,6 @@ class WritingDraftCreate(BaseModel):
         ...,
         ge=1,
         description="章节索引（从 1 开始）",
-    )
-    chapter_card_id: str | None = Field(
-        None,
-        description="关联的章节卡 ID",
     )
     title: str | None = Field(
         None,
@@ -48,14 +44,10 @@ class WritingDraftCreate(BaseModel):
 
 
 class WritingDraftUpdate(BaseModel):
-    """更新草稿请求（所有字段可选）"""
+    """暂存草稿请求（原地更新最新版本，不递增版本号）"""
 
     title: str | None = Field(None, description="草稿标题")
     content: str | None = Field(None, description="草稿正文")
-    status: str | None = Field(
-        None,
-        description="状态：draft / candidate / canonical / deprecated",
-    )
 
 
 # ============================================================
@@ -73,15 +65,13 @@ class WritingDraftResponse(BaseModel):
     id: str
     novel_id: str
     chapter_index: int
-    chapter_card_id: str | None = None
     title: str | None = None
     content: str | None = None
     version_number: int = 1
-    status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_validator("id", "novel_id", "chapter_card_id", mode="before")
+    @field_validator("id", "novel_id", mode="before")
     @classmethod
     def coerce_uuid_to_str(cls, v: object) -> str | None:
         """将 UUID 属性的原始值转为字符串"""
@@ -102,7 +92,6 @@ class DraftListItem(BaseModel):
     id: str
     version_number: int
     title: str | None = None
-    status: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

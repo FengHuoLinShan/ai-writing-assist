@@ -19,56 +19,44 @@ from modules.writing.services import WritingDraftService
 _service = WritingDraftService()
 
 
-def _enqueue_rag_index(
+def _enqueue_publish_task(
     db: AsyncSession,
     novel_id: str,
     chapter_index: int,
-) -> None:
+) -> str:
+    """入队发布任务，返回 task_id"""
     task = AsyncTask(
         id=uuid.uuid4(),
-        task_type="rag_index_chapter",
+        task_type="publish_chapter",
         status="pending",
         meta={"novel_id": novel_id, "chapter_index": chapter_index},
         progress=0.0,
     )
     db.add(task)
+    return str(task.id)
 
 
 async def create_draft(
     db: AsyncSession,
     data: WritingDraftCreate,
-) -> WritingDraftResponse:
-    """创建正文草稿
+) -> tuple[WritingDraftResponse, str]:
+    """创建正文草稿并触发发布流程
 
     供其他模块（如 imports）写入导入的章节正文。
 
-    Args:
-        db: 数据库 session
-        data: 草稿创建数据
-
     Returns:
-        WritingDraftResponse — 创建后的草稿信息
+        (WritingDraftResponse, task_id) — 草稿信息 + 发布任务 ID
     """
     draft = await _service.create_draft(db, data)
-    _enqueue_rag_index(db, data.novel_id, data.chapter_index)
-    return draft
+    task_id = _enqueue_publish_task(db, data.novel_id, data.chapter_index)
+    return draft, task_id
 
 
 async def get_draft(
     db: AsyncSession,
     draft_id: str,
 ) -> WritingDraftContract | None:
-    """获取单个草稿的契约信息
-
-    供其他模块（如 review、context）读取草稿内容。
-
-    Args:
-        db: 数据库 session
-        draft_id: 草稿 ID (UUID hex string)
-
-    Returns:
-        WritingDraftContract | None — 草稿不存在时返回 None
-    """
+    """获取单个草稿的契约信息"""
     return await _service.get_draft_contract(db, draft_id)
 
 
@@ -77,18 +65,7 @@ async def get_latest_draft_for_chapter(
     novel_id: str,
     chapter_index: int,
 ) -> WritingDraftContract | None:
-    """获取指定章节的最新草稿
-
-    供其他模块获取当前可用的最新版本正文。
-
-    Args:
-        db: 数据库 session
-        novel_id: 小说项目 ID
-        chapter_index: 章节索引
-
-    Returns:
-        WritingDraftContract | None — 无草稿时返回 None
-    """
+    """获取指定章节的最新草稿"""
     return await _service.get_latest_draft_contract(db, novel_id, chapter_index)
 
 
@@ -96,15 +73,5 @@ async def list_chapter_indices(
     db: AsyncSession,
     novel_id: str,
 ) -> list[int]:
-    """列出该小说所有有草稿的章节索引（去重、升序）
-
-    供前端构建章节树使用。
-
-    Args:
-        db: 数据库 session
-        novel_id: 小说项目 ID
-
-    Returns:
-        list[int] — 有草稿的章节索引列表
-    """
+    """列出该小说所有有草稿的章节索引（去重、升序）"""
     return await _service.list_chapter_indices(db, novel_id)
