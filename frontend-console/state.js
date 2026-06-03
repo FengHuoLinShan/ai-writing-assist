@@ -1,19 +1,12 @@
 ﻿/**
- * HTML 转义函数 — 防止 XSS
- * 将用户/LLM/API 数据安全地插入 innerHTML
- * 在所有脚本之前定义，所有视图均可使用
- */
-function esc(str) {
-  if (str === null || str === undefined) return ""
-  var s = String(str)
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;")
-}
-
-/**
  * 全局状态管理 — 使用 Proxy 实现响应式状态
  *
  * 状态变化时触发 onStateChange 回调，视图可监听状态变化刷新。
  * 所有 UI 状态集中管理，避免分散在各个视图中。
+ *
+ * esc() — shared/esc.js
+ * toast / showToastNotification — ui/toast.js
+ * showModal / closeModal / confirmAction — ui/modal.js
  */
 
 const appState = {
@@ -214,119 +207,6 @@ function updateUIForState(key, value) {
 }
 
 /**
- * 显示 Toast 通知
- * @param {{message:string, type?:string}|null} toast
- */
-function showToastNotification(toast) {
-  if (!toast || !toast.message) return
-
-  const container = document.getElementById("toast-container")
-  if (!container) return
-
-  // 清除旧的定时器和 toast 元素
-  if (appState._toastTimer !== null) {
-    clearTimeout(appState._toastTimer)
-    appState._toastTimer = null
-  }
-  const existingToasts = container.querySelectorAll(".toast")
-  existingToasts.forEach((t) => {
-    if (t.parentNode) t.parentNode.removeChild(t)
-  })
-
-  const el = document.createElement("div")
-  el.className = "toast " + (toast.type || "info")
-  el.textContent = toast.message
-  container.appendChild(el)
-
-  // 3 秒后自动消失
-  appState._toastTimer = setTimeout(() => {
-    if (el.parentNode) {
-      el.style.opacity = "0"
-      el.style.transition = "opacity 0.3s"
-      setTimeout(() => {
-        if (el.parentNode) el.parentNode.removeChild(el)
-        appState._toastTimer = null
-      }, 300)
-    }
-  }, 3000)
-}
-
-/**
- * 显示 Toast 通知的便捷函数
- * @param {string} message - 消息内容
- * @param {"info"|"success"|"warning"|"error"} type - 消息类型
- */
-function toast(message, type = "info") {
-  state.toast = { message, type }
-}
-
-/**
- * 显示模态框
- * @param {string} title - 标题
- * @param {string|HTMLElement} body - 内容
- * @param {Array<{text:string, class?:string, handler:function}>} buttons - 按钮
- */
-function showModal(title, body, buttons = []) {
-  const overlay = document.getElementById("modal-overlay")
-  const titleEl = document.getElementById("modal-title")
-  const bodyEl = document.getElementById("modal-body")
-  const footerEl = document.getElementById("modal-footer")
-
-  if (!overlay || !titleEl || !bodyEl || !footerEl) return
-
-  titleEl.textContent = title
-
-  if (typeof body === "string") {
-    bodyEl.innerHTML = body
-  } else {
-    bodyEl.innerHTML = ""
-    bodyEl.appendChild(body)
-  }
-
-  footerEl.innerHTML = ""
-  for (const btn of buttons) {
-    const el = document.createElement("button")
-    el.className = "btn " + (btn.class || "")
-    el.textContent = btn.text
-    el.addEventListener("click", () => {
-      btn.handler()
-      closeModal()
-    })
-    footerEl.appendChild(el)
-  }
-
-  // 如果有取消按钮，加在最后
-  if (!buttons.some((b) => b.text === "取消" || b.text === "关闭")) {
-    const cancel = document.createElement("button")
-    cancel.className = "btn"
-    cancel.textContent = "取消"
-    cancel.addEventListener("click", closeModal)
-    footerEl.appendChild(cancel)
-  }
-
-  overlay.classList.remove("hidden")
-}
-
-/** 关闭模态框 */
-function closeModal() {
-  const overlay = document.getElementById("modal-overlay")
-  if (overlay) overlay.classList.add("hidden")
-}
-
-/**
- * 显示确认对话框
- * @param {string} message - 确认消息
- * @param {function} onConfirm - 确认回调
- * @param {string} confirmText - 确认按钮文字
- */
-function confirmAction(message, onConfirm, confirmText = "确认") {
-  showModal("确认操作", `<p>${message}</p>`, [
-    { text: confirmText, class: "btn-danger", handler: onConfirm },
-    { text: "取消", handler: closeModal },
-  ])
-}
-
-/**
  * 根据当前视图更新右侧信息栏内容
  * @param {string} viewName - 视图名称
  */
@@ -367,8 +247,4 @@ function updateRightPanelForView(viewName) {
 // 导出到全局
 window.appState = state
 window.onStateChange = onStateChange
-window.toast = toast
-window.showModal = showModal
-window.closeModal = closeModal
-window.confirmAction = confirmAction
 window.updateRightPanelForView = updateRightPanelForView

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from fastapi import status as http_status
 
 from core.dependencies import DbSession
@@ -11,6 +11,7 @@ from modules.outline.facade import (
     delete_thread,
     generate_plot_structure,
     get_arc,
+    get_arc_by_chapter,
     get_thread,
     list_arcs,
     list_threads,
@@ -61,10 +62,7 @@ async def api_get_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    result = await get_thread(db, thread_id, novel_id)
-    if result is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Plot thread not found")
-    return result
+    return await get_thread(db, thread_id, novel_id=novel_id)
 
 
 @router.patch("/threads/{thread_id}", response_model=PlotThreadResponse)
@@ -74,10 +72,7 @@ async def api_update_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    result = await update_thread(db, thread_id, data)
-    if result is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Plot thread not found")
-    return result
+    return await update_thread(db, thread_id, data, novel_id=novel_id)
 
 
 @router.delete("/threads/{thread_id}", status_code=http_status.HTTP_204_NO_CONTENT)
@@ -86,9 +81,7 @@ async def api_delete_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    ok = await delete_thread(db, thread_id, novel_id)
-    if not ok:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Plot thread not found")
+    await delete_thread(db, thread_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -120,10 +113,7 @@ async def api_get_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    result = await get_arc(db, arc_id, novel_id)
-    if result is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Outline arc not found")
-    return result
+    return await get_arc(db, arc_id, novel_id=novel_id)
 
 
 @router.patch("/arcs/{arc_id}", response_model=OutlineArcResponse)
@@ -133,10 +123,7 @@ async def api_update_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    result = await update_arc(db, arc_id, data)
-    if result is None:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Outline arc not found")
-    return result
+    return await update_arc(db, arc_id, data, novel_id=novel_id)
 
 
 @router.delete("/arcs/{arc_id}", status_code=http_status.HTTP_204_NO_CONTENT)
@@ -145,9 +132,7 @@ async def api_delete_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    ok = await delete_arc(db, arc_id, novel_id)
-    if not ok:
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Outline arc not found")
+    await delete_arc(db, arc_id, novel_id=novel_id)
 
 
 # ============================================================

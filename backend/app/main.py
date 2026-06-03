@@ -22,7 +22,7 @@ from core.config import get_settings
 from core.database import get_manager
 
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
-import modules.project.models  # noqa: F401
+import modules.project.project  # noqa: F401
 import modules.world.models  # noqa: F401
 # character 模块已删除，角色功能在 modules.world
 
@@ -281,14 +281,16 @@ from modules.memory import api as memory_api
 import modules.world.tasks  # noqa: F401 — 注册世界模块任务处理器
 import modules.rag.tasks  # noqa: F401 — 注册 RAG 索引/重建任务处理器
 import modules.outline.tasks  # noqa: F401 — 注册剧情结构生成任务处理器
+import modules.imports.tasks  # noqa: F401 — 注册深度导入任务处理器
+import modules.writing.tasks  # noqa: F401 — 注册章节发布任务处理器
 from modules.context import api as context_api
 from modules.outline import api as outline_api
-from modules.project import api as project_api
+from modules.project.project import router as project_router
 from modules.rag import api as rag_api
 from modules.world import api as world_api
 from modules.writing import api as writing_api
 
-app.include_router(project_api.router)
+app.include_router(project_router)
 app.include_router(imports_api.router)
 app.include_router(world_api.router)
 app.include_router(memory_api.router)

@@ -4,6 +4,8 @@
  * 左侧章节树 → 中间编辑器 → 版本管理。
  * 支持暂存、发布、版本切换、整章删除。
  */
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const writingView = {
   _chapters: {},
   _chapterList: [],
@@ -778,29 +780,17 @@ const writingView = {
   // ============================================================
 
   _bindEvents() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-    content.removeEventListener("click", this._clickHandler)
-
-    this._clickHandler = (e) => {
-      const t = e.target.closest("[data-action]")
-      if (!t) return
-      const a = t.getAttribute("data-action")
-      const id = t.getAttribute("data-id")
-
-      switch (a) {
-        case "select-chapter": this._selectChapter(parseInt(t.getAttribute("data-chapter"), 10)); break
-        case "new-chapter": this._newChapter(); break
-        case "delete-chapter": this._deleteChapter(parseInt(t.getAttribute("data-chapter"), 10)); break
-        case "autosave": this._autosave(); break
-        case "publish": this._publish(); break
-        case "restore-from-version": this._restoreFromVersion(); break
-        case "delete-version": this._deleteVersion(); break
-        case "dismiss-publish-error": this._dismissPublishError(); break
-        case "open-outline": this._openOutlineManager(); break
-      }
-    }
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "select-chapter": (_e, t) => this._selectChapter(parseInt(t.getAttribute("data-chapter"), 10)),
+      "new-chapter": () => this._newChapter(),
+      "delete-chapter": (_e, t) => this._deleteChapter(parseInt(t.getAttribute("data-chapter"), 10)),
+      "autosave": () => this._autosave(),
+      "publish": () => this._publish(),
+      "restore-from-version": () => this._restoreFromVersion(),
+      "delete-version": () => this._deleteVersion(),
+      "dismiss-publish-error": () => this._dismissPublishError(),
+      "open-outline": () => this._openOutlineManager(),
+    })
 
     const versionSelector = document.getElementById("version-selector")
     if (versionSelector) {

@@ -88,7 +88,6 @@ async def test_index_chapter_creates_chunks_with_character_ids(
         title="第一章",
         content="测试主角从沉睡中醒来。测试主角环顾四周。",
         version_number=1,
-        status="draft",
     )
     db_session.add(draft)
     await db_session.flush()
@@ -138,7 +137,6 @@ async def test_index_chapter_replaces_old_chunks(
         title="第一章",
         content="测试主角做了某事。",
         version_number=2,
-        status="draft",
     )
     db_session.add(draft)
     await db_session.flush()
@@ -175,7 +173,6 @@ async def test_index_chapter_with_embeddings(
         title="第一章",
         content="测试主角的欲望是找到真相。",
         version_number=1,
-        status="draft",
     )
     db_session.add(draft)
     await db_session.flush()
@@ -260,7 +257,6 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
             "他看见神秘空间一样的灰雾在眼前翻涌。" * 20
         ),
         version_number=1,
-        status="draft",
     ))
     await db_session.flush()
 
@@ -308,7 +304,6 @@ async def test_index_chapter_embedding_empty_when_no_llm(
         title="第一章",
         content="测试内容。",
         version_number=1,
-        status="draft",
     )
     db_session.add(draft)
     await db_session.flush()
@@ -351,7 +346,6 @@ async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
             title=f"第{idx}章",
             content=f"第{idx}章正文。周明瑞醒来并观察这个世界。" * 8,
             version_number=1,
-            status="draft",
         ))
     task = AsyncTask(
         id=uuid.uuid4(),

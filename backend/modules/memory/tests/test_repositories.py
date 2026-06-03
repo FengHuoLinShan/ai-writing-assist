@@ -175,7 +175,7 @@ class TestEventRepository:
     ) -> None:
         """两个 novel_id 各建事件，互不干扰"""
         nid2 = uuid.uuid4()
-        from modules.project.models import Project
+        from modules.project.project import Project
         p2 = Project(id=nid2, title="另一个项目", genre="科幻")
         db_with_project.add(p2)
         await db_with_project.flush()

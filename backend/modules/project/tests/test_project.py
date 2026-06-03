@@ -14,14 +14,14 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.facade import get_project_context
-from modules.project.repositories import ProjectRepository
-from modules.project.schemas import (
+from modules.project.project import get_project_context
+from modules.project.project import ProjectRepository
+from modules.project.project import (
     ProjectContext,
     ProjectCreate,
     ProjectUpdate,
 )
-from modules.project.services import ProjectService
+from modules.project.project import ProjectService
 
 
 # ============================================================

@@ -31,33 +31,8 @@ from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TA
 
 logger = logging.getLogger(__name__)
 
-# 自动发现并导入所有模块的 task handler（@task_handler 装饰器触发注册）
-# 注意：惰性导入避免在 conftest 等场景中触发副作用
-import importlib
-import os
-import modules
-
-
 # 注册 projects 表（NovelMixin FK 依赖）
-import modules.project.models  # noqa: F401
-
-
-_tasks_discovered = False
-
-
-def _discover_and_import_tasks() -> None:
-    """扫描 modules/*/tasks.py 自动注册所有 task handlers"""
-    global _tasks_discovered
-    if _tasks_discovered:
-        return
-    _tasks_discovered = True
-    modules_path = modules.__path__[0]  # type: ignore[attr-defined]
-    for name in sorted(os.listdir(modules_path)):
-        if name.startswith("_"):
-            continue
-        tasks_path = os.path.join(modules_path, name, "tasks.py")
-        if os.path.isfile(tasks_path):
-            importlib.import_module(f"modules.{name}.tasks")
+import modules.project.project  # noqa: F401
 
 
 class TaskWorker:

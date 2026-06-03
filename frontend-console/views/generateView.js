@@ -2,6 +2,8 @@
  * 生成中心视图
  */
 
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const generateView = {
   onLeave() { this._currentType = null },
   _currentType: null,
@@ -95,20 +97,10 @@ const generateView = {
   },
 
   _bindEvents() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-    content.removeEventListener("click", this._clickHandler)
-    this._clickHandler = (e) => {
-      const target = e.target.closest("[data-action]")
-      if (!target) return
-      const action = target.getAttribute("data-action")
-      if (action === "select-type") {
-        this._selectType(target.getAttribute("data-type"))
-      } else if (action === "start-generate") {
-        this._startGenerate()
-      }
-    }
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "select-type": (_e, t) => this._selectType(t.getAttribute("data-type")),
+      "start-generate": () => this._startGenerate(),
+    })
   },
 
   _selectType(type) {

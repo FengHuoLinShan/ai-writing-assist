@@ -3,6 +3,8 @@
  *
  * 子标签：索引状态 | 搜索测试
  */
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const ragView = {
   _totalChunks: null,
   _embeddingFailedCount: 0,
@@ -194,10 +196,6 @@ const ragView = {
   },
 
   _bindEvents() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-    content.removeEventListener("click", this._clickHandler)
-
     // 搜索输入框的 Enter 快捷键
     const searchInput = document.getElementById("rag-search-input")
     if (searchInput) {
@@ -208,22 +206,15 @@ const ragView = {
       searchInput.addEventListener("keydown", this._searchEnterHandler)
     }
 
-    this._clickHandler = (e) => {
-      const t = e.target.closest("[data-action]")
-      if (!t) return
-      const a = t.getAttribute("data-action")
-      switch (a) {
-        case "nav-status": router.navigate("rag", "status"); break
-        case "nav-search": router.navigate("rag", "search"); break
-        case "do-search": {
-          const val = document.getElementById("rag-search-input")?.value
-          if (val) this._doSearch(val)
-          break
-        }
-        case "rebuild-index": this._rebuildIndex(); break
-      }
-    }
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "nav-status": () => router.navigate("rag", "status"),
+      "nav-search": () => router.navigate("rag", "search"),
+      "do-search": () => {
+        const val = document.getElementById("rag-search-input")?.value
+        if (val) this._doSearch(val)
+      },
+      "rebuild-index": () => this._rebuildIndex(),
+    })
   },
 }
 

@@ -725,6 +725,156 @@ class RetrievalService:
             return 0.0
         return matched_score / total_fields
 
+    # ============================================================
+    # 检索编排
+    # ============================================================
+
+    @staticmethod
+    def _is_rerank_enabled(mode: str) -> bool:
+        """检查是否启用 LLM 重排序。extraction 模式且配置开启时生效。"""
+        from core.config import get_settings
+
+        if mode not in ("extraction",):
+            return False
+        return get_settings().reranker_enabled
+
+    def _deduplicate_by_embedding(
+        self,
+        scored_chunks: list[tuple],
+        threshold: float = 0.9,
+    ) -> list[tuple]:
+        """对检索结果进行语义去重。
+
+        利用 chunk 的 embedding 计算余弦相似度，相似度 > threshold 的两个 chunk
+        仅保留 char_count 更大者。无 embedding 时跳过。
+        """
+        if len(scored_chunks) <= 1:
+            return scored_chunks
+
+        keep: list[tuple] = []
+        removed_indices: set[int] = set()
+
+        for i, (chunk_a, score_a) in enumerate(scored_chunks):
+            if i in removed_indices:
+                continue
+            keep.append((chunk_a, score_a))
+
+            emb_a = chunk_a.embedding
+            if emb_a is None:
+                continue
+            if not isinstance(emb_a, list):
+                continue
+
+            for j, (chunk_b, _score_b) in enumerate(scored_chunks):
+                if j <= i or j in removed_indices:
+                    continue
+
+                emb_b = chunk_b.embedding
+                if emb_b is None:
+                    continue
+                if not isinstance(emb_b, list):
+                    continue
+                if len(emb_a) != len(emb_b):
+                    continue
+
+                sim = self._cosine_similarity(emb_a, emb_b)
+                if sim > threshold:
+                    count_a = chunk_a.char_count or 0
+                    count_b = chunk_b.char_count or 0
+                    if count_a >= count_b:
+                        removed_indices.add(j)
+                    else:
+                        keep.pop()
+                        keep.append((chunk_b, _score_b))
+                        removed_indices.add(i)
+                        break
+
+        return keep
+
+    async def retrieve(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        query: str,
+        *,
+        entity_ids: list[str] | None = None,
+        character_ids: list[str] | None = None,
+        thread_ids: list[str] | None = None,
+        chapter_index: int | None = None,
+        visibility: str | None = None,
+        mode: str = "search",
+        top_k: int = 12,
+        reference_chapter_index: int | None = None,
+    ) -> list[tuple]:
+        """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序
+
+        封装完整检索流水线，facade 仅做参数转换与委托。
+        """
+        import time as _time
+
+        _t0 = _time.monotonic()
+        top_k = max(1, top_k)
+        query_embedding: list[float] | None = None
+
+        if await self._repo.has_embeddings(db, novel_id):
+            from modules.rag.circuit_breaker import get_circuit_breaker
+
+            cb = get_circuit_breaker()
+            if cb.allow_request():
+                try:
+                    from infrastructure.llm.client import LLMClient
+
+                    embedding = await LLMClient().generate_embedding(query, is_query=True)
+                    if (
+                        isinstance(embedding, list)
+                        and embedding
+                        and isinstance(embedding[0], float)
+                    ):
+                        query_embedding = embedding
+                        cb.record_success()
+                    else:
+                        cb.record_failure()
+                except Exception:
+                    cb.record_failure()
+
+        scored_chunks = await self.hybrid_search(
+            db,
+            novel_id,
+            query,
+            query_embedding=query_embedding,
+            entity_ids=entity_ids,
+            character_ids=character_ids,
+            thread_ids=thread_ids,
+            chapter_index=chapter_index,
+            visibility=visibility,
+            mode=mode,
+            top_k=top_k,
+            reference_chapter_index=reference_chapter_index,
+        )
+
+        deduped_chunks = self._deduplicate_by_embedding(scored_chunks, threshold=0.9)
+        rerank_enabled = self._is_rerank_enabled(mode)
+        if rerank_enabled and len(deduped_chunks) > top_k:
+            try:
+                from modules.rag.reranker import rerank_results
+
+                deduped_chunks = await rerank_results(query, deduped_chunks, top_k=top_k)
+            except Exception:
+                pass
+
+        deduped_chunks = deduped_chunks[:top_k]
+
+        _latency_ms = (_time.monotonic() - _t0) * 1000
+        from modules.rag.metrics import get_metrics
+
+        get_metrics().record(
+            latency_ms=_latency_ms,
+            degraded=query_embedding is None,
+            empty=len(deduped_chunks) == 0,
+        )
+
+        return deduped_chunks
+
 
 def _add_term(
     terms: list[dict[str, str]],

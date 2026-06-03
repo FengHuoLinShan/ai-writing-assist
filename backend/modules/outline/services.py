@@ -5,61 +5,34 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
 from modules.outline.contracts import OutlineArcContract, PlotThreadContract
+from modules.outline.models import OutlineArc, PlotThread
 from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
 from modules.outline.schemas import (
     OutlineArcCreate,
-    OutlineArcListResponse,
     OutlineArcResponse,
     OutlineArcUpdate,
     PlotThreadCreate,
-    PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
 )
-from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
 
 
-class PlotThreadService:
-    def __init__(self) -> None:
-        self._repo = PlotThreadRepository()
-
-    async def create(
-        self, db: AsyncSession, novel_id: str, data: PlotThreadCreate,
-    ) -> PlotThreadResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        thread = await self._repo.create(db, nid, data)
-        return PlotThreadResponse.model_validate(thread)
-
-    async def get(
-        self, db: AsyncSession, thread_id: str, novel_id: str,
-    ) -> PlotThreadResponse | None:
-        tid = parse_uuid(thread_id, "thread_id")
-        thread = await self._repo.get(db, tid)
-        if thread is None or str(thread.novel_id) != novel_id:
-            return None
-        return PlotThreadResponse.model_validate(thread)
-
-    async def list(
-        self, db: AsyncSession, novel_id: str,
-        *, skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
-    ) -> PlotThreadListResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.get_by_novel(db, nid, skip=skip, limit=limit)
-        return PlotThreadListResponse(
-            items=[PlotThreadResponse.model_validate(t) for t in items],
-            total=total,
-        )
+class PlotThreadService(CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]):
+    repo = PlotThreadRepository()
+    response = PlotThreadResponse
+    label = "PlotThread"
+    id_param = "thread_id"
 
     async def get_active(
         self, db: AsyncSession, novel_id: str, chapter_index: int,
     ) -> list[PlotThreadContract]:
         nid = parse_uuid(novel_id, "novel_id")
-        threads = await self._repo.get_active(db, nid, chapter_index)
+        threads = await self.repo.get_active(db, nid, chapter_index)
         return [
             PlotThreadContract(
                 id=str(t.id), novel_id=str(t.novel_id),
@@ -78,62 +51,18 @@ class PlotThreadService:
             for t in threads
         ]
 
-    async def update(
-        self, db: AsyncSession, thread_id: str, data: PlotThreadUpdate,
-    ) -> PlotThreadResponse | None:
-        tid = parse_uuid(thread_id, "thread_id")
-        thread = await self._repo.update(db, tid, data)
-        if thread is None:
-            return None
-        return PlotThreadResponse.model_validate(thread)
 
-    async def delete(
-        self, db: AsyncSession, thread_id: str, novel_id: str,
-    ) -> bool:
-        tid = parse_uuid(thread_id, "thread_id")
-        thread = await self._repo.get(db, tid)
-        if thread is None or str(thread.novel_id) != novel_id:
-            return False
-        return await self._repo.delete(db, tid)
-
-
-class OutlineArcService:
-    def __init__(self) -> None:
-        self._repo = OutlineArcRepository()
-
-    async def create(
-        self, db: AsyncSession, novel_id: str, data: OutlineArcCreate,
-    ) -> OutlineArcResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        arc = await self._repo.create(db, nid, data)
-        return OutlineArcResponse.model_validate(arc)
-
-    async def get(
-        self, db: AsyncSession, arc_id: str, novel_id: str,
-    ) -> OutlineArcResponse | None:
-        aid = parse_uuid(arc_id, "arc_id")
-        arc = await self._repo.get(db, aid)
-        if arc is None or str(arc.novel_id) != novel_id:
-            return None
-        return OutlineArcResponse.model_validate(arc)
-
-    async def list(
-        self, db: AsyncSession, novel_id: str,
-        *, skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
-    ) -> OutlineArcListResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.get_by_novel(db, nid, skip=skip, limit=limit)
-        return OutlineArcListResponse(
-            items=[OutlineArcResponse.model_validate(a) for a in items],
-            total=total,
-        )
+class OutlineArcService(CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse]):
+    repo = OutlineArcRepository()
+    response = OutlineArcResponse
+    label = "OutlineArc"
+    id_param = "arc_id"
 
     async def get_by_chapter(
         self, db: AsyncSession, novel_id: str, chapter_index: int,
     ) -> OutlineArcContract | None:
         nid = parse_uuid(novel_id, "novel_id")
-        arc = await self._repo.get_by_chapter(db, nid, chapter_index)
+        arc = await self.repo.get_by_chapter(db, nid, chapter_index)
         if arc is None:
             return None
         return OutlineArcContract(
@@ -149,24 +78,6 @@ class OutlineArcService:
             related_entity_ids=arc.related_entity_ids or [],
             status=arc.status,
         )
-
-    async def update(
-        self, db: AsyncSession, arc_id: str, data: OutlineArcUpdate,
-    ) -> OutlineArcResponse | None:
-        aid = parse_uuid(arc_id, "arc_id")
-        arc = await self._repo.update(db, aid, data)
-        if arc is None:
-            return None
-        return OutlineArcResponse.model_validate(arc)
-
-    async def delete(
-        self, db: AsyncSession, arc_id: str, novel_id: str,
-    ) -> bool:
-        aid = parse_uuid(arc_id, "arc_id")
-        arc = await self._repo.get(db, aid)
-        if arc is None or str(arc.novel_id) != novel_id:
-            return False
-        return await self._repo.delete(db, aid)
 
 
 class PlotStructureGenerator:

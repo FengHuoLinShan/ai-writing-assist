@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
 from modules.imports.services import ImportService
-from modules.project.models import Project
+from modules.project.project import Project
 from modules.writing.models import WritingDraft
 from modules.writing.facade import get_latest_draft_for_chapter
 from modules.world.models import CoreEntity
@@ -88,18 +88,17 @@ class TestImportFirst10Chapters:
         project_id = str(pid)
 
         # 3. 只导入前10章（写入 writing_drafts）
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
         for idx in range(FIRST_10_CHAPTER_COUNT):
             ch = all_chapters[idx]
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
         return {
@@ -160,18 +159,17 @@ class TestRealEntityExtraction:
 
         # 导入前10章
         all_chapters = parse_txt(file_bytes)
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
         for idx in range(FIRST_10_CHAPTER_COUNT):
             ch = all_chapters[idx]
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
         return {"project_id": project_id}
@@ -288,18 +286,17 @@ class TestRealWorkflowStep1:
 
         # 导入前5章（更快）
         all_chapters = parse_txt(file_bytes)
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
-        for idx in range(5):
+        for idx in range(FIRST_10_CHAPTER_COUNT):
             ch = all_chapters[idx]
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
 
@@ -353,18 +350,17 @@ class TestAutoIngestContextLoading:
 
         # 导入前10章
         all_chapters = parse_txt(file_bytes)
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
         for idx in range(FIRST_10_CHAPTER_COUNT):
             ch = all_chapters[idx]
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
 

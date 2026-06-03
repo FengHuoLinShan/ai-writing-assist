@@ -1,6 +1,8 @@
 /**
  * 世界对象视图
  */
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const worldView = {
   /** @type {Array} */
   _entities: [],
@@ -558,30 +560,20 @@ const worldView = {
   },
 
   _bindEvents() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-    content.removeEventListener("click", this._clickHandler)
-    this._clickHandler = (e) => {
-      const t = e.target.closest("[data-action]")
-      if (!t) return
-      const a = t.getAttribute("data-action")
-      const id = t.getAttribute("data-id")
-      switch (a) {
-        case "nav-objects": router.navigate("world", "objects"); break
-        case "nav-relations": router.navigate("world", "relations"); break
-        case "nav-aliases": router.navigate("world", "aliases"); break
-        case "nav-generate": router.navigate("generate"); break
-        case "toggle-extract": this._toggleAutoExtract(); break
-        case "submit-extract": this._submitAutoExtract(t.getAttribute("data-type")); break
-        case "edit-entity": if (id) this.editEntity(id); break
-        case "delete-entity": if (id) this.deleteEntity(id); break
-        case "create-relation": this.showRelationCreateForm(); break
-        case "delete-relation": if (id) this.deleteRelation(id); break
-        case "create-alias": this.showAliasCreateForm(); break
-        case "delete-alias": { const eid = t.getAttribute("data-entity-id"); if (eid) this.deleteAlias(eid, e); break }
-      }
-    }
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "nav-objects": () => router.navigate("world", "objects"),
+      "nav-relations": () => router.navigate("world", "relations"),
+      "nav-aliases": () => router.navigate("world", "aliases"),
+      "nav-generate": () => router.navigate("generate"),
+      "toggle-extract": () => this._toggleAutoExtract(),
+      "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
+      "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
+      "delete-entity": (_e, _t, ctx) => ctx.id && this.deleteEntity(ctx.id),
+      "create-relation": () => this.showRelationCreateForm(),
+      "delete-relation": (_e, _t, ctx) => ctx.id && this.deleteRelation(ctx.id),
+      "create-alias": () => this.showAliasCreateForm(),
+      "delete-alias": (_e, t) => { const eid = t.getAttribute("data-entity-id"); const alias = t.getAttribute("data-alias"); if (eid && alias) this.deleteAlias(eid, alias) },
+    })
 
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
   },

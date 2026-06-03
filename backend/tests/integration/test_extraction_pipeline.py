@@ -73,7 +73,7 @@ ORDINARY_PROPS = ["琉璃瓦"]
 @pytest_asyncio.fixture
 async def novel_id(db_session: AsyncSession) -> str:
     """创建测试项目"""
-    from modules.project.models import Project
+    from modules.project.project import Project
     import uuid
 
     pid = uuid.uuid4()
@@ -94,16 +94,13 @@ async def novel_id(db_session: AsyncSession) -> str:
 async def chapter_draft(db_session: AsyncSession, novel_id: str) -> dict:
     """写入测试章节草稿，返回 draft 信息"""
     from modules.writing.facade import create_draft
-    from modules.writing.schemas import WritingDraftCreate
 
     draft, _ = await create_draft(
         db_session,
-        WritingDraftCreate(
-            novel_id=novel_id,
-            chapter_index=1,
-            title="落星阁",
-            content=TEST_CHAPTER_TEXT,
-        ),
+        novel_id=novel_id,
+        chapter_index=1,
+        title="落星阁",
+        content=TEST_CHAPTER_TEXT,
     )
     await db_session.flush()
     return {"draft_id": str(draft.id), "novel_id": novel_id, "chapter_index": 1}

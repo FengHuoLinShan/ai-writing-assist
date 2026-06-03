@@ -12,6 +12,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.contracts import RagChunkContract, RagIndexReport, RagResultBundle
+from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate, RagChunkResponse
 from modules.rag.services import ChunkingService, IndexingService, RetrievalService
@@ -160,31 +161,7 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     }
 
 
-def _to_chunk_contract(chunk, score: float | None = None) -> RagChunkContract:
-    return RagChunkContract(
-        id=str(chunk.id),
-        novel_id=str(chunk.novel_id),
-        source_type=chunk.source_type,
-        source_id=str(chunk.source_id) if chunk.source_id else None,
-        chapter_index=chunk.chapter_index,
-        chunk_index=chunk.chunk_index,
-        start_offset=chunk.start_offset,
-        end_offset=chunk.end_offset,
-        char_count=chunk.char_count,
-        text=chunk.text,
-        summary=chunk.summary,
-        entity_ids=chunk.entity_ids or [],
-        character_ids=chunk.character_ids or [],
-        thread_ids=chunk.thread_ids or [],
-        visibility=chunk.visibility,
-        importance=chunk.importance,
-        index_version=chunk.index_version,
-        embedding_status=chunk.embedding_status,
-        embedding_error=chunk.embedding_error,
-        index_warnings=chunk.index_warnings or [],
-        meta=chunk.meta or {},
-        score=round(score, 4) if score is not None else None,
-    )
+# _to_chunk_contract 实现已移至 modules.rag.mappers
 
 
 async def get_ordered_chapter_chunks(

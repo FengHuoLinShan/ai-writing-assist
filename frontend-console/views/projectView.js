@@ -5,6 +5,8 @@
  * 生产环境通过 index.html 的 <script type="module"> 加载。
  */
 
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const projectView = {
   /** @type {Array} 导入记录 */
   _importRecords: [],
@@ -89,45 +91,16 @@ const projectView = {
     this._bindImportButtons()
   },
 
-  /** 全局事件委托：监听所有 data-action */
   _bindTableDelegation() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-
-    this._clickHandler = (e) => {
-      const target = e.target.closest("[data-action]")
-      if (!target) return
-
-      const action = target.getAttribute("data-action")
-      const id = target.getAttribute("data-id")
-
-      switch (action) {
-        case "open-project":
-          if (id) this.openProject(id)
-          break
-        case "edit-project":
-          if (id) this.editProject(id)
-          break
-        case "delete-project":
-          if (id) this.deleteProject(id)
-          break
-        case "new":
-          this.showCreateForm()
-          break
-        case "import":
-          this.importFile()
-          break
-        case "toggle-import":
-          this._toggleImportSection()
-          break
-        case "upload-file":
-          this._uploadFile()
-          break
-      }
-    }
-
-    content.removeEventListener("click", this._clickHandler)
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "open-project": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
+      "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
+      "delete-project": (_e, _t, ctx) => ctx.id && this.deleteProject(ctx.id),
+      "new": () => this.showCreateForm(),
+      "import": () => this.importFile(),
+      "toggle-import": () => this._toggleImportSection(),
+      "upload-file": () => this._uploadFile(),
+    })
   },
 
   _bindImportButtons() {

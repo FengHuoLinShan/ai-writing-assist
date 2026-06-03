@@ -11,8 +11,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.imports.services import ImportService
 from modules.imports.schemas import ImportResponse
+from modules.imports.services import ImportService
 from shared.utils import parse_uuid as _parse_uuid
 
 _service = ImportService()
@@ -60,28 +60,22 @@ async def start_deep_import(
     Returns:
         包含 task_id 和 status 的字典
     """
-    import uuid
+    from infrastructure.tasks.enqueuer import enqueue_task
 
-    from infrastructure.tasks.models import AsyncTask
-    from shared.enums import TaskStatus as TaskStatusEnum
-
-    task = AsyncTask(
-        id=uuid.uuid4(),
-        task_type="deep_import",
-        status=TaskStatusEnum.pending.value,
+    task_id = enqueue_task(
+        db,
+        "deep_import",
         meta={
             "novel_id": novel_id,
             "start_chapter": start_chapter,
             "end_chapter": end_chapter,
         },
-        progress=0.0,
     )
-    db.add(task)
     await db.flush()
 
     return {
-        "task_id": str(task.id),
-        "status": str(task.status),
+        "task_id": task_id,
+        "status": "pending",
         "message": f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）",
     }
 
@@ -101,11 +95,10 @@ async def resume_deep_import(
     Returns:
         包含 task_id 和 status 的字典
     """
-    import uuid
-
-    from infrastructure.tasks.models import AsyncTask
     from sqlalchemy import select
-    from shared.enums import TaskStatus as TaskStatusEnum
+
+    from infrastructure.tasks.enqueuer import enqueue_task
+    from infrastructure.tasks.models import AsyncTask
 
     # 读取前一个任务的 meta 获取章节范围
     stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(prev_task_id))
@@ -116,24 +109,20 @@ async def resume_deep_import(
         raise HTTPException(404, detail=f"Previous task not found: {prev_task_id}")
 
     prev_meta = prev_task.meta or {}
-    novel_id = prev_meta.get("novel_id", "")
 
     task_meta = dict(prev_meta)
     task_meta["prev_task_id"] = prev_task_id
 
-    task = AsyncTask(
-        id=uuid.uuid4(),
-        task_type="deep_import_resume",
-        status=TaskStatusEnum.pending.value,
+    task_id = enqueue_task(
+        db,
+        "deep_import_resume",
         meta=task_meta,
-        progress=0.0,
     )
-    db.add(task)
     await db.flush()
 
     return {
-        "task_id": str(task.id),
-        "status": str(task.status),
+        "task_id": task_id,
+        "status": "pending",
         "message": "深度导入继续任务已提交",
     }
 

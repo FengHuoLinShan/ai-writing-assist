@@ -26,7 +26,7 @@ class ProjectLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        from modules.project.facade import get_project_context
+        from modules.project.project import get_project_context
 
         ctx = await get_project_context(db, options.novel_id)
         if ctx is not None:

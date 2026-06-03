@@ -26,7 +26,7 @@ from core.dependencies import get_db
 # 导入所有 ORM 模型注册到 Base.metadata
 # ============================================================
 import modules.imports.models  # noqa: F401
-import modules.project.models  # noqa: F401
+import modules.project.project  # noqa: F401
 import modules.world.models  # noqa: F401
 # character/geo/review/timeline 已从 minimal-core 移除
 import modules.outline.models  # noqa: F401
@@ -75,7 +75,7 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 @pytest_asyncio.fixture
 async def test_project_id(db_session: AsyncSession) -> str:
     """创建一个测试项目并返回其 ID"""
-    from modules.project.models import Project
+    from modules.project.project import Project
     import uuid
 
     pid = uuid.uuid4()

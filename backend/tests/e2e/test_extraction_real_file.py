@@ -83,17 +83,16 @@ class TestImportFirst10Chapters:
         first_10 = all_chapters[:FIRST_10]
 
         # 逐章创建 writing_draft
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
         for idx, ch in enumerate(first_10):
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
         return {"project_id": project_id}
@@ -153,17 +152,16 @@ class TestRealEntityExtraction:
         file_bytes = open(REAL_FILE_PATH, "rb").read()
         all_chapters = parse_txt(file_bytes)
 
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
         for idx, ch in enumerate(all_chapters[:FIRST_10]):
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
         return {"project_id": project_id}
@@ -305,17 +303,16 @@ class TestRealFileRagContextPipeline:
         first_3 = all_chapters[:3]
 
         # 逐章创建 writing_draft
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
 
         for idx, ch in enumerate(first_3):
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
 
@@ -466,15 +463,15 @@ class TestRealWorkflowStep1:
         # 导入前3章（更快）
         file_bytes = open(REAL_FILE_PATH, "rb").read()
         all_chapters = parse_txt(file_bytes)
-        from modules.writing.schemas import WritingDraftCreate
         from modules.writing.facade import create_draft
         for idx, ch in enumerate(all_chapters[:3]):
-            await create_draft(db_session, WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
-            ))
+            )
         await db_session.flush()
 
         # 运行 workflow step 1（使用 DirectDraftProvider）

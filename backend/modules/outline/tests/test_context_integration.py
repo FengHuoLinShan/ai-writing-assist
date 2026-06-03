@@ -15,7 +15,7 @@ async def test_plot_threads_loaded_in_arc_scope(
 ) -> None:
     """compile_structure_context(scope='arc') 应包含活跃剧情线"""
     nid = uuid.UUID(hex=sample_novel_id)
-    from modules.project.models import Project
+    from modules.project.project import Project
 
     db_session.add(Project(id=nid, title="测试"))
     await db_session.flush()
@@ -43,7 +43,7 @@ async def test_outline_arc_loaded_in_chapter_scope(
 ) -> None:
     """compile_structure_context(scope='chapter') 应包含当前章节所属篇章"""
     nid = uuid.UUID(hex=sample_novel_id)
-    from modules.project.models import Project
+    from modules.project.project import Project
 
     db_session.add(Project(id=nid, title="测试"))
     await db_session.flush()
@@ -71,7 +71,7 @@ async def test_outline_not_loaded_in_world_scope(
 ) -> None:
     """scope='world' 不应加载大纲数据"""
     nid = uuid.UUID(hex=sample_novel_id)
-    from modules.project.models import Project
+    from modules.project.project import Project
 
     db_session.add(Project(id=nid, title="测试"))
     await db_session.flush()

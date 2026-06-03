@@ -7,11 +7,9 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
-import uuid
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.models import AsyncTask
+from infrastructure.tasks.enqueuer import enqueue_task
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.schemas import WritingDraftCreate, WritingDraftResponse
 from modules.writing.services import WritingDraftService
@@ -19,26 +17,12 @@ from modules.writing.services import WritingDraftService
 _service = WritingDraftService()
 
 
-def _enqueue_publish_task(
+async def create_draft(
     db: AsyncSession,
     novel_id: str,
     chapter_index: int,
-) -> str:
-    """入队发布任务，返回 task_id"""
-    task = AsyncTask(
-        id=uuid.uuid4(),
-        task_type="publish_chapter",
-        status="pending",
-        meta={"novel_id": novel_id, "chapter_index": chapter_index},
-        progress=0.0,
-    )
-    db.add(task)
-    return str(task.id)
-
-
-async def create_draft(
-    db: AsyncSession,
-    data: WritingDraftCreate,
+    title: str | None = None,
+    content: str = "",
 ) -> tuple[WritingDraftResponse, str]:
     """创建正文草稿并触发发布流程
 
@@ -47,8 +31,18 @@ async def create_draft(
     Returns:
         (WritingDraftResponse, task_id) — 草稿信息 + 发布任务 ID
     """
+    data = WritingDraftCreate(
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        title=title or f"第{chapter_index}章",
+        content=content,
+    )
     draft = await _service.create_draft(db, data)
-    task_id = _enqueue_publish_task(db, data.novel_id, data.chapter_index)
+    task_id = enqueue_task(
+        db,
+        "publish_chapter",
+        meta={"novel_id": novel_id, "chapter_index": chapter_index},
+    )
     return draft, task_id
 
 

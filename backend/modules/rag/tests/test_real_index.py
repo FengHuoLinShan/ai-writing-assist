@@ -13,8 +13,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.models import Project
-from modules.writing.schemas import WritingDraftCreate
+from modules.project.project import Project
 from modules.writing.facade import create_draft
 from modules.rag.facade import index_chapter, get_index_status
 
@@ -51,13 +50,13 @@ class TestRebuildIndexFirst10Chapters:
 
         for idx in range(FIRST_10_CHAPTER_COUNT):
             ch = all_chapters[idx]
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
         return {"project_id": project_id}
@@ -185,13 +184,13 @@ class TestRetrievalDeterminism:
 
         for idx in range(3):
             ch = all_chapters[idx]
-            draft_data = WritingDraftCreate(
+            await create_draft(
+                db_session,
                 novel_id=project_id,
                 chapter_index=idx + 1,
                 title=ch.get("title") or f"第{idx + 1}章",
                 content=ch.get("content", ""),
             )
-            await create_draft(db_session, draft_data)
 
         await db_session.flush()
 

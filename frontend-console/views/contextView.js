@@ -2,6 +2,8 @@
  * 上下文视图
  */
 
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const contextView = {
   onLeave() {
     this._lastBundle = null
@@ -81,20 +83,12 @@ const contextView = {
   },
 
   _bindEvents() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-    content.removeEventListener("click", this._clickHandler)
-    this._clickHandler = (e) => {
-      const target = e.target.closest("[data-action]")
-      if (!target) return
-      switch (target.getAttribute("data-action")) {
-        case "compile": this.compile(); break
-        case "render-md": this.renderMarkdown(); break
-        case "copy": this.copyMarkdown(); break
-        case "export": this.exportContext(); break
-      }
-    }
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "compile": () => this.compile(),
+      "render-md": () => this.renderMarkdown(),
+      "copy": () => this.copyMarkdown(),
+      "export": () => this.exportContext(),
+    })
   },
 
   async compile() {

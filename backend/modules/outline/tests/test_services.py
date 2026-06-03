@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.schemas import (
@@ -40,25 +41,34 @@ class TestPlotThreadService:
             await svc.create(db_session, sample_novel_id, PlotThreadCreate(
                 name=f"线{i}", thread_type="secondary",
             ))
-        result = await svc.list(db_session, sample_novel_id)
-        assert result.total >= 3
-        assert len(result.items) >= 3
-        assert all(isinstance(item.id, str) for item in result.items)
+        items, total = await svc.list(db_session, sample_novel_id)
+        assert total >= 3
+        assert len(items) >= 3
+        assert all(isinstance(item.id, str) for item in items)
 
     @pytest.mark.asyncio
-    async def test_get_respects_novel_id(
+    async def test_get_raises_on_wrong_novel(
         self, db_session: AsyncSession, sample_novel_id: str, other_novel_id: str,
     ) -> None:
         svc = PlotThreadService()
         created = await svc.create(db_session, sample_novel_id, PlotThreadCreate(
             name="隔离测试", thread_type="main",
         ))
-        # 用不同 novel_id 查不到
-        got = await svc.get(db_session, created.id, other_novel_id)
-        assert got is None
-        # 用正确 novel_id 能查到
-        got2 = await svc.get(db_session, created.id, sample_novel_id)
-        assert got2 is not None
+        with pytest.raises(HTTPException) as exc:
+            await svc.get(db_session, created.id, novel_id=other_novel_id)
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_returns_on_correct_novel(
+        self, db_session: AsyncSession, sample_novel_id: str,
+    ) -> None:
+        svc = PlotThreadService()
+        created = await svc.create(db_session, sample_novel_id, PlotThreadCreate(
+            name="查询测试", thread_type="main",
+        ))
+        got = await svc.get(db_session, created.id, novel_id=sample_novel_id)
+        assert got is not None
+        assert got.name == "查询测试"
 
     @pytest.mark.asyncio
     async def test_update_partial(
@@ -68,31 +78,39 @@ class TestPlotThreadService:
         created = await svc.create(db_session, sample_novel_id, PlotThreadCreate(
             name="原名称", thread_type="main", current_stage="初期",
         ))
-        updated = await svc.update(db_session, created.id, PlotThreadUpdate(name="新名称"))
+        updated = await svc.update(
+            db_session, created.id, PlotThreadUpdate(name="新名称"),
+            novel_id=sample_novel_id,
+        )
         assert updated is not None
         assert updated.name == "新名称"
         assert updated.current_stage == "初期"
 
     @pytest.mark.asyncio
-    async def test_delete_returns_bool(
-        self, db_session: AsyncSession, sample_novel_id: str,
-    ) -> None:
-        svc = PlotThreadService()
-        created = await svc.create(db_session, sample_novel_id, PlotThreadCreate(
-            name="待删除", thread_type="main",
-        ))
-        assert await svc.delete(db_session, created.id, sample_novel_id) is True
-        assert await svc.get(db_session, created.id, sample_novel_id) is None
-
-    @pytest.mark.asyncio
-    async def test_delete_wrong_novel(
+    async def test_delete_raises_on_wrong_novel(
         self, db_session: AsyncSession, sample_novel_id: str, other_novel_id: str,
     ) -> None:
         svc = PlotThreadService()
         created = await svc.create(db_session, sample_novel_id, PlotThreadCreate(
             name="隔离删除", thread_type="main",
         ))
-        assert await svc.delete(db_session, created.id, other_novel_id) is False
+        with pytest.raises(HTTPException) as exc:
+            await svc.delete(db_session, created.id, novel_id=other_novel_id)
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_on_correct_novel(
+        self, db_session: AsyncSession, sample_novel_id: str,
+    ) -> None:
+        svc = PlotThreadService()
+        created = await svc.create(db_session, sample_novel_id, PlotThreadCreate(
+            name="待删除", thread_type="main",
+        ))
+        await svc.delete(db_session, created.id, novel_id=sample_novel_id)
+        # get after delete should raise 404
+        with pytest.raises(HTTPException) as exc:
+            await svc.get(db_session, created.id, novel_id=sample_novel_id)
+        assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_active_contract(
@@ -120,7 +138,7 @@ class TestOutlineArcService:
         assert created.id is not None
         assert created.title == "第一卷：启程"
 
-        fetched = await svc.get(db_session, created.id, sample_novel_id)
+        fetched = await svc.get(db_session, created.id, novel_id=sample_novel_id)
         assert fetched is not None
         assert fetched.title == "第一卷：启程"
 
@@ -156,5 +174,11 @@ class TestOutlineArcService:
         created = await svc.create(db_session, sample_novel_id, OutlineArcCreate(
             title="仅A可见", start_chapter=1, end_chapter=10,
         ))
-        assert await svc.get(db_session, created.id, other_novel_id) is None
-        assert await svc.get(db_session, created.id, sample_novel_id) is not None
+        # wrong novel_id should raise 404
+        with pytest.raises(HTTPException) as exc:
+            await svc.get(db_session, created.id, novel_id=other_novel_id)
+        assert exc.value.status_code == 404
+        # correct novel_id returns the arc
+        got = await svc.get(db_session, created.id, novel_id=sample_novel_id)
+        assert got is not None
+        assert got.title == "仅A可见"

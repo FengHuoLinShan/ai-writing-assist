@@ -26,7 +26,7 @@ LOTM_PROJECT_DATA = {
 
 async def create_project(session: AsyncSession) -> dict[str, Any]:
     """创建 诡秘之主 项目，返回包含 project_id 的字典。"""
-    from modules.project.models import Project
+    from modules.project.project import Project
 
     pid = uuid.uuid4()
     p = Project(

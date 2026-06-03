@@ -64,10 +64,14 @@ class EntityExtractionService:
         nid = parse_uuid(novel_id, "novel_id")
 
         # 1. 读取已有正史对象作为 context
-        all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
+        from modules.world.facade import get_world_context
+
+        ctx = await get_world_context(
+            db, novel_id, reveal_mode="author_safe", limit=500,
+        )
         existing_context = "\n".join(
             f"- {e.name} ({e.entity_type})"
-            for e in all_entities if e.status in ("canonical", "draft")
+            for e in ctx.entities if e.status in ("canonical", "draft")
         ) or "无已有对象"
 
         # 2. 分批读取 WritingDraft

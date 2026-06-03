@@ -33,28 +33,34 @@ async def create_thread(
 
 
 async def get_thread(
-    db: AsyncSession, thread_id: str, novel_id: str,
-) -> PlotThreadResponse | None:
-    return await _thread_service.get(db, thread_id, novel_id)
+    db: AsyncSession, thread_id: str, *, novel_id: str,
+) -> PlotThreadResponse:
+    return await _thread_service.get(db, thread_id, novel_id=novel_id)
 
 
 async def list_threads(
     db: AsyncSession, novel_id: str,
     *, skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
 ) -> PlotThreadListResponse:
-    return await _thread_service.list(db, novel_id, skip=skip, limit=limit)
+    items, total = await _thread_service.list(
+        db, novel_id, skip=skip, limit=limit,
+    )
+    return PlotThreadListResponse(items=items, total=total)
 
 
 async def update_thread(
-    db: AsyncSession, thread_id: str, data: PlotThreadUpdate,
-) -> PlotThreadResponse | None:
-    return await _thread_service.update(db, thread_id, data)
+    db: AsyncSession, thread_id: str, data: PlotThreadUpdate, *,
+    novel_id: str,
+) -> PlotThreadResponse:
+    return await _thread_service.update(
+        db, thread_id, data, novel_id=novel_id,
+    )
 
 
 async def delete_thread(
-    db: AsyncSession, thread_id: str, novel_id: str,
-) -> bool:
-    return await _thread_service.delete(db, thread_id, novel_id)
+    db: AsyncSession, thread_id: str, *, novel_id: str,
+) -> None:
+    await _thread_service.delete(db, thread_id, novel_id=novel_id)
 
 
 async def get_active_threads(
@@ -74,28 +80,34 @@ async def create_arc(
 
 
 async def get_arc(
-    db: AsyncSession, arc_id: str, novel_id: str,
-) -> OutlineArcResponse | None:
-    return await _arc_service.get(db, arc_id, novel_id)
+    db: AsyncSession, arc_id: str, *, novel_id: str,
+) -> OutlineArcResponse:
+    return await _arc_service.get(db, arc_id, novel_id=novel_id)
 
 
 async def list_arcs(
     db: AsyncSession, novel_id: str,
     *, skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
 ) -> OutlineArcListResponse:
-    return await _arc_service.list(db, novel_id, skip=skip, limit=limit)
+    items, total = await _arc_service.list(
+        db, novel_id, skip=skip, limit=limit,
+    )
+    return OutlineArcListResponse(items=items, total=total)
 
 
 async def update_arc(
-    db: AsyncSession, arc_id: str, data: OutlineArcUpdate,
-) -> OutlineArcResponse | None:
-    return await _arc_service.update(db, arc_id, data)
+    db: AsyncSession, arc_id: str, data: OutlineArcUpdate, *,
+    novel_id: str,
+) -> OutlineArcResponse:
+    return await _arc_service.update(
+        db, arc_id, data, novel_id=novel_id,
+    )
 
 
 async def delete_arc(
-    db: AsyncSession, arc_id: str, novel_id: str,
-) -> bool:
-    return await _arc_service.delete(db, arc_id, novel_id)
+    db: AsyncSession, arc_id: str, *, novel_id: str,
+) -> None:
+    await _arc_service.delete(db, arc_id, novel_id=novel_id)
 
 
 async def get_arc_by_chapter(

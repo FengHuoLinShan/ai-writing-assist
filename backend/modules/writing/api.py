@@ -7,16 +7,17 @@ Writing API 路由
 from __future__ import annotations
 
 from fastapi import APIRouter, Path, Query
+from pydantic import BaseModel
 
 from core.dependencies import DbSession
-from pydantic import BaseModel, Field
-
+from modules.writing.facade import create_draft as facade_create_draft
 from modules.writing.schemas import (
     VersionHistoryResponse,
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
 )
+from modules.writing.services import WritingDraftService
 
 
 class ChapterIndicesResponse(BaseModel):
@@ -36,26 +37,8 @@ class DeleteChapterResponse(BaseModel):
     deleted_versions: int
 
 
-from modules.writing.services import WritingDraftService
-
 router = APIRouter(prefix="/api/writing", tags=["writing"])
 _service = WritingDraftService()
-
-
-def _enqueue_publish_task(db: DbSession, novel_id: str, chapter_index: int) -> str:
-    """入队发布任务，返回 task_id"""
-    from infrastructure.tasks.models import AsyncTask
-    import uuid as _uuid
-
-    task = AsyncTask(
-        id=_uuid.uuid4(),
-        task_type="publish_chapter",
-        status="pending",
-        meta={"novel_id": novel_id, "chapter_index": chapter_index},
-        progress=0.0,
-    )
-    db.add(task)
-    return str(task.id)
 
 
 @router.post("/drafts", response_model=PublishResponse, status_code=201)
@@ -64,8 +47,13 @@ async def create_draft(
     data: WritingDraftCreate,
 ) -> PublishResponse:
     """发布草稿 — 创建新版本 + 入队 RAG 索引 + memory 快照"""
-    result = await _service.create_draft(db, data)
-    task_id = _enqueue_publish_task(db, data.novel_id, data.chapter_index)
+    result, task_id = await facade_create_draft(
+        db,
+        novel_id=data.novel_id,
+        chapter_index=data.chapter_index,
+        title=data.title,
+        content=data.content or "",
+    )
     await db.flush()
     return PublishResponse(draft=result, task_id=task_id)
 
