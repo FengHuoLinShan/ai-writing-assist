@@ -53,6 +53,7 @@ async def get_world_context(
     entity_ids: list[str] | None = None,
     reveal_mode: str = "author_safe",
     limit: int = 20,
+    current_chapter: int | None = None,
 ) -> WorldContextBundle:
     """获取世界上下文"""
     return await _entity_service.get_entity_context(
@@ -60,6 +61,7 @@ async def get_world_context(
         entity_ids=entity_ids,
         reveal_mode=reveal_mode,
         limit=limit,
+        current_chapter=current_chapter,
     )
 
 
@@ -174,4 +176,16 @@ async def merge_candidate_into_entity(
 ) -> Any:  # MergeResult
     return await _dedup_service.merge_candidate_into_entity(
         db, novel_id, candidate_id, target_entity_id,
+    )
+
+
+async def backfill_entity_embeddings(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    batch_size: int = 64,
+) -> int:
+    """回填 novel 中缺少 embedding 的实体向量。返回回填数量。"""
+    return await _entity_service.backfill_embeddings(
+        db, novel_id, batch_size=batch_size,
     )

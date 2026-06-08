@@ -74,10 +74,46 @@ class TestPlotStructureGenerator:
                 climax: str | None = None
                 result: str | None = None
                 next_hook: str | None = None
+                related_character_names: list[str] = []
+                related_entity_names: list[str] = []
+                related_thread_names: list[str] = []
+
+            class _FP(BaseModel):
+                name: str = ""
+                summary: str | None = None
+                planned_seed_chapter: int | None = None
+                planned_payoff_chapter: int | None = None
+                status: str = "draft"
+
+            class _RP(BaseModel):
+                target_name: str = ""
+                target_type: str = "world_entity"
+                secret_summary: str | None = None
+                status: str = "draft"
+
+            class _OP(BaseModel):
+                thread_name: str = ""
+                offscreen_description: str | None = None
+                importance: str = "medium"
+
+            class _RK(BaseModel):
+                risk_type: str = "其他"
+                description: str | None = None
+                severity: str = "medium"
+
+            class _QN(BaseModel):
+                question: str = ""
+                context: str | None = None
+                suggested_options: list[str] = []
 
             class _GO(BaseModel):
                 plot_threads: list[_GT] = []
                 outline_arcs: list[_GA] = []
+                foreshadowing_plans: list[_FP] = []
+                reveal_plans: list[_RP] = []
+                offscreen_progress: list[_OP] = []
+                risks: list[_RK] = []
+                questions_for_user: list[_QN] = []
 
             mock_llm.return_value = _GO(
                 plot_threads=[
@@ -102,6 +138,8 @@ class TestPlotStructureGenerator:
 
         assert result["total_threads"] == 2
         assert result["total_arcs"] == 2
+        assert "extra_sections" in result
+        assert isinstance(result["extra_sections"], dict)
 
         threads, _ = await PlotThreadRepository().get_by_novel(
             db_session, uuid.UUID(hex=sample_novel_id),
@@ -151,10 +189,52 @@ class TestPlotStructureGenerator:
                 end_chapter: int | None = None
                 arc_goal: str | None = None
                 core_conflict: str | None = None
+                main_opposition: str | None = None
+                entry_hook: str | None = None
+                midpoint_turn: str | None = None
+                climax: str | None = None
+                result: str | None = None
+                next_hook: str | None = None
+                related_character_names: list[str] = []
+                related_entity_names: list[str] = []
+                related_thread_names: list[str] = []
+
+            class _FP(BaseModel):
+                name: str = ""
+                summary: str | None = None
+                planned_seed_chapter: int | None = None
+                planned_payoff_chapter: int | None = None
+                status: str = "draft"
+
+            class _RP(BaseModel):
+                target_name: str = ""
+                target_type: str = "world_entity"
+                secret_summary: str | None = None
+                status: str = "draft"
+
+            class _OP(BaseModel):
+                thread_name: str = ""
+                offscreen_description: str | None = None
+                importance: str = "medium"
+
+            class _RK(BaseModel):
+                risk_type: str = "其他"
+                description: str | None = None
+                severity: str = "medium"
+
+            class _QN(BaseModel):
+                question: str = ""
+                context: str | None = None
+                suggested_options: list[str] = []
 
             class _GO(BaseModel):
                 plot_threads: list[_GT] = []
                 outline_arcs: list[_GA] = []
+                foreshadowing_plans: list[_FP] = []
+                reveal_plans: list[_RP] = []
+                offscreen_progress: list[_OP] = []
+                risks: list[_RK] = []
+                questions_for_user: list[_QN] = []
 
             mock_llm.return_value = _GO(plot_threads=[], outline_arcs=[])
 
@@ -166,6 +246,7 @@ class TestPlotStructureGenerator:
 
         assert result["total_threads"] == 0
         assert result["total_arcs"] == 0
+        assert "extra_sections" in result
 
     @pytest.mark.asyncio
     async def test_generate_llm_failure_graceful(
@@ -186,3 +267,4 @@ class TestPlotStructureGenerator:
 
         assert result["total_threads"] == 0
         assert result["total_arcs"] == 0
+        assert "extra_sections" in result

@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import OutlineArc, PlotThread
@@ -66,7 +66,7 @@ class PlotThreadRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(PlotThread.start_chapter, PlotThread.name)
+            .order_by(PlotThread.start_chapter, PlotThread.name, PlotThread.id)
         )
         result = await db.execute(stmt)
         items: Sequence[PlotThread] = result.scalars().all()
@@ -83,6 +83,10 @@ class PlotThreadRepository:
             PlotThread.novel_id == novel_id,
             PlotThread.status.in_(["draft", "canonical"]),
             PlotThread.start_chapter <= chapter_index,
+            or_(
+                PlotThread.planned_payoff_chapter.is_(None),
+                PlotThread.planned_payoff_chapter >= chapter_index,
+            ),
         ]
         stmt = (
             select(PlotThread)
@@ -92,6 +96,31 @@ class PlotThreadRepository:
         result = await db.execute(stmt)
         items: Sequence[PlotThread] = result.scalars().all()
         return list(items)
+
+    async def count_by_novel_and_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> int:
+        """统计与 [start_chapter, end_chapter] 范围重叠的剧情线数量。
+
+        使用范围重叠检测（与 OutlineArc 版本一致），
+        而非仅检查 start_chapter 是否在区间内。
+        """
+        conditions = [
+            PlotThread.novel_id == novel_id,
+            PlotThread.start_chapter <= end_chapter,
+            # 线程没有 end_chapter 字段，用 planned_payoff_chapter 估算范围上限
+            or_(
+                PlotThread.planned_payoff_chapter.is_(None),
+                PlotThread.planned_payoff_chapter >= start_chapter,
+            ),
+        ]
+        stmt = select(func.count(PlotThread.id)).where(*conditions)
+        result = await db.execute(stmt)
+        return result.scalar() or 0
 
     async def update(
         self,
@@ -209,6 +238,26 @@ class OutlineArcRepository:
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def count_by_novel_and_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> int:
+        """统计章节范围 [start, end] 内重叠的篇章数。"""
+        conditions = [
+            OutlineArc.novel_id == novel_id,
+            OutlineArc.start_chapter <= end_chapter,
+            or_(
+                OutlineArc.end_chapter.is_(None),
+                OutlineArc.end_chapter >= start_chapter,
+            ),
+        ]
+        stmt = select(func.count(OutlineArc.id)).where(*conditions)
+        result = await db.execute(stmt)
+        return result.scalar() or 0
 
     async def update(
         self,

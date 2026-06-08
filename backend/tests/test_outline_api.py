@@ -218,9 +218,42 @@ class TestOutlineGenerateAPI:
             related_character_names: list[str] = []
             related_entity_names: list[str] = []
 
+        class _FP(BaseModel):
+            name: str = ""
+            summary: str | None = None
+            planned_seed_chapter: int | None = None
+            planned_payoff_chapter: int | None = None
+            status: str = "draft"
+
+        class _RP(BaseModel):
+            target_name: str = ""
+            target_type: str = "world_entity"
+            secret_summary: str | None = None
+            status: str = "draft"
+
+        class _OP(BaseModel):
+            thread_name: str = ""
+            offscreen_description: str | None = None
+            importance: str = "medium"
+
+        class _RK(BaseModel):
+            risk_type: str = "其他"
+            description: str | None = None
+            severity: str = "medium"
+
+        class _QN(BaseModel):
+            question: str = ""
+            context: str | None = None
+            suggested_options: list[str] = []
+
         class _GO(BaseModel):
             plot_threads: list[_GT] = []
             outline_arcs: list[_GA] = []
+            foreshadowing_plans: list[_FP] = []
+            reveal_plans: list[_RP] = []
+            offscreen_progress: list[_OP] = []
+            risks: list[_RK] = []
+            questions_for_user: list[_QN] = []
 
         with (
             mock.patch("modules.context.facade.compile_structure_context") as mock_ctx,
@@ -248,3 +281,4 @@ class TestOutlineGenerateAPI:
         data = resp.json()
         assert data["total_threads"] == 1
         assert data["total_arcs"] == 0
+        assert "extra_sections" in data

@@ -13,7 +13,7 @@ from typing import Annotated, Sequence
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import JSON, String, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,12 +21,6 @@ from core.base import Base, TimestampMixin, UUIDMixin
 from core.dependencies import DbSession
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
-
-# ============================================================
-# ORM Model
-# ============================================================
-
-from sqlalchemy import String
 
 
 class Project(Base, UUIDMixin, TimestampMixin):
@@ -71,6 +65,12 @@ class Project(Base, UUIDMixin, TimestampMixin):
         default="author_safe",
         comment="默认揭示策略",
     )
+    settings: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="小说配置（JSON，如 temporary_entity_expiry_chapters）",
+    )
 
     def __repr__(self) -> str:
         return f"<Project id={self.id} title={self.title!r}>"
@@ -91,6 +91,7 @@ class ProjectCreate(BaseModel):
     target_length: str | None = Field(None, max_length=32, description="目标规模")
     current_stage: str | None = Field(None, max_length=32, description="创作阶段")
     default_reveal_policy: str = Field(default="author_safe", max_length=32, description="默认揭示策略")
+    settings: dict = Field(default={}, description="小说配置（JSON）")
 
 
 class ProjectUpdate(BaseModel):
@@ -103,6 +104,7 @@ class ProjectUpdate(BaseModel):
     target_length: Annotated[str | None, Field(None, max_length=32)]
     current_stage: Annotated[str | None, Field(None, max_length=32)]
     default_reveal_policy: Annotated[str | None, Field(None, max_length=32)]
+    settings: Annotated[dict | None, Field(None, description="小说配置（JSON）")]
 
 
 class ProjectResponse(BaseModel):
@@ -118,6 +120,7 @@ class ProjectResponse(BaseModel):
     target_length: str | None = None
     current_stage: str | None = None
     default_reveal_policy: str = "author_safe"
+    settings: dict = {}
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -152,6 +155,7 @@ async def _create_project(db: AsyncSession, data: ProjectCreate) -> Project:
         target_length=data.target_length,
         current_stage=data.current_stage,
         default_reveal_policy=data.default_reveal_policy or "author_safe",
+        settings=data.settings or {},
     )
     db.add(project)
     await db.flush()
@@ -194,7 +198,7 @@ async def _update_project(
     update_values: dict[str, object] = {}
     for field in (
         "title", "genre", "tone", "language",
-        "target_length", "current_stage", "default_reveal_policy",
+        "target_length", "current_stage", "default_reveal_policy", "settings",
     ):
         value = getattr(data, field, None)
         if value is not None:
@@ -287,6 +291,7 @@ class ProjectContext(BaseModel):
     target_length: str | None = None
     current_stage: str | None = None
     default_reveal_policy: str = "author_safe"
+    settings: dict = {}
 
 
 async def get_project_context(
@@ -307,6 +312,7 @@ async def get_project_context(
         target_length=project.target_length,
         current_stage=project.current_stage,
         default_reveal_policy=project.default_reveal_policy,
+        settings=project.settings,
     )
 
 

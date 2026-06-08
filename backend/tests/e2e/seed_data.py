@@ -189,15 +189,13 @@ async def create_relationships(
     entity_ids: dict[str, str],
 ) -> None:
     """创建世界对象之间的关系。"""
-    from modules.world.models import Relationship
+    from modules.world.models import EntityRelation
 
     for data in RELATIONSHIP_DATA:
-        rel = Relationship(
+        rel = EntityRelation(
             id=uuid.uuid4(),
             novel_id=project_id,
-            source_type="world_entity",
             source_id=entity_ids[data["source"]],
-            target_type="world_entity",
             target_id=entity_ids[data["target"]],
             relation_type=data["type"],
             status="canonical",

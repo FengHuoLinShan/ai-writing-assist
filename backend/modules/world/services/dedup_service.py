@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,9 +29,12 @@ from shared.constants import (
     SIMILARITY_HIGH_CONFIDENCE,
     SIMILARITY_MEDIUM_CONFIDENCE,
 )
+from shared.enums import CandidateAction
 
 # difflib 阈值 — 低于此值不返回建议
 _MIN_SIMILARITY = 0.58
+
+logger = logging.getLogger(__name__)
 
 
 class EntityDedupService:
@@ -97,6 +101,11 @@ class EntityDedupService:
                     candidates = [(e, s, "lexical") for e, s in lexical_candidates]
             else:
                 candidates = [(e, s, "lexical") for e, s in lexical_candidates]
+                logger.info(
+                    "Semantic dedup path not active for novel %s — "
+                    "no stored embeddings found. Run backfill_entity_embeddings().",
+                    novel_id,
+                )
         else:
             candidates = [(e, s, "lexical") for e, s in lexical_candidates]
 
@@ -164,11 +173,11 @@ class EntityDedupService:
             match_method = difflib_method or rrf_method
 
             if similarity >= _MIN_SIMILARITY:
-                action = "needs_user_decision"
+                action = CandidateAction.needs_user_decision
                 if similarity >= SIMILARITY_HIGH_CONFIDENCE:
-                    action = "merge_with_existing"
+                    action = CandidateAction.merge_with_existing
                 elif similarity >= SIMILARITY_MEDIUM_CONFIDENCE:
-                    action = "needs_user_decision"
+                    action = CandidateAction.needs_user_decision
 
                 results.append(DuplicateSuggestionResult(
                     candidate_name=name,

@@ -6,6 +6,7 @@ subclass override)。
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import CoreEntity
@@ -80,6 +81,7 @@ class WorldEntityService(
         entity_ids: list[str] | None = None,
         reveal_mode: str = "author_safe",
         limit: int = 20,
+        current_chapter: int | None = None,
     ) -> WorldContextBundle:
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -88,6 +90,32 @@ class WorldEntityService(
             entities = await self.repo.get_by_ids(db, nid, eids)
         else:
             entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
+
+        # Filter expired temporary entities
+        if current_chapter is not None:
+            from modules.project.project import Project
+
+            pid = parse_uuid(novel_id, "novel_id")
+            stmt = select(Project).where(Project.id == pid)
+            result = await db.execute(stmt)
+            project = result.scalar_one_or_none()
+            expiry = 30
+            if project is not None and project.settings:
+                expiry = project.settings.get("temporary_entity_expiry_chapters", 30)
+
+            filtered: list[CoreEntity] = []
+            for entity in entities:
+                content = entity.content_json or {}
+                meta = content.get("_meta", {})
+                if (
+                    meta.get("temporary") is True
+                    and meta.get("source_chapter_index") is not None
+                ):
+                    src_ch = int(meta["source_chapter_index"])
+                    if current_chapter - src_ch > expiry:
+                        continue
+                filtered.append(entity)
+            entities = filtered
 
         contexts = [
             _entity_to_context(entity, reveal_mode) for entity in entities
@@ -160,6 +188,65 @@ class WorldEntityService(
         return await self.repo.find_entity_by_name(
             db, nid, name, entity_type=entity_type,
         )
+
+    async def backfill_embeddings(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        batch_size: int = 64,
+    ) -> int:
+        """为 novel 中缺少 embedding 的实体生成向量。返回回填数量。"""
+        import logging
+
+        _logger = logging.getLogger(__name__)
+        nid = parse_uuid(novel_id, "novel_id")
+
+        stmt = (
+            select(CoreEntity)
+            .where(
+                CoreEntity.novel_id == nid,
+                CoreEntity.embedding.is_(None),
+                CoreEntity.status.in_(["canonical", "draft"]),
+            )
+        )
+        result = await db.execute(stmt)
+        entities = list(result.scalars().all())
+
+        if not entities:
+            return 0
+
+        try:
+            from infrastructure.embedding.client import BgeEmbeddingClient
+
+            bge = await BgeEmbeddingClient.get_instance()
+        except Exception:
+            _logger.warning("BGE client unavailable, backfill skipped")
+            return 0
+
+        total = 0
+        # 配对过滤空名实体，避免索引错位 (Bugfix: P0 index mismatch)
+        named = [(e, e.name.strip()) for e in entities if e.name and e.name.strip()]
+
+        for i in range(0, len(named), batch_size):
+            batch = named[i : i + batch_size]
+            batch_entities = [e for e, _ in batch]
+            batch_texts = [n for _, n in batch]
+            try:
+                embeddings = await bge.generate_embedding(batch_texts, is_query=False)
+            except Exception:
+                _logger.exception("Backfill embedding batch failed at offset %d", i)
+                continue
+
+            for entity, emb in zip(batch_entities, embeddings):
+                entity.embedding = [float(v) for v in emb]
+                entity.embedding_text = entity.name
+                total += 1
+
+            await db.flush()
+
+        _logger.info("Backfilled embeddings for %d entities in novel %s", total, novel_id)
+        return total
 
 
 def _entity_to_context(

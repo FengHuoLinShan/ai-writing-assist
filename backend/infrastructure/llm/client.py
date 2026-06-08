@@ -78,6 +78,11 @@ class LLMClient:
         """当前使用的 provider 名称"""
         return self._provider.name
 
+    @property
+    def model_name(self) -> str:
+        """当前默认的 LLM 模型名称"""
+        return self._settings.llm_model
+
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 

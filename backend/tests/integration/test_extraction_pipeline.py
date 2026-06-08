@@ -370,7 +370,8 @@ class TestAmbiguousReferences:
                 # 如果被抽取，应该标记为需要用户决定
                 suggested_action = item.get("suggested_action", "")
                 assert suggested_action in (
-                    "needs_user_decision",
+                    "create_new",
+                    "link_to_existing",
                     "ignore",
                     "temporary_only",
                 ), (

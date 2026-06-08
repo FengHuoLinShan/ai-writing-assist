@@ -54,5 +54,6 @@ async def handle_world_entity_extraction(db, task):
         "total_chapters": result.total_chapters,
         "total_created": result.total_created,
         "total_skipped": result.total_skipped,
+        "failed_chapters": result.failed_chapters,
         "items": result.items,
     }

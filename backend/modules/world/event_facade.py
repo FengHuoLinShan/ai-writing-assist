@@ -115,6 +115,7 @@ async def run_entity_extraction(
         "total_chapters": result.total_chapters,
         "total_created": result.total_created,
         "total_skipped": result.total_skipped,
+        "failed_chapters": result.failed_chapters,
         "items": result.items,
     }
 
