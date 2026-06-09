@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import difflib
+import json
 import logging
+import os
+import pickle
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -21,20 +24,89 @@ from modules.world.schemas import (
     DuplicateSuggestionResult,
     EntityRelationUpdate,
 )
+from modules.world.services.dedup_scorer import DedupScorer
 from modules.world.services.helpers import merge_text_field, parse_uuid
 from shared.constants import (
+    DEDUP_AUTO_MERGE_THRESHOLD,
     DEDUP_CONFLICT_FIELDS,
+    DEDUP_DISCARD_THRESHOLD,
     DEDUP_FUSION_TOP_K,
-    DEDUP_RRF_K,
-    SIMILARITY_HIGH_CONFIDENCE,
-    SIMILARITY_MEDIUM_CONFIDENCE,
 )
 from shared.enums import CandidateAction
 
-# difflib 阈值 — 低于此值不返回建议
-_MIN_SIMILARITY = 0.58
-
 logger = logging.getLogger(__name__)
+
+DEDUP_MODEL_ACTIVE = os.environ.get("DEDUP_MODEL_ACTIVE", "false").lower() == "true"
+
+
+class DedupModelProxy:
+    """去重 LR 模型单例代理。
+
+    负责从 pickle 加载预训练模型，并在加载失败/版本不匹配/维度不匹配时
+    自动回退到 None，由调用方切回 _cascade_score。
+    """
+
+    _instance: DedupModelProxy | None = None
+
+    def __new__(cls) -> DedupModelProxy:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._load()
+        return cls._instance
+
+    def _load(self) -> None:
+        self._pipeline: Any | None = None
+        self._metadata: dict[str, Any] = {}
+        self._feature_dim = 7
+        self._model_version = "unknown"
+        if not DEDUP_MODEL_ACTIVE:
+            return
+        try:
+            base = Path(__file__).resolve().parents[3] / "data" / "dedup_training"
+            meta_path = base / "dedup_model_metadata.json"
+            model_path = base / "dedup_fusion_model.pkl"
+            with open(meta_path, encoding="utf-8") as fh:
+                self._metadata = json.load(fh)
+            with open(model_path, "rb") as fh:
+                self._pipeline = pickle.load(fh)
+
+            import sklearn
+
+            meta_sklearn = self._metadata.get("sklearn_version")
+            if meta_sklearn and meta_sklearn != sklearn.__version__:
+                logger.critical(
+                    "sklearn version mismatch (metadata=%s, runtime=%s), "
+                    "falling back to cascade",
+                    meta_sklearn, sklearn.__version__,
+                )
+                self._pipeline = None
+
+            meta_dim = self._metadata.get("feature_dim")
+            if meta_dim is not None and meta_dim != self._feature_dim:
+                logger.critical(
+                    "feature dimension mismatch (metadata=%s, expected=%s), "
+                    "falling back to cascade",
+                    meta_dim, self._feature_dim,
+                )
+                self._pipeline = None
+
+            self._model_version = self._metadata.get("model_version", "unknown")
+        except FileNotFoundError:
+            logger.critical("Dedup model files not found, falling back to cascade")
+            self._pipeline = None
+        except Exception as exc:
+            logger.critical("Dedup model load failed: %s", exc)
+            self._pipeline = None
+
+    def predict(self, vector: list[float]) -> tuple[float, str]:
+        if self._pipeline is None:
+            raise RuntimeError("model not loaded")
+        if len(vector) != self._feature_dim:
+            raise ValueError(
+                f"expected {self._feature_dim} features, got {len(vector)}"
+            )
+        proba = float(self._pipeline.predict_proba([vector])[0][1])
+        return proba, self._model_version
 
 
 class EntityDedupService:
@@ -70,7 +142,10 @@ class EntityDedupService:
         entity_type: str | None = None,
         query_embedding: list[float] | None = None,
     ) -> list[DuplicateSuggestionResult]:
-        """查找与给定名称相似的已有实体（pg_trgm DB 初筛 + difflib 精排 + 可选语义检索）"""
+        """查找与给定名称相似的已有实体
+
+        pg_trgm DB 初筛 + 异质信号级联评分 + 可选语义检索。
+        """
         nid = parse_uuid(novel_id, "novel_id")
         name_lower = name.strip().lower()
 
@@ -82,36 +157,40 @@ class EntityDedupService:
             top_k=DEDUP_FUSION_TOP_K,
         )
 
-        # 阶段二：语义搜索（可选，仅在有 embedding 时启用）
-        candidates: list[tuple[Any, float, str]]  # [(entity, final_score, match_method)]
+        # 阶段二：语义搜索（不再全局短路，让 DB 层自然跳过无向量记录）
+        semantic_candidates: list[tuple[Any, float]] = []
         if query_embedding is not None:
-            has_emb = await self._entity_repo.has_embeddings(db, nid)
-            if has_emb:
-                semantic_candidates = await self._entity_repo.find_similar_by_embedding(
-                    db, nid, query_embedding,
-                    entity_type=entity_type,
-                    status_filter=["canonical", "draft"],
-                    top_k=DEDUP_FUSION_TOP_K,
-                )
-                if semantic_candidates:
-                    candidates = self._rrf_fusion(
-                        lexical_candidates, semantic_candidates, k=DEDUP_RRF_K,
-                    )
-                else:
-                    candidates = [(e, s, "lexical") for e, s in lexical_candidates]
-            else:
-                candidates = [(e, s, "lexical") for e, s in lexical_candidates]
-                logger.info(
-                    "Semantic dedup path not active for novel %s — "
-                    "no stored embeddings found. Run backfill_entity_embeddings().",
-                    novel_id,
-                )
-        else:
-            candidates = [(e, s, "lexical") for e, s in lexical_candidates]
+            semantic_candidates = await self._entity_repo.find_similar_by_embedding(
+                db, nid, query_embedding,
+                entity_type=entity_type,
+                status_filter=["canonical", "draft"],
+                top_k=DEDUP_FUSION_TOP_K,
+            )
+
+        # 构建语义候选映射：entity_id -> cosine_score
+        semantic_map: dict[str, float] = {
+            str(e.id): score for e, score in semantic_candidates
+        }
+
+        # 合并候选集合（词法召回 + 语义召回的并集）
+        seen_ids: set[str] = set()
+        all_candidates: list[tuple[Any, float | None, float | None]] = []
+        # (entity, lexical_score, semantic_score)
+        for entity, lex_score in lexical_candidates:
+            eid = str(entity.id)
+            seen_ids.add(eid)
+            sem_score = semantic_map.get(eid)
+            all_candidates.append((entity, lex_score, sem_score))
+
+        for entity, sem_score in semantic_candidates:
+            eid = str(entity.id)
+            if eid not in seen_ids:
+                all_candidates.append((entity, None, sem_score))
 
         results: list[DuplicateSuggestionResult] = []
+        scorer = DedupScorer()
 
-        for entity, rrf_score, rrf_method in candidates:
+        for entity, _lex_score, sem_score in all_candidates:
             # 跳过候选状态的实体（不与自己匹配）
             if entity.status not in ("canonical", "draft"):
                 continue
@@ -120,65 +199,56 @@ class EntityDedupService:
                 continue
 
             entity_name = entity.name.strip().lower()
-            difflib_similarity = 0.0
-            difflib_method = ""
+            entity_aliases = self._get_aliases(entity)
 
             # 1. 精确名称匹配
             if name_lower == entity_name:
-                difflib_similarity = 1.0
-                difflib_method = "exact_name"
+                similarity = 1.0
+                match_method = "exact_name"
+                action = CandidateAction.merge_with_existing
+                results.append(DuplicateSuggestionResult(
+                    candidate_name=name,
+                    existing_entity_id=str(entity.id),
+                    existing_entity_name=entity.name,
+                    similarity_score=round(similarity, 4),
+                    match_method=match_method,
+                    action=action,
+                ))
+                continue
 
             # 2. 别名精确匹配
-            elif aliases:
-                entity_aliases = self._get_aliases(entity)
+            if aliases:
+                alias_matched = False
                 for alias in aliases:
                     alias_lower = alias.strip().lower()
                     if alias_lower == entity_name or alias_lower in entity_aliases:
-                        difflib_similarity = 1.0
-                        difflib_method = "exact_alias"
+                        similarity = 1.0
+                        match_method = "exact_alias"
+                        action = CandidateAction.merge_with_existing
+                        results.append(DuplicateSuggestionResult(
+                            candidate_name=name,
+                            existing_entity_id=str(entity.id),
+                            existing_entity_name=entity.name,
+                            similarity_score=round(similarity, 4),
+                            match_method=match_method,
+                            action=action,
+                        ))
+                        alias_matched = True
                         break
+                if alias_matched:
+                    continue
 
-            # 3. difflib 模糊匹配
-            if difflib_similarity == 0.0:
-                ratio = difflib.SequenceMatcher(None, name_lower, entity_name).ratio()
-                if ratio >= _MIN_SIMILARITY:
-                    difflib_similarity = ratio
-                    difflib_method = "fuzzy"
+            # 3. 计算异质信号
+            signals = scorer.compute_signals(
+                name_lower, entity_name,
+                candidate_aliases=entity_aliases,
+                semantic_cosine=sem_score,
+            )
 
-                # 也对别名做模糊匹配
-                if difflib_similarity < _MIN_SIMILARITY:
-                    entity_aliases = self._get_aliases(entity)
-                    for ea in entity_aliases:
-                        ratio = difflib.SequenceMatcher(None, name_lower, ea).ratio()
-                        if ratio >= _MIN_SIMILARITY and ratio > difflib_similarity:
-                            difflib_similarity = ratio
-                            difflib_method = "fuzzy_alias"
+            # 4. 级联评分（模型优先，失败回退）
+            similarity, match_method, action = self._resolve_score(signals)
 
-            # 综合评分：词法 + 语义融合，纯语义匹配有独立通道
-            if difflib_similarity >= 1.0:
-                # 精确名称/别名匹配不受语义分干扰
-                similarity = difflib_similarity
-            elif difflib_similarity > 0:
-                # 有词法命中：0.65 词法 + 0.35 语义
-                similarity = 0.65 * difflib_similarity + 0.35 * rrf_score
-            elif rrf_method in ("semantic", "hybrid") and rrf_score >= 0.4:
-                # 纯语义命中（如"面具人"→"李四"字面无关联）：
-                # rrf 0.45→0.58, rrf 0.5→0.625, 让高置信语义匹配独立通过
-                similarity = 0.50 + rrf_score * 0.25
-                difflib_method = rrf_method
-            else:
-                similarity = difflib_similarity
-
-            # match_method 优先用精确/别名匹配，其次用 RRF 标签
-            match_method = difflib_method or rrf_method
-
-            if similarity >= _MIN_SIMILARITY:
-                action = CandidateAction.needs_user_decision
-                if similarity >= SIMILARITY_HIGH_CONFIDENCE:
-                    action = CandidateAction.merge_with_existing
-                elif similarity >= SIMILARITY_MEDIUM_CONFIDENCE:
-                    action = CandidateAction.needs_user_decision
-
+            if similarity >= DEDUP_DISCARD_THRESHOLD:
                 results.append(DuplicateSuggestionResult(
                     candidate_name=name,
                     existing_entity_id=str(entity.id),
@@ -193,53 +263,103 @@ class EntityDedupService:
         return results
 
     @staticmethod
-    def _rrf_fusion(
-        lexical_ranked: list[tuple[Any, float]],
-        semantic_ranked: list[tuple[Any, float]],
-        k: int = 60,
-    ) -> list[tuple[Any, float, str]]:
-        """对两个排序列表做 RRF (Reciprocal Rank Fusion)。
+    def _model_score(signals) -> tuple[float, str, CandidateAction]:
+        """LR 模型评分：predict_proba → 基于校准阈值的 action。"""
+        from shared.constants import (
+            DEDUP_AUTO_MERGE_THRESHOLD,
+            DEDUP_DISCARD_THRESHOLD,
+            DEDUP_REVIEW_THRESHOLD,
+        )
 
-        score = 1/(k + rank_lexical) + 1/(k + rank_semantic)
-        只出现在一个列表的实体，缺失列表的 rank 贡献为 0（标准 RRF）。
-        返回归一化到 [0,1] 的 (entity, score, method) 列表，按分降序。
+        proxy = DedupModelProxy()
+        proba, _ = proxy.predict(signals.to_vector())
+        meta = proxy._metadata
+        theta_merge = meta.get("thresholds", {}).get(
+            "theta_merge", DEDUP_AUTO_MERGE_THRESHOLD
+        )
+        theta_review = meta.get("thresholds", {}).get(
+            "theta_review", DEDUP_REVIEW_THRESHOLD
+        )
+        theta_discard = meta.get("thresholds", {}).get(
+            "theta_discard", DEDUP_DISCARD_THRESHOLD
+        )
+
+        sim = round(proba, 4)
+        if sim >= theta_merge:
+            return (sim, "lr_model", CandidateAction.merge_with_existing)
+        if sim >= theta_review:
+            return (sim, "lr_model", CandidateAction.needs_user_decision)
+        if sim >= theta_discard:
+            return (sim, "lr_model", CandidateAction.needs_user_decision)
+        return (sim, "lr_model", CandidateAction.ignore)
+
+    def _resolve_score(self, signals) -> tuple[float, str, CandidateAction]:
+        """影子模式入口：关闭时直接走级联；开启时优先模型，异常回退。"""
+        cascade_result = self._cascade_score(signals)
+        if not DEDUP_MODEL_ACTIVE:
+            return cascade_result
+        try:
+            return self._model_score(signals)
+        except Exception as exc:
+            logger.critical("Model inference failed: %s", exc)
+            return cascade_result
+
+    @staticmethod
+    def _cascade_score(signals) -> tuple[float, str, CandidateAction]:
+        """级联评分：按信号强度分层决策。
+
+        Returns:
+            (similarity, match_method, action)
         """
-        scores: dict[str, float] = {}
-        methods: dict[str, str] = {}
-        entities: dict[str, Any] = {}
+        from shared.constants import (
+            DEDUP_AUTO_MERGE_THRESHOLD,
+            DEDUP_DISCARD_THRESHOLD,
+            DEDUP_REVIEW_THRESHOLD,
+        )
 
-        for rank, (entity, _) in enumerate(lexical_ranked, start=1):
-            eid = str(entity.id)
-            entities[eid] = entity
-            scores[eid] = 1.0 / (k + rank)
-            methods[eid] = "lexical"
+        # 路径2：强子串包含（简称⊂全称）
+        if signals.substring_match >= 0.85:
+            return (0.95, "substring", CandidateAction.merge_with_existing)
 
-        for rank, (entity, _) in enumerate(semantic_ranked, start=1):
-            eid = str(entity.id)
-            entities[eid] = entity
-            rrf = 1.0 / (k + rank)
-            if eid in scores:
-                scores[eid] += rrf
-                methods[eid] = "hybrid"
-            else:
-                scores[eid] = rrf
-                methods[eid] = "semantic"
+        # 路径3：高形相似 + 高音似（排除近形笔误）
+        if signals.rapidfuzz_ratio >= 0.92 and signals.pinyin_jaro >= 0.90:
+            return (0.90, "fuzzy_pinyin", CandidateAction.merge_with_existing)
 
-        # 归一化到 [0, 1]：理论最大值为两个第 1 名的加和
-        max_possible = 2.0 / (k + 1)
-        norm_factor = max_possible if max_possible > 0 else 1.0
+        # 路径4：有语义向量 — 语义主导
+        if signals.semantic_cosine is not None and signals.semantic_cosine >= 0.75:
+            # 语义 >= 0.85：极高置信，直接合并
+            if signals.semantic_cosine >= 0.85:
+                return (0.90, "semantic", CandidateAction.merge_with_existing)
+            sim = round(0.50 + signals.semantic_cosine * 0.35, 4)
+            if sim >= DEDUP_AUTO_MERGE_THRESHOLD:
+                return (sim, "semantic", CandidateAction.merge_with_existing)
+            if sim >= DEDUP_REVIEW_THRESHOLD:
+                return (sim, "semantic", CandidateAction.needs_user_decision)
+            # 语义中低但其他信号强，继续路径5
 
-        merged: list[tuple[Any, float, str]] = []
-        seen: set[str] = set()
-        for eid, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
-            if eid not in seen:
-                seen.add(eid)
-                merged.append((
-                    entities[eid],
-                    min(1.0, score / norm_factor),
-                    methods[eid],
-                ))
-        return merged
+        # 路径5：无语义或语义不强 — 纯词法融合
+        # 加权：形相似 50% + 音似 20% + 字序 20% + 子串 10%
+        lexical = (
+            0.50 * signals.rapidfuzz_ratio
+            + 0.20 * signals.pinyin_jaro
+            + 0.20 * signals.rapidfuzz_token_sort
+            + 0.10 * signals.substring_match
+        )
+
+        # 行政区划前缀冲突：直接降权到 discard 区间
+        if signals.prefix_conflict:
+            lexical = min(lexical, DEDUP_DISCARD_THRESHOLD - 0.01)
+
+        sim = round(lexical, 4)
+
+        if sim >= DEDUP_AUTO_MERGE_THRESHOLD:
+            return (sim, "lexical_fusion", CandidateAction.merge_with_existing)
+        if sim >= DEDUP_REVIEW_THRESHOLD:
+            return (sim, "lexical_fusion", CandidateAction.needs_user_decision)
+        if sim >= DEDUP_DISCARD_THRESHOLD:
+            return (sim, "lexical_fusion", CandidateAction.needs_user_decision)
+
+        return (sim, "lexical_fusion", CandidateAction.needs_user_decision)
 
     @staticmethod
     def _get_aliases(entity) -> list[str]:
@@ -424,7 +544,7 @@ class EntityDedupService:
         best = suggestions[0]
 
         # 高置信度 → 自动合并
-        if best.similarity_score >= SIMILARITY_HIGH_CONFIDENCE:
+        if best.similarity_score >= DEDUP_AUTO_MERGE_THRESHOLD:
             merge_result = await self.merge_candidate_into_entity(
                 db, novel_id, candidate_id, best.existing_entity_id,
             )
@@ -596,20 +716,37 @@ class EntityDedupService:
             for a in target_aliases
         }
         for alias in (candidate_char.aliases or []):
-            text = alias.get("alias", "").strip() if isinstance(alias, dict) else str(alias).strip()
+            if isinstance(alias, dict):
+                text = alias.get("alias", "").strip()
+            else:
+                text = str(alias).strip()
             if text and text not in existing_alias_texts:
                 target_aliases.append(alias)
                 existing_alias_texts.add(text)
 
         await char_repo.update(db, tid, CharacterUpdate(
             aliases=target_aliases,
-            appearance=merge_text_field(target_char.appearance, candidate_char.appearance),
-            personality=merge_text_field(target_char.personality, candidate_char.personality),
-            desire=merge_text_field(target_char.desire, candidate_char.desire),
-            fear=merge_text_field(target_char.fear, candidate_char.fear),
-            secret=merge_text_field(target_char.secret, candidate_char.secret),
-            weakness=merge_text_field(target_char.weakness, candidate_char.weakness),
-            current_goal=merge_text_field(target_char.current_goal, candidate_char.current_goal),
+            appearance=merge_text_field(
+                target_char.appearance, candidate_char.appearance,
+            ),
+            personality=merge_text_field(
+                target_char.personality, candidate_char.personality,
+            ),
+            desire=merge_text_field(
+                target_char.desire, candidate_char.desire,
+            ),
+            fear=merge_text_field(
+                target_char.fear, candidate_char.fear,
+            ),
+            secret=merge_text_field(
+                target_char.secret, candidate_char.secret,
+            ),
+            weakness=merge_text_field(
+                target_char.weakness, candidate_char.weakness,
+            ),
+            current_goal=merge_text_field(
+                target_char.current_goal, candidate_char.current_goal,
+            ),
             relationship_summary=merge_text_field(
                 target_char.relationship_summary, candidate_char.relationship_summary,
             ),

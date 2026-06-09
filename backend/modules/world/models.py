@@ -24,9 +24,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
 
-# 尝试导入 pgvector Vector 类型；不可用时回退到 Text
+# 尝试检测 pgvector 是否可用；不可用时回退到 Text
 try:
-    from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
+    import pgvector.sqlalchemy  # type: ignore[import-untyped]  # noqa: F401
 
     _HAS_PGVECTOR = True
 except ImportError:
@@ -111,7 +111,15 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     search_text: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="虚拟生成列：name + 别名聚合，用于 pg_trgm 模糊搜索（DB 自动维护，ORM 只读）",
+        comment=(
+            "虚拟生成列：name + 别名聚合，"
+            "用于 pg_trgm 模糊搜索（DB 自动维护，ORM 只读）"
+        ),
+    )
+    pinyin_string: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+        comment="name 的拼音字符串缓存（用于去重音似特征）",
     )
     created_by: Mapped[str | None] = mapped_column(
         String(64),
@@ -326,7 +334,11 @@ class EntityRevision(Base, UUIDMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<EntityRevision id={self.id} entity={self.entity_id} reason={self.revision_reason}>"
+        return (
+            f"<EntityRevision id={self.id} "
+            f"entity={self.entity_id} "
+            f"reason={self.revision_reason}>"
+        )
 
 
 # ============================================================

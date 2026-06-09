@@ -355,8 +355,14 @@ class PlotStructureGenerator:
                 "warnings": ["LLM 多次返回空结果，请重试"],
             }
 
-        # Fix 12：for-else 保证只会在有结果时 break，此处 result 不为 None
-        assert result is not None, "loop is guaranteed to have broken; result is set"
+        # Fix 12：for-else 保证 result 非空；防御性检查防 python -O 跳过 assert
+        if result is None:
+            return {
+                "total_threads": 0, "total_arcs": 0,
+                "threads": [], "arcs": [],
+                "extra_sections": {},
+                "warnings": ["LLM 生成结果为空，请重试"],
+            }
 
         # ============================================================
         # 6. 去重检查（Fix 6）

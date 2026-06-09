@@ -136,6 +136,16 @@ DEDUP_PGTRGM_MIN_SIMILARITY: Final[float] = 0.4
 DEDUP_MIN_FINAL_SCORE: Final[float] = 0.58
 """去重建议最终展示最低分"""
 
+# 级联阈值（双阈值策略）
+DEDUP_AUTO_MERGE_THRESHOLD: Final[float] = 0.88
+"""≥ 此值自动合并（高置信）"""
+
+DEDUP_REVIEW_THRESHOLD: Final[float] = 0.70
+"""0.70–0.88 区间需人工审核"""
+
+DEDUP_DISCARD_THRESHOLD: Final[float] = 0.58
+"""< 0.58 直接丢弃"""
+
 DEDUP_CONFLICT_FIELDS: Final[list[str]] = [
     "weapon", "ability", "affiliation", "title", "species", "gender", "age",
 ]
