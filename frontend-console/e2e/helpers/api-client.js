@@ -1,0 +1,57 @@
+/**
+ * 后端 API 客户端 — 供 E2E 测试的 setup / teardown 使用
+ *
+ * 绕过前端，直接调用后端 REST API 创建/清理测试数据。
+ */
+
+const API_BASE = "http://localhost:8000/api"
+
+async function request(path, options = {}) {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...options.headers,
+    },
+  })
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(`API ${path} failed (${resp.status}): ${text}`)
+  }
+  if (resp.status === 204) return null
+  return resp.json()
+}
+
+export async function createProject(payload) {
+  return request("/projects", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteProject(id) {
+  return request(`/projects/${id}`, { method: "DELETE" })
+}
+
+export async function listProjects() {
+  return request("/projects")
+}
+
+export async function healthCheck() {
+  try {
+    const resp = await fetch(`${API_BASE}/health`)
+    return resp.ok
+  } catch {
+    return false
+  }
+}
+
+export async function waitForBackend(maxWaitMs = 30000) {
+  const start = Date.now()
+  while (Date.now() - start < maxWaitMs) {
+    if (await healthCheck()) return true
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  throw new Error("Backend did not become healthy in time")
+}

@@ -822,4 +822,5 @@ const writingView = {
 }
 
 router.registerView("writing", writingView)
+window.writingView = writingView
 export default writingView
