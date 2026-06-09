@@ -124,9 +124,6 @@ VECTOR_INDEX_M: Final[int] = 16
 # 去重（Dedup）
 # ============================================================
 
-DEDUP_RRF_K: Final[int] = 60
-"""RRF 平滑常数 k — 排名 1 的得分为 1/(k+1)"""
-
 DEDUP_FUSION_TOP_K: Final[int] = 50
 """各通道（词法/语义）最大召回数"""
 
@@ -135,6 +132,16 @@ DEDUP_PGTRGM_MIN_SIMILARITY: Final[float] = 0.4
 
 DEDUP_MIN_FINAL_SCORE: Final[float] = 0.58
 """去重建议最终展示最低分"""
+
+# 级联阈值（双阈值策略）
+DEDUP_AUTO_MERGE_THRESHOLD: Final[float] = 0.88
+"""≥ 此值自动合并（高置信）"""
+
+DEDUP_REVIEW_THRESHOLD: Final[float] = 0.70
+"""0.70–0.88 区间需人工审核"""
+
+DEDUP_DISCARD_THRESHOLD: Final[float] = 0.58
+"""< 0.58 直接丢弃"""
 
 DEDUP_CONFLICT_FIELDS: Final[list[str]] = [
     "weapon", "ability", "affiliation", "title", "species", "gender", "age",

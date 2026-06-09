@@ -36,3 +36,6 @@ backend/nul
 nul
 *.pyc
 *.pyo
+
+# Training data (large JSONL)
+backend/data/dedup_training/*.jsonl
