@@ -124,9 +124,6 @@ VECTOR_INDEX_M: Final[int] = 16
 # 去重（Dedup）
 # ============================================================
 
-DEDUP_RRF_K: Final[int] = 60
-"""RRF 平滑常数 k — 排名 1 的得分为 1/(k+1)"""
-
 DEDUP_FUSION_TOP_K: Final[int] = 50
 """各通道（词法/语义）最大召回数"""
 

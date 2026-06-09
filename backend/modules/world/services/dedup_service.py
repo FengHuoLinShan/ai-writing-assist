@@ -74,7 +74,7 @@ class DedupModelProxy:
 
             meta_sklearn = self._metadata.get("sklearn_version")
             if meta_sklearn and meta_sklearn != sklearn.__version__:
-                logger.critical(
+                logger.warning(
                     "sklearn version mismatch (metadata=%s, runtime=%s), "
                     "falling back to cascade",
                     meta_sklearn, sklearn.__version__,
@@ -83,7 +83,7 @@ class DedupModelProxy:
 
             meta_dim = self._metadata.get("feature_dim")
             if meta_dim is not None and meta_dim != self._feature_dim:
-                logger.critical(
+                logger.warning(
                     "feature dimension mismatch (metadata=%s, expected=%s), "
                     "falling back to cascade",
                     meta_dim, self._feature_dim,
@@ -92,11 +92,30 @@ class DedupModelProxy:
 
             self._model_version = self._metadata.get("model_version", "unknown")
         except FileNotFoundError:
-            logger.critical("Dedup model files not found, falling back to cascade")
+            logger.warning("Dedup model files not found, falling back to cascade")
             self._pipeline = None
         except Exception as exc:
-            logger.critical("Dedup model load failed: %s", exc)
+            logger.warning("Dedup model load failed: %s", exc)
             self._pipeline = None
+
+    @property
+    def calibrated_thresholds(self) -> dict[str, float]:
+        """返回模型标定阈值，带默认值保底。"""
+        import copy
+
+        thresholds = copy.copy(self._metadata.get("thresholds", {}))
+        if "theta_merge" not in thresholds:
+            thresholds["theta_merge"] = DEDUP_AUTO_MERGE_THRESHOLD
+        if "theta_review" not in thresholds:
+            thresholds["theta_review"] = DEDUP_REVIEW_THRESHOLD
+        if "theta_discard" not in thresholds:
+            thresholds["theta_discard"] = DEDUP_DISCARD_THRESHOLD
+        return thresholds
+
+    @property
+    def model_version(self) -> str:
+        """返回模型版本字符串。"""
+        return self._model_version
 
     def predict(self, vector: list[float]) -> tuple[float, str]:
         if self._pipeline is None:
@@ -273,16 +292,10 @@ class EntityDedupService:
 
         proxy = DedupModelProxy()
         proba, _ = proxy.predict(signals.to_vector())
-        meta = proxy._metadata
-        theta_merge = meta.get("thresholds", {}).get(
-            "theta_merge", DEDUP_AUTO_MERGE_THRESHOLD
-        )
-        theta_review = meta.get("thresholds", {}).get(
-            "theta_review", DEDUP_REVIEW_THRESHOLD
-        )
-        theta_discard = meta.get("thresholds", {}).get(
-            "theta_discard", DEDUP_DISCARD_THRESHOLD
-        )
+        thresholds = proxy.calibrated_thresholds
+        theta_merge = thresholds.get("theta_merge", DEDUP_AUTO_MERGE_THRESHOLD)
+        theta_review = thresholds.get("theta_review", DEDUP_REVIEW_THRESHOLD)
+        theta_discard = thresholds.get("theta_discard", DEDUP_DISCARD_THRESHOLD)
 
         sim = round(proba, 4)
         if sim >= theta_merge:
@@ -298,10 +311,13 @@ class EntityDedupService:
         cascade_result = self._cascade_score(signals)
         if not DEDUP_MODEL_ACTIVE:
             return cascade_result
+        # 无语义向量时回退级联 — 模型在语义缺失下不可靠
+        if signals.semantic_cosine is None:
+            return cascade_result
         try:
             return self._model_score(signals)
         except Exception as exc:
-            logger.critical("Model inference failed: %s", exc)
+            logger.warning("Model inference failed: %s", exc)
             return cascade_result
 
     @staticmethod
@@ -359,7 +375,7 @@ class EntityDedupService:
         if sim >= DEDUP_DISCARD_THRESHOLD:
             return (sim, "lexical_fusion", CandidateAction.needs_user_decision)
 
-        return (sim, "lexical_fusion", CandidateAction.needs_user_decision)
+        return (sim, "lexical_fusion", CandidateAction.ignore)
 
     @staticmethod
     def _get_aliases(entity) -> list[str]:

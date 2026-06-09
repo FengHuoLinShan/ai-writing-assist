@@ -20,6 +20,13 @@ from modules.world.services.dedup_service import (
 from shared.enums import CandidateAction
 
 
+@pytest.fixture(autouse=True)
+def reset_dedup_proxy():
+    """每个测试后清理 DedupModelProxy 单例，防止泄漏到后续测试。"""
+    yield
+    DedupModelProxy._instance = None
+
+
 @pytest.fixture
 def dedup_svc() -> EntityDedupService:
     return EntityDedupService()
@@ -53,7 +60,7 @@ def mock_model_metadata() -> dict:
 
 @pytest.fixture
 def patched_proxy(mock_pipeline: Pipeline, mock_model_metadata: dict):
-    """构造一个已加载最小模型的代理实例，测试结束时清理单例。"""
+    """构造一个已加载最小模型的代理实例。"""
     DedupModelProxy._instance = None
     proxy = object.__new__(DedupModelProxy)
     proxy._pipeline = mock_pipeline
@@ -61,8 +68,7 @@ def patched_proxy(mock_pipeline: Pipeline, mock_model_metadata: dict):
     proxy._feature_dim = 7
     proxy._model_version = mock_model_metadata["model_version"]
     DedupModelProxy._instance = proxy
-    yield proxy
-    DedupModelProxy._instance = None
+    return proxy
 
 
 class TestDedupModelProxy:
@@ -83,18 +89,15 @@ class TestDedupModelProxy:
         proxy._feature_dim = 7
         proxy._model_version = "unknown"
         DedupModelProxy._instance = proxy
-        try:
-            signals = DedupSignals(
-                rapidfuzz_ratio=0.3, pinyin_jaro=0.2,
-                rapidfuzz_token_sort=0.3, substring_match=0.0,
-            )
-            sim, method, action = dedup_svc._resolve_score(signals)
-            from shared.constants import DEDUP_DISCARD_THRESHOLD
-            assert sim < DEDUP_DISCARD_THRESHOLD
-            assert method == "lexical_fusion"
-            assert action == CandidateAction.needs_user_decision
-        finally:
-            DedupModelProxy._instance = None
+        signals = DedupSignals(
+            rapidfuzz_ratio=0.3, pinyin_jaro=0.2,
+            rapidfuzz_token_sort=0.3, substring_match=0.0,
+        )
+        sim, method, action = dedup_svc._resolve_score(signals)
+        from shared.constants import DEDUP_DISCARD_THRESHOLD
+        assert sim < DEDUP_DISCARD_THRESHOLD
+        assert method == "lexical_fusion"
+        assert action == CandidateAction.ignore
 
     def test_feature_dim_mismatch_raises(self, patched_proxy: DedupModelProxy) -> None:
         patched_proxy._feature_dim = 99
@@ -111,7 +114,7 @@ class TestModelScore:
             signals = DedupSignals(
                 rapidfuzz_ratio=0.9, pinyin_jaro=0.9,
                 rapidfuzz_token_sort=0.9, substring_match=0.5,
-                pg_trgm_raw=0.8,
+                semantic_cosine=0.85, pg_trgm_raw=0.8,
             )
             sim, method, action = dedup_svc._resolve_score(signals)
             assert method == "lr_model"
@@ -125,7 +128,7 @@ class TestModelScore:
             signals = DedupSignals(
                 rapidfuzz_ratio=0.5, pinyin_jaro=0.5,
                 rapidfuzz_token_sort=0.5, substring_match=0.0,
-                pg_trgm_raw=0.3,
+                semantic_cosine=0.60, pg_trgm_raw=0.3,
             )
             sim, method, action = dedup_svc._resolve_score(signals)
             assert method == "lr_model"
@@ -139,7 +142,7 @@ class TestModelScore:
             signals = DedupSignals(
                 rapidfuzz_ratio=0.1, pinyin_jaro=0.1,
                 rapidfuzz_token_sort=0.1, substring_match=0.0,
-                pg_trgm_raw=0.0,
+                semantic_cosine=0.10, pg_trgm_raw=0.0,
             )
             sim, method, action = dedup_svc._resolve_score(signals)
             assert method == "lr_model"

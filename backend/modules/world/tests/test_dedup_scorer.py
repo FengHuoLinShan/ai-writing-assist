@@ -244,6 +244,29 @@ class TestCascadeScore:
         assert method == "semantic"
         assert action == CandidateAction.merge_with_existing
 
+    def test_semantic_high_confidence_boundary(
+        self, dedup_svc: EntityDedupService,
+    ) -> None:
+        """语义 >= 0.85 边界：应直接返回 (0.90, merge_with_existing)。"""
+        from shared.enums import CandidateAction
+        s = DedupSignals(semantic_cosine=0.85)
+        sim, method, action = dedup_svc._cascade_score(s)
+        assert sim == 0.90
+        assert method == "semantic"
+        assert action == CandidateAction.merge_with_existing
+
+    def test_semantic_just_below_boundary(
+        self, dedup_svc: EntityDedupService,
+    ) -> None:
+        """语义 0.84 (低于 0.85 边界) 应走语义中分路径，不直接返回 0.90。"""
+        from shared.enums import CandidateAction
+        s = DedupSignals(semantic_cosine=0.84)
+        sim, method, action = dedup_svc._cascade_score(s)
+        assert method == "semantic"
+        # sim = 0.50 + 0.84 * 0.35 = 0.794
+        assert sim < 0.85
+        assert action == CandidateAction.needs_user_decision
+
     def test_medium_semantic(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction
         s = DedupSignals(semantic_cosine=0.78)
@@ -281,6 +304,7 @@ class TestCascadeScore:
 
     def test_below_discard(self, dedup_svc: EntityDedupService) -> None:
         from shared.constants import DEDUP_DISCARD_THRESHOLD
+        from shared.enums import CandidateAction
         s = DedupSignals(
             rapidfuzz_ratio=0.3,
             pinyin_jaro=0.2,
@@ -289,3 +313,4 @@ class TestCascadeScore:
         )
         sim, method, action = dedup_svc._cascade_score(s)
         assert sim < DEDUP_DISCARD_THRESHOLD
+        assert action == CandidateAction.ignore
