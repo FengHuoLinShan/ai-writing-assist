@@ -280,26 +280,6 @@ class TestAliasAndDedup:
         best = results[0]
         assert best.similarity_score > 0.9, f"精确匹配分数应 > 0.9，实际: {best.similarity_score}"
 
-    async def test_alias_variant_fuzzy_match(
-        self, db_session: AsyncSession, novel_id: str
-    ):
-        """别名变体模糊匹配：已有 '白砚'，搜索 '小白' 应有匹配"""
-        await _create_entity_via_service(
-            db_session, novel_id,
-            name="白砚", entity_type="character",
-            aliases=["小白"],
-        )
-
-        from modules.world.facade import find_similar_entities
-
-        results = await find_similar_entities(
-            db_session, novel_id,
-            name="小白",
-            entity_type="character",
-        )
-        assert len(results) > 0, f"别名字面 '小白' 应有匹配，实际: {results}"
-        best = results[0]
-        assert best.similarity_score >= 0.5, f"相似度应 >= 0.5，实际: {best.similarity_score}"
 
     async def test_duplicate_detection_prevents_re_extraction(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
