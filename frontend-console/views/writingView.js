@@ -119,7 +119,7 @@ const writingView = {
       <div style="display:grid;grid-template-columns:200px 1fr 260px;gap:12px;align-items:start;">
         ${this._renderSceneTree()}
         ${this._renderEditor()}
-        ${this._renderOutlinePanel()}
+        ${this._renderScenePanel()}
       </div>
       ${this._renderPublishBar()}
     `
@@ -363,56 +363,73 @@ const writingView = {
   },
 
   // ============================================================
-  // 右侧：大纲面板
+  // 右侧：Scene 面板
   // ============================================================
 
-  _renderOutlinePanel() {
+  _findCurrentScene() {
+    if (!this._currentChapter || !this._scenes.length) return null
+    const chStr = String(this._currentChapter)
+    const exact = this._scenes.find((s) =>
+      (s.chapter_ids || []).includes(chStr)
+    )
+    if (exact) return exact
+    const byChunk = this._scenes.find((s) =>
+      (s.scene_chunks || []).some((c) => String(c.chapter_index) === chStr)
+    )
+    return byChunk || null
+  },
+
+  _updateCurrentScene() {
+    this._currentSceneId = null
+    const scene = this._findCurrentScene()
+    if (scene) {
+      this._currentSceneId = scene.id
+    }
+  },
+
+  _renderScenePanel() {
+    const currentScene = this._findCurrentScene()
+
     let html = `
       <div class="card" style="max-height:600px;overflow-y:auto;font-size:12px;">
-        <div style="font-size:13px;font-weight:bold;margin-bottom:8px;">大纲</div>
+        <div style="font-size:13px;font-weight:bold;margin-bottom:8px;">当前 Scene</div>
     `
 
-    if (this._outlineArc) {
-      const a = this._outlineArc
+    if (currentScene) {
+      const s = currentScene
+      const tagLabels = {
+        inciting_incident: "激励事件", rising_action: "冲突升级",
+        climax: "阶段高潮", valley: "低谷", transition: "过渡",
+        hook: "钩子", payoff: "爽点", draft: "草稿",
+      }
+      const tagLabel = tagLabels[s.narrative_tag] || s.narrative_tag || "草稿"
+      const tagClass = `narrative-tag-${s.narrative_tag || "draft"}`
+
       html += `
         <div style="margin-bottom:10px;">
-          <div style="font-size:12px;font-weight:bold;color:var(--accent);">${esc(a.title)}</div>
-          <div style="color:var(--text-dim);font-size:11px;">第 ${a.start_chapter}-${a.end_chapter} 章</div>
-          ${a.arc_goal ? `<div style="margin-top:4px;color:var(--text);">${esc(a.arc_goal)}</div>` : ''}
-          ${a.core_conflict ? `<div style="margin-top:3px;color:var(--text-dim);font-size:11px;">冲突：${esc(a.core_conflict)}</div>` : ''}
-          ${a.entry_hook ? `<div style="margin-top:3px;color:var(--text-dim);font-size:11px;">开篇：${esc(a.entry_hook)}</div>` : ''}
-          ${a.climax ? `<div style="margin-top:3px;color:var(--text-dim);font-size:11px;">高潮：${esc(a.climax)}</div>` : ''}
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;">#${s.scene_index}</span>
+            <span class="narrative-tag ${tagClass}">${tagLabel}</span>
+          </div>
+          <div style="font-size:14px;font-weight:500;margin-bottom:8px;">${esc(s.title || "未命名 Scene")}</div>
+          ${s.goal ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">目标</div><div style="color:var(--text);">${esc(s.goal)}</div></div>` : ''}
+          ${s.core_conflict ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">冲突</div><div style="color:var(--text);">${esc(s.core_conflict)}</div></div>` : ''}
+          ${s.emotional_beat ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">情感</div><div style="color:var(--text);">${esc(s.emotional_beat)}</div></div>` : ''}
+          ${s.must_happen ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">必须发生</div><div style="color:var(--text);">${esc(s.must_happen)}</div></div>` : ''}
+          ${s.must_not_happen ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">禁止发生</div><div style="color:var(--text);">${esc(s.must_not_happen)}</div></div>` : ''}
         </div>
-        <hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">
       `
     } else {
-      html += `<div style="color:var(--text-dim);margin-bottom:8px;">未找到当前章节所属篇章</div><hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">`
-    }
-
-    if (this._outlineThreads.length > 0) {
-      html += `<div style="font-size:12px;font-weight:bold;margin-bottom:6px;">剧情线 (${this._outlineThreads.length})</div>`
-      for (const t of this._outlineThreads) {
-        const typeLabel = {
-          main: "主线", secondary: "副线", hidden: "暗线",
-          relationship: "关系线", villain: "反派线", foreshadowing: "伏笔线",
-        }[t.thread_type] || t.thread_type
-        html += `
-          <div style="margin-bottom:8px;padding:4px 6px;border-left:2px solid ${t.thread_type === 'main' ? 'var(--accent)' : 'var(--border)'};border-radius:0 3px 3px 0;">
-            <div style="font-weight:bold;font-size:12px;">${esc(t.name)} <span style="color:var(--text-dim);font-weight:normal;font-size:10px;">${esc(typeLabel)}</span></div>
-            ${t.current_stage ? `<div style="color:var(--text-dim);font-size:11px;">阶段：${esc(t.current_stage)}</div>` : ''}
-            ${t.visible_goal ? `<div style="color:var(--text);font-size:11px;margin-top:2px;">${esc(t.visible_goal)}</div>` : ''}
-            ${t.summary ? `<div style="color:var(--text-dim);font-size:10px;margin-top:2px;">${esc(t.summary)}</div>` : ''}
-          </div>
-        `
-      }
-    } else {
-      html += `<div style="color:var(--text-dim);font-size:11px;">暂无活跃剧情线</div>`
+      html += `
+        <div style="color:var(--text-dim);font-size:11px;margin-bottom:8px;">
+          当前章节未关联 Scene。${this._scenes.length > 0 ? '请选择左侧 Scene 节点。' : '请先在大纲视图中创建 Scene 卡。'}
+        </div>
+      `
     }
 
     html += `
-      <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);">
-        <button class="btn btn-sm" data-action="open-outline" style="font-size:11px;width:100%;">管理大纲</button>
-      </div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:8px 0;">
+      <button class="btn btn-sm" data-action="open-outline" style="font-size:11px;width:100%;">管理大纲</button>
     `
 
     html += '</div>'
@@ -485,6 +502,7 @@ const writingView = {
       this._refreshVersions(chapterIndex),
       this._loadOutlineData(chapterIndex),
     ])
+    this._updateCurrentScene()
     await this._rerender()
   },
 
