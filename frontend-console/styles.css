@@ -1770,3 +1770,89 @@ kbd {
     padding: 0 var(--space-4);
   }
 }
+
+/* ===== Scene 卡片列表 ===== */
+.scene-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scene-card {
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg-surface);
+  transition: box-shadow 0.15s;
+}
+
+.scene-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.scene-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.scene-index {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scene-source {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.scene-card-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.scene-card-field {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+
+.scene-card-field .field-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-right: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scene-card-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-dim);
+  display: flex;
+  gap: 6px;
+}
+
+/* ===== 叙事标签颜色 ===== */
+.narrative-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.narrative-tag-inciting_incident { background: var(--error-soft); color: var(--error); }
+.narrative-tag-rising_action { background: var(--warning-soft); color: var(--warning); }
+.narrative-tag-climax { background: #ffe0e0; color: #c62828; }
+.narrative-tag-valley { background: var(--bg-active); color: var(--text-dim); }
+.narrative-tag-transition { background: var(--bg-active); color: var(--text-tertiary); }
+.narrative-tag-hook { background: var(--info-soft); color: var(--info); }
+.narrative-tag-payoff { background: var(--success-soft); color: var(--success); }
+.narrative-tag-draft { background: var(--bg-active); color: var(--text-secondary); }
