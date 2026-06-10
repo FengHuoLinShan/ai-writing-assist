@@ -73,6 +73,18 @@ class WritingDraftService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
+        # 多 Tab 冲突检测
+        if (
+            data.expected_version is not None
+            and draft.version_number != data.expected_version
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail=(
+                    f"该章节已被其他会话更新（当前版本 v{draft.version_number}，"
+                    f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
+                ),
+            )
         updated = await self._repo.update(db, did, data)
         if updated is None:
             raise HTTPException(

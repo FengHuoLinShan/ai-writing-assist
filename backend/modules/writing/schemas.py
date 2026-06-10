@@ -48,6 +48,9 @@ class WritingDraftUpdate(BaseModel):
 
     title: str | None = Field(None, description="草稿标题")
     content: str | None = Field(None, description="草稿正文")
+    expected_version: int | None = Field(
+        None, ge=1, description="期望的版本号，用于多 Tab 冲突检测",
+    )
 
 
 # ============================================================
