@@ -24,20 +24,42 @@ async def import_file(
     file_name: str,
     file_content: bytes,
 ) -> ImportResponse:
-    """导入小说文件
-
-    供其他模块（如生成中心、命令行工具）调用导入能力。
-
-    Args:
-        db: 数据库 session
-        novel_id: 项目 ID
-        file_name: 原始文件名
-        file_content: 文件二进制内容
-
-    Returns:
-        ImportResponse — 导入结果
-    """
     return await _service.upload_and_import(db, novel_id, file_name, file_content)
+
+
+async def _check_duplicate_import(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+) -> str | None:
+    """检查章节范围内是否已有 Scene 或实体数据"""
+    from sqlalchemy import func, select
+
+    from modules.outline.models import Scene
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+
+    scene_stmt = select(func.count(Scene.id)).where(
+        Scene.novel_id == nid,
+        Scene.status.in_(["draft", "canonical"]),
+    )
+    scene_count = (await db.execute(scene_stmt)).scalar() or 0
+
+    entity_stmt = select(func.count(CoreEntity.id)).where(
+        CoreEntity.novel_id == nid,
+        CoreEntity.status.in_(["canonical", "draft"]),
+    )
+    entity_count = (await db.execute(entity_stmt)).scalar() or 0
+
+    if scene_count > 0 or entity_count > 0:
+        return (
+            f"第 {start_chapter}-{end_chapter} 章已有 {scene_count} 个 Scene、"
+            f"{entity_count} 个实体。重新导入将覆盖现有数据。是否继续？"
+        )
+    return None
 
 
 async def start_deep_import(
@@ -48,19 +70,11 @@ async def start_deep_import(
 ) -> dict[str, Any]:
     """提交深度导入任务（异步）
 
-    创建一个 deep_import 后台任务，从章节正文中依次执行
-    世界对象抽取、人物同步和剧情结构生成。
-
-    Args:
-        db: 数据库 session
-        novel_id: 项目 ID
-        start_chapter: 起始章节
-        end_chapter: 结束章节
-
-    Returns:
-        包含 task_id 和 status 的字典
+    自动执行三阶段流水线：Scene 切分 → 实体增量提取 → 剧情结构分析。
     """
     from infrastructure.tasks.enqueuer import enqueue_task
+
+    warning = await _check_duplicate_import(db, novel_id, start_chapter, end_chapter)
 
     task_id = enqueue_task(
         db,
@@ -73,34 +87,26 @@ async def start_deep_import(
     )
     await db.flush()
 
-    return {
+    result: dict[str, Any] = {
         "task_id": task_id,
         "status": "pending",
         "message": f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）",
     }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 async def resume_deep_import(
     db: AsyncSession,
     prev_task_id: str,
 ) -> dict[str, Any]:
-    """继续深度导入任务（异步）
-
-    在用户确认所有候选后，继续执行人物同步和剧情结构生成。
-
-    Args:
-        db: 数据库 session
-        prev_task_id: 前一个 deep_import 任务的 ID
-
-    Returns:
-        包含 task_id 和 status 的字典
-    """
+    """（已废弃）候选管理已移除，深度导入全自动执行。"""
     from sqlalchemy import select
 
     from infrastructure.tasks.enqueuer import enqueue_task
     from infrastructure.tasks.models import AsyncTask
 
-    # 读取前一个任务的 meta 获取章节范围
     stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(prev_task_id))
     result = await db.execute(stmt)
     prev_task = result.scalar_one_or_none()
@@ -109,7 +115,6 @@ async def resume_deep_import(
         raise TaskNotFoundError(prev_task_id)
 
     prev_meta = prev_task.meta or {}
-
     task_meta = dict(prev_meta)
     task_meta["prev_task_id"] = prev_task_id
 

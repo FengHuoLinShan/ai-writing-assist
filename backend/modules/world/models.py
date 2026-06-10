@@ -538,5 +538,42 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
         )
 
 
+class TextArchive(Base, UUIDMixin, NovelMixin):
+    """文本归档 — 记录长文本字段每次变更的快照，用于版本回滚"""
+
+    __tablename__ = "text_archive"
+    __table_args__ = {"comment": "文本归档"}
+
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=True, index=True,
+        comment="关联实体 ID",
+    )
+    field_name: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="字段名",
+    )
+    text_content: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="变更后的文本内容",
+    )
+    scene_index: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="变更时的 Scene 索引锚点",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="manual_edit",
+        comment="来源: manual_edit / ai_extraction / manual_rollback",
+    )
+    meta: Mapped[dict] = mapped_column(
+        JSON, nullable=True, default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<TextArchive id={self.id} entity={self.entity_id} "
+            f"field={self.field_name} scene={self.scene_index}>"
+        )
+
+
 # 需要 datetime/function 用于 EntityRevision.created_at
 from sqlalchemy import DateTime, func  # noqa: E402
