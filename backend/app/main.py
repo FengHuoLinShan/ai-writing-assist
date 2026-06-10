@@ -32,9 +32,11 @@ from modules.outline.services import (
     PlotThreadService as _PTS,  # noqa: N814
 )
 from modules.rag.facade import (
+    get_ordered_chapter_chunks as _rag_get_chunks,
     index_chapter_with_report as _rag_index,
 )
 from modules.writing.facade import (
+    get_latest_draft_for_chapter as _writing_get_draft,
     list_chapter_indices as _writing_list_indices,
 )
 from modules.world.facade import (
@@ -51,8 +53,10 @@ _register("world.list_characters", _world_list_characters)
 _register("world.list_entity_terms", _world_list_entity_terms)
 _register("world.run_entity_extraction", _world_extract)
 _register("rag.index_chapter", _rag_index)
+_register("rag.get_ordered_chapter_chunks", _rag_get_chunks)
 
 _register("writing.list_chapter_indices", _writing_list_indices)
+_register("writing.get_latest_draft_for_chapter", _writing_get_draft)
 _register("outline.generate_structure", _PSG().generate)
 _register("outline.arc_service", _OAS())
 _register("outline.thread_service", _PTS())

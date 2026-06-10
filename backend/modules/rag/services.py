@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as _container_get
 from modules.rag.contracts import RagIndexReport, RagResultBundle
 from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
@@ -931,7 +932,7 @@ async def _load_project_terms(
     terms: list[dict[str, str]] = []
     novel_id_str = str(novel_id)
 
-    from modules.world.facade import list_characters as _list_chars
+    _list_chars = _container_get("world.list_characters")
 
     chars_list, _ = await _list_chars(db, novel_id_str, limit=999)
     for char in chars_list:
@@ -939,9 +940,9 @@ async def _load_project_terms(
         _add_term(terms, term="", target_id=str(char.entity_id), target_type="character")
 
     try:
-        from modules.world.facade import list_entity_terms
+        _list_entity_terms = _container_get("world.list_entity_terms")
 
-        entity_terms = await list_entity_terms(db, novel_id_str)
+        entity_terms = await _list_entity_terms(db, novel_id_str)
         for item in entity_terms:
             for term in item.get("terms", []):
                 _add_term(
@@ -1078,9 +1079,9 @@ class IndexingService:
     ):
         """索引指定章节并返回诊断报告。"""
         from modules.rag.contracts import RagIndexReport
-        from modules.writing.facade import get_latest_draft_for_chapter
+        _get_latest_draft = _container_get("writing.get_latest_draft_for_chapter")
 
-        draft = await get_latest_draft_for_chapter(db, str(novel_id), chapter_index)
+        draft = await _get_latest_draft(db, str(novel_id), chapter_index)
         if not draft or not draft.content:
             return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
 
@@ -1094,9 +1095,9 @@ class IndexingService:
         # 获取实体重要性映射
         entity_importance_map: dict[str, dict[str, object]] = {}
         try:
-            from modules.world.facade import get_entity_importance_map
+            _get_importance_map = _container_get("world.get_entity_importance_map")
 
-            entity_importance_map = await get_entity_importance_map(db, str(novel_id))
+            entity_importance_map = await _get_importance_map(db, str(novel_id))
         except Exception:
             pass
 

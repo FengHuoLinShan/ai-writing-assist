@@ -93,7 +93,7 @@ class WorldEntityService(
 
         # Filter expired temporary entities
         if current_chapter is not None:
-            from modules.project.project import Project
+            from modules.project.models import Project
 
             pid = parse_uuid(novel_id, "novel_id")
             stmt = select(Project).where(Project.id == pid)
