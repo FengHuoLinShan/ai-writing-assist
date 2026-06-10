@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -31,6 +32,7 @@ import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
+from core.container import reset
 from app.main import app
 from core.base import Base
 from core.dependencies import get_db
@@ -134,3 +136,9 @@ async def test_character_id(db_session: AsyncSession, test_project_id: str) -> s
     db_session.add(e)
     await db_session.flush()
     return str(cid)
+
+
+@pytest.fixture(autouse=True)
+def _reset_di_container() -> None:
+    """每个测试函数前重置 DI 容器，消除全局状态污染导致的 Heisenbug。"""
+    reset()
