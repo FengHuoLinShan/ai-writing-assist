@@ -147,7 +147,8 @@ async function renderCurrentView() {
       while (content.firstChild) {
         frag.appendChild(content.firstChild)
       }
-      _viewDomCache[_prevView] = frag
+      const cacheKey = `${_prevView}:${_prevRenderedSubView || ""}`
+      _viewDomCache[cacheKey] = frag
     }
   }
   _prevView = viewName
@@ -159,16 +160,14 @@ async function renderCurrentView() {
 
   try {
     if (renderer) {
-      const cached = _viewDomCache[viewName]
+      const cacheKey = `${viewName}:${state.currentSubView || ""}`
+      const cached = _viewDomCache[cacheKey]
       if (cached && _keepAliveViews.has(viewName)) {
         content.innerHTML = ""
         content.appendChild(cached)
-        delete _viewDomCache[viewName]
+        delete _viewDomCache[cacheKey]
         if (renderer.onActivate) {
           await renderer.onActivate()
-        }
-        if (renderer._bindEvents) {
-          renderer._bindEvents()
         }
       } else {
         if (!isSameRender && renderer.onEnter) {
@@ -249,6 +248,9 @@ function initRouter() {
   const parsed = _parseHash(hash)
 
   if (parsed.projectId) {
+    if (parsed.projectId !== state.currentProjectId) {
+      Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
+    }
     state.currentProjectId = parsed.projectId
   }
 
@@ -266,6 +268,9 @@ function initRouter() {
 
     const projectId = parsed.projectId || (e.state && e.state.projectId) || null
     if (projectId) {
+      if (projectId !== state.currentProjectId) {
+        Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
+      }
       state.currentProjectId = projectId
     }
 

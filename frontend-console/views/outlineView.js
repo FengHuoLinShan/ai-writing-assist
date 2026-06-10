@@ -51,6 +51,13 @@ const outlineView = {
   onActivate() {
     // KeepAlive 恢复后重新绑定事件（DOM 来自缓存，事件监听器可能丢失）
     this._bindEvents()
+    const saved = state.viewStates && state.viewStates.outline
+    if (saved && saved.scrollTop != null) {
+      const container = document.querySelector("#workspace-content .subnav")
+      if (container) {
+        container.scrollTop = saved.scrollTop
+      }
+    }
   },
 
   onDeactivate() {
