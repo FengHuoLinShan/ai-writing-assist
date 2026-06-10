@@ -36,7 +36,10 @@ const projectView = {
     } else {
       html += `
         <div class="project-header">
-          <h1>项目</h1>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <h1>项目</h1>
+            <button class="btn btn-ghost btn-sm" data-action="recycle-bin" style="font-size:12px;">回收站</button>
+          </div>
           <p>选择一个项目继续创作，或创建新项目。</p>
           <div class="divider"></div>
         </div>
@@ -137,6 +140,7 @@ const projectView = {
       "import": () => this.importFile(),
       "toggle-import": () => this._toggleImportSection(),
       "upload-file": () => this._uploadFile(),
+      "recycle-bin": () => this.showRecycleBin(),
     })
   },
 
@@ -229,19 +233,91 @@ const projectView = {
     const project = state.projects.find((p) => p.id === id)
     if (!project) return
     const name = project.title || project.name || "未命名"
-    confirmAction(`确定要删除项目「${esc(name)}」吗？\n此操作不可恢复，所有关联数据（世界对象、人物、剧情等）将被一并删除。`, async () => {
-      try {
-        await api.projects.remove(id)
-        toast(`项目「${name}」已删除`, "success")
-        if (state.currentProjectId === id) {
-          state.currentProjectId = null
-          state.currentProject = null
+    confirmAction(
+      `确定要删除项目「${esc(name)}」吗？删除后可在回收站中恢复。`,
+      async () => {
+        try {
+          await api.projects.remove(id)
+          toast(`项目「${name}」已移至回收站`, "success")
+          if (state.currentProjectId === id) {
+            state.currentProjectId = null
+            state.currentProject = null
+          }
+          router.navigate("project")
+        } catch (err) {
+          toast(`删除失败：${err.message}`, "error")
         }
-        router.navigate("project")
-      } catch (err) {
-        toast(`删除失败：${err.message}`, "error")
+      },
+      "移至回收站",
+    )
+  },
+
+  async showRecycleBin() {
+    try {
+      const data = await api.projects.listDeleted()
+      const items = data.items || data || []
+      if (items.length === 0) {
+        showModal("回收站", "<p>回收站为空。</p>")
+        return
       }
-    }, "确认删除")
+      let listHtml = '<div style="max-height:400px;overflow-y:auto;">'
+      for (const p of items) {
+        const name = p.title || p.name || "未命名"
+        const deletedDate = p.deleted_at
+          ? new Date(p.deleted_at).toLocaleDateString("zh-CN")
+          : ""
+        listHtml += `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);">
+            <div>
+              <div style="font-weight:500;">${esc(name)}</div>
+              <div style="font-size:11px;color:var(--text-dim);">删除于 ${deletedDate}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-sm btn-primary restore-project-btn" data-id="${esc(p.id)}">恢复</button>
+              <button class="btn btn-sm btn-danger perm-delete-project-btn" data-id="${esc(p.id)}">永久删除</button>
+            </div>
+          </div>
+        `
+      }
+      listHtml += "</div>"
+      showModal("回收站", listHtml)
+
+      setTimeout(() => {
+        document.querySelectorAll(".restore-project-btn").forEach((btn) => {
+          btn.onclick = async () => {
+            try {
+              await api.projects.restore(btn.dataset.id)
+              closeModal()
+              toast("项目已恢复", "success")
+              router.navigate("project")
+            } catch (err) {
+              toast(`恢复失败：${err.message}`, "error")
+            }
+          }
+        })
+        document.querySelectorAll(".perm-delete-project-btn").forEach((btn) => {
+          btn.onclick = () => {
+            const pid = btn.dataset.id
+            closeModal()
+            confirmAction(
+              "确定永久删除此项目？此操作不可恢复，所有关联数据将被级联删除。",
+              async () => {
+                try {
+                  await api.projects.permanentDelete(pid)
+                  toast("项目已永久删除", "success")
+                  router.navigate("project")
+                } catch (err) {
+                  toast(`删除失败：${err.message}`, "error")
+                }
+              },
+              "永久删除",
+            )
+          }
+        })
+      }, 100)
+    } catch (err) {
+      toast(`加载回收站失败：${err.message}`, "error")
+    }
   },
 
   showCreateForm() {

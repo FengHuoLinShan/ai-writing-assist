@@ -68,5 +68,33 @@ async def api_delete_project(
     db: DbSession,
     project_id: str,
 ) -> None:
-    """删除项目"""
+    """软删除项目（移至回收站）"""
     await _service.delete_project(db, project_id)
+
+
+@router.get("/recycle-bin", response_model=ProjectListResponse)
+async def api_list_deleted_projects(
+    db: DbSession,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+) -> ProjectListResponse:
+    """获取回收站中的项目列表"""
+    return await _service.list_deleted_projects(db, skip=skip, limit=limit)
+
+
+@router.post("/{project_id}/restore", response_model=ProjectResponse)
+async def api_restore_project(
+    db: DbSession,
+    project_id: str,
+) -> ProjectResponse:
+    """从回收站恢复项目"""
+    return await _service.restore_project(db, project_id)
+
+
+@router.delete("/{project_id}/permanent", status_code=204)
+async def api_permanent_delete_project(
+    db: DbSession,
+    project_id: str,
+) -> None:
+    """永久删除项目（级联删除所有关联数据，不可恢复）"""
+    await _service.permanent_delete_project(db, project_id)

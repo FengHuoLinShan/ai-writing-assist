@@ -5,6 +5,7 @@ Project Repository
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,11 +28,14 @@ class ProjectRepository:
         skip: int = 0,
         limit: int = 20,
     ) -> tuple[list[Project], int]:
-        count_stmt = select(func.count(Project.id))
+        count_stmt = select(func.count(Project.id)).where(
+            Project.deleted_at.is_(None)
+        )
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
         stmt = (
             select(Project)
+            .where(Project.deleted_at.is_(None))
             .offset(skip)
             .limit(limit)
             .order_by(Project.created_at.desc())
@@ -83,8 +87,60 @@ class ProjectRepository:
             project = await self.get(db, project_id)
         return project
 
-    async def delete(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
-        stmt = delete(Project).where(Project.id == project_id)
+    # ============================================================
+    # 软删除
+    # ============================================================
+
+    async def soft_delete(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
+        """标记项目为软删除（设置 deleted_at）"""
+        stmt = (
+            update(Project)
+            .where(Project.id == project_id, Project.deleted_at.is_(None))
+            .values(deleted_at=datetime.now(UTC))
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0
+
+    async def restore(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
+        """恢复已删除项目（清除 deleted_at）"""
+        stmt = (
+            update(Project)
+            .where(Project.id == project_id, Project.deleted_at.isnot(None))
+            .values(deleted_at=None)
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0
+
+    async def list_deleted(
+        self,
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Project], int]:
+        """列出回收站中的项目"""
+        base_cond = Project.deleted_at.isnot(None)
+        count_stmt = select(func.count(Project.id)).where(base_cond)
+        total = (await db.execute(count_stmt)).scalar() or 0
+        stmt = (
+            select(Project)
+            .where(base_cond)
+            .offset(skip)
+            .limit(limit)
+            .order_by(Project.deleted_at.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def permanent_delete(
+        self, db: AsyncSession, project_id: uuid.UUID,
+    ) -> bool:
+        """永久删除项目（硬删除，数据库 CASCADE 处理关联数据）"""
+        stmt = delete(Project).where(
+            Project.id == project_id,
+            Project.deleted_at.isnot(None),
+        )
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0

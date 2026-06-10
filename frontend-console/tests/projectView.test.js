@@ -150,7 +150,7 @@ describe("projectView", () => {
       expect(globalThis.confirmAction).toHaveBeenCalledOnce()
       const confirmMock = vi.mocked(globalThis.confirmAction)
       expect(confirmMock.mock.calls[0][0]).toContain("项目A")
-      expect(confirmMock.mock.calls[0][2]).toBe("确认删除")
+      expect(confirmMock.mock.calls[0][2]).toBe("移至回收站")
     })
   })
 

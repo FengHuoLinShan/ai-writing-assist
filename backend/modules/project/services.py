@@ -69,13 +69,49 @@ class ProjectService:
         return ProjectResponse.model_validate(project)
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
+        """软删除：标记项目为已删除（移至回收站）"""
         pid = parse_uuid(project_id, "project_id")
-        deleted = await self._repo.delete(db, pid)
+        deleted = await self._repo.soft_delete(db, pid)
         if not deleted:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found",
+                detail=f"Project {project_id} not found or already deleted",
             )
+
+    async def restore_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
+        """从回收站恢复项目"""
+        pid = parse_uuid(project_id, "project_id")
+        restored = await self._repo.restore(db, pid)
+        if not restored:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Project {project_id} not found in recycle bin",
+            )
+        project = await self._repo.get(db, pid)
+        return ProjectResponse.model_validate(project)
+
+    async def permanent_delete_project(
+        self, db: AsyncSession, project_id: str,
+    ) -> None:
+        """永久删除项目（级联删除所有关联数据，不可恢复）"""
+        pid = parse_uuid(project_id, "project_id")
+        deleted = await self._repo.permanent_delete(db, pid)
+        if not deleted:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Project {project_id} not found in recycle bin",
+            )
+
+    async def list_deleted_projects(
+        self, db: AsyncSession, skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
+    ) -> ProjectListResponse:
+        """列出回收站中的项目"""
+        limit = min(limit, MAX_PAGE_SIZE)
+        items, total = await self._repo.list_deleted(db, skip=skip, limit=limit)
+        return ProjectListResponse(
+            items=[ProjectResponse.model_validate(p) for p in items],
+            total=total,
+        )
 
     async def get_project_context(
         self,

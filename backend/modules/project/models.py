@@ -4,7 +4,9 @@ Project 数据模型
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, String
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin
@@ -57,6 +59,11 @@ class Project(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=dict,
         comment="小说配置（JSON，如 temporary_entity_expiry_chapters）",
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="软删除时间，NULL 表示未删除",
     )
 
     def __repr__(self) -> str:

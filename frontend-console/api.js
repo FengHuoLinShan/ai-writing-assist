@@ -194,9 +194,21 @@ const api = {
       })
     },
 
-    /** 删除项目 */
+    /** 删除项目（软删除，移至回收站） */
     async remove(id) {
       return request(`/projects/${id}`, { method: "DELETE" })
+    },
+    /** 获取回收站项目列表 */
+    async listDeleted(skip = 0, limit = 20) {
+      return request("/projects/recycle-bin" + buildQueryString({ skip, limit }))
+    },
+    /** 从回收站恢复项目 */
+    async restore(id) {
+      return request(`/projects/${id}/restore`, { method: "POST" })
+    },
+    /** 永久删除项目（不可恢复） */
+    async permanentDelete(id) {
+      return request(`/projects/${id}/permanent`, { method: "DELETE" })
     },
   },
 
