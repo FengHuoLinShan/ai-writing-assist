@@ -106,3 +106,44 @@ class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
             f"<Scene id={self.id} novel={self.novel_id} "
             f"idx={self.scene_index} tag={self.narrative_tag}>"
         )
+
+
+class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
+    """伏笔计划 — 贯穿多章的伏笔链"""
+
+    __tablename__ = "foreshadowing_plans"
+    __table_args__ = {"comment": "伏笔计划"}
+
+    name: Mapped[str] = mapped_column(
+        String(255), nullable=False, comment="伏笔名称",
+    )
+    summary: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="伏笔概述",
+    )
+    surface_meaning: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="表面含义",
+    )
+    hidden_meaning: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="隐藏含义",
+    )
+    planned_seed_chapter: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="埋下伏笔的章节",
+    )
+    planned_reinforce_chapters: Mapped[list] = mapped_column(
+        JSON, nullable=True, default=list, comment="强化章节列表",
+    )
+    planned_payoff_chapter: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="兑现章节",
+    )
+    related_entity_ids: Mapped[list] = mapped_column(
+        JSON, nullable=True, default=list, comment="关联实体 ID",
+    )
+    related_thread_ids: Mapped[list] = mapped_column(
+        JSON, nullable=True, default=list, comment="关联剧情线 ID",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ForeshadowingPlan id={self.id} name={self.name} "
+            f"status={self.status}>"
+        )
