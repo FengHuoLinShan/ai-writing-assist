@@ -222,7 +222,16 @@ const App = {
    */
   _bindKeyboard() {
     document.addEventListener("keydown", (e) => {
-      // 忽略输入框中的快捷键（除 Esc）
+      // Ctrl+S / Cmd+S: 始终触发保存（即使在输入框中）
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault()
+        if (typeof window.writingView?._autosave === "function") {
+          window.writingView._autosave()
+        }
+        return
+      }
+
+      // 忽略输入框中的其他快捷键（除 Esc）
       const tag = e.target.tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
         if (e.key === "Escape") {
@@ -270,8 +279,8 @@ const App = {
           break
 
         case "s":
-          if (typeof window.writingView?.saveDraft === "function") {
-            window.writingView.saveDraft()
+          if (typeof window.writingView?._autosave === "function") {
+            window.writingView._autosave()
           } else {
             this._triggerAction("save") || toast("没有可保存的内容", "info")
           }

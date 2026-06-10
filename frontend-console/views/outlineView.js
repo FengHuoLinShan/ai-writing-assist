@@ -409,6 +409,54 @@ const outlineView = {
     }])
   },
 
+  _editArc(id) {
+    const arc = this._arcs.find((a) => (a.id || a.arc_id) === id)
+    if (!arc) return
+
+    const formHtml = `
+      <div class="form-group">
+        <label>名称</label>
+        <input class="form-input" id="edit-arc-name" value="${esc(arc.title || arc.name || "")}" />
+      </div>
+      <div class="form-group">
+        <label>起始章节</label>
+        <input class="form-input" id="edit-arc-start" type="number" min="1" value="${arc.start_chapter || 1}" />
+      </div>
+      <div class="form-group">
+        <label>结束章节</label>
+        <input class="form-input" id="edit-arc-end" type="number" min="1" value="${arc.end_chapter || 10}" />
+      </div>
+      <div class="form-group">
+        <label>描述</label>
+        <textarea class="form-textarea" id="edit-arc-desc" rows="3">${esc(arc.description || arc.summary || "")}</textarea>
+      </div>
+    `
+    showModal("编辑篇章纲", formHtml, [{
+      text: "保存", class: "btn-primary", handler: async () => {
+        try {
+          await api.outline.updateArc(id, state.currentProjectId, {
+            title: document.getElementById("edit-arc-name")?.value?.trim(),
+            start_chapter: parseInt(document.getElementById("edit-arc-start")?.value || "1", 10),
+            end_chapter: parseInt(document.getElementById("edit-arc-end")?.value || "10", 10),
+            description: document.getElementById("edit-arc-desc")?.value?.trim(),
+          })
+          toast("已保存", "success")
+          router.navigate("outline", "arcs")
+        } catch (err) { toast(err.message || "保存失败", "error") }
+      },
+    }])
+  },
+
+  _deleteArc(id) {
+    confirmAction("确定删除此篇章纲？", async () => {
+      try {
+        await api.outline.deleteArc(id, state.currentProjectId)
+        toast("已删除", "success")
+        router.navigate("outline", "arcs")
+      } catch (err) { toast(err.message || "删除失败", "error") }
+    }, "确认删除")
+  },
+
   _showCreateSceneForm() {
     const tagOptions = [
       { value: "draft", label: "草稿（默认）" },
@@ -568,6 +616,8 @@ const outlineView = {
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),
       "create-arc": () => this._showCreateArcForm(),
+      "edit-arc": (_e, _t, ctx) => ctx.id && this._editArc(ctx.id),
+      "delete-arc": (_e, _t, ctx) => ctx.id && this._deleteArc(ctx.id),
       "create-scene": () => this._showCreateSceneForm(),
       "edit-scene": (_e, _t, ctx) => ctx.id && this._editScene(ctx.id),
       "delete-scene": (_e, _t, ctx) => ctx.id && this._deleteScene(ctx.id),

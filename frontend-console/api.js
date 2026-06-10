@@ -523,6 +523,20 @@ const api = {
         body: JSON.stringify(data),
       })
     },
+    /** 更新篇章纲 */
+    async updateArc(arcId, novelId, data) {
+      return request(`/outline/arcs/${arcId}?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 删除篇章纲 */
+    async deleteArc(arcId, novelId) {
+      return request(`/outline/arcs/${arcId}?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "DELETE",
+      })
+    },
 
     /** 生成剧情结构 */
     async generate(novelId, startChapter, endChapter) {
