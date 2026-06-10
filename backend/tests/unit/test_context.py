@@ -284,6 +284,7 @@ class TestCompileWithTiers:
 
             async def load(self, db, options, bundle) -> None:
                 bundle.characters = [{"name": "主角"}]
+                bundle.memory_records = [{"event": "测试事件"}]
 
         compiler = ContextCompiler(loaders=[CharLoader()])
         options = CompileOptions(
@@ -294,7 +295,10 @@ class TestCompileWithTiers:
         )
         result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
         p1_sections = [s for s in result.sections if s.tier == Tier.P1]
-        assert len(p1_sections) > 0
+        assert len(p1_sections) == 2
+        keys = {s.key for s in p1_sections}
+        assert "pov_knowledge" in keys
+        assert "delta_timeline" in keys
         for s in p1_sections:
             assert s.content.startswith("[Delta 模式] "), f"Expected Delta prefix, got: {s.content[:20]}"
 
@@ -308,6 +312,7 @@ class TestCompileWithTiers:
 
             async def load(self, db, options, bundle) -> None:
                 bundle.characters = [{"name": "主角"}]
+                bundle.memory_records = [{"event": "测试事件"}]
 
         compiler = ContextCompiler(loaders=[CharLoader()])
         options = CompileOptions(
@@ -318,7 +323,10 @@ class TestCompileWithTiers:
         )
         result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
         p1_sections = [s for s in result.sections if s.tier == Tier.P1]
-        assert len(p1_sections) > 0
+        assert len(p1_sections) == 2
+        keys = {s.key for s in p1_sections}
+        assert "pov_knowledge" in keys
+        assert "delta_timeline" in keys
         for s in p1_sections:
             assert s.content.startswith("[Snapshot 模式] "), f"Expected Snapshot prefix, got: {s.content[:20]}"
 

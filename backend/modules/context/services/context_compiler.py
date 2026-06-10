@@ -207,23 +207,25 @@ class ContextCompiler:
 
         if bundle.characters:
             content = "\n".join(str(c) for c in bundle.characters)
+            prefixed = mode_prefix + content
             sections.append(
                 ContextSection(
                     key="pov_knowledge",
                     tier=Tier.P1,
-                    content=mode_prefix + content,
-                    token_count=max(1, len(content) // 4),
+                    content=prefixed,
+                    token_count=max(1, len(prefixed) // 4),
                 )
             )
 
         if bundle.memory_records:
             content = "\n".join(str(m) for m in bundle.memory_records)
+            prefixed = mode_prefix + content
             sections.append(
                 ContextSection(
                     key="delta_timeline",
                     tier=Tier.P1,
-                    content=mode_prefix + content,
-                    token_count=max(1, len(content) // 4),
+                    content=prefixed,
+                    token_count=max(1, len(prefixed) // 4),
                     truncatable_per_item=True,
                 )
             )
