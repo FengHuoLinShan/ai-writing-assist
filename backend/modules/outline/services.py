@@ -10,9 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get as _container_get
 from core.crud import CrudService
 from infrastructure.llm.errors import LLMInvalidResponseError
-from modules.outline.contracts import OutlineArcContract, PlotThreadContract
-from modules.outline.models import OutlineArc, PlotThread
-from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
+from modules.outline.contracts import (
+    OutlineArcContract,
+    PlotThreadContract,
+    SceneContract,
+)
+from modules.outline.models import OutlineArc, PlotThread, Scene
+from modules.outline.repositories import (
+    OutlineArcRepository,
+    PlotThreadRepository,
+    SceneRepository,
+)
 from modules.outline.schemas import (
     OutlineArcCreate,
     OutlineArcListResponse,
@@ -22,6 +30,10 @@ from modules.outline.schemas import (
     PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
+    SceneCreate,
+    SceneListResponse,
+    SceneResponse,
+    SceneUpdate,
 )
 from shared.utils import parse_uuid
 
@@ -88,6 +100,60 @@ class OutlineArcService(CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpda
             related_entity_ids=arc.related_entity_ids or [],
             status=arc.status,
         )
+
+
+class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
+    repo = SceneRepository()
+    response = SceneResponse
+    list_response = SceneListResponse
+    label = "Scene"
+    id_param = "scene_id"
+
+    async def get_ordered(
+        self, db: AsyncSession, novel_id: str,
+    ) -> list[SceneContract]:
+        nid = parse_uuid(novel_id, "novel_id")
+        scenes = await self.repo.get_by_novel_ordered(db, nid)
+        return [
+            SceneContract(
+                id=str(s.id), novel_id=str(s.novel_id),
+                scene_index=s.scene_index, title=s.title,
+                goal=s.goal, core_conflict=s.core_conflict,
+                emotional_beat=s.emotional_beat,
+                must_happen=s.must_happen,
+                must_not_happen=s.must_not_happen,
+                narrative_tag=s.narrative_tag,
+                source=s.source,
+                scene_chunks=s.scene_chunks or [],
+                chapter_ids=s.chapter_ids or [],
+                pov_character_id=s.pov_character_id,
+                status=s.status,
+            )
+            for s in scenes
+        ]
+
+    async def get_by_chapter(
+        self, db: AsyncSession, novel_id: str, chapter_index: int,
+    ) -> list[SceneContract]:
+        nid = parse_uuid(novel_id, "novel_id")
+        scenes = await self.repo.get_by_chapter(db, nid, chapter_index)
+        return [
+            SceneContract(
+                id=str(s.id), novel_id=str(s.novel_id),
+                scene_index=s.scene_index, title=s.title,
+                goal=s.goal, core_conflict=s.core_conflict,
+                emotional_beat=s.emotional_beat,
+                must_happen=s.must_happen,
+                must_not_happen=s.must_not_happen,
+                narrative_tag=s.narrative_tag,
+                source=s.source,
+                scene_chunks=s.scene_chunks or [],
+                chapter_ids=s.chapter_ids or [],
+                pov_character_id=s.pov_character_id,
+                status=s.status,
+            )
+            for s in scenes
+        ]
 
 
 def _per_item_validate(

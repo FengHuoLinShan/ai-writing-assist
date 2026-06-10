@@ -29,15 +29,11 @@ import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-from core.base import Base
+import modules.outline.models  # noqa: F401
+import modules.memory.models  # noqa: F401
+import modules.imports.models  # noqa: F401
 
-# geo/outline/review 模块已从 minimal-core 移除
-for _mod_name in ("modules.geo.models",
-                  "modules.outline.models", "modules.review.models"):
-    try:
-        __import__(_mod_name)
-    except (ImportError, ModuleNotFoundError):
-        pass
+from core.base import Base
 
 target_metadata = Base.metadata
 

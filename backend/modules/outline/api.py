@@ -13,11 +13,16 @@ from modules.outline.schemas import (
     PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
+    SceneCreate,
+    SceneListResponse,
+    SceneResponse,
+    SceneUpdate,
 )
 from modules.outline.services import (
     OutlineArcService,
     PlotStructureGenerator,
     PlotThreadService,
+    SceneService,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -25,6 +30,7 @@ router = APIRouter(prefix="/api/outline", tags=["outline"])
 
 _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
+_scene_service = SceneService()
 _generator = PlotStructureGenerator()
 
 
@@ -128,6 +134,76 @@ async def api_delete_arc(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     await _arc_service.delete(db, arc_id, novel_id=novel_id)
+
+
+# ============================================================
+# Scenes
+# ============================================================
+
+@router.post("/scenes", response_model=SceneResponse, status_code=http_status.HTTP_201_CREATED)
+async def api_create_scene(
+    data: SceneCreate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _scene_service.create(db, novel_id, data)
+
+
+@router.get("/scenes", response_model=SceneListResponse)
+async def api_list_scenes(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+):
+    return await _scene_service.list_with_response(db, novel_id, skip=skip, limit=limit)
+
+
+@router.get("/scenes/ordered", response_model=list[SceneResponse])
+async def api_list_scenes_ordered(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    contracts = await _scene_service.get_ordered(db, novel_id)
+    return [SceneResponse.model_validate(c.__dict__) for c in contracts]
+
+
+@router.get("/scenes/by-chapter", response_model=list[SceneResponse])
+async def api_list_scenes_by_chapter(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    chapter_index: int = Query(..., ge=1, description="章节索引"),
+):
+    contracts = await _scene_service.get_by_chapter(db, novel_id, chapter_index)
+    return [SceneResponse.model_validate(c.__dict__) for c in contracts]
+
+
+@router.get("/scenes/{scene_id}", response_model=SceneResponse)
+async def api_get_scene(
+    scene_id: str,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _scene_service.get(db, scene_id, novel_id=novel_id)
+
+
+@router.patch("/scenes/{scene_id}", response_model=SceneResponse)
+async def api_update_scene(
+    scene_id: str,
+    data: SceneUpdate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _scene_service.update(db, scene_id, data, novel_id=novel_id)
+
+
+@router.delete("/scenes/{scene_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+async def api_delete_scene(
+    scene_id: str,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    await _scene_service.delete(db, scene_id, novel_id=novel_id)
 
 
 # ============================================================

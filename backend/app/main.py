@@ -30,6 +30,7 @@ from modules.outline.services import (
     OutlineArcService as _OAS,  # noqa: N814
     PlotStructureGenerator as _PSG,  # noqa: N814
     PlotThreadService as _PTS,  # noqa: N814
+    SceneService as _SceneSvc,  # noqa: N814
 )
 from modules.rag.facade import (
     get_ordered_chapter_chunks as _rag_get_chunks,
@@ -66,6 +67,7 @@ _register("writing.get_latest_draft_for_chapter", _writing_get_draft)
 _register("outline.generate_structure", _PSG().generate)
 _register("outline.arc_service", _OAS())
 _register("outline.thread_service", _PTS())
+_register("outline.scene_service", _SceneSvc())
 _register("context.compile", _ctx_compile)
 _register("memory.service", _MemorySvc())
 

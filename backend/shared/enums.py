@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-
 # ============================================================
 # 实体与对象相关
 # ============================================================
@@ -322,3 +321,35 @@ class ForeshadowingStatus(StrEnum):
     """已收束"""
     abandoned = "abandoned"
     """已废弃"""
+
+
+class NarrativeTag(StrEnum):
+    """Scene 叙事标签"""
+
+    inciting_incident = "inciting_incident"
+    """激励事件（新改变的引发点）"""
+    rising_action = "rising_action"
+    """冲突升级"""
+    climax = "climax"
+    """阶段高潮"""
+    valley = "valley"
+    """低谷/过渡（不进第三遍输入）"""
+    transition = "transition"
+    """纯过渡/日常（不进第三遍输入）"""
+    hook = "hook"
+    """黄金三章钩子"""
+    payoff = "payoff"
+    """爽点释放/打脸完成"""
+    draft = "draft"
+    """手动创建默认值"""
+
+
+class SceneSource(StrEnum):
+    """Scene 来源"""
+
+    manual = "manual"
+    """手动创建"""
+    deep_import = "deep_import"
+    """深度导入"""
+    ai_generated = "ai_generated"
+    """AI 生成"""

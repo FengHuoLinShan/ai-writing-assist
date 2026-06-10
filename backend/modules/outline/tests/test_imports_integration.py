@@ -13,30 +13,28 @@ class TestImportsOutlineIntegration:
     async def test_deep_import_calls_outline_generation(
         self, db_session: AsyncSession, sample_novel_id: str,
     ) -> None:
-        """深度导入的 _generate_plot 应调用 outline.facade.generate_plot_structure"""
+        """深度导入的 _generate_plot 应通过 DI 容器调用 outline.generate_structure"""
         from modules.imports.workflow import DeepImportWorkflow
 
         workflow = DeepImportWorkflow()
 
-        with mock.patch(
-            "modules.outline.services.PlotStructureGenerator.generate",
-        ) as mock_gen:
-            mock_gen.return_value = {
+        async def _mock_generate(db, novel_id, *, start_chapter, end_chapter):
+            return {
                 "total_threads": 3,
                 "total_arcs": 2,
                 "threads": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
                 "arcs": [{"id": "x"}, {"id": "y"}],
             }
 
+        with mock.patch(
+            "modules.imports.workflow._container_get",
+            return_value=_mock_generate,
+        ):
             result = await workflow._generate_plot(
                 db_session, sample_novel_id,
                 start_chapter=1, end_chapter=10,
             )
 
-        mock_gen.assert_called_once_with(
-            db_session, sample_novel_id,
-            start_chapter=1, end_chapter=10,
-        )
         assert result["total_threads"] == 3
         assert result["total_arcs"] == 2
 
@@ -49,9 +47,12 @@ class TestImportsOutlineIntegration:
 
         workflow = DeepImportWorkflow()
 
+        async def _mock_generate_fail(db, novel_id, *, start_chapter, end_chapter):
+            raise Exception("LLM timeout")
+
         with mock.patch(
-            "modules.outline.services.PlotStructureGenerator.generate",
-            side_effect=Exception("LLM timeout"),
+            "modules.imports.workflow._container_get",
+            return_value=_mock_generate_fail,
         ):
             result = await workflow._generate_plot(
                 db_session, sample_novel_id,

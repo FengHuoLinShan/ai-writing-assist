@@ -161,3 +161,71 @@ class OutlineArcResponse(BaseModel):
 class OutlineArcListResponse(BaseModel):
     items: list[OutlineArcResponse]
     total: int
+
+
+# ============================================================
+# Scene
+# ============================================================
+
+class SceneCreate(BaseModel):
+    scene_index: int = Field(..., ge=0)
+    title: str | None = Field(None, max_length=255)
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: str = "draft"
+    source: str = "manual"
+    scene_chunks: list[dict] = []
+    chapter_ids: list[str] = []
+    pov_character_id: str | None = None
+    status: str = "draft"
+
+
+class SceneUpdate(BaseModel):
+    scene_index: Annotated[int | None, Field(None, ge=0)]
+    title: Annotated[str | None, Field(None, max_length=255)]
+    goal: Annotated[str | None, Field(None)]
+    core_conflict: Annotated[str | None, Field(None)]
+    emotional_beat: Annotated[str | None, Field(None)]
+    must_happen: Annotated[str | None, Field(None)]
+    must_not_happen: Annotated[str | None, Field(None)]
+    narrative_tag: Annotated[str | None, Field(None, max_length=32)]
+    source: Annotated[str | None, Field(None, max_length=32)]
+    scene_chunks: Annotated[list[dict] | None, Field(None)]
+    chapter_ids: Annotated[list[str] | None, Field(None)]
+    pov_character_id: Annotated[str | None, Field(None)]
+    status: Annotated[str | None, Field(None, max_length=32)]
+
+
+class SceneResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    scene_index: int
+    title: str | None = None
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: str = "draft"
+    source: str = "manual"
+    scene_chunks: list = []
+    chapter_ids: list = []
+    pov_character_id: str | None = None
+    status: str = "draft"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class SceneListResponse(BaseModel):
+    items: list[SceneResponse]
+    total: int

@@ -44,3 +44,65 @@ class OutlineArc(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     related_thread_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     related_character_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     related_entity_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+
+
+class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
+    """Scene 卡 — 叙事结构的最小可编辑单元"""
+
+    __tablename__ = "scenes"
+    __table_args__ = {"comment": "Scene 卡"}
+
+    scene_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True,
+        comment="Scene 逻辑顺序索引（从 0 开始）",
+    )
+    title: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="Scene 标题",
+    )
+    goal: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Scene 目标（此 Scene 要完成什么）",
+    )
+    core_conflict: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="核心冲突",
+    )
+    emotional_beat: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="情感节奏（读者的情感走向）",
+    )
+    must_happen: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="必须发生的事件",
+    )
+    must_not_happen: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="禁止发生的事件",
+    )
+    narrative_tag: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="draft",
+        comment="叙事标签（NarrativeTag 枚举值）",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="manual",
+        comment="来源（manual / deep_import / ai_generated）",
+    )
+    scene_chunks: Mapped[list] = mapped_column(
+        JSON, nullable=True, default=list,
+        comment="物理映射：Scene → Chapter 物理位置区间",
+    )
+    chapter_ids: Mapped[list] = mapped_column(
+        JSON, nullable=True, default=list,
+        comment="关联 Chapter ID 列表",
+    )
+    pov_character_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True,
+        comment="POV 人物 ID（可选，指向 core_entities）",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Scene id={self.id} novel={self.novel_id} "
+            f"idx={self.scene_index} tag={self.narrative_tag}>"
+        )

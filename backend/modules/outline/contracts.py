@@ -42,3 +42,22 @@ class OutlineArcContract:
     related_character_ids: list = field(default_factory=list)
     related_entity_ids: list = field(default_factory=list)
     status: str = "draft"
+
+
+@dataclass
+class SceneContract:
+    id: str
+    novel_id: str
+    scene_index: int
+    title: str | None = None
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: str = "draft"
+    source: str = "manual"
+    scene_chunks: list = field(default_factory=list)
+    chapter_ids: list = field(default_factory=list)
+    pov_character_id: str | None = None
+    status: str = "draft"
