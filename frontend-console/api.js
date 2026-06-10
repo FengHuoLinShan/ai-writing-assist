@@ -530,6 +530,38 @@ const api = {
         method: "POST",
       })
     },
+
+    // ---- Scene 卡 ----
+    /** 列出场景卡 */
+    async listScenes(novelId, skip = 0, limit = 50) {
+      return request("/outline/scenes" + buildQueryString({ novel_id: novelId, skip, limit }))
+    },
+    /** 获取单个场景卡 */
+    async getScene(sceneId, novelId) {
+      return request(`/outline/scenes/${sceneId}?novel_id=${encodeURIComponent(novelId)}`)
+    },
+    /** 创建场景卡 */
+    async createScene(novelId, data) {
+      return request(`/outline/scenes?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 更新场景卡 */
+    async updateScene(sceneId, novelId, data) {
+      return request(`/outline/scenes/${sceneId}?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 删除场景卡 */
+    async deleteScene(sceneId, novelId) {
+      return request(`/outline/scenes/${sceneId}?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "DELETE",
+      })
+    },
   },
 
   // ============================================================
