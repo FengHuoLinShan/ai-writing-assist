@@ -409,6 +409,156 @@ const outlineView = {
     }])
   },
 
+  _showCreateSceneForm() {
+    const tagOptions = [
+      { value: "draft", label: "草稿（默认）" },
+      { value: "hook", label: "钩子" },
+      { value: "inciting_incident", label: "激励事件" },
+      { value: "rising_action", label: "冲突升级" },
+      { value: "climax", label: "阶段高潮" },
+      { value: "valley", label: "低谷" },
+      { value: "transition", label: "过渡" },
+      { value: "payoff", label: "爽点" },
+    ]
+    const tagSelectHtml = tagOptions.map(
+      (o) => `<option value="${o.value}">${o.label}</option>`
+    ).join("")
+
+    const maxIdx = this._scenes && this._scenes.length > 0
+      ? Math.max(...this._scenes.map((s) => s.scene_index || 0))
+      : -1
+    const nextIdx = maxIdx + 1
+
+    const formHtml = `
+      <div class="form-group">
+        <label>序号</label>
+        <input class="form-input" id="create-scene-index" type="number" value="${nextIdx}" min="0" />
+      </div>
+      <div class="form-group">
+        <label>标题</label>
+        <input class="form-input" id="create-scene-title" placeholder="Scene 标题" />
+      </div>
+      <div class="form-group">
+        <label>叙事标签</label>
+        <select class="form-select" id="create-scene-tag">${tagSelectHtml}</select>
+      </div>
+      <div class="form-group">
+        <label>目标</label>
+        <textarea class="form-textarea" id="create-scene-goal" rows="2" placeholder="此 Scene 要完成的叙事目标"></textarea>
+      </div>
+      <div class="form-group">
+        <label>核心冲突</label>
+        <textarea class="form-textarea" id="create-scene-conflict" rows="2" placeholder="核心冲突描述"></textarea>
+      </div>
+      <div class="form-group">
+        <label>情感节奏</label>
+        <input class="form-input" id="create-scene-emotion" placeholder="读者的情感走向" />
+      </div>
+      <div class="form-group">
+        <label>必须发生</label>
+        <textarea class="form-textarea" id="create-scene-must-happen" rows="2" placeholder="必须发生的事件"></textarea>
+      </div>
+      <div class="form-group">
+        <label>禁止发生</label>
+        <textarea class="form-textarea" id="create-scene-must-not" rows="2" placeholder="禁止发生的事件"></textarea>
+      </div>
+    `
+    showModal("新建 Scene 卡", formHtml, [{
+      text: "创建", class: "btn-primary", handler: async () => {
+        try {
+          await api.outline.createScene(state.currentProjectId, {
+            scene_index: parseInt(document.getElementById("create-scene-index")?.value || "0", 10),
+            title: document.getElementById("create-scene-title")?.value?.trim() || null,
+            narrative_tag: document.getElementById("create-scene-tag")?.value || "draft",
+            goal: document.getElementById("create-scene-goal")?.value?.trim() || null,
+            core_conflict: document.getElementById("create-scene-conflict")?.value?.trim() || null,
+            emotional_beat: document.getElementById("create-scene-emotion")?.value?.trim() || null,
+            must_happen: document.getElementById("create-scene-must-happen")?.value?.trim() || null,
+            must_not_happen: document.getElementById("create-scene-must-not")?.value?.trim() || null,
+            source: "manual",
+            status: "draft",
+          })
+          toast("Scene 卡已创建", "success")
+          router.navigate("outline", "scenes")
+        } catch (err) { toast(err.message || "创建失败", "error") }
+      },
+    }])
+  },
+
+  _editScene(id) {
+    const scene = (this._scenes || []).find((s) => s.id === id)
+    if (!scene) return
+
+    const tags = ["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"]
+    const tagLabels = { draft: "草稿", hook: "钩子", inciting_incident: "激励事件", rising_action: "冲突升级", climax: "阶段高潮", valley: "低谷", transition: "过渡", payoff: "爽点" }
+    const tagSelectHtml = tags.map(
+      (t) => `<option value="${t}" ${(scene.narrative_tag || "draft") === t ? "selected" : ""}>${tagLabels[t]}</option>`
+    ).join("")
+
+    const formHtml = `
+      <div class="form-group">
+        <label>序号</label>
+        <input class="form-input" id="edit-scene-index" type="number" value="${scene.scene_index || 0}" min="0" />
+      </div>
+      <div class="form-group">
+        <label>标题</label>
+        <input class="form-input" id="edit-scene-title" value="${esc(scene.title || "")}" />
+      </div>
+      <div class="form-group">
+        <label>叙事标签</label>
+        <select class="form-select" id="edit-scene-tag">${tagSelectHtml}</select>
+      </div>
+      <div class="form-group">
+        <label>目标</label>
+        <textarea class="form-textarea" id="edit-scene-goal" rows="2">${esc(scene.goal || "")}</textarea>
+      </div>
+      <div class="form-group">
+        <label>核心冲突</label>
+        <textarea class="form-textarea" id="edit-scene-conflict" rows="2">${esc(scene.core_conflict || "")}</textarea>
+      </div>
+      <div class="form-group">
+        <label>情感节奏</label>
+        <input class="form-input" id="edit-scene-emotion" value="${esc(scene.emotional_beat || "")}" />
+      </div>
+      <div class="form-group">
+        <label>必须发生</label>
+        <textarea class="form-textarea" id="edit-scene-must-happen" rows="2">${esc(scene.must_happen || "")}</textarea>
+      </div>
+      <div class="form-group">
+        <label>禁止发生</label>
+        <textarea class="form-textarea" id="edit-scene-must-not" rows="2">${esc(scene.must_not_happen || "")}</textarea>
+      </div>
+    `
+    showModal("编辑 Scene 卡", formHtml, [{
+      text: "保存", class: "btn-primary", handler: async () => {
+        try {
+          await api.outline.updateScene(id, state.currentProjectId, {
+            scene_index: parseInt(document.getElementById("edit-scene-index")?.value || "0", 10),
+            title: document.getElementById("edit-scene-title")?.value?.trim() || null,
+            narrative_tag: document.getElementById("edit-scene-tag")?.value || "draft",
+            goal: document.getElementById("edit-scene-goal")?.value?.trim() || null,
+            core_conflict: document.getElementById("edit-scene-conflict")?.value?.trim() || null,
+            emotional_beat: document.getElementById("edit-scene-emotion")?.value?.trim() || null,
+            must_happen: document.getElementById("edit-scene-must-happen")?.value?.trim() || null,
+            must_not_happen: document.getElementById("edit-scene-must-not")?.value?.trim() || null,
+          })
+          toast("已保存", "success")
+          router.navigate("outline", "scenes")
+        } catch (err) { toast(err.message || "保存失败", "error") }
+      },
+    }])
+  },
+
+  _deleteScene(id) {
+    confirmAction("确定删除此 Scene 卡？删除后标记为 deprecated，正文保留。", async () => {
+      try {
+        await api.outline.deleteScene(id, state.currentProjectId)
+        toast("已删除", "success")
+        router.navigate("outline", "scenes")
+      } catch (err) { toast(err.message || "删除失败", "error") }
+    }, "确认删除")
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
@@ -418,6 +568,9 @@ const outlineView = {
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),
       "create-arc": () => this._showCreateArcForm(),
+      "create-scene": () => this._showCreateSceneForm(),
+      "edit-scene": (_e, _t, ctx) => ctx.id && this._editScene(ctx.id),
+      "delete-scene": (_e, _t, ctx) => ctx.id && this._deleteScene(ctx.id),
     })
   },
 }
