@@ -24,6 +24,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from modules.context.contracts import AUTHOR_ONLY_WARNING, StructureContextBundle
+from modules.context.services.compiled_context import CompiledContext
 
 # ============================================================
 # Section Renderers
@@ -588,3 +589,25 @@ def _get_budget_for_category(category: str) -> int:
     from modules.context.contracts import CONTEXT_BUDGET
 
     return CONTEXT_BUDGET.get(category, 10)
+
+
+_TIER_HEADERS: dict[str, str] = {
+    "writing_objective": "一、创作目标",
+    "scene_blueprint": "二、场景蓝图",
+    "hard_constraints": "二、必须遵守的硬约束",
+    "pov_knowledge": "三、视角人物知识边界",
+    "delta_timeline": "三、世界线变化时间线",
+    "narrative_obligations": "四、叙事义务",
+    "retrieval_evidence": "四、检索证据包",
+    "style_assets": "五、风格素材",
+    "compiler_warnings": "六、编译器警告",
+}
+
+
+def render_compiled_context(ctx: CompiledContext) -> str:
+    """从 CompiledContext IR 渲染为 Markdown，保持 Tier 顺序"""
+    parts = []
+    for section in sorted(ctx.sections, key=lambda s: s.tier):
+        header = _TIER_HEADERS.get(section.key, section.key)
+        parts.append(f"## {header}\n\n{section.content}\n")
+    return "\n".join(parts)
