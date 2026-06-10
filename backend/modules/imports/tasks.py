@@ -14,14 +14,14 @@ from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import task_handler
 from modules.imports.workflow import DeepImportWorkflow
 from shared.utils import parse_uuid as _parse_uuid
-from modules.imports.workflow_schemas import DeepImportProgress
+from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 logger = logging.getLogger(__name__)
 
 
 @task_handler("deep_import")
 async def handle_deep_import(db, task) -> dict[str, Any]:
-    """处理深度导入任务 — 全自动三步（抽取 + 人物同步 + 剧情生成）
+    """处理深度导入任务 — 全自动三阶段（Scene 切分 + 实体提取 + 结构分析）
 
     Task meta 参数：
     - novel_id: 项目 ID
@@ -57,6 +57,8 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
         "current_step": progress.current_step.value if progress.current_step else None,
         "completed_steps": progress.completed_steps,
         "message": progress.message,
+        "degraded": progress.degraded,
+        "degraded_batches": progress.degraded_batches,
     }
 
 
@@ -70,6 +72,12 @@ async def handle_deep_import_resume(db, task) -> dict[str, Any]:
     return {
         "phase": "done",
         "current_step": None,
-        "completed_steps": ["extract_world", "sync_characters", "generate_plot"],
+        "completed_steps": [
+            DeepImportStep.scene_segmentation.value,
+            DeepImportStep.entity_extraction.value,
+            DeepImportStep.structure_analysis.value,
+        ],
         "message": "候选管理已移除，深度导入全自动执行。",
+        "degraded": False,
+        "degraded_batches": [],
     }
