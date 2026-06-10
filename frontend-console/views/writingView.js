@@ -364,6 +364,7 @@ const writingView = {
 
     html += `
         </select>
+        <button class="btn btn-sm" data-action="version-history" title="版本历史" style="font-size:11px;">历史</button>
         <button class="btn btn-sm" id="btn-delete-version" data-action="delete-version" title="删除当前版本" style="font-size:11px;color:var(--danger);margin-left:4px;">🗑</button>
         <span id="publish-status-dot" style="display:none;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:4px;" title="发布任务进行中"></span>
       </div>
@@ -592,6 +593,66 @@ const writingView = {
     } catch (err) {
       toast("切换版本失败：" + (err.message || "未知错误"), "error")
     }
+  },
+
+  _showVersionHistory() {
+    if (!this._currentChapter || this._versions.length === 0) {
+      toast("该章节暂无历史版本", "info")
+      return
+    }
+    const latestVersion = this._versions[0]?.version_number
+    let listHtml = '<div style="max-height:400px;overflow-y:auto;">'
+    for (const v of this._versions) {
+      const isLatest = v.version_number === latestVersion
+      const wordCount = v.word_count || (v.content ? v.content.length : 0)
+      const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
+      const isCurrent = v.version_number === this._currentVersionNumber
+      listHtml += `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? 'background:var(--hover-bg);border-radius:4px;padding:8px;' : ''}">
+          <div>
+            <span style="font-weight:500;">v${v.version_number}</span>
+            ${isLatest ? ' <span class="badge badge-canonical">最新</span>' : ''}
+            ${isCurrent ? ' <span style="color:var(--accent);font-size:11px;">当前</span>' : ''}
+            <div style="font-size:11px;color:var(--text-dim);">${created} · ${wordCount} 字</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm version-preview-btn" data-draft-id="${esc(v.id)}" data-version="${v.version_number}" data-is-latest="${isLatest ? 1 : 0}">预览</button>
+            ${!isCurrent ? `<button class="btn btn-sm version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${v.version_number}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ''}
+          </div>
+        </div>
+      `
+    }
+    listHtml += "</div>"
+    showModal(`第 ${this._currentChapter} 章 — 版本历史 (${this._versions.length})`, listHtml)
+
+    setTimeout(() => {
+      document.querySelectorAll(".version-preview-btn").forEach((btn) => {
+        btn.onclick = () => {
+          const draftId = btn.dataset.draftId
+          const versionNumber = parseInt(btn.dataset.version, 10)
+          const isLatest = btn.dataset.isLatest === "1"
+          closeModal()
+          this._switchVersion(draftId, versionNumber, isLatest)
+        }
+      })
+      document.querySelectorAll(".version-restore-btn").forEach((btn) => {
+        btn.onclick = () => {
+          const draftId = btn.dataset.draftId
+          const versionNumber = parseInt(btn.dataset.version, 10)
+          const isLatest = btn.dataset.isLatest === "1"
+          closeModal()
+          confirmAction(`恢复至 v${versionNumber}？当前编辑器内容将丢失。`, () => {
+            this._switchVersion(draftId, versionNumber, isLatest)
+            if (isLatest) {
+              this._isReadonly = false
+              this._restoreSourceVersion = null
+              this._rerender()
+              toast(`已恢复至 v${versionNumber}`, "success")
+            }
+          }, "确认恢复")
+        }
+      })
+    }, 100)
   },
 
   async _restoreFromVersion() {
@@ -1029,6 +1090,7 @@ const writingView = {
       "autosave": () => this._autosave(),
       "publish": () => this._publish(),
       "restore-from-version": () => this._restoreFromVersion(),
+      "version-history": () => this._showVersionHistory(),
       "delete-version": () => this._deleteVersion(),
       "dismiss-publish-error": () => this._dismissPublishError(),
       "deep-import": () => this._showDeepImportForm(),
