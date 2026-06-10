@@ -437,6 +437,9 @@ const projectView = {
           <button class="btn btn-primary" data-action="upload-file" ${this._importUploading || !hasProject ? "disabled" : ""}>
             ${this._importUploading ? "上传中..." : "上传并导入"}
           </button>
+          <div id="pv-upload-progress" style="display:none;margin-top:8px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+            <div id="pv-upload-bar-fill" style="height:100%;width:0%;background:var(--accent);transition:width 0.2s;border-radius:3px;"></div>
+          </div>
         </div>
         <div id="pv-import-history" style="margin-top:12px;"></div>
       </div>
@@ -484,10 +487,46 @@ const projectView = {
     if (!state.currentProjectId) {
       toast("请先点击项目行选择项目", "warning"); return
     }
+    const file = input.files[0]
     this._importUploading = true
-    if (btn) btn.textContent = "上传中..."
+    this._uploadProgress = 0
+    if (btn) btn.textContent = "上传中 0%"
+
+    // Show progress bar
+    const progressBar = document.getElementById("pv-upload-progress")
+    if (progressBar) progressBar.style.display = "block"
+
     try {
-      const result = await api.imports.upload(state.currentProjectId, input.files[0])
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        const formData = new FormData()
+        formData.append("file", file)
+        formData.append("novel_id", state.currentProjectId)
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            this._uploadProgress = Math.round((e.loaded / e.total) * 100)
+            if (btn) btn.textContent = `上传中 ${this._uploadProgress}%`
+            const fill = document.getElementById("pv-upload-bar-fill")
+            if (fill) fill.style.width = this._uploadProgress + "%"
+          }
+        }
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText))
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText)
+              reject(new Error(err.detail || "上传失败"))
+            } catch { reject(new Error("上传失败")) }
+          }
+        }
+        xhr.onerror = () => reject(new Error("网络错误"))
+        xhr.open("POST", "/api" + "/imports/upload")
+        xhr.send(formData)
+      })
+
       toast(`导入完成：${result.imported_chapters} 章`, "success")
       input.value = ""
       this._renderImportHistory()
@@ -495,7 +534,10 @@ const projectView = {
       toast(err.message || "导入失败", "error")
     } finally {
       this._importUploading = false
+      this._uploadProgress = null
       if (btn) btn.textContent = "上传并导入"
+      const progressBar = document.getElementById("pv-upload-progress")
+      if (progressBar) progressBar.style.display = "none"
     }
   },
 }
