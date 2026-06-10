@@ -29,6 +29,7 @@ class CompileOptions:
     viewpoint_character_id: str | None = None
     """视角人物 ID（reveal_mode="character" 时必填）"""
     enable_geo_filter: bool = False
+    mode: str = "writing"  # CompileMode value: "writing" or "debug"
 
 
 @dataclass

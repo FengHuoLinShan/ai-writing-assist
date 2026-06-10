@@ -14,6 +14,7 @@ from modules.context.markdown_renderer import (
     render_context_markdown as _render_markdown,
 )
 from modules.context.services import ContextCompiler
+from modules.context.services.compiled_context import CompiledContext
 
 _compiler = ContextCompiler()
 
@@ -93,3 +94,17 @@ async def compile_structure_context(
         viewpoint_character_id=viewpoint_character_id,
     )
     return await _compiler.compile(db, options)
+
+
+async def compile_with_tiers(
+    db: AsyncSession,
+    novel_id: str,
+    task: str,
+    scope: str,
+    budget_tokens: int = 4000,
+    **kwargs,
+) -> CompiledContext:
+    options = CompileOptions(
+        novel_id=novel_id, task=task, scope=scope, **kwargs,
+    )
+    return await _compiler.compile_with_tiers(db, options, budget_tokens=budget_tokens)
