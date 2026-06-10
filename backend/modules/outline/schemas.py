@@ -226,6 +226,15 @@ class SceneResponse(BaseModel):
         return _uuid_validator(v)
 
 
+class SceneReorderRequest(BaseModel):
+    scene_ids: list[str] = Field(..., min_length=1, description="按新顺序排列的 Scene ID 列表")
+
+
+class SceneReorderResponse(BaseModel):
+    updated: int
+    total: int
+
+
 class SceneListResponse(BaseModel):
     items: list[SceneResponse]
     total: int

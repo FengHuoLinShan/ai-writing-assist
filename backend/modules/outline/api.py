@@ -15,6 +15,8 @@ from modules.outline.schemas import (
     PlotThreadUpdate,
     SceneCreate,
     SceneListResponse,
+    SceneReorderRequest,
+    SceneReorderResponse,
     SceneResponse,
     SceneUpdate,
 )
@@ -204,6 +206,16 @@ async def api_delete_scene(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     await _scene_service.delete(db, scene_id, novel_id=novel_id)
+
+
+@router.post("/scenes/reorder", response_model=SceneReorderResponse)
+async def api_reorder_scenes(
+    data: SceneReorderRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    """批量重排 Scene 顺序，按 scene_ids 列表顺序从 0 重新编号"""
+    return await _scene_service.reorder(db, novel_id, data.scene_ids)
 
 
 # ============================================================

@@ -432,3 +432,22 @@ class SceneRepository:
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
+
+    async def reorder(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_ids: list[uuid.UUID],
+    ) -> int:
+        """批量重排 scene_index，按 scene_ids 顺序从 0 开始重新编号"""
+        updated = 0
+        for idx, sid in enumerate(scene_ids):
+            stmt = (
+                update(Scene)
+                .where(Scene.id == sid, Scene.novel_id == novel_id)
+                .values(scene_index=idx)
+            )
+            result = await db.execute(stmt)
+            updated += result.rowcount
+        await db.flush()
+        return updated

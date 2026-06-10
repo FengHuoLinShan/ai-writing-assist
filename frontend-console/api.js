@@ -570,6 +570,13 @@ const api = {
     async listScenesByChapter(novelId, chapterIndex) {
       return request(`/outline/scenes/by-chapter?novel_id=${encodeURIComponent(novelId)}&chapter_index=${chapterIndex}`)
     },
+    /** 批量重排 Scene 顺序 */
+    async reorderScenes(novelId, sceneIds) {
+      return request(`/outline/scenes/reorder?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "POST",
+        body: JSON.stringify({ scene_ids: sceneIds }),
+      })
+    },
   },
 
   // ============================================================

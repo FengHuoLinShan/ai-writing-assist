@@ -155,6 +155,15 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             for s in scenes
         ]
 
+    async def reorder(
+        self, db: AsyncSession, novel_id: str, scene_ids: list[str],
+    ) -> dict:
+        """批量重排 Scene 顺序"""
+        nid = parse_uuid(novel_id, "novel_id")
+        ids = [parse_uuid(sid, "scene_id") for sid in scene_ids]
+        updated = await self.repo.reorder(db, nid, ids)
+        return {"updated": updated, "total": len(scene_ids)}
+
 
 def _per_item_validate(
     data: dict | list | None,
