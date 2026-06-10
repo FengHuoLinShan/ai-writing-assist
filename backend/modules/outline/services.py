@@ -547,7 +547,61 @@ class PlotStructureGenerator:
         await db.flush()
 
         # ============================================================
-        # 9. 构建返回（含 extra_sections, warnings）
+        # 9.5. 持久化 foreshadowing_plans 和 reveal_plans
+        # ============================================================
+        from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
+        from modules.outline.reveal_repository import RevealPlanRepository
+
+        _fp_repo = ForeshadowingPlanRepository()
+        created_foreshadowing: list[dict] = []
+        for fp in result.foreshadowing_plans:
+            if not fp.name:
+                continue
+            try:
+                plan = await _fp_repo.create(db, nid, {
+                    "name": fp.name,
+                    "summary": fp.summary,
+                    "surface_meaning": getattr(fp, "surface_meaning", None),
+                    "hidden_meaning": getattr(fp, "hidden_meaning", None),
+                    "planned_seed_chapter": fp.planned_seed_chapter,
+                    "planned_payoff_chapter": fp.planned_payoff_chapter,
+                    "status": "draft",
+                })
+                created_foreshadowing.append({
+                    "id": str(plan.id), "name": plan.name,
+                })
+            except Exception as exc:
+                logger.warning("Failed to create foreshadowing '%s': %s", fp.name, exc)
+
+        _rp_repo = RevealPlanRepository()
+        created_reveals: list[dict] = []
+        for rp in result.reveal_plans:
+            if not rp.target_name:
+                continue
+            target_id = (
+                entity_name_to_id.get(rp.target_name)
+                or character_name_to_id.get(rp.target_name)
+            )
+            try:
+                plan = await _rp_repo.create(db, nid, {
+                    "target_type": rp.target_type,
+                    "target_id": target_id or "00000000-0000-0000-0000-000000000000",
+                    "secret_summary": rp.secret_summary or "",
+                    "status": "draft",
+                })
+                created_reveals.append({
+                    "id": str(plan.id),
+                    "target_name": rp.target_name,
+                })
+            except Exception as exc:
+                logger.warning(
+                    "Failed to create reveal for '%s': %s", rp.target_name, exc,
+                )
+
+        await db.flush()
+
+        # ============================================================
+        # 10. 构建返回（含 extra_sections, warnings）
         # ============================================================
         return {
             "total_threads": len(created_threads),
@@ -555,12 +609,8 @@ class PlotStructureGenerator:
             "threads": created_threads,
             "arcs": created_arcs,
             "extra_sections": {
-                "foreshadowing_plans": [
-                    p.model_dump() for p in result.foreshadowing_plans
-                ],
-                "reveal_plans": [
-                    p.model_dump() for p in result.reveal_plans
-                ],
+                "foreshadowing_plans": created_foreshadowing,
+                "reveal_plans": created_reveals,
                 "offscreen_progress": [
                     p.model_dump() for p in result.offscreen_progress
                 ],
