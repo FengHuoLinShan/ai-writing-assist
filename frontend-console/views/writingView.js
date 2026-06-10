@@ -24,6 +24,9 @@ const writingView = {
   _errorModalVisible: false,
   _outlineThreads: [],
   _outlineArc: null,
+  _deepImportTaskId: null,
+  _deepImportProgress: null,
+  _deepImportTimer: null,
   _scenes: [],
   _currentSceneId: null,
 
@@ -122,6 +125,7 @@ const writingView = {
         ${this._renderScenePanel()}
       </div>
       ${this._renderPublishBar()}
+      ${this._renderDeepImportBar()}
     `
     setTimeout(() => this._bindEvents(), 0)
     return html
@@ -141,6 +145,10 @@ const writingView = {
     if (this._publishTimer) {
       clearInterval(this._publishTimer)
       this._publishTimer = null
+    }
+    if (this._deepImportTimer) {
+      clearInterval(this._deepImportTimer)
+      this._deepImportTimer = null
     }
   },
 
@@ -308,6 +316,7 @@ const writingView = {
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>暂存</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
+            ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import" style="font-size:11px;color:var(--accent);">深度导入</button>` : ''}
           </div>
         </div>
 
@@ -858,6 +867,157 @@ const writingView = {
   },
 
   // ============================================================
+  // 深度导入
+  // ============================================================
+
+  _showDeepImportForm() {
+    const lastChapter = this._chapterList.length > 0
+      ? Math.max(...this._chapterList) : 10
+    const firstChapter = this._chapterList.length > 0
+      ? Math.min(...this._chapterList) : 1
+    const formHtml = `
+      <div class="form-group">
+        <label>起始章节</label>
+        <input class="form-input" id="deep-import-start" type="number" min="1" value="${firstChapter}" />
+      </div>
+      <div class="form-group">
+        <label>结束章节</label>
+        <input class="form-input" id="deep-import-end" type="number" min="1" value="${lastChapter}" />
+      </div>
+      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
+        自动执行三阶段：Scene 切分 → 实体提取 → 结构分析
+      </p>
+    `
+    showModal("深度导入", formHtml, [{
+      text: "开始导入", class: "btn-primary",
+      handler: async () => {
+        const start = parseInt(document.getElementById("deep-import-start")?.value || "1", 10)
+        const end = parseInt(document.getElementById("deep-import-end")?.value || "10", 10)
+        if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+        closeModal()
+        await this._submitDeepImport(start, end)
+      },
+    }])
+  },
+
+  async _submitDeepImport(startChapter, endChapter) {
+    try {
+      const result = await api.imports.deepImport(
+        state.currentProjectId, startChapter, endChapter,
+      )
+      if (result.warning) {
+        const confirmed = await new Promise((resolve) => {
+          confirmAction(result.warning, () => resolve(true), "确认覆盖")
+          // Add cancel handler
+          setTimeout(() => {
+            const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
+            if (cancelBtn) cancelBtn.onclick = () => resolve(false)
+          }, 50)
+        })
+        if (!confirmed) return
+      }
+
+      this._deepImportTaskId = result.task_id
+      this._deepImportProgress = {
+        phase: "running", step: "scene_segmentation",
+        message: "正在切分 Scene...", percent: 0,
+      }
+      toast("深度导入已启动", "success")
+      await this._rerender()
+      this._startDeepImportPolling()
+    } catch (err) {
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  _startDeepImportPolling() {
+    if (this._deepImportTimer) clearInterval(this._deepImportTimer)
+    const poll = async () => {
+      if (!this._deepImportTaskId) { this._stopDeepImportPolling(); return }
+      try {
+        const task = await api.tasks.get(this._deepImportTaskId)
+        const result = task.result || {}
+        const steps = result.completed_steps || []
+
+        // 计算三阶段进度
+        let percent = 0
+        let stepLabel = ""
+        if (steps.includes("scene_segmentation")) {
+          percent = steps.includes("entity_extraction")
+            ? (steps.includes("structure_analysis") ? 100 : 80)
+            : 40
+        }
+        if (!steps.includes("scene_segmentation")) {
+          stepLabel = "Phase 1/3: Scene 切分"
+          percent = Math.min(40, (result.phase1_completed_batches || 0) * 8)
+        } else if (!steps.includes("entity_extraction")) {
+          stepLabel = "Phase 2/3: 实体提取"
+          percent = 40 + Math.min(40, (result.phase2_completed_scenes || 0) * 4)
+        } else if (!steps.includes("structure_analysis")) {
+          stepLabel = "Phase 3/3: 结构分析"
+          percent = 80
+        } else {
+          stepLabel = "完成"
+          percent = 100
+        }
+
+        this._deepImportProgress = {
+          phase: result.phase || task.status,
+          step: result.current_step || "",
+          message: result.message || task.status,
+          percent,
+          stepLabel,
+          degraded: result.degraded || false,
+        }
+
+        if (task.status === "done" || result.phase === "done") {
+          this._deepImportProgress.percent = 100
+          this._deepImportProgress.phase = "done"
+          this._stopDeepImportPolling()
+          toast("深度导入完成！", "success")
+          setTimeout(() => { this._deepImportProgress = null; this._rerender() }, 3000)
+          return
+        }
+        if (task.status === "failed") {
+          this._deepImportProgress.phase = "failed"
+          this._stopDeepImportPolling()
+          toast("深度导入失败", "error")
+          setTimeout(() => { this._deepImportProgress = null; this._rerender() }, 5000)
+          return
+        }
+        await this._rerender()
+      } catch {
+        // polling error, ignore
+      }
+    }
+    poll()
+    this._deepImportTimer = setInterval(poll, 3000)
+  },
+
+  _stopDeepImportPolling() {
+    if (this._deepImportTimer) { clearInterval(this._deepImportTimer); this._deepImportTimer = null }
+    this._deepImportTaskId = null
+  },
+
+  _renderDeepImportBar() {
+    if (!this._deepImportProgress) return ""
+    const p = this._deepImportProgress
+    return `
+      <div style="position:fixed;bottom:40px;left:0;right:0;background:var(--panel);border-top:1px solid var(--accent);padding:8px 16px;z-index:100;font-size:12px;">
+        <div style="display:flex;align-items:center;gap:8px;max-width:900px;margin:0 auto;">
+          <span style="white-space:nowrap;font-weight:500;">${esc(p.stepLabel || p.message || "深度导入中...")}</span>
+          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+            <div style="height:100%;width:${p.percent || 0}%;background:var(--accent);transition:width 0.5s;border-radius:3px;"></div>
+          </div>
+          <span style="font-family:var(--font-mono);font-size:11px;white-space:nowrap;">${p.percent || 0}%</span>
+          ${p.degraded ? '<span style="color:var(--warning);font-size:10px;">(部分降级)</span>' : ""}
+          ${p.phase === "failed" ? `<button class="btn btn-sm" data-action="dismiss-deep-import" style="font-size:11px;">关闭</button>` : ""}
+        </div>
+      </div>
+    `
+  },
+
+  // ============================================================
   // 事件绑定
   // ============================================================
 
@@ -871,6 +1031,8 @@ const writingView = {
       "restore-from-version": () => this._restoreFromVersion(),
       "delete-version": () => this._deleteVersion(),
       "dismiss-publish-error": () => this._dismissPublishError(),
+      "deep-import": () => this._showDeepImportForm(),
+      "dismiss-deep-import": () => { this._deepImportProgress = null; this._rerender() },
       "open-outline": () => router.navigate("outline", null),
       "select-scene": (_e, t) => this._selectScene(t.getAttribute("data-scene-id")),
       "toggle-scene-group": (_e, t) => {
