@@ -46,4 +46,6 @@ class DeepImportProgress(BaseModel):
     phase2_total_scenes: int = Field(default=0, description="Phase 2 总 Scene 数")
     phase2_completed_scenes: int = Field(default=0, description="Phase 2 已完成 Scene 数")
     degraded: bool = Field(default=False, description="是否有批次触发降级")
-    degraded_batches: list[int] = Field(default_factory=list, description="触发降级的批次索引")
+    degraded_batches: list[int] = Field(
+        default_factory=list, description="触发降级的批次索引"
+    )

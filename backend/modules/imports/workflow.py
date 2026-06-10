@@ -37,7 +37,10 @@ class DeepImportWorkflow:
             progress.current_step = DeepImportStep.scene_segmentation
             progress.message = "正在切分叙事 Scene..."
             phase1_result = await self._segment_scenes(
-                db, novel_id, start_chapter, end_chapter,
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
             )
             progress.completed_steps.append(DeepImportStep.scene_segmentation.value)
             progress.message = (
@@ -46,15 +49,14 @@ class DeepImportWorkflow:
             if phase1_result.get("degraded"):
                 progress.degraded = True
                 failed_count = len(phase1_result.get("failed_batches", []))
-                progress.message += (
-                    f"（{failed_count} 个批次触发降级）"
-                )
+                progress.message += f"（{failed_count} 个批次触发降级）"
 
             # Phase 2: 实体增量提取
             progress.current_step = DeepImportStep.entity_extraction
             progress.message = "正在按 Scene 提取世界对象..."
             phase2_result = await self._extract_entities_by_scene(
-                db, novel_id,
+                db,
+                novel_id,
             )
             progress.completed_steps.append(DeepImportStep.entity_extraction.value)
             progress.message = (
@@ -66,7 +68,10 @@ class DeepImportWorkflow:
             progress.current_step = DeepImportStep.structure_analysis
             progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
             phase3_result = await self._analyze_structure(
-                db, novel_id, start_chapter, end_chapter,
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
             )
             progress.completed_steps.append(DeepImportStep.structure_analysis.value)
 
@@ -100,7 +105,10 @@ class DeepImportWorkflow:
 
         service = SceneSegmentationService()
         result = await service.segment_chapters(
-            db, novel_id, start_chapter, end_chapter,
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
         )
         logger.info(
             "Phase 1 complete: %d scenes, %d failed batches, degraded=%s",
@@ -141,7 +149,8 @@ class DeepImportWorkflow:
         _generate = _container_get("outline.generate_structure")
         try:
             result = await _generate(
-                db, novel_id,
+                db,
+                novel_id,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
             )
@@ -154,7 +163,9 @@ class DeepImportWorkflow:
         except Exception as exc:
             logger.warning("Phase 3 structure analysis failed: %s", exc)
             return {
-                "total_threads": 0, "total_arcs": 0,
-                "threads": [], "arcs": [],
+                "total_threads": 0,
+                "total_arcs": 0,
+                "threads": [],
+                "arcs": [],
                 "extra_sections": {},
             }

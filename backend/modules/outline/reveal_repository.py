@@ -70,11 +70,7 @@ class RevealPlanRepository:
         plan = await self.get(db, plan_id)
         if plan is None:
             return None
-        stmt = (
-            update(RevealPlan)
-            .where(RevealPlan.id == plan_id)
-            .values(**data)
-        )
+        stmt = update(RevealPlan).where(RevealPlan.id == plan_id).values(**data)
         await db.execute(stmt)
         await db.flush()
         return await self.get(db, plan_id)

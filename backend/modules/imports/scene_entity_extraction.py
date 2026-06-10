@@ -33,12 +33,19 @@ class SceneEntityExtractionService:
         from modules.world.facade import get_world_context
 
         ctx = await get_world_context(
-            db, novel_id, reveal_mode="author_safe", limit=500,
+            db,
+            novel_id,
+            reveal_mode="author_safe",
+            limit=500,
         )
-        existing_context = "\n".join(
-            f"- {e.name} ({e.entity_type})"
-            for e in ctx.entities if e.status in ("canonical", "draft")
-        ) or "无已有对象"
+        existing_context = (
+            "\n".join(
+                f"- {e.name} ({e.entity_type})"
+                for e in ctx.entities
+                if e.status in ("canonical", "draft")
+            )
+            or "无已有对象"
+        )
 
         total_created = 0
         total_deltas = 0
@@ -48,8 +55,12 @@ class SceneEntityExtractionService:
         for scene_idx, scene in enumerate(scenes):
             try:
                 scene_result = await self._process_scene(
-                    db, nid, scene, scene_idx,
-                    existing_context, accumulated_memory,
+                    db,
+                    nid,
+                    scene,
+                    scene_idx,
+                    existing_context,
+                    accumulated_memory,
                 )
                 total_created += scene_result["created"]
                 total_deltas += scene_result["deltas"]
@@ -58,7 +69,10 @@ class SceneEntityExtractionService:
             except Exception as exc:
                 logger.warning(
                     "Scene %d (idx=%d) extraction failed after %d retries: %s",
-                    scene_idx, scene.scene_index, MAX_RETRIES, exc,
+                    scene_idx,
+                    scene.scene_index,
+                    MAX_RETRIES,
+                    exc,
                 )
                 continue
 
@@ -101,21 +115,25 @@ class SceneEntityExtractionService:
         chapters_text = await self._load_scene_chapters(db, scene)
         if not chapters_text:
             return {
-                "created": 0, "deltas": 0,
+                "created": 0,
+                "deltas": 0,
                 "updated_context": existing_context,
                 "updated_memory": accumulated_memory,
             }
 
         memory_context = self._build_memory_context(accumulated_memory)
         entities, delta_events = await self._call_llm_extraction(
-            chapters_text, existing_context, memory_context,
+            chapters_text,
+            existing_context,
+            memory_context,
         )
 
         created_count = await self._persist_entities(db, nid, entities, scene.scene_index)
         delta_count = await self._record_deltas(db, nid, delta_events, scene.scene_index)
 
         new_names = [
-            e.get("name", "") for e in entities
+            e.get("name", "")
+            for e in entities
             if e.get("suggested_action") == "create_new"
         ]
         new_entities_text = "\n".join(
@@ -125,7 +143,8 @@ class SceneEntityExtractionService:
         )
         updated_context = (
             existing_context + "\n" + new_entities_text
-            if new_entities_text else existing_context
+            if new_entities_text
+            else existing_context
         )
 
         updated_memory = accumulated_memory + [
@@ -136,12 +155,17 @@ class SceneEntityExtractionService:
         if scene_idx > 0 and scene_idx % 10 == 0:
             try:
                 from core.container import get as _get
+
                 await _get("memory.capture_snapshot")(
-                    db, novel_id=str(nid), chapter_index=scene.scene_index,
+                    db,
+                    novel_id=str(nid),
+                    chapter_index=scene.scene_index,
                 )
             except Exception as exc:
                 logger.warning(
-                    "Memory snapshot at scene %d failed: %s", scene_idx, exc,
+                    "Memory snapshot at scene %d failed: %s",
+                    scene_idx,
+                    exc,
                 )
 
         return {
@@ -155,13 +179,15 @@ class SceneEntityExtractionService:
         from modules.writing.facade import get_latest_draft_for_chapter
 
         parts: list[str] = []
-        for ch_id_str in (scene.chapter_ids or []):
+        for ch_id_str in scene.chapter_ids or []:
             try:
                 ch_idx = int(ch_id_str)
             except (ValueError, TypeError):
                 continue
             draft = await get_latest_draft_for_chapter(
-                db, str(scene.novel_id), ch_idx,
+                db,
+                str(scene.novel_id),
+                ch_idx,
             )
             if draft and draft.content:
                 parts.append(f"## 第{ch_idx}章\n\n{draft.content}")
@@ -199,7 +225,10 @@ class SceneEntityExtractionService:
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"请从以下正文中提取世界对象。\n\n{chapters_text}"},
+                {
+                    "role": "user",
+                    "content": f"请从以下正文中提取世界对象。\n\n{chapters_text}",
+                },
             ],
             temperature=0.3,
             response_format={"type": "json_object"},
@@ -217,7 +246,9 @@ class SceneEntityExtractionService:
             except Exception as exc:
                 logger.warning(
                     "LLM extraction attempt %d/%d failed: %s",
-                    attempt + 1, MAX_RETRIES, exc,
+                    attempt + 1,
+                    MAX_RETRIES,
+                    exc,
                 )
 
         return [], []
@@ -250,19 +281,25 @@ class SceneEntityExtractionService:
                 continue
 
             try:
-                await entity_service.create(db, str(nid), CoreEntityCreate(
-                    name=name,
-                    entity_type=ent.get("entity_type", "character"),
-                    summary=ent.get("summary"),
-                    public_info=ent.get("public_info"),
-                    hidden_truth=ent.get("hidden_truth"),
-                    importance=ent.get("importance", 0.5),
-                    status="canonical",
-                ))
+                await entity_service.create(
+                    db,
+                    str(nid),
+                    CoreEntityCreate(
+                        name=name,
+                        entity_type=ent.get("entity_type", "character"),
+                        summary=ent.get("summary"),
+                        public_info=ent.get("public_info"),
+                        hidden_truth=ent.get("hidden_truth"),
+                        importance=ent.get("importance", 0.5),
+                        status="canonical",
+                    ),
+                )
                 created += 1
             except Exception as exc:
                 logger.warning(
-                    "Failed to create entity '%s': %s", name, exc,
+                    "Failed to create entity '%s': %s",
+                    name,
+                    exc,
                 )
 
         return created
@@ -275,7 +312,7 @@ class SceneEntityExtractionService:
         scene_index: int,
     ) -> int:
         count = 0
-        for event in (delta_events or []):
+        for event in delta_events or []:
             delta = DeltaLog(
                 novel_id=nid,
                 scene_index=scene_index,

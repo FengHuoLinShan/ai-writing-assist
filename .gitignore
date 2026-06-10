@@ -39,3 +39,4 @@ nul
 
 # Training data (large JSONL)
 backend/data/dedup_training/*.jsonl
+.claude/worktrees/

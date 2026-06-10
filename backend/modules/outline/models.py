@@ -55,51 +55,68 @@ class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     __table_args__ = {"comment": "Scene 卡"}
 
     scene_index: Mapped[int] = mapped_column(
-        Integer, nullable=False, index=True,
+        Integer,
+        nullable=False,
+        index=True,
         comment="Scene 逻辑顺序索引（从 0 开始）",
     )
     title: Mapped[str | None] = mapped_column(
-        String(255), nullable=True,
+        String(255),
+        nullable=True,
         comment="Scene 标题",
     )
     goal: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="Scene 目标（此 Scene 要完成什么）",
     )
     core_conflict: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="核心冲突",
     )
     emotional_beat: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="情感节奏（读者的情感走向）",
     )
     must_happen: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="必须发生的事件",
     )
     must_not_happen: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
+        Text,
+        nullable=True,
         comment="禁止发生的事件",
     )
     narrative_tag: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="draft",
+        String(32),
+        nullable=False,
+        default="draft",
         comment="叙事标签（NarrativeTag 枚举值）",
     )
     source: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="manual",
+        String(32),
+        nullable=False,
+        default="manual",
         comment="来源（manual / deep_import / ai_generated）",
     )
     scene_chunks: Mapped[list] = mapped_column(
-        JSON, nullable=True, default=list,
+        JSON,
+        nullable=True,
+        default=list,
         comment="物理映射：Scene → Chapter 物理位置区间",
     )
     chapter_ids: Mapped[list] = mapped_column(
-        JSON, nullable=True, default=list,
+        JSON,
+        nullable=True,
+        default=list,
         comment="关联 Chapter ID 列表",
     )
     pov_character_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True,
+        String(36),
+        nullable=True,
         comment="POV 人物 ID（可选，指向 core_entities）",
     )
 
@@ -117,38 +134,56 @@ class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin
     __table_args__ = {"comment": "伏笔计划"}
 
     name: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="伏笔名称",
+        String(255),
+        nullable=False,
+        comment="伏笔名称",
     )
     summary: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="伏笔概述",
+        Text,
+        nullable=True,
+        comment="伏笔概述",
     )
     surface_meaning: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="表面含义",
+        Text,
+        nullable=True,
+        comment="表面含义",
     )
     hidden_meaning: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="隐藏含义",
+        Text,
+        nullable=True,
+        comment="隐藏含义",
     )
     planned_seed_chapter: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="埋下伏笔的章节",
+        Integer,
+        nullable=True,
+        comment="埋下伏笔的章节",
     )
     planned_reinforce_chapters: Mapped[list] = mapped_column(
-        JSON, nullable=True, default=list, comment="强化章节列表",
+        JSON,
+        nullable=True,
+        default=list,
+        comment="强化章节列表",
     )
     planned_payoff_chapter: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="兑现章节",
+        Integer,
+        nullable=True,
+        comment="兑现章节",
     )
     related_entity_ids: Mapped[list] = mapped_column(
-        JSON, nullable=True, default=list, comment="关联实体 ID",
+        JSON,
+        nullable=True,
+        default=list,
+        comment="关联实体 ID",
     )
     related_thread_ids: Mapped[list] = mapped_column(
-        JSON, nullable=True, default=list, comment="关联剧情线 ID",
+        JSON,
+        nullable=True,
+        default=list,
+        comment="关联剧情线 ID",
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<ForeshadowingPlan id={self.id} name={self.name} "
-            f"status={self.status}>"
-        )
+        return f"<ForeshadowingPlan id={self.id} name={self.name} status={self.status}>"
 
 
 class RevealPlan(Base, UUIDMixin, TimestampMixin, NovelMixin):
@@ -158,20 +193,31 @@ class RevealPlan(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __table_args__ = {"comment": "信息揭示计划"}
 
     target_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, comment="目标类型",
+        String(32),
+        nullable=False,
+        comment="目标类型",
     )
     target_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType, nullable=False, comment="目标实体/人物 ID",
+        UUIDType,
+        nullable=False,
+        comment="目标实体/人物 ID",
     )
     secret_summary: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="被隐藏的秘密",
+        Text,
+        nullable=False,
+        comment="被隐藏的秘密",
     )
     reveal_stages: Mapped[list] = mapped_column(
-        JSON, nullable=True, default=list,
+        JSON,
+        nullable=True,
+        default=list,
         comment="揭示阶段 [{stage_index, chapter_index, reveal_content, trigger, effect}]",
     )
     status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="draft", comment="状态",
+        String(32),
+        nullable=False,
+        default="draft",
+        comment="状态",
     )
 
     def __repr__(self) -> str:
