@@ -562,6 +562,14 @@ const api = {
         method: "DELETE",
       })
     },
+    /** 按顺序列出所有场景卡 */
+    async listScenesOrdered(novelId) {
+      return request("/outline/scenes/ordered?novel_id=" + encodeURIComponent(novelId))
+    },
+    /** 按章节列出场景卡 */
+    async listScenesByChapter(novelId, chapterIndex) {
+      return request(`/outline/scenes/by-chapter?novel_id=${encodeURIComponent(novelId)}&chapter_index=${chapterIndex}`)
+    },
   },
 
   // ============================================================
