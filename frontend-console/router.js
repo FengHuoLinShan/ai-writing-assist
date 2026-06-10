@@ -233,8 +233,9 @@ function initRouter() {
     const hash = window.location.hash.slice(1) || "project"
     const parsed = _parseHash(hash)
 
-    if (parsed.projectId) {
-      state.currentProjectId = parsed.projectId
+    const projectId = parsed.projectId || (e.state && e.state.projectId) || null
+    if (projectId) {
+      state.currentProjectId = projectId
     }
 
     const targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
