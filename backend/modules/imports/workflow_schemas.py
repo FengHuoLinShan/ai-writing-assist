@@ -13,9 +13,12 @@ from pydantic import BaseModel, Field
 class DeepImportStep(str, Enum):
     """深度导入步骤标识"""
 
-    extract_world = "extract_world"
-    sync_characters = "sync_characters"
-    generate_plot = "generate_plot"
+    scene_segmentation = "scene_segmentation"
+    """Phase 1: Scene 切分（并行）"""
+    entity_extraction = "entity_extraction"
+    """Phase 2: 实体增量提取（串行，按 Scene）"""
+    structure_analysis = "structure_analysis"
+    """Phase 3: 剧情结构分析（单次）"""
 
 
 class DeepImportProgress(BaseModel):
@@ -38,3 +41,9 @@ class DeepImportProgress(BaseModel):
         default="",
         description="当前步骤的描述/提示消息",
     )
+    phase1_total_batches: int = Field(default=0, description="Phase 1 总批次数")
+    phase1_completed_batches: int = Field(default=0, description="Phase 1 已完成批次数")
+    phase2_total_scenes: int = Field(default=0, description="Phase 2 总 Scene 数")
+    phase2_completed_scenes: int = Field(default=0, description="Phase 2 已完成 Scene 数")
+    degraded: bool = Field(default=False, description="是否有批次触发降级")
+    degraded_batches: list[int] = Field(default_factory=list, description="触发降级的批次索引")
