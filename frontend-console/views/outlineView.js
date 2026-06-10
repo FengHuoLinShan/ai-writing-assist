@@ -48,6 +48,20 @@ const outlineView = {
 
   onLeave() {},
 
+  onActivate() {
+    // KeepAlive 恢复后重新绑定事件（DOM 来自缓存，事件监听器可能丢失）
+    this._bindEvents()
+  },
+
+  onDeactivate() {
+    // 保存滚动位置
+    const container = document.querySelector("#workspace-content .subnav")
+    if (container) {
+      state.viewStates = state.viewStates || {}
+      state.viewStates.outline = { scrollTop: container.scrollTop }
+    }
+  },
+
   async render() {
     const subView = state.currentSubView || "scenes"
     let html = ""

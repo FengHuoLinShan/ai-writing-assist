@@ -135,6 +135,28 @@ const writingView = {
     }
   },
 
+  onActivate() {
+    // KeepAlive 恢复后重新绑定事件
+    this._bindEvents()
+    // 恢复编辑器焦点
+    const editor = document.getElementById("writing-editor")
+    if (editor && this._currentContent !== null) {
+      editor.focus()
+    }
+  },
+
+  onDeactivate() {
+    // 保存当前编辑器内容到状态，避免缓存 DOM 与状态不一致
+    const editor = document.getElementById("writing-editor")
+    if (editor) {
+      this._currentContent = editor.value
+    }
+    const titleInput = document.getElementById("writing-title-input")
+    if (titleInput) {
+      this._currentTitle = titleInput.value
+    }
+  },
+
   // ============================================================
   // 左侧：章节树
   // ============================================================

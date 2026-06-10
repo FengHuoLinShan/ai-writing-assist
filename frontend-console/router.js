@@ -77,6 +77,12 @@ let _prevRenderedSubView = null
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = {}
 
+/** @type {Object<string, DocumentFragment>} 各视图缓存的 DOM */
+const _viewDomCache = {}
+
+/** @type {Set<string>} 标记为 KeepAlive 的视图 */
+const _keepAliveViews = new Set(["writing", "outline"])
+
 /**
  * 根据当前是否选择了项目，构造路由 hash
  * 有项目时: #workbench/:pid/:view[/:subView]
@@ -126,10 +132,22 @@ async function renderCurrentView() {
 
   if (!content) return
 
+  // 离开旧视图
   if (_prevView && _prevView !== viewName) {
     const prevRenderer = viewRenderers[_prevView]
-    if (prevRenderer && prevRenderer.onLeave) {
-      try { prevRenderer.onLeave() } catch (e) { console.error(e) }
+    if (prevRenderer) {
+      if (_keepAliveViews.has(_prevView) && prevRenderer.onDeactivate) {
+        try { prevRenderer.onDeactivate() } catch (e) { console.error(e) }
+      } else if (!_keepAliveViews.has(_prevView) && prevRenderer.onLeave) {
+        try { prevRenderer.onLeave() } catch (e) { console.error(e) }
+      }
+    }
+    if (_keepAliveViews.has(_prevView)) {
+      const frag = document.createDocumentFragment()
+      while (content.firstChild) {
+        frag.appendChild(content.firstChild)
+      }
+      _viewDomCache[_prevView] = frag
     }
   }
   _prevView = viewName
@@ -141,11 +159,24 @@ async function renderCurrentView() {
 
   try {
     if (renderer) {
-      if (!isSameRender && renderer.onEnter) {
-        await renderer.onEnter()
+      const cached = _viewDomCache[viewName]
+      if (cached && _keepAliveViews.has(viewName)) {
+        content.innerHTML = ""
+        content.appendChild(cached)
+        delete _viewDomCache[viewName]
+        if (renderer.onActivate) {
+          await renderer.onActivate()
+        }
+        if (renderer._bindEvents) {
+          renderer._bindEvents()
+        }
+      } else {
+        if (!isSameRender && renderer.onEnter) {
+          await renderer.onEnter()
+        }
+        const html = await renderer.render()
+        content.innerHTML = html
       }
-      const html = await renderer.render()
-      content.innerHTML = html
     } else {
       const route = routes[viewName]
       content.innerHTML = `
