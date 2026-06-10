@@ -155,7 +155,7 @@ class ContextCompiler:
     ) -> CompiledContext:
         """新入口：按 Tier 编译上下文，返回 CompiledContext IR"""
         bundle = await self.compile(db, options)
-        sections = self._build_sections(bundle)
+        sections = self._build_sections(bundle, options)
         constraint_sections = await self._constraint_engine.compile_constraints(
             db,
             options.novel_id,
@@ -172,9 +172,15 @@ class ContextCompiler:
         )
         return ctx.enforce_budget()
 
-    def _build_sections(self, bundle: StructureContextBundle) -> list[ContextSection]:
+    def _build_sections(
+        self,
+        bundle: StructureContextBundle,
+        options: CompileOptions | None = None,
+    ) -> list[ContextSection]:
         """将 StructureContextBundle 转为 Tier 标注的 ContextSection 列表"""
         sections: list[ContextSection] = []
+        is_debug = options is not None and options.mode == "debug"
+        mode_prefix = "[Snapshot 模式] " if is_debug else "[Delta 模式] "
 
         if bundle.task:
             sections.append(
@@ -205,7 +211,7 @@ class ContextCompiler:
                 ContextSection(
                     key="pov_knowledge",
                     tier=Tier.P1,
-                    content=content,
+                    content=mode_prefix + content,
                     token_count=max(1, len(content) // 4),
                 )
             )
@@ -216,7 +222,7 @@ class ContextCompiler:
                 ContextSection(
                     key="delta_timeline",
                     tier=Tier.P1,
-                    content=content,
+                    content=mode_prefix + content,
                     token_count=max(1, len(content) // 4),
                     truncatable_per_item=True,
                 )

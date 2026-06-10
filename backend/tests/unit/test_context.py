@@ -47,6 +47,7 @@ from modules.context.services.loaders import (
     is_loader_available,
 )
 from modules.context.services.protocol import Loader
+from modules.context.services.compiled_context import Tier
 
 # ============================================================
 # 1. Loader 协议测试
@@ -245,6 +246,81 @@ class TestContextCompilerDispatch:
         assert len(compiler._loaders) == 8
         for name in SCOPE_LOADERS["full"]:
             assert name in compiler._loaders
+
+
+class TestCompileWithTiers:
+    """测试 compile_with_tiers 入口与双模式输出"""
+
+    @pytest.mark.asyncio
+    async def test_compile_with_tiers_returns_compiled_context(self) -> None:
+        """compile_with_tiers 应返回 CompiledContext，且包含 Tier 标注的段"""
+        class DummyLoader(Loader):
+            @property
+            def name(self) -> str:
+                return "project"
+
+            async def load(self, db, options, bundle) -> None:
+                bundle.project = {"title": "测试小说"}
+
+        compiler = ContextCompiler(loaders=[DummyLoader()])
+        options = CompileOptions(
+            novel_id="test-id",
+            task="测试",
+            scope="project",
+        )
+        result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
+        assert hasattr(result, "sections")
+        assert hasattr(result, "total_tokens")
+        assert hasattr(result, "budget_tokens")
+        assert any(s.tier == Tier.P0 for s in result.sections)
+
+    @pytest.mark.asyncio
+    async def test_writing_mode_prefixes_delta(self) -> None:
+        """writing 模式应在 P1 段前加 [Delta 模式] 前缀"""
+        class CharLoader(Loader):
+            @property
+            def name(self) -> str:
+                return "characters"
+
+            async def load(self, db, options, bundle) -> None:
+                bundle.characters = [{"name": "主角"}]
+
+        compiler = ContextCompiler(loaders=[CharLoader()])
+        options = CompileOptions(
+            novel_id="test-id",
+            task="测试",
+            scope="world_character",
+            mode="writing",
+        )
+        result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
+        p1_sections = [s for s in result.sections if s.tier == Tier.P1]
+        assert len(p1_sections) > 0
+        for s in p1_sections:
+            assert s.content.startswith("[Delta 模式] "), f"Expected Delta prefix, got: {s.content[:20]}"
+
+    @pytest.mark.asyncio
+    async def test_debug_mode_prefixes_snapshot(self) -> None:
+        """debug 模式应在 P1 段前加 [Snapshot 模式] 前缀"""
+        class CharLoader(Loader):
+            @property
+            def name(self) -> str:
+                return "characters"
+
+            async def load(self, db, options, bundle) -> None:
+                bundle.characters = [{"name": "主角"}]
+
+        compiler = ContextCompiler(loaders=[CharLoader()])
+        options = CompileOptions(
+            novel_id="test-id",
+            task="测试",
+            scope="world_character",
+            mode="debug",
+        )
+        result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
+        p1_sections = [s for s in result.sections if s.tier == Tier.P1]
+        assert len(p1_sections) > 0
+        for s in p1_sections:
+            assert s.content.startswith("[Snapshot 模式] "), f"Expected Snapshot prefix, got: {s.content[:20]}"
 
 
 # ============================================================
