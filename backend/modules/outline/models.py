@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import JSON, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
+from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin, UUIDType
 
 
 class PlotThread(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
@@ -146,4 +148,34 @@ class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin
         return (
             f"<ForeshadowingPlan id={self.id} name={self.name} "
             f"status={self.status}>"
+        )
+
+
+class RevealPlan(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """信息揭示计划 — 分层逐步披露秘密"""
+
+    __tablename__ = "reveal_plans"
+    __table_args__ = {"comment": "信息揭示计划"}
+
+    target_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, comment="目标类型",
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType, nullable=False, comment="目标实体/人物 ID",
+    )
+    secret_summary: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="被隐藏的秘密",
+    )
+    reveal_stages: Mapped[list] = mapped_column(
+        JSON, nullable=True, default=list,
+        comment="揭示阶段 [{stage_index, chapter_index, reveal_content, trigger, effect}]",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="draft", comment="状态",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<RevealPlan id={self.id} target_type={self.target_type} "
+            f"target_id={self.target_id} status={self.status}>"
         )
