@@ -1,7 +1,9 @@
 """Deep Import 工作流编排器
 
-将世界对象抽取、人物同步、剧情结构生成三步串成流水线，
-全自动执行，无需用户中途确认。
+三阶段流水线：
+  Phase 1: Scene 切分（并行批次）→ scenes 表
+  Phase 2: 实体增量提取（串行按 Scene）→ core_entities + delta_log
+  Phase 3: 剧情结构分析（单次）→ plot_threads + outline_arcs + foreshadowing_plans + reveal_plans
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeepImportWorkflow:
-    """深度导入流水线编排器"""
+    """深度导入流水线编排器 — 三阶段全自动"""
 
     async def run_step(
         self,
@@ -31,35 +33,51 @@ class DeepImportWorkflow:
         if progress.phase == "pending":
             progress.phase = "running"
 
-            # Step 1: 世界对象抽取
-            progress.current_step = DeepImportStep.extract_world
-            progress.message = "正在从章节正文中抽取世界对象..."
-            result = await self._extract_world(db, novel_id, start_chapter, end_chapter)
-            progress.completed_steps.append(DeepImportStep.extract_world.value)
+            # Phase 1: Scene 切分
+            progress.current_step = DeepImportStep.scene_segmentation
+            progress.message = "正在切分叙事 Scene..."
+            phase1_result = await self._segment_scenes(
+                db, novel_id, start_chapter, end_chapter,
+            )
+            progress.completed_steps.append(DeepImportStep.scene_segmentation.value)
             progress.message = (
-                f"世界对象抽取完成，共创建 {result['total_created']} 个对象。"
+                f"Scene 切分完成，共创建 {phase1_result['total_scenes']} 个 Scene。"
+            )
+            if phase1_result.get("degraded"):
+                progress.degraded = True
+                failed_count = len(phase1_result.get("failed_batches", []))
+                progress.message += (
+                    f"（{failed_count} 个批次触发降级）"
+                )
+
+            # Phase 2: 实体增量提取
+            progress.current_step = DeepImportStep.entity_extraction
+            progress.message = "正在按 Scene 提取世界对象..."
+            phase2_result = await self._extract_entities_by_scene(
+                db, novel_id,
+            )
+            progress.completed_steps.append(DeepImportStep.entity_extraction.value)
+            progress.message = (
+                f"实体提取完成，共创建 {phase2_result.get('total_created', 0)} 个实体，"
+                f"记录 {phase2_result.get('total_deltas', 0)} 条变更。"
             )
 
-            # Step 2: 人物同步
-            progress.current_step = DeepImportStep.sync_characters
-            progress.message = "正在同步人物档案..."
-            char_result = await self._sync_characters(db, novel_id)
-            progress.completed_steps.append(DeepImportStep.sync_characters.value)
-            progress.message = f"人物同步完成，共同步 {char_result['total_synced']} 个人物。"
-
-            # Step 3: 剧情生成
-            progress.current_step = DeepImportStep.generate_plot
-            progress.message = "正在生成剧情线和篇章纲..."
-            plot_result = await self._generate_plot(db, novel_id, start_chapter, end_chapter)
-            progress.completed_steps.append(DeepImportStep.generate_plot.value)
+            # Phase 3: 剧情结构分析
+            progress.current_step = DeepImportStep.structure_analysis
+            progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
+            phase3_result = await self._analyze_structure(
+                db, novel_id, start_chapter, end_chapter,
+            )
+            progress.completed_steps.append(DeepImportStep.structure_analysis.value)
 
             progress.current_step = None
             progress.phase = "done"
             progress.message = (
                 f"深度导入完成！"
-                f"同步 {char_result['total_synced']} 个人物，"
-                f"创建 {plot_result['total_threads']} 条剧情线、"
-                f"{plot_result['total_arcs']} 个篇章纲。"
+                f"共 {phase1_result.get('total_scenes', 0)} 个 Scene，"
+                f"{phase2_result.get('total_created', 0)} 个实体，"
+                f"{phase3_result.get('total_threads', 0)} 条剧情线，"
+                f"{phase3_result.get('total_arcs', 0)} 个篇章纲。"
             )
 
         else:
@@ -68,69 +86,52 @@ class DeepImportWorkflow:
         return progress
 
     # ------------------------------------------------------------------
-    # Step 1: 世界对象抽取
+    # Phase 1: Scene 切分
     # ------------------------------------------------------------------
 
-    async def _extract_world(
+    async def _segment_scenes(
         self,
         db: AsyncSession,
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        return await _container_get("world.run_entity_extraction")(
-            db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
+        from modules.imports.scene_segmentation import SceneSegmentationService
+
+        service = SceneSegmentationService()
+        result = await service.segment_chapters(
+            db, novel_id, start_chapter, end_chapter,
         )
+        logger.info(
+            "Phase 1 complete: %d scenes, %d failed batches, degraded=%s",
+            result.get("total_scenes", 0),
+            len(result.get("failed_batches", [])),
+            result.get("degraded", False),
+        )
+        return result
 
     # ------------------------------------------------------------------
-    # Step 2: 人物同步
+    # Phase 2: 实体增量提取
     # ------------------------------------------------------------------
 
-    async def _sync_characters(
+    async def _extract_entities_by_scene(
         self,
         db: AsyncSession,
         novel_id: str,
     ) -> dict[str, Any]:
-        _list_entities = _container_get("world.list_entities")
-        _get_char_id = _container_get("world.get_character_id_by_world_entity")
-        _create_char = _container_get("world.create_character")
-
-        character_entities = await _list_entities(
-            db, novel_id,
-            entity_type="character_ref",
-        )
-
-        total_synced = 0
-        for entity in character_entities:
-            existing = await _get_char_id(db, novel_id, entity["id"])
-            if existing is not None:
-                continue
-
-            try:
-                await _create_char(
-                    db=db,
-                    novel_id=novel_id,
-                    name=entity["name"],
-                    world_entity_id=entity["id"],
-                )
-                total_synced += 1
-            except Exception as exc:
-                logger.warning(
-                    "Failed to create Character for entity %s: %s",
-                    entity["name"], exc,
-                )
-
-        await db.flush()
-        return {"total_synced": total_synced, "total_entities": len(character_entities)}
+        try:
+            handler = _container_get("world.run_scene_entity_extraction")
+            result = await handler(db, novel_id=novel_id)
+            return result
+        except Exception as exc:
+            logger.warning("Phase 2 entity extraction failed: %s", exc)
+            return {"total_created": 0, "total_deltas": 0}
 
     # ------------------------------------------------------------------
-    # Step 3: 剧情结构生成
+    # Phase 3: 剧情结构分析
     # ------------------------------------------------------------------
 
-    async def _generate_plot(
+    async def _analyze_structure(
         self,
         db: AsyncSession,
         novel_id: str,
@@ -145,11 +146,15 @@ class DeepImportWorkflow:
                 end_chapter=end_chapter,
             )
             logger.info(
-                "剧情结构生成完成: %d 条剧情线, %d 个篇章纲",
-                result["total_threads"],
-                result["total_arcs"],
+                "Phase 3 complete: %d threads, %d arcs",
+                result.get("total_threads", 0),
+                result.get("total_arcs", 0),
             )
             return result
         except Exception as exc:
-            logger.warning("剧情结构生成失败: %s", exc)
-            return {"total_threads": 0, "total_arcs": 0, "threads": [], "arcs": []}
+            logger.warning("Phase 3 structure analysis failed: %s", exc)
+            return {
+                "total_threads": 0, "total_arcs": 0,
+                "threads": [], "arcs": [],
+                "extra_sections": {},
+            }
