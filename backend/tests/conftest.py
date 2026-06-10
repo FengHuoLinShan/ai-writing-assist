@@ -27,7 +27,7 @@ import modules.memory.models  # noqa: F401
 
 # character/geo/review/timeline 已从 minimal-core 移除
 import modules.outline.models  # noqa: F401
-import modules.project.project  # noqa: F401
+import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
@@ -78,7 +78,7 @@ async def test_project_id(db_session: AsyncSession) -> str:
     """创建一个测试项目并返回其 ID"""
     import uuid
 
-    from modules.project.project import Project
+    from modules.project.models import Project
 
     pid = uuid.uuid4()
     p = Project(

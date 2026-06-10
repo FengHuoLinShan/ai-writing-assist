@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from core.container import get as _container_get
 from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
@@ -38,9 +39,9 @@ async def handle_publish_chapter(db, task):
     rag_ok = False
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            from modules.rag.facade import index_chapter_with_report
-
-            report = await index_chapter_with_report(db, novel_id, chapter_index)
+            report = await _container_get("rag.index_chapter")(
+                db, novel_id, chapter_index,
+            )
             results["rag_chunks"] = report.chunks_created
             results["rag_embedding_failed"] = report.embedding_failed_count
             rag_ok = True
@@ -71,9 +72,7 @@ async def handle_publish_chapter(db, task):
     snapshot_ok = False
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            from modules.memory.services import MemoryService
-
-            _memory = MemoryService()
+            _memory = _container_get("memory.service")
             snap = await _memory.capture_snapshot(db, novel_id, chapter_index)
             results["snapshot_id"] = snap.id
             snapshot_ok = True

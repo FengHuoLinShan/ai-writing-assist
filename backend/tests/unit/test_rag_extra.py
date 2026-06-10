@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.container import register, reset
+
 # ============================================================
 # contracts.py — 数据契约
 # ============================================================
@@ -616,11 +618,10 @@ class TestTasks:
 
         report = RagIndexReport(chapter_index=1, chunks_created=3, warnings=[], embedding_failed_count=0)
 
-        with (
-            patch("modules.writing.facade.list_chapter_indices", new_callable=AsyncMock) as mock_list,
-            patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index,
-        ):
-            mock_list.return_value = [1, 2]
+        reset()
+        register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2]))
+
+        with patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index:
             mock_index.return_value = report
 
             from modules.rag.tasks import handle_rag_reindex_novel
@@ -632,9 +633,11 @@ class TestTasks:
             result = await handle_rag_reindex_novel(db, task)
 
             assert result["total_chapters"] == 2
-            assert result["chunks_created"] == 6  # 2 chapters * 3 chunks
+            assert result["chunks_created"] == 6
             assert len(result["chapters"]) == 2
             task.update_progress.assert_called()
+
+        reset()
 
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_missing_novel_id_raises(self):
@@ -654,11 +657,10 @@ class TestTasks:
 
         report = RagIndexReport(chapter_index=2, chunks_created=4, warnings=[], embedding_failed_count=0)
 
-        with (
-            patch("modules.writing.facade.list_chapter_indices", new_callable=AsyncMock) as mock_list,
-            patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index,
-        ):
-            mock_list.return_value = [1, 2, 3, 4, 5]
+        reset()
+        register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2, 3, 4, 5]))
+
+        with patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index:
             mock_index.return_value = report
 
             from modules.rag.tasks import handle_rag_reindex_novel
@@ -676,23 +678,27 @@ class TestTasks:
             assert result["total_chapters"] == 3
             assert mock_index.await_count == 3
 
+        reset()
+
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_empty_chapters(self):
         """EDGE: 无匹配章节时正常返回"""
-        with patch("modules.writing.facade.list_chapter_indices", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = []
+        reset()
+        register("writing.list_chapter_indices", AsyncMock(return_value=[]))
 
-            from modules.rag.tasks import handle_rag_reindex_novel
+        from modules.rag.tasks import handle_rag_reindex_novel
 
-            db = AsyncMock()
-            task = SimpleNamespace(meta={"novel_id": "n1"})
-            task.update_progress = MagicMock()
+        db = AsyncMock()
+        task = SimpleNamespace(meta={"novel_id": "n1"})
+        task.update_progress = MagicMock()
 
-            result = await handle_rag_reindex_novel(db, task)
+        result = await handle_rag_reindex_novel(db, task)
 
-            assert result["total_chapters"] == 0
-            assert result["chunks_created"] == 0
-            assert result["chapters"] == []
+        assert result["total_chapters"] == 0
+        assert result["chunks_created"] == 0
+        assert result["chapters"] == []
+
+        reset()
 
 
 # ============================================================

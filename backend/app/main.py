@@ -40,18 +40,24 @@ from modules.writing.facade import (
     list_chapter_indices as _writing_list_indices,
 )
 from modules.world.facade import (
+    create_character as _world_create_char,
+    get_character_id_by_world_entity as _world_get_char_id,
     list_characters as _world_list_characters,
+    list_entities as _world_list_entities,
     list_entity_terms as _world_list_entity_terms,
     run_entity_extraction as _world_extract,
 )
 
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
-import modules.project.project  # noqa: F401, I001
+import modules.project.models  # noqa: F401, I001
 import modules.world.models  # noqa: F401, I001
 
 _register("world.list_characters", _world_list_characters)
 _register("world.list_entity_terms", _world_list_entity_terms)
 _register("world.run_entity_extraction", _world_extract)
+_register("world.list_entities", _world_list_entities)
+_register("world.create_character", _world_create_char)
+_register("world.get_character_id_by_world_entity", _world_get_char_id)
 _register("rag.index_chapter", _rag_index)
 _register("rag.get_ordered_chapter_chunks", _rag_get_chunks)
 
@@ -322,7 +328,7 @@ import modules.imports.tasks  # noqa: F401 — 注册深度导入任务处理器
 import modules.writing.tasks  # noqa: F401 — 注册章节发布任务处理器
 from modules.context import api as context_api
 from modules.outline import api as outline_api
-from modules.project.project import router as project_router
+from modules.project.api import router as project_router
 from modules.rag import api as rag_api
 from modules.world import api as world_api
 from modules.writing import api as writing_api

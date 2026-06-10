@@ -32,7 +32,7 @@ from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TA
 logger = logging.getLogger(__name__)
 
 # 注册 projects 表（NovelMixin FK 依赖）
-import modules.project.project  # noqa: F401
+import modules.project.models  # noqa: F401
 
 
 class TaskWorker:

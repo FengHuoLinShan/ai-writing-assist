@@ -1,7 +1,7 @@
 """
 Project 模块单元测试
 
-覆盖 contracts.py 导出的 ProjectContext，以及 project.py 中的 schemas、CRUD、
+覆盖 contracts.py 导出的 ProjectContext，以及 schemas、Repository、
 Service 和 get_project_context 对外接口。
 使用 mocks 隔离数据库层，聚焦业务逻辑和边界条件。
 """
@@ -9,7 +9,7 @@ Service 和 get_project_context 对外接口。
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,19 +18,18 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.contracts import ProjectContext
-from modules.project.project import (
-    Project,
+from modules.project.facade import get_project_context
+from modules.project.models import Project
+from modules.project.repositories import ProjectRepository
+from modules.project.schemas import (
     ProjectCreate,
     ProjectResponse,
     ProjectUpdate,
-    create_project,
-    delete_project,
-    get_project_by_id,
-    update_project,
-    ProjectService,
-    get_project_context,
 )
+from modules.project.services import ProjectService
 from shared.constants import MAX_PAGE_SIZE
+
+_repo = ProjectRepository()
 
 
 # ============================================================
@@ -143,17 +142,17 @@ class TestCRUDFunctions:
     async def test_create_adds_and_flushes(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         data = ProjectCreate(title="测试小说", genre="玄幻")
-        project = await create_project(db, data)
+        project = await _repo.create(db, data)
         assert project.title == "测试小说"
         assert project.genre == "玄幻"
-        assert project.language == "zh"  # default fallback
+        assert project.language == "zh"
         db.add.assert_called_once_with(project)
         db.flush.assert_awaited_once()
 
     async def test_create_minimal(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         data = ProjectCreate(title="最小")
-        project = await create_project(db, data)
+        project = await _repo.create(db, data)
         assert project.title == "最小"
         assert project.genre is None
         assert project.language == "zh"
@@ -166,7 +165,7 @@ class TestCRUDFunctions:
         result.scalar_one_or_none.return_value = expected
         db.execute.return_value = result
 
-        got = await get_project_by_id(db, uid)
+        got = await _repo.get(db, uid)
         assert got is expected
 
     async def test_get_returns_none_when_missing(self) -> None:
@@ -175,7 +174,7 @@ class TestCRUDFunctions:
         result.scalar_one_or_none.return_value = None
         db.execute.return_value = result
 
-        got = await get_project_by_id(db, uuid.uuid4())
+        got = await _repo.get(db, uuid.uuid4())
         assert got is None
 
     @patch("modules.project.repositories.ProjectRepository.get")
@@ -186,7 +185,7 @@ class TestCRUDFunctions:
         original = Project(id=uid, title="原始标题")
         mock_get.return_value = original
         db = AsyncMock(spec=AsyncSession)
-        updated = await update_project(db, uid, ProjectUpdate(title="新标题"))
+        updated = await _repo.update(db, uid, ProjectUpdate(title="新标题"))
         assert updated is not None
 
     @patch("modules.project.repositories.ProjectRepository.get")
@@ -195,7 +194,7 @@ class TestCRUDFunctions:
     ) -> None:
         mock_get.return_value = None
         db = AsyncMock(spec=AsyncSession)
-        result = await update_project(db, uuid.uuid4(), ProjectUpdate(title="x"))
+        result = await _repo.update(db, uuid.uuid4(), ProjectUpdate(title="x"))
         assert result is None
 
     async def test_delete_returns_true_when_deleted(self) -> None:
@@ -203,14 +202,14 @@ class TestCRUDFunctions:
         result = MagicMock()
         result.rowcount = 1
         db.execute.return_value = result
-        assert await delete_project(db, uuid.uuid4()) is True
+        assert await _repo.delete(db, uuid.uuid4()) is True
 
     async def test_delete_returns_false_when_missing(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         result = MagicMock()
         result.rowcount = 0
         db.execute.return_value = result
-        assert await delete_project(db, uuid.uuid4()) is False
+        assert await _repo.delete(db, uuid.uuid4()) is False
 
 
 # ============================================================
@@ -225,7 +224,7 @@ class TestProjectService:
     async def test_create_returns_project_response(
         self, mock_create: MagicMock,
     ) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_create.return_value = Project(
             id=uuid.uuid4(), title="测试小说", genre="玄幻",
             language="zh", default_reveal_policy="author_safe", settings={},

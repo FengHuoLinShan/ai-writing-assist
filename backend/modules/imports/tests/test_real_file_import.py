@@ -19,7 +19,7 @@ from infrastructure.tasks.models import AsyncTask
 from modules.imports.parsers import parse_txt
 from modules.imports.models import ImportRecord
 from modules.imports.services import ImportService
-from modules.project.project import Project
+from modules.project.models import Project
 from modules.writing.models import WritingDraft
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")

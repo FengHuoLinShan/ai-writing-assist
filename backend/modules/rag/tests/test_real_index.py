@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.project import Project
+from modules.project.models import Project
 from modules.writing.facade import create_draft
 from modules.rag.facade import index_chapter, get_index_status
 

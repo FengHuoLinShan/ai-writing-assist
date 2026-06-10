@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.memory.models import MemoryEvent
 from modules.memory.repositories import EventRepository, SnapshotRepository
 from modules.memory.services import MemoryService
-from modules.project.project import Project
+from modules.project.models import Project
 
 
 @pytest.fixture

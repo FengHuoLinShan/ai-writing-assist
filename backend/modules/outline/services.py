@@ -7,6 +7,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as _container_get
 from core.crud import CrudService
 from infrastructure.llm.errors import LLMInvalidResponseError
 from modules.outline.contracts import OutlineArcContract, PlotThreadContract
@@ -160,7 +161,6 @@ class PlotStructureGenerator:
         from infrastructure.llm.client import LLMClient
         from infrastructure.llm.prompt_loader import load_prompt
         from infrastructure.llm.schemas import LLMCallRequest
-        from modules.context.facade import compile_structure_context
 
         nid = parse_uuid(novel_id, "novel_id")
         warnings_list: list[str] = []
@@ -168,7 +168,7 @@ class PlotStructureGenerator:
         # ============================================================
         # 1. 加载上下文
         # ============================================================
-        bundle = await compile_structure_context(
+        bundle = await _container_get("context.compile")(
             db=db, novel_id=novel_id,
             task="生成剧情结构",
             scope="full",

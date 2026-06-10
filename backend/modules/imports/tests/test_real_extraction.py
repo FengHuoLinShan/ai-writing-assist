@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
 from modules.imports.services import ImportService
-from modules.project.project import Project
+from modules.project.models import Project
 from modules.writing.models import WritingDraft
 from modules.writing.facade import get_latest_draft_for_chapter
 from modules.world.models import CoreEntity

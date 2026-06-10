@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 
+from core.container import register, reset
+from modules.world.services.draft_provider import WritingDraftProvider
 from modules.world.services.entity_revision_service import EntityRevisionService
 from modules.world.services.event_service import EventService
 from modules.world.services.helpers import (
@@ -22,8 +24,6 @@ from modules.world.services.helpers import (
     normalize_name,
     world_entity_types_compatible,
 )
-from modules.world.services.draft_provider import WritingDraftProvider
-
 
 # ============================================================
 # Factory helpers
@@ -610,9 +610,14 @@ def test_find_alias_in_list_non_dict_entry_skips():
 class TestDraftProvider:
     pytestmark = [pytest.mark.asyncio]
 
+    def setup_method(self):
+        reset()
+
+    def teardown_method(self):
+        reset()
+
     async def test_writing_draft_provider_load_chapters_with_draft_and_rag_returns_chapters(self):
         """Happy path: uses RAG chunks when available."""
-        # Arrange
         db = MagicMock()
         novel_id = str(uuid.uuid4())
         draft = MagicMock()
@@ -624,29 +629,13 @@ class TestDraftProvider:
         report = MagicMock()
         report.warnings = []
 
-        with (
-            patch(
-                "modules.writing.facade.get_latest_draft_for_chapter",
-                new_callable=AsyncMock,
-                return_value=draft,
-            ),
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-                return_value=report,
-            ),
-            patch(
-                "modules.rag.facade.get_ordered_chapter_chunks",
-                new_callable=AsyncMock,
-                return_value=[chunk],
-            ),
-        ):
-            provider = WritingDraftProvider()
+        register("writing.get_latest_draft_for_chapter", AsyncMock(return_value=draft))
+        register("rag.index_chapter", AsyncMock(return_value=report))
+        register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[chunk]))
 
-            # Act
-            result = await provider.load_chapters(db, novel_id, 1, 1)
+        provider = WritingDraftProvider()
+        result = await provider.load_chapters(db, novel_id, 1, 1)
 
-        # Assert
         assert len(result) == 1
         assert result[0]["chapter_index"] == 1
         assert result[0]["title"] == "Chapter One"
@@ -654,7 +643,6 @@ class TestDraftProvider:
 
     async def test_writing_draft_provider_load_chapters_no_rag_fallback_to_draft(self):
         """Boundary: empty RAG chunks falls back to draft.content."""
-        # Arrange
         db = MagicMock()
         novel_id = str(uuid.uuid4())
         draft = MagicMock()
@@ -663,29 +651,13 @@ class TestDraftProvider:
         report = MagicMock()
         report.warnings = ["warn"]
 
-        with (
-            patch(
-                "modules.writing.facade.get_latest_draft_for_chapter",
-                new_callable=AsyncMock,
-                return_value=draft,
-            ),
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-                return_value=report,
-            ),
-            patch(
-                "modules.rag.facade.get_ordered_chapter_chunks",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            provider = WritingDraftProvider()
+        register("writing.get_latest_draft_for_chapter", AsyncMock(return_value=draft))
+        register("rag.index_chapter", AsyncMock(return_value=report))
+        register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[]))
 
-            # Act
-            result = await provider.load_chapters(db, novel_id, 2, 2)
+        provider = WritingDraftProvider()
+        result = await provider.load_chapters(db, novel_id, 2, 2)
 
-        # Assert
         assert len(result) == 1
         assert result[0]["content"] == "fallback content"
         assert result[0]["title"] == "第2章"
@@ -693,36 +665,20 @@ class TestDraftProvider:
 
     async def test_writing_draft_provider_load_chapters_no_draft_returns_empty(self):
         """Boundary: no draft returns empty list."""
-        # Arrange
         db = MagicMock()
         novel_id = str(uuid.uuid4())
 
-        with (
-            patch(
-                "modules.writing.facade.get_latest_draft_for_chapter",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-            ),
-            patch(
-                "modules.rag.facade.get_ordered_chapter_chunks",
-                new_callable=AsyncMock,
-            ),
-        ):
-            provider = WritingDraftProvider()
+        register("writing.get_latest_draft_for_chapter", AsyncMock(return_value=None))
+        register("rag.index_chapter", AsyncMock())
+        register("rag.get_ordered_chapter_chunks", AsyncMock())
 
-            # Act
-            result = await provider.load_chapters(db, novel_id, 1, 1)
+        provider = WritingDraftProvider()
+        result = await provider.load_chapters(db, novel_id, 1, 1)
 
-        # Assert
         assert result == []
 
     async def test_writing_draft_provider_load_chapters_range_inclusive(self):
         """Boundary: range includes both start and end."""
-        # Arrange
         db = MagicMock()
         novel_id = str(uuid.uuid4())
         drafts = {
@@ -735,29 +691,16 @@ class TestDraftProvider:
         async def _get_draft(_db, _nid, idx):
             return drafts.get(idx)
 
-        with (
-            patch(
-                "modules.writing.facade.get_latest_draft_for_chapter",
-                new_callable=AsyncMock,
-                side_effect=_get_draft,
-            ),
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-                return_value=report,
-            ),
-            patch(
-                "modules.rag.facade.get_ordered_chapter_chunks",
-                new_callable=AsyncMock,
-                return_value=[],
-            ),
-        ):
-            provider = WritingDraftProvider()
+        register(
+            "writing.get_latest_draft_for_chapter",
+            AsyncMock(side_effect=_get_draft),
+        )
+        register("rag.index_chapter", AsyncMock(return_value=report))
+        register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[]))
 
-            # Act
-            result = await provider.load_chapters(db, novel_id, 1, 2)
+        provider = WritingDraftProvider()
+        result = await provider.load_chapters(db, novel_id, 1, 2)
 
-        # Assert
         assert len(result) == 2
         assert result[0]["chapter_index"] == 1
         assert result[1]["chapter_index"] == 2

@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.project import Project
+from modules.project.models import Project
 from modules.world.facade import get_world_context
 from modules.world.models import CoreEntity
 

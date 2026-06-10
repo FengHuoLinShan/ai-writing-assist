@@ -85,7 +85,7 @@ ORDINARY_PROPS = ["琉璃瓦"]
 @pytest_asyncio.fixture
 async def novel_id(db_session: AsyncSession) -> str:
     """创建测试项目"""
-    from modules.project.project import Project
+    from modules.project.models import Project
 
     pid = uuid.uuid4()
     p = Project(

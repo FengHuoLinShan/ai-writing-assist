@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from core.container import register, reset
 from modules.context.contracts import (
     AUTHOR_ONLY_WARNING,
     CONTEXT_BUDGET,
@@ -46,7 +47,6 @@ from modules.context.services.loaders import (
     is_loader_available,
 )
 from modules.context.services.protocol import Loader
-
 
 # ============================================================
 # 1. Loader 协议测试
@@ -263,7 +263,7 @@ class TestProjectLoader:
         loader = ProjectLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="project")
 
-        with patch("modules.project.project.get_project_context",
+        with patch("modules.context.services.loaders.project_loader.get_project_context",
                     AsyncMock(return_value=mock_ctx)):
             await loader.load(db=MagicMock(), options=MagicMock(novel_id="id"), bundle=bundle)
 
@@ -275,7 +275,7 @@ class TestProjectLoader:
         loader = ProjectLoader()
         bundle = StructureContextBundle(novel_id="nonexistent", task="t", scope="project")
 
-        with patch("modules.project.project.get_project_context",
+        with patch("modules.context.services.loaders.project_loader.get_project_context",
                     AsyncMock(return_value=None)):
             await loader.load(db=MagicMock(), options=MagicMock(novel_id="nonexistent"), bundle=bundle)
 
@@ -573,6 +573,12 @@ class TestRagChunksLoader:
 class TestPlotThreadsLoader:
     """测试 PlotThreadsLoader"""
 
+    def setup_method(self):
+        reset()
+
+    def teardown_method(self):
+        reset()
+
     @pytest.mark.asyncio
     async def test_load_plot_threads(self) -> None:
         """应加载剧情线数据"""
@@ -590,15 +596,15 @@ class TestPlotThreadsLoader:
         mock_thread.author_known_state = ""
         mock_thread.status = "active"
 
+        mock_svc = MagicMock()
+        mock_svc.get_active = AsyncMock(return_value=[mock_thread])
+        register("outline.thread_service", mock_svc)
+
         loader = PlotThreadsLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=5)
 
-        with patch(
-            "modules.outline.services.PlotThreadService.get_active",
-            AsyncMock(return_value=[mock_thread]),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.plot_threads) == 1
         assert bundle.plot_threads[0]["name"] == "主线"
@@ -607,6 +613,12 @@ class TestPlotThreadsLoader:
 
 class TestOutlineArcLoader:
     """测试 OutlineArcLoader"""
+
+    def setup_method(self):
+        reset()
+
+    def teardown_method(self):
+        reset()
 
     @pytest.mark.asyncio
     async def test_load_arc_with_chapter(self) -> None:
@@ -627,15 +639,15 @@ class TestOutlineArcLoader:
         mock_arc.next_hook = ""
         mock_arc.status = "active"
 
+        mock_svc = MagicMock()
+        mock_svc.get_by_chapter = AsyncMock(return_value=mock_arc)
+        register("outline.arc_service", mock_svc)
+
         loader = OutlineArcLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=5)
 
-        with patch(
-            "modules.outline.services.OutlineArcService.get_by_chapter",
-            AsyncMock(return_value=mock_arc),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.outline_arc is not None
         assert bundle.outline_arc["title"] == "第一卷"

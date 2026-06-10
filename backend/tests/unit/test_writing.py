@@ -8,11 +8,9 @@ Writing 模块单元测试
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 
 from modules.writing.contracts import WritingDraftContract
@@ -24,7 +22,6 @@ from modules.writing.schemas import (
     WritingDraftResponse,
     WritingDraftUpdate,
 )
-
 
 # ============================================================
 # Contracts 测试
@@ -614,9 +611,6 @@ class TestWritingAPI:
 class TestHandlePublishChapter:
     """handle_publish_chapter 任务处理器"""
 
-    _MOD_RAG = "modules.rag.facade.index_chapter_with_report"
-    _MOD_MEM = "modules.memory.services.MemoryService.capture_snapshot"
-
     @pytest.fixture
     def mock_db(self) -> AsyncMock:
         db = AsyncMock()
@@ -633,19 +627,24 @@ class TestHandlePublishChapter:
     async def test_success_path(
         self, mock_db: AsyncMock, mock_task: MagicMock,
     ):
-        with (
-            patch(self._MOD_RAG) as mock_index,
-            patch(self._MOD_MEM) as mock_snap,
-        ):
-            mock_report = MagicMock()
-            mock_report.chunks_created = 10
-            mock_report.embedding_failed_count = 0
-            mock_index.return_value = mock_report
+        from core.container import register, reset
 
-            mock_snap_result = MagicMock()
-            mock_snap_result.id = "snap-1"
-            mock_snap.return_value = mock_snap_result
+        reset()
+        mock_report = MagicMock()
+        mock_report.chunks_created = 10
+        mock_report.embedding_failed_count = 0
+        mock_rag_index = AsyncMock(return_value=mock_report)
 
+        mock_snap_result = MagicMock()
+        mock_snap_result.id = "snap-1"
+        mock_memory_svc = MagicMock()
+        mock_memory_svc.capture_snapshot = AsyncMock(
+            return_value=mock_snap_result,
+        )
+
+        register("rag.index_chapter", mock_rag_index)
+        register("memory.service", mock_memory_svc)
+        try:
             from modules.writing.tasks import handle_publish_chapter
 
             results = await handle_publish_chapter(mock_db, mock_task)
@@ -653,99 +652,127 @@ class TestHandlePublishChapter:
             assert results["rag_chunks"] == 10
             assert results["rag_embedding_failed"] == 0
             assert results["snapshot_id"] == "snap-1"
-            assert mock_index.await_count == 1
-            assert mock_snap.await_count == 1
+            assert mock_rag_index.await_count == 1
+            assert mock_memory_svc.capture_snapshot.await_count == 1
             assert mock_task.update_progress.call_count == 2
             mock_db.flush.assert_awaited()
+        finally:
+            reset()
 
     async def test_rag_retry_then_succeed(
         self, mock_db: AsyncMock, mock_task: MagicMock,
     ):
-        with (
-            patch(self._MOD_RAG) as mock_index,
-            patch(self._MOD_MEM) as mock_snap,
-        ):
-            mock_report = MagicMock()
-            mock_report.chunks_created = 5
-            mock_report.embedding_failed_count = 1
-            mock_index.side_effect = [
+        from core.container import register, reset
+
+        reset()
+        mock_report = MagicMock()
+        mock_report.chunks_created = 5
+        mock_report.embedding_failed_count = 1
+        mock_rag_index = AsyncMock(
+            side_effect=[
                 Exception("timeout"),
                 Exception("timeout"),
                 mock_report,
-            ]
-            mock_snap_result = MagicMock()
-            mock_snap_result.id = "snap-retry"
-            mock_snap.return_value = mock_snap_result
+            ],
+        )
 
+        mock_snap_result = MagicMock()
+        mock_snap_result.id = "snap-retry"
+        mock_memory_svc = MagicMock()
+        mock_memory_svc.capture_snapshot = AsyncMock(
+            return_value=mock_snap_result,
+        )
+
+        register("rag.index_chapter", mock_rag_index)
+        register("memory.service", mock_memory_svc)
+        try:
             from modules.writing.tasks import handle_publish_chapter
 
             results = await handle_publish_chapter(mock_db, mock_task)
 
             assert results["rag_chunks"] == 5
-            assert mock_index.await_count == 3
+            assert mock_rag_index.await_count == 3
+        finally:
+            reset()
 
     async def test_rag_all_retries_fail(
         self, mock_db: AsyncMock, mock_task: MagicMock,
     ):
-        with (
-            patch(self._MOD_RAG) as mock_index,
-            patch(self._MOD_MEM) as mock_snap,
-        ):
-            mock_index.side_effect = Exception("always fails")
+        from core.container import register, reset
 
+        reset()
+        mock_rag_index = AsyncMock(side_effect=Exception("always fails"))
+
+        register("rag.index_chapter", mock_rag_index)
+        try:
             from modules.writing.tasks import handle_publish_chapter
 
             with pytest.raises(RuntimeError, match="RAG indexing failed"):
                 await handle_publish_chapter(mock_db, mock_task)
 
-            assert mock_index.await_count == 3
-            mock_snap.assert_not_awaited()
+            assert mock_rag_index.await_count == 3
+        finally:
+            reset()
 
     async def test_snapshot_retry_then_succeed(
         self, mock_db: AsyncMock, mock_task: MagicMock,
     ):
-        with (
-            patch(self._MOD_RAG) as mock_index,
-            patch(self._MOD_MEM) as mock_snap,
-        ):
-            mock_report = MagicMock()
-            mock_report.chunks_created = 3
-            mock_report.embedding_failed_count = 0
-            mock_index.return_value = mock_report
+        from core.container import register, reset
 
-            mock_snap_result = MagicMock()
-            mock_snap_result.id = "snap-retry-ok"
-            mock_snap.side_effect = [
+        reset()
+        mock_report = MagicMock()
+        mock_report.chunks_created = 3
+        mock_report.embedding_failed_count = 0
+        mock_rag_index = AsyncMock(return_value=mock_report)
+
+        mock_snap_result = MagicMock()
+        mock_snap_result.id = "snap-retry-ok"
+        mock_memory_svc = MagicMock()
+        mock_memory_svc.capture_snapshot = AsyncMock(
+            side_effect=[
                 Exception("snap fail"),
                 Exception("snap fail"),
                 mock_snap_result,
-            ]
+            ],
+        )
 
+        register("rag.index_chapter", mock_rag_index)
+        register("memory.service", mock_memory_svc)
+        try:
             from modules.writing.tasks import handle_publish_chapter
 
             results = await handle_publish_chapter(mock_db, mock_task)
             assert results["snapshot_id"] == "snap-retry-ok"
-            assert mock_snap.await_count == 3
+            assert mock_memory_svc.capture_snapshot.await_count == 3
+        finally:
+            reset()
 
     async def test_snapshot_all_retries_fail(
         self, mock_db: AsyncMock, mock_task: MagicMock,
     ):
-        with (
-            patch(self._MOD_RAG) as mock_index,
-            patch(self._MOD_MEM) as mock_snap,
-        ):
-            mock_report = MagicMock()
-            mock_report.chunks_created = 3
-            mock_report.embedding_failed_count = 0
-            mock_index.return_value = mock_report
-            mock_snap.side_effect = Exception("snap always fails")
+        from core.container import register, reset
 
+        reset()
+        mock_report = MagicMock()
+        mock_report.chunks_created = 3
+        mock_report.embedding_failed_count = 0
+        mock_rag_index = AsyncMock(return_value=mock_report)
+        mock_memory_svc = MagicMock()
+        mock_memory_svc.capture_snapshot = AsyncMock(
+            side_effect=Exception("snap always fails"),
+        )
+
+        register("rag.index_chapter", mock_rag_index)
+        register("memory.service", mock_memory_svc)
+        try:
             from modules.writing.tasks import handle_publish_chapter
 
             with pytest.raises(RuntimeError, match="Memory snapshot failed"):
                 await handle_publish_chapter(mock_db, mock_task)
 
-            assert mock_snap.await_count == 3
+            assert mock_memory_svc.capture_snapshot.await_count == 3
+        finally:
+            reset()
 
     async def test_missing_novel_id(
         self, mock_db: AsyncMock,

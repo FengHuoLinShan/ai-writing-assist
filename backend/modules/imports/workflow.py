@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as _container_get
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 logger = logging.getLogger(__name__)
@@ -77,10 +78,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        """调用 world facade 从章节正文抽取世界对象"""
-        from modules.world.facade import run_entity_extraction
-
-        return await run_entity_extraction(
+        return await _container_get("world.run_entity_extraction")(
             db,
             novel_id=novel_id,
             start_chapter=start_chapter,
@@ -96,30 +94,23 @@ class DeepImportWorkflow:
         db: AsyncSession,
         novel_id: str,
     ) -> dict[str, Any]:
-        """将已确认的「人物」类型 world_entity 同步到人物档案"""
-        from modules.world.facade import (
-            create_character,
-            get_character_id_by_world_entity,
-        )
-        from modules.world.facade import list_entities
+        _list_entities = _container_get("world.list_entities")
+        _get_char_id = _container_get("world.get_character_id_by_world_entity")
+        _create_char = _container_get("world.create_character")
 
-        # 通过 world facade 查询所有 character_ref 实体
-        character_entities = await list_entities(
+        character_entities = await _list_entities(
             db, novel_id,
             entity_type="character_ref",
         )
 
         total_synced = 0
         for entity in character_entities:
-            # 通过 character facade 检查是否已存在
-            existing = await get_character_id_by_world_entity(
-                db, novel_id, entity["id"],
-            )
+            existing = await _get_char_id(db, novel_id, entity["id"])
             if existing is not None:
                 continue
 
             try:
-                await create_character(
+                await _create_char(
                     db=db,
                     novel_id=novel_id,
                     name=entity["name"],
@@ -146,12 +137,9 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        """调用 outline 模块生成剧情结构和篇章纲"""
-        from modules.outline.services import PlotStructureGenerator
-
-        _generator = PlotStructureGenerator()
+        _generate = _container_get("outline.generate_structure")
         try:
-            result = await _generator.generate(
+            result = await _generate(
                 db, novel_id,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
