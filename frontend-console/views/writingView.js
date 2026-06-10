@@ -838,6 +838,26 @@ const writingView = {
   },
 
   // ============================================================
+  // Scene 导航
+  // ============================================================
+
+  _selectScene(sceneId) {
+    this._currentSceneId = sceneId
+    const scene = this._scenes.find((s) => s.id === sceneId)
+    if (!scene) return
+
+    const chIds = (scene.chapter_ids || []).map((id) => parseInt(id, 10)).filter((n) => !isNaN(n))
+    const firstChapter = chIds.length > 0 ? Math.min(...chIds) : null
+
+    if (firstChapter && this._chapters[firstChapter]) {
+      this._selectChapter(firstChapter)
+    } else {
+      this._currentChapter = null
+      this._rerender()
+    }
+  },
+
+  // ============================================================
   // 事件绑定
   // ============================================================
 
@@ -852,6 +872,16 @@ const writingView = {
       "delete-version": () => this._deleteVersion(),
       "dismiss-publish-error": () => this._dismissPublishError(),
       "open-outline": () => router.navigate("outline", null),
+      "select-scene": (_e, t) => this._selectScene(t.getAttribute("data-scene-id")),
+      "toggle-scene-group": (_e, t) => {
+        const chapters = t.parentElement.querySelector(".scene-tree-chapters")
+        const icon = t.querySelector(".toggle-icon")
+        if (chapters) {
+          const isHidden = chapters.style.display === "none"
+          chapters.style.display = isHidden ? "block" : "none"
+          if (icon) icon.textContent = isHidden ? "▼" : "▶"
+        }
+      },
     })
 
     const versionSelector = document.getElementById("version-selector")
