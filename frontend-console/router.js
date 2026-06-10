@@ -78,6 +78,40 @@ let _prevRenderedSubView = null
 const _lastSubViewMap = {}
 
 /**
+ * 根据当前是否选择了项目，构造路由 hash
+ * 有项目时: #workbench/:pid/:view[/:subView]
+ * 无项目时: #:view[/:subView]
+ */
+function _buildHash(viewName, subView) {
+  if (state.currentProjectId && viewName !== "project") {
+    const base = `workbench/${state.currentProjectId}/${viewName}`
+    return subView ? `${base}/${subView}` : base
+  }
+  return subView ? `${viewName}/${subView}` : viewName
+}
+
+/**
+ * 解析 hash，支持两种格式：
+ * - workbench/:pid/:view[/:subView]
+ * - :view[/:subView]
+ */
+function _parseHash(hash) {
+  const parts = hash.split("/")
+  if (parts[0] === "workbench" && parts.length >= 3) {
+    return {
+      projectId: parts[1],
+      viewName: parts[2],
+      subView: parts[3] || null,
+    }
+  }
+  return {
+    projectId: null,
+    viewName: parts[0] || "project",
+    subView: parts[1] || null,
+  }
+}
+
+/**
  * 获取视图最后访问的子标签
  * @param {string} viewName
  * @returns {string|null}
@@ -166,9 +200,9 @@ function navigate(viewName, subView = null, pushHistory = true) {
 
   // 更新 URL hash
   if (pushHistory) {
-    const hash = subView ? `#${viewName}/${subView}` : `#${viewName}`
+    const hash = "#" + _buildHash(viewName, subView)
     if (window.location.hash !== hash) {
-      window.history.pushState({ view: viewName, subView }, "", hash)
+      window.history.pushState({ view: viewName, subView, projectId: state.currentProjectId }, "", hash)
     }
   }
 
@@ -181,27 +215,30 @@ function navigate(viewName, subView = null, pushHistory = true) {
  */
 function initRouter() {
   const hash = window.location.hash.slice(1) || "project"
-  const parts = hash.split("/")
-  const viewName = parts[0]
-  const subView = parts[1] || null
+  const parsed = _parseHash(hash)
 
-  if (routes[viewName]) {
-    state.currentView = viewName
-    state.currentSubView = subView
+  if (parsed.projectId) {
+    state.currentProjectId = parsed.projectId
+  }
+
+  if (routes[parsed.viewName]) {
+    state.currentView = parsed.viewName
+    state.currentSubView = parsed.subView
   } else {
     state.currentView = "project"
   }
 
   // 监听浏览器前进/后退
   window.addEventListener("popstate", (e) => {
-    // 从 hash 中读取当前视图（降级处理 e.state 为 null 的情况）
     const hash = window.location.hash.slice(1) || "project"
-    const parts = hash.split("/")
-    const viewFromHash = parts[0]
-    const subFromHash = parts[1] || null
+    const parsed = _parseHash(hash)
 
-    const targetView = (e.state && e.state.view) ? e.state.view : viewFromHash
-    const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : subFromHash
+    if (parsed.projectId) {
+      state.currentProjectId = parsed.projectId
+    }
+
+    const targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
+    const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : parsed.subView
 
     if (routes[targetView]) {
       state.currentView = targetView
