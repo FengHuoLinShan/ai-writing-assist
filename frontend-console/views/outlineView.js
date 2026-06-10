@@ -8,6 +8,7 @@ import { bindWorkspaceClick } from "../shared/viewHelper.js"
 const outlineView = {
   _threads: [],
   _arcs: [],
+  _scenes: [],
   _loading: true,
 
   async onEnter() {
@@ -37,6 +38,13 @@ const outlineView = {
         api.outline.listArcs(state.currentProjectId)
           .then((data) => { this._arcs = data.items || data || [] })
           .catch(() => { this._arcs = [] })
+      )
+    }
+    if (subView === "scenes") {
+      promises.push(
+        api.outline.listScenes(state.currentProjectId)
+          .then((data) => { this._scenes = data.items || data || [] })
+          .catch(() => { this._scenes = [] })
       )
     }
 
@@ -96,13 +104,74 @@ const outlineView = {
   },
 
   _renderScenes() {
-    return `
-      <div class="empty-state">
-        <div class="empty-icon">&#128209;</div>
-        <p>场景卡列表（开发中）</p>
-        <p style="color:var(--text-dim);font-size:12px;">场景卡功能将在后续版本中提供。</p>
+    if (!state.currentProjectId) {
+      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+    }
+
+    let html = `
+      <div style="margin-bottom:8px;">
+        <button class="btn btn-primary" data-action="create-scene">新建 Scene</button>
       </div>
     `
+
+    if (!this._scenes || this._scenes.length === 0) {
+      return html + `
+        <div class="empty-state">
+          <div class="empty-icon">&#128209;</div>
+          <p>暂无 Scene 卡。</p>
+          <p style="color:var(--text-dim);font-size:12px;">Scene 是叙事结构的最小单元。通过深度导入自动生成，或手动创建。</p>
+        </div>
+      `
+    }
+
+    const sorted = [...this._scenes].sort(
+      (a, b) => (a.scene_index || 0) - (b.scene_index || 0)
+    )
+
+    html += '<div class="scene-card-list">'
+    for (const s of sorted) {
+      const tagLabel = this._narrativeTagLabel(s.narrative_tag)
+      const tagClass = `narrative-tag-${s.narrative_tag || "draft"}`
+      const sourceLabel = s.source === "deep_import" ? "AI导入"
+        : s.source === "ai_generated" ? "AI生成" : "手动"
+      const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
+      const statusClass = `badge-${s.status || "draft"}`
+
+      html += `
+        <div class="scene-card" data-id="${esc(s.id)}">
+          <div class="scene-card-header">
+            <span class="scene-index">#${s.scene_index}</span>
+            <span class="narrative-tag ${tagClass}">${tagLabel}</span>
+            <span class="badge ${statusClass}">${statusMap[s.status] || esc(s.status)}</span>
+            <span class="scene-source">${sourceLabel}</span>
+          </div>
+          <div class="scene-card-title">${esc(s.title || "未命名 Scene")}</div>
+          ${s.goal ? `<div class="scene-card-field"><span class="field-label">目标</span>${esc(s.goal)}</div>` : ""}
+          ${s.core_conflict ? `<div class="scene-card-field"><span class="field-label">冲突</span>${esc(s.core_conflict)}</div>` : ""}
+          ${s.emotional_beat ? `<div class="scene-card-field"><span class="field-label">情感</span>${esc(s.emotional_beat)}</div>` : ""}
+          <div class="scene-card-actions">
+            <button class="btn btn-sm" data-action="edit-scene" data-id="${esc(s.id)}">编辑</button>
+            <button class="btn btn-sm btn-danger" data-action="delete-scene" data-id="${esc(s.id)}">删除</button>
+          </div>
+        </div>
+      `
+    }
+    html += '</div>'
+    return html
+  },
+
+  _narrativeTagLabel(tag) {
+    const map = {
+      inciting_incident: "激励事件",
+      rising_action: "冲突升级",
+      climax: "阶段高潮",
+      valley: "低谷",
+      transition: "过渡",
+      hook: "钩子",
+      payoff: "爽点",
+      draft: "草稿",
+    }
+    return map[tag] || tag || "草稿"
   },
 
   _renderThreads() {
