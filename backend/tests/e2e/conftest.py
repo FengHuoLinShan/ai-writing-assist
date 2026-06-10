@@ -24,6 +24,30 @@ DATABASE_URL = "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5432/ai_n
 
 
 # ============================================================
+# 预启动 BGE Embedding Worker（避免 pytest 中 multiprocessing 初始化问题）
+# ============================================================
+
+import asyncio
+
+
+def pytest_sessionstart(session):
+    """在测试会话开始前预启动 BGE embedding worker。"""
+    try:
+        from infrastructure.embedding.client import BgeEmbeddingClient
+
+        async def _init():
+            client = await BgeEmbeddingClient.get_instance()
+            if client.healthy:
+                print("[BGE] Worker pre-started successfully")
+            else:
+                print("[BGE] Worker pre-start returned but not healthy")
+
+        asyncio.run(_init())
+    except Exception as exc:
+        print(f"[BGE] Worker pre-start failed (will retry per-test): {exc}")
+
+
+# ============================================================
 # Per-test database session（独立连接，事务回滚）
 # ============================================================
 

@@ -24,7 +24,7 @@ class RagMetrics:
     empty_result_count: int = 0
     meaningful_match_fail_count: int = 0
     total_latency_ms: float = 0.0
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _lock: threading.RLock = field(default_factory=threading.RLock)
 
     def record(
         self,

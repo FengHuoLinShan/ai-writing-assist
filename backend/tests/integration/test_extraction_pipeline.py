@@ -15,9 +15,20 @@ TDD vertical slices:
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.context.facade import compile_structure_context, render_context_markdown
+from modules.rag.facade import get_ordered_chapter_chunks, index_chapter, retrieve
+from modules.world.facade import find_similar_entities, run_entity_extraction
+from modules.world.repositories import CoreEntityRepository
+from modules.writing.facade import create_draft
+from shared.utils import parse_uuid
+
+pytestmark = [pytest.mark.asyncio]
 
 
 # ============================================================
@@ -70,11 +81,11 @@ ORDINARY_PROPS = ["琉璃瓦"]
 # Fixtures
 # ============================================================
 
+
 @pytest_asyncio.fixture
 async def novel_id(db_session: AsyncSession) -> str:
     """创建测试项目"""
     from modules.project.project import Project
-    import uuid
 
     pid = uuid.uuid4()
     p = Project(
@@ -93,8 +104,6 @@ async def novel_id(db_session: AsyncSession) -> str:
 @pytest_asyncio.fixture
 async def chapter_draft(db_session: AsyncSession, novel_id: str) -> dict:
     """写入测试章节草稿，返回 draft 信息"""
-    from modules.writing.facade import create_draft
-
     draft, _ = await create_draft(
         db_session,
         novel_id=novel_id,
@@ -109,9 +118,7 @@ async def chapter_draft(db_session: AsyncSession, novel_id: str) -> dict:
 @pytest_asyncio.fixture
 async def indexed_chunks(db_session: AsyncSession, novel_id: str, chapter_draft: dict) -> list:
     """RAG 索引章节，返回 chunk 列表"""
-    from modules.rag.facade import index_chapter, get_ordered_chapter_chunks
-
-    count = await index_chapter(db_session, novel_id, chapter_index=1)
+    await index_chapter(db_session, novel_id, chapter_index=1)
     await db_session.flush()
 
     chunks = await get_ordered_chapter_chunks(db_session, novel_id, start_chapter=1)
@@ -122,14 +129,16 @@ async def indexed_chunks(db_session: AsyncSession, novel_id: str, chapter_draft:
 # 辅助函数
 # ============================================================
 
+
 async def _create_entity_via_service(
-    db: AsyncSession, novel_id: str, name: str, entity_type: str,
-    summary: str | None = None, aliases: list[str] | None = None,
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    entity_type: str,
+    summary: str | None = None,
+    aliases: list[str] | None = None,
 ) -> str:
     """通过 repository 直接创建实体（测试辅助，非 facade）"""
-    from modules.world.repositories import CoreEntityRepository
-    from shared.utils import parse_uuid
-
     repo = CoreEntityRepository()
     entity = await repo.create_raw(
         db,
@@ -148,65 +157,107 @@ async def _create_entity_via_service(
 # T1: 写入草稿 → RAG 分块索引
 # ============================================================
 
+
 class TestWriteAndIndex:
-    """写入 → 分块索引"""
+    """写入草稿 → RAG 分块索引 — 验证内容持久化与分块元数据正确性"""
 
-    async def test_create_draft_returns_valid_id(self, chapter_draft):
+    async def test_extraction_pipeline_write_draft_returns_valid_uuid(self, chapter_draft):
         """写入草稿后返回有效 draft_id（UUID hex 格式）"""
-        assert chapter_draft["draft_id"] is not None
-        assert len(chapter_draft["draft_id"]) == 36
+        # Arrange
+        draft_id = chapter_draft["draft_id"]
 
-    async def test_draft_content_persisted(self, chapter_draft):
-        """草稿内容正确持久化（依赖 chapter_draft fixture）"""
-        from modules.writing.facade import get_latest_draft_for_chapter
-        from sqlalchemy.ext.asyncio import AsyncSession
+        # Act
+        # fixture 已完成写入操作
 
-        # 获取当前 session 需要从 conftest 的 db_session fixture
-        # 这里通过 chapter_draft 的 novel_id 验证草稿存在
-        assert chapter_draft["draft_id"] is not None
-        assert chapter_draft["chapter_index"] == 1
+        # Assert
+        assert draft_id is not None
+        assert len(draft_id) == 36
 
-    async def test_index_chapter_creates_chunks(self, indexed_chunks):
+    async def test_extraction_pipeline_draft_content_persisted_with_correct_index(self, chapter_draft):
+        """草稿内容正确持久化且章节索引为 1"""
+        # Arrange
+        draft_id = chapter_draft["draft_id"]
+        chapter_index = chapter_draft["chapter_index"]
+
+        # Act
+        # fixture 已完成写入
+
+        # Assert
+        assert draft_id is not None
+        assert chapter_index == 1
+
+    async def test_extraction_pipeline_index_chapter_creates_non_empty_chunks(self, indexed_chunks):
         """索引后生成至少 1 个 chunk"""
-        assert len(indexed_chunks) > 0
+        # Arrange
+        chunks = indexed_chunks
 
-    async def test_chunks_contain_source_text(self, indexed_chunks):
+        # Act
+        # fixture 已完成索引
+
+        # Assert
+        assert len(chunks) > 0
+
+    async def test_extraction_pipeline_chunks_contain_non_empty_source_text(self, indexed_chunks):
         """每个 chunk 包含非空原文片段"""
-        for chunk in indexed_chunks:
+        # Arrange
+        chunks = indexed_chunks
+
+        # Act
+        # fixture 已完成索引
+
+        # Assert
+        for chunk in chunks:
             assert chunk.text is not None
             assert len(chunk.text) > 0
 
-    async def test_chunks_have_correct_metadata(self, indexed_chunks):
+    async def test_extraction_pipeline_chunks_have_correct_metadata(self, indexed_chunks):
         """chunk 的 source_type、chapter_index、char_count 正确"""
-        for chunk in indexed_chunks:
+        # Arrange
+        chunks = indexed_chunks
+
+        # Act
+        # fixture 已完成索引
+
+        # Assert
+        for chunk in chunks:
             assert chunk.source_type in ("writing_draft", "chapter_text")
             assert chunk.chapter_index == 1
             assert chunk.char_count > 0
 
-    async def test_index_chapter_reports_count(self, indexed_chunks):
-        """index_chapter 返回正确的 chunk 数量（依赖 indexed_chunks fixture）"""
-        assert len(indexed_chunks) > 0
+    async def test_extraction_pipeline_index_reports_positive_chunk_count(self, indexed_chunks):
+        """index_chapter 返回的 chunk 列表长度大于 0"""
+        # Arrange
+        chunks = indexed_chunks
+
+        # Act
+        # fixture 已完成索引
+
+        # Assert
+        assert len(chunks) > 0
 
 
 # ============================================================
 # T2: LLM 抽取实体 → 候选入库
 # ============================================================
 
-class TestEntityExtraction:
-    """LLM 实体抽取 → 候选池"""
 
-    async def test_extraction_creates_candidates(
+class TestEntityExtraction:
+    """LLM 实体抽取 → 候选池 — 验证候选生成与字段完整性"""
+
+    async def test_extraction_pipeline_llm_extraction_creates_candidates(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """实体抽取产生至少一个候选"""
+        # Arrange
         assert len(indexed_chunks) > 0, "需要先有 RAG chunks"
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
+
+        # Assert
         assert result is not None
         assert result["total_chapters"] == 1
         assert result["total_created"] > 0, (
@@ -214,38 +265,41 @@ class TestEntityExtraction:
             f"total_skipped={result['total_skipped']}"
         )
 
-    async def test_extraction_items_have_required_fields(
+    async def test_extraction_pipeline_extraction_items_have_required_fields(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
-        """每个候选 item 包含 candidate_id、name、entity_type"""
+        """每个候选 item 包含 id、name、entity_type"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
+
+        # Assert
         assert len(result["items"]) > 0
         for item in result["items"]:
             assert "id" in item, f"item missing 'id': {item}"
             assert "name" in item
             assert "entity_type" in item
 
-    async def test_extracted_entities_include_key_characters(
+    async def test_extraction_pipeline_extracted_entities_include_key_characters(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
-        """抽取结果应包含核心角色（白砚、苏荇等）"""
+        """抽取结果应包含至少 2 个核心角色"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
+
+        # Assert
         extracted_names = [item["name"] for item in result["items"]]
-        # 至少应该抽到主角名
         found_key = [n for n in EXPECTED_CHARACTERS if n in extracted_names]
         assert len(found_key) >= 2, (
             f"应至少抽到 2 个核心角色，实际抽到: {found_key}, "
@@ -257,49 +311,50 @@ class TestEntityExtraction:
 # T3: 别名识别与去重
 # ============================================================
 
-class TestAliasAndDedup:
-    """别名识别与候选去重"""
 
-    async def test_find_similar_entities_exact_match(
+class TestAliasAndDedup:
+    """别名识别与候选去重 — 验证精确匹配与重复跳过"""
+
+    async def test_extraction_pipeline_similar_entities_exact_match_returns_high_score(
         self, db_session: AsyncSession, novel_id: str
     ):
         """精确名称匹配：已有 '白砚'，搜索 '白砚' 返回高分匹配"""
+        # Arrange
         await _create_entity_via_service(
             db_session, novel_id,
             name="白砚", entity_type="character", summary="主角",
         )
 
-        from modules.world.facade import find_similar_entities
-
+        # Act
         results = await find_similar_entities(
             db_session, novel_id,
             name="白砚",
             entity_type="character",
         )
+
+        # Assert
         assert len(results) > 0, "精确匹配应找到已有实体"
         best = results[0]
         assert best.similarity_score > 0.9, f"精确匹配分数应 > 0.9，实际: {best.similarity_score}"
 
-
-    async def test_duplicate_detection_prevents_re_extraction(
+    async def test_extraction_pipeline_duplicate_detection_skips_existing_entity(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """已有正史实体时，再次抽取应跳过（去重生效）"""
+        # Arrange
         assert len(indexed_chunks) > 0
-
-        # 先创建正史实体 "霜华剑"
         await _create_entity_via_service(
             db_session, novel_id,
             name="霜华剑", entity_type="item",
         )
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
-        # 检查抽取结果中是否还有 "霜华剑"
+
+        # Assert
         extracted_names = [item["name"] for item in result["items"]]
         assert "霜华剑" not in extracted_names, (
             f"已存在的实体 '霜华剑' 不应被重复抽取，实际抽取: {extracted_names}"
@@ -310,44 +365,47 @@ class TestAliasAndDedup:
 # T4: 指代消解
 # ============================================================
 
-class TestAmbiguousReferences:
-    """指代不清场景"""
 
-    async def test_pronouns_not_extracted(
+class TestAmbiguousReferences:
+    """指代不清场景 — 验证代词、模糊指称与普通道具不被抽取"""
+
+    async def test_extraction_pipeline_pronouns_not_extracted_as_entities(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """代词（他/她/它/他们）不应被抽取为实体"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
+
+        # Assert
         extracted_names = [item["name"].strip() for item in result["items"]]
         for pronoun in PRONOUNS:
             assert pronoun not in extracted_names, (
                 f"代词 '{pronoun}' 不应被抽取为实体，但出现了: {extracted_names}"
             )
 
-    async def test_vague_references_flagged_or_skipped(
+    async def test_extraction_pipeline_vague_references_flagged_or_skipped(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """模糊指称应被跳过或标记为低置信度"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
 
+        # Assert
         for item in result["items"]:
             name = item["name"]
             if name in VAGUE_REFERENCES:
-                # 如果被抽取，应该标记为需要用户决定
                 suggested_action = item.get("suggested_action", "")
                 assert suggested_action in (
                     "create_new",
@@ -359,18 +417,20 @@ class TestAmbiguousReferences:
                     f"实际: {suggested_action}"
                 )
 
-    async def test_ordinary_props_not_extracted(
+    async def test_extraction_pipeline_ordinary_props_not_extracted_as_entities(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
-        """普通道具不应被抽取"""
+        """普通道具不应被抽取为实体"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.world.facade import run_entity_extraction
-
+        # Act
         result = await run_entity_extraction(
             db_session, novel_id,
             start_chapter=1, end_chapter=1,
         )
+
+        # Assert
         extracted_names = [item["name"].strip() for item in result["items"]]
         for prop in ORDINARY_PROPS:
             assert prop not in extracted_names, (
@@ -382,75 +442,83 @@ class TestAmbiguousReferences:
 # T5: 混合检索
 # ============================================================
 
-class TestHybridRetrieval:
-    """混合检索"""
 
-    async def test_retrieve_by_keyword(
+class TestHybridRetrieval:
+    """混合检索 — 验证关键词、实体名与语义降级检索"""
+
+    async def test_extraction_pipeline_keyword_retrieval_returns_relevant_chunks(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """关键词 '霜华剑' 检索能返回相关 chunk"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.rag.facade import retrieve
-
+        # Act
         result = await retrieve(
             db_session, novel_id,
             query="霜华剑",
             mode="search",
             top_k=5,
         )
+
+        # Assert
         assert result.total > 0
         assert len(result.chunks) > 0
 
-    async def test_retrieve_by_entity_name(
+    async def test_extraction_pipeline_entity_name_retrieval_returns_results(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """实体名 '白砚' 检索能返回结果"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.rag.facade import retrieve
-
+        # Act
         result = await retrieve(
             db_session, novel_id,
             query="白砚",
             mode="search",
             top_k=5,
         )
+
+        # Assert
         assert result.total > 0
 
-    async def test_retrieve_semantic_fallback(
+    async def test_extraction_pipeline_semantic_retrieval_degrades_gracefully(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """语义检索（无向量支持时降级可用）"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.rag.facade import retrieve
-
+        # Act
         result = await retrieve(
             db_session, novel_id,
             query="一把传说中的宝剑",
             mode="search",
             top_k=5,
         )
+
+        # Assert
         assert result.total >= 0
         if result.degraded:
             assert len(result.warnings) > 0, "降级时应有 warnings"
 
-    async def test_retrieval_results_are_relevant(
+    async def test_extraction_pipeline_retrieval_results_contain_relevant_text(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
     ):
         """关键词检索结果包含相关文本"""
+        # Arrange
         assert len(indexed_chunks) > 0
 
-        from modules.rag.facade import retrieve
-
+        # Act
         result = await retrieve(
             db_session, novel_id,
             query="苏荇",
             mode="search",
             top_k=3,
         )
-        # 至少第一个结果应相关
+
+        # Assert
         if len(result.chunks) > 0:
             top_text = result.chunks[0].text
             assert top_text is not None
@@ -460,35 +528,40 @@ class TestHybridRetrieval:
 # T6: 上下文编译
 # ============================================================
 
-class TestContextCompilation:
-    """上下文编译"""
 
-    async def test_compile_world_scope(
+class TestContextCompilation:
+    """上下文编译 — 验证不同 scope 编译与 Markdown 渲染"""
+
+    async def test_extraction_pipeline_compile_world_scope_returns_valid_bundle(
         self, db_session: AsyncSession, novel_id: str
     ):
-        """world scope 编译返回有效 bundle"""
-        from modules.context.facade import compile_structure_context
+        """world scope 编译返回包含 world_entities 属性的 bundle"""
+        # Arrange
+        # (novel_id fixture 已创建项目)
 
+        # Act
         bundle = await compile_structure_context(
             db_session, novel_id,
             task="测试上下文编译",
             scope="world",
             reveal_mode="author_safe",
         )
-        assert bundle is not None
-        assert hasattr(bundle, 'world_entities')
 
-    async def test_compile_with_entity_ids(
+        # Assert
+        assert bundle is not None
+        assert hasattr(bundle, "world_entities")
+
+    async def test_extraction_pipeline_compile_with_entity_ids_returns_valid_bundle(
         self, db_session: AsyncSession, novel_id: str
     ):
-        """指定 entity_ids 编译不报错"""
+        """指定 entity_ids 编译不报错并返回有效 bundle"""
+        # Arrange
         entity_id = await _create_entity_via_service(
             db_session, novel_id,
             name="霜华剑", entity_type="item",
         )
 
-        from modules.context.facade import compile_structure_context
-
+        # Act
         bundle = await compile_structure_context(
             db_session, novel_id,
             task="查询霜华剑信息",
@@ -496,32 +569,41 @@ class TestContextCompilation:
             entity_ids=[entity_id],
             reveal_mode="author_safe",
         )
+
+        # Assert
         assert bundle is not None
 
-    async def test_compile_project_scope(
+    async def test_extraction_pipeline_compile_project_scope_returns_valid_bundle(
         self, db_session: AsyncSession, novel_id: str
     ):
-        """project scope 编译包含项目信息"""
-        from modules.context.facade import compile_structure_context
+        """project scope 编译返回非空 bundle"""
+        # Arrange
+        # (novel_id fixture 已创建项目)
 
+        # Act
         bundle = await compile_structure_context(
             db_session, novel_id,
             task="测试",
             scope="project",
         )
+
+        # Assert
         assert bundle is not None
 
-    async def test_markdown_rendering(
+    async def test_extraction_pipeline_markdown_rendering_outputs_non_empty_string(
         self, db_session: AsyncSession, novel_id: str
     ):
         """Markdown 渲染输出非空字符串"""
-        from modules.context.facade import compile_structure_context, render_context_markdown
-
+        # Arrange
         bundle = await compile_structure_context(
             db_session, novel_id,
             task="测试",
             scope="project",
         )
+
+        # Act
         md = render_context_markdown(bundle)
+
+        # Assert
         assert isinstance(md, str)
         assert len(md) > 0

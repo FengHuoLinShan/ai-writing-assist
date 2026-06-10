@@ -151,10 +151,10 @@ def _worker_loop(
         try:
             st_model = _load_st_model(model_id, wlog)
             backend = "st"
-        except Exception:
+        except Exception as exc:
             wlog.exception("Failed to load any embedding backend")
             result_queue.put(
-                (None, RuntimeError("No embedding backend available"))
+                ("__error__", RuntimeError(f"No embedding backend available: {exc}"))
             )
             return
 
@@ -298,13 +298,29 @@ class BgeOnnxWorker:
                     backend,
                     self._model_path,
                 )
+            elif ready_id == "__error__":
+                self._healthy = False
+                self.stop()
+                raise RuntimeError(
+                    f"BGE worker failed to initialize: {backend}"
+                ) from (backend if isinstance(backend, BaseException) else None)
             else:
                 self._healthy = False
-                logger.error("BGE worker unexpected init message: %s", ready_id)
-        except Exception:
+                self.stop()
+                raise RuntimeError(
+                    f"BGE worker unexpected init message: {ready_id}"
+                )
+        except RuntimeError:
+            raise
+        except Exception as exc:
             self._healthy = False
-            logger.exception("BGE worker failed to start within 60s")
-            self.stop()
+            try:
+                self.stop()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "BGE worker failed to start within 60s"
+            ) from exc
 
     def stop(self, timeout: float = 5.0) -> None:
         if self._process and self._process.is_alive():

@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.e2e.seed_data import create_base_scene
 
+pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
 
 class TestPagination:
     """所有 list 端点的分页行为"""
@@ -26,69 +28,85 @@ class TestPagination:
         assert resp.status_code == 200, f"Pagination check failed: {url}"
         return resp.json()
 
-    async def test_world_entities_pagination(self, ctx):
+    async def test_pagination_world_entities_with_limit_respects_page_size(self, ctx):
+        """世界实体分页应遵守 limit 参数"""
+        # Arrange
         client, pid = ctx
+
+        # Act
         data = await self._check(client, f"/api/world/entities?novel_id={pid}&limit=5")
+
+        # Assert
         items = data.get("items", [])
         assert len(items) <= 5
 
-    async def test_characters_pagination(self, ctx):
+    async def test_pagination_characters_with_limit_respects_page_size(self, ctx):
+        """角色分页应遵守 limit 参数"""
+        # Arrange
         client, pid = ctx
-        data = await self._check(client, f"/api/characters?novel_id={pid}&limit=2")
+
+        # Act
+        data = await self._check(client, f"/api/world/characters?novel_id={pid}&limit=2")
+
+        # Assert
         items = data.get("items", [])
         assert len(items) <= 2
 
-    async def test_geo_locations_pagination(self, ctx):
-        client, pid = ctx
-        data = await self._check(client, f"/api/geo/locations?novel_id={pid}&limit=2")
-        items = data.get("items", [])
-        assert len(items) <= 2
+    async def test_pagination_geo_locations_with_limit_respects_page_size(self, ctx):
+        pytest.skip("端点已移除: /api/geo/locations")
 
-    async def test_timeline_events_pagination(self, ctx):
-        client, pid = ctx
-        data = await self._check(client, f"/api/novels/{pid}/timeline/events?limit=2")
-        assert data is not None
+    async def test_pagination_timeline_events_with_limit_returns_data(self, ctx):
+        pytest.skip("端点已移除: /api/novels/{pid}/timeline/events")
 
-    async def test_outline_threads_pagination(self, ctx):
+    async def test_pagination_outline_threads_with_limit_respects_page_size(self, ctx):
+        """大纲剧情线分页应遵守 limit 参数"""
+        # Arrange
         client, pid = ctx
+
+        # Act
         data = await self._check(client, f"/api/outline/threads?novel_id={pid}&limit=2")
+
+        # Assert
         items = data.get("items", [])
         assert len(items) <= 2
 
-    async def test_outline_arcs_pagination(self, ctx):
+    async def test_pagination_outline_arcs_with_limit_respects_page_size(self, ctx):
+        """大纲篇章纲分页应遵守 limit 参数"""
+        # Arrange
         client, pid = ctx
+
+        # Act
         data = await self._check(client, f"/api/outline/arcs?novel_id={pid}&limit=2")
+
+        # Assert
         items = data.get("items", [])
         assert len(items) <= 2
 
-    async def test_outline_chapters_pagination(self, ctx):
-        client, pid = ctx
-        data = await self._check(client, f"/api/outline/chapters?novel_id={pid}&limit=2")
-        assert data is not None
+    async def test_pagination_outline_chapters_with_limit_returns_data(self, ctx):
+        pytest.skip("端点已移除: /api/outline/chapters")
 
-    async def test_imports_pagination(self, ctx):
+    async def test_pagination_imports_with_limit_returns_data(self, ctx):
+        """导入记录分页应返回数据"""
+        # Arrange
         client, pid = ctx
+
+        # Act
         data = await self._check(client, f"/api/imports?novel_id={pid}&limit=2")
+
+        # Assert
         assert data is not None
 
-    async def test_review_pagination(self, ctx):
-        """Review has no list endpoint, only GET /{id}"""
-        client, pid = ctx
-        # POST to create a review first
-        create = await client.post("/api/review", json={
-            "novel_id": pid, "target_type": "entity_candidates",
-            "candidate_payload": {"name": "测试", "entity_type": "item", "importance": 0.5},
-        })
-        if create.status_code == 201:
-            rid = create.json()["id"]
-            get = await client.get(f"/api/review/{rid}?novel_id={pid}")
-            assert get.status_code == 200
-        else:
-            pytest.skip("Review creation not working (DB schema issue)")
+    async def test_pagination_review_get_by_id_after_create_returns_200(self, ctx):
+        pytest.skip("端点已移除: /api/review")
 
-    async def test_max_limit_respected(self, ctx):
+    async def test_pagination_world_entities_with_large_limit_does_not_crash(self, ctx):
+        """超大 limit 不应导致分页查询崩溃"""
+        # Arrange
         client, pid = ctx
-        # Some endpoints don't cap at MAX_PAGE_SIZE; verify large limit doesn't crash
+
+        # Act
         data = await self._check(client, f"/api/world/entities?novel_id={pid}&limit=30")
+
+        # Assert
         items = data.get("items", [])
         assert len(items) <= 30

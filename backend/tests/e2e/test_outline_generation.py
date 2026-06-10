@@ -12,10 +12,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.e2e.seed_data import create_base_scene
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,6 @@ ARC_UNCONSUMED_FIELDS = {
     "related_thread_names", "related_character_names", "related_entity_names",
 }
 TOP_LEVEL_SECTIONS = {"foreshadowing_plans", "reveal_plans", "offscreen_progress", "risks", "questions_for_user"}
-
 
 MAX_LLM_RETRIES = 3
 
@@ -116,16 +118,20 @@ async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
 class TestRealOutlineGeneration:
     """真实 LLM 验证——生成完整性 + 内容正确性。"""
 
-    async def test_generate_creates_threads_and_arcs(
+    async def test_outline_generate_real_llm_creates_threads_and_arcs(
         self, db_session: AsyncSession, project_with_world: dict[str, Any],
     ) -> None:
         """调用真实 LLM 生成，验证剧情线 + 篇章纲产出完整（含 LLM 空结果重试）。"""
+        # Arrange
         novel_id = project_with_world["project_id"]
+
+        # Act
         result = await _generate_with_retry(
             db_session, novel_id,
             start_chapter=1, end_chapter=10,
         )
 
+        # Assert
         total_threads = result.get("total_threads", 0)
         total_arcs = result.get("total_arcs", 0)
         threads = result.get("threads", [])
@@ -138,14 +144,12 @@ class TestRealOutlineGeneration:
         for a in arcs:
             logger.info("  Arc: %s (idx=%s)", a.get("title"), a.get("arc_index"))
 
-        # 重试耗尽仍为空 = 真实问题
         assert total_threads > 0, (
             f"LLM 重试 {MAX_LLM_RETRIES} 次后仍返回空结果——"
             f"提示词或 LLM 兼容性可能有问题"
         )
         assert total_arcs > 0, "应生成至少 1 个篇章纲"
 
-        # 字段校验
         for t in threads:
             name = t.get("name") or ""
             assert name, "Thread name 不能为空"
@@ -153,24 +157,25 @@ class TestRealOutlineGeneration:
             assert tt, "Thread type 不能为空"
             assert tt in VALID_THREAD_TYPES, f"非法 thread_type '{tt}' for '{name}'"
 
-        # 无重名
         names = [t["name"] for t in threads if t.get("name")]
         assert len(names) == len(set(names)), f"重复 name: {names}"
         titles = [a["title"] for a in arcs if a.get("title")]
         assert len(titles) == len(set(titles)), f"重复 title: {titles}"
 
-    async def test_generated_data_persisted(
+    async def test_outline_generate_real_llm_persists_to_db(
         self, db_session: AsyncSession, project_with_world: dict[str, Any],
     ) -> None:
         """生成的数据持久化到 DB 且可回读。"""
+        # Arrange
         from modules.outline.facade import list_threads, list_arcs
-
         novel_id = project_with_world["project_id"]
-        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
 
+        # Act
+        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
         thread_list = await list_threads(db_session, novel_id)
         arc_list = await list_arcs(db_session, novel_id)
 
+        # Assert
         logger.info("=== Persisted ===")
         logger.info("Threads: %d (total %d)", len(thread_list.items), thread_list.total)
         logger.info("Arcs: %d (total %d)", len(arc_list.items), arc_list.total)
@@ -184,20 +189,22 @@ class TestRealOutlineGeneration:
         for a in arc_list.items:
             assert a.title, f"Arc title 为空: {a.id}"
 
-    async def test_generation_idempotent(
+    async def test_outline_generate_real_llm_multiple_calls_no_crash(
         self, db_session: AsyncSession, project_with_world: dict[str, Any],
     ) -> None:
         """多次调用不崩溃，目前无 dedup。"""
+        # Arrange
         from modules.outline.facade import list_threads
-
         novel_id = project_with_world["project_id"]
+
+        # Act
         r1 = await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
         r2 = await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
 
+        # Assert
         assert r1.get("total_threads", 0) > 0
         assert r2.get("total_threads", 0) > 0
 
-        # 目前无 dedup，两次数据都持久化
         after = await list_threads(db_session, novel_id)
         expected = r1["total_threads"] + r2["total_threads"]
         assert after.total >= expected, (
@@ -212,28 +219,37 @@ class TestRealOutlineGeneration:
 class TestOutputContractCoverage:
     """提示词 vs 代码——字段级覆盖度检查（仅报告，不断言失败）。"""
 
-    def test_thread_contract_gaps(self) -> None:
+    def test_outline_thread_contract_logs_consumed_and_unconsumed_fields(self) -> None:
         """PlotThread 字段覆盖。"""
+        # Arrange & Act
         logger.info("=== Thread Contract ===")
         logger.info("Consumed: %s", sorted(THREAD_CONSUMED_FIELDS))
         logger.info("Unconsumed: %s", sorted(THREAD_UNCONSUMED_FIELDS))
+
+        # Assert
         if "related_character_names" in THREAD_UNCONSUMED_FIELDS:
             logger.warning(
                 "KNOWN BUG: related_character_names 未映射到 "
                 "PlotThreadCreate.related_character_ids — AI 角色关联丢失"
             )
 
-    def test_arc_contract_gaps(self) -> None:
+    def test_outline_arc_contract_logs_consumed_and_unconsumed_fields(self) -> None:
         """OutlineArc 字段覆盖。"""
+        # Arrange & Act
         logger.info("=== Arc Contract ===")
         logger.info("Consumed: %s", sorted(ARC_CONSUMED_FIELDS))
         logger.info("Unconsumed: %s", sorted(ARC_UNCONSUMED_FIELDS))
 
-    def test_top_level_sections_gaps(self) -> None:
+        # Assert (logging only)
+
+    def test_outline_top_level_sections_logs_known_gaps(self) -> None:
         """_GenerationOutput 未消费的顶层章节。"""
+        # Arrange & Act
         logger.info("=== Top-Level Sections ===")
         logger.info("_GenerationOutput only consumes: plot_threads, outline_arcs")
         logger.info("Unconsumed (silently dropped): %s", sorted(TOP_LEVEL_SECTIONS))
+
+        # Assert
         logger.warning(
             "KNOWN GAP: 提示词定义了 %s 等输出章节，"
             "但 _GenerationOutput 只提取 plot_threads + outline_arcs——"
@@ -241,15 +257,16 @@ class TestOutputContractCoverage:
             ", ".join(sorted(TOP_LEVEL_SECTIONS)),
         )
 
-    async def test_related_names_not_mapped_in_db(
+    async def test_outline_related_ids_in_db_are_empty_known_bug(
         self, db_session: AsyncSession, project_with_world: dict[str, Any],
     ) -> None:
         """验证 DB 中 related_character_ids / related_entity_ids 为空。"""
+        # Arrange
         from modules.outline.facade import list_threads
-
         novel_id = project_with_world["project_id"]
-        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
 
+        # Act
+        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
         thread_list = await list_threads(db_session, novel_id)
         filled = [
             (t.name, t.related_character_ids, t.related_entity_ids)
@@ -257,6 +274,7 @@ class TestOutputContractCoverage:
             if t.related_character_ids or t.related_entity_ids
         ]
 
+        # Assert
         if filled:
             logger.info("有线程意外填充了 related_*_ids: %s", filled)
         else:

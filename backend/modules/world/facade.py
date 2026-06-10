@@ -23,6 +23,7 @@ from modules.world.character_facade import (  # noqa: F401
     update_character_location,
 )
 from modules.world.entity_facade import (  # noqa: F401
+    backfill_entity_embeddings,
     create_relation,
     expand_related_entities,
     find_entity_id_by_name,
