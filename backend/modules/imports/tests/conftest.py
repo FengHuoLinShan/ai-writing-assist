@@ -42,3 +42,8 @@ def sample_txt_no_chapters() -> bytes:
 @pytest.fixture
 def test_project_id() -> str:
     return str(uuid.uuid4())
+
+
+@pytest.fixture
+def sample_novel_id() -> str:
+    return str(uuid.uuid4())

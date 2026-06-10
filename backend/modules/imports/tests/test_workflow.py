@@ -37,9 +37,9 @@ class TestDeepImportSchema:
         assert p.message == "正在抽取世界对象"
 
     def test_step_enum_values(self):
-        assert DeepImportStep.extract_world.value == "extract_world"
-        assert DeepImportStep.sync_characters.value == "sync_characters"
-        assert DeepImportStep.generate_plot.value == "generate_plot"
+        assert DeepImportStep.scene_segmentation.value == "scene_segmentation"
+        assert DeepImportStep.entity_extraction.value == "entity_extraction"
+        assert DeepImportStep.structure_analysis.value == "structure_analysis"
 
 
 class TestDeepImportWorkflowAutoRun:
@@ -51,18 +51,17 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._extract_world = AsyncMock(return_value={
-            "total_created": 5,
-            "total_skipped": 2,
-            "items": [],
+        workflow._segment_scenes = AsyncMock(return_value={
+            "total_scenes": 5, "failed_batches": [], "degraded": False,
         })
-        workflow._sync_characters = AsyncMock(return_value={
-            "total_synced": 3, "total_entities": 5,
+        workflow._extract_entities_by_scene = AsyncMock(return_value={
+            "total_created": 3, "total_deltas": 2,
         })
-        workflow._generate_plot = AsyncMock(return_value={
+        workflow._analyze_structure = AsyncMock(return_value={
             "total_threads": 2, "total_arcs": 4,
             "threads": [{"id": "1", "name": "主线"}],
             "arcs": [{"id": "1", "title": "第一卷"}],
+            "extra_sections": {},
         })
 
         result = await workflow.run_step(
@@ -72,10 +71,11 @@ class TestDeepImportWorkflowAutoRun:
         )
 
         assert result.phase == "done"
-        assert DeepImportStep.extract_world.value in result.completed_steps
-        assert DeepImportStep.sync_characters.value in result.completed_steps
-        assert DeepImportStep.generate_plot.value in result.completed_steps
-        assert "3 个人物" in result.message
+        assert DeepImportStep.scene_segmentation.value in result.completed_steps
+        assert DeepImportStep.entity_extraction.value in result.completed_steps
+        assert DeepImportStep.structure_analysis.value in result.completed_steps
+        assert "5 个 Scene" in result.message
+        assert "3 个实体" in result.message
         assert "2 条剧情线" in result.message
         assert "4 个篇章纲" in result.message
 
