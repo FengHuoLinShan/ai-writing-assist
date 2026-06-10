@@ -24,6 +24,8 @@ const writingView = {
   _errorModalVisible: false,
   _outlineThreads: [],
   _outlineArc: null,
+  _scenes: [],
+  _currentSceneId: null,
 
   // ============================================================
   // 生命周期
@@ -71,6 +73,13 @@ const writingView = {
         this._chapters[idx] = { draftCount: 0 }
       }
       this._chapterList = [...draftIndices].sort((a, b) => a - b)
+
+      // 加载 Scene 数据
+      try {
+        this._scenes = await api.outline.listScenesOrdered(state.currentProjectId) || []
+      } catch {
+        this._scenes = []
+      }
     } catch {
       this._chapterList = []
     }
@@ -108,7 +117,7 @@ const writingView = {
         手动工作台 — 选择章节，撰写正文。
       </p>
       <div style="display:grid;grid-template-columns:200px 1fr 260px;gap:12px;align-items:start;">
-        ${this._renderChapterTree()}
+        ${this._renderSceneTree()}
         ${this._renderEditor()}
         ${this._renderOutlinePanel()}
       </div>
@@ -186,6 +195,94 @@ const writingView = {
 
     html += '</div></div>'
     return html
+  },
+
+  // ============================================================
+  // 左侧：Scene 树（替换原章节树）
+  // ============================================================
+
+  _renderSceneTree() {
+    const assignedChapters = new Set()
+    const sceneChapterMap = this._scenes.map((s) => {
+      const chIds = (s.chapter_ids || []).map((id) => {
+        const num = parseInt(id, 10)
+        if (!isNaN(num) && this._chapters[num]) {
+          assignedChapters.add(num)
+          return num
+        }
+        return null
+      }).filter(Boolean)
+      return { scene: s, chapters: chIds }
+    })
+
+    const unassigned = this._chapterList.filter((idx) => !assignedChapters.has(idx))
+
+    let html = `
+      <div class="card" style="max-height:600px;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:bold;">Scene 树</span>
+          <button class="btn btn-sm" data-action="new-chapter" style="font-size:11px;">+ 新建章</button>
+        </div>
+        <div style="margin-top:6px;">
+    `
+
+    // 未归类章节
+    if (unassigned.length > 0) {
+      const isExpanded = unassigned.includes(this._currentChapter)
+      html += `
+        <div class="scene-tree-node">
+          <div class="scene-tree-scene" data-action="toggle-scene-group" style="cursor:pointer;padding:4px 4px;">
+            <span class="toggle-icon">${isExpanded ? '▼' : '▶'}</span>
+            <span style="color:var(--text-dim);font-size:12px;">未归类</span>
+            <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${unassigned.length}章)</span>
+          </div>
+          <div class="scene-tree-chapters" style="display:${isExpanded ? 'block' : 'none'};margin-left:12px;">
+      `
+      for (const idx of unassigned) {
+        html += this._renderChapterRow(idx)
+      }
+      html += '</div></div>'
+    }
+
+    // Scene 节点
+    for (const { scene, chapters } of sceneChapterMap) {
+      if (chapters.length === 0 && unassigned.length === 0) continue
+      const isCurrentScene = scene.id === this._currentSceneId
+      const isExpanded = isCurrentScene || chapters.includes(this._currentChapter)
+
+      html += `
+        <div class="scene-tree-node">
+          <div class="scene-tree-scene clickable" data-action="select-scene" data-scene-id="${esc(scene.id)}"
+               style="padding:4px 4px;border-radius:4px;${isCurrentScene ? 'background:var(--hover-bg);' : ''}">
+            <span class="toggle-icon">${isExpanded ? '▼' : '▶'}</span>
+            <span style="font-size:13px;font-weight:${isCurrentScene ? 'bold' : 'normal'};">${esc(scene.title || '未命名')}</span>
+            <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${chapters.length}章)</span>
+          </div>
+          <div class="scene-tree-chapters" style="display:${isExpanded ? 'block' : 'none'};margin-left:12px;">
+      `
+
+      for (const idx of chapters) {
+        html += this._renderChapterRow(idx)
+      }
+
+      html += '</div></div>'
+    }
+
+    html += '</div></div>'
+    return html
+  },
+
+  _renderChapterRow(idx) {
+    const isActive = idx === this._currentChapter
+    return `
+      <div style="display:flex;align-items:center;padding:4px 6px;border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};margin-bottom:1px;background:${isActive ? 'var(--hover-bg)' : 'transparent'};border-radius:0 4px 4px 0;}">
+        <div class="clickable" data-action="select-chapter" data-chapter="${idx}" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          第 ${idx} 章
+          ${this._chapters[idx] && this._chapters[idx].title ? `<span style="color:var(--text-dim);font-size:10px;margin-left:4px;">${esc(this._chapters[idx].title)}</span>` : ''}
+        </div>
+        <button class="btn btn-sm" data-action="delete-chapter" data-chapter="${idx}" title="删除整章" style="font-size:10px;color:var(--danger);margin-left:2px;">✕</button>
+      </div>
+    `
   },
 
   // ============================================================
