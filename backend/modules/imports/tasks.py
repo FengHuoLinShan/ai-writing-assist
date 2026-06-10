@@ -8,12 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select
-
-from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import task_handler
 from modules.imports.workflow import DeepImportWorkflow
-from shared.utils import parse_uuid as _parse_uuid
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 logger = logging.getLogger(__name__)

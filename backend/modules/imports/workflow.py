@@ -3,7 +3,8 @@
 三阶段流水线：
   Phase 1: Scene 切分（并行批次）→ scenes 表
   Phase 2: 实体增量提取（串行按 Scene）→ core_entities + delta_log
-  Phase 3: 剧情结构分析（单次）→ plot_threads + outline_arcs + foreshadowing_plans + reveal_plans
+  Phase 3: 剧情结构分析（单次）
+  → plot_threads + outline_arcs + foreshadowing_plans + reveal_plans
 """
 
 from __future__ import annotations

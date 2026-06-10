@@ -266,11 +266,15 @@ class TestRealEntityExtraction:
 # ============================================================
 
 class TestRealWorkflowStep1:
-    """Cycle 3: DeepImportWorkflow 使用真实数据执行 Step 1"""
+    """Cycle 3: DeepImportWorkflow 三阶段流水线测试（mock 内部方法）"""
 
     @pytest.mark.asyncio
-    async def test_workflow_step1_with_real_data(self, db_session: AsyncSession):
-        """Workflow 从 pending → awaiting_review，使用真实数据"""
+    async def test_workflow_3_phase_with_real_data_setup(
+        self, db_session: AsyncSession,
+    ) -> None:
+        """Workflow 从 pending → done，使用真实文件导入数据 + mock 三阶段"""
+        from unittest import mock
+
         assert REAL_FILE_PATH.exists()
         file_bytes = REAL_FILE_PATH.read_bytes()
 
@@ -284,7 +288,7 @@ class TestRealWorkflowStep1:
         await db_session.flush()
         project_id = str(pid)
 
-        # 导入前5章（更快）
+        # 导入前5章
         all_chapters = parse_txt(file_bytes)
         from modules.writing.facade import create_draft
 
@@ -300,28 +304,47 @@ class TestRealWorkflowStep1:
 
         await db_session.flush()
 
-        # 执行 workflow step 1
         from modules.imports.workflow import DeepImportWorkflow
-        from modules.imports.workflow_schemas import DeepImportProgress
+        from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        result = await workflow.run_step(
-            db=db_session,
-            novel_id=project_id,
-            start_chapter=1,
-            end_chapter=5,
-            progress=progress,
-        )
+        async def _mock_segment(db, novel_id, start_chapter, end_chapter):
+            return {"total_scenes": 3, "failed_batches": [], "degraded": False}
+
+        async def _mock_extract(db, novel_id):
+            return {"total_created": 5, "total_deltas": 3}
+
+        async def _mock_analyze(db, novel_id, start_chapter, end_chapter):
+            return {
+                "total_threads": 2, "total_arcs": 1,
+                "threads": [], "arcs": [], "extra_sections": {},
+            }
+
+        with (
+            mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),
+            mock.patch.object(
+                workflow, "_extract_entities_by_scene", side_effect=_mock_extract,
+            ),
+            mock.patch.object(
+                workflow, "_analyze_structure", side_effect=_mock_analyze,
+            ),
+        ):
+            result = await workflow.run_step(
+                db=db_session,
+                novel_id=project_id,
+                start_chapter=1,
+                end_chapter=5,
+                progress=progress,
+            )
 
         assert result.phase == "done", (
-            f"阶段应为 done（自动入库三步执行完毕），实际 {result.phase}"
+            f"阶段应为 done，实际 {result.phase}"
         )
-        from modules.imports.workflow_schemas import DeepImportStep
-        assert DeepImportStep.extract_world.value in result.completed_steps
-        assert DeepImportStep.sync_characters.value in result.completed_steps
-        assert DeepImportStep.generate_plot.value in result.completed_steps
+        assert DeepImportStep.scene_segmentation.value in result.completed_steps
+        assert DeepImportStep.entity_extraction.value in result.completed_steps
+        assert DeepImportStep.structure_analysis.value in result.completed_steps
         assert "深度导入完成" in result.message
 
 

@@ -5,12 +5,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class DeepImportStep(str, Enum):
+class DeepImportStep(StrEnum):
     """深度导入步骤标识"""
 
     scene_segmentation = "scene_segmentation"

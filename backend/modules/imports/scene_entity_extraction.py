@@ -89,6 +89,7 @@ class SceneEntityExtractionService:
 
     async def _get_scenes(self, db: AsyncSession, nid):
         from sqlalchemy import select
+
         from modules.outline.models import Scene
 
         stmt = (
@@ -209,10 +210,10 @@ class SceneEntityExtractionService:
         existing_context: str,
         memory_context: str,
     ) -> tuple[list[dict], list[dict]]:
-        from infrastructure.llm.prompt_loader import load_prompt
-        from infrastructure.llm.client import LLMClient
-        from infrastructure.llm.schemas import LLMCallRequest
         from core.config import get_settings
+        from infrastructure.llm.client import LLMClient
+        from infrastructure.llm.prompt_loader import load_prompt
+        from infrastructure.llm.schemas import LLMCallRequest
 
         system_prompt = load_prompt(
             "structure_extraction",
@@ -261,8 +262,8 @@ class SceneEntityExtractionService:
         scene_index: int,
     ) -> int:
         from modules.world.facade import find_similar_entities
-        from modules.world.services.entity_service import EntityService
         from modules.world.schemas import CoreEntityCreate
+        from modules.world.services.entity_service import EntityService
 
         created = 0
         entity_service = EntityService()
