@@ -32,6 +32,9 @@ from modules.outline.services import (
     PlotThreadService as _PTS,  # noqa: N814
     SceneService as _SceneSvc,  # noqa: N814
 )
+from modules.imports.scene_entity_extraction import (
+    SceneEntityExtractionService as _SceneExtractSvc,
+)
 from modules.rag.facade import (
     get_ordered_chapter_chunks as _rag_get_chunks,
     index_chapter_with_report as _rag_index,
@@ -57,6 +60,7 @@ _register("world.list_characters", _world_list_characters)
 _register("world.list_entity_terms", _world_list_entity_terms)
 _register("world.run_entity_extraction", _world_extract)
 _register("world.list_entities", _world_list_entities)
+_register("world.run_scene_entity_extraction", _SceneExtractSvc().extract_by_scenes)
 _register("world.create_character", _world_create_char)
 _register("world.get_character_id_by_world_entity", _world_get_char_id)
 _register("rag.index_chapter", _rag_index)
