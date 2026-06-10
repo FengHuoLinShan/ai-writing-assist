@@ -34,6 +34,7 @@ from modules.context.schemas import (
     ContextRenderResponse,
 )
 from modules.context.services import CompileOptions, ContextCompiler
+from modules.context.services.compiled_context import Tier
 from modules.context.services.context_compiler import SCOPE_LOADERS
 from modules.context.services.loaders import (
     CharactersLoader,
@@ -47,7 +48,6 @@ from modules.context.services.loaders import (
     is_loader_available,
 )
 from modules.context.services.protocol import Loader
-from modules.context.services.compiled_context import Tier
 
 # ============================================================
 # 1. Loader 协议测试
@@ -78,7 +78,9 @@ class TestLoaderProtocol:
             "memory_records", "rag_chunks", "plot_threads", "outline_arc",
         ]
         for loader, expected_name in zip(loaders, expected_names):
-            assert loader.name == expected_name, f"{type(loader).__name__}.name != {expected_name}"
+            assert loader.name == expected_name, (
+                f"{type(loader).__name__}.name != {expected_name}"
+            )
 
     def test_all_loaders_available(self) -> None:
         """所有 loader 都应被注册为可用"""
@@ -122,7 +124,7 @@ class TestContextCompilerDispatch:
                 task="测试",
                 scope=scope,
             )
-            bundle = await compiler.compile(db=MagicMock(), options=options)
+            await compiler.compile(db=MagicMock(), options=options)
 
             for name in expected_loader_names:
                 assert name in called_names, f"{scope}: {name} was not called"
@@ -300,7 +302,9 @@ class TestCompileWithTiers:
         assert "pov_knowledge" in keys
         assert "delta_timeline" in keys
         for s in p1_sections:
-            assert s.content.startswith("[Delta 模式] "), f"Expected Delta prefix, got: {s.content[:20]}"
+            assert s.content.startswith("[Delta 模式] "), (
+                f"Expected Delta prefix, got: {s.content[:20]}"
+            )
 
     @pytest.mark.asyncio
     async def test_debug_mode_prefixes_snapshot(self) -> None:
@@ -328,7 +332,9 @@ class TestCompileWithTiers:
         assert "pov_knowledge" in keys
         assert "delta_timeline" in keys
         for s in p1_sections:
-            assert s.content.startswith("[Snapshot 模式] "), f"Expected Snapshot prefix, got: {s.content[:20]}"
+            assert s.content.startswith("[Snapshot 模式] "), (
+                f"Expected Snapshot prefix, got: {s.content[:20]}"
+            )
 
 
 # ============================================================
@@ -347,9 +353,13 @@ class TestProjectLoader:
         loader = ProjectLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="project")
 
-        with patch("modules.context.services.loaders.project_loader.get_project_context",
-                    AsyncMock(return_value=mock_ctx)):
-            await loader.load(db=MagicMock(), options=MagicMock(novel_id="id"), bundle=bundle)
+        with patch(
+            "modules.context.services.loaders.project_loader.get_project_context",
+            AsyncMock(return_value=mock_ctx),
+        ):
+            await loader.load(
+                db=MagicMock(), options=MagicMock(novel_id="id"), bundle=bundle
+            )
 
         assert bundle.project == {"title": "测试小说", "genre": "科幻"}
 
@@ -357,11 +367,19 @@ class TestProjectLoader:
     async def test_load_project_not_found_adds_warning(self) -> None:
         """项目不存在应添加警告"""
         loader = ProjectLoader()
-        bundle = StructureContextBundle(novel_id="nonexistent", task="t", scope="project")
+        bundle = StructureContextBundle(
+            novel_id="nonexistent", task="t", scope="project"
+        )
 
-        with patch("modules.context.services.loaders.project_loader.get_project_context",
-                    AsyncMock(return_value=None)):
-            await loader.load(db=MagicMock(), options=MagicMock(novel_id="nonexistent"), bundle=bundle)
+        with patch(
+            "modules.context.services.loaders.project_loader.get_project_context",
+            AsyncMock(return_value=None),
+        ):
+            await loader.load(
+                db=MagicMock(),
+                options=MagicMock(novel_id="nonexistent"),
+                bundle=bundle,
+            )
 
         assert bundle.project is None
         assert any("不存在" in w for w in bundle.warnings)
@@ -799,11 +817,19 @@ class TestMarkdownRendererEdgeCases:
     def test_render_with_panorama_memory_format(self) -> None:
         """全景 dict 格式的 memory_records 应被正确渲染"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="full",
+            novel_id="test-id",
+            task="测试",
+            scope="full",
             memory_records={
-                "entities": [{"name": "主角", "entity_type": "character", "importance": 0.9}],
-                "relations": [{"source_id": "s1", "target_id": "t1", "relation_type": "ally"}],
-                "character_locations": {"c1": {"location_id": "loc1", "text_state": "休息中"}},
+                "entities": [
+                    {"name": "主角", "entity_type": "character", "importance": 0.9}
+                ],
+                "relations": [
+                    {"source_id": "s1", "target_id": "t1", "relation_type": "ally"}
+                ],
+                "character_locations": {
+                    "c1": {"location_id": "loc1", "text_state": "休息中"}
+                },
                 "chapter_index": 3,
             },
         )

@@ -138,7 +138,8 @@ async function renderCurrentView() {
     if (prevRenderer) {
       if (_keepAliveViews.has(_prevView) && prevRenderer.onDeactivate) {
         try { prevRenderer.onDeactivate() } catch (e) { console.error(e) }
-      } else if (!_keepAliveViews.has(_prevView) && prevRenderer.onLeave) {
+      }
+      if (prevRenderer.onLeave) {
         try { prevRenderer.onLeave() } catch (e) { console.error(e) }
       }
     }
