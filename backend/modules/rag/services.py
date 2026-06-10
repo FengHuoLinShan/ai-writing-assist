@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.rag.contracts import RagIndexReport, RagResultBundle
 from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate
@@ -805,17 +806,20 @@ class RetrievalService:
         mode: str = "search",
         top_k: int = 12,
         reference_chapter_index: int | None = None,
-    ) -> list[tuple]:
-        """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序
+    ) -> RagResultBundle:
+        """混合检索编排：embedding 生成 → 混合搜索 → 去重 → 重排序 → 指标记录
 
-        封装完整检索流水线，facade 仅做参数转换与委托。
+        封装完整检索流水线，返回结构化结果束。
         """
         import time as _time
 
         _t0 = _time.monotonic()
         top_k = max(1, top_k)
+        warnings: list[str] = []
+        degraded = False
         query_embedding: list[float] | None = None
 
+        # 尝试生成查询 embedding（带熔断保护）
         if await self._repo.has_embeddings(db, novel_id):
             from modules.rag.circuit_breaker import get_circuit_breaker
 
@@ -834,8 +838,17 @@ class RetrievalService:
                         cb.record_success()
                     else:
                         cb.record_failure()
-                except Exception:
+                        degraded = True
+                        warnings.append("embedding 返回格式异常，已降级")
+                except Exception as exc:
                     cb.record_failure()
+                    degraded = True
+                    warnings.append(
+                        f"embedding 生成失败，本次检索已降级，结果可能不准确: {exc}",
+                    )
+            else:
+                degraded = True
+                warnings.append("BGE 服务熔断中，本次检索已降级为关键词匹配")
 
         scored_chunks = await self.hybrid_search(
             db,
@@ -852,28 +865,49 @@ class RetrievalService:
             reference_chapter_index=reference_chapter_index,
         )
 
+        # 语义去重：移除余弦相似度 > 0.9 的冗余 chunk，保留 char_count 更大者
         deduped_chunks = self._deduplicate_by_embedding(scored_chunks, threshold=0.9)
+
+        # LLM 重排序（可选，仅 extraction 模式或显式开启）
         rerank_enabled = self._is_rerank_enabled(mode)
         if rerank_enabled and len(deduped_chunks) > top_k:
             try:
                 from modules.rag.reranker import rerank_results
 
-                deduped_chunks = await rerank_results(query, deduped_chunks, top_k=top_k)
-            except Exception:
-                pass
+                deduped_chunks = await rerank_results(
+                    query, deduped_chunks, top_k=top_k,
+                )
+            except Exception as exc:
+                warnings.append(f"重排序失败，使用原始排序: {exc}")
 
+        # 截断到 top_k
         deduped_chunks = deduped_chunks[:top_k]
 
+        # 转换为 contract
+        from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
+
+        chunk_contracts = [
+            _to_chunk_contract(chunk, score)
+            for chunk, score in deduped_chunks
+        ]
+
+        # 记录检索指标
         _latency_ms = (_time.monotonic() - _t0) * 1000
         from modules.rag.metrics import get_metrics
 
         get_metrics().record(
             latency_ms=_latency_ms,
-            degraded=query_embedding is None,
-            empty=len(deduped_chunks) == 0,
+            degraded=degraded,
+            empty=len(chunk_contracts) == 0,
         )
 
-        return deduped_chunks
+        return RagResultBundle(
+            chunks=chunk_contracts,
+            total=len(scored_chunks),
+            query=query,
+            warnings=warnings,
+            degraded=degraded,
+        )
 
 
 def _add_term(
@@ -1176,9 +1210,9 @@ class IndexingService:
 
         注意：此方法要求 old_content 是上次索引时的原文。
         """
-        from modules.rag.contracts import RagIndexReport
-
         import difflib
+
+        from modules.rag.contracts import RagIndexReport
 
         warnings: list[str] = []
 

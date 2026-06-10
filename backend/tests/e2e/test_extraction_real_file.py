@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
-from modules.world.services.draft_provider import DraftProvider
+from shared.protocols import DraftProvider
 from modules.world.services.extraction_service import EntityExtractionService
 from modules.writing.facade import get_latest_draft_for_chapter
 

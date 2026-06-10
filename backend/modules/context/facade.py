@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
+from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.markdown_renderer import (
     render_context_markdown as _render_markdown,
 )
-from modules.context.services import CompileOptions, ContextCompiler
+from modules.context.services import ContextCompiler
 
 _compiler = ContextCompiler()
 

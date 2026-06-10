@@ -147,10 +147,11 @@ class DeepImportWorkflow:
         end_chapter: int,
     ) -> dict[str, Any]:
         """调用 outline 模块生成剧情结构和篇章纲"""
-        from modules.outline.facade import generate_plot_structure
+        from modules.outline.services import PlotStructureGenerator
 
+        _generator = PlotStructureGenerator()
         try:
-            result = await generate_plot_structure(
+            result = await _generator.generate(
                 db, novel_id,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,

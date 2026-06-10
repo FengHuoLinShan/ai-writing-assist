@@ -41,9 +41,9 @@ make format-fix                  # ruff format
 
 | Layer | Modules | Responsibility |
 |-------|---------|----------------|
-| **事实层** (Fact) | project, world, geo, character, memory, timeline | Maintain canonical facts of the novel |
+| **事实层** (Fact) | project, world, memory | Maintain canonical facts. world unifies CoreEntity + Character + Event + EntityRelation |
 | **结构层** (Structure) | outline | Organize facts into executable plot plans (threads → arcs → chapter cards → scene cards) |
-| **辅助层** (Support) | rag, context, review, writing, infrastructure | Retrieval, context compilation, review, export, LLM/task infra |
+| **辅助层** (Support) | rag, context, writing, imports | Retrieval, context compilation, draft writing, file import. infrastructure (tasks/llm) is shared infra |
 
 ## Module Structure
 
@@ -83,7 +83,7 @@ modules/<name>/
 - Candidate-separate-from-canonical: AI output into candidate/proposal tables first
 - Status over deletion: Use status field (draft/candidate/canonical/deprecated/ignored/conflicted) instead of hard DELETE
 - Prompts merge, data splits: One prompt output contains multiple arrays → stored into separate tables
-- JSONB for flex fields: Scene cards in chapter_cards.scene_cards JSONB, era states in geo_locations.content_json.era_states
+- JSONB for flex fields: Scene cards in chapter_cards.scene_cards JSONB
 - PostgreSQL + pgvector + pg_trgm for vector search, name similarity, dedup
 
 ## Key Design Decisions

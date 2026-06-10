@@ -122,18 +122,7 @@ async def get_entity_relations(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> EntityRelationListResponse:
     """获取实体的关联关系"""
-    from modules.world.repositories import EntityRelationRepository
-    from shared.utils import parse_uuid
-    nid = parse_uuid(novel_id, "novel_id")
-    eid = parse_uuid(entity_id, "entity_id")
-    repo = EntityRelationRepository()
-    source_rels = await repo.get_by_source(db, nid, eid, limit=MAX_PAGE_SIZE)
-    target_rels = await repo.get_by_target(db, nid, eid, limit=MAX_PAGE_SIZE)
-    all_rels = source_rels + target_rels
-    return EntityRelationListResponse(
-        items=[EntityRelationResponse.model_validate(r) for r in all_rels],
-        total=len(all_rels),
-    )
+    return await _relation_service.get_by_entity(db, novel_id, entity_id)
 
 
 # ============================================================
@@ -401,9 +390,6 @@ async def list_entity_batches(
     每次 LLM 抽取生成一个 batch_id，同一批次的实体归为一组。
     按入库时间倒序排列。
     """
-    from modules.world.repositories import CoreEntityRepository
-    from shared.utils import parse_uuid as _parse
-
-    nid = _parse(novel_id, "novel_id")
-    repo = CoreEntityRepository()
-    return await repo.get_entity_batches(db, nid, limit=limit)
+    return await _entity_service.list_entity_batches(
+        db, novel_id, limit=limit,
+    )

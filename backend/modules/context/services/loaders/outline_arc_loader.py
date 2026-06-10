@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.context.contracts import StructureContextBundle
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
+from modules.outline.services import OutlineArcService
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,11 @@ class OutlineArcLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        from modules.outline.facade import get_arc_by_chapter
-
         chapter = options.chapter_index
         if chapter is None:
             return
 
-        arc = await get_arc_by_chapter(db, options.novel_id, chapter)
+        arc = await OutlineArcService().get_by_chapter(db, options.novel_id, chapter)
         if arc is not None:
             bundle.outline_arc = {
                 "id": arc.id,

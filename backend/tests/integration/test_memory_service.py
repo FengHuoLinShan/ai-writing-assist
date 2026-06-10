@@ -14,20 +14,15 @@ import pytest
 
 # 确保 memory ORM 模型注册到 Base.metadata（conftest 已导入，此处做双重保险）
 import modules.memory.models  # noqa: F401
-from modules.memory.facade import (
-    capture_snapshot,
-    full_rebuild,
-    get_chapter_panorama,
-    get_status,
-    mark_stale,
-    record_events,
-)
 from modules.memory.repositories import EventRepository, SnapshotRepository
 from modules.memory.schemas import (
     ChapterPanorama,
     MemoryStatusResponse,
     SnapshotResponse,
 )
+from modules.memory.services import MemoryService
+
+_memory = MemoryService()
 
 # ============================================================
 # 辅助工厂函数
@@ -113,7 +108,7 @@ async def test_record_events_single_event_creates_record(
     ]
 
     # Act
-    result = await record_events(db_session, test_project_id, 1, events)
+    result = await _memory.record_events(db_session, test_project_id, 1, events)
 
     # Assert
     assert len(result) == 1
@@ -144,7 +139,7 @@ async def test_record_events_multiple_events_preserves_sequence(
     ]
 
     # Act
-    result = await record_events(db_session, test_project_id, 2, events)
+    result = await _memory.record_events(db_session, test_project_id, 2, events)
 
     # Assert
     assert len(result) == 2
@@ -160,7 +155,7 @@ async def test_record_events_overwrite_previous_events(
 ):
     # Arrange
     eid = str(uuid.uuid4())
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -174,7 +169,7 @@ async def test_record_events_overwrite_previous_events(
     )
 
     # Act
-    result = await record_events(
+    result = await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -204,7 +199,7 @@ async def test_record_events_empty_list_deletes_existing(
 ):
     # Arrange
     eid = str(uuid.uuid4())
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -218,7 +213,7 @@ async def test_record_events_empty_list_deletes_existing(
     )
 
     # Act
-    result = await record_events(db_session, test_project_id, 1, [])
+    result = await _memory.record_events(db_session, test_project_id, 1, [])
 
     # Assert
     assert len(result) == 0
@@ -248,7 +243,7 @@ async def test_get_chapter_panorama_only_snapshot_no_events(
     )
 
     # Act
-    result = await get_chapter_panorama(db_session, test_project_id, 5)
+    result = await _memory.get_panorama(db_session, test_project_id, 5)
 
     # Assert
     assert isinstance(result, ChapterPanorama)
@@ -273,7 +268,7 @@ async def test_get_chapter_panorama_with_snapshot_and_events_replays_correctly(
             entities=[_make_entity(eid, name="Alice")]
         ),
     )
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         6,
@@ -287,7 +282,7 @@ async def test_get_chapter_panorama_with_snapshot_and_events_replays_correctly(
     )
 
     # Act
-    result = await get_chapter_panorama(db_session, test_project_id, 6)
+    result = await _memory.get_panorama(db_session, test_project_id, 6)
 
     # Assert
     assert result.chapter_index == 6
@@ -301,7 +296,7 @@ async def test_get_chapter_panorama_no_snapshot_but_events_builds_from_empty(
 ):
     # Arrange
     eid = str(uuid.uuid4())
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -316,7 +311,7 @@ async def test_get_chapter_panorama_no_snapshot_but_events_builds_from_empty(
     )
 
     # Act
-    result = await get_chapter_panorama(db_session, test_project_id, 1)
+    result = await _memory.get_panorama(db_session, test_project_id, 1)
 
     # Assert
     assert len(result.entities) == 1
@@ -336,7 +331,7 @@ async def test_get_chapter_panorama_no_data_falls_back_to_world_state(
     )
 
     # Act
-    result = await get_chapter_panorama(db_session, test_project_id, 1)
+    result = await _memory.get_panorama(db_session, test_project_id, 1)
 
     # Assert
     assert len(result.entities) == 1
@@ -357,7 +352,7 @@ async def test_capture_snapshot_creates_current_snapshot(
     mock_get_full_state.return_value = _make_world_state()
 
     # Act
-    result = await capture_snapshot(db_session, test_project_id, 10)
+    result = await _memory.capture_snapshot(db_session, test_project_id, 10)
 
     # Assert
     assert isinstance(result, SnapshotResponse)
@@ -374,7 +369,7 @@ async def test_capture_snapshot_counts_events_correctly(
     # Arrange
     mock_get_full_state.return_value = _make_world_state()
     eid1, eid2 = str(uuid.uuid4()), str(uuid.uuid4())
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -386,7 +381,7 @@ async def test_capture_snapshot_counts_events_correctly(
             }
         ],
     )
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         2,
@@ -405,7 +400,7 @@ async def test_capture_snapshot_counts_events_correctly(
     )
 
     # Act
-    result = await capture_snapshot(db_session, test_project_id, 2)
+    result = await _memory.capture_snapshot(db_session, test_project_id, 2)
 
     # Assert
     assert result.events_until == 3
@@ -433,7 +428,7 @@ async def test_mark_stale_updates_matching_snapshots(
     )
 
     # Act
-    result = await mark_stale(db_session, test_project_id, 10)
+    result = await _memory.mark_stale(db_session, test_project_id, 10)
 
     # Assert
     assert result["stale_count"] == 2
@@ -450,7 +445,7 @@ async def test_mark_stale_no_snapshots_returns_zero(
     db_session, test_project_id
 ):
     # Act
-    result = await mark_stale(db_session, test_project_id, 1)
+    result = await _memory.mark_stale(db_session, test_project_id, 1)
 
     # Assert
     assert result["stale_count"] == 0
@@ -470,7 +465,7 @@ async def test_full_rebuild_from_chapter_one_clears_all_and_rebuilds(
     nid = uuid.UUID(hex=test_project_id)
     eid = str(uuid.uuid4())
     # 旧数据
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -497,7 +492,7 @@ async def test_full_rebuild_from_chapter_one_clears_all_and_rebuilds(
     )
 
     # Act
-    result = await full_rebuild(db_session, test_project_id, 1)
+    result = await _memory.full_rebuild(db_session, test_project_id, 1)
 
     # Assert
     assert result["from_chapter"] == 1
@@ -524,7 +519,7 @@ async def test_full_rebuild_from_middle_preserves_base_and_rebuilds(
     nid = uuid.UUID(hex=test_project_id)
     eid = str(uuid.uuid4())
     # chapter 1 事件 + chapter 5 快照
-    await record_events(
+    await _memory.record_events(
         db_session,
         test_project_id,
         1,
@@ -552,7 +547,7 @@ async def test_full_rebuild_from_middle_preserves_base_and_rebuilds(
     )
 
     # Act
-    result = await full_rebuild(db_session, test_project_id, 6)
+    result = await _memory.full_rebuild(db_session, test_project_id, 6)
 
     # Assert
     assert result["from_chapter"] == 6
@@ -578,7 +573,7 @@ async def test_full_rebuild_no_changes_still_creates_snapshot(
     mock_get_full_state.return_value = state
 
     # Act
-    result = await full_rebuild(db_session, test_project_id, 1)
+    result = await _memory.full_rebuild(db_session, test_project_id, 1)
 
     # Assert
     assert result["from_chapter"] == 1
@@ -601,7 +596,7 @@ async def test_get_status_no_snapshots_returns_empty(
     db_session, test_project_id
 ):
     # Act
-    result = await get_status(db_session, test_project_id)
+    result = await _memory.get_status(db_session, test_project_id)
 
     # Assert
     assert isinstance(result, MemoryStatusResponse)
@@ -626,7 +621,7 @@ async def test_get_status_current_only_returns_latest(
     )
 
     # Act
-    result = await get_status(db_session, test_project_id)
+    result = await _memory.get_status(db_session, test_project_id)
 
     # Assert
     assert result.latest_chapter == 7
@@ -650,7 +645,7 @@ async def test_get_status_with_stale_returns_stale_info(
     await snap_repo.mark_stale_from(db_session, nid, 5)
 
     # Act
-    result = await get_status(db_session, test_project_id)
+    result = await _memory.get_status(db_session, test_project_id)
 
     # Assert
     assert result.latest_chapter == 7

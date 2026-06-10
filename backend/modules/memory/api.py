@@ -12,7 +12,6 @@ from core.dependencies import DbSession
 from modules.memory.schemas import (
     ChapterPanorama,
     EventListResponse,
-    MemoryEventResponse,
     MemoryStatusResponse,
     SnapshotListResponse,
     SnapshotResponse,
@@ -49,15 +48,7 @@ async def list_events(
     to_chapter: int = Query(default=999999, ge=1, description="结束章"),
 ) -> EventListResponse:
     """查询事件列表"""
-    from modules.memory.repositories import EventRepository
-    from shared.utils import parse_uuid
-
-    repo = EventRepository()
-    nid = parse_uuid(novel_id)
-    events = await repo.get_by_chapter_range(db, nid, from_chapter, to_chapter)
-
-    items = [MemoryEventResponse.model_validate(e) for e in events]
-    return EventListResponse(items=items, total=len(items))
+    return await _service.list_events(db, novel_id, from_chapter, to_chapter)
 
 
 @router.get("/events/{entity_id}/timeline", response_model=EventListResponse)
@@ -69,16 +60,9 @@ async def get_entity_timeline(
     limit: int = Query(default=50, ge=1, le=500),
 ) -> EventListResponse:
     """获取单个实体的变化时间线"""
-    from modules.memory.repositories import EventRepository
-    from shared.utils import parse_uuid
-
-    repo = EventRepository()
-    nid = parse_uuid(novel_id)
-    eid = parse_uuid(entity_id)
-    events, total = await repo.get_by_entity(db, nid, eid, skip=skip, limit=limit)
-
-    items = [MemoryEventResponse.model_validate(e) for e in events]
-    return EventListResponse(items=items, total=total)
+    return await _service.get_entity_timeline(
+        db, novel_id, entity_id, skip, limit,
+    )
 
 
 # ============================================================
@@ -101,15 +85,7 @@ async def list_snapshots(
     novel_id: str,
 ) -> SnapshotListResponse:
     """列出所有快照"""
-    from modules.memory.repositories import SnapshotRepository
-    from shared.utils import parse_uuid
-
-    repo = SnapshotRepository()
-    nid = parse_uuid(novel_id)
-    snapshots = await repo.list_for_novel(db, nid)
-
-    items = [SnapshotResponse.model_validate(s) for s in snapshots]
-    return SnapshotListResponse(items=items, total=len(items))
+    return await _service.list_snapshots(db, novel_id)
 
 
 # ============================================================

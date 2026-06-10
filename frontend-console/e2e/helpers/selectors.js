@@ -4,7 +4,7 @@
 
 export const SEL = {
   // 顶部状态栏
-  topbarTitle: "#topbar-title",
+  topbarTitle: ".logo",
   topbarProject: "#topbar-project",
   topbarStatus: "#topbar-status",
 
@@ -26,6 +26,10 @@ export const SEL = {
   dataTable: ".data-table",
   tableRow: (id) => `tr[data-id="${id}"]`,
   clickableRow: "tr.clickable",
+
+  // 项目卡片
+  projectGrid: ".project-grid",
+  projectCard: (id) => `.project-card[data-id="${id}"]`,
 
   // 按钮
   btnPrimary: ".btn-primary",
@@ -50,14 +54,14 @@ export const SEL = {
   // 命令栏
   commandInput: "#command-input",
   commandPrompt: "#command-prompt",
+  commandBar: "#command-bar",
 
   // 帮助
   helpOverlay: "#help-overlay",
   helpClose: "#help-close",
 
-  // 右侧面板
-  rightPanel: "#right-panel",
-  rightPanelContent: "#right-panel-content",
+  // 右侧批注区
+  contextualNotes: "#contextual-notes",
 
   // 子标签
   subnavItem: (sub) => `[data-subview="${sub}"]`,

@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 
 from infrastructure.tasks.registry import task_handler
-from modules.outline.facade import generate_plot_structure
+from modules.outline.services import PlotStructureGenerator
 
 logger = logging.getLogger(__name__)
+
+_generator = PlotStructureGenerator()
 
 
 @task_handler("plot_structure_generate")
@@ -27,7 +29,7 @@ async def handle_plot_structure_generate(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for plot_structure_generate")
 
-    result = await generate_plot_structure(
+    result = await _generator.generate(
         db,
         novel_id=novel_id,
         start_chapter=start_chapter,

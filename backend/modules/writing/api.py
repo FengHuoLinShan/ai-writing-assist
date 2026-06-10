@@ -10,7 +10,8 @@ from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel
 
 from core.dependencies import DbSession
-from modules.writing.facade import create_draft as facade_create_draft
+from infrastructure.tasks.enqueuer import enqueue_task
+from modules.writing.facade import create_draft_only as _create_draft_only
 from modules.writing.schemas import (
     VersionHistoryResponse,
     WritingDraftCreate,
@@ -46,13 +47,21 @@ async def create_draft(
     db: DbSession,
     data: WritingDraftCreate,
 ) -> PublishResponse:
-    """发布草稿 — 创建新版本 + 入队 RAG 索引 + memory 快照"""
-    result, task_id = await facade_create_draft(
+    """发布草稿 — 创建新版本 + 入队发布任务"""
+    result = await _create_draft_only(
         db,
         novel_id=data.novel_id,
         chapter_index=data.chapter_index,
         title=data.title,
         content=data.content or "",
+    )
+    task_id = enqueue_task(
+        db,
+        "publish_chapter",
+        meta={
+            "novel_id": data.novel_id,
+            "chapter_index": data.chapter_index,
+        },
     )
     await db.flush()
     return PublishResponse(draft=result, task_id=task_id)

@@ -17,6 +17,23 @@ from modules.writing.services import WritingDraftService
 _service = WritingDraftService()
 
 
+async def create_draft_only(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    title: str | None = None,
+    content: str = "",
+) -> WritingDraftResponse:
+    """创建正文草稿（纯持久化，不入队任务）"""
+    data = WritingDraftCreate(
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        title=title or f"第{chapter_index}章",
+        content=content,
+    )
+    return await _service.create_draft(db, data)
+
+
 async def create_draft(
     db: AsyncSession,
     novel_id: str,
@@ -24,20 +41,12 @@ async def create_draft(
     title: str | None = None,
     content: str = "",
 ) -> tuple[WritingDraftResponse, str]:
-    """创建正文草稿并触发发布流程
-
-    供其他模块（如 imports）写入导入的章节正文。
+    """创建正文草稿并触发发布流程（兼容旧接口，新代码优先用 create_draft_only）
 
     Returns:
         (WritingDraftResponse, task_id) — 草稿信息 + 发布任务 ID
     """
-    data = WritingDraftCreate(
-        novel_id=novel_id,
-        chapter_index=chapter_index,
-        title=title or f"第{chapter_index}章",
-        content=content,
-    )
-    draft = await _service.create_draft(db, data)
+    draft = await create_draft_only(db, novel_id, chapter_index, title, content)
     task_id = enqueue_task(
         db,
         "publish_chapter",

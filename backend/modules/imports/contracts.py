@@ -1,10 +1,14 @@
+"""Imports 对外契约
+
+定义其他模块可以安全依赖的 Imports 接口和数据类。
 """
-Import 对外契约
 
-定义其他模块可以安全依赖的导入模块数据接口。
-"""
+from __future__ import annotations
 
 
-# facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.imports.schemas import ImportResponse  # noqa: F401 — facade.import_file 返回
-from modules.imports.workflow_schemas import DeepImportProgress  # noqa: F401 — 深度导入进度
+class TaskNotFoundError(Exception):
+    """任务不存在"""
+
+    def __init__(self, task_id: str) -> None:
+        self.task_id = task_id
+        super().__init__(f"Task not found: {task_id}")

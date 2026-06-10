@@ -87,7 +87,7 @@ class WritingDraftService:
         draft_id: str,
         novel_id: str,
     ) -> None:
-        """删除单个版本（至少保留 1 个版本）"""
+        """删除单个版本（至少保留 1 个版本），并自动重排后续版本号"""
         did = parse_uuid(draft_id, "draft")
         nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -96,12 +96,28 @@ class WritingDraftService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
-        ok = await self._repo.delete(db, did)
-        if not ok:
+
+        # 业务规则：至少保留 1 个版本
+        version_count = await self._repo.count_versions(
+            db, draft.novel_id, draft.chapter_index,
+        )
+        if version_count <= 1:
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete the last version of a chapter",
             )
+
+        deleted = await self._repo.delete(db, did)
+        if deleted is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Draft {draft_id} not found",
+            )
+
+        # 数据完整性：重排后续版本号
+        await self._repo.renumber_versions_after_delete(
+            db, draft.novel_id, draft.chapter_index, draft.version_number,
+        )
 
     async def delete_chapter(
         self,

@@ -71,9 +71,10 @@ async def handle_publish_chapter(db, task):
     snapshot_ok = False
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            from modules.memory.facade import capture_snapshot
+            from modules.memory.services import MemoryService
 
-            snap = await capture_snapshot(db, novel_id, chapter_index)
+            _memory = MemoryService()
+            snap = await _memory.capture_snapshot(db, novel_id, chapter_index)
             results["snapshot_id"] = snap.id
             snapshot_ok = True
             logger.info(

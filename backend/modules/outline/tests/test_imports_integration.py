@@ -19,7 +19,7 @@ class TestImportsOutlineIntegration:
         workflow = DeepImportWorkflow()
 
         with mock.patch(
-            "modules.outline.facade.generate_plot_structure",
+            "modules.outline.services.PlotStructureGenerator.generate",
         ) as mock_gen:
             mock_gen.return_value = {
                 "total_threads": 3,
@@ -50,7 +50,7 @@ class TestImportsOutlineIntegration:
         workflow = DeepImportWorkflow()
 
         with mock.patch(
-            "modules.outline.facade.generate_plot_structure",
+            "modules.outline.services.PlotStructureGenerator.generate",
             side_effect=Exception("LLM timeout"),
         ):
             result = await workflow._generate_plot(

@@ -10,7 +10,7 @@ test.describe("首页与导航", () => {
   test("应用加载并显示项目视图", async ({ page }) => {
     await page.goto("/")
 
-    await expect(page.locator(SEL.topbarTitle)).toContainText("小说结构化创作控制台")
+    await expect(page.locator(SEL.topbarTitle)).toContainText("NovelCraft")
     await expect(page.locator(SEL.sidebar)).toBeVisible()
     await expect(page.locator(SEL.workspace)).toBeVisible()
     await expect(page.locator(SEL.viewTitle)).toHaveText("项目")

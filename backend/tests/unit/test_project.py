@@ -23,10 +23,10 @@ from modules.project.project import (
     ProjectCreate,
     ProjectResponse,
     ProjectUpdate,
-    _create_project,
-    _delete_project,
-    _get_project,
-    _update_project,
+    create_project,
+    delete_project,
+    get_project_by_id,
+    update_project,
     ProjectService,
     get_project_context,
 )
@@ -143,7 +143,7 @@ class TestCRUDFunctions:
     async def test_create_adds_and_flushes(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         data = ProjectCreate(title="测试小说", genre="玄幻")
-        project = await _create_project(db, data)
+        project = await create_project(db, data)
         assert project.title == "测试小说"
         assert project.genre == "玄幻"
         assert project.language == "zh"  # default fallback
@@ -153,7 +153,7 @@ class TestCRUDFunctions:
     async def test_create_minimal(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         data = ProjectCreate(title="最小")
-        project = await _create_project(db, data)
+        project = await create_project(db, data)
         assert project.title == "最小"
         assert project.genre is None
         assert project.language == "zh"
@@ -166,7 +166,7 @@ class TestCRUDFunctions:
         result.scalar_one_or_none.return_value = expected
         db.execute.return_value = result
 
-        got = await _get_project(db, uid)
+        got = await get_project_by_id(db, uid)
         assert got is expected
 
     async def test_get_returns_none_when_missing(self) -> None:
@@ -175,10 +175,10 @@ class TestCRUDFunctions:
         result.scalar_one_or_none.return_value = None
         db.execute.return_value = result
 
-        got = await _get_project(db, uuid.uuid4())
+        got = await get_project_by_id(db, uuid.uuid4())
         assert got is None
 
-    @patch("modules.project.project._get_project")
+    @patch("modules.project.repositories.ProjectRepository.get")
     async def test_update_returns_project_when_found(
         self, mock_get: MagicMock,
     ) -> None:
@@ -186,16 +186,16 @@ class TestCRUDFunctions:
         original = Project(id=uid, title="原始标题")
         mock_get.return_value = original
         db = AsyncMock(spec=AsyncSession)
-        updated = await _update_project(db, uid, ProjectUpdate(title="新标题"))
+        updated = await update_project(db, uid, ProjectUpdate(title="新标题"))
         assert updated is not None
 
-    @patch("modules.project.project._get_project")
+    @patch("modules.project.repositories.ProjectRepository.get")
     async def test_update_returns_none_when_missing(
         self, mock_get: MagicMock,
     ) -> None:
         mock_get.return_value = None
         db = AsyncMock(spec=AsyncSession)
-        result = await _update_project(db, uuid.uuid4(), ProjectUpdate(title="x"))
+        result = await update_project(db, uuid.uuid4(), ProjectUpdate(title="x"))
         assert result is None
 
     async def test_delete_returns_true_when_deleted(self) -> None:
@@ -203,14 +203,14 @@ class TestCRUDFunctions:
         result = MagicMock()
         result.rowcount = 1
         db.execute.return_value = result
-        assert await _delete_project(db, uuid.uuid4()) is True
+        assert await delete_project(db, uuid.uuid4()) is True
 
     async def test_delete_returns_false_when_missing(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         result = MagicMock()
         result.rowcount = 0
         db.execute.return_value = result
-        assert await _delete_project(db, uuid.uuid4()) is False
+        assert await delete_project(db, uuid.uuid4()) is False
 
 
 # ============================================================
@@ -221,7 +221,7 @@ class TestCRUDFunctions:
 class TestProjectService:
     """ProjectService——mock 底层 CRUD 函数"""
 
-    @patch("modules.project.project._create_project")
+    @patch("modules.project.repositories.ProjectRepository.create")
     async def test_create_returns_project_response(
         self, mock_create: MagicMock,
     ) -> None:
@@ -240,7 +240,7 @@ class TestProjectService:
         assert resp.title == "测试小说"
         assert resp.genre == "玄幻"
 
-    @patch("modules.project.project._get_project")
+    @patch("modules.project.repositories.ProjectRepository.get")
     async def test_get_raises_404_when_missing(
         self, mock_get: MagicMock,
     ) -> None:
@@ -252,7 +252,7 @@ class TestProjectService:
             )
         assert exc.value.status_code == 404
 
-    @patch("modules.project.project._update_project")
+    @patch("modules.project.repositories.ProjectRepository.update")
     async def test_update_raises_404_when_missing(
         self, mock_update: MagicMock,
     ) -> None:
@@ -266,7 +266,7 @@ class TestProjectService:
             )
         assert exc.value.status_code == 404
 
-    @patch("modules.project.project._delete_project")
+    @patch("modules.project.repositories.ProjectRepository.delete")
     async def test_delete_raises_404_when_missing(
         self, mock_delete: MagicMock,
     ) -> None:
@@ -284,7 +284,7 @@ class TestProjectService:
             await svc.get_project(AsyncMock(spec=AsyncSession), "not-a-uuid")
         assert exc.value.status_code == 422
 
-    @patch("modules.project.project._list_projects")
+    @patch("modules.project.repositories.ProjectRepository.list")
     async def test_list_clamps_limit_to_max(
         self, mock_list: MagicMock,
     ) -> None:
@@ -307,7 +307,7 @@ class TestProjectService:
 class TestGetProjectContextFacade:
     """get_project_context——供其他模块使用的项目上下文"""
 
-    @patch("modules.project.project._get_project")
+    @patch("modules.project.repositories.ProjectRepository.get")
     async def test_found_returns_context(
         self, mock_get: MagicMock,
     ) -> None:
@@ -322,7 +322,7 @@ class TestGetProjectContextFacade:
         assert ctx.title == "测试小说"
         assert ctx.genre == "玄幻"
 
-    @patch("modules.project.project._get_project")
+    @patch("modules.project.repositories.ProjectRepository.get")
     async def test_not_found_returns_none(
         self, mock_get: MagicMock,
     ) -> None:

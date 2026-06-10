@@ -5,25 +5,11 @@ EntityExtractionService 通过此协议获取正文草稿，不直接依赖 writ
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-class DraftProvider(ABC):
-    """正文草稿提供者协议"""
-
-    @abstractmethod
-    async def load_chapters(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-    ) -> list[dict[str, Any]]:
-        """加载指定范围的章节正文"""
-        ...
+from shared.protocols import DraftProvider
 
 
 class WritingDraftProvider(DraftProvider):

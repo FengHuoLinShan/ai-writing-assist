@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 全局状态管理 — 使用 Proxy 实现响应式状态
  *
  * 状态变化时触发 onStateChange 回调，视图可监听状态变化刷新。
@@ -37,7 +37,7 @@ const appState = {
   /** @type {string} 搜索查询 */
   searchQuery: "",
 
-  /** @type {{title:string, content:string, type:string}} 右侧信息栏状态 */
+  /** @type {{title:string, content:string, type:string}} 右侧批注状态 */
   rightPanel: { title: "帮助说明", content: "", type: "help" },
 
   /** @type {{message:string, type:string}|null} Toast 通知 */
@@ -129,19 +129,24 @@ const state = new Proxy(appState, {
 function updateUIForState(key, value) {
   switch (key) {
     case "currentView": {
-      const el = document.getElementById("view-title")
-      if (el) {
+      const titleEl = document.getElementById("view-title")
+      const moduleEl = document.getElementById("topbar-module")
+      if (titleEl) {
         const route = router.getRoute(value)
-        el.textContent = route ? route.title : value
+        titleEl.textContent = route ? route.title : value
+      }
+      if (moduleEl) {
+        const route = router.getRoute(value)
+        moduleEl.textContent = route ? route.title : value
       }
       // 更新导航高亮
-      document.querySelectorAll(".nav-item").forEach((item) => {
+      document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
         item.classList.toggle("active", item.dataset.view === value)
       })
+      updateRightPanelForView(value)
       break
     }
     case "currentSubView": {
-      // 子标签高亮
       document.querySelectorAll(".subnav-item").forEach((item) => {
         item.classList.toggle("active", item.dataset.subview === value)
       })
@@ -149,37 +154,40 @@ function updateUIForState(key, value) {
     }
     case "currentProject": {
       const el = document.getElementById("topbar-project")
-      if (el) el.textContent = value ? `项目：${value.title || value.name || ""}` : ""
+      if (el) el.textContent = value ? (value.title || value.name || "") : ""
       break
     }
     case "mode": {
-      const el = document.getElementById("topbar-mode")
-      if (el) {
-        const modeMap = { NORMAL: "浏览", COMMAND: "命令", SEARCH: "搜索", INSERT: "编辑" }
-        el.textContent = `模式：${modeMap[value] || value}`
-      }
-      // 命令栏提示
+      const modeLabel = document.getElementById("command-mode")
       const cmdInput = document.getElementById("command-input")
-      const cmdPrompt = document.getElementById("command-prompt")
-      if (cmdInput && cmdPrompt) {
+      if (modeLabel) {
         if (value === "COMMAND") {
-          cmdPrompt.textContent = ":"
+          modeLabel.textContent = "命令模式"
+          modeLabel.className = "command-mode-label command"
+        } else if (value === "SEARCH") {
+          modeLabel.textContent = "搜索模式"
+          modeLabel.className = "command-mode-label search"
+        }
+      }
+      if (cmdInput) {
+        if (value === "COMMAND") {
           cmdInput.placeholder = "输入命令..."
         } else if (value === "SEARCH") {
-          cmdPrompt.textContent = "/"
           cmdInput.placeholder = "搜索..."
         } else {
-          cmdPrompt.textContent = ":"
-          cmdInput.placeholder = "(:help 查看帮助, / 搜索)"
+          cmdInput.placeholder = "按 : 命令 / 搜索"
         }
       }
       break
     }
     case "backendConnected": {
-      const el = document.getElementById("topbar-status")
-      if (el) {
-        el.textContent = value ? "后端：已连接" : "后端：未连接"
-        el.className = "topbar-segment topbar-status " + (value ? "connected" : "disconnected")
+      const dot = document.getElementById("topbar-status-dot")
+      const text = document.getElementById("topbar-status")
+      if (dot) {
+        dot.className = "status-indicator " + (value ? "connected" : "disconnected")
+      }
+      if (text) {
+        text.textContent = value ? "已连接" : "未连接"
       }
       break
     }
@@ -190,8 +198,7 @@ function updateUIForState(key, value) {
     case "loading": {
       const content = document.getElementById("workspace-content")
       if (content && value) {
-        // 只在内容区为空时显示加载
-        if (!content.querySelector(".data-table, .card, .empty-state")) {
+        if (!content.querySelector(".data-table, .card, .empty-state, .project-grid")) {
           content.innerHTML = '<div class="loading">加载中</div>'
         }
       }
@@ -207,41 +214,53 @@ function updateUIForState(key, value) {
 }
 
 /**
- * 根据当前视图更新右侧信息栏内容
+ * 根据当前视图更新右侧批注区内容
  * @param {string} viewName - 视图名称
  */
 function updateRightPanelForView(viewName) {
-  const panelContent = document.getElementById("right-panel-content")
-  const panelTitle = document.getElementById("right-panel-title")
-  if (!panelContent || !panelTitle) return
+  const notes = document.getElementById("contextual-notes")
+  if (!notes) return
 
   const helpTexts = {
     project: {
-      title: "项目管理",
-      content: '<div class="help-section"><h4>小说项目</h4><p>项目是其他所有模块的根。</p><h4>创作流程</h4><ol><li>创建项目</li><li>导入正文 → 世界对象自动抽取</li><li>查阅 RAG 知识索引</li><li>编译上下文 → 导出草稿</li></ol></div>',
+      label: "帮助 · 项目管理",
+      text: "项目是其他所有模块的根。点击项目卡片即可进入创作流程。",
     },
     world: {
-      title: "世界对象",
-      content: '<div class="help-section"><h4>世界对象</h4><p>AI 抽取的创作资产直接以正史状态入库。</p><p>通过手动 CRUD 修正和细化。</p></div>',
+      label: "帮助 · 世界对象",
+      text: "管理小说中的人物、地点、物品等长期创作资产。",
     },
-
     writing: {
-      title: "手动工作台",
-      content: '<div class="help-section"><h4>手动工作台</h4><p>按章节撰写正文。支持暂存、发布、版本管理。</p><p>发布时自动存入 RAG 索引并创建世界状态快照。</p></div>',
+      label: "帮助 · 手动工作台",
+      text: "按章节撰写正文。支持暂存、发布、版本管理。",
     },
     generate: {
-      title: "生成中心",
-      content: '<div class="help-section"><h4>生成中心</h4><p>按流程生成结构化资产。</p></div>',
+      label: "帮助 · 生成中心",
+      text: "按流程生成结构化资产。",
+    },
+    rag: {
+      label: "帮助 · RAG 检索",
+      text: "测试向量检索，验证知识库召回效果。",
+    },
+    context: {
+      label: "帮助 · 上下文编译",
+      text: "根据当前世界状态编译 LLM 上下文。",
     },
   }
 
   const help = helpTexts[viewName]
   if (help) {
-    panelTitle.textContent = help.title
-    panelContent.innerHTML = help.content
+    notes.innerHTML = `
+      <div class="note-card" style="top: 24px;">
+        <div class="note-content secondary">
+          <div class="note-label">${esc(help.label)}</div>
+          <div class="note-text">${esc(help.text)}</div>
+        </div>
+      </div>
+    `
+  } else {
+    notes.innerHTML = ""
   }
-  const panel = document.getElementById("right-panel")
-  if (panel) panel.style.display = ""
 }
 
 // 导出到全局

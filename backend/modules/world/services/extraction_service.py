@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import CoreEntityCreate
 from modules.world.services.dedup_service import EntityDedupService
-from modules.world.services.draft_provider import DraftProvider, WritingDraftProvider
+from modules.world.services.draft_provider import WritingDraftProvider
+from shared.protocols import DraftProvider
 from modules.world.services.helpers import parse_uuid
 from shared.constants import SIMILARITY_HIGH_CONFIDENCE
 

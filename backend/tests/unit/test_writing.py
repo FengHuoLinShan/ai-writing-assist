@@ -615,7 +615,7 @@ class TestHandlePublishChapter:
     """handle_publish_chapter 任务处理器"""
 
     _MOD_RAG = "modules.rag.facade.index_chapter_with_report"
-    _MOD_MEM = "modules.memory.facade.capture_snapshot"
+    _MOD_MEM = "modules.memory.services.MemoryService.capture_snapshot"
 
     @pytest.fixture
     def mock_db(self) -> AsyncMock:

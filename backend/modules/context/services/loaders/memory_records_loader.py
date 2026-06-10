@@ -9,8 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
+from modules.memory.services import MemoryService
 
 logger = logging.getLogger(__name__)
+
+_memory = MemoryService()
 
 
 class MemoryRecordsLoader(Loader):
@@ -26,11 +29,9 @@ class MemoryRecordsLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        from modules.memory.facade import get_chapter_panorama
-
         chapter_index = options.chapter_index or 1
         try:
-            panorama = await get_chapter_panorama(
+            panorama = await _memory.get_panorama(
                 db, options.novel_id, chapter_index,
             )
             # 将全景数据注入 context bundle

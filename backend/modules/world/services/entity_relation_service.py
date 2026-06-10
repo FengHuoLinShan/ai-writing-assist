@@ -102,6 +102,27 @@ class EntityRelationService(
             for entity in entities
         ]
 
+    async def get_by_entity(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+    ) -> EntityRelationListResponse:
+        """获取实体的关联关系（source + target）"""
+        nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(entity_id, "entity_id")
+        source_rels = await self.repo.get_by_source(
+            db, nid, eid, limit=MAX_PAGE_SIZE,
+        )
+        target_rels = await self.repo.get_by_target(
+            db, nid, eid, limit=MAX_PAGE_SIZE,
+        )
+        all_rels = source_rels + target_rels
+        return EntityRelationListResponse(
+            items=[EntityRelationResponse.model_validate(r) for r in all_rels],
+            total=len(all_rels),
+        )
+
     async def upsert(
         self,
         db: AsyncSession,

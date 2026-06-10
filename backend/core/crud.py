@@ -61,6 +61,7 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
 
     repo: _CrudRepo
     response: ClassVar[type[BaseModel]]
+    list_response: ClassVar[type[BaseModel] | None] = None
     label: ClassVar[str]
     id_param: ClassVar[str] = "id"
 
@@ -98,6 +99,18 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
             db, nid, skip=skip, limit=limit,
         )
         return [self._to_response(o) for o in objs], total  # type: ignore[misc]
+
+    async def list_with_response(
+        self, db: AsyncSession, novel_id: str, *,
+        skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
+    ) -> BaseModel:
+        """Like `list()`, but wraps result in `list_response` if configured."""
+        items, total = await self.list(db, novel_id, skip=skip, limit=limit)
+        if self.list_response is None:
+            raise TypeError(
+                f"{self.__class__.__name__}.list_response is not set",
+            )
+        return self.list_response(items=items, total=total)  # type: ignore[return-value]
 
     async def create(
         self, db: AsyncSession, novel_id: str, data: CreateT,

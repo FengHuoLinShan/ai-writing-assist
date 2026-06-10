@@ -14,9 +14,11 @@ from modules.outline.models import OutlineArc, PlotThread
 from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
 from modules.outline.schemas import (
     OutlineArcCreate,
+    OutlineArcListResponse,
     OutlineArcResponse,
     OutlineArcUpdate,
     PlotThreadCreate,
+    PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
 )
@@ -30,6 +32,7 @@ _P = TypeVar("_P", bound=BaseModel)
 class PlotThreadService(CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]):
     repo = PlotThreadRepository()
     response = PlotThreadResponse
+    list_response = PlotThreadListResponse
     label = "PlotThread"
     id_param = "thread_id"
 
@@ -60,6 +63,7 @@ class PlotThreadService(CrudService[PlotThread, PlotThreadCreate, PlotThreadUpda
 class OutlineArcService(CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse]):
     repo = OutlineArcRepository()
     response = OutlineArcResponse
+    list_response = OutlineArcListResponse
     label = "OutlineArc"
     id_param = "arc_id"
 

@@ -16,11 +16,13 @@ from modules.memory.schemas import (
     ChapterPanorama,
     CharacterLocationInPanorama,
     EntityInPanorama,
+    EventListResponse,
     EventType,
     KnowledgeInPanorama,
     MemoryEventResponse,
     MemoryStatusResponse,
     RelationInPanorama,
+    SnapshotListResponse,
     SnapshotResponse,
 )
 from shared.utils import parse_uuid
@@ -193,6 +195,49 @@ class MemoryService:
         logger.info("Marked %d snapshots as stale from chapter %d", count, from_chapter)
         return {"stale_count": count, "from_chapter": from_chapter}
 
+    async def list_events(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        from_chapter: int,
+        to_chapter: int,
+    ) -> EventListResponse:
+        """按章节范围查询事件列表"""
+        nid = parse_uuid(novel_id)
+        events = await self._event_repo.get_by_chapter_range(
+            db, nid, from_chapter, to_chapter,
+        )
+        items = [MemoryEventResponse.model_validate(e) for e in events]
+        return EventListResponse(items=items, total=len(items))
+
+    async def get_entity_timeline(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        skip: int,
+        limit: int,
+    ) -> EventListResponse:
+        """获取单个实体的变化时间线"""
+        nid = parse_uuid(novel_id)
+        eid = parse_uuid(entity_id)
+        events, total = await self._event_repo.get_by_entity(
+            db, nid, eid, skip=skip, limit=limit,
+        )
+        items = [MemoryEventResponse.model_validate(e) for e in events]
+        return EventListResponse(items=items, total=total)
+
+    async def list_snapshots(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> SnapshotListResponse:
+        """列出所有快照"""
+        nid = parse_uuid(novel_id)
+        snapshots = await self._snapshot_repo.list_for_novel(db, nid)
+        items = [SnapshotResponse.model_validate(s) for s in snapshots]
+        return SnapshotListResponse(items=items, total=len(items))
+
     async def get_status(
         self,
         db: AsyncSession,
@@ -211,9 +256,15 @@ class MemoryService:
                 stale_from_chapter=None,
             )
 
-        latest_current = max((s.chapter_index for s in snapshots if s.status == "current"), default=None)
+        latest_current = max(
+            (s.chapter_index for s in snapshots if s.status == "current"),
+            default=None,
+        )
         stale_snapshots = [s for s in snapshots if s.status == "stale"]
-        stale_from = min((s.chapter_index for s in stale_snapshots), default=None) if stale_snapshots else None
+        stale_from = (
+            min((s.chapter_index for s in stale_snapshots), default=None)
+            if stale_snapshots else None
+        )
 
         return MemoryStatusResponse(
             novel_id=novel_id,

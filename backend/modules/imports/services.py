@@ -16,7 +16,7 @@ from modules.imports.models import ImportRecord
 from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_file
 from modules.imports.repositories import ImportRecordRepository
 from modules.imports.schemas import ImportListResponse, ImportResponse
-from modules.writing.facade import create_draft
+from modules.writing.facade import create_draft_only
 from shared.utils import parse_uuid
 
 
@@ -67,7 +67,7 @@ class ImportService:
             # 逐章创建 WritingDraft + 排 RAG 索引任务
             imported = 0
             for idx, ch in enumerate(chapters, start=1):
-                _draft, _task_id = await create_draft(
+                _draft = await create_draft_only(
                     db,
                     novel_id=novel_id,
                     chapter_index=idx,
@@ -76,6 +76,11 @@ class ImportService:
                 )
                 imported += 1
 
+                enqueue_task(
+                    db,
+                    "publish_chapter",
+                    meta={"novel_id": novel_id, "chapter_index": idx},
+                )
                 enqueue_task(
                     db,
                     "rag_index_chapter",

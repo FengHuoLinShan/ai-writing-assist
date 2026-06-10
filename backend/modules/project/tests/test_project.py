@@ -1,36 +1,35 @@
 """
 Project 模块测试
 
-测试 CRUD 各路径、facade 和边界情况。
+测试 CRUD 各路径、service 和边界情况。
 使用 pytest-asyncio 测试异步数据库操作。
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.project import get_project_context
-from modules.project.project import ProjectRepository
 from modules.project.project import (
     ProjectContext,
     ProjectCreate,
+    ProjectService,
     ProjectUpdate,
+    create_project,
+    delete_project,
+    get_project_by_id,
+    get_project_context,
+    list_projects,
+    update_project,
 )
-from modules.project.project import ProjectService
 
 
 # ============================================================
 # Fixtures
 # ============================================================
-
-@pytest.fixture
-def repo() -> ProjectRepository:
-    return ProjectRepository()
 
 
 @pytest.fixture
@@ -65,21 +64,20 @@ def update_data() -> ProjectUpdate:
 
 
 # ============================================================
-# Repository 测试
+# CRUD 测试（直接测试模块级函数）
 # ============================================================
 
-class TestProjectRepository:
-    """测试数据访问层"""
+class TestProjectCrud:
+    """测试模块级 CRUD 函数"""
 
     @pytest.mark.asyncio
     async def test_create(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
         """测试创建项目"""
-        project = await repo.create(db_session, sample_create_data)
+        project = await create_project(db_session, sample_create_data)
         assert project.id is not None
         assert project.title == "测试小说"
         assert project.genre == "玄幻"
@@ -92,12 +90,11 @@ class TestProjectRepository:
     @pytest.mark.asyncio
     async def test_create_with_defaults(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         minimal_create_data: ProjectCreate,
     ) -> None:
         """测试使用默认值创建项目"""
-        project = await repo.create(db_session, minimal_create_data)
+        project = await create_project(db_session, minimal_create_data)
         assert project.title == "最小测试项目"
         assert project.genre is None
         assert project.tone is None
@@ -107,13 +104,12 @@ class TestProjectRepository:
     @pytest.mark.asyncio
     async def test_get(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
         """测试根据 ID 获取项目"""
-        created = await repo.create(db_session, sample_create_data)
-        fetched = await repo.get(db_session, created.id)
+        created = await create_project(db_session, sample_create_data)
+        fetched = await get_project_by_id(db_session, created.id)
         assert fetched is not None
         assert fetched.id == created.id
         assert fetched.title == "测试小说"
@@ -121,63 +117,58 @@ class TestProjectRepository:
     @pytest.mark.asyncio
     async def test_get_not_found(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
     ) -> None:
         """测试获取不存在的项目"""
         fake_id = uuid.uuid4()
-        fetched = await repo.get(db_session, fake_id)
+        fetched = await get_project_by_id(db_session, fake_id)
         assert fetched is None
 
     @pytest.mark.asyncio
-    async def test_get_multi(
+    async def test_list(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
     ) -> None:
         """测试分页获取项目列表"""
-        # 创建多个项目
         for i in range(3):
-            await repo.create(
+            await create_project(
                 db_session,
                 ProjectCreate(title=f"项目{i}"),
             )
         await db_session.flush()
 
-        items, total = await repo.get_multi(db_session, skip=0, limit=10)
+        items, total = await list_projects(db_session, skip=0, limit=10)
         assert total >= 3
         assert len(items) >= 3
 
     @pytest.mark.asyncio
-    async def test_get_multi_with_pagination(
+    async def test_list_with_pagination(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
     ) -> None:
         """测试分页限制"""
         for i in range(5):
-            await repo.create(
+            await create_project(
                 db_session,
                 ProjectCreate(title=f"项目{i}"),
             )
         await db_session.flush()
 
-        items, total = await repo.get_multi(db_session, skip=0, limit=2)
+        items, total = await list_projects(db_session, skip=0, limit=2)
         assert total == 5
         assert len(items) == 2
 
     @pytest.mark.asyncio
     async def test_update(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
         update_data: ProjectUpdate,
     ) -> None:
         """测试更新项目"""
-        created = await repo.create(db_session, sample_create_data)
+        created = await create_project(db_session, sample_create_data)
 
-        updated = await repo.update(db_session, created.id, update_data)
+        updated = await update_project(db_session, created.id, update_data)
         assert updated is not None
         assert updated.title == "更新后的标题"
         assert updated.current_stage == "outlining"
@@ -187,54 +178,50 @@ class TestProjectRepository:
     @pytest.mark.asyncio
     async def test_update_not_found(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         update_data: ProjectUpdate,
     ) -> None:
         """测试更新不存在的项目"""
         fake_id = uuid.uuid4()
-        updated = await repo.update(db_session, fake_id, update_data)
+        updated = await update_project(db_session, fake_id, update_data)
         assert updated is None
 
     @pytest.mark.asyncio
     async def test_update_empty(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
         """测试空更新（没有字段变化）"""
-        created = await repo.create(db_session, sample_create_data)
+        created = await create_project(db_session, sample_create_data)
         empty_update = ProjectUpdate()
-        updated = await repo.update(db_session, created.id, empty_update)
+        updated = await update_project(db_session, created.id, empty_update)
         assert updated is not None
         assert updated.title == "测试小说"
 
     @pytest.mark.asyncio
     async def test_delete(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
         """测试删除项目"""
-        created = await repo.create(db_session, sample_create_data)
-        deleted = await repo.delete(db_session, created.id)
+        created = await create_project(db_session, sample_create_data)
+        deleted = await delete_project(db_session, created.id)
         assert deleted is True
 
         # 验证已被删除
-        fetched = await repo.get(db_session, created.id)
+        fetched = await get_project_by_id(db_session, created.id)
         assert fetched is None
 
     @pytest.mark.asyncio
     async def test_delete_not_found(
         self,
-        repo: ProjectRepository,
         db_session: AsyncSession,
     ) -> None:
         """测试删除不存在的项目"""
         fake_id = uuid.uuid4()
-        deleted = await repo.delete(db_session, fake_id)
+        deleted = await delete_project(db_session, fake_id)
         assert deleted is False
 
 
@@ -323,7 +310,7 @@ class TestProjectService:
         """测试无效 UUID 格式"""
         with pytest.raises(HTTPException) as exc_info:
             await service.get_project(db_session, "not-a-uuid")
-        assert exc_info.value.status_code == 422  # HTTP_422_UNPROCESSABLE_CONTENT
+        assert exc_info.value.status_code == 422
 
 
 # ============================================================
@@ -341,8 +328,7 @@ class TestProjectFacade:
     ) -> None:
         """测试 facade.get_project_context"""
         # 先创建项目
-        repo = ProjectRepository()
-        project = await repo.create(db_session, sample_create_data)
+        project = await create_project(db_session, sample_create_data)
 
         ctx = await get_project_context(db_session, str(project.id))
         assert ctx is not None

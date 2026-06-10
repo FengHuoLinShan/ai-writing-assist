@@ -413,8 +413,9 @@ async def test_memory_records_loader_loads_panorama(
     db_session: AsyncSession, test_project_id: str,
 ):
     # Arrange
-    from modules.memory.facade import record_events
+    from modules.memory.services import MemoryService
 
+    _memory = MemoryService()
     eid = str(uuid.uuid4())
     events = [
         {
@@ -432,7 +433,7 @@ async def test_memory_records_loader_loads_panorama(
             },
         }
     ]
-    await record_events(db_session, test_project_id, 1, events)
+    await _memory.record_events(db_session, test_project_id, 1, events)
 
     loader = MemoryRecordsLoader()
     options = _compile_options(test_project_id, chapter_index=1)
@@ -474,7 +475,7 @@ async def test_memory_records_loader_exception_returns_empty(
     bundle = _bundle(test_project_id)
 
     with mock.patch(
-        "modules.memory.facade.get_chapter_panorama",
+        "modules.memory.services.MemoryService.get_panorama",
         side_effect=RuntimeError("DB error"),
     ):
         # Act

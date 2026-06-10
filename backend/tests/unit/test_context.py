@@ -493,7 +493,7 @@ class TestMemoryRecordsLoader:
         options = MagicMock(novel_id="id", chapter_index=3)
 
         with patch(
-            "modules.memory.facade.get_chapter_panorama",
+            "modules.memory.services.MemoryService.get_panorama",
             AsyncMock(return_value=mock_panorama),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
@@ -509,7 +509,7 @@ class TestMemoryRecordsLoader:
         options = MagicMock(novel_id="id", chapter_index=1)
 
         with patch(
-            "modules.memory.facade.get_chapter_panorama",
+            "modules.memory.services.MemoryService.get_panorama",
             AsyncMock(side_effect=RuntimeError("DB connection failed")),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
@@ -595,7 +595,7 @@ class TestPlotThreadsLoader:
         options = MagicMock(novel_id="id", chapter_index=5)
 
         with patch(
-            "modules.outline.facade.get_active_threads",
+            "modules.outline.services.PlotThreadService.get_active",
             AsyncMock(return_value=[mock_thread]),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
@@ -632,7 +632,7 @@ class TestOutlineArcLoader:
         options = MagicMock(novel_id="id", chapter_index=5)
 
         with patch(
-            "modules.outline.facade.get_arc_by_chapter",
+            "modules.outline.services.OutlineArcService.get_by_chapter",
             AsyncMock(return_value=mock_arc),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)

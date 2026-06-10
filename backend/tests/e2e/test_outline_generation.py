@@ -55,11 +55,12 @@ async def _generate_with_retry(
     end_chapter: int,
 ) -> dict[str, Any]:
     """调用生成器，如果 LLM 返回空则重试（LLM 输出不稳定）。"""
-    from modules.outline.facade import generate_plot_structure
+    from modules.outline.services import PlotStructureGenerator
 
+    _generator = PlotStructureGenerator()
     result: dict[str, Any] = {}
     for attempt in range(1, MAX_LLM_RETRIES + 1):
-        result = await generate_plot_structure(db, novel_id, start_chapter, end_chapter)
+        result = await _generator.generate(db, novel_id, start_chapter, end_chapter)
         total = result.get("total_threads", 0)
         if total > 0:
             return result
@@ -167,13 +168,16 @@ class TestRealOutlineGeneration:
     ) -> None:
         """生成的数据持久化到 DB 且可回读。"""
         # Arrange
-        from modules.outline.facade import list_threads, list_arcs
+        from modules.outline.services import OutlineArcService, PlotThreadService
+
+        _thread_svc = PlotThreadService()
+        _arc_svc = OutlineArcService()
         novel_id = project_with_world["project_id"]
 
         # Act
         await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
-        thread_list = await list_threads(db_session, novel_id)
-        arc_list = await list_arcs(db_session, novel_id)
+        thread_list = await _thread_svc.list_with_response(db_session, novel_id)
+        arc_list = await _arc_svc.list_with_response(db_session, novel_id)
 
         # Assert
         logger.info("=== Persisted ===")
@@ -194,7 +198,9 @@ class TestRealOutlineGeneration:
     ) -> None:
         """多次调用不崩溃，目前无 dedup。"""
         # Arrange
-        from modules.outline.facade import list_threads
+        from modules.outline.services import PlotThreadService
+
+        _thread_svc = PlotThreadService()
         novel_id = project_with_world["project_id"]
 
         # Act
@@ -205,7 +211,7 @@ class TestRealOutlineGeneration:
         assert r1.get("total_threads", 0) > 0
         assert r2.get("total_threads", 0) > 0
 
-        after = await list_threads(db_session, novel_id)
+        after = await _thread_svc.list_with_response(db_session, novel_id)
         expected = r1["total_threads"] + r2["total_threads"]
         assert after.total >= expected, (
             f"期望 >= {expected}，实际 {after.total}——可能有重复"
@@ -262,12 +268,14 @@ class TestOutputContractCoverage:
     ) -> None:
         """验证 DB 中 related_character_ids / related_entity_ids 为空。"""
         # Arrange
-        from modules.outline.facade import list_threads
+        from modules.outline.services import PlotThreadService
+
+        _thread_svc = PlotThreadService()
         novel_id = project_with_world["project_id"]
 
         # Act
         await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
-        thread_list = await list_threads(db_session, novel_id)
+        thread_list = await _thread_svc.list_with_response(db_session, novel_id)
         filled = [
             (t.name, t.related_character_ids, t.related_entity_ids)
             for t in thread_list.items

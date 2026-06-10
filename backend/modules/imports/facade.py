@@ -105,8 +105,8 @@ async def resume_deep_import(
     result = await db.execute(stmt)
     prev_task = result.scalar_one_or_none()
     if prev_task is None:
-        from fastapi import HTTPException
-        raise HTTPException(404, detail=f"Previous task not found: {prev_task_id}")
+        from modules.imports.contracts import TaskNotFoundError
+        raise TaskNotFoundError(prev_task_id)
 
     prev_meta = prev_task.meta or {}
 
@@ -125,5 +125,3 @@ async def resume_deep_import(
         "status": "pending",
         "message": "深度导入继续任务已提交",
     }
-
-

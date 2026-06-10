@@ -262,20 +262,21 @@ class TestWritingDraftRepository:
         await repo.create(db_session, v2_data)
 
         deleted = await repo.delete(db_session, created.id)
-        assert deleted is True
+        assert deleted is not None
         fetched = await repo.get(db_session, created.id)
         assert fetched is None
 
     @pytest.mark.asyncio
-    async def test_delete_last_version_rejected(
+    async def test_delete_last_version_allowed_in_repo(
         self,
         repo: WritingDraftRepository,
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
+        """Repository 层不检查"至少保留 1 个版本"，该规则在 Service 层处理"""
         created = await repo.create(db_session, sample_draft_data)
         deleted = await repo.delete(db_session, created.id)
-        assert deleted is False
+        assert deleted is not None
 
     @pytest.mark.asyncio
     async def test_delete_renumbers_versions(
@@ -295,7 +296,11 @@ class TestWritingDraftRepository:
             title="v3", content="v3",
         ))
         # Delete v2, v3 should become v2
-        await repo.delete(db_session, v2.id)
+        deleted = await repo.delete(db_session, v2.id)
+        assert deleted is not None
+        await repo.renumber_versions_after_delete(
+            db_session, novel_id, 1, deleted.version_number,
+        )
         versions = await repo.get_version_history(db_session, novel_id, chapter_index=1)
         assert len(versions) == 2
         version_numbers = sorted([v.version_number for v in versions])
@@ -308,7 +313,7 @@ class TestWritingDraftRepository:
         db_session: AsyncSession,
     ) -> None:
         deleted = await repo.delete(db_session, uuid.uuid4())
-        assert deleted is False
+        assert deleted is None
 
     @pytest.mark.asyncio
     async def test_delete_all_versions(

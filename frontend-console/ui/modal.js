@@ -31,11 +31,14 @@ function showModal(title, body, buttons = []) {
   footerEl.innerHTML = ""
   for (const btn of buttons) {
     const el = document.createElement("button")
-    el.className = "btn " + (btn.class || "")
+    const isPrimary = !btn.class || btn.class.includes("primary") || btn.text === "保存" || btn.text === "创建" || btn.text === "确认"
+    el.className = "btn " + (btn.class || (isPrimary ? "btn-primary" : "btn-ghost"))
     el.textContent = btn.text
     el.addEventListener("click", () => {
       btn.handler()
-      closeModal()
+      if (btn.text !== "取消" && btn.text !== "关闭") {
+        closeModal()
+      }
     })
     footerEl.appendChild(el)
   }
@@ -43,7 +46,7 @@ function showModal(title, body, buttons = []) {
   // 如果没有取消/关闭按钮，自动追加一个
   if (!buttons.some((b) => b.text === "取消" || b.text === "关闭")) {
     const cancel = document.createElement("button")
-    cancel.className = "btn"
+    cancel.className = "btn btn-ghost"
     cancel.textContent = "取消"
     cancel.addEventListener("click", closeModal)
     footerEl.appendChild(cancel)
@@ -67,6 +70,6 @@ function closeModal() {
 function confirmAction(message, onConfirm, confirmText = "确认") {
   showModal("确认操作", `<p>${message}</p>`, [
     { text: confirmText, class: "btn-danger", handler: onConfirm },
-    { text: "取消", handler: closeModal },
+    { text: "取消", class: "btn-ghost", handler: closeModal },
   ])
 }

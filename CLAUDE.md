@@ -19,9 +19,9 @@ See `development-guide.md` for full reference, `testing-guide.md` for test conve
 
 Two-package layout: `backend/` (FastAPI) + `frontend-console/` (vanilla JS, zero build step, zero framework, no TypeScript).
 
-**8 active backend modules** (`app/main.py:289-296`): `project`, `imports`, `world`, `memory`, `rag`, `context`, `writing`, `tasks`. Removed: `geo`, `outline`, `review`, `character`, `timeline`. Character lives in `modules/world`.
+**8 active backend modules** (`app/main.py:293-301`): `project`, `imports`, `world`, `memory`, `outline`, `rag`, `context`, `writing`. Removed: `geo`, `review`, `character`, `timeline`. Character lives in `modules/world`. `infrastructure/tasks/` is a shared infra layer, not a business module.
 
-Each module: `contracts.py` → `models.py` → `repositories.py` → `services.py` → `facade.py` → `api.py`; tasks in `tasks.py`.
+Each module: `contracts.py` → `models.py` → `repositories.py` → `services.py` → `api.py`; tasks in `tasks.py`. `facade.py` is optional — memory/outline modules omit it, routing directly through `api.py` → `services.py`.
 
 **Cross-module imports (strict):** Only `contracts.py` and `facade.py` — never `models.py`, `repositories.py`, or `services.py`. Facade/API are thin delegators with no complex business logic.
 

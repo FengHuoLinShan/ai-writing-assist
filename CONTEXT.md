@@ -79,7 +79,7 @@ core > important > normal > temporary > alias
 | **结构层** | `outline` | 把事实组织为可执行的剧情计划。PlotThread + OutlineArc + ChapterCard |
 | **辅助层** | `rag`, `context`, `writing`, `imports` | 检索增强（RAG 分块）、上下文编译（跨模块组装 LLM context）、正文草稿承载、文件导入 |
 
-模块通信：跨模块只能导入 `contracts.py` 和 `facade.py`。Facade/API 不写复杂业务逻辑。
+模块通信：跨模块只能导入 `contracts.py` 和 `facade.py`（或 `api.py`，当模块无 facade 时）。Facade/API 不写复杂业务逻辑。
 
 ## 5. 关键流程约定（Key Conventions）
 
@@ -166,7 +166,7 @@ Prompt 合并策略：一次 prompt 输出多个 JSON 数组，入库时分别�
 | 文档 | 内容 |
 |------|------|
 | `docs/00_整体设计.md` | 系统三层结构、模块职责、目录结构 |
-| `docs/01_数据库设计.md` | 16 张表完整字段定义 |
+| `docs/01_数据库设计.md` | 活跃表完整字段定义（已移除废弃模块表） |
 | `AGENTS.md` | AI agent 禁止事项、命令速查、命名规范 |
 | `development-guide.md` | 开发命令、模块开发规则 |
 | `testing-guide.md` | 测试约定（unit/integration/e2e） |

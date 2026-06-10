@@ -189,6 +189,17 @@ class WorldEntityService(
             db, nid, name, entity_type=entity_type,
         )
 
+    async def list_entity_batches(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        limit: int = 10,
+    ) -> list[dict]:
+        """获取自动入库实体的批次分组列表"""
+        nid = parse_uuid(novel_id, "novel_id")
+        return await self.repo.get_entity_batches(db, nid, limit=limit)
+
     async def backfill_embeddings(
         self,
         db: AsyncSession,

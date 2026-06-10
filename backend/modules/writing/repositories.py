@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.models import WritingDraft
@@ -126,44 +126,54 @@ class WritingDraftRepository:
         self,
         db: AsyncSession,
         draft_id: uuid.UUID,
-    ) -> bool:
-        """删除单个版本，并重排后续版本号（-1）。返回是否成功。"""
+    ) -> WritingDraft | None:
+        """删除单个版本。返回被删除的 draft（用于后续重排版本号）。"""
         draft = await self.get(db, draft_id)
         if draft is None:
-            return False
-
-        # 检查是否是该章最后一个版本
-        stmt = (
-            select(WritingDraft)
-            .where(
-                WritingDraft.novel_id == draft.novel_id,
-                WritingDraft.chapter_index == draft.chapter_index,
-            )
-        )
-        result = await db.execute(stmt)
-        all_versions = result.scalars().all()
-        if len(all_versions) <= 1:
-            return False  # 至少保留 1 个版本
-
-        deleted_version = draft.version_number
+            return None
 
         # 删除该版本
         del_stmt = delete(WritingDraft).where(WritingDraft.id == draft_id)
         await db.execute(del_stmt)
+        await db.flush()
+        return draft
 
-        # 重排高于被删版本的版本号
+    async def renumber_versions_after_delete(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        deleted_version: int,
+    ) -> None:
+        """删除后重排高于被删版本的版本号（-1）。"""
         renumber_stmt = (
             update(WritingDraft)
             .where(
-                WritingDraft.novel_id == draft.novel_id,
-                WritingDraft.chapter_index == draft.chapter_index,
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index == chapter_index,
                 WritingDraft.version_number > deleted_version,
             )
             .values(version_number=WritingDraft.version_number - 1)
         )
         await db.execute(renumber_stmt)
         await db.flush()
-        return True
+
+    async def count_versions(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> int:
+        """返回某章版本总数"""
+        stmt = (
+            select(func.count(WritingDraft.id))
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index == chapter_index,
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalar() or 0
 
     async def delete_all_versions(
         self,
@@ -182,23 +192,6 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount or 0
-
-    async def count_versions(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        chapter_index: int,
-    ) -> int:
-        """返回某章版本总数"""
-        stmt = (
-            select(WritingDraft)
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.chapter_index == chapter_index,
-            )
-        )
-        result = await db.execute(stmt)
-        return len(result.scalars().all())
 
     # ============================================================
     # 内部方法

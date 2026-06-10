@@ -25,73 +25,110 @@ const projectView = {
       html = `
         <div class="empty-state">
           <div class="empty-icon">&#128214;</div>
-          <p>还没有小说项目。</p>
-          <p>你可以：</p>
-          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
+          <h2>开始你的第一部小说</h2>
+          <p>创建项目，导入正文，让 AI 协助你构建世界观与剧情。</p>
+          <div class="actions">
             <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
-            <button class="btn" data-action="import">导入小说</button>
+            <button class="btn btn-ghost" data-action="import">导入小说</button>
           </div>
         </div>
       `
     } else {
       html += `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>状态</th>
-              <th>标题</th>
-              <th>题材</th>
-              <th>当前阶段</th>
-              <th>更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div class="project-header">
+          <h1>项目</h1>
+          <p>选择一个项目继续创作，或创建新项目。</p>
+          <div class="divider"></div>
+        </div>
+        <div class="project-grid">
       `
-      for (const p of projects) {
+
+      for (let i = 0; i < projects.length; i++) {
+        const p = projects[i]
         const status = p.status || "active"
-        const statusClass = status === "active" || status === "canonical" ? "badge-canonical" : "badge-draft"
+        const isCanonical = status === "active" || status === "canonical"
+        const updated = p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : ""
         html += `
-          <tr data-id="${esc(p.id)}" class="clickable" data-action="open-project">
-            <td><span class="badge ${statusClass}">${status === "canonical" ? "正史" : "草稿"}</span></td>
-            <td>${esc(p.title || p.name || "未命名项目")}</td>
-            <td>${esc(p.genre || "-")}</td>
-            <td>${esc(p.current_stage || "-")}</td>
-            <td>${p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : "-"}</td>
-            <td>
-              <button class="btn btn-sm" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
-              <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}" style="margin-left:4px;">删除</button>
-            </td>
-          </tr>
+          <div class="project-card ${i === 0 ? "featured" : ""}" data-id="${esc(p.id)}" data-action="open-project">
+            <div class="project-status">
+              <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
+              <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${status === "canonical" ? "正史" : "草稿"}</span>
+            </div>
+            <div class="project-title">${esc(p.title || p.name || "未命名项目")}</div>
+            <div class="project-tags">
+              ${p.genre ? `<span class="pill">${esc(p.genre)}</span>` : ""}
+              ${p.current_stage ? `<span class="pill">${esc(this._stageLabel(p.current_stage))}</span>` : ""}
+            </div>
+            <div class="project-desc">${esc(p.tone || p.description || "暂无描述")}</div>
+            <div class="project-meta">
+              ${updated ? `更新于 ${updated}` : "刚刚创建"}
+            </div>
+            <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;opacity:0;transition:opacity .15s;">
+              <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
+              <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
+            </div>
+          </div>
         `
       }
-      html += '</tbody></table>'
+
       html += `
-        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
-          <button class="btn" data-action="import">导入小说</button>
-          <button class="btn" data-action="toggle-import">${this._importSectionOpen ? "▾" : "▸"} 导入到当前项目</button>
+          <div class="project-card project-card-placeholder" data-action="new" id="btn-create-project">
+            <div class="plus">+</div>
+            <div class="label">创建新项目</div>
+          </div>
         </div>
-        ${this._importSectionOpen ? this._renderImportSection() : ""}
+      `
+
+      html += `
+        <div class="import-list">
+          <div class="import-list-header">导入记录</div>
+          <div id="import-list-body">
+            <p style="color:var(--text-tertiary);font-size:13px;">加载中...</p>
+          </div>
+        </div>
       `
     }
 
-    // 事件绑定（延迟到 DOM 挂载后）
     setTimeout(() => this._bindEvents(), 0)
+    if (state.projects.length > 0) {
+      setTimeout(() => this._renderImportHistory(), 0)
+    }
 
     return html
   },
 
-  _bindEvents() {
-    // 新建项目
-    document.getElementById("btn-create-project")?.addEventListener("click", () => this.showCreateForm())
-    // 表内操作通过委托处理
-    this._bindTableDelegation()
-    // 导入区域按钮
-    this._bindImportButtons()
+  _stageLabel(stage) {
+    const map = {
+      world_building: "世界构建",
+      outlining: "大纲规划",
+      writing: "正文写作",
+      revising: "修订中",
+    }
+    return map[stage] || stage
   },
 
-  _bindTableDelegation() {
+  _bindEvents() {
+    document.getElementById("btn-create-project")?.addEventListener("click", (e) => {
+      e.stopPropagation()
+      this.showCreateForm()
+    })
+    this._bindCardDelegation()
+    this._bindImportButtons()
+
+    // 卡片 hover 时显示操作按钮
+    document.querySelectorAll(".project-card[data-id]").forEach((card) => {
+      card.addEventListener("mouseenter", () => {
+        const actions = card.querySelector(".project-actions")
+        if (actions) actions.style.opacity = "1"
+      })
+      card.addEventListener("mouseleave", () => {
+        const actions = card.querySelector(".project-actions")
+        if (actions) actions.style.opacity = "0"
+      })
+    })
+  },
+
+  _bindCardDelegation() {
     bindWorkspaceClick(this, {
       "open-project": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
       "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
@@ -303,10 +340,6 @@ const projectView = {
     input.click()
   },
 
-  // ============================================================
-  // 导入区
-  // ============================================================
-
   _toggleImportSection() {
     this._importSectionOpen = !this._importSectionOpen
     router.navigate("project")
@@ -315,21 +348,21 @@ const projectView = {
   _renderImportSection() {
     const hasProject = !!state.currentProjectId
     return `
-      <div style="border:1px solid var(--border);border-radius:4px;padding:12px;margin-top:12px;">
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+      <div style="border:1px solid var(--text-quaternary);border-radius:8px;padding:16px;margin-top:16px;background:var(--bg-panel);">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
           将小说文件导入到当前选中的项目。
           ${hasProject ? `当前项目：<strong>${esc(state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}
         </div>
-        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
-            <label style="display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px;">选择文件（txt/epub/html/mobi）</label>
-            <input type="file" id="pv-import-file" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text);font-size:12px;" ${!hasProject ? "disabled" : ""} />
+            <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;">选择文件（txt/epub/html/mobi）</label>
+            <input type="file" id="pv-import-file" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text-body);font-size:13px;" ${!hasProject ? "disabled" : ""} />
           </div>
           <button class="btn btn-primary" data-action="upload-file" ${this._importUploading || !hasProject ? "disabled" : ""}>
             ${this._importUploading ? "上传中..." : "上传并导入"}
           </button>
         </div>
-        <div id="pv-import-history" style="margin-top:8px;"></div>
+        <div id="pv-import-history" style="margin-top:12px;"></div>
       </div>
     `
   },
@@ -343,26 +376,26 @@ const projectView = {
   },
 
   async _renderImportHistory() {
-    const container = document.getElementById("pv-import-history")
+    const container = document.getElementById("import-list-body")
     if (!container) return
     await this._loadImportRecords()
     if (this._importRecords.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-dim);font-size:12px;padding:8px;">暂无导入记录。</p>'
+      container.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;padding:8px 0;">暂无导入记录。</p>'
       return
     }
-    let html = '<table class="data-table" style="font-size:12px;"><thead><tr><th>文件名</th><th>类型</th><th>章节</th><th>状态</th><th>时间</th></tr></thead><tbody>'
+    let html = ''
     for (const r of this._importRecords) {
       const statusMap = { done: "完成", processing: "处理中", failed: "失败", pending: "等待" }
+      const statusClass = { done: "pill-success", processing: "pill-warning", failed: "pill-error", pending: "" }
       const time = r.created_at ? new Date(r.created_at).toLocaleString("zh-CN") : ""
-      html += `<tr>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.file_name)}</td>
-        <td style="color:var(--accent-dim);">${r.file_type}</td>
-        <td>${r.imported_chapters || 0}/${r.total_chapters || 0}</td>
-        <td><span class="badge badge-${r.status || "pending"}">${statusMap[r.status] || r.status}</span></td>
-        <td style="color:var(--text-dim);font-size:11px;">${time}</td>
-      </tr>`
+      html += `<div class="import-list-item">
+        <span class="status-dot ${r.status === "done" ? "success" : r.status === "failed" ? "error" : r.status === "processing" ? "warning" : "info"}"></span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-body);">${esc(r.file_name)}</span>
+        <span class="pill ${statusClass[r.status] || ""}">${statusMap[r.status] || r.status}</span>
+        <span style="color:var(--text-secondary);font-size:12px;">${r.imported_chapters || 0}/${r.total_chapters || 0} 章</span>
+        <span style="color:var(--text-tertiary);font-size:12px;font-family:var(--font-mono);">${time}</span>
+      </div>`
     }
-    html += '</tbody></table>'
     container.innerHTML = html
   },
 

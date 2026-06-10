@@ -22,7 +22,7 @@ from modules.project.project import Project
 from modules.writing.models import WritingDraft
 from modules.writing.facade import get_latest_draft_for_chapter
 from modules.world.models import CoreEntity
-from modules.world.services.draft_provider import DraftProvider
+from shared.protocols import DraftProvider
 from modules.world.services.extraction_service import EntityExtractionService
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")

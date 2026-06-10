@@ -4,20 +4,6 @@ from fastapi import APIRouter, Query
 from fastapi import status as http_status
 
 from core.dependencies import DbSession
-from modules.outline.facade import (
-    create_arc,
-    create_thread,
-    delete_arc,
-    delete_thread,
-    generate_plot_structure,
-    get_arc,
-    get_arc_by_chapter,
-    get_thread,
-    list_arcs,
-    list_threads,
-    update_arc,
-    update_thread,
-)
 from modules.outline.schemas import (
     OutlineArcCreate,
     OutlineArcListResponse,
@@ -28,9 +14,18 @@ from modules.outline.schemas import (
     PlotThreadResponse,
     PlotThreadUpdate,
 )
+from modules.outline.services import (
+    OutlineArcService,
+    PlotStructureGenerator,
+    PlotThreadService,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/outline", tags=["outline"])
+
+_thread_service = PlotThreadService()
+_arc_service = OutlineArcService()
+_generator = PlotStructureGenerator()
 
 
 # ============================================================
@@ -43,7 +38,7 @@ async def api_create_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await create_thread(db, novel_id, data)
+    return await _thread_service.create(db, novel_id, data)
 
 
 @router.get("/threads", response_model=PlotThreadListResponse)
@@ -53,7 +48,7 @@ async def api_list_threads(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await list_threads(db, novel_id, skip=skip, limit=limit)
+    return await _thread_service.list_with_response(db, novel_id, skip=skip, limit=limit)
 
 
 @router.get("/threads/{thread_id}", response_model=PlotThreadResponse)
@@ -62,7 +57,7 @@ async def api_get_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await get_thread(db, thread_id, novel_id=novel_id)
+    return await _thread_service.get(db, thread_id, novel_id=novel_id)
 
 
 @router.patch("/threads/{thread_id}", response_model=PlotThreadResponse)
@@ -72,7 +67,7 @@ async def api_update_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await update_thread(db, thread_id, data, novel_id=novel_id)
+    return await _thread_service.update(db, thread_id, data, novel_id=novel_id)
 
 
 @router.delete("/threads/{thread_id}", status_code=http_status.HTTP_204_NO_CONTENT)
@@ -81,7 +76,7 @@ async def api_delete_thread(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    await delete_thread(db, thread_id, novel_id=novel_id)
+    await _thread_service.delete(db, thread_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -94,7 +89,7 @@ async def api_create_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await create_arc(db, novel_id, data)
+    return await _arc_service.create(db, novel_id, data)
 
 
 @router.get("/arcs", response_model=OutlineArcListResponse)
@@ -104,7 +99,7 @@ async def api_list_arcs(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await list_arcs(db, novel_id, skip=skip, limit=limit)
+    return await _arc_service.list_with_response(db, novel_id, skip=skip, limit=limit)
 
 
 @router.get("/arcs/{arc_id}", response_model=OutlineArcResponse)
@@ -113,7 +108,7 @@ async def api_get_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await get_arc(db, arc_id, novel_id=novel_id)
+    return await _arc_service.get(db, arc_id, novel_id=novel_id)
 
 
 @router.patch("/arcs/{arc_id}", response_model=OutlineArcResponse)
@@ -123,7 +118,7 @@ async def api_update_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await update_arc(db, arc_id, data, novel_id=novel_id)
+    return await _arc_service.update(db, arc_id, data, novel_id=novel_id)
 
 
 @router.delete("/arcs/{arc_id}", status_code=http_status.HTTP_204_NO_CONTENT)
@@ -132,7 +127,7 @@ async def api_delete_arc(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    await delete_arc(db, arc_id, novel_id=novel_id)
+    await _arc_service.delete(db, arc_id, novel_id=novel_id)
 
 
 # ============================================================
@@ -146,5 +141,5 @@ async def api_generate_plot_structure(
     start_chapter: int = Query(1, ge=1, description="起始章节"),
     end_chapter: int = Query(10, ge=1, description="结束章节"),
 ):
-    result = await generate_plot_structure(db, novel_id, start_chapter, end_chapter)
+    result = await _generator.generate(db, novel_id, start_chapter, end_chapter)
     return result

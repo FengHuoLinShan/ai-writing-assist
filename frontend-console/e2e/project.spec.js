@@ -26,13 +26,12 @@ test.describe("项目模块", () => {
   })
 
   test("空项目状态显示新建按钮", async ({ page }) => {
-    // 如果数据库中已有项目，则检查表格；否则检查空态
     const emptyState = page.locator(SEL.emptyState)
-    const table = page.locator(SEL.dataTable)
+    const grid = page.locator(SEL.projectGrid)
     if (await emptyState.isVisible().catch(() => false)) {
       await expect(page.locator("#btn-create-project")).toBeVisible()
     } else {
-      await expect(table).toBeVisible()
+      await expect(grid).toBeVisible()
       await expect(page.locator("#btn-create-project")).toBeVisible()
     }
   })
@@ -69,10 +68,9 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
-    await expect(page.locator(SEL.dataTable)).toBeVisible()
-    await expect(page.locator(SEL.dataTable)).toContainText("列表测试项目")
-    // 前端直接显示 genre 原始值，不做中文映射
-    await expect(page.locator(SEL.dataTable)).toContainText("scifi")
+    await expect(page.locator(SEL.projectGrid)).toBeVisible()
+    await expect(page.locator(SEL.projectCard(project.id))).toContainText("列表测试项目")
+    await expect(page.locator(SEL.projectCard(project.id))).toContainText("scifi")
   })
 
   test("编辑项目信息", async ({ page }) => {
@@ -84,11 +82,13 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
-    await expect(page.locator(SEL.dataTable)).toBeVisible()
+    const card = page.locator(SEL.projectCard(project.id))
+    await expect(card).toBeVisible()
 
-    // 点击编辑按钮
-    const editBtn = page.locator('[data-action="edit-project"]')
-    await editBtn.first().click()
+    // hover 显示操作按钮
+    await card.hover()
+    const editBtn = card.locator('[data-action="edit-project"]')
+    await editBtn.click()
 
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑项目")
@@ -104,8 +104,7 @@ test.describe("项目模块", () => {
 
     // 前端编辑后不会自动刷新列表，需要手动刷新页面验证
     await page.reload()
-    await expect(page.locator(SEL.dataTable)).toBeVisible()
-    await expect(page.locator(SEL.dataTable)).toContainText("编辑后标题")
+    await expect(page.locator(SEL.projectCard(project.id))).toContainText("编辑后标题")
   })
 
   test("删除项目", async ({ page }) => {
@@ -117,11 +116,13 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
-    await expect(page.locator(SEL.dataTable)).toContainText("待删除项目")
+    const card = page.locator(SEL.projectCard(project.id))
+    await expect(card).toBeVisible()
 
-    // 点击删除按钮
-    const deleteBtn = page.locator('[data-action="delete-project"]')
-    await deleteBtn.first().click()
+    // hover 显示操作按钮
+    await card.hover()
+    const deleteBtn = card.locator('[data-action="delete-project"]')
+    await deleteBtn.click()
 
     // 确认删除弹窗
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
@@ -136,7 +137,7 @@ test.describe("项目模块", () => {
 
     // 刷新页面验证项目已消失
     await page.reload()
-    await expect(page.locator(SEL.dataTable)).not.toContainText("待删除项目", { timeout: 15000 })
+    await expect(page.locator(SEL.projectCard(project.id))).toHaveCount(0, { timeout: 15000 })
     testProjectId = null
   })
 
@@ -149,10 +150,11 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
-    await expect(page.locator(SEL.dataTable)).toBeVisible()
+    const card = page.locator(SEL.projectCard(project.id))
+    await expect(card).toBeVisible()
 
-    // 点击项目行
-    await page.locator(SEL.clickableRow).first().click()
+    // 点击项目卡片
+    await card.click()
 
     // 应切换到世界视图的对象库
     await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象", { timeout: 10000 })

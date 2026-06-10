@@ -113,5 +113,11 @@ async def resume_deep_import(
         from fastapi import HTTPException
         raise HTTPException(400, detail="task_id is required")
 
-    result = await _resume(db, prev_task_id)
+    from modules.imports.contracts import TaskNotFoundError
+
+    try:
+        result = await _resume(db, prev_task_id)
+    except TaskNotFoundError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(404, detail=str(exc)) from exc
     return result
