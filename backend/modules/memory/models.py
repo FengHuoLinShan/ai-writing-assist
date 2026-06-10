@@ -11,11 +11,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base
+from core.base import Base, NovelMixin, UUIDMixin, UUIDType
 
 
 class MemoryEvent(Base):
@@ -105,4 +105,49 @@ class MemorySnapshot(Base):
         return (
             f"<MemorySnapshot ch={self.chapter_index} "
             f"status={self.status!r}>"
+        )
+
+
+class DeltaLog(Base, UUIDMixin, NovelMixin):
+    """实体变更日志 — 记录每次结构化字段的 before/after"""
+
+    __tablename__ = "delta_log"
+    __table_args__ = {"comment": "实体变更日志"}
+
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, nullable=True, index=True, comment="关联实体 ID",
+    )
+    character_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, nullable=True, comment="关联网格人物 ID",
+    )
+    scene_index: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="变更发生的 Scene",
+    )
+    category: Mapped[str] = mapped_column(
+        String(32), nullable=False, comment="变更类别",
+    )
+    field_path: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="变更字段路径",
+    )
+    old_value: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="变更前的值",
+    )
+    new_value: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="变更后的值",
+    )
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="ai_extraction",
+        comment="来源: ai_extraction / manual_edit / manual_rollback",
+    )
+    meta: Mapped[dict] = mapped_column(
+        JSON, nullable=True, default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DeltaLog id={self.id} entity={self.entity_id} "
+            f"category={self.category} field={self.field_path}>"
         )
