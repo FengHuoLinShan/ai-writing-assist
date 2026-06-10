@@ -6,7 +6,7 @@ AI 长篇小说结构化创作引擎 v2.0
 注册所有模块的 API 路由，配置生命周期事件、中间件、异常处理器。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import logging
 import time
@@ -19,12 +19,45 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core.config import get_settings
+from core.container import register as _register
 from core.database import get_manager
 
+from modules.context.facade import (
+    compile_structure_context as _ctx_compile,
+)
+from modules.memory.services import MemoryService as _MemorySvc  # noqa: N814
+from modules.outline.services import (
+    OutlineArcService as _OAS,  # noqa: N814
+    PlotStructureGenerator as _PSG,  # noqa: N814
+    PlotThreadService as _PTS,  # noqa: N814
+)
+from modules.rag.facade import (
+    index_chapter_with_report as _rag_index,
+)
+from modules.writing.facade import (
+    list_chapter_indices as _writing_list_indices,
+)
+from modules.world.facade import (
+    list_characters as _world_list_characters,
+    list_entity_terms as _world_list_entity_terms,
+    run_entity_extraction as _world_extract,
+)
+
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
-import modules.project.project  # noqa: F401
-import modules.world.models  # noqa: F401
-# character 模块已删除，角色功能在 modules.world
+import modules.project.project  # noqa: F401, I001
+import modules.world.models  # noqa: F401, I001
+
+_register("world.list_characters", _world_list_characters)
+_register("world.list_entity_terms", _world_list_entity_terms)
+_register("world.run_entity_extraction", _world_extract)
+_register("rag.index_chapter", _rag_index)
+
+_register("writing.list_chapter_indices", _writing_list_indices)
+_register("outline.generate_structure", _PSG().generate)
+_register("outline.arc_service", _OAS())
+_register("outline.thread_service", _PTS())
+_register("context.compile", _ctx_compile)
+_register("memory.service", _MemorySvc())
 
 logger = logging.getLogger(__name__)
 
