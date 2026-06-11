@@ -16,8 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
-from modules.imports.parsers import parse_txt
 from modules.imports.models import ImportRecord
+from modules.imports.parsers import parse_txt
 from modules.imports.services import ImportService
 from modules.project.models import Project
 from modules.writing.models import WritingDraft
@@ -31,6 +31,7 @@ LAST_CHAPTER_TITLE = "第二百一十三章 再看一眼"
 # ============================================================
 # Cycle 1: Parser — 真实文件解析（Tracer Bullet）
 # ============================================================
+
 
 class TestRealFileParser:
     """Tracer Bullet: Parser 能否正确解析真实小说文件？"""
@@ -60,9 +61,7 @@ class TestRealFileParser:
             assert ch["title"].startswith("第"), (
                 f"第 {i + 1} 章标题不以'第'开头: '{ch['title']}'"
             )
-            assert "章" in ch["title"], (
-                f"第 {i + 1} 章标题不含'章': '{ch['title']}'"
-            )
+            assert "章" in ch["title"], f"第 {i + 1} 章标题不含'章': '{ch['title']}'"
 
     def test_each_chapter_has_substantial_content(self, file_bytes: bytes):
         """每个章节正文应有足够长度"""
@@ -76,29 +75,21 @@ class TestRealFileParser:
         """第一章正文应以小说正文开头（不含书前信息）"""
         chapters = parse_txt(file_bytes)
         content = chapters[0]["content"]
-        assert "痛" in content[:200], (
-            f"第一章开头不像正文: {content[:200]}"
-        )
+        assert "痛" in content[:200], f"第一章开头不像正文: {content[:200]}"
 
     def test_book_metadata_excluded_from_chapters(self, file_bytes: bytes):
         """书前元信息（标题/作者/简介）不应出现在任何章节正文中"""
         chapters = parse_txt(file_bytes)
         for i, ch in enumerate(chapters):
-            assert "知轩藏书" not in ch["content"], (
-                f"第 {i + 1} 章包含'知轩藏书'"
-            )
-            assert "爱潜水的乌贼" not in ch["content"], (
-                f"第 {i + 1} 章包含'爱潜水的乌贼'"
-            )
-            assert "内容简介" not in ch["content"], (
-                f"第 {i + 1} 章包含'内容简介'"
-            )
+            assert "知轩藏书" not in ch["content"], f"第 {i + 1} 章包含'知轩藏书'"
+            assert "爱潜水的乌贼" not in ch["content"], f"第 {i + 1} 章包含'爱潜水的乌贼'"
+            assert "内容简介" not in ch["content"], f"第 {i + 1} 章包含'内容简介'"
 
     def test_chapter_word_count_minimum(self, file_bytes: bytes):
         """每章应有足够的字数（中文字数 > 1000）"""
         chapters = parse_txt(file_bytes)
         for i, ch in enumerate(chapters):
-            cn_chars = sum(1 for c in ch["content"] if '一' <= c <= '鿿')
+            cn_chars = sum(1 for c in ch["content"] if "一" <= c <= "鿿")
             assert cn_chars > 1000, (
                 f"第 {i + 1} 章 '{ch['title']}' 中文字数不足: {cn_chars}"
             )
@@ -107,6 +98,7 @@ class TestRealFileParser:
 # ============================================================
 # Cycle 2: Service — 完整导入管线
 # ============================================================
+
 
 class TestRealFileImportService:
     """Cycle 2: ImportService 能否完成真实文件的完整导入？"""
@@ -164,7 +156,10 @@ class TestRealFileImportService:
     ):
         """导入后 writing_drafts 应创建 10 条草稿"""
         await service.upload_and_import(
-            db_session, real_project, "novel.txt", real_file_bytes,
+            db_session,
+            real_project,
+            "novel.txt",
+            real_file_bytes,
         )
 
         result = await db_session.execute(
@@ -178,9 +173,7 @@ class TestRealFileImportService:
             f"期望 {EXPECTED_CHAPTER_COUNT} 条草稿，实际 {len(drafts)}"
         )
         for i, draft in enumerate(drafts):
-            assert draft.chapter_index == i + 1, (
-                f"第 {i + 1} 条草稿索引不正确"
-            )
+            assert draft.chapter_index == i + 1, f"第 {i + 1} 条草稿索引不正确"
             assert isinstance(draft.title, str) and draft.title.startswith("第"), (
                 f"第 {i + 1} 条草稿标题格式不正确: '{draft.title}'"
             )
@@ -200,7 +193,10 @@ class TestRealFileImportService:
     ):
         """导入后应为每章节创建 RAG 索引任务"""
         await service.upload_and_import(
-            db_session, real_project, "novel.txt", real_file_bytes,
+            db_session,
+            real_project,
+            "novel.txt",
+            real_file_bytes,
         )
 
         result = await db_session.execute(
@@ -211,7 +207,9 @@ class TestRealFileImportService:
         assert len(tasks) == EXPECTED_CHAPTER_COUNT, (
             f"期望 {EXPECTED_CHAPTER_COUNT} 个 RAG 任务，实际 {len(tasks)}"
         )
-        chapter_indices = {task.meta.get("chapter_index", -1) for task in tasks if task.meta}
+        chapter_indices = {
+            task.meta.get("chapter_index", -1) for task in tasks if task.meta
+        }
         assert chapter_indices == set(range(1, EXPECTED_CHAPTER_COUNT + 1))
 
     @pytest.mark.asyncio
@@ -224,7 +222,10 @@ class TestRealFileImportService:
     ):
         """导入记录在数据库中的字段应正确"""
         resp = await service.upload_and_import(
-            db_session, real_project, "novel.txt", real_file_bytes,
+            db_session,
+            real_project,
+            "novel.txt",
+            real_file_bytes,
         )
 
         result = await db_session.execute(
@@ -247,10 +248,16 @@ class TestRealFileImportService:
     ):
         """两次导入同一文件应创建两条独立记录"""
         resp1 = await service.upload_and_import(
-            db_session, real_project, "novel.txt", real_file_bytes,
+            db_session,
+            real_project,
+            "novel.txt",
+            real_file_bytes,
         )
         resp2 = await service.upload_and_import(
-            db_session, real_project, "novel.txt", real_file_bytes,
+            db_session,
+            real_project,
+            "novel.txt",
+            real_file_bytes,
         )
 
         assert resp1.id != resp2.id, "两次导入的 ID 应不同"
@@ -270,6 +277,7 @@ class TestRealFileImportService:
 # Cycle 3: 边界情况 — 非小说文本的导入
 # ============================================================
 
+
 class TestRealFileEdgeCases:
     """边界情况测试：确保导入管线对各种输入有合理行为"""
 
@@ -282,7 +290,10 @@ class TestRealFileEdgeCases:
         """空 novel_id 应被拒绝"""
         with pytest.raises(Exception):
             await service.upload_and_import(
-                db_session, "", "test.txt", b"content",
+                db_session,
+                "",
+                "test.txt",
+                b"content",
             )
 
     @pytest.mark.asyncio
@@ -298,7 +309,10 @@ class TestRealFileEdgeCases:
         await db_session.flush()
 
         resp = await service.upload_and_import(
-            db_session, str(pid), "short.txt", "一段很短的内容。".encode("utf-8"),
+            db_session,
+            str(pid),
+            "short.txt",
+            "一段很短的内容。".encode(),
         )
         assert resp.status == "done"
         assert resp.total_chapters == 1

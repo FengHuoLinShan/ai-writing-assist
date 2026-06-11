@@ -20,17 +20,37 @@ def upgrade() -> None:
     op.create_table(
         "delta_log",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("entity_id", sa.UUID(), nullable=True, comment="关联实体 ID"),
         sa.Column("character_id", sa.UUID(), nullable=True, comment="关联网格人物 ID"),
         sa.Column("scene_index", sa.Integer(), nullable=True, comment="变更发生的 Scene"),
         sa.Column("category", sa.String(32), nullable=False, comment="变更类别"),
         sa.Column("field_path", sa.String(255), nullable=True, comment="变更字段路径"),
-        sa.Column("old_value", sa.Text(), nullable=True, comment="变更前的 JSON 序列化值"),
-        sa.Column("new_value", sa.Text(), nullable=True, comment="变更后的 JSON 序列化值"),
-        sa.Column("source", sa.String(32), nullable=False, server_default="ai_extraction", comment="来源"),
+        sa.Column(
+            "old_value", sa.Text(), nullable=True, comment="变更前的 JSON 序列化值"
+        ),
+        sa.Column(
+            "new_value", sa.Text(), nullable=True, comment="变更后的 JSON 序列化值"
+        ),
+        sa.Column(
+            "source",
+            sa.String(32),
+            nullable=False,
+            server_default="ai_extraction",
+            comment="来源",
+        ),
         sa.Column("meta", sa.JSON(), nullable=True, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="实体变更日志 — 记录每次结构化字段变更的 before/after",
     )

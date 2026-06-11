@@ -10,8 +10,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from core.dependencies import DbSession
-from modules.context.facade import compile_structure_context, render_context_markdown
 from modules.context.contracts import CONTEXT_BUDGET
+from modules.context.facade import compile_structure_context, render_context_markdown
 from modules.context.schemas import (
     BudgetUsedItem,
     ContextCompileRequest,
@@ -32,11 +32,18 @@ async def compile_context(
 
     根据 scope 从各模块按需加载数据，返回结构化的上下文包（内存对象）。
     """
-    if request.scope not in ("project", "world", "world_character", "arc", "chapter", "full"):
+    if request.scope not in (
+        "project",
+        "world",
+        "world_character",
+        "arc",
+        "chapter",
+        "full",
+    ):
         raise HTTPException(
             status_code=400,
             detail=f"不支持的 scope: {request.scope}。"
-                   f"支持: project / world / world_character / arc / chapter / full",
+            f"支持: project / world / world_character / arc / chapter / full",
         )
 
     bundle = await compile_structure_context(
@@ -107,11 +114,18 @@ async def render_context(
 
     一次调用完成编译和 Markdown 渲染，返回可直接放入 LLM Prompt 的文本。
     """
-    if request.scope not in ("project", "world", "world_character", "arc", "chapter", "full"):
+    if request.scope not in (
+        "project",
+        "world",
+        "world_character",
+        "arc",
+        "chapter",
+        "full",
+    ):
         raise HTTPException(
             status_code=400,
             detail=f"不支持的 scope: {request.scope}。"
-                   f"支持: project / world / world_character / arc / chapter / full",
+            f"支持: project / world / world_character / arc / chapter / full",
         )
 
     bundle = await compile_structure_context(
@@ -132,18 +146,22 @@ async def render_context(
     markdown = render_context_markdown(bundle)
 
     # 统计
-    sections_present = [k for k, v in {
-        "project": bundle.project,
-        "world_entities": bundle.world_entities,
-        "characters": bundle.characters,
-        "geo_locations": bundle.geo_locations,
-        "memory_records": bundle.memory_records,
-        "timeline_events": bundle.timeline_events,
-        "plot_threads": bundle.plot_threads,
-        "outline_arc": bundle.outline_arc,
-        "chapter_card": bundle.chapter_card,
-        "rag_chunks": bundle.rag_chunks,
-    }.items() if v]
+    sections_present = [
+        k
+        for k, v in {
+            "project": bundle.project,
+            "world_entities": bundle.world_entities,
+            "characters": bundle.characters,
+            "geo_locations": bundle.geo_locations,
+            "memory_records": bundle.memory_records,
+            "timeline_events": bundle.timeline_events,
+            "plot_threads": bundle.plot_threads,
+            "outline_arc": bundle.outline_arc,
+            "chapter_card": bundle.chapter_card,
+            "rag_chunks": bundle.rag_chunks,
+        }.items()
+        if v
+    ]
 
     budgets = [
         BudgetUsedItem(

@@ -71,7 +71,10 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_create_scene(
-        self, db_session: AsyncSession, sample_novel_id: str, scene_data: SceneCreate,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        scene_data: SceneCreate,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -92,7 +95,9 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_get_scene(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -110,7 +115,9 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_novel_ordered(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -130,7 +137,9 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_novel_with_pagination(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -147,7 +156,9 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_update_scene(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -157,7 +168,8 @@ class TestSceneRepository:
         await db_session.flush()
 
         updated = await repo.update(
-            db_session, scene.id,
+            db_session,
+            scene.id,
             SceneUpdate(title="更新标题", narrative_tag="climax"),
         )
         assert updated is not None
@@ -167,7 +179,9 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_soft_delete_scene(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -177,7 +191,9 @@ class TestSceneRepository:
         await db_session.flush()
 
         updated = await repo.update(
-            db_session, scene.id, SceneUpdate(status="deprecated"),
+            db_session,
+            scene.id,
+            SceneUpdate(status="deprecated"),
         )
         assert updated is not None
         assert updated.status == "deprecated"
@@ -188,7 +204,10 @@ class TestSceneRepository:
 
     @pytest.mark.asyncio
     async def test_novel_id_isolation(
-        self, db_session: AsyncSession, sample_novel_id: str, other_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
 
@@ -213,7 +232,9 @@ class TestSceneService:
 
     @pytest.mark.asyncio
     async def test_create_and_get(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.services import SceneService
 
@@ -229,29 +250,37 @@ class TestSceneService:
 
     @pytest.mark.asyncio
     async def test_get_ordered(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.services import SceneService
 
         svc = SceneService()
         await svc.create(
-            db_session, sample_novel_id,
+            db_session,
+            sample_novel_id,
             SceneCreate(
-                scene_index=2, title="C",
+                scene_index=2,
+                title="C",
                 status="canonical",
             ),
         )
         await svc.create(
-            db_session, sample_novel_id,
+            db_session,
+            sample_novel_id,
             SceneCreate(
-                scene_index=0, title="A",
+                scene_index=0,
+                title="A",
                 status="canonical",
             ),
         )
         await svc.create(
-            db_session, sample_novel_id,
+            db_session,
+            sample_novel_id,
             SceneCreate(
-                scene_index=1, title="B",
+                scene_index=1,
+                title="B",
                 status="canonical",
             ),
         )
@@ -265,17 +294,21 @@ class TestSceneService:
 
     @pytest.mark.asyncio
     async def test_update_scene_fields(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.services import SceneService
 
         svc = SceneService()
         created = await svc.create(
-            db_session, sample_novel_id,
+            db_session,
+            sample_novel_id,
             SceneCreate(scene_index=0),
         )
         updated = await svc.update(
-            db_session, created.id,
+            db_session,
+            created.id,
             SceneUpdate(
                 title="新标题",
                 goal="新目标",
@@ -292,20 +325,123 @@ class TestSceneService:
 
     @pytest.mark.asyncio
     async def test_delete_scene(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         from modules.outline.services import SceneService
 
         svc = SceneService()
         created = await svc.create(
-            db_session, sample_novel_id,
+            db_session,
+            sample_novel_id,
             SceneCreate(scene_index=0),
         )
         await svc.delete(db_session, created.id, novel_id=sample_novel_id)
 
         from modules.outline.repositories import SceneRepository
+
         repo = SceneRepository()
         nid = uuid.UUID(hex=sample_novel_id)
         scenes = await repo.get_by_novel_ordered(db_session, nid)
         assert len(scenes) == 0
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_reorder_scenes(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        scene1 = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=0, title="A", status="canonical"),
+        )
+        scene2 = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=1, title="B", status="canonical"),
+        )
+        scene3 = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=2, title="C", status="canonical"),
+        )
+
+        result = await svc.reorder(
+            db_session,
+            sample_novel_id,
+            [scene3.id, scene1.id, scene2.id],
+        )
+        assert result["updated"] == 3
+        assert result["total"] == 3
+
+        contracts = await svc.get_ordered(db_session, sample_novel_id)
+        assert len(contracts) == 3
+        assert contracts[0].title == "C"
+        assert contracts[1].title == "A"
+        assert contracts[2].title == "B"
+        assert contracts[0].scene_index == 0
+        assert contracts[1].scene_index == 1
+        assert contracts[2].scene_index == 2
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_split_chapters(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        repo = SceneRepository()
+
+        source = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(
+                scene_index=0,
+                title="Source",
+                chapter_ids=["1", "2", "3"],
+                status="canonical",
+            ),
+        )
+        target = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(
+                scene_index=1,
+                title="Target",
+                chapter_ids=[],
+                status="canonical",
+            ),
+        )
+
+        await svc.split_chapters(
+            db_session,
+            sample_novel_id,
+            chapter_index=2,
+            target_scene_id=target.id,
+        )
+
+        updated_source = await repo.get(
+            db_session,
+            uuid.UUID(source.id),
+        )
+        assert updated_source is not None
+        assert "2" not in (updated_source.chapter_ids or [])
+
+        updated_target = await repo.get(
+            db_session,
+            uuid.UUID(target.id),
+        )
+        assert updated_target is not None
+        assert "2" in (updated_target.chapter_ids or [])
+
         await db_session.rollback()

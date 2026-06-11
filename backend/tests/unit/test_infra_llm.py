@@ -23,7 +23,9 @@ class TestLoadPrompt:
         prompts_dir = tmp_path / "prompts"
         prompts_dir.mkdir()
         prompt_file = prompts_dir / "test_template.md"
-        prompt_file.write_text("角色：{character_name}，场景：{scene_name}", encoding="utf-8")
+        prompt_file.write_text(
+            "角色：{character_name}，场景：{scene_name}", encoding="utf-8"
+        )
 
         with patch("infrastructure.llm.prompt_loader._PROMPT_DIR", prompts_dir):
             result = load_prompt(

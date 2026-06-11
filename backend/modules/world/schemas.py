@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # 内部工具
 # ============================================================
 
+
 def _uuid_validator(v: object) -> str:
     """将 UUID 原始值转为字符串"""
     if isinstance(v, uuid.UUID):
@@ -36,6 +37,7 @@ def _optional_uuid_validator(v: object) -> str | None:
 # ============================================================
 # AI 提取契约
 # ============================================================
+
 
 class ExtractedEntity(BaseModel):
     """AI 提取的实体"""
@@ -107,6 +109,7 @@ class ExtractionOutput(BaseModel):
 # ============================================================
 # CoreEntity Schema
 # ============================================================
+
 
 class CoreEntityCreate(BaseModel):
     """创建核心实体请求"""
@@ -227,6 +230,7 @@ class CoreEntityListResponse(BaseModel):
 # Auto-Ingest Batch Schema
 # ============================================================
 
+
 class AutoIngestBatchItem(BaseModel):
     """自动入库批次内的实体概要"""
 
@@ -247,6 +251,7 @@ class AutoIngestBatchResponse(BaseModel):
 # ============================================================
 # Event Schema
 # ============================================================
+
 
 class EventCreate(BaseModel):
     """创建事件请求"""
@@ -297,7 +302,10 @@ class EventResponse(BaseModel):
     occurrence_time_label: str | None = None
 
     @field_validator(
-        "entity_id", "novel_id", "source_chapter_id", "location_entity_id",
+        "entity_id",
+        "novel_id",
+        "source_chapter_id",
+        "location_entity_id",
         mode="before",
     )
     @classmethod
@@ -315,6 +323,7 @@ class EventListResponse(BaseModel):
 # ============================================================
 # EntityRelation Schema
 # ============================================================
+
 
 class EntityRelationCreate(BaseModel):
     """创建关系请求"""
@@ -390,8 +399,12 @@ class EntityRelationResponse(BaseModel):
     updated_at: datetime | None = None
 
     @field_validator(
-        "id", "novel_id", "source_id", "target_id",
-        "source_chapter_id", "caused_by_event_id",
+        "id",
+        "novel_id",
+        "source_id",
+        "target_id",
+        "source_chapter_id",
+        "caused_by_event_id",
         mode="before",
     )
     @classmethod
@@ -409,6 +422,7 @@ class EntityRelationListResponse(BaseModel):
 # ============================================================
 # EntityRevision Schema
 # ============================================================
+
 
 class RevisionListResponse(BaseModel):
     """版本列表响应"""
@@ -429,6 +443,7 @@ class RollbackRequest(BaseModel):
 # ============================================================
 # Character Schema（从 character 模块迁入）
 # ============================================================
+
 
 class CharacterCreate(BaseModel):
     """创建人物请求。novel_id 由 service 注入 (per ADR-0002),
@@ -561,6 +576,7 @@ class CharacterResponse(BaseModel):
     def id(self) -> str:
         """向后兼容：旧代码使用 .id 访问人物 ID"""
         return self.entity_id
+
     aliases: list[dict] = []
     role: str | None = None
     appearance: str | None = None
@@ -603,12 +619,14 @@ class CharacterKnowledgeCreate(BaseModel):
     )
     character_id: str = Field(..., description="人物 ID")
     target_type: str = Field(
-        ..., max_length=64,
+        ...,
+        max_length=64,
         description="目标类型（entity/character/event/location 等）",
     )
     target_id: str = Field(..., description="目标对象 ID")
     knowledge_level: str = Field(
-        ..., max_length=32,
+        ...,
+        max_length=32,
         description="了解程度（unknown/rumor/partial/full/false_belief）",
     )
     known_content: str | None = Field(None, description="角色已知的内容")
@@ -654,7 +672,11 @@ class CharacterKnowledgeResponse(BaseModel):
     created_at: datetime | None = None
 
     @field_validator(
-        "id", "novel_id", "character_id", "target_id", "source_memory_id",
+        "id",
+        "novel_id",
+        "character_id",
+        "target_id",
+        "source_memory_id",
         mode="before",
     )
     @classmethod
@@ -672,6 +694,7 @@ class CharacterKnowledgeListResponse(BaseModel):
 # ============================================================
 # Facade 输出 Schema（供其他模块读取/使用）
 # ============================================================
+
 
 class WorldEntityContext(BaseModel):
     """世界对象上下文 — 供其他模块读取的简化对象信息"""
@@ -797,8 +820,10 @@ class EventsContextBundle(BaseModel):
 # 向后兼容 Schema（从旧 schema 迁出）
 # ============================================================
 
+
 class DuplicateSuggestionResult(BaseModel):
     """去重建议结果 — 向后兼容"""
+
     candidate_id: str = ""
     candidate_name: str = ""
     existing_entity_id: str = ""
@@ -857,6 +882,7 @@ class EntityAliasCreate(BaseModel):
 
 class EntityCandidateCreate(BaseModel):
     """旧候选创建请求 — 兼容保留"""
+
     name: str = Field(..., description="名称")
     entity_type: str = Field(..., description="类型")
     summary: str | None = Field(None, description="概要")
@@ -865,13 +891,16 @@ class EntityCandidateCreate(BaseModel):
     importance_score: float = Field(default=0.5, ge=0.0, le=1.0, description="重要性")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="置信度")
     candidate_reason: str | None = Field(None, description="推荐理由")
-    suggested_action: str = Field(default="needs_user_decision", max_length=32, description="建议动作")
+    suggested_action: str = Field(
+        default="needs_user_decision", max_length=32, description="建议动作"
+    )
     suggested_existing_entity_id: str | None = Field(None, description="建议关联对象 ID")
     status: str = Field(default="pending", max_length=32, description="状态")
 
 
 class EntityCandidateUpdate(BaseModel):
     """旧候选更新请求 — 兼容保留"""
+
     name: Annotated[str | None, Field(None)]
     entity_type: Annotated[str | None, Field(None)]
     summary: Annotated[str | None, Field(None)]
@@ -887,6 +916,7 @@ class EntityCandidateUpdate(BaseModel):
 
 class EntityCandidateResponse(BaseModel):
     """旧候选响应 — 兼容保留"""
+
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
     id: str = ""
@@ -917,12 +947,14 @@ class EntityCandidateResponse(BaseModel):
 
 class EntityCandidateListResponse(BaseModel):
     """旧候选列表响应 — 兼容保留"""
+
     items: list[EntityCandidateResponse]
     total: int
 
 
 class RelationshipCreate(BaseModel):
     """旧关系创建请求 — 兼容保留"""
+
     source_type: str = Field(..., max_length=32, description="源类型")
     source_id: str = Field(..., description="源 ID")
     target_type: str = Field(..., max_length=32, description="目标类型")
@@ -936,6 +968,7 @@ class RelationshipCreate(BaseModel):
 
 class RelationshipUpdate(BaseModel):
     """旧关系更新请求 — 兼容保留"""
+
     source_type: Annotated[str | None, Field(None)]
     source_id: Annotated[str | None, Field(None)]
     target_type: Annotated[str | None, Field(None)]
@@ -949,6 +982,7 @@ class RelationshipUpdate(BaseModel):
 
 class RelationshipResponse(BaseModel):
     """旧关系响应 — 兼容保留"""
+
     model_config = ConfigDict(from_attributes=True)
     id: str = ""
     novel_id: str = ""
@@ -967,5 +1001,6 @@ class RelationshipResponse(BaseModel):
 
 class RelationshipListResponse(BaseModel):
     """旧关系列表响应 — 兼容保留"""
+
     items: list[RelationshipResponse]
     total: int

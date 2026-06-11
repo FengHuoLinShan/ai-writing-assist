@@ -40,20 +40,27 @@ async def handle_publish_chapter(db, task):
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             report = await _container_get("rag.index_chapter")(
-                db, novel_id, chapter_index,
+                db,
+                novel_id,
+                chapter_index,
             )
             results["rag_chunks"] = report.chunks_created
             results["rag_embedding_failed"] = report.embedding_failed_count
             rag_ok = True
             logger.info(
                 "Publish chapter %d — RAG done (attempt %d): %d chunks",
-                chapter_index, attempt, report.chunks_created,
+                chapter_index,
+                attempt,
+                report.chunks_created,
             )
             break
         except Exception as e:
             logger.warning(
                 "Publish chapter %d — RAG attempt %d/%d failed: %s",
-                chapter_index, attempt, _MAX_RETRIES, e,
+                chapter_index,
+                attempt,
+                _MAX_RETRIES,
+                e,
             )
             errors.append(f"RAG attempt {attempt}: {e}")
 
@@ -61,8 +68,7 @@ async def handle_publish_chapter(db, task):
         task.update_progress(0.5)
         await db.flush()
         raise RuntimeError(
-            f"RAG indexing failed after {_MAX_RETRIES} attempts: "
-            + "; ".join(errors),
+            f"RAG indexing failed after {_MAX_RETRIES} attempts: " + "; ".join(errors),
         )
 
     task.update_progress(0.5)
@@ -78,20 +84,24 @@ async def handle_publish_chapter(db, task):
             snapshot_ok = True
             logger.info(
                 "Publish chapter %d — snapshot done (attempt %d): %s",
-                chapter_index, attempt, snap.id,
+                chapter_index,
+                attempt,
+                snap.id,
             )
             break
         except Exception as e:
             logger.warning(
                 "Publish chapter %d — snapshot attempt %d/%d failed: %s",
-                chapter_index, attempt, _MAX_RETRIES, e,
+                chapter_index,
+                attempt,
+                _MAX_RETRIES,
+                e,
             )
             errors.append(f"Snapshot attempt {attempt}: {e}")
 
     if not snapshot_ok:
         raise RuntimeError(
-            f"Memory snapshot failed after {_MAX_RETRIES} attempts: "
-            + "; ".join(errors),
+            f"Memory snapshot failed after {_MAX_RETRIES} attempts: " + "; ".join(errors),
         )
 
     task.update_progress(1.0)

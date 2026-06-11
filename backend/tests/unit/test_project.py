@@ -179,7 +179,8 @@ class TestCRUDFunctions:
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_update_returns_project_when_found(
-        self, mock_get: MagicMock,
+        self,
+        mock_get: MagicMock,
     ) -> None:
         uid = uuid.uuid4()
         original = Project(id=uid, title="原始标题")
@@ -190,26 +191,27 @@ class TestCRUDFunctions:
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_update_returns_none_when_missing(
-        self, mock_get: MagicMock,
+        self,
+        mock_get: MagicMock,
     ) -> None:
         mock_get.return_value = None
         db = AsyncMock(spec=AsyncSession)
         result = await _repo.update(db, uuid.uuid4(), ProjectUpdate(title="x"))
         assert result is None
 
-    async def test_delete_returns_true_when_deleted(self) -> None:
+    async def test_soft_delete_returns_true_when_found(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         result = MagicMock()
         result.rowcount = 1
         db.execute.return_value = result
-        assert await _repo.delete(db, uuid.uuid4()) is True
+        assert await _repo.soft_delete(db, uuid.uuid4()) is True
 
-    async def test_delete_returns_false_when_missing(self) -> None:
+    async def test_soft_delete_returns_false_when_missing(self) -> None:
         db = AsyncMock(spec=AsyncSession)
         result = MagicMock()
         result.rowcount = 0
         db.execute.return_value = result
-        assert await _repo.delete(db, uuid.uuid4()) is False
+        assert await _repo.soft_delete(db, uuid.uuid4()) is False
 
 
 # ============================================================
@@ -222,13 +224,19 @@ class TestProjectService:
 
     @patch("modules.project.repositories.ProjectRepository.create")
     async def test_create_returns_project_response(
-        self, mock_create: MagicMock,
+        self,
+        mock_create: MagicMock,
     ) -> None:
         now = datetime.now(UTC)
         mock_create.return_value = Project(
-            id=uuid.uuid4(), title="测试小说", genre="玄幻",
-            language="zh", default_reveal_policy="author_safe", settings={},
-            created_at=now, updated_at=now,
+            id=uuid.uuid4(),
+            title="测试小说",
+            genre="玄幻",
+            language="zh",
+            default_reveal_policy="author_safe",
+            settings={},
+            created_at=now,
+            updated_at=now,
         )
         svc = ProjectService()
         resp = await svc.create_project(
@@ -241,19 +249,22 @@ class TestProjectService:
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_get_raises_404_when_missing(
-        self, mock_get: MagicMock,
+        self,
+        mock_get: MagicMock,
     ) -> None:
         mock_get.return_value = None
         svc = ProjectService()
         with pytest.raises(HTTPException) as exc:
             await svc.get_project(
-                AsyncMock(spec=AsyncSession), str(uuid.uuid4()),
+                AsyncMock(spec=AsyncSession),
+                str(uuid.uuid4()),
             )
         assert exc.value.status_code == 404
 
     @patch("modules.project.repositories.ProjectRepository.update")
     async def test_update_raises_404_when_missing(
-        self, mock_update: MagicMock,
+        self,
+        mock_update: MagicMock,
     ) -> None:
         mock_update.return_value = None
         svc = ProjectService()
@@ -265,15 +276,17 @@ class TestProjectService:
             )
         assert exc.value.status_code == 404
 
-    @patch("modules.project.repositories.ProjectRepository.delete")
+    @patch("modules.project.repositories.ProjectRepository.soft_delete")
     async def test_delete_raises_404_when_missing(
-        self, mock_delete: MagicMock,
+        self,
+        mock_soft_delete: MagicMock,
     ) -> None:
-        mock_delete.return_value = False
+        mock_soft_delete.return_value = False
         svc = ProjectService()
         with pytest.raises(HTTPException) as exc:
             await svc.delete_project(
-                AsyncMock(spec=AsyncSession), str(uuid.uuid4()),
+                AsyncMock(spec=AsyncSession),
+                str(uuid.uuid4()),
             )
         assert exc.value.status_code == 404
 
@@ -285,7 +298,8 @@ class TestProjectService:
 
     @patch("modules.project.repositories.ProjectRepository.list")
     async def test_list_clamps_limit_to_max(
-        self, mock_list: MagicMock,
+        self,
+        mock_list: MagicMock,
     ) -> None:
         mock_list.return_value = ([], 0)
         svc = ProjectService()
@@ -308,12 +322,17 @@ class TestGetProjectContextFacade:
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_found_returns_context(
-        self, mock_get: MagicMock,
+        self,
+        mock_get: MagicMock,
     ) -> None:
         uid = uuid.uuid4()
         mock_get.return_value = Project(
-            id=uid, title="测试小说", genre="玄幻",
-            language="zh", default_reveal_policy="author_safe", settings={},
+            id=uid,
+            title="测试小说",
+            genre="玄幻",
+            language="zh",
+            default_reveal_policy="author_safe",
+            settings={},
         )
         ctx = await get_project_context(AsyncMock(spec=AsyncSession), str(uid))
         assert isinstance(ctx, ProjectContext)
@@ -323,10 +342,12 @@ class TestGetProjectContextFacade:
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_not_found_returns_none(
-        self, mock_get: MagicMock,
+        self,
+        mock_get: MagicMock,
     ) -> None:
         mock_get.return_value = None
         ctx = await get_project_context(
-            AsyncMock(spec=AsyncSession), str(uuid.uuid4()),
+            AsyncMock(spec=AsyncSession),
+            str(uuid.uuid4()),
         )
         assert ctx is None

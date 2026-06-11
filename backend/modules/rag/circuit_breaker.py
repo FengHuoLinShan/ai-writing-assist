@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 class State(Enum):
-    CLOSED = "closed"       # 正常
-    OPEN = "open"           # 熔断
-    HALF_OPEN = "half_open" # 探测
+    CLOSED = "closed"  # 正常
+    OPEN = "open"  # 熔断
+    HALF_OPEN = "half_open"  # 探测
 
 
 class CircuitBreaker:
@@ -83,7 +83,10 @@ class CircuitBreaker:
             if self._state == State.HALF_OPEN:
                 self._state = State.OPEN
                 logger.warning("Circuit breaker: HALF_OPEN -> OPEN (probe failed)")
-            elif self._state == State.CLOSED and self._failure_count >= self._failure_threshold:
+            elif (
+                self._state == State.CLOSED
+                and self._failure_count >= self._failure_threshold
+            ):
                 self._state = State.OPEN
                 logger.warning(
                     "Circuit breaker: CLOSED -> OPEN (%d consecutive failures)",

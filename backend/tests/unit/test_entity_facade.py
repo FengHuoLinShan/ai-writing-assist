@@ -206,9 +206,7 @@ async def test_upsert_relation_with_none_description_forwards_none(
     target_id = str(uuid.uuid4())
 
     # Act
-    result = await upsert_relation(
-        db, TEST_NOVEL_ID, source_id, target_id, "ally"
-    )
+    result = await upsert_relation(db, TEST_NOVEL_ID, source_id, target_id, "ally")
 
     # Assert
     assert result == expected
@@ -226,9 +224,7 @@ async def test_upsert_relation_service_exception_propagates(mock_relation_servic
 
     # Act & Assert
     with pytest.raises(ConnectionError, match="lost"):
-        await upsert_relation(
-            db, TEST_NOVEL_ID, "s1", "t1", "friend"
-        )
+        await upsert_relation(db, TEST_NOVEL_ID, "s1", "t1", "friend")
 
 
 # ===========================================================================
@@ -307,17 +303,13 @@ async def test_merge_candidate_into_entity_happy_path_returns_merge_result(
     """Delegates to dedup service and returns its result transparently."""
     # Arrange
     expected = {"merged": True, "fields_updated": 3}
-    mock_dedup_service.merge_candidate_into_entity = mock.AsyncMock(
-        return_value=expected
-    )
+    mock_dedup_service.merge_candidate_into_entity = mock.AsyncMock(return_value=expected)
     db = mock.AsyncMock()
     candidate_id = str(uuid.uuid4())
     target_id = str(uuid.uuid4())
 
     # Act
-    result = await merge_candidate_into_entity(
-        db, TEST_NOVEL_ID, candidate_id, target_id
-    )
+    result = await merge_candidate_into_entity(db, TEST_NOVEL_ID, candidate_id, target_id)
 
     # Assert
     assert result == expected

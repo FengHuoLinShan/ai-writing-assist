@@ -77,7 +77,8 @@ class DedupModelProxy:
                 logger.warning(
                     "sklearn version mismatch (metadata=%s, runtime=%s), "
                     "falling back to cascade",
-                    meta_sklearn, sklearn.__version__,
+                    meta_sklearn,
+                    sklearn.__version__,
                 )
                 self._pipeline = None
 
@@ -86,7 +87,8 @@ class DedupModelProxy:
                 logger.warning(
                     "feature dimension mismatch (metadata=%s, expected=%s), "
                     "falling back to cascade",
-                    meta_dim, self._feature_dim,
+                    meta_dim,
+                    self._feature_dim,
                 )
                 self._pipeline = None
 
@@ -121,9 +123,7 @@ class DedupModelProxy:
         if self._pipeline is None:
             raise RuntimeError("model not loaded")
         if len(vector) != self._feature_dim:
-            raise ValueError(
-                f"expected {self._feature_dim} features, got {len(vector)}"
-            )
+            raise ValueError(f"expected {self._feature_dim} features, got {len(vector)}")
         proba = float(self._pipeline.predict_proba([vector])[0][1])
         return proba, self._model_version
 
@@ -148,7 +148,9 @@ class EntityDedupService:
             return []
 
         return await self.find_similar_entities(
-            db, novel_id, candidate.name,
+            db,
+            novel_id,
+            candidate.name,
             entity_type=candidate.entity_type,
         )
 
@@ -170,7 +172,9 @@ class EntityDedupService:
 
         # 阶段一：词法初筛（search_text 虚拟列同时覆盖 name + aliases）
         lexical_candidates = await self._entity_repo.find_similar_by_search_text(
-            db, nid, name_lower,
+            db,
+            nid,
+            name_lower,
             entity_type=entity_type,
             status_filter=["canonical", "draft"],
             top_k=DEDUP_FUSION_TOP_K,
@@ -180,7 +184,9 @@ class EntityDedupService:
         semantic_candidates: list[tuple[Any, float]] = []
         if query_embedding is not None:
             semantic_candidates = await self._entity_repo.find_similar_by_embedding(
-                db, nid, query_embedding,
+                db,
+                nid,
+                query_embedding,
                 entity_type=entity_type,
                 status_filter=["canonical", "draft"],
                 top_k=DEDUP_FUSION_TOP_K,
@@ -225,14 +231,16 @@ class EntityDedupService:
                 similarity = 1.0
                 match_method = "exact_name"
                 action = CandidateAction.merge_with_existing
-                results.append(DuplicateSuggestionResult(
-                    candidate_name=name,
-                    existing_entity_id=str(entity.id),
-                    existing_entity_name=entity.name,
-                    similarity_score=round(similarity, 4),
-                    match_method=match_method,
-                    action=action,
-                ))
+                results.append(
+                    DuplicateSuggestionResult(
+                        candidate_name=name,
+                        existing_entity_id=str(entity.id),
+                        existing_entity_name=entity.name,
+                        similarity_score=round(similarity, 4),
+                        match_method=match_method,
+                        action=action,
+                    )
+                )
                 continue
 
             # 2. 别名精确匹配
@@ -244,14 +252,16 @@ class EntityDedupService:
                         similarity = 1.0
                         match_method = "exact_alias"
                         action = CandidateAction.merge_with_existing
-                        results.append(DuplicateSuggestionResult(
-                            candidate_name=name,
-                            existing_entity_id=str(entity.id),
-                            existing_entity_name=entity.name,
-                            similarity_score=round(similarity, 4),
-                            match_method=match_method,
-                            action=action,
-                        ))
+                        results.append(
+                            DuplicateSuggestionResult(
+                                candidate_name=name,
+                                existing_entity_id=str(entity.id),
+                                existing_entity_name=entity.name,
+                                similarity_score=round(similarity, 4),
+                                match_method=match_method,
+                                action=action,
+                            )
+                        )
                         alias_matched = True
                         break
                 if alias_matched:
@@ -259,7 +269,8 @@ class EntityDedupService:
 
             # 3. 计算异质信号
             signals = scorer.compute_signals(
-                name_lower, entity_name,
+                name_lower,
+                entity_name,
                 candidate_aliases=entity_aliases,
                 semantic_cosine=sem_score,
             )
@@ -268,14 +279,16 @@ class EntityDedupService:
             similarity, match_method, action = self._resolve_score(signals)
 
             if similarity >= DEDUP_DISCARD_THRESHOLD:
-                results.append(DuplicateSuggestionResult(
-                    candidate_name=name,
-                    existing_entity_id=str(entity.id),
-                    existing_entity_name=entity.name,
-                    similarity_score=round(similarity, 4),
-                    match_method=match_method,
-                    action=action,
-                ))
+                results.append(
+                    DuplicateSuggestionResult(
+                        candidate_name=name,
+                        existing_entity_id=str(entity.id),
+                        existing_entity_name=entity.name,
+                        similarity_score=round(similarity, 4),
+                        match_method=match_method,
+                        action=action,
+                    )
+                )
 
         # 按相似度降序排列
         results.sort(key=lambda r: r.similarity_score, reverse=True)
@@ -424,6 +437,7 @@ class EntityDedupService:
         if target is None:
             from fastapi import HTTPException
             from fastapi import status as http_status
+
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Target entity {target_entity_id} not found",
@@ -433,6 +447,7 @@ class EntityDedupService:
         if cid == tid:
             from fastapi import HTTPException
             from fastapi import status as http_status
+
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="Cannot merge an entity into itself",
@@ -443,6 +458,7 @@ class EntityDedupService:
         if candidate is None:
             from fastapi import HTTPException
             from fastapi import status as http_status
+
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Candidate entity {candidate_id} not found",
@@ -452,6 +468,7 @@ class EntityDedupService:
         if str(candidate.novel_id) != str(target.novel_id):
             from fastapi import HTTPException
             from fastapi import status as http_status
+
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="Cannot merge entities across novels",
@@ -462,7 +479,10 @@ class EntityDedupService:
 
         # 3. 关系迁移
         migration_result = await self._migrate_relations(
-            db, novel_id, candidate_id, target_entity_id,
+            db,
+            novel_id,
+            candidate_id,
+            target_entity_id,
         )
         relations_migrated = migration_result["migrated"]
         relations_deduplicated = migration_result["deduplicated"]
@@ -472,15 +492,20 @@ class EntityDedupService:
         self_loops_cleaned = 0
         for sl_id in created_self_loop_ids:
             import uuid as _uuid2
+
             await self._relation_repo.update(
-                db, _uuid2.UUID(sl_id),
+                db,
+                _uuid2.UUID(sl_id),
                 EntityRelationUpdate(status="deprecated"),
             )
             self_loops_cleaned += 1
 
         # 5. Character 同步
         character_synced = await self._sync_character_on_merge(
-            db, novel_id, candidate_id, target_entity_id,
+            db,
+            novel_id,
+            candidate_id,
+            target_entity_id,
         )
 
         # 6. 文本字段合并
@@ -493,10 +518,14 @@ class EntityDedupService:
         merged_content = dict(candidate.content_json or {})
         merged_content["merged_into"] = str(tid)
         merged_content["merged_at"] = datetime.now(UTC).isoformat()
-        await self._entity_repo.update(db, cid, CoreEntityUpdate(
-            status="merged",
-            content_json=merged_content,
-        ))
+        await self._entity_repo.update(
+            db,
+            cid,
+            CoreEntityUpdate(
+                status="merged",
+                content_json=merged_content,
+            ),
+        )
 
         # 8. 确保 target 为 canonical
         if target.status != "canonical":
@@ -531,22 +560,22 @@ class EntityDedupService:
         if candidate is None:
             from fastapi import HTTPException
             from fastapi import status as http_status
+
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Candidate entity {candidate_id} not found",
             )
 
         suggestions = await self.find_similar_entities(
-            db, novel_id, candidate.name,
+            db,
+            novel_id,
+            candidate.name,
             entity_type=candidate.entity_type,
             query_embedding=query_embedding,
         )
 
         # 过滤掉候选实体自身
-        suggestions = [
-            s for s in suggestions
-            if s.existing_entity_id != str(cid)
-        ]
+        suggestions = [s for s in suggestions if s.existing_entity_id != str(cid)]
 
         # 无匹配 → 直接提升为 canonical
         if not suggestions:
@@ -562,7 +591,10 @@ class EntityDedupService:
         # 高置信度 → 自动合并
         if best.similarity_score >= DEDUP_AUTO_MERGE_THRESHOLD:
             merge_result = await self.merge_candidate_into_entity(
-                db, novel_id, candidate_id, best.existing_entity_id,
+                db,
+                novel_id,
+                candidate_id,
+                best.existing_entity_id,
             )
             return ResolveResult(
                 action="merged",
@@ -607,7 +639,8 @@ class EntityDedupService:
             if not alias_text or alias_text.lower() in existing_texts:
                 continue
             target_aliases.append(
-                alias_entry if isinstance(alias_entry, dict)
+                alias_entry
+                if isinstance(alias_entry, dict)
                 else {"alias": alias_text, "type": "inherited"}
             )
             existing_texts.add(alias_text.lower())
@@ -615,9 +648,13 @@ class EntityDedupService:
 
         if added > 0:
             target_content["aliases"] = target_aliases
-            await self._entity_repo.update(db, target.id, CoreEntityUpdate(
-                content_json=target_content,
-            ))
+            await self._entity_repo.update(
+                db,
+                target.id,
+                CoreEntityUpdate(
+                    content_json=target_content,
+                ),
+            )
 
         return added
 
@@ -651,7 +688,9 @@ class EntityDedupService:
             # 候选自环：标记 deprecated，不做迁移
             if is_source and is_target:
                 await self._relation_repo.update(
-                    db, rel.id, EntityRelationUpdate(status="deprecated"),
+                    db,
+                    rel.id,
+                    EntityRelationUpdate(status="deprecated"),
                 )
                 deduplicated += 1
                 continue
@@ -671,25 +710,32 @@ class EntityDedupService:
 
             # 检查是否已有同类型同方向边
             existing = await self._relation_repo.find_duplicate_relation(
-                db, nid, new_source, new_target, rel.relation_type,
+                db,
+                nid,
+                new_source,
+                new_target,
+                rel.relation_type,
             )
             if existing is not None and str(existing.id) != str(rel.id):
                 # 合并描述到已有边，标记当前边为 deprecated
                 merged_desc = merge_text_field(existing.description, rel.description)
                 if merged_desc != (existing.description or ""):
                     await self._relation_repo.update(
-                        db, existing.id,
+                        db,
+                        existing.id,
                         EntityRelationUpdate(description=merged_desc),
                     )
                 await self._relation_repo.update(
-                    db, rel.id,
+                    db,
+                    rel.id,
                     EntityRelationUpdate(status="deprecated"),
                 )
                 deduplicated += 1
             else:
                 # 重定向
                 await self._relation_repo.update_endpoint(
-                    db, rel.id,
+                    db,
+                    rel.id,
                     source_id=new_source if is_source else None,
                     target_id=new_target if is_target else None,
                 )
@@ -731,7 +777,7 @@ class EntityDedupService:
             a.get("alias", "").strip() if isinstance(a, dict) else str(a).strip()
             for a in target_aliases
         }
-        for alias in (candidate_char.aliases or []):
+        for alias in candidate_char.aliases or []:
             if isinstance(alias, dict):
                 text = alias.get("alias", "").strip()
             else:
@@ -740,34 +786,46 @@ class EntityDedupService:
                 target_aliases.append(alias)
                 existing_alias_texts.add(text)
 
-        await char_repo.update(db, tid, CharacterUpdate(
-            aliases=target_aliases,
-            appearance=merge_text_field(
-                target_char.appearance, candidate_char.appearance,
+        await char_repo.update(
+            db,
+            tid,
+            CharacterUpdate(
+                aliases=target_aliases,
+                appearance=merge_text_field(
+                    target_char.appearance,
+                    candidate_char.appearance,
+                ),
+                personality=merge_text_field(
+                    target_char.personality,
+                    candidate_char.personality,
+                ),
+                desire=merge_text_field(
+                    target_char.desire,
+                    candidate_char.desire,
+                ),
+                fear=merge_text_field(
+                    target_char.fear,
+                    candidate_char.fear,
+                ),
+                secret=merge_text_field(
+                    target_char.secret,
+                    candidate_char.secret,
+                ),
+                weakness=merge_text_field(
+                    target_char.weakness,
+                    candidate_char.weakness,
+                ),
+                current_goal=merge_text_field(
+                    target_char.current_goal,
+                    candidate_char.current_goal,
+                ),
+                relationship_summary=merge_text_field(
+                    target_char.relationship_summary,
+                    candidate_char.relationship_summary,
+                ),
+                meta={**candidate_char.meta, **target_char.meta},
             ),
-            personality=merge_text_field(
-                target_char.personality, candidate_char.personality,
-            ),
-            desire=merge_text_field(
-                target_char.desire, candidate_char.desire,
-            ),
-            fear=merge_text_field(
-                target_char.fear, candidate_char.fear,
-            ),
-            secret=merge_text_field(
-                target_char.secret, candidate_char.secret,
-            ),
-            weakness=merge_text_field(
-                target_char.weakness, candidate_char.weakness,
-            ),
-            current_goal=merge_text_field(
-                target_char.current_goal, candidate_char.current_goal,
-            ),
-            relationship_summary=merge_text_field(
-                target_char.relationship_summary, candidate_char.relationship_summary,
-            ),
-            meta={**candidate_char.meta, **target_char.meta},
-        ))
+        )
 
         return True
 
@@ -815,13 +873,15 @@ class EntityDedupService:
                 continue
             if str(canonical_val).strip() == str(candidate_val).strip():
                 continue
-            conflicts.append({
-                "field": field,
-                "canonical_value": canonical_val,
-                "candidate_value": candidate_val,
-                "candidate_id": str(candidate.id),
-                "resolved_at": datetime.now(UTC).isoformat(),
-            })
+            conflicts.append(
+                {
+                    "field": field,
+                    "canonical_value": canonical_val,
+                    "candidate_value": candidate_val,
+                    "candidate_id": str(candidate.id),
+                    "resolved_at": datetime.now(UTC).isoformat(),
+                }
+            )
 
         if not conflicts:
             return 0
@@ -833,9 +893,13 @@ class EntityDedupService:
 
         merged_json = dict(target_json)
         merged_json["meta"] = target_meta
-        await self._entity_repo.update(db, target.id, CoreEntityUpdate(
-            content_json=merged_json,
-        ))
+        await self._entity_repo.update(
+            db,
+            target.id,
+            CoreEntityUpdate(
+                content_json=merged_json,
+            ),
+        )
         return len(conflicts)
 
     def _get_aliases_raw(self, entity: CoreEntity) -> list[dict]:

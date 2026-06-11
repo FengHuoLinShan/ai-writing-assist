@@ -21,18 +21,15 @@ if config.config_file_name is not None:
 import infrastructure.tasks.models  # noqa: F401
 
 # character 模块已删除，模型在 modules.world.models
-import modules.imports.models  # noqa: F401
-import modules.memory.models  # noqa: F401
+import modules.imports.models  # noqa: F401  # noqa: F401
+import modules.memory.models  # noqa: F401  # noqa: F401
+import modules.outline.models  # noqa: F401
 
 # 显式导入所有模块的模型，确保 alembic autogenerate 能检测到所有表
 import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-import modules.outline.models  # noqa: F401
-import modules.memory.models  # noqa: F401
-import modules.imports.models  # noqa: F401
-
 from core.base import Base
 
 target_metadata = Base.metadata

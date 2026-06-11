@@ -1,6 +1,7 @@
 """
 全模块分页覆盖 E2E 测试
 """
+
 from __future__ import annotations
 
 import pytest

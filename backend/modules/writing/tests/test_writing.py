@@ -3,6 +3,7 @@ Writing 模块测试
 
 测试草稿 CRUD、版本管理、facade 和边界情况。
 """
+
 from __future__ import annotations
 
 import uuid
@@ -11,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.writing.contracts import WritingDraftContract
 from modules.writing.facade import (
     create_draft,
     get_draft,
@@ -18,18 +20,16 @@ from modules.writing.facade import (
     list_chapter_indices,
 )
 from modules.writing.repositories import WritingDraftRepository
-from modules.writing.contracts import WritingDraftContract
 from modules.writing.schemas import (
-    DraftListItem,
     WritingDraftCreate,
     WritingDraftUpdate,
 )
 from modules.writing.services import WritingDraftService
 
-
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def repo() -> WritingDraftRepository:
@@ -63,8 +63,8 @@ def update_data() -> WritingDraftUpdate:
 # Repository 测试
 # ============================================================
 
-class TestWritingDraftRepository:
 
+class TestWritingDraftRepository:
     @pytest.mark.asyncio
     async def test_create(
         self,
@@ -182,7 +182,9 @@ class TestWritingDraftRepository:
         repo: WritingDraftRepository,
         db_session: AsyncSession,
     ) -> None:
-        latest = await repo.get_latest_by_chapter(db_session, uuid.uuid4(), chapter_index=1)
+        latest = await repo.get_latest_by_chapter(
+            db_session, uuid.uuid4(), chapter_index=1
+        )
         assert latest is None
 
     @pytest.mark.asyncio
@@ -286,20 +288,33 @@ class TestWritingDraftRepository:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         novel_id = uuid.UUID(hex=sample_draft_data.novel_id)
-        v1 = await repo.create(db_session, sample_draft_data)
-        v2 = await repo.create(db_session, WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id, chapter_index=1,
-            title="v2", content="v2",
-        ))
-        v3 = await repo.create(db_session, WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id, chapter_index=1,
-            title="v3", content="v3",
-        ))
+        await repo.create(db_session, sample_draft_data)
+        v2 = await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="v2",
+                content="v2",
+            ),
+        )
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="v3",
+                content="v3",
+            ),
+        )
         # Delete v2, v3 should become v2
         deleted = await repo.delete(db_session, v2.id)
         assert deleted is not None
         await repo.renumber_versions_after_delete(
-            db_session, novel_id, 1, deleted.version_number,
+            db_session,
+            novel_id,
+            1,
+            deleted.version_number,
         )
         versions = await repo.get_version_history(db_session, novel_id, chapter_index=1)
         assert len(versions) == 2
@@ -324,10 +339,15 @@ class TestWritingDraftRepository:
     ) -> None:
         novel_id = uuid.UUID(hex=sample_draft_data.novel_id)
         await repo.create(db_session, sample_draft_data)
-        v2 = await repo.create(db_session, WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id, chapter_index=1,
-            title="v2", content="v2",
-        ))
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="v2",
+                content="v2",
+            ),
+        )
         count = await repo.delete_all_versions(db_session, novel_id, 1)
         assert count == 2
 
@@ -341,8 +361,10 @@ class TestWritingDraftRepository:
         nid = uuid.UUID(hex=novel_id)
         for ch in (1, 1, 3, 5):
             data = WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content="内容",
+                novel_id=novel_id,
+                chapter_index=ch,
+                title=f"第{ch}章",
+                content="内容",
             )
             await repo.create(db_session, data)
         indices = await repo.list_chapter_indices(db_session, nid)
@@ -362,8 +384,8 @@ class TestWritingDraftRepository:
 # Service 测试
 # ============================================================
 
-class TestWritingDraftService:
 
+class TestWritingDraftService:
     @pytest.mark.asyncio
     async def test_create_draft(
         self,
@@ -386,7 +408,9 @@ class TestWritingDraftService:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         created = await service.create_draft(db_session, sample_draft_data)
-        fetched = await service.get_draft(db_session, created.id, sample_draft_data.novel_id)
+        fetched = await service.get_draft(
+            db_session, created.id, sample_draft_data.novel_id
+        )
         assert fetched.id == created.id
 
     @pytest.mark.asyncio
@@ -397,7 +421,9 @@ class TestWritingDraftService:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_draft(db_session, str(uuid.uuid4()), sample_draft_data.novel_id)
+            await service.get_draft(
+                db_session, str(uuid.uuid4()), sample_draft_data.novel_id
+            )
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -410,7 +436,10 @@ class TestWritingDraftService:
     ) -> None:
         created = await service.create_draft(db_session, sample_draft_data)
         updated = await service.update_draft(
-            db_session, created.id, update_data, sample_draft_data.novel_id,
+            db_session,
+            created.id,
+            update_data,
+            sample_draft_data.novel_id,
         )
         assert updated.title == "更新后的标题"
 
@@ -423,8 +452,84 @@ class TestWritingDraftService:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         with pytest.raises(HTTPException) as exc_info:
-            await service.update_draft(db_session, str(uuid.uuid4()), update_data, sample_draft_data.novel_id)
+            await service.update_draft(
+                db_session, str(uuid.uuid4()), update_data, sample_draft_data.novel_id
+            )
         assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_draft_conflict_detection(
+        self,
+        service: WritingDraftService,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        v1 = await service.create_draft(db_session, sample_draft_data)
+        v2_data = WritingDraftCreate(
+            novel_id=sample_draft_data.novel_id,
+            chapter_index=sample_draft_data.chapter_index,
+            title="v2",
+            content="v2 content",
+        )
+        await service.create_draft(db_session, v2_data)
+        conflict_update = WritingDraftUpdate(
+            title="conflict",
+            expected_version=2,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await service.update_draft(
+                db_session,
+                v1.id,
+                conflict_update,
+                sample_draft_data.novel_id,
+            )
+        assert exc_info.value.status_code == 409
+        assert "v1" in exc_info.value.detail or "1" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_update_draft_no_conflict_when_expected_version_matches(
+        self,
+        service: WritingDraftService,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        v1 = await service.create_draft(db_session, sample_draft_data)
+        matched_update = WritingDraftUpdate(
+            title="matched",
+            expected_version=1,
+        )
+        updated = await service.update_draft(
+            db_session,
+            v1.id,
+            matched_update,
+            sample_draft_data.novel_id,
+        )
+        assert updated.title == "matched"
+        assert updated.version_number == 1
+
+    @pytest.mark.asyncio
+    async def test_update_draft_no_conflict_when_no_expected_version(
+        self,
+        service: WritingDraftService,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        v1 = await service.create_draft(db_session, sample_draft_data)
+        v2_data = WritingDraftCreate(
+            novel_id=sample_draft_data.novel_id,
+            chapter_index=sample_draft_data.chapter_index,
+            title="v2",
+            content="v2 content",
+        )
+        await service.create_draft(db_session, v2_data)
+        no_check_update = WritingDraftUpdate(title="no check")
+        updated = await service.update_draft(
+            db_session,
+            v1.id,
+            no_check_update,
+            sample_draft_data.novel_id,
+        )
+        assert updated.title == "no check"
 
     @pytest.mark.asyncio
     async def test_delete_draft(
@@ -434,10 +539,15 @@ class TestWritingDraftService:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         await service.create_draft(db_session, sample_draft_data)
-        v2 = await service.create_draft(db_session, WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id, chapter_index=1,
-            title="v2", content="v2",
-        ))
+        v2 = await service.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="v2",
+                content="v2",
+            ),
+        )
         await service.delete_draft(db_session, v2.id, sample_draft_data.novel_id)
 
     @pytest.mark.asyncio
@@ -460,7 +570,9 @@ class TestWritingDraftService:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         with pytest.raises(HTTPException) as exc_info:
-            await service.delete_draft(db_session, str(uuid.uuid4()), sample_draft_data.novel_id)
+            await service.delete_draft(
+                db_session, str(uuid.uuid4()), sample_draft_data.novel_id
+            )
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -499,13 +611,25 @@ class TestWritingDraftService:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         await service.create_draft(db_session, sample_draft_data)
-        await service.create_draft(db_session, WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id, chapter_index=1, title="第二版",
-        ))
-        await service.create_draft(db_session, WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id, chapter_index=1, title="第三版",
-        ))
-        history = await service.get_version_history(db_session, sample_draft_data.novel_id, 1)
+        await service.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="第二版",
+            ),
+        )
+        await service.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="第三版",
+            ),
+        )
+        history = await service.get_version_history(
+            db_session, sample_draft_data.novel_id, 1
+        )
         assert history.total == 3
         assert history.versions[0].version_number == 3
 
@@ -562,7 +686,9 @@ class TestWritingDraftService:
     ) -> None:
         await service.create_draft(db_session, sample_draft_data)
         contract = await service.get_latest_draft_contract(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert contract is not None
 
@@ -572,7 +698,9 @@ class TestWritingDraftService:
         service: WritingDraftService,
         db_session: AsyncSession,
     ) -> None:
-        contract = await service.get_latest_draft_contract(db_session, str(uuid.uuid4()), 1)
+        contract = await service.get_latest_draft_contract(
+            db_session, str(uuid.uuid4()), 1
+        )
         assert contract is None
 
     @pytest.mark.asyncio
@@ -583,10 +711,15 @@ class TestWritingDraftService:
     ) -> None:
         novel_id = str(uuid.uuid4())
         for ch in (1, 1, 3, 5):
-            await service.create_draft(db_session, WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content="内容",
-            ))
+            await service.create_draft(
+                db_session,
+                WritingDraftCreate(
+                    novel_id=novel_id,
+                    chapter_index=ch,
+                    title=f"第{ch}章",
+                    content="内容",
+                ),
+            )
         indices = await service.list_chapter_indices(db_session, novel_id)
         assert indices == [1, 3, 5]
 
@@ -608,7 +741,9 @@ class TestWritingDraftService:
     ) -> None:
         await service.create_draft(db_session, sample_draft_data)
         count = await service.delete_chapter(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert count >= 1
 
@@ -617,8 +752,8 @@ class TestWritingDraftService:
 # Facade 测试
 # ============================================================
 
-class TestWritingFacade:
 
+class TestWritingFacade:
     @pytest.mark.asyncio
     async def test_create_draft(
         self,
@@ -677,7 +812,9 @@ class TestWritingFacade:
             sample_draft_data.content or "",
         )
         contract = await get_latest_draft_for_chapter(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert contract is not None
 

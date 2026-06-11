@@ -31,12 +31,12 @@ def sample_txt_content() -> bytes:
         "这是第二章，主角踏上了旅程。\n\n"
         "第3章\n"
         "这是第三章。\n"
-    ).encode("utf-8")
+    ).encode()
 
 
 @pytest.fixture
 def sample_txt_no_chapters() -> bytes:
-    return "这是一篇没有分章的纯文本内容。只有一段话。".encode("utf-8")
+    return "这是一篇没有分章的纯文本内容。只有一段话。".encode()
 
 
 @pytest.fixture

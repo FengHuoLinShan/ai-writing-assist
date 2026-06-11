@@ -36,7 +36,8 @@ class RagChunksLoader(Loader):
         from modules.rag.facade import retrieve
 
         result = await retrieve(
-            db, options.novel_id,
+            db,
+            options.novel_id,
             query=options.task,
             entity_ids=options.entity_ids,
             character_ids=options.character_ids,

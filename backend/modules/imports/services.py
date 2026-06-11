@@ -55,7 +55,8 @@ class ImportService:
 
             if total == 0:
                 await self._repo.update_status(
-                    db, record.id,
+                    db,
+                    record.id,
                     status="failed",
                     error_message="文件中未解析出任何章节",
                 )
@@ -89,13 +90,16 @@ class ImportService:
 
             # 更新记录为完成
             record = await self._repo.update_status(
-                db, record.id,
+                db,
+                record.id,
                 status="done",
                 total_chapters=total,
                 imported_chapters=imported,
             )
             if record is None:
-                raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+                raise HTTPException(
+                    status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
             return ImportResponse(
                 id=str(record.id),
                 novel_id=str(record.novel_id),
@@ -112,20 +116,27 @@ class ImportService:
         except HTTPException:
             raise
         except ValueError as exc:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning("导入参数错误: %s", exc)
             await self._repo.update_status(
-                db, record.id,
+                db,
+                record.id,
                 status="failed",
                 error_message=str(exc)[:1000],
             )
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"导入参数错误: {exc}",
+                detail="导入参数错误",
             ) from exc
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).error("导入失败: %s", exc, exc_info=True)
             await self._repo.update_status(
-                db, record.id,
+                db,
+                record.id,
                 status="failed",
                 error_message=str(exc)[:1000],
             )
@@ -205,6 +216,7 @@ def _record_to_response(record: ImportRecord) -> ImportResponse:
 def _get_extension(file_name: str) -> str:
     """安全提取文件扩展名，防止路径穿越"""
     import os
+
     safe_name = os.path.basename(file_name)
     if not safe_name:
         return ""

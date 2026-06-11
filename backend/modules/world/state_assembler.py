@@ -15,18 +15,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Cross-seam shape — TypedDict (与 memory.services._apply_events 的 dict 消费习惯一致)
 # ============================================================
 
-class WorldStateDict(TotalDict := TypedDict("WorldStateDict", {  # type: ignore[misc]
-    "entities": list[dict],
-    "relations": list[dict],
-    "character_locations": dict[str, dict],
-    "character_knowledge": list[dict],
-})):
+
+class WorldStateDict(
+    TotalDict := TypedDict(
+        "WorldStateDict",
+        {  # type: ignore[misc]
+            "entities": list[dict],
+            "relations": list[dict],
+            "character_locations": dict[str, dict],
+            "character_knowledge": list[dict],
+        },
+    )
+):
     pass
 
 
 # ============================================================
 # Source seam — 真 adapter (production + test fake)
 # ============================================================
+
 
 class StateSource(Protocol):
     """assemble() 拉数据的 4 路访问口。
@@ -39,23 +46,39 @@ class StateSource(Protocol):
     """
 
     async def list_canonical_entities(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list: ...
 
     async def list_canonical_relations(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list: ...
 
     async def list_characters(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list: ...
 
     async def list_character_knowledge(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list: ...
 
 
@@ -69,49 +92,79 @@ class SqlAlchemyStateSource:
             CoreEntityRepository,
             EntityRelationRepository,
         )
+
         self._entity_repo = CoreEntityRepository()
         self._relation_repo = EntityRelationRepository()
         self._character_repo = CharacterRepository()
         self._knowledge_repo = CharacterKnowledgeRepository()
 
     async def list_canonical_entities(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
         rows, _ = await self._entity_repo.get_by_novel(
-            db, novel_id, status="canonical", skip=skip, limit=limit,
+            db,
+            novel_id,
+            status="canonical",
+            skip=skip,
+            limit=limit,
         )
         return rows
 
     async def list_canonical_relations(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
         # EntityRelationRepository.get_by_novel 不接受 status 参数
         # 必须在 Python 端筛 — 与旧 facade.py:568 行为一致
         rows, _ = await self._relation_repo.get_by_novel(
-            db, novel_id, skip=skip, limit=limit,
+            db,
+            novel_id,
+            skip=skip,
+            limit=limit,
         )
         return [r for r in rows if r.status == "canonical"]
 
     async def list_characters(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
         # Character 不筛 status — 旧 facade.py:580 行为
         rows, _ = await self._character_repo.get_by_novel(
-            db, novel_id, skip=skip, limit=limit,
+            db,
+            novel_id,
+            skip=skip,
+            limit=limit,
         )
         return rows
 
     async def list_character_knowledge(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
         # CLAUDE.md §8: DB 异常必须传播, 不允许 try/except: pass
         # 旧 facade.py:595-611 吞掉 knowledge 读失败是 bug, 已修
         rows, _ = await self._knowledge_repo.get_by_novel(
-            db, novel_id, skip=skip, limit=limit,
+            db,
+            novel_id,
+            skip=skip,
+            limit=limit,
         )
         return rows
 
@@ -135,28 +188,44 @@ class InMemoryStateSource:
         self._knowledge = list(knowledge) if knowledge is not None else []
 
     async def list_canonical_entities(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
-        return self._entities[skip:skip + limit]
+        return self._entities[skip : skip + limit]
 
     async def list_canonical_relations(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
-        return self._relations[skip:skip + limit]
+        return self._relations[skip : skip + limit]
 
     async def list_characters(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
-        return self._characters[skip:skip + limit]
+        return self._characters[skip : skip + limit]
 
     async def list_character_knowledge(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> list:
-        return self._knowledge[skip:skip + limit]
+        return self._knowledge[skip : skip + limit]
 
 
 # ============================================================
@@ -214,7 +283,10 @@ async def assemble(db: AsyncSession, novel_id: str) -> WorldStateDict:
     source = default_source()
 
     entity_rows = await source.list_canonical_entities(
-        db, nid, skip=0, limit=_MAX_ENTITIES_PER_SNAPSHOT,
+        db,
+        nid,
+        skip=0,
+        limit=_MAX_ENTITIES_PER_SNAPSHOT,
     )
     entities = [
         {
@@ -234,7 +306,10 @@ async def assemble(db: AsyncSession, novel_id: str) -> WorldStateDict:
     ]
 
     relation_rows = await source.list_canonical_relations(
-        db, nid, skip=0, limit=_MAX_RELATIONS_PER_SNAPSHOT,
+        db,
+        nid,
+        skip=0,
+        limit=_MAX_RELATIONS_PER_SNAPSHOT,
     )
     relations = [
         {
@@ -250,7 +325,10 @@ async def assemble(db: AsyncSession, novel_id: str) -> WorldStateDict:
     ]
 
     character_rows = await source.list_characters(
-        db, nid, skip=0, limit=_MAX_ENTITIES_PER_SNAPSHOT,
+        db,
+        nid,
+        skip=0,
+        limit=_MAX_ENTITIES_PER_SNAPSHOT,
     )
     character_locations: dict[str, dict] = {}
     for c in character_rows:
@@ -264,7 +342,10 @@ async def assemble(db: AsyncSession, novel_id: str) -> WorldStateDict:
             }
 
     knowledge_rows = await source.list_character_knowledge(
-        db, nid, skip=0, limit=_MAX_KNOWLEDGE_PER_SNAPSHOT,
+        db,
+        nid,
+        skip=0,
+        limit=_MAX_KNOWLEDGE_PER_SNAPSHOT,
     )
     character_knowledge = [
         {

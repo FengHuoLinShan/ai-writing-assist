@@ -11,12 +11,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from shared.types import ChapterIndex
-
-
 # ============================================================
 # 请求 Schema
 # ============================================================
+
 
 class WritingDraftCreate(BaseModel):
     """创建/发布草稿请求
@@ -35,10 +33,12 @@ class WritingDraftCreate(BaseModel):
     )
     title: str | None = Field(
         None,
+        max_length=500,
         description="草稿标题",
     )
     content: str | None = Field(
         None,
+        max_length=100000,
         description="草稿正文",
     )
 
@@ -49,13 +49,16 @@ class WritingDraftUpdate(BaseModel):
     title: str | None = Field(None, description="草稿标题")
     content: str | None = Field(None, description="草稿正文")
     expected_version: int | None = Field(
-        None, ge=1, description="期望的版本号，用于多 Tab 冲突检测",
+        None,
+        ge=1,
+        description="期望的版本号，用于多 Tab 冲突检测",
     )
 
 
 # ============================================================
 # 响应 Schema
 # ============================================================
+
 
 class WritingDraftResponse(BaseModel):
     """草稿响应 — 从 ORM 转换时自动处理 UUID→str"""

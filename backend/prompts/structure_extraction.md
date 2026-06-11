@@ -10,8 +10,9 @@
 1. 只抽取对后续创作、检索、伏笔、人物行动、世界观维护有价值的对象。
 2. 不抽取：路人、普通道具、常见物品、代词、一次性场景元素。
 3. 如果某个名词只是已有对象的别名、称号或临时称呼，将 `suggested_action` 设为 `link_to_existing` 并填写 `suggested_existing_entity_name`。
-4. 如果某个对象只在当前章节有用，标记为 `temporary_only`。
-5. 宁可少抽，不要把背景装饰塞进对象库。
+4. 如果某个对象只在当前章节有用，标记为 `temporary_only`（系统会忽略，不入库）。
+5. `suggested_action=create_new` 的实体会被系统直接以 `status=canonical` 入库，无需用户确认。
+6. 宁可少抽，不要把背景装饰塞进对象库。
 
 ## 已知已有对象
 

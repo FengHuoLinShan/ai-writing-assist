@@ -359,11 +359,16 @@ class TestApiOutlineGenerate:
 
         with (
             mock.patch("modules.context.facade.compile_structure_context") as mock_ctx,
-            mock.patch("infrastructure.llm.client.LLMClient.generate_structured") as mock_llm,
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
         ):
             from modules.context.contracts import StructureContextBundle
+
             mock_ctx.return_value = StructureContextBundle(
-                novel_id=test_project_id, task="test", scope="full",
+                novel_id=test_project_id,
+                task="test",
+                scope="full",
             )
             mock_llm.return_value = _GO(
                 plot_threads=[_GT(name="test", thread_type="main")],

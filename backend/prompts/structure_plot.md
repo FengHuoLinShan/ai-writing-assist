@@ -4,7 +4,7 @@
 >
 > **输入来源**：Context Compiler 编译的结构化上下文（world_context + character_context + memory_context + timeline_context + geo_context）
 >
-> **输出去向**：plot_threads + outline_arcs + foreshadowing_plans + reveal_plans 候选 → 结构复查 → 用户确认 → 正史库
+> **输出去向**：plot_threads + outline_arcs + foreshadowing_plans + reveal_plans 直接入库。
 
 ---
 

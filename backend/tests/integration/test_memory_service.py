@@ -28,6 +28,7 @@ _memory = MemoryService()
 # 辅助工厂函数
 # ============================================================
 
+
 def _make_entity(eid: str, name: str = "Test", **kwargs: object) -> dict:
     return {
         "id": eid,
@@ -43,9 +44,7 @@ def _make_entity(eid: str, name: str = "Test", **kwargs: object) -> dict:
     }
 
 
-def _make_relation(
-    rid: str, source_id: str, target_id: str, **kwargs: object
-) -> dict:
+def _make_relation(rid: str, source_id: str, target_id: str, **kwargs: object) -> dict:
     return {
         "id": rid,
         "source_id": source_id,
@@ -92,10 +91,9 @@ def _make_world_state(
 # record_events
 # ============================================================
 
+
 @pytest.mark.asyncio
-async def test_record_events_single_event_creates_record(
-    db_session, test_project_id
-):
+async def test_record_events_single_event_creates_record(db_session, test_project_id):
     # Arrange
     eid = str(uuid.uuid4())
     events = [
@@ -150,9 +148,7 @@ async def test_record_events_multiple_events_preserves_sequence(
 
 
 @pytest.mark.asyncio
-async def test_record_events_overwrite_previous_events(
-    db_session, test_project_id
-):
+async def test_record_events_overwrite_previous_events(db_session, test_project_id):
     # Arrange
     eid = str(uuid.uuid4())
     await _memory.record_events(
@@ -186,17 +182,13 @@ async def test_record_events_overwrite_previous_events(
     assert len(result) == 1
     assert result[0].event_type == "entity_updated"
     repo = EventRepository()
-    rows = await repo.get_by_chapter(
-        db_session, uuid.UUID(hex=test_project_id), 1
-    )
+    rows = await repo.get_by_chapter(db_session, uuid.UUID(hex=test_project_id), 1)
     assert len(rows) == 1
     assert rows[0].event_type == "entity_updated"
 
 
 @pytest.mark.asyncio
-async def test_record_events_empty_list_deletes_existing(
-    db_session, test_project_id
-):
+async def test_record_events_empty_list_deletes_existing(db_session, test_project_id):
     # Arrange
     eid = str(uuid.uuid4())
     await _memory.record_events(
@@ -218,9 +210,7 @@ async def test_record_events_empty_list_deletes_existing(
     # Assert
     assert len(result) == 0
     repo = EventRepository()
-    rows = await repo.get_by_chapter(
-        db_session, uuid.UUID(hex=test_project_id), 1
-    )
+    rows = await repo.get_by_chapter(db_session, uuid.UUID(hex=test_project_id), 1)
     assert len(rows) == 0
 
 
@@ -228,10 +218,9 @@ async def test_record_events_empty_list_deletes_existing(
 # get_chapter_panorama
 # ============================================================
 
+
 @pytest.mark.asyncio
-async def test_get_chapter_panorama_only_snapshot_no_events(
-    db_session, test_project_id
-):
+async def test_get_chapter_panorama_only_snapshot_no_events(db_session, test_project_id):
     # Arrange
     eid = str(uuid.uuid4())
     snap_repo = SnapshotRepository()
@@ -264,9 +253,7 @@ async def test_get_chapter_panorama_with_snapshot_and_events_replays_correctly(
         db_session,
         novel_id=uuid.UUID(hex=test_project_id),
         chapter_index=5,
-        full_state=_make_world_state(
-            entities=[_make_entity(eid, name="Alice")]
-        ),
+        full_state=_make_world_state(entities=[_make_entity(eid, name="Alice")]),
     )
     await _memory.record_events(
         db_session,
@@ -343,6 +330,7 @@ async def test_get_chapter_panorama_no_data_falls_back_to_world_state(
 # capture_snapshot
 # ============================================================
 
+
 @mock.patch("modules.world.facade.get_full_state")
 @pytest.mark.asyncio
 async def test_capture_snapshot_creates_current_snapshot(
@@ -410,10 +398,9 @@ async def test_capture_snapshot_counts_events_correctly(
 # mark_stale
 # ============================================================
 
+
 @pytest.mark.asyncio
-async def test_mark_stale_updates_matching_snapshots(
-    db_session, test_project_id
-):
+async def test_mark_stale_updates_matching_snapshots(db_session, test_project_id):
     # Arrange
     nid = uuid.UUID(hex=test_project_id)
     snap_repo = SnapshotRepository()
@@ -441,9 +428,7 @@ async def test_mark_stale_updates_matching_snapshots(
 
 
 @pytest.mark.asyncio
-async def test_mark_stale_no_snapshots_returns_zero(
-    db_session, test_project_id
-):
+async def test_mark_stale_no_snapshots_returns_zero(db_session, test_project_id):
     # Act
     result = await _memory.mark_stale(db_session, test_project_id, 1)
 
@@ -455,6 +440,7 @@ async def test_mark_stale_no_snapshots_returns_zero(
 # ============================================================
 # full_rebuild
 # ============================================================
+
 
 @mock.patch("modules.world.facade.get_full_state")
 @pytest.mark.asyncio
@@ -536,9 +522,7 @@ async def test_full_rebuild_from_middle_preserves_base_and_rebuilds(
         db_session,
         novel_id=nid,
         chapter_index=5,
-        full_state=_make_world_state(
-            entities=[_make_entity(eid, name="Alice")]
-        ),
+        full_state=_make_world_state(entities=[_make_entity(eid, name="Alice")]),
     )
 
     # 当前世界状态已变更
@@ -580,9 +564,7 @@ async def test_full_rebuild_no_changes_still_creates_snapshot(
     assert result["final_chapter"] == 1
     assert result["rebuilt_snapshots"] == 1
     snap_repo = SnapshotRepository()
-    snaps = await snap_repo.list_for_novel(
-        db_session, uuid.UUID(hex=test_project_id)
-    )
+    snaps = await snap_repo.list_for_novel(db_session, uuid.UUID(hex=test_project_id))
     assert len(snaps) == 1
     assert snaps[0].chapter_index == 1
 
@@ -591,10 +573,9 @@ async def test_full_rebuild_no_changes_still_creates_snapshot(
 # get_status
 # ============================================================
 
+
 @pytest.mark.asyncio
-async def test_get_status_no_snapshots_returns_empty(
-    db_session, test_project_id
-):
+async def test_get_status_no_snapshots_returns_empty(db_session, test_project_id):
     # Act
     result = await _memory.get_status(db_session, test_project_id)
 
@@ -607,9 +588,7 @@ async def test_get_status_no_snapshots_returns_empty(
 
 
 @pytest.mark.asyncio
-async def test_get_status_current_only_returns_latest(
-    db_session, test_project_id
-):
+async def test_get_status_current_only_returns_latest(db_session, test_project_id):
     # Arrange
     nid = uuid.UUID(hex=test_project_id)
     snap_repo = SnapshotRepository()
@@ -630,9 +609,7 @@ async def test_get_status_current_only_returns_latest(
 
 
 @pytest.mark.asyncio
-async def test_get_status_with_stale_returns_stale_info(
-    db_session, test_project_id
-):
+async def test_get_status_with_stale_returns_stale_info(db_session, test_project_id):
     # Arrange
     nid = uuid.UUID(hex=test_project_id)
     snap_repo = SnapshotRepository()

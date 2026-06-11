@@ -90,11 +90,7 @@ class PlotThreadRepository:
                 PlotThread.planned_payoff_chapter >= chapter_index,
             ),
         ]
-        stmt = (
-            select(PlotThread)
-            .where(*conditions)
-            .order_by(PlotThread.start_chapter)
-        )
+        stmt = select(PlotThread).where(*conditions).order_by(PlotThread.start_chapter)
         result = await db.execute(stmt)
         items: Sequence[PlotThread] = result.scalars().all()
         return list(items)
@@ -136,21 +132,37 @@ class PlotThreadRepository:
 
         update_values: dict[str, Any] = {}
         for field in (
-            "name", "thread_type", "summary", "visible_goal", "hidden_truth",
-            "start_chapter", "planned_payoff_chapter", "current_stage",
-            "reader_known_state", "author_known_state", "status",
+            "name",
+            "thread_type",
+            "summary",
+            "visible_goal",
+            "hidden_truth",
+            "start_chapter",
+            "planned_payoff_chapter",
+            "current_stage",
+            "reader_known_state",
+            "author_known_state",
+            "status",
         ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
 
-        for json_field in ("related_character_ids", "related_entity_ids", "related_memory_ids"):
+        for json_field in (
+            "related_character_ids",
+            "related_entity_ids",
+            "related_memory_ids",
+        ):
             value = getattr(data, json_field, None)
             if value is not None:
                 update_values[json_field] = value
 
         if update_values:
-            stmt = update(PlotThread).where(PlotThread.id == thread_id).values(**update_values)
+            stmt = (
+                update(PlotThread)
+                .where(PlotThread.id == thread_id)
+                .values(**update_values)
+            )
             await db.execute(stmt)
             await db.flush()
 
@@ -273,21 +285,37 @@ class OutlineArcRepository:
 
         update_values: dict[str, Any] = {}
         for field in (
-            "title", "arc_index", "start_chapter", "end_chapter",
-            "arc_goal", "core_conflict", "main_opposition", "entry_hook",
-            "midpoint_turn", "climax", "result", "next_hook", "status",
+            "title",
+            "arc_index",
+            "start_chapter",
+            "end_chapter",
+            "arc_goal",
+            "core_conflict",
+            "main_opposition",
+            "entry_hook",
+            "midpoint_turn",
+            "climax",
+            "result",
+            "next_hook",
+            "status",
         ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
 
-        for json_field in ("related_thread_ids", "related_character_ids", "related_entity_ids"):
+        for json_field in (
+            "related_thread_ids",
+            "related_character_ids",
+            "related_entity_ids",
+        ):
             value = getattr(data, json_field, None)
             if value is not None:
                 update_values[json_field] = value
 
         if update_values:
-            stmt = update(OutlineArc).where(OutlineArc.id == arc_id).values(**update_values)
+            stmt = (
+                update(OutlineArc).where(OutlineArc.id == arc_id).values(**update_values)
+            )
             await db.execute(stmt)
             await db.flush()
 
@@ -381,17 +409,11 @@ class SceneRepository:
             Scene.novel_id == novel_id,
             Scene.status.in_(["draft", "canonical"]),
         ]
-        stmt = (
-            select(Scene)
-            .where(*conditions)
-            .order_by(Scene.scene_index)
-        )
+        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
         result = await db.execute(stmt)
         all_scenes: Sequence[Scene] = result.scalars().all()
         matching = [
-            s for s in all_scenes
-            if s.chapter_ids
-            and str(chapter_index) in s.chapter_ids
+            s for s in all_scenes if s.chapter_ids and str(chapter_index) in s.chapter_ids
         ]
         return matching
 
@@ -406,11 +428,7 @@ class SceneRepository:
             Scene.novel_id == novel_id,
             Scene.status.in_(["draft", "canonical"]),
         ]
-        stmt = (
-            select(Scene)
-            .where(*conditions)
-            .order_by(Scene.scene_index)
-        )
+        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
         result = await db.execute(stmt)
         all_scenes: Sequence[Scene] = result.scalars().all()
         for s in all_scenes:
@@ -430,9 +448,17 @@ class SceneRepository:
 
         update_values: dict[str, Any] = {}
         for field in (
-            "scene_index", "title", "goal", "core_conflict",
-            "emotional_beat", "must_happen", "must_not_happen",
-            "narrative_tag", "source", "pov_character_id", "status",
+            "scene_index",
+            "title",
+            "goal",
+            "core_conflict",
+            "emotional_beat",
+            "must_happen",
+            "must_not_happen",
+            "narrative_tag",
+            "source",
+            "pov_character_id",
+            "status",
         ):
             value = getattr(data, field, None)
             if value is not None:

@@ -19,6 +19,7 @@ def _uuid_validator(v: object) -> str:
 # PlotThread
 # ============================================================
 
+
 class PlotThreadCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     thread_type: str = Field(..., max_length=32)
@@ -89,6 +90,7 @@ class PlotThreadListResponse(BaseModel):
 # ============================================================
 # OutlineArc
 # ============================================================
+
 
 class OutlineArcCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
@@ -167,6 +169,7 @@ class OutlineArcListResponse(BaseModel):
 # Scene
 # ============================================================
 
+
 class SceneCreate(BaseModel):
     scene_index: int = Field(..., ge=0)
     title: str | None = Field(None, max_length=255)
@@ -227,7 +230,9 @@ class SceneResponse(BaseModel):
 
 
 class SceneReorderRequest(BaseModel):
-    scene_ids: list[str] = Field(..., min_length=1, description="按新顺序排列的 Scene ID 列表")
+    scene_ids: list[str] = Field(
+        ..., min_length=1, description="按新顺序排列的 Scene ID 列表"
+    )
 
 
 class SceneReorderResponse(BaseModel):

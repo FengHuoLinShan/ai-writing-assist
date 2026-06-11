@@ -6,14 +6,13 @@ Import ORM 模型
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Integer, String, Text
-from sqlalchemy import ForeignKey
+import uuid
+
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
-
-import uuid
 
 
 class ImportRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):

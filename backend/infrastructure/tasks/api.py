@@ -12,16 +12,14 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from core.dependencies import DbSession
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from shared.enums import TaskStatus as TaskStatusEnum
-from shared.types import TaskID
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -29,6 +27,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 # ============================================================
 # Schema
 # ============================================================
+
 
 class TaskSubmitRequest(BaseModel):
     """提交任务请求"""

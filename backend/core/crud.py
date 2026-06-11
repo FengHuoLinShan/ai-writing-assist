@@ -28,14 +28,24 @@ class _CrudRepo(Protocol[ModelT, CreateT, UpdateT]):
 
     def get(self, db: AsyncSession, id: uuid.UUID) -> ModelT | None: ...
     def get_by_novel(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> tuple[list[ModelT], int]: ...
     def create(
-        self, db: AsyncSession, novel_id: uuid.UUID, data: CreateT,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        data: CreateT,
     ) -> ModelT: ...
     def update(
-        self, db: AsyncSession, id: uuid.UUID, data: UpdateT,
+        self,
+        db: AsyncSession,
+        id: uuid.UUID,
+        data: UpdateT,
     ) -> ModelT | None: ...
     def delete(self, db: AsyncSession, id: uuid.UUID) -> bool: ...
 
@@ -80,7 +90,10 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
     # ============================================================
 
     async def get(
-        self, db: AsyncSession, id: str, *,
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
         novel_id: str,
     ) -> ResponseT:
         rid = parse_uuid(id, self.id_param)
@@ -90,19 +103,30 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
         return self._to_response(obj)  # type: ignore[return-value]
 
     async def list(
-        self, db: AsyncSession, novel_id: str, *,
-        skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[ResponseT], int]:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         objs, total = await self.repo.get_by_novel(
-            db, nid, skip=skip, limit=limit,
+            db,
+            nid,
+            skip=skip,
+            limit=limit,
         )
         return [self._to_response(o) for o in objs], total  # type: ignore[misc]
 
     async def list_with_response(
-        self, db: AsyncSession, novel_id: str, *,
-        skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
     ) -> BaseModel:
         """Like `list()`, but wraps result in `list_response` if configured."""
         items, total = await self.list(db, novel_id, skip=skip, limit=limit)
@@ -113,14 +137,21 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
         return self.list_response(items=items, total=total)  # type: ignore[return-value]
 
     async def create(
-        self, db: AsyncSession, novel_id: str, data: CreateT,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: CreateT,
     ) -> ResponseT:
         nid = parse_uuid(novel_id, "novel_id")
         obj = await self.repo.create(db, nid, data)
         return self._to_response(obj)  # type: ignore[return-value]
 
     async def update(
-        self, db: AsyncSession, id: str, data: UpdateT, *,
+        self,
+        db: AsyncSession,
+        id: str,
+        data: UpdateT,
+        *,
         novel_id: str,
     ) -> ResponseT:
         rid = parse_uuid(id, self.id_param)
@@ -132,7 +163,11 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
         return self._to_response(obj)  # type: ignore[return-value]
 
     async def delete(
-        self, db: AsyncSession, id: str, *, novel_id: str,
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
+        novel_id: str,
     ) -> None:
         rid = parse_uuid(id, self.id_param)
         nid = parse_uuid(novel_id, "novel_id")
@@ -150,7 +185,10 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
         return self.response.model_validate(obj)  # type: ignore[return-value]
 
     def _assert_found_in_novel(
-        self, obj: ModelT | None, id: str, nid: uuid.UUID,
+        self,
+        obj: ModelT | None,
+        id: str,
+        nid: uuid.UUID,
     ) -> None:
         """UUID-UUID 比对 (per ADR-0002)。"""
         if obj is None:

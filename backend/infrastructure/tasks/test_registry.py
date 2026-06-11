@@ -33,6 +33,7 @@ class TestTaskRegistry:
 
         registry.register("dup_type", h1)
         import pytest
+
         with pytest.raises(ValueError, match="already registered"):
             registry.register("dup_type", h2)
 

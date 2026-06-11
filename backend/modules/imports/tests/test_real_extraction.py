@@ -17,13 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
-from modules.imports.services import ImportService
 from modules.project.models import Project
-from modules.writing.models import WritingDraft
-from modules.writing.facade import get_latest_draft_for_chapter
-from modules.world.models import CoreEntity
-from shared.protocols import DraftProvider
 from modules.world.services.extraction_service import EntityExtractionService
+from modules.writing.facade import get_latest_draft_for_chapter
+from modules.writing.models import WritingDraft
+from shared.protocols import DraftProvider
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
 FIRST_10_CHAPTER_COUNT = 10
@@ -32,6 +30,7 @@ FIRST_10_CHAPTER_COUNT = 10
 # ============================================================
 # DraftProvider: 直读 writing_drafts（无需 RAG/pgvector）
 # ============================================================
+
 
 class DirectDraftProvider(DraftProvider):
     """从 writing_drafts 直读章节正文，不依赖 RAG 索引/pgvector。
@@ -51,17 +50,20 @@ class DirectDraftProvider(DraftProvider):
         for idx in range(start_chapter, end_chapter + 1):
             draft = await get_latest_draft_for_chapter(db, novel_id, idx)
             if draft and draft.content:
-                chapters.append({
-                    "chapter_index": idx,
-                    "title": draft.title or f"第{idx}章",
-                    "content": draft.content,
-                })
+                chapters.append(
+                    {
+                        "chapter_index": idx,
+                        "title": draft.title or f"第{idx}章",
+                        "content": draft.content,
+                    }
+                )
         return chapters
 
 
 # ============================================================
 # Cycle 1: 导入前10章 + 验证
 # ============================================================
+
 
 class TestImportFirst10Chapters:
     """Tracer Bullet: 导入前10章并验证"""
@@ -79,9 +81,13 @@ class TestImportFirst10Chapters:
         # 2. 创建项目
         pid = uuid.uuid4()
         project = Project(
-            id=pid, title="诡秘之主 第一部 提取测试",
-            genre="西方奇幻", tone="维多利亚风格、黑暗",
-            language="zh", target_length="novel", current_stage="writing",
+            id=pid,
+            title="诡秘之主 第一部 提取测试",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
         )
         db_session.add(project)
         await db_session.flush()
@@ -138,6 +144,7 @@ class TestImportFirst10Chapters:
 # Cycle 2: LLM 实体抽取（真实 DeepSeek API）
 # ============================================================
 
+
 class TestRealEntityExtraction:
     """Cycle 2: 用真实 LLM 从前10章中抽取世界对象（自动入库）"""
 
@@ -149,9 +156,13 @@ class TestRealEntityExtraction:
 
         pid = uuid.uuid4()
         project = Project(
-            id=pid, title="诡秘之主 第一部 提取测试",
-            genre="西方奇幻", tone="维多利亚风格、黑暗",
-            language="zh", target_length="novel", current_stage="writing",
+            id=pid,
+            title="诡秘之主 第一部 提取测试",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
         )
         db_session.add(project)
         await db_session.flush()
@@ -175,7 +186,9 @@ class TestRealEntityExtraction:
         return {"project_id": project_id}
 
     @pytest.mark.asyncio
-    async def test_extraction_creates_canonical_entities(self, ctx: dict, db_session: AsyncSession):
+    async def test_extraction_creates_canonical_entities(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """实体抽取应创建 canonical 实体（自动入库），而非候选"""
         project_id = ctx["project_id"]
 
@@ -199,16 +212,24 @@ class TestRealEntityExtraction:
         # 至少应识别出核心实体（克莱恩、廷根市、值夜者等）
         created_names = [item["name"] for item in result.items]
         print(f"抽取到的实体: {created_names}")
-        print(f"生成率: {result.total_created}/{result.total_created + result.total_skipped}")
+        print(
+            f"生成率: {result.total_created}/{result.total_created + result.total_skipped}"
+        )
 
         # 验证结果包含自动入库标记
-        assert all(item.get("auto_ingested") for item in result.items), "所有实体应有 auto_ingested 标记"
+        assert all(item.get("auto_ingested") for item in result.items), (
+            "所有实体应有 auto_ingested 标记"
+        )
         # 验证所有实体共享同一 batch_id
-        batch_ids = {item.get("batch_id") for item in result.items if item.get("batch_id")}
+        batch_ids = {
+            item.get("batch_id") for item in result.items if item.get("batch_id")
+        }
         assert len(batch_ids) == 1, f"应有统一 batch_id，实际 {batch_ids}"
 
     @pytest.mark.asyncio
-    async def test_entities_persisted_as_canonical(self, ctx: dict, db_session: AsyncSession):
+    async def test_entities_persisted_as_canonical(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """抽取的实体应以 canonical 状态持久化到 core_entities 表"""
         project_id = ctx["project_id"]
 
@@ -217,12 +238,16 @@ class TestRealEntityExtraction:
         )
 
         await extraction_service.extract_entities_from_chapters(
-            db_session, novel_id=project_id,
-            start_chapter=1, end_chapter=10, batch_size=5,
+            db_session,
+            novel_id=project_id,
+            start_chapter=1,
+            end_chapter=10,
+            batch_size=5,
         )
 
         # 用 repo 查询
         from modules.world.repositories import CoreEntityRepository
+
         nid = uuid.UUID(hex=project_id)
         repo = CoreEntityRepository()
         entities, total = await repo.get_by_novel(db_session, nid, limit=100)
@@ -243,7 +268,9 @@ class TestRealEntityExtraction:
         print(f"DB中的实体 (canonical): {names}")
 
     @pytest.mark.asyncio
-    async def test_extraction_without_chapters_returns_400(self, db_session: AsyncSession):
+    async def test_extraction_without_chapters_returns_400(
+        self, db_session: AsyncSession
+    ):
         """无章节内容时抽取应报错"""
         pid = uuid.uuid4()
         project = Project(id=pid, title="空项目", genre="test", language="zh")
@@ -256,8 +283,11 @@ class TestRealEntityExtraction:
 
         with pytest.raises(Exception, match="未找到章节"):
             await extraction_service.extract_entities_from_chapters(
-                db_session, novel_id=str(pid),
-                start_chapter=1, end_chapter=10, batch_size=5,
+                db_session,
+                novel_id=str(pid),
+                start_chapter=1,
+                end_chapter=10,
+                batch_size=5,
             )
 
 
@@ -265,12 +295,14 @@ class TestRealEntityExtraction:
 # Cycle 3: Workflow 编排
 # ============================================================
 
+
 class TestRealWorkflowStep1:
     """Cycle 3: DeepImportWorkflow 三阶段流水线测试（mock 内部方法）"""
 
     @pytest.mark.asyncio
     async def test_workflow_3_phase_with_real_data_setup(
-        self, db_session: AsyncSession,
+        self,
+        db_session: AsyncSession,
     ) -> None:
         """Workflow 从 pending → done，使用真实文件导入数据 + mock 三阶段"""
         from unittest import mock
@@ -280,9 +312,13 @@ class TestRealWorkflowStep1:
 
         pid = uuid.uuid4()
         project = Project(
-            id=pid, title="诡秘之主 第一部 Workflow 测试",
-            genre="西方奇幻", tone="维多利亚风格、黑暗",
-            language="zh", target_length="novel", current_stage="writing",
+            id=pid,
+            title="诡秘之主 第一部 Workflow 测试",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
         )
         db_session.add(project)
         await db_session.flush()
@@ -318,17 +354,24 @@ class TestRealWorkflowStep1:
 
         async def _mock_analyze(db, novel_id, start_chapter, end_chapter):
             return {
-                "total_threads": 2, "total_arcs": 1,
-                "threads": [], "arcs": [], "extra_sections": {},
+                "total_threads": 2,
+                "total_arcs": 1,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
             }
 
         with (
             mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),
             mock.patch.object(
-                workflow, "_extract_entities_by_scene", side_effect=_mock_extract,
+                workflow,
+                "_extract_entities_by_scene",
+                side_effect=_mock_extract,
             ),
             mock.patch.object(
-                workflow, "_analyze_structure", side_effect=_mock_analyze,
+                workflow,
+                "_analyze_structure",
+                side_effect=_mock_analyze,
             ),
         ):
             result = await workflow.run_step(
@@ -339,9 +382,7 @@ class TestRealWorkflowStep1:
                 progress=progress,
             )
 
-        assert result.phase == "done", (
-            f"阶段应为 done，实际 {result.phase}"
-        )
+        assert result.phase == "done", f"阶段应为 done，实际 {result.phase}"
         assert DeepImportStep.scene_segmentation.value in result.completed_steps
         assert DeepImportStep.entity_extraction.value in result.completed_steps
         assert DeepImportStep.structure_analysis.value in result.completed_steps
@@ -351,6 +392,7 @@ class TestRealWorkflowStep1:
 # ============================================================
 # Cycle 4: 上下文加载 — 第二次抽取不重复创建
 # ============================================================
+
 
 class TestAutoIngestContextLoading:
     """Cycle 4: 验证上下文加载使第二次抽取不重复创建已有实体"""
@@ -363,9 +405,13 @@ class TestAutoIngestContextLoading:
 
         pid = uuid.uuid4()
         project = Project(
-            id=pid, title="诡秘之主 上下文加载测试",
-            genre="西方奇幻", tone="维多利亚风格、黑暗",
-            language="zh", target_length="novel", current_stage="writing",
+            id=pid,
+            title="诡秘之主 上下文加载测试",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
         )
         db_session.add(project)
         await db_session.flush()
@@ -390,20 +436,26 @@ class TestAutoIngestContextLoading:
         # 首次抽取
         service = EntityExtractionService(draft_provider=DirectDraftProvider())
         first_result = await service.extract_entities_from_chapters(
-            db_session, novel_id=project_id,
-            start_chapter=1, end_chapter=5, batch_size=5,
+            db_session,
+            novel_id=project_id,
+            start_chapter=1,
+            end_chapter=5,
+            batch_size=5,
         )
 
         return {"project_id": project_id, "first_created": first_result.total_created}
 
     @pytest.mark.asyncio
-    async def test_second_extraction_uses_context(self, ctx: dict, db_session: AsyncSession):
+    async def test_second_extraction_uses_context(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """第二次抽取（相同章节）应加载已有实体作为上下文"""
         project_id = ctx["project_id"]
 
         # 验证已有 canonical 实体在 DB 中
         from modules.world.repositories import CoreEntityRepository
         from shared.utils import parse_uuid
+
         nid = parse_uuid(project_id, "novel_id")
         repo = CoreEntityRepository()
         entities, total = await repo.get_by_novel(db_session, nid, limit=200)
@@ -417,14 +469,19 @@ class TestAutoIngestContextLoading:
         # 第二次抽取（验证加载上下文不会崩溃，且重复实体被跳过）
         service = EntityExtractionService(draft_provider=DirectDraftProvider())
         second_result = await service.extract_entities_from_chapters(
-            db_session, novel_id=project_id,
-            start_chapter=1, end_chapter=5, batch_size=5,
+            db_session,
+            novel_id=project_id,
+            start_chapter=1,
+            end_chapter=5,
+            batch_size=5,
         )
 
-        print(f"首次创建: {ctx['first_created']}, 第二次创建: {second_result.total_created}, 跳过: {second_result.total_skipped}")
+        print(
+            f"首次创建: {ctx['first_created']}, 第二次创建: {second_result.total_created}, 跳过: {second_result.total_skipped}"
+        )
         # 第二次不应创建比第一次更多实体（已创建的应被去重逻辑识别）
         assert second_result.total_created <= ctx["first_created"], (
-            f"第二次创建的实体数不应超过第一次"
+            "第二次创建的实体数不应超过第一次"
         )
 
     @pytest.mark.asyncio
@@ -441,5 +498,9 @@ class TestAutoIngestContextLoading:
         assert len(batches) >= 1, "至少有一个导入批次"
         batch = batches[0]
         assert batch["batch_id"], "批次应有 batch_id"
-        assert batch["entity_count"] >= 1, f"批次应有至少1个实体，实际 {batch['entity_count']}"
-        print(f"批次 {batch['batch_id']}: {batch['entity_count']} 个实体, 导入时间 {batch['ingested_at']}")
+        assert batch["entity_count"] >= 1, (
+            f"批次应有至少1个实体，实际 {batch['entity_count']}"
+        )
+        print(
+            f"批次 {batch['batch_id']}: {batch['entity_count']} 个实体, 导入时间 {batch['ingested_at']}"
+        )

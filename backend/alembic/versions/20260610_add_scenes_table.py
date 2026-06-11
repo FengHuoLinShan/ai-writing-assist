@@ -28,7 +28,10 @@ def upgrade() -> None:
             index=True,
         ),
         sa.Column(
-            "scene_index", sa.Integer(), nullable=False, index=True,
+            "scene_index",
+            sa.Integer(),
+            nullable=False,
+            index=True,
         ),
         sa.Column("title", sa.String(255), nullable=True),
         sa.Column("goal", sa.Text(), nullable=True),

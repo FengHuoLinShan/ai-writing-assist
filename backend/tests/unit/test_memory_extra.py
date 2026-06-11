@@ -8,7 +8,7 @@ Memory 模块单元测试 — api.py + contracts.py
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -16,8 +16,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.api import (
-    get_panorama,
     get_entity_timeline,
+    get_panorama,
     get_status,
     list_events,
     list_snapshots,
@@ -33,10 +33,10 @@ from modules.memory.schemas import (
     SnapshotResponse,
 )
 
-
 # ============================================================
 # 辅助函数 — 构造模拟数据对象
 # ============================================================
+
 
 def _make_event(novel_id: str, **overrides: object) -> SimpleNamespace:
     """创建模拟的 MemoryEvent ORM 对象（可被 Pydantic model_validate）"""
@@ -51,7 +51,7 @@ def _make_event(novel_id: str, **overrides: object) -> SimpleNamespace:
         "snapshot_before": None,
         "snapshot_after": {"name": "Alice"},
         "source": "ai_extraction",
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -65,7 +65,7 @@ def _make_snapshot(novel_id: str, **overrides: object) -> SimpleNamespace:
         "chapter_index": 1,
         "status": "current",
         "events_until": 5,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -74,6 +74,7 @@ def _make_snapshot(novel_id: str, **overrides: object) -> SimpleNamespace:
 # ============================================================
 # Contracts 测试
 # ============================================================
+
 
 class TestMemoryEventContract:
     """MemoryEventContract dataclass — 跨模块契约"""
@@ -171,6 +172,7 @@ class TestChapterPanoramaContract:
 # API — get_panorama
 # ============================================================
 
+
 class TestGetPanorama:
     """GET /api/novels/{novel_id}/memories/panorama"""
 
@@ -210,6 +212,7 @@ class TestGetPanorama:
 # ============================================================
 # API — list_events
 # ============================================================
+
 
 class TestListEvents:
     """GET /api/novels/{novel_id}/memories/events"""
@@ -289,6 +292,7 @@ class TestListEvents:
 # API — get_entity_timeline
 # ============================================================
 
+
 class TestGetEntityTimeline:
     """GET /api/novels/{novel_id}/memories/events/{entity_id}/timeline"""
 
@@ -358,6 +362,7 @@ class TestGetEntityTimeline:
 # API — trigger_capture
 # ============================================================
 
+
 class TestTriggerCapture:
     """POST /api/novels/{novel_id}/memories/snapshots/capture"""
 
@@ -398,6 +403,7 @@ class TestTriggerCapture:
 # ============================================================
 # API — list_snapshots
 # ============================================================
+
 
 class TestListSnapshots:
     """GET /api/novels/{novel_id}/memories/snapshots"""
@@ -451,6 +457,7 @@ class TestListSnapshots:
 # API — trigger_rebuild
 # ============================================================
 
+
 class TestTriggerRebuild:
     """POST /api/novels/{novel_id}/memories/rebuild"""
 
@@ -488,6 +495,7 @@ class TestTriggerRebuild:
 # ============================================================
 # API — get_status
 # ============================================================
+
 
 class TestGetStatus:
     """GET /api/novels/{novel_id}/memories/status"""

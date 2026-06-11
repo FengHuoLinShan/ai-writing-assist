@@ -104,7 +104,9 @@ async def test_create_event_invalid_data_raises_validation_error(
 ):
     """异常路径: 缺少必填字段时 EventCreate 校验失败抛出 ValidationError."""
     # Arrange
-    data = {"source_chapter_id": "chapter-1"}  # missing entity_id, location_entity_id, timeline_order
+    data = {
+        "source_chapter_id": "chapter-1"
+    }  # missing entity_id, location_entity_id, timeline_order
 
     # Act & Assert
     with pytest.raises(ValidationError):
@@ -250,12 +252,8 @@ async def test_rollback_to_revision_success_returns_dict(
         mock_rollback.return_value = expected
 
         # Act
-        result = await rollback_to_revision(
-            db_session, test_project_id, "e1", "rev-1"
-        )
+        result = await rollback_to_revision(db_session, test_project_id, "e1", "rev-1")
 
         # Assert
-        mock_rollback.assert_awaited_once_with(
-            db_session, "e1", "rev-1", test_project_id
-        )
+        mock_rollback.assert_awaited_once_with(db_session, "e1", "rev-1", test_project_id)
         assert result == expected

@@ -40,11 +40,19 @@ class DeepImportWorkflow:
             progress.current_step = DeepImportStep.scene_segmentation
             progress.message = "正在切分叙事 Scene..."
             await self._emit_progress(progress, 0.0, on_progress)
+
+            async def _on_batch_progress(completed: int, total: int) -> None:
+                progress.phase1_total_batches = total
+                progress.phase1_completed_batches = completed
+                value = 0.0 + 0.4 * (completed / total) if total else 0.0
+                await self._emit_progress(progress, value, on_progress)
+
             phase1_result = await self._segment_scenes(
                 db,
                 novel_id,
                 start_chapter,
                 end_chapter,
+                on_batch_progress=_on_batch_progress,
             )
             progress.completed_steps.append(DeepImportStep.scene_segmentation.value)
             progress.message = (
@@ -59,9 +67,17 @@ class DeepImportWorkflow:
             progress.current_step = DeepImportStep.entity_extraction
             progress.message = "正在按 Scene 提取世界对象..."
             await self._emit_progress(progress, 0.4, on_progress)
+
+            async def _on_scene_progress(completed: int, total: int) -> None:
+                progress.phase2_total_scenes = total
+                progress.phase2_completed_scenes = completed
+                value = 0.4 + 0.4 * (completed / total) if total else 0.4
+                await self._emit_progress(progress, value, on_progress)
+
             phase2_result = await self._extract_entities_by_scene(
                 db,
                 novel_id,
+                on_scene_progress=_on_scene_progress,
             )
             progress.completed_steps.append(DeepImportStep.entity_extraction.value)
             progress.message = (
@@ -116,6 +132,7 @@ class DeepImportWorkflow:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        on_batch_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         from modules.imports.scene_segmentation import SceneSegmentationService
 
@@ -125,6 +142,7 @@ class DeepImportWorkflow:
             novel_id,
             start_chapter,
             end_chapter,
+            on_batch_progress=on_batch_progress,
         )
         logger.info(
             "Phase 1 complete: %d scenes, %d failed batches, degraded=%s",
@@ -142,10 +160,15 @@ class DeepImportWorkflow:
         self,
         db: AsyncSession,
         novel_id: str,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         try:
             handler = _container_get("world.run_scene_entity_extraction")
-            result = await handler(db, novel_id=novel_id)
+            result = await handler(
+                db,
+                novel_id=novel_id,
+                on_scene_progress=on_scene_progress,
+            )
             return result
         except Exception as exc:
             logger.warning("Phase 2 entity extraction failed: %s", exc)

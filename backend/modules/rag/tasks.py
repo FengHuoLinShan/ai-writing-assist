@@ -91,12 +91,14 @@ async def handle_rag_reindex_novel(db, task):
         chunks_created += report.chunks_created
         embedding_failed_count += report.embedding_failed_count
         warnings.extend(report.warnings)
-        chapters.append({
-            "chapter_index": chapter_index,
-            "chunks_created": report.chunks_created,
-            "embedding_failed_count": report.embedding_failed_count,
-            "warnings": report.warnings,
-        })
+        chapters.append(
+            {
+                "chapter_index": chapter_index,
+                "chunks_created": report.chunks_created,
+                "embedding_failed_count": report.embedding_failed_count,
+                "warnings": report.warnings,
+            }
+        )
 
     task.update_progress(1.0)
     await db.flush()

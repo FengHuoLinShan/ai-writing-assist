@@ -61,7 +61,10 @@ class CharacterService(
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self.repo.get_by_novel(
-            db, nid, skip=skip, limit=limit,
+            db,
+            nid,
+            skip=skip,
+            limit=limit,
         )
         return [CharacterResponse.model_validate(c) for c in items], total
 
@@ -147,15 +150,15 @@ class CharacterService(
     ) -> list:
         """返回 knowledge 上下文, 留为返回 dict (避免循环 import schema)。"""
         from modules.world.schemas import CharacterKnowledgeContext
+
         nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(character_id, "character_id")
-        tids = (
-            [parse_uuid(tid) for tid in target_ids]
-            if target_ids
-            else None
-        )
+        tids = [parse_uuid(tid) for tid in target_ids] if target_ids else None
         knowledge_list = await self._knowledge_repo.get_by_target(
-            db, nid, cid, tids,
+            db,
+            nid,
+            cid,
+            tids,
         )
 
         return [
@@ -190,7 +193,10 @@ class CharacterService(
         for t_type, t_ids in target_ids_map.items():
             tid_uuids = [parse_uuid(tid) for tid in t_ids]
             records = await self._knowledge_repo.get_by_target(
-                db, nid, cid, tid_uuids,
+                db,
+                nid,
+                cid,
+                tid_uuids,
             )
             for rec in records:
                 key = f"{rec.target_type}:{rec.target_id}"
@@ -220,9 +226,7 @@ class CharacterService(
                 filtered_item = dict(item)
                 filtered_item["original_content"] = filtered_item.get("content", "")
                 filtered_item["content"] = (
-                    knowledge["misconception"]
-                    or knowledge["known_content"]
-                    or ""
+                    knowledge["misconception"] or knowledge["known_content"] or ""
                 )
                 filtered_item["knowledge_level"] = "false_belief"
                 filtered_item["is_misconception"] = True
@@ -232,9 +236,7 @@ class CharacterService(
                 filtered_item = dict(item)
                 filtered_item["knowledge_level"] = level
                 if knowledge["known_content"]:
-                    filtered_item["character_known_content"] = (
-                        knowledge["known_content"]
-                    )
+                    filtered_item["character_known_content"] = knowledge["known_content"]
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
@@ -283,7 +285,11 @@ class CharacterService(
         cid = parse_uuid(character_id, "character_id")
         loc_id = parse_uuid(location_id, "location_id")
         await self.repo.update_character_meta_location(
-            db, cid, loc_id, text_state, chapter_index,
+            db,
+            cid,
+            loc_id,
+            text_state,
+            chapter_index,
         )
 
     async def get_characters_at_location(

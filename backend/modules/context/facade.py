@@ -105,6 +105,9 @@ async def compile_with_tiers(
     **kwargs,
 ) -> CompiledContext:
     options = CompileOptions(
-        novel_id=novel_id, task=task, scope=scope, **kwargs,
+        novel_id=novel_id,
+        task=task,
+        scope=scope,
+        **kwargs,
     )
     return await _compiler.compile_with_tiers(db, options, budget_tokens=budget_tokens)

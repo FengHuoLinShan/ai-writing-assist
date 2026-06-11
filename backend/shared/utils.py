@@ -138,7 +138,9 @@ def parse_llm_json(content: str, label: str = "LLM response") -> dict:
                         candidate += "]" * (candidate.count("[") - candidate.count("]"))
                     result = json.loads(candidate)
                     if isinstance(result, dict):
-                        logger.info("%s: recovered truncated JSON (len=%d)", label, len(candidate))
+                        logger.info(
+                            "%s: recovered truncated JSON (len=%d)", label, len(candidate)
+                        )
                         return result
                 except json.JSONDecodeError:
                     continue

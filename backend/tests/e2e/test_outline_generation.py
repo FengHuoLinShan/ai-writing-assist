@@ -28,22 +28,49 @@ VALID_THREAD_TYPES = frozenset(
 
 # 提示词定义的输出字段中代码已消费 vs 未消费的
 THREAD_CONSUMED_FIELDS = {
-    "name", "thread_type", "summary", "visible_goal", "hidden_truth",
-    "start_chapter", "planned_payoff_chapter", "current_stage", "status",
+    "name",
+    "thread_type",
+    "summary",
+    "visible_goal",
+    "hidden_truth",
+    "start_chapter",
+    "planned_payoff_chapter",
+    "current_stage",
+    "status",
 }
 THREAD_UNCONSUMED_FIELDS = {
-    "reader_known_state", "author_known_state",
-    "related_character_names", "related_entity_names",
+    "reader_known_state",
+    "author_known_state",
+    "related_character_names",
+    "related_entity_names",
 }
 ARC_CONSUMED_FIELDS = {
-    "title", "arc_index", "start_chapter", "end_chapter",
-    "arc_goal", "core_conflict", "main_opposition",
-    "entry_hook", "midpoint_turn", "climax", "result", "next_hook", "status",
+    "title",
+    "arc_index",
+    "start_chapter",
+    "end_chapter",
+    "arc_goal",
+    "core_conflict",
+    "main_opposition",
+    "entry_hook",
+    "midpoint_turn",
+    "climax",
+    "result",
+    "next_hook",
+    "status",
 }
 ARC_UNCONSUMED_FIELDS = {
-    "related_thread_names", "related_character_names", "related_entity_names",
+    "related_thread_names",
+    "related_character_names",
+    "related_entity_names",
 }
-TOP_LEVEL_SECTIONS = {"foreshadowing_plans", "reveal_plans", "offscreen_progress", "risks", "questions_for_user"}
+TOP_LEVEL_SECTIONS = {
+    "foreshadowing_plans",
+    "reveal_plans",
+    "offscreen_progress",
+    "risks",
+    "questions_for_user",
+}
 
 MAX_LLM_RETRIES = 3
 
@@ -66,7 +93,8 @@ async def _generate_with_retry(
             return result
         logger.warning(
             "LLM 返回空结果（attempt %d/%d），重试...",
-            attempt, MAX_LLM_RETRIES,
+            attempt,
+            MAX_LLM_RETRIES,
         )
     return result
 
@@ -74,6 +102,7 @@ async def _generate_with_retry(
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest_asyncio.fixture
 async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
@@ -85,9 +114,24 @@ async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
     eids = scene["entity_ids"]
 
     character_data = [
-        {"name": "克莱恩·莫雷蒂", "entity_name": "克莱恩·莫雷蒂", "role": "protagonist", "desire": "寻找序列晋升之路，保护家人"},
-        {"name": "罗塞尔·古斯塔夫", "entity_name": "罗塞尔·古斯塔夫", "role": "mentor", "desire": "留下记录指引后来者"},
-        {"name": "邓恩·史密斯", "entity_name": "邓恩·史密斯", "role": "supporting", "desire": "守护廷根市完成值夜者职责"},
+        {
+            "name": "克莱恩·莫雷蒂",
+            "entity_name": "克莱恩·莫雷蒂",
+            "role": "protagonist",
+            "desire": "寻找序列晋升之路，保护家人",
+        },
+        {
+            "name": "罗塞尔·古斯塔夫",
+            "entity_name": "罗塞尔·古斯塔夫",
+            "role": "mentor",
+            "desire": "留下记录指引后来者",
+        },
+        {
+            "name": "邓恩·史密斯",
+            "entity_name": "邓恩·史密斯",
+            "role": "supporting",
+            "desire": "守护廷根市完成值夜者职责",
+        },
     ]
 
     for cd in character_data:
@@ -116,11 +160,14 @@ async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
 # Test: 生成完整性
 # ============================================================
 
+
 class TestRealOutlineGeneration:
     """真实 LLM 验证——生成完整性 + 内容正确性。"""
 
     async def test_outline_generate_real_llm_creates_threads_and_arcs(
-        self, db_session: AsyncSession, project_with_world: dict[str, Any],
+        self,
+        db_session: AsyncSession,
+        project_with_world: dict[str, Any],
     ) -> None:
         """调用真实 LLM 生成，验证剧情线 + 篇章纲产出完整（含 LLM 空结果重试）。"""
         # Arrange
@@ -128,8 +175,10 @@ class TestRealOutlineGeneration:
 
         # Act
         result = await _generate_with_retry(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=10,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=10,
         )
 
         # Assert
@@ -146,8 +195,7 @@ class TestRealOutlineGeneration:
             logger.info("  Arc: %s (idx=%s)", a.get("title"), a.get("arc_index"))
 
         assert total_threads > 0, (
-            f"LLM 重试 {MAX_LLM_RETRIES} 次后仍返回空结果——"
-            f"提示词或 LLM 兼容性可能有问题"
+            f"LLM 重试 {MAX_LLM_RETRIES} 次后仍返回空结果——提示词或 LLM 兼容性可能有问题"
         )
         assert total_arcs > 0, "应生成至少 1 个篇章纲"
 
@@ -164,7 +212,9 @@ class TestRealOutlineGeneration:
         assert len(titles) == len(set(titles)), f"重复 title: {titles}"
 
     async def test_outline_generate_real_llm_persists_to_db(
-        self, db_session: AsyncSession, project_with_world: dict[str, Any],
+        self,
+        db_session: AsyncSession,
+        project_with_world: dict[str, Any],
     ) -> None:
         """生成的数据持久化到 DB 且可回读。"""
         # Arrange
@@ -194,7 +244,9 @@ class TestRealOutlineGeneration:
             assert a.title, f"Arc title 为空: {a.id}"
 
     async def test_outline_generate_real_llm_multiple_calls_no_crash(
-        self, db_session: AsyncSession, project_with_world: dict[str, Any],
+        self,
+        db_session: AsyncSession,
+        project_with_world: dict[str, Any],
     ) -> None:
         """多次调用不崩溃，目前无 dedup。"""
         # Arrange
@@ -204,8 +256,12 @@ class TestRealOutlineGeneration:
         novel_id = project_with_world["project_id"]
 
         # Act
-        r1 = await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
-        r2 = await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
+        r1 = await _generate_with_retry(
+            db_session, novel_id, start_chapter=1, end_chapter=10
+        )
+        r2 = await _generate_with_retry(
+            db_session, novel_id, start_chapter=1, end_chapter=10
+        )
 
         # Assert
         assert r1.get("total_threads", 0) > 0
@@ -221,6 +277,7 @@ class TestRealOutlineGeneration:
 # ============================================================
 # Test: 输出契约覆盖度
 # ============================================================
+
 
 class TestOutputContractCoverage:
     """提示词 vs 代码——字段级覆盖度检查（仅报告，不断言失败）。"""
@@ -264,7 +321,9 @@ class TestOutputContractCoverage:
         )
 
     async def test_outline_related_ids_in_db_are_empty_known_bug(
-        self, db_session: AsyncSession, project_with_world: dict[str, Any],
+        self,
+        db_session: AsyncSession,
+        project_with_world: dict[str, Any],
     ) -> None:
         """验证 DB 中 related_character_ids / related_entity_ids 为空。"""
         # Arrange

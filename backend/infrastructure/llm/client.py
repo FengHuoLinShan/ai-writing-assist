@@ -103,7 +103,8 @@ class LLMClient:
         )
 
     async def generate_stream(
-        self, request: LLMCallRequest,
+        self,
+        request: LLMCallRequest,
     ) -> AsyncIterator[LLMStreamChunk]:
         """流式调用 LLM（带自动重试）
 
@@ -172,13 +173,16 @@ class LLMClient:
                     fields = list(schema.model_fields.keys())
                     if len(fields) == 1:
                         field_annotation = schema.model_fields[fields[0]].annotation
-                        if field_annotation is not None and typing.get_origin(field_annotation) is list:
+                        if (
+                            field_annotation is not None
+                            and typing.get_origin(field_annotation) is list
+                        ):
                             data = {fields[0]: data}
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
                 raw_content = response.content if locals().get("response") else ""
                 last_error = LLMInvalidResponseError(
-                    f"Invalid JSON response (attempt {attempt+1}): {e}",
+                    f"Invalid JSON response (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                     raw_response=raw_content,
                 )
@@ -190,7 +194,7 @@ class LLMClient:
                 )
             except ValidationError as e:
                 last_error = LLMInvalidResponseError(
-                    f"Schema validation failed (attempt {attempt+1}): {e}",
+                    f"Schema validation failed (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                 )
                 logger.warning(
@@ -206,7 +210,9 @@ class LLMClient:
                     f"Your previous response failed validation. Error: {last_error}\n"
                     f"Please output valid JSON matching this schema: {schema.model_json_schema()}"
                 )
-                req.messages.append(LLMMessage(role="assistant", content=response.content))
+                req.messages.append(
+                    LLMMessage(role="assistant", content=response.content)
+                )
                 req.messages.append(LLMMessage(role="user", content=fix_msg))
 
         raise LLMInvalidResponseError(
@@ -276,9 +282,7 @@ class LLMClient:
             try:
                 return await client.generate_embedding(text, is_query=is_query)
             except Exception:
-                logger.warning(
-                    "BGE embedding failed, falling back to OpenAI"
-                )
+                logger.warning("BGE embedding failed, falling back to OpenAI")
                 raise
 
         # OpenAI / 其他远程 API

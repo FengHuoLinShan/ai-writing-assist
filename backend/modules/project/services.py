@@ -26,7 +26,9 @@ class ProjectService:
     def __init__(self) -> None:
         self._repo = ProjectRepository()
 
-    async def create_project(self, db: AsyncSession, data: ProjectCreate) -> ProjectResponse:
+    async def create_project(
+        self, db: AsyncSession, data: ProjectCreate
+    ) -> ProjectResponse:
         project = await self._repo.create(db, data)
         return ProjectResponse.model_validate(project)
 
@@ -91,7 +93,9 @@ class ProjectService:
         return ProjectResponse.model_validate(project)
 
     async def permanent_delete_project(
-        self, db: AsyncSession, project_id: str,
+        self,
+        db: AsyncSession,
+        project_id: str,
     ) -> None:
         """永久删除项目（级联删除所有关联数据，不可恢复）"""
         pid = parse_uuid(project_id, "project_id")
@@ -103,7 +107,10 @@ class ProjectService:
             )
 
     async def list_deleted_projects(
-        self, db: AsyncSession, skip: int = 0, limit: int = DEFAULT_PAGE_SIZE,
+        self,
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
     ) -> ProjectListResponse:
         """列出回收站中的项目"""
         limit = min(limit, MAX_PAGE_SIZE)

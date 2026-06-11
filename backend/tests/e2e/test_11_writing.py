@@ -1,6 +1,7 @@
 """
 草稿写入与版本管理 E2E 测试
 """
+
 from __future__ import annotations
 
 import pytest
@@ -28,10 +29,15 @@ class TestWritingDraft:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": 1,
-            "title": "第1章", "content": "第一章正文内容...",
-        })
+        resp = await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": 1,
+                "title": "第1章",
+                "content": "第一章正文内容...",
+            },
+        )
 
         # Assert
         assert resp.status_code == 201
@@ -41,31 +47,48 @@ class TestWritingDraft:
         """同一章节多次创建草稿应递增版本号"""
         # Arrange
         client, pid = ctx
-        resp = await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": 1,
-            "title": "第1章", "content": "v1内容",
-        })
+        resp = await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": 1,
+                "title": "第1章",
+                "content": "v1内容",
+            },
+        )
         assert resp.status_code == 201
         v1_id = resp.json()["draft"]["id"]
 
         # Act
-        resp2 = await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": 1,
-            "title": "第1章", "content": "v2内容（新建版本）",
-        })
+        resp2 = await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": 1,
+                "title": "第1章",
+                "content": "v2内容（新建版本）",
+            },
+        )
 
         # Assert
         assert resp2.status_code == 201
-        assert resp2.json()["draft"]["version_number"] == 2, f"版本号应为 2, 实际 {resp2.json()['draft']['version_number']}"
+        assert resp2.json()["draft"]["version_number"] == 2, (
+            f"版本号应为 2, 实际 {resp2.json()['draft']['version_number']}"
+        )
 
     async def test_writing_draft_get_latest_by_chapter_returns_draft(self, ctx):
         """按章节获取最新草稿应返回对应草稿"""
         # Arrange
         client, pid = ctx
-        await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": 1,
-            "title": "第1章", "content": "正文",
-        })
+        await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": 1,
+                "title": "第1章",
+                "content": "正文",
+            },
+        )
 
         # Act
         resp = await client.get(f"/api/writing/chapters/1/draft?novel_id={pid}")
@@ -89,14 +112,24 @@ class TestWritingDraft:
         """删除已有草稿应返回 204（需保证章节至少保留一个版本）"""
         # Arrange
         client, pid = ctx
-        await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": 99,
-            "title": "待删除", "content": "v1内容",
-        })
-        create = await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": 99,
-            "title": "待删除", "content": "v2内容",
-        })
+        await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": 99,
+                "title": "待删除",
+                "content": "v1内容",
+            },
+        )
+        create = await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": 99,
+                "title": "待删除",
+                "content": "v2内容",
+            },
+        )
         did = create.json()["draft"]["id"]
 
         # Act

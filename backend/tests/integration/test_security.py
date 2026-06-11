@@ -20,7 +20,8 @@ class TestSecurity:
     # ============================================================
 
     async def test_security_sql_injection_in_title_does_not_corrupt_database(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """SQL 注入字符串不应导致异常或数据损坏"""
         # Arrange
@@ -34,20 +35,26 @@ class TestSecurity:
 
         # Act
         for payload in payloads:
-            resp = await async_client.post("/api/projects", json={
-                "title": payload,
-                "genre": "测试",
-            })
+            resp = await async_client.post(
+                "/api/projects",
+                json={
+                    "title": payload,
+                    "genre": "测试",
+                },
+            )
 
             # Assert
-            assert resp.status_code in (200, 201, 422), \
+            assert resp.status_code in (200, 201, 422), (
                 f"SQL 注入 '{payload[:30]}' 返回 {resp.status_code}"
+            )
 
             list_resp = await async_client.get("/api/projects")
             assert list_resp.status_code == 200
 
     async def test_security_sql_injection_in_entity_name_is_stored_as_text(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """SQL 注入字符串作为实体名时应正常存储为文本，不执行 SQL"""
         # Arrange
@@ -64,7 +71,9 @@ class TestSecurity:
         assert resp.status_code in (200, 201)
 
     async def test_security_sql_injection_in_search_query_does_not_crash(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """搜索查询中的 SQL 注入字符串不应对数据库造成影响"""
         # Arrange
@@ -85,11 +94,13 @@ class TestSecurity:
     # ============================================================
 
     async def test_security_xss_in_entity_name_stores_and_returns_correctly(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """XSS 字符串存储在正史中后，API 返回应正常"""
         # Arrange
-        xss_name = '<img src=x onerror=alert(1)>'
+        xss_name = "<img src=x onerror=alert(1)>"
 
         # Act
         resp = await async_client.post(
@@ -111,17 +122,21 @@ class TestSecurity:
         assert list_resp.status_code == 200
 
     async def test_security_xss_in_project_title_is_accepted_without_crash(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """XSS 字符串作为项目标题时应被接受且不崩溃"""
         # Arrange
         xss = '<script>alert("XSS")</script>'
 
         # Act
-        resp = await async_client.post("/api/projects", json={
-            "title": xss,
-            "genre": "测试",
-        })
+        resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": xss,
+                "genre": "测试",
+            },
+        )
 
         # Assert
         assert resp.status_code in (200, 201)
@@ -131,7 +146,9 @@ class TestSecurity:
     # ============================================================
 
     async def test_security_very_long_name_does_not_crash(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """超长名称（5000 字符）不应崩溃"""
         # Arrange
@@ -148,7 +165,9 @@ class TestSecurity:
         assert resp.status_code in (200, 201, 422)
 
     async def test_security_very_long_jsonb_content_does_not_crash(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """超长 JSONB 内容不应崩溃"""
         # Arrange
@@ -173,7 +192,9 @@ class TestSecurity:
     # ============================================================
 
     async def test_security_invalid_entity_type_returns_acceptable_status(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """非法 entity_type 不应导致崩溃，返回 200/201/422 均可"""
         # Arrange
@@ -197,7 +218,9 @@ class TestSecurity:
             assert resp.status_code in (200, 201, 422)
 
     async def test_security_invalid_status_returns_acceptable_status(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """非法 status 不应导致崩溃，返回 200/201/422 均可"""
         # Arrange
@@ -214,7 +237,9 @@ class TestSecurity:
         assert resp.status_code in (200, 201, 422)
 
     async def test_security_invalid_character_creation_returns_acceptable_status(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """非法角色创建参数（缺少 entity_id）不应导致崩溃，返回 422 验证错误"""
         # Arrange
@@ -231,7 +256,9 @@ class TestSecurity:
         assert resp.status_code == 422
 
     async def test_security_negative_chapter_index_returns_acceptable_status(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """负章节索引不应导致崩溃，返回 200/201/422 均可"""
         # Arrange
@@ -255,7 +282,9 @@ class TestSecurity:
     # ============================================================
 
     async def test_security_rag_top_k_overflow_does_not_return_all_data(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """超大 top_k 不应导致全量数据返回"""
         # Arrange
@@ -272,7 +301,9 @@ class TestSecurity:
         assert resp.status_code in (200, 201, 422)
 
     async def test_security_rag_top_k_zero_returns_acceptable_status(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """top_k=0 应被修正为有效值或返回可接受状态"""
         # Arrange

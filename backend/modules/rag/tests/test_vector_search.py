@@ -4,15 +4,13 @@ TB4: Vector search 测试
 
 from __future__ import annotations
 
-import math
 import uuid
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.rag.services import RetrievalService
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.models import RagChunk
+from modules.rag.services import RetrievalService
 
 
 def test_cosine_similarity_identical():
@@ -80,11 +78,16 @@ async def test_hybrid_search_with_query_embedding(
     nid = uuid.uuid4()
     from modules.rag.schemas import RagChunkCreate
 
-    chunk = await repo.create(db_session, nid, RagChunkCreate(
-        source_type="chapter_text", chapter_index=1,
-        text="主角的欲望是寻找真相。",
-        importance=0.8,
-    ))
+    chunk = await repo.create(
+        db_session,
+        nid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="主角的欲望是寻找真相。",
+            importance=0.8,
+        ),
+    )
 
     # 设置 embedding（列定义为 Vector(768)）
     test_emb = [0.1 * (i % 3 + 1) for i in range(768)]
@@ -93,7 +96,9 @@ async def test_hybrid_search_with_query_embedding(
 
     # 用精确匹配的 query_embedding 搜索
     results = await retrieval.hybrid_search(
-        db_session, nid, "主角",
+        db_session,
+        nid,
+        "主角",
         query_embedding=test_emb,
         top_k=5,
     )

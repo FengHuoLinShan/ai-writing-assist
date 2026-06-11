@@ -41,7 +41,12 @@ _generator = PlotStructureGenerator()
 # PlotThreads
 # ============================================================
 
-@router.post("/threads", response_model=PlotThreadResponse, status_code=http_status.HTTP_201_CREATED)
+
+@router.post(
+    "/threads",
+    response_model=PlotThreadResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
 async def api_create_thread(
     data: PlotThreadCreate,
     db: DbSession,
@@ -92,7 +97,10 @@ async def api_delete_thread(
 # OutlineArcs
 # ============================================================
 
-@router.post("/arcs", response_model=OutlineArcResponse, status_code=http_status.HTTP_201_CREATED)
+
+@router.post(
+    "/arcs", response_model=OutlineArcResponse, status_code=http_status.HTTP_201_CREATED
+)
 async def api_create_arc(
     data: OutlineArcCreate,
     db: DbSession,
@@ -143,7 +151,10 @@ async def api_delete_arc(
 # Scenes
 # ============================================================
 
-@router.post("/scenes", response_model=SceneResponse, status_code=http_status.HTTP_201_CREATED)
+
+@router.post(
+    "/scenes", response_model=SceneResponse, status_code=http_status.HTTP_201_CREATED
+)
 async def api_create_scene(
     data: SceneCreate,
     db: DbSession,
@@ -227,7 +238,10 @@ async def api_split_chapters(
 ):
     """断章：从 chapter_index 开始将章节从当前 Scene 移到目标 Scene"""
     contracts = await _scene_service.split_chapters(
-        db, novel_id, data.chapter_index, data.target_scene_id,
+        db,
+        novel_id,
+        data.chapter_index,
+        data.target_scene_id,
     )
     return [SceneResponse.model_validate(c.__dict__) for c in contracts]
 
@@ -235,6 +249,7 @@ async def api_split_chapters(
 # ============================================================
 # AI Generation
 # ============================================================
+
 
 @router.post("/generate", status_code=http_status.HTTP_201_CREATED)
 async def api_generate_plot_structure(

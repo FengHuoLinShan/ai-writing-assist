@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from modules.world.schemas import DuplicateSuggestionResult, WorldContextBundle
 from modules.world.services.extraction_service import (
     EntityExtractionService,
-    ExtractionResult,
 )
 
 pytestmark = [pytest.mark.asyncio]
@@ -85,12 +84,24 @@ async def service(chapters):
 @pytest_asyncio.fixture
 def default_llm_response():
     """Two entities with create_new action."""
-    return _TestOutput(entities=[
-        _TestEntity(name="白砚", entity_type="character", summary="主角",
-                     suggested_action="create_new", confidence=0.9),
-        _TestEntity(name="霜华剑", entity_type="item", summary="神剑",
-                     suggested_action="create_new", confidence=0.85),
-    ])
+    return _TestOutput(
+        entities=[
+            _TestEntity(
+                name="白砚",
+                entity_type="character",
+                summary="主角",
+                suggested_action="create_new",
+                confidence=0.9,
+            ),
+            _TestEntity(
+                name="霜华剑",
+                entity_type="item",
+                summary="神剑",
+                suggested_action="create_new",
+                confidence=0.85,
+            ),
+        ]
+    )
 
 
 # ---------------------------------------------------------------
@@ -110,9 +121,7 @@ def _setup_llm(mock_llm_client, *, return_value=None):
     instance._settings = mock.MagicMock(llm_model="gpt-4o")
     instance.model_name = "gpt-4o"
     instance.generate_structured = mock.AsyncMock()
-    instance.generate_structured.return_value = (
-        return_value or _TestOutput(entities=[])
-    )
+    instance.generate_structured.return_value = return_value or _TestOutput(entities=[])
     instance.generate_embedding = mock.AsyncMock()
     instance.generate_embedding.return_value = [0.1, 0.2, 0.3]
     return instance
@@ -143,7 +152,8 @@ class TestEntityExtractionService:
         # Arrange
         _setup_llm(mock_llm_client, return_value=default_llm_response)
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt base"
         mock_find_entity.return_value = None
@@ -151,7 +161,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -165,12 +178,15 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    @pytest.mark.parametrize("action,expected_created,expected_skipped", [
-        ("create_new", 1, 0),
-        ("ignore", 0, 1),
-        ("temporary_only", 1, 0),
-        ("link_to_existing", 0, 1),
-    ])
+    @pytest.mark.parametrize(
+        "action,expected_created,expected_skipped",
+        [
+            ("create_new", 1, 0),
+            ("ignore", 0, 1),
+            ("temporary_only", 1, 0),
+            ("link_to_existing", 0, 1),
+        ],
+    )
     async def test_extract_entities_from_chapters_with_various_actions_routes_correctly(
         self,
         mock_llm_client,
@@ -193,7 +209,8 @@ class TestEntityExtractionService:
         )
         _setup_llm(mock_llm_client, return_value=_TestOutput(entities=[entity]))
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         if action == "link_to_existing":
@@ -204,7 +221,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -216,10 +236,13 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    @pytest.mark.parametrize("exception_cls,expected_log,want_exc_info", [
-        ("LLMInvalidResponseError", "warning", False),
-        ("ValueError", "error", True),
-    ])
+    @pytest.mark.parametrize(
+        "exception_cls,expected_log,want_exc_info",
+        [
+            ("LLMInvalidResponseError", "warning", False),
+            ("ValueError", "error", True),
+        ],
+    )
     async def test_extract_entities_from_chapters_with_llm_error_marks_chapter_failed(
         self,
         mock_llm_client,
@@ -243,7 +266,8 @@ class TestEntityExtractionService:
         instance = _setup_llm(mock_llm_client)
         instance.generate_structured.side_effect = exc_map[exception_cls]
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -251,7 +275,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -286,7 +313,8 @@ class TestEntityExtractionService:
         entity = _TestEntity(name="白砚", suggested_action="create_new")
         _setup_llm(mock_llm_client, return_value=_TestOutput(entities=[entity]))
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -305,7 +333,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -328,11 +359,14 @@ class TestEntityExtractionService:
         """Layer 2 content-embedding dedup catches what Layer 1 misses."""
         # Arrange
         entity = _TestEntity(
-            name="白砚", summary="主角的剑", suggested_action="create_new",
+            name="白砚",
+            summary="主角的剑",
+            suggested_action="create_new",
         )
         _setup_llm(mock_llm_client, return_value=_TestOutput(entities=[entity]))
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -354,7 +388,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -380,16 +417,20 @@ class TestEntityExtractionService:
 
         instance = _setup_llm(mock_llm_client)
         instance.generate_structured.side_effect = [
-            _TestOutput(entities=[_TestEntity(
-                name="白砚", suggested_action="create_new")]),
-            _TestOutput(entities=[_TestEntity(
-                name="霜华剑", suggested_action="create_new")]),
-            _TestOutput(entities=[_TestEntity(
-                name="墨渊", suggested_action="create_new")]),
+            _TestOutput(
+                entities=[_TestEntity(name="白砚", suggested_action="create_new")]
+            ),
+            _TestOutput(
+                entities=[_TestEntity(name="霜华剑", suggested_action="create_new")]
+            ),
+            _TestOutput(
+                entities=[_TestEntity(name="墨渊", suggested_action="create_new")]
+            ),
         ]
 
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_find_entity.return_value = None
 
@@ -405,7 +446,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 3,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            3,
         )
 
         # Assert
@@ -434,7 +478,8 @@ class TestEntityExtractionService:
         # Arrange
         _setup_llm(mock_llm_client, return_value=_TestOutput(entities=[]))
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -442,7 +487,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -468,7 +516,8 @@ class TestEntityExtractionService:
         entity = _TestEntity(name="", suggested_action="create_new")
         _setup_llm(mock_llm_client, return_value=_TestOutput(entities=[entity]))
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -476,7 +525,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -498,13 +550,14 @@ class TestEntityExtractionService:
     ):
         """Embedding API failure degrades gracefully — entity is still created."""
         # Arrange
-        entity = _TestEntity(name="白砚", summary="主角",
-                              suggested_action="create_new")
-        instance = _setup_llm(mock_llm_client, return_value=_TestOutput(
-            entities=[entity]))
+        entity = _TestEntity(name="白砚", summary="主角", suggested_action="create_new")
+        instance = _setup_llm(
+            mock_llm_client, return_value=_TestOutput(entities=[entity])
+        )
         instance.generate_embedding.side_effect = Exception("API error")
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -512,7 +565,10 @@ class TestEntityExtractionService:
 
         # Act
         result = await service.extract_entities_from_chapters(
-            db, TEST_NOVEL_ID, 1, 1,
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
         )
 
         # Assert
@@ -535,7 +591,8 @@ class TestEntityExtractionService:
         # Arrange
         service._draft_provider.load_chapters.return_value = []
         mock_get_context.return_value = WorldContextBundle(
-            novel_id="test", entities=[],
+            novel_id="test",
+            entities=[],
         )
         mock_load_prompt.return_value = "system prompt"
         mock_find_entity.return_value = None
@@ -544,7 +601,10 @@ class TestEntityExtractionService:
         # Act
         with pytest.raises(HTTPException) as excinfo:
             await service.extract_entities_from_chapters(
-                db, TEST_NOVEL_ID, 1, 1,
+                db,
+                TEST_NOVEL_ID,
+                1,
+                1,
             )
 
         # Assert

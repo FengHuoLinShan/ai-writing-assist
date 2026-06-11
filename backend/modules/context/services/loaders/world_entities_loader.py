@@ -6,7 +6,11 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import AUTHOR_ONLY_WARNING, CONTEXT_BUDGET, StructureContextBundle
+from modules.context.contracts import (
+    AUTHOR_ONLY_WARNING,
+    CONTEXT_BUDGET,
+    StructureContextBundle,
+)
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
 
@@ -35,7 +39,8 @@ class WorldEntitiesLoader(Loader):
             all_limit = core_limit + normal_limit
             limited_ids = options.entity_ids[:all_limit]
             ctx = await get_world_context(
-                db, options.novel_id,
+                db,
+                options.novel_id,
                 entity_ids=limited_ids,
                 reveal_mode=options.reveal_mode,
                 limit=all_limit,
@@ -48,7 +53,8 @@ class WorldEntitiesLoader(Loader):
             from modules.world.facade import get_world_context
 
             ctx = await get_world_context(
-                db, options.novel_id,
+                db,
+                options.novel_id,
                 reveal_mode=options.reveal_mode,
                 limit=core_limit + normal_limit,
             )
@@ -56,13 +62,13 @@ class WorldEntitiesLoader(Loader):
             entities.sort(key=lambda e: e.get("importance", 0.0), reverse=True)
 
             core_entities = [
-                e for e in entities
-                if e.get("importance_level") == "core"
-                or e.get("importance", 0.0) >= 0.75
+                e
+                for e in entities
+                if e.get("importance_level") == "core" or e.get("importance", 0.0) >= 0.75
             ][:core_limit]
-            normal_entities = [
-                e for e in entities if e not in core_entities
-            ][:normal_limit]
+            normal_entities = [e for e in entities if e not in core_entities][
+                :normal_limit
+            ]
 
             bundle.world_entities = core_entities + normal_entities
             bundle.budget_used["core_entities"] = len(core_entities)

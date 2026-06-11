@@ -56,15 +56,15 @@ RAG_IMPORTANCE_WEIGHT: Final[float] = 0.13
 # ============================================================
 
 CONTEXT_BUDGET_DEFAULTS: Final[dict[str, int]] = {
-    "core_entities": 8,       # 核心对象
-    "normal_entities": 8,     # 普通对象
-    "characters": 6,          # 人物
-    "memories": 10,           # 记忆记录
-    "foreshadowings": 5,      # 伏笔
-    "timeline_events": 8,     # 时间线事件
+    "core_entities": 8,  # 核心对象
+    "normal_entities": 8,  # 普通对象
+    "characters": 6,  # 人物
+    "memories": 10,  # 记忆记录
+    "foreshadowings": 5,  # 伏笔
+    "timeline_events": 8,  # 时间线事件
     "geo_relationships": 10,  # 地理关系
-    "relation_edges": 12,     # 关系边
-    "rag_chunks": 8,          # RAG 片段
+    "relation_edges": 12,  # 关系边
+    "rag_chunks": 8,  # RAG 片段
 }
 """Context Compiler 默认各项上限"""
 
@@ -144,7 +144,13 @@ DEDUP_DISCARD_THRESHOLD: Final[float] = 0.58
 """< 0.58 直接丢弃"""
 
 DEDUP_CONFLICT_FIELDS: Final[list[str]] = [
-    "weapon", "ability", "affiliation", "title", "species", "gender", "age",
+    "weapon",
+    "ability",
+    "affiliation",
+    "title",
+    "species",
+    "gender",
+    "age",
 ]
 """content_json 中需检测冲突的关键字段"""
 

@@ -8,7 +8,7 @@ Writing 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +32,9 @@ class WritingDraftRepository:
         novel_id = uuid.UUID(hex=data.novel_id)
 
         next_version = await self._next_version_number(
-            db, novel_id, data.chapter_index,
+            db,
+            novel_id,
+            data.chapter_index,
         )
 
         draft = WritingDraft(
@@ -165,12 +167,9 @@ class WritingDraftRepository:
         chapter_index: int,
     ) -> int:
         """返回某章版本总数"""
-        stmt = (
-            select(func.count(WritingDraft.id))
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.chapter_index == chapter_index,
-            )
+        stmt = select(func.count(WritingDraft.id)).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index == chapter_index,
         )
         result = await db.execute(stmt)
         return result.scalar() or 0
@@ -182,12 +181,9 @@ class WritingDraftRepository:
         chapter_index: int,
     ) -> int:
         """删除某章全部版本。返回删除的版本数。"""
-        stmt = (
-            delete(WritingDraft)
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.chapter_index == chapter_index,
-            )
+        stmt = delete(WritingDraft).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index == chapter_index,
         )
         result = await db.execute(stmt)
         await db.flush()

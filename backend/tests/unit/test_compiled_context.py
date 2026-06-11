@@ -21,9 +21,7 @@ def test_enforce_budget_no_overage():
         ContextSection(key="a", tier=Tier.P0, content="hello", token_count=5),
         ContextSection(key="b", tier=Tier.P1, content="world", token_count=5),
     ]
-    ctx = CompiledContext(
-        sections=sections, total_tokens=10, budget_tokens=20
-    )
+    ctx = CompiledContext(sections=sections, total_tokens=10, budget_tokens=20)
     result = ctx.enforce_budget()
     assert len(result.sections) == 2
     assert result.total_tokens == 10
@@ -32,13 +30,9 @@ def test_enforce_budget_no_overage():
 def test_enforce_budget_evicts_p4_first():
     sections = [
         ContextSection(key="core", tier=Tier.P0, content="c", token_count=50),
-        ContextSection(
-            key="filler", tier=Tier.P4, content="f", token_count=100
-        ),
+        ContextSection(key="filler", tier=Tier.P4, content="f", token_count=100),
     ]
-    ctx = CompiledContext(
-        sections=sections, total_tokens=150, budget_tokens=80
-    )
+    ctx = CompiledContext(sections=sections, total_tokens=150, budget_tokens=80)
     result = ctx.enforce_budget()
     assert len(result.sections) == 1
     assert result.sections[0].key == "core"
@@ -49,13 +43,9 @@ def test_enforce_budget_evicts_p3_then_p4():
     sections = [
         ContextSection(key="core", tier=Tier.P0, content="c", token_count=50),
         ContextSection(key="low", tier=Tier.P3, content="l", token_count=60),
-        ContextSection(
-            key="filler", tier=Tier.P4, content="f", token_count=40
-        ),
+        ContextSection(key="filler", tier=Tier.P4, content="f", token_count=40),
     ]
-    ctx = CompiledContext(
-        sections=sections, total_tokens=150, budget_tokens=60
-    )
+    ctx = CompiledContext(sections=sections, total_tokens=150, budget_tokens=60)
     result = ctx.enforce_budget()
     assert len(result.sections) == 1
     assert result.sections[0].key == "core"
@@ -80,9 +70,7 @@ def test_enforce_budget_p2_per_item_truncation():
             truncatable_per_item=True,
         ),
     ]
-    ctx = CompiledContext(
-        sections=sections, total_tokens=210, budget_tokens=115
-    )
+    ctx = CompiledContext(sections=sections, total_tokens=210, budget_tokens=115)
     result = ctx.enforce_budget()
     p2_sections = [s for s in result.sections if s.tier == Tier.P2]
     assert len(p2_sections) == 1
@@ -102,9 +90,7 @@ def test_enforce_budget_never_evicts_p0():
             token_count=200,
         ),
     ]
-    ctx = CompiledContext(
-        sections=sections, total_tokens=200, budget_tokens=50
-    )
+    ctx = CompiledContext(sections=sections, total_tokens=200, budget_tokens=50)
     result = ctx.enforce_budget()
     assert len(result.sections) == 1
     assert result.sections[0].key == "core"

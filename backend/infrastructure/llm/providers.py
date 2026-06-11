@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
-from openai import AsyncOpenAI
 from openai import (
     APIError,
     APITimeoutError,
-    RateLimitError,
+    AsyncOpenAI,
     AuthenticationError,
     BadRequestError,
     ContentFilterFinishReasonError,
+    RateLimitError,
 )
 
 from core.config import get_settings
@@ -30,7 +31,12 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
-from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMStreamChunk, LLMUsage
+from infrastructure.llm.schemas import (
+    LLMCallRequest,
+    LLMCallResponse,
+    LLMStreamChunk,
+    LLMUsage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +95,10 @@ class OpenAIProvider:
         """
         if hasattr(self, "_client"):
             await self._client.close()
-        if hasattr(self, "_embedding_client") and self._embedding_client is not self._client:
+        if (
+            hasattr(self, "_embedding_client")
+            and self._embedding_client is not self._client
+        ):
             await self._embedding_client.close()
             logger.debug("OpenAIProvider embedding HTTP connection closed")
 
@@ -111,7 +120,9 @@ class OpenAIProvider:
                 timeout=self._timeout,
             ) from e
         except RateLimitError as e:
-            retry_after = float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
+            retry_after = (
+                float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
+            )
             raise LLMRateLimitError(
                 f"OpenAI rate limit: {e}",
                 provider=self.name,
@@ -167,7 +178,8 @@ class OpenAIProvider:
         )
 
     async def generate_stream(
-        self, request: LLMCallRequest,
+        self,
+        request: LLMCallRequest,
     ) -> AsyncIterator[LLMStreamChunk]:
         """流式调用 LLM，逐个 chunk 返回"""
         model = request.model or self._default_model
@@ -186,7 +198,9 @@ class OpenAIProvider:
                 timeout=self._timeout,
             ) from e
         except RateLimitError as e:
-            retry_after = float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
+            retry_after = (
+                float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
+            )
             raise LLMRateLimitError(
                 f"OpenAI rate limit: {e}",
                 provider=self.name,

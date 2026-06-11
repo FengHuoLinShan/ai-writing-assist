@@ -33,7 +33,8 @@ class TestWritingDraftContract:
 
     def test_create_defaults(self):
         contract = WritingDraftContract(
-            novel_id="nid", chapter_index=1,
+            novel_id="nid",
+            chapter_index=1,
         )
         assert contract.novel_id == "nid"
         assert contract.chapter_index == 1
@@ -188,7 +189,10 @@ class TestVersionHistoryResponse:
             DraftListItem(id=str(uuid.uuid4()), version_number=1),
         ]
         resp = VersionHistoryResponse(
-            novel_id="nid", chapter_index=1, versions=items, total=2,
+            novel_id="nid",
+            chapter_index=1,
+            versions=items,
+            total=2,
         )
         assert resp.total == 2
         assert len(resp.versions) == 2
@@ -231,7 +235,10 @@ class TestWritingDraftRepository:
         )
 
     async def test_create(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock, sample_create: WritingDraftCreate,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
+        sample_create: WritingDraftCreate,
     ):
         draft = await repo.create(mock_db, sample_create)
         assert draft.novel_id is not None
@@ -243,7 +250,10 @@ class TestWritingDraftRepository:
         mock_db.flush.assert_awaited_once()
 
     async def test_create_version_increment(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock, sample_create: WritingDraftCreate,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
+        sample_create: WritingDraftCreate,
     ):
         # Simulate existing max version = 2
         mock_db.execute.return_value.scalar_one_or_none.return_value = 2
@@ -251,7 +261,9 @@ class TestWritingDraftRepository:
         assert draft.version_number == 3
 
     async def test_get_found(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         draft_id = uuid.uuid4()
         mock_orm = MagicMock()
@@ -265,14 +277,18 @@ class TestWritingDraftRepository:
         assert result.id == draft_id
 
     async def test_get_not_found(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalar_one_or_none.return_value = None
         result = await repo.get(mock_db, uuid.uuid4())
         assert result is None
 
     async def test_get_latest_by_chapter(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_draft = MagicMock()
         mock_draft.version_number = 3
@@ -283,14 +299,18 @@ class TestWritingDraftRepository:
         assert result.version_number == 3
 
     async def test_get_latest_by_chapter_empty(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalar_one_or_none.return_value = None
         result = await repo.get_latest_by_chapter(mock_db, uuid.uuid4(), 99)
         assert result is None
 
     async def test_get_version_history(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalars.return_value.all.return_value = [
             MagicMock(version_number=3),
@@ -302,14 +322,18 @@ class TestWritingDraftRepository:
         assert versions[0].version_number == 3
 
     async def test_get_version_history_empty(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalars.return_value.all.return_value = []
         versions = await repo.get_version_history(mock_db, uuid.uuid4(), 99)
         assert versions == []
 
     async def test_update_found(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         draft_id = uuid.uuid4()
         mock_orm = MagicMock()
@@ -322,14 +346,18 @@ class TestWritingDraftRepository:
         assert result.id == draft_id
 
     async def test_update_not_found(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalar_one_or_none.return_value = None
         result = await repo.update(mock_db, uuid.uuid4(), WritingDraftUpdate(title="x"))
         assert result is None
 
     async def test_update_no_changes(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         draft_id = uuid.uuid4()
         mock_orm = MagicMock()
@@ -341,28 +369,25 @@ class TestWritingDraftRepository:
         assert result is not None
 
     async def test_delete_success(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
-        nid = uuid.uuid4()
         draft_id = uuid.uuid4()
         mock_draft = MagicMock()
         mock_draft.id = draft_id
-        mock_draft.novel_id = nid
+        mock_draft.novel_id = uuid.uuid4()
         mock_draft.chapter_index = 1
         mock_draft.version_number = 2
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_draft
-        # Two versions exist
-        mock_version_1 = MagicMock()
-        mock_version_1.id = uuid.uuid4()
-        mock_db.execute.return_value.scalars.return_value.all.return_value = [
-            mock_draft, mock_version_1,
-        ]
 
-        ok = await repo.delete(mock_db, draft_id)
-        assert ok is True
+        result = await repo.delete(mock_db, draft_id)
+        assert result is mock_draft
 
-    async def test_delete_last_version_rejected(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+    async def test_delete_single_version_returns_draft(
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         draft_id = uuid.uuid4()
         mock_draft = MagicMock()
@@ -371,21 +396,23 @@ class TestWritingDraftRepository:
         mock_draft.chapter_index = 1
         mock_draft.version_number = 1
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_draft
-        # Only one version
-        mock_db.execute.return_value.scalars.return_value.all.return_value = [mock_draft]
 
-        ok = await repo.delete(mock_db, draft_id)
-        assert ok is False
+        result = await repo.delete(mock_db, draft_id)
+        assert result is mock_draft
 
     async def test_delete_not_found(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalar_one_or_none.return_value = None
-        ok = await repo.delete(mock_db, uuid.uuid4())
-        assert ok is False
+        result = await repo.delete(mock_db, uuid.uuid4())
+        assert result is None
 
     async def test_delete_all_versions(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_result = MagicMock()
         mock_result.rowcount = 3
@@ -395,37 +422,45 @@ class TestWritingDraftRepository:
         assert count == 3
 
     async def test_count_versions(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
-        mock_db.execute.return_value.scalars.return_value.all.return_value = [
-            MagicMock(), MagicMock(),
-        ]
+        mock_db.execute.return_value.scalar.return_value = 2
         count = await repo.count_versions(mock_db, uuid.uuid4(), 1)
         assert count == 2
 
     async def test_list_chapter_indices(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.all.return_value = [(1,), (3,), (5,)]
         indices = await repo.list_chapter_indices(mock_db, uuid.uuid4())
         assert indices == [1, 3, 5]
 
     async def test_list_chapter_indices_empty(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.all.return_value = []
         indices = await repo.list_chapter_indices(mock_db, uuid.uuid4())
         assert indices == []
 
     async def test_next_version_number_first(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalar_one_or_none.return_value = None
         nv = await repo._next_version_number(mock_db, uuid.uuid4(), 1)
         assert nv == 1
 
     async def test_next_version_number_existing(
-        self, repo: WritingDraftRepository, mock_db: AsyncMock,
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
     ):
         mock_db.execute.return_value.scalar_one_or_none.return_value = 5
         nv = await repo._next_version_number(mock_db, uuid.uuid4(), 1)
@@ -454,22 +489,26 @@ class TestWritingAPI:
 
     @pytest.fixture
     def mock_facade(self):
-        with patch("modules.writing.api.facade_create_draft") as facade:
-            facade.return_value = (
-                WritingDraftResponse(
-                    id=str(uuid.uuid4()),
-                    novel_id=str(uuid.uuid4()),
-                    chapter_index=1,
-                    title="第一章",
-                    version_number=1,
-                ),
-                str(uuid.uuid4()),
+        with patch("modules.writing.api._create_draft_only") as facade:
+            facade.return_value = WritingDraftResponse(
+                id=str(uuid.uuid4()),
+                novel_id=str(uuid.uuid4()),
+                chapter_index=1,
+                title="第一章",
+                version_number=1,
             )
             yield facade
 
     @pytest.fixture
+    def mock_enqueue(self):
+        with patch("modules.writing.api.enqueue_task") as enqueue:
+            enqueue.return_value = str(uuid.uuid4())
+            yield enqueue
+
+    @pytest.fixture
     def router(self):
         from modules.writing.api import router
+
         return router
 
     def test_router_prefix(self, router):
@@ -481,15 +520,20 @@ class TestWritingAPI:
         assert len(router.routes) >= 8
 
     async def test_create_draft_endpoint(
-        self, mock_facade, mock_service,
+        self,
+        mock_facade,
+        mock_enqueue,
+        mock_service,
     ):
         """verify facade is called with correct args"""
         from modules.writing.api import create_draft
 
         mock_db = AsyncMock()
         data = WritingDraftCreate(
-            novel_id=str(uuid.uuid4()), chapter_index=1,
-            title="第一章", content="正文",
+            novel_id=str(uuid.uuid4()),
+            chapter_index=1,
+            title="第一章",
+            content="正文",
         )
         result = await create_draft(mock_db, data)
         mock_facade.assert_awaited_once_with(
@@ -503,13 +547,16 @@ class TestWritingAPI:
         assert result.task_id is not None
 
     async def test_get_draft_endpoint(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import get_draft
 
         mock_db = AsyncMock()
         expected = WritingDraftResponse(
-            id=str(uuid.uuid4()), novel_id=str(uuid.uuid4()),
+            id=str(uuid.uuid4()),
+            novel_id=str(uuid.uuid4()),
             chapter_index=1,
         )
         mock_service.get_draft.return_value = expected
@@ -519,14 +566,18 @@ class TestWritingAPI:
         mock_service.get_draft.assert_awaited_once_with(mock_db, "did", "nid")
 
     async def test_update_draft_endpoint(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import update_draft
 
         mock_db = AsyncMock()
         expected = WritingDraftResponse(
-            id=str(uuid.uuid4()), novel_id=str(uuid.uuid4()),
-            chapter_index=1, title="updated",
+            id=str(uuid.uuid4()),
+            novel_id=str(uuid.uuid4()),
+            chapter_index=1,
+            title="updated",
         )
         mock_service.update_draft.return_value = expected
 
@@ -536,7 +587,9 @@ class TestWritingAPI:
         mock_service.update_draft.assert_awaited_once_with(mock_db, "did", data, "nid")
 
     async def test_delete_draft_endpoint(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import delete_draft
 
@@ -548,7 +601,9 @@ class TestWritingAPI:
         mock_service.delete_draft.assert_awaited_once_with(mock_db, "did", "nid")
 
     async def test_delete_chapter_endpoint(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import delete_chapter
 
@@ -561,14 +616,18 @@ class TestWritingAPI:
         mock_service.delete_chapter.assert_awaited_once_with(mock_db, "nid", 3)
 
     async def test_get_latest_chapter_draft(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import get_latest_chapter_draft
 
         mock_db = AsyncMock()
         expected = WritingDraftResponse(
-            id=str(uuid.uuid4()), novel_id=str(uuid.uuid4()),
-            chapter_index=2, version_number=3,
+            id=str(uuid.uuid4()),
+            novel_id=str(uuid.uuid4()),
+            chapter_index=2,
+            version_number=3,
         )
         mock_service.get_latest_draft.return_value = expected
 
@@ -577,21 +636,30 @@ class TestWritingAPI:
         mock_service.get_latest_draft.assert_awaited_once_with(mock_db, "nid", 2)
 
     async def test_get_chapter_version_history(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import get_chapter_version_history
 
         mock_db = AsyncMock()
         mock_service.get_version_history.return_value = VersionHistoryResponse(
-            novel_id="nid", chapter_index=1, versions=[], total=0,
+            novel_id="nid",
+            chapter_index=1,
+            versions=[],
+            total=0,
         )
 
-        result = await get_chapter_version_history(mock_db, chapter_index=1, novel_id="nid")
+        result = await get_chapter_version_history(
+            mock_db, chapter_index=1, novel_id="nid"
+        )
         assert result.total == 0
         mock_service.get_version_history.assert_awaited_once_with(mock_db, "nid", 1)
 
     async def test_list_chapters(
-        self, mock_service, mock_facade,
+        self,
+        mock_service,
+        mock_facade,
     ):
         from modules.writing.api import list_chapters
 
@@ -625,7 +693,9 @@ class TestHandlePublishChapter:
         return task
 
     async def test_success_path(
-        self, mock_db: AsyncMock, mock_task: MagicMock,
+        self,
+        mock_db: AsyncMock,
+        mock_task: MagicMock,
     ):
         from core.container import register, reset
 
@@ -660,7 +730,9 @@ class TestHandlePublishChapter:
             reset()
 
     async def test_rag_retry_then_succeed(
-        self, mock_db: AsyncMock, mock_task: MagicMock,
+        self,
+        mock_db: AsyncMock,
+        mock_task: MagicMock,
     ):
         from core.container import register, reset
 
@@ -696,7 +768,9 @@ class TestHandlePublishChapter:
             reset()
 
     async def test_rag_all_retries_fail(
-        self, mock_db: AsyncMock, mock_task: MagicMock,
+        self,
+        mock_db: AsyncMock,
+        mock_task: MagicMock,
     ):
         from core.container import register, reset
 
@@ -715,7 +789,9 @@ class TestHandlePublishChapter:
             reset()
 
     async def test_snapshot_retry_then_succeed(
-        self, mock_db: AsyncMock, mock_task: MagicMock,
+        self,
+        mock_db: AsyncMock,
+        mock_task: MagicMock,
     ):
         from core.container import register, reset
 
@@ -748,7 +824,9 @@ class TestHandlePublishChapter:
             reset()
 
     async def test_snapshot_all_retries_fail(
-        self, mock_db: AsyncMock, mock_task: MagicMock,
+        self,
+        mock_db: AsyncMock,
+        mock_task: MagicMock,
     ):
         from core.container import register, reset
 
@@ -775,7 +853,8 @@ class TestHandlePublishChapter:
             reset()
 
     async def test_missing_novel_id(
-        self, mock_db: AsyncMock,
+        self,
+        mock_db: AsyncMock,
     ):
         task = MagicMock()
         task.meta = {"chapter_index": 1}
@@ -786,7 +865,8 @@ class TestHandlePublishChapter:
             await handle_publish_chapter(mock_db, task)
 
     async def test_invalid_chapter_index(
-        self, mock_db: AsyncMock,
+        self,
+        mock_db: AsyncMock,
     ):
         task = MagicMock()
         task.meta = {"novel_id": str(uuid.uuid4()), "chapter_index": 0}

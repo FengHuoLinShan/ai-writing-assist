@@ -37,7 +37,8 @@ class CharactersLoader(Loader):
             from modules.world.facade import get_characters_context
 
             ctx = await get_characters_context(
-                db, options.novel_id,
+                db,
+                options.novel_id,
                 character_ids=limited_ids,
                 reveal_mode=options.reveal_mode,
             )
@@ -50,7 +51,8 @@ class CharactersLoader(Loader):
 
             try:
                 filtered = await filter_context_by_character_knowledge(
-                    db, options.novel_id,
+                    db,
+                    options.novel_id,
                     limited_ids[0],
                     bundle.world_entities,
                 )

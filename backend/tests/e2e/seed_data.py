@@ -210,6 +210,7 @@ async def create_relationships(
 
 # ---- 组合函数 ------------------------------------------------------------
 
+
 async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
     """
     创建基础场景数据：项目 + 世界对象 + 关系。

@@ -20,13 +20,15 @@ from core.container import register, reset
 
 
 class TestContracts:
-    """RagChunkContract / RagQueryContract / RagResultBundle / RagIndexReport 实例化测试"""
+    """RagChunkContract / RagQueryContract / RagResultBundle / RagIndexReport"""
 
     def test_rag_chunk_contract_defaults(self):
         """GREEN: RagChunkContract 使用最少字段创建"""
         from modules.rag.contracts import RagChunkContract
 
-        c = RagChunkContract(id="c1", novel_id="n1", source_type="chapter_text", text="hello")
+        c = RagChunkContract(
+            id="c1", novel_id="n1", source_type="chapter_text", text="hello"
+        )
         assert c.id == "c1"
         assert c.novel_id == "n1"
         assert c.source_type == "chapter_text"
@@ -53,6 +55,7 @@ class TestContracts:
     def test_rag_chunk_contract_frozen_raises_on_modify(self):
         """EDGE: RagChunkContract 是 frozen dataclass，修改属性应报错"""
         from dataclasses import FrozenInstanceError
+
         from modules.rag.contracts import RagChunkContract
 
         c = RagChunkContract(id="c1", novel_id="n1", source_type="t", text="t")
@@ -64,15 +67,27 @@ class TestContracts:
         from modules.rag.contracts import RagChunkContract
 
         c = RagChunkContract(
-            id="c1", novel_id="n1", source_type="chapter_text",
-            source_id="src1", chapter_index=3, chunk_index=1,
-            start_offset=10, end_offset=200, char_count=190,
-            text="full text", summary="sum",
-            entity_ids=["e1", "e2"], character_ids=["c1"],
-            thread_ids=["t1"], visibility="reader_known",
-            importance=0.9, index_version="v2",
-            embedding_status="succeeded", embedding_error=None,
-            index_warnings=["warn1"], meta={"arc": "arc1"},
+            id="c1",
+            novel_id="n1",
+            source_type="chapter_text",
+            source_id="src1",
+            chapter_index=3,
+            chunk_index=1,
+            start_offset=10,
+            end_offset=200,
+            char_count=190,
+            text="full text",
+            summary="sum",
+            entity_ids=["e1", "e2"],
+            character_ids=["c1"],
+            thread_ids=["t1"],
+            visibility="reader_known",
+            importance=0.9,
+            index_version="v2",
+            embedding_status="succeeded",
+            embedding_error=None,
+            index_warnings=["warn1"],
+            meta={"arc": "arc1"},
             score=0.85,
         )
         assert c.source_id == "src1"
@@ -112,8 +127,13 @@ class TestContracts:
         from modules.rag.contracts import RagQueryContract
 
         q = RagQueryContract(
-            query="q", entity_ids=["e1"], character_ids=["c1"],
-            thread_ids=["t1"], chapter_index=5, mode="extraction", top_k=24,
+            query="q",
+            entity_ids=["e1"],
+            character_ids=["c1"],
+            thread_ids=["t1"],
+            chapter_index=5,
+            mode="extraction",
+            top_k=24,
         )
         assert q.entity_ids == ["e1"]
         assert q.character_ids == ["c1"]
@@ -139,8 +159,11 @@ class TestContracts:
 
         chunk = RagChunkContract(id="c1", novel_id="n1", source_type="t", text="t")
         r = RagResultBundle(
-            chunks=[chunk], total=1, query="q",
-            warnings=["w1"], degraded=True,
+            chunks=[chunk],
+            total=1,
+            query="q",
+            warnings=["w1"],
+            degraded=True,
         )
         assert len(r.chunks) == 1
         assert r.chunks[0] is chunk
@@ -165,8 +188,10 @@ class TestContracts:
         from modules.rag.contracts import RagIndexReport
 
         r = RagIndexReport(
-            chapter_index=3, chunks_created=7,
-            warnings=["w"], embedding_failed_count=1,
+            chapter_index=3,
+            chunks_created=7,
+            warnings=["w"],
+            embedding_failed_count=1,
             chunks_created_ids=["id1"],
         )
         assert r.chunks_created == 7
@@ -200,23 +225,30 @@ class TestSchemas:
     def test_rag_chunk_create_rejects_empty_text(self):
         """ERROR: RagChunkCreate text 为空报 ValidationError"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagChunkCreate
 
-        with pytest.raises(ValidationError, match="String should have at least 1 character"):
+        with pytest.raises(
+            ValidationError, match="String should have at least 1 character"
+        ):
             RagChunkCreate(source_type="t", text="")
 
     def test_rag_chunk_create_rejects_negative_offset(self):
         """ERROR: RagChunkCreate start_offset < 0 报错"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagChunkCreate
 
         with pytest.raises(ValidationError):
             RagChunkCreate(source_type="t", text="t", start_offset=-1)
 
-    @pytest.mark.parametrize("field", ["source_type", "visibility", "index_version", "embedding_status"])
+    @pytest.mark.parametrize(
+        "field", ["source_type", "visibility", "index_version", "embedding_status"]
+    )
     def test_rag_chunk_create_enforces_max_length(self, field):
         """ERROR: RagChunkCreate 超长字段报错"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagChunkCreate
 
         kwargs = {"source_type": "t", "text": "t", field: "x" * 65}
@@ -226,6 +258,7 @@ class TestSchemas:
     def test_rag_chunk_create_rejects_importance_out_of_range(self):
         """ERROR: RagChunkCreate importance 超出 0-1 范围报错"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagChunkCreate
 
         with pytest.raises(ValidationError):
@@ -248,14 +281,18 @@ class TestSchemas:
     def test_rag_query_rejects_empty_query(self):
         """ERROR: RagQuery 空查询文本报错"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagQuery
 
-        with pytest.raises(ValidationError, match="String should have at least 1 character"):
+        with pytest.raises(
+            ValidationError, match="String should have at least 1 character"
+        ):
             RagQuery(query="")
 
     def test_rag_query_rejects_invalid_mode(self):
         """ERROR: RagQuery mode 不是 Literal 值报错"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagQuery
 
         with pytest.raises(ValidationError):
@@ -272,6 +309,7 @@ class TestSchemas:
     def test_rag_query_top_k_bounds(self):
         """ERROR: RagQuery top_k 超出 1-50 范围报错"""
         from pydantic import ValidationError
+
         from modules.rag.schemas import RagQuery
 
         with pytest.raises(ValidationError):
@@ -285,8 +323,10 @@ class TestSchemas:
 
         raw_uuid = uuid.UUID(hex="a" * 32)
         obj = RagChunkResponse(
-            id=raw_uuid, novel_id=str(raw_uuid),
-            source_type="t", text="t",
+            id=raw_uuid,
+            novel_id=str(raw_uuid),
+            source_type="t",
+            text="t",
         )
         assert isinstance(obj.id, str)
         assert obj.id == str(raw_uuid)
@@ -296,8 +336,10 @@ class TestSchemas:
         from modules.rag.schemas import RagChunkResponse
 
         obj = RagChunkResponse(
-            id="already-str", novel_id="novel-str",
-            source_type="t", text="t",
+            id="already-str",
+            novel_id="novel-str",
+            source_type="t",
+            text="t",
         )
         assert obj.id == "already-str"
 
@@ -307,7 +349,10 @@ class TestSchemas:
 
         raw = uuid.UUID(hex="b" * 32)
         obj = RagChunkResponse(
-            id="id", novel_id=raw, source_type="t", text="t",
+            id="id",
+            novel_id=raw,
+            source_type="t",
+            text="t",
         )
         assert obj.novel_id == str(raw)
 
@@ -317,8 +362,11 @@ class TestSchemas:
 
         raw = uuid.UUID(hex="c" * 32)
         obj = RagChunkResponse(
-            id="id", novel_id="n", source_type="t",
-            source_id=raw, text="t",
+            id="id",
+            novel_id="n",
+            source_type="t",
+            source_id=raw,
+            text="t",
         )
         assert obj.source_id == str(raw)
 
@@ -327,8 +375,11 @@ class TestSchemas:
         from modules.rag.schemas import RagChunkResponse
 
         obj = RagChunkResponse(
-            id="id", novel_id="n", source_type="t",
-            source_id=None, text="t",
+            id="id",
+            novel_id="n",
+            source_type="t",
+            source_id=None,
+            text="t",
         )
         assert obj.source_id is None
 
@@ -387,7 +438,7 @@ class TestApiRoutes:
 
     @pytest.mark.asyncio
     async def test_list_rag_chunks_returns_combined_dict(self):
-        """GREEN: GET /api/rag/chunks 组合 items + status + circuit_breaker"""
+        """GREEN: GET /api/rag/chunks 组合 items + status"""
         from modules.rag.schemas import RagChunkResponse
 
         mock_chunks = [
@@ -396,12 +447,12 @@ class TestApiRoutes:
 
         with (
             patch("modules.rag.api.list_chunks", new_callable=AsyncMock) as mock_list,
-            patch("modules.rag.api.get_index_status", new_callable=AsyncMock) as mock_status,
-            patch("modules.rag.circuit_breaker.get_circuit_breaker") as mock_cb,
+            patch(
+                "modules.rag.api.get_index_status", new_callable=AsyncMock
+            ) as mock_status,
         ):
             mock_list.return_value = (mock_chunks, 1)
             mock_status.return_value = {"index_version": "v1", "total_chunks": 1}
-            mock_cb.return_value.status = {"state": "closed"}
 
             from modules.rag.api import list_rag_chunks
 
@@ -411,7 +462,6 @@ class TestApiRoutes:
             assert result["items"] == mock_chunks
             assert result["total"] == 1
             assert result["index_version"] == "v1"
-            assert result["circuit_breaker"] == "closed"
 
     @pytest.mark.asyncio
     async def test_retrieve_chunks_converts_contracts_to_responses(self):
@@ -422,20 +472,34 @@ class TestApiRoutes:
         mock_bundle = RagResultBundle(
             chunks=[
                 RagChunkContract(
-                    id="c1", novel_id="n1", source_type="chapter_text",
-                    source_id="s1", chapter_index=3, chunk_index=1,
-                    start_offset=0, end_offset=100, char_count=100,
-                    text="retrieved text", summary="sum",
-                    entity_ids=["e1"], character_ids=["c1"],
-                    thread_ids=["t1"], visibility="author_only",
-                    importance=0.8, index_version="v1",
+                    id="c1",
+                    novel_id="n1",
+                    source_type="chapter_text",
+                    source_id="s1",
+                    chapter_index=3,
+                    chunk_index=1,
+                    start_offset=0,
+                    end_offset=100,
+                    char_count=100,
+                    text="retrieved text",
+                    summary="sum",
+                    entity_ids=["e1"],
+                    character_ids=["c1"],
+                    thread_ids=["t1"],
+                    visibility="author_only",
+                    importance=0.8,
+                    index_version="v1",
                     embedding_status="succeeded",
-                    embedding_error=None, index_warnings=[],
-                    meta={"arc": "main"}, score=0.92,
+                    embedding_error=None,
+                    index_warnings=[],
+                    meta={"arc": "main"},
+                    score=0.92,
                 ),
             ],
-            total=1, query="test query",
-            warnings=[], degraded=False,
+            total=1,
+            query="test query",
+            warnings=[],
+            degraded=False,
         )
 
         with patch("modules.rag.api.retrieve", new_callable=AsyncMock) as mock_retrieve:
@@ -560,12 +624,16 @@ class TestTasks:
         from modules.rag.contracts import RagIndexReport
 
         report = RagIndexReport(
-            chapter_index=3, chunks_created=5,
-            embedding_failed_count=0, warnings=[],
+            chapter_index=3,
+            chunks_created=5,
+            embedding_failed_count=0,
+            warnings=[],
             chunks_created_ids=["c1", "c2"],
         )
 
-        with patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index:
+        with patch(
+            "modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock
+        ) as mock_index:
             mock_index.return_value = report
 
             from modules.rag.tasks import handle_rag_index_chapter
@@ -616,12 +684,16 @@ class TestTasks:
         """GREEN: 全量重建任务正常执行"""
         from modules.rag.contracts import RagIndexReport
 
-        report = RagIndexReport(chapter_index=1, chunks_created=3, warnings=[], embedding_failed_count=0)
+        report = RagIndexReport(
+            chapter_index=1, chunks_created=3, warnings=[], embedding_failed_count=0
+        )
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2]))
 
-        with patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index:
+        with patch(
+            "modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock
+        ) as mock_index:
             mock_index.return_value = report
 
             from modules.rag.tasks import handle_rag_reindex_novel
@@ -655,22 +727,28 @@ class TestTasks:
         """GREEN: 指定起止章节范围"""
         from modules.rag.contracts import RagIndexReport
 
-        report = RagIndexReport(chapter_index=2, chunks_created=4, warnings=[], embedding_failed_count=0)
+        report = RagIndexReport(
+            chapter_index=2, chunks_created=4, warnings=[], embedding_failed_count=0
+        )
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2, 3, 4, 5]))
 
-        with patch("modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock) as mock_index:
+        with patch(
+            "modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock
+        ) as mock_index:
             mock_index.return_value = report
 
             from modules.rag.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
-            task = SimpleNamespace(meta={
-                "novel_id": "n1",
-                "start_chapter": "2",
-                "end_chapter": "4",
-            })
+            task = SimpleNamespace(
+                meta={
+                    "novel_id": "n1",
+                    "start_chapter": "2",
+                    "end_chapter": "4",
+                }
+            )
             task.update_progress = MagicMock()
 
             result = await handle_rag_reindex_novel(db, task)
@@ -854,7 +932,10 @@ class TestTuningExtra:
 
         db = AsyncMock()
         result = await evaluate_weights(
-            db, uuid.UUID(hex="a" * 32), [], (0.5, 0.2, 0.15, 0.15),
+            db,
+            uuid.UUID(hex="a" * 32),
+            [],
+            (0.5, 0.2, 0.15, 0.15),
         )
         assert result.mrr == 0.0
         assert result.ndcg_at_5 == 0.0
@@ -870,7 +951,9 @@ class TestTuningExtra:
         """EDGE: 评估集为空返回空报告"""
         from modules.rag.tuning import TuningReport
 
-        with patch("modules.rag.tuning.build_eval_set", new_callable=AsyncMock) as mock_build:
+        with patch(
+            "modules.rag.tuning.build_eval_set", new_callable=AsyncMock
+        ) as mock_build:
             mock_build.return_value = []
 
             from modules.rag.tuning import run_tuning
@@ -889,20 +972,26 @@ class TestTuningExtra:
 
         best = EvalResult(
             weights=(0.45, 0.25, 0.15, 0.15),
-            mrr=0.7234, ndcg_at_5=0.8123, ndcg_at_10=0.8901,
-            precision_at_5=0.75, recall_at_5=0.60,
+            mrr=0.7234,
+            ndcg_at_5=0.8123,
+            ndcg_at_10=0.8901,
+            precision_at_5=0.75,
+            recall_at_5=0.60,
             avg_latency_ms=123.4,
         )
         top5 = [
             best,
             EvalResult(
                 weights=(0.50, 0.20, 0.15, 0.15),
-                mrr=0.7100, ndcg_at_5=0.8000,
+                mrr=0.7100,
+                ndcg_at_5=0.8000,
             ),
         ]
         report = TuningReport(
-            best=best, top5=top5,
-            total_combinations=100, total_queries=50,
+            best=best,
+            top5=top5,
+            total_combinations=100,
+            total_queries=50,
             elapsed_seconds=30.5,
         )
 

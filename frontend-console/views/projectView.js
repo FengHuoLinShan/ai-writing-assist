@@ -380,7 +380,7 @@ const projectView = {
             toast(`项目 "${title}" 已创建`, "success")
             state.currentProjectId = project.id
             state.currentProject = project
-            router.navigate("world", "objects")
+            router.navigate("writing")
           } catch (err) {
             toast(`创建失败：${err.message}`, "error")
           }
@@ -412,6 +412,16 @@ const projectView = {
 
         const result = await api.imports.upload(project.id, file)
         toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
+        router.navigate("writing")
+        if (result.imported_chapters > 0) {
+          confirmAction(
+            `已导入 ${result.imported_chapters} 章，是否启动深度导入？`,
+            async () => {
+              // 深度导入的启动由 writingView 处理
+            },
+            "启动深度导入",
+          )
+        }
       } catch (err) {
         const detail = err.message || "导入失败"
         toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
@@ -492,6 +502,10 @@ const projectView = {
       toast("请先点击项目行选择项目", "warning"); return
     }
     const file = input.files[0]
+    const MAX_FILE_SIZE = 50 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE) {
+      toast("文件大小超过限制（最大 50MB）", "error"); return
+    }
     this._importUploading = true
     this._uploadProgress = 0
     if (btn) btn.textContent = "上传中 0%"
@@ -532,6 +546,7 @@ const projectView = {
       })
 
       toast(`导入完成：${result.imported_chapters} 章`, "success")
+      router.navigate("writing")
       input.value = ""
       this._renderImportHistory()
     } catch (err) {

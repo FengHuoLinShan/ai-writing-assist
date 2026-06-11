@@ -9,7 +9,6 @@ from modules.memory.schemas import (
     ChapterPanorama,
     CharacterLocationInPanorama,
     EntityInPanorama,
-    KnowledgeInPanorama,
     MemoryEventResponse,
     MemoryStatusResponse,
     RelationInPanorama,
@@ -88,12 +87,16 @@ class TestChapterPanorama:
         nid = str(uuid.uuid4())
         entity = EntityInPanorama(id=nid, entity_type="character", name="李四")
         relation = RelationInPanorama(
-            id=str(uuid.uuid4()), source_id=nid, target_id=str(uuid.uuid4()),
+            id=str(uuid.uuid4()),
+            source_id=nid,
+            target_id=str(uuid.uuid4()),
             relation_type="friend_of",
         )
         p = ChapterPanorama(
-            novel_id=nid, chapter_index=3,
-            entities=[entity], relations=[relation],
+            novel_id=nid,
+            chapter_index=3,
+            entities=[entity],
+            relations=[relation],
         )
         assert len(p.entities) == 1
         assert len(p.relations) == 1
@@ -102,9 +105,12 @@ class TestChapterPanorama:
     def test_character_locations_dict(self) -> None:
         """character_locations dict 序列化正确"""
         cid = str(uuid.uuid4())
-        loc = CharacterLocationInPanorama(location_id=str(uuid.uuid4()), text_state="位于长安")
+        loc = CharacterLocationInPanorama(
+            location_id=str(uuid.uuid4()), text_state="位于长安"
+        )
         p = ChapterPanorama(
-            novel_id=str(uuid.uuid4()), chapter_index=5,
+            novel_id=str(uuid.uuid4()),
+            chapter_index=5,
             character_locations={cid: loc},
         )
         assert p.character_locations[cid].text_state == "位于长安"
@@ -117,6 +123,7 @@ class TestMemoryEventResponse:
         """from_attributes ORM 转换、UUID 转 str"""
         eid = uuid.uuid4()
         nid = uuid.uuid4()
+
         # 模拟 ORM 对象属性
         class MockORM:
             id = eid
@@ -140,9 +147,13 @@ class TestMemoryEventResponse:
     def test_snapshot_before_none_valid(self) -> None:
         """snapshot_before=None 合法"""
         resp = MemoryEventResponse(
-            id=str(uuid.uuid4()), novel_id=str(uuid.uuid4()),
-            chapter_index=1, sequence=1, event_type="entity_created",
-            snapshot_after={"x": 1}, snapshot_before=None,
+            id=str(uuid.uuid4()),
+            novel_id=str(uuid.uuid4()),
+            chapter_index=1,
+            sequence=1,
+            event_type="entity_created",
+            snapshot_after={"x": 1},
+            snapshot_before=None,
         )
         assert resp.snapshot_before is None
 

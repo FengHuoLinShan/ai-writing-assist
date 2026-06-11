@@ -68,7 +68,7 @@ function closeModal() {
  * @param {string} confirmText - 确认按钮文字
  */
 function confirmAction(message, onConfirm, confirmText = "确认") {
-  showModal("确认操作", `<p>${message}</p>`, [
+  showModal("确认操作", `<p>${esc(message)}</p>`, [
     { text: confirmText, class: "btn-danger", handler: onConfirm },
     { text: "取消", class: "btn-ghost", handler: closeModal },
   ])

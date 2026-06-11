@@ -73,6 +73,7 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 # 共享 fixtures — 常用的测试数据工厂
 # ============================================================
 
+
 @pytest_asyncio.fixture
 async def test_project_id(db_session: AsyncSession) -> str:
     """创建一个测试项目并返回其 ID"""
@@ -134,5 +135,3 @@ async def test_character_id(db_session: AsyncSession, test_project_id: str) -> s
     db_session.add(e)
     await db_session.flush()
     return str(cid)
-
-

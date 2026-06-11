@@ -19,8 +19,12 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column(
         "projects",
-        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True,
-                  comment="软删除时间，NULL 表示未删除"),
+        sa.Column(
+            "deleted_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+            comment="软删除时间，NULL 表示未删除",
+        ),
     )
     op.create_index("ix_projects_deleted_at", "projects", ["deleted_at"])
 

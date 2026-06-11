@@ -53,9 +53,7 @@ def _try_load_onnx(model_path: str, wlog) -> tuple | None:
 
     try:
         sess_options = ort.SessionOptions()
-        sess_options.graph_optimization_level = (
-            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        )
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         sess_options.intra_op_num_threads = 2
         sess_options.inter_op_num_threads = 1
 
@@ -66,9 +64,7 @@ def _try_load_onnx(model_path: str, wlog) -> tuple | None:
         # 同时加载 tokenizer
         from tokenizers import Tokenizer
 
-        tokenizer_path = os.path.join(
-            os.path.dirname(onnx_path), "tokenizer.json"
-        )
+        tokenizer_path = os.path.join(os.path.dirname(onnx_path), "tokenizer.json")
         if os.path.isfile(tokenizer_path):
             tokenizer = Tokenizer.from_file(tokenizer_path)
         else:
@@ -90,9 +86,7 @@ def _load_st_model(model_id: str, wlog):
     from sentence_transformers import SentenceTransformer
 
     wlog.info("Loading SentenceTransformer: %s", model_id)
-    st_model = SentenceTransformer(
-        model_id, device="cpu", trust_remote_code=True
-    )
+    st_model = SentenceTransformer(model_id, device="cpu", trust_remote_code=True)
     wlog.info(
         "SentenceTransformer loaded, dim=%s",
         st_model.get_embedding_dimension(),
@@ -125,9 +119,7 @@ def _worker_loop(
     """子进程主循环：加载模型 → 循环处理任务 → 退出"""
     import logging as _log
 
-    _log.basicConfig(
-        level=_log.INFO, format="[BGE-Worker] %(levelname)s %(message)s"
-    )
+    _log.basicConfig(level=_log.INFO, format="[BGE-Worker] %(levelname)s %(message)s")
     wlog = _log.getLogger("bge_worker")
 
     if device == "cpu":
@@ -170,11 +162,7 @@ def _worker_loop(
             wlog.info("Worker shutting down")
             break
 
-        if (
-            isinstance(task, tuple)
-            and len(task) == 2
-            and task[0] == _HEALTHCHECK
-        ):
+        if isinstance(task, tuple) and len(task) == 2 and task[0] == _HEALTHCHECK:
             result_queue.put((task[1], "ok"))
             continue
 
@@ -199,13 +187,9 @@ def _worker_loop(
                     attention_mask = [e.attention_mask for e in encodings]
                     # Pad to same length
                     max_len = max(len(ids) for ids in input_ids)
-                    padded_ids = [
-                        ids + [0] * (max_len - len(ids))
-                        for ids in input_ids
-                    ]
+                    padded_ids = [ids + [0] * (max_len - len(ids)) for ids in input_ids]
                     padded_mask = [
-                        mask + [0] * (max_len - len(mask))
-                        for mask in attention_mask
+                        mask + [0] * (max_len - len(mask)) for mask in attention_mask
                     ]
                     ort_inputs = {
                         "input_ids": padded_ids,
@@ -214,9 +198,7 @@ def _worker_loop(
                     outputs = onnx_session.run(None, ort_inputs)
                     # 取最后一层 hidden state 的 mean pooling
                     last_hidden = outputs[0]
-                    sentence_embeds = (
-                        last_hidden.mean(axis=1).tolist()
-                    )
+                    sentence_embeds = last_hidden.mean(axis=1).tolist()
                     batch_embeddings.extend(sentence_embeds)
                 embeddings_list = batch_embeddings
             else:
@@ -301,15 +283,13 @@ class BgeOnnxWorker:
             elif ready_id == "__error__":
                 self._healthy = False
                 self.stop()
-                raise RuntimeError(
-                    f"BGE worker failed to initialize: {backend}"
-                ) from (backend if isinstance(backend, BaseException) else None)
+                raise RuntimeError(f"BGE worker failed to initialize: {backend}") from (
+                    backend if isinstance(backend, BaseException) else None
+                )
             else:
                 self._healthy = False
                 self.stop()
-                raise RuntimeError(
-                    f"BGE worker unexpected init message: {ready_id}"
-                )
+                raise RuntimeError(f"BGE worker unexpected init message: {ready_id}")
         except RuntimeError:
             raise
         except Exception as exc:
@@ -318,9 +298,7 @@ class BgeOnnxWorker:
                 self.stop()
             except Exception:
                 pass
-            raise RuntimeError(
-                "BGE worker failed to start within 60s"
-            ) from exc
+            raise RuntimeError("BGE worker failed to start within 60s") from exc
 
     def stop(self, timeout: float = 5.0) -> None:
         if self._process and self._process.is_alive():
@@ -369,18 +347,13 @@ class BgeOnnxWorker:
         self._task_queue.put((texts, is_query, request_id), timeout=2.0)
 
         try:
-            result_id, result = self._result_queue.get(
-                timeout=effective_timeout
-            )
+            result_id, result = self._result_queue.get(timeout=effective_timeout)
         except Exception:
-            raise TimeoutError(
-                f"BGE worker timed out after {effective_timeout}s"
-            )
+            raise TimeoutError(f"BGE worker timed out after {effective_timeout}s")
 
         if result_id != request_id:
             raise RuntimeError(
-                f"BGE worker response mismatch: "
-                f"expected {request_id}, got {result_id}"
+                f"BGE worker response mismatch: expected {request_id}, got {result_id}"
             )
 
         if isinstance(result, Exception):

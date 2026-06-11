@@ -117,12 +117,10 @@ class EventRepository:
         chapter_index: int,
     ) -> int:
         from sqlalchemy import delete
-        stmt = (
-            delete(MemoryEvent)
-            .where(
-                MemoryEvent.novel_id == novel_id,
-                MemoryEvent.chapter_index == chapter_index,
-            )
+
+        stmt = delete(MemoryEvent).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index == chapter_index,
         )
         result = await db.execute(stmt)
         await db.flush()
@@ -135,12 +133,10 @@ class EventRepository:
         from_chapter: int,
     ) -> int:
         from sqlalchemy import delete
-        stmt = (
-            delete(MemoryEvent)
-            .where(
-                MemoryEvent.novel_id == novel_id,
-                MemoryEvent.chapter_index >= from_chapter,
-            )
+
+        stmt = delete(MemoryEvent).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index >= from_chapter,
         )
         result = await db.execute(stmt)
         await db.flush()
@@ -152,12 +148,9 @@ class EventRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> int:
-        stmt = (
-            select(func.coalesce(func.max(MemoryEvent.sequence), 0))
-            .where(
-                MemoryEvent.novel_id == novel_id,
-                MemoryEvent.chapter_index == chapter_index,
-            )
+        stmt = select(func.coalesce(func.max(MemoryEvent.sequence), 0)).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index == chapter_index,
         )
         result = await db.execute(stmt)
         return result.scalar() or 0
@@ -263,12 +256,10 @@ class SnapshotRepository:
         novel_id: uuid.UUID,
     ) -> int:
         from sqlalchemy import delete
-        stmt = (
-            delete(MemorySnapshot)
-            .where(
-                MemorySnapshot.novel_id == novel_id,
-                MemorySnapshot.status == "stale",
-            )
+
+        stmt = delete(MemorySnapshot).where(
+            MemorySnapshot.novel_id == novel_id,
+            MemorySnapshot.status == "stale",
         )
         result = await db.execute(stmt)
         await db.flush()

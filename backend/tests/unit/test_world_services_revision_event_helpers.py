@@ -185,9 +185,7 @@ class TestEntityRevisionService:
         assert result["total"] == 1
         assert len(result["items"]) == 1
         assert result["items"][0]["revision_id"] == str(revision.id)
-        repo.get_revisions.assert_awaited_once_with(
-            db, entity.id, skip=0, limit=10
-        )
+        repo.get_revisions.assert_awaited_once_with(db, entity.id, skip=0, limit=10)
 
     async def test_get_revisions_entity_not_found_raises_404(self):
         """Exception path: missing entity raises HTTPException 404."""
@@ -396,9 +394,7 @@ class TestEventService:
         # Assert
         assert total == 1
         assert len(items) == 1
-        repo.get_by_novel.assert_awaited_once_with(
-            db, ev.novel_id, skip=0, limit=20
-        )
+        repo.get_by_novel.assert_awaited_once_with(db, ev.novel_id, skip=0, limit=20)
 
     async def test_create_happy_path_returns_event_response(self):
         """Inherited CrudService.create: returns EventResponse."""
@@ -437,9 +433,7 @@ class TestEventService:
         data = EventUpdate(timeline_order=99)
 
         # Act
-        result = await svc.update(
-            db, str(ev.entity_id), data, novel_id=str(ev.novel_id)
-        )
+        result = await svc.update(db, str(ev.entity_id), data, novel_id=str(ev.novel_id))
 
         # Assert
         assert result.timeline_order == ev.timeline_order
@@ -616,7 +610,9 @@ class TestDraftProvider:
     def teardown_method(self):
         reset()
 
-    async def test_writing_draft_provider_load_chapters_with_draft_and_rag_returns_chapters(self):
+    async def test_writing_draft_provider_load_chapters_with_draft_and_rag_returns_chapters(
+        self,
+    ):
         """Happy path: uses RAG chunks when available."""
         db = MagicMock()
         novel_id = str(uuid.uuid4())

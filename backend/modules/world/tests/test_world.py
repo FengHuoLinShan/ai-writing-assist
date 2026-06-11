@@ -38,6 +38,7 @@ from modules.world.services.dedup_service import EntityDedupService
 # Fixtures
 # ============================================================
 
+
 @pytest.fixture
 def novel_id() -> str:
     return str(uuid.uuid4())
@@ -108,6 +109,7 @@ def sample_entity_data3() -> WorldEntityCreate:
 # WorldEntity CRUD 测试
 # ============================================================
 
+
 class TestWorldEntityService:
     """世界对象 CRUD 测试"""
 
@@ -146,7 +148,9 @@ class TestWorldEntityService:
         """测试获取世界对象"""
         created = await entity_service.create(db_session, novel_id, sample_entity_data)
         result = await entity_service.get(
-            db_session, created.id, novel_id=novel_id,
+            db_session,
+            created.id,
+            novel_id=novel_id,
         )
 
         assert result.id == created.id
@@ -162,7 +166,9 @@ class TestWorldEntityService:
         """测试获取不存在的对象返回 404"""
         with pytest.raises(HTTPException) as exc:
             await entity_service.get(
-                db_session, str(uuid.uuid4()), novel_id=novel_id,
+                db_session,
+                str(uuid.uuid4()),
+                novel_id=novel_id,
             )
         assert exc.value.status_code == 404
 
@@ -188,7 +194,9 @@ class TestWorldEntityService:
 
         # 按类型过滤
         result = await entity_service.list(
-            db_session, novel_id, entity_type="location",
+            db_session,
+            novel_id,
+            entity_type="location",
         )
         assert result.total == 1
         assert result.items[0].entity_type == "location"
@@ -215,7 +223,10 @@ class TestWorldEntityService:
             approved_by="审核员",
         )
         result = await entity_service.update(
-            db_session, created.id, update_data, novel_id=novel_id,
+            db_session,
+            created.id,
+            update_data,
+            novel_id=novel_id,
         )
 
         assert result.name == "创世大陆（更新版）"
@@ -237,10 +248,11 @@ class TestWorldEntityService:
 
         with pytest.raises(HTTPException) as exc:
             await entity_service.get(
-                db_session, created.id, novel_id=novel_id,
+                db_session,
+                created.id,
+                novel_id=novel_id,
             )
         assert exc.value.status_code == 404
-
 
 
 class TestEntityDedupService:
@@ -265,7 +277,8 @@ class TestEntityDedupService:
 
         # 先创建正史对象
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="黑暗森林"),
         )
 
@@ -282,7 +295,9 @@ class TestEntityDedupService:
 
         # 去重检查
         suggestions = await dedup_service.find_duplicates(
-            db_session, novel_id, str(draft.id),
+            db_session,
+            novel_id,
+            str(draft.id),
         )
 
         # 应该匹配到已存在的正史对象
@@ -312,20 +327,29 @@ class TestEntityDedupService:
 
         # Given: 正史实体 "李四"
         target = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="李四", status="canonical",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="李四",
+            status="canonical",
         )
 
         # Given: 候选实体 "李四"（带别名）
         candidate = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="李四", status="draft",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="李四",
+            status="draft",
             content_json={"aliases": [{"alias": "四哥", "type": "nickname"}]},
         )
 
         # When: 去重检测
         suggestions = await dedup_service.find_similar_entities(
-            db_session, novel_id, name="李四", entity_type="character",
+            db_session,
+            novel_id,
+            name="李四",
+            entity_type="character",
         )
 
         # Then: 高置信度匹配
@@ -337,7 +361,10 @@ class TestEntityDedupService:
 
         # When: 执行合并
         result = await dedup_service.merge_candidate_into_entity(
-            db_session, novel_id, str(candidate.id), str(target.id),
+            db_session,
+            novel_id,
+            str(candidate.id),
+            str(target.id),
         )
 
         # Then: 合并统计
@@ -355,8 +382,7 @@ class TestEntityDedupService:
         await db_session.refresh(target)
         target_aliases = target.content_json.get("aliases", [])
         alias_texts = [
-            a.get("alias", "") if isinstance(a, dict) else str(a)
-            for a in target_aliases
+            a.get("alias", "") if isinstance(a, dict) else str(a) for a in target_aliases
         ]
         assert "四哥" in alias_texts
         assert target.status == "canonical"
@@ -380,19 +406,27 @@ class TestEntityDedupService:
 
         # Given: 正史实体 "李四"
         await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="李四", status="canonical",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="李四",
+            status="canonical",
         )
 
         # Given: 候选实体 "王五"（完全无关的名字）
         candidate = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="王五", status="draft",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="王五",
+            status="draft",
         )
 
         # When: 自动决议
         result = await dedup_service.resolve_candidate(
-            db_session, novel_id, str(candidate.id),
+            db_session,
+            novel_id,
+            str(candidate.id),
         )
 
         # Then: 无匹配 → 提升为 canonical
@@ -424,43 +458,70 @@ class TestEntityDedupService:
 
         # Given: 正史实体 A, B, C
         entity_a = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="A", status="canonical",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="A",
+            status="canonical",
         )
         entity_b = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="B", status="canonical",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="B",
+            status="canonical",
         )
         entity_c = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="C", status="canonical",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="C",
+            status="canonical",
         )
 
         # Given: 候选实体 A'（draft）
         candidate_a = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="A'", status="draft",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="A'",
+            status="draft",
         )
 
         # Given: A → B（A 认识 B）
         await rel_repo.upsert(
-            db_session, nid, entity_a.id, entity_b.id,
-            "knows", "A 认识 B",
+            db_session,
+            nid,
+            entity_a.id,
+            entity_b.id,
+            "knows",
+            "A 认识 B",
         )
         # Given: A' → C（A' 认识 C）
         await rel_repo.upsert(
-            db_session, nid, candidate_a.id, entity_c.id,
-            "knows", "A' 认识 C",
+            db_session,
+            nid,
+            candidate_a.id,
+            entity_c.id,
+            "knows",
+            "A' 认识 C",
         )
         # Given: A' → A（A' 怀疑 A — 合并后会变自环）
         await rel_repo.upsert(
-            db_session, nid, candidate_a.id, entity_a.id,
-            "suspects", "A' 怀疑 A",
+            db_session,
+            nid,
+            candidate_a.id,
+            entity_a.id,
+            "suspects",
+            "A' 怀疑 A",
         )
 
         # When: 合并 A' → A
         result = await dedup_service.merge_candidate_into_entity(
-            db_session, novel_id, str(candidate_a.id), str(entity_a.id),
+            db_session,
+            novel_id,
+            str(candidate_a.id),
+            str(entity_a.id),
         )
 
         # Then: 关系迁移统计
@@ -475,8 +536,10 @@ class TestEntityDedupService:
 
         # Then: A→C 重定向成功
         a_to_c = [
-            r for r in all_rels
-            if r.source_id == entity_a.id and r.target_id == entity_c.id
+            r
+            for r in all_rels
+            if r.source_id == entity_a.id
+            and r.target_id == entity_c.id
             and r.status == "canonical"
         ]
         assert len(a_to_c) == 1
@@ -484,20 +547,24 @@ class TestEntityDedupService:
 
         # Then: A→B 不受影响
         a_to_b = [
-            r for r in all_rels
-            if r.source_id == entity_a.id and r.target_id == entity_b.id
+            r
+            for r in all_rels
+            if r.source_id == entity_a.id
+            and r.target_id == entity_b.id
             and r.status == "canonical"
         ]
         assert len(a_to_b) == 1
 
         # Then: 自环关系被标记 deprecated
         self_loops = [
-            r for r in all_rels
+            r
+            for r in all_rels
             if r.source_id == entity_a.id and r.target_id == entity_a.id
         ]
         for sl in self_loops:
-            assert sl.status == "deprecated", \
+            assert sl.status == "deprecated", (
                 f"自环 {sl.id} 应为 deprecated，实际为 {sl.status}"
+            )
 
     # ============================================================
     # TDD 路径 1.4：设定冲突的静默归档
@@ -518,8 +585,11 @@ class TestEntityDedupService:
 
         # Given: 正史实体 A（使用长剑、御剑术）
         entity_a = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="剑客A", status="canonical",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="剑客A",
+            status="canonical",
             content_json={
                 "weapon": "使用长剑",
                 "ability": "御剑术",
@@ -528,8 +598,11 @@ class TestEntityDedupService:
 
         # Given: 候选实体 A'（使用断刀、御剑术）
         candidate_a = await entity_repo.create_raw(
-            db_session, novel_id=nid, entity_type="character",
-            name="剑客A", status="draft",
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="剑客A",
+            status="draft",
             content_json={
                 "weapon": "使用断刀",
                 "ability": "御剑术",
@@ -538,7 +611,10 @@ class TestEntityDedupService:
 
         # When: 合并 A' → A
         result = await dedup_service.merge_candidate_into_entity(
-            db_session, novel_id, str(candidate_a.id), str(entity_a.id),
+            db_session,
+            novel_id,
+            str(candidate_a.id),
+            str(entity_a.id),
         )
 
         # Then: 冲突统计
@@ -564,6 +640,7 @@ class TestEntityDedupService:
 # Facade 测试
 # ============================================================
 
+
 class TestFacade:
     """Facade 对外接口测试"""
 
@@ -576,11 +653,13 @@ class TestFacade:
     ) -> None:
         """测试获取世界上下文"""
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="东方大陆"),
         )
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="西方大陆"),
         )
 
@@ -595,7 +674,9 @@ class TestFacade:
         all_entities = await entity_service.list(db_session, novel_id)
         first_id = all_entities.items[0].id
         ctx = await get_world_context(
-            db_session, novel_id, entity_ids=[first_id],
+            db_session,
+            novel_id,
+            entity_ids=[first_id],
         )
         assert ctx.total_count == 1
 
@@ -608,18 +689,22 @@ class TestFacade:
     ) -> None:
         """测试 facade 的 expand_related_entities 委派到新 EntityRelationService"""
         from modules.world.services import EntityRelationService
+
         rel_service = EntityRelationService()
 
         e1 = await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="A"),
         )
         e2 = await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="B"),
         )
         await rel_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             EntityRelationCreate(
                 source_id=e1.id,
                 target_id=e2.id,
@@ -628,7 +713,10 @@ class TestFacade:
         )
 
         related = await expand_related_entities(
-            db_session, novel_id, seed_entity_ids=[e1.id], depth=1,
+            db_session,
+            novel_id,
+            seed_entity_ids=[e1.id],
+            depth=1,
         )
         assert len(related) == 1
         assert related[0].entity_id == e2.id
@@ -674,8 +762,12 @@ class TestUpsertRelationship:
         target_id = uuid.uuid4()
 
         await rel_repo.upsert(
-            db_session, nid, source_id, target_id,
-            "controls", "控制关系",
+            db_session,
+            nid,
+            source_id,
+            target_id,
+            "controls",
+            "控制关系",
         )
 
         rels, total = await rel_repo.get_by_novel(db_session, nid)
@@ -697,12 +789,20 @@ class TestUpsertRelationship:
         target_id = uuid.uuid4()
 
         await rel_repo.upsert(
-            db_session, nid, source_id, target_id,
-            "controls", "初始描述",
+            db_session,
+            nid,
+            source_id,
+            target_id,
+            "controls",
+            "初始描述",
         )
         await rel_repo.upsert(
-            db_session, nid, source_id, target_id,
-            "controls", "更新描述",
+            db_session,
+            nid,
+            source_id,
+            target_id,
+            "controls",
+            "更新描述",
         )
 
         rels, total = await rel_repo.get_by_novel(db_session, nid)
@@ -714,6 +814,7 @@ class TestUpsertRelationship:
 # Characterization tests for facade leaks (PR 2)
 # 锁定行为, 后续 leak 下沉到 service 时不能破
 # ============================================================
+
 
 class TestFacadeLeakListEntityTerms:
     @pytest.mark.asyncio
@@ -790,7 +891,9 @@ class TestFacadeLeakFindEntityIdByName:
         novel_id: str,
     ) -> None:
         result = await find_entity_id_by_name(
-            db_session, novel_id, "不存在的名字",
+            db_session,
+            novel_id,
+            "不存在的名字",
         )
         assert result is None
 
@@ -824,7 +927,9 @@ class TestFacadeLeakGetCharacterIdByWorldEntity:
         await db_session.flush()
 
         result = await get_character_id_by_world_entity(
-            db_session, novel_id, str(entity_id),
+            db_session,
+            novel_id,
+            str(entity_id),
         )
         assert result == str(entity_id)
 
@@ -835,7 +940,9 @@ class TestFacadeLeakGetCharacterIdByWorldEntity:
         novel_id: str,
     ) -> None:
         result = await get_character_id_by_world_entity(
-            db_session, novel_id, str(uuid.uuid4()),
+            db_session,
+            novel_id,
+            str(uuid.uuid4()),
         )
         assert result is None
 
@@ -869,7 +976,9 @@ class TestFacadeLeakFindCharacterIdByName:
         novel_id: str,
     ) -> None:
         result = await find_character_id_by_name(
-            db_session, novel_id, "不存在的角色",
+            db_session,
+            novel_id,
+            "不存在的角色",
         )
         assert result is None
 
@@ -895,12 +1004,17 @@ class TestFacadeLeakUpdateCharacterLocation:
         await db_session.flush()
 
         await update_character_location(
-            db_session, novel_id, str(entity_id),
-            str(loc_id), "在城门口", 3,
+            db_session,
+            novel_id,
+            str(entity_id),
+            str(loc_id),
+            "在城门口",
+            3,
         )
 
         # 验证 meta 写入 — 用 repo 直接读
         from modules.world.repositories import CharacterRepository
+
         repo = CharacterRepository()
         refreshed = await repo.get(db_session, entity_id)
         assert refreshed is not None
@@ -930,7 +1044,9 @@ class TestFacadeLeakGetCharactersAtLocation:
         await db_session.flush()
 
         result = await get_characters_at_location(
-            db_session, novel_id, str(loc_id),
+            db_session,
+            novel_id,
+            str(loc_id),
         )
         assert len(result) == 1
         assert result[0]["name"] == "在城门口的人"
@@ -957,7 +1073,9 @@ class TestFacadeLeakGetCharacterLocationId:
         await db_session.flush()
 
         result = await get_character_location_id(
-            db_session, novel_id, str(char.entity_id),
+            db_session,
+            novel_id,
+            str(char.entity_id),
         )
         assert result == str(loc_id)
 
@@ -980,6 +1098,8 @@ class TestFacadeLeakGetCharacterLocationId:
         await db_session.flush()
 
         result = await get_character_location_id(
-            db_session, novel_id, str(char.entity_id),
+            db_session,
+            novel_id,
+            str(char.entity_id),
         )
         assert result is None

@@ -18,7 +18,10 @@ class ProjectRepository:
     """项目数据访问层"""
 
     async def get(self, db: AsyncSession, project_id: uuid.UUID) -> Project | None:
-        stmt = select(Project).where(Project.id == project_id)
+        stmt = select(Project).where(
+            Project.id == project_id,
+            Project.deleted_at.is_(None),
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -28,9 +31,7 @@ class ProjectRepository:
         skip: int = 0,
         limit: int = 20,
     ) -> tuple[list[Project], int]:
-        count_stmt = select(func.count(Project.id)).where(
-            Project.deleted_at.is_(None)
-        )
+        count_stmt = select(func.count(Project.id)).where(Project.deleted_at.is_(None))
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
         stmt = (
@@ -70,18 +71,20 @@ class ProjectRepository:
             return None
         update_values: dict[str, object] = {}
         for field in (
-            "title", "genre", "tone", "language",
-            "target_length", "current_stage", "default_reveal_policy", "settings",
+            "title",
+            "genre",
+            "tone",
+            "language",
+            "target_length",
+            "current_stage",
+            "default_reveal_policy",
+            "settings",
         ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
         if update_values:
-            stmt = (
-                update(Project)
-                .where(Project.id == project_id)
-                .values(**update_values)
-            )
+            stmt = update(Project).where(Project.id == project_id).values(**update_values)
             await db.execute(stmt)
             await db.flush()
             project = await self.get(db, project_id)
@@ -134,7 +137,9 @@ class ProjectRepository:
         return list(result.scalars().all()), total
 
     async def permanent_delete(
-        self, db: AsyncSession, project_id: uuid.UUID,
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
     ) -> bool:
         """永久删除项目（硬删除，数据库 CASCADE 处理关联数据）"""
         stmt = delete(Project).where(

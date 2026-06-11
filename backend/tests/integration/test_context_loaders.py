@@ -60,7 +60,8 @@ def _bundle(novel_id: str, task: str = "test") -> StructureContextBundle:
 
 @pytest.mark.asyncio
 async def test_project_loader_existing_project_loads_context(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = ProjectLoader()
@@ -102,7 +103,10 @@ async def test_project_loader_missing_project_adds_warning(
 
 
 async def _create_character(
-    db: AsyncSession, novel_id: str, name: str, **kwargs: object,
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    **kwargs: object,
 ) -> str:
     from modules.world.models import Character, CoreEntity
 
@@ -146,7 +150,8 @@ async def _create_character(
 
 @pytest.mark.asyncio
 async def test_characters_loader_with_ids_loads_context(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     cid = await _create_character(db_session, test_project_id, "Alice")
@@ -165,7 +170,8 @@ async def test_characters_loader_with_ids_loads_context(
 
 @pytest.mark.asyncio
 async def test_characters_loader_without_ids_infers_empty(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = CharactersLoader()
@@ -182,7 +188,8 @@ async def test_characters_loader_without_ids_infers_empty(
 
 @pytest.mark.asyncio
 async def test_characters_loader_limits_character_ids_by_budget(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     cids = []
@@ -203,7 +210,8 @@ async def test_characters_loader_limits_character_ids_by_budget(
 
 @pytest.mark.asyncio
 async def test_characters_loader_knowledge_boundary_filters_world_entities(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     from modules.world.models import CharacterKnowledge
@@ -212,6 +220,7 @@ async def test_characters_loader_knowledge_boundary_filters_world_entities(
 
     # Create a world entity that will be in bundle.world_entities
     from modules.world.models import CoreEntity
+
     eid = uuid.uuid4()
     entity = CoreEntity(
         id=eid,
@@ -259,9 +268,11 @@ async def test_characters_loader_knowledge_boundary_filters_world_entities(
 
 
 async def _create_imported_chapter(
-    db: AsyncSession, novel_id: str, chapter_index: int = 1,
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int = 1,
 ) -> str:
-    from modules.imports.models import ImportRecord, ImportedChapter
+    from modules.imports.models import ImportedChapter, ImportRecord
 
     nid = uuid.UUID(hex=novel_id)
     rid = uuid.uuid4()
@@ -323,7 +334,9 @@ async def _create_event(
 
 
 async def _create_location_entity(
-    db: AsyncSession, novel_id: str, name: str = "Test Location",
+    db: AsyncSession,
+    novel_id: str,
+    name: str = "Test Location",
 ) -> str:
     from modules.world.models import CoreEntity
 
@@ -342,7 +355,8 @@ async def _create_location_entity(
 
 @pytest.mark.asyncio
 async def test_events_loader_loads_events(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     chapter_id = await _create_imported_chapter(db_session, test_project_id)
@@ -364,7 +378,8 @@ async def test_events_loader_loads_events(
 
 @pytest.mark.asyncio
 async def test_events_loader_empty_no_events(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = EventsLoader()
@@ -381,14 +396,19 @@ async def test_events_loader_empty_no_events(
 
 @pytest.mark.asyncio
 async def test_events_loader_limits_by_budget(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     chapter_id = await _create_imported_chapter(db_session, test_project_id)
     loc_id = await _create_location_entity(db_session, test_project_id)
     for i in range(12):
         await _create_event(
-            db_session, test_project_id, chapter_id, loc_id, timeline_order=i,
+            db_session,
+            test_project_id,
+            chapter_id,
+            loc_id,
+            timeline_order=i,
         )
 
     loader = EventsLoader()
@@ -410,7 +430,8 @@ async def test_events_loader_limits_by_budget(
 
 @pytest.mark.asyncio
 async def test_memory_records_loader_loads_panorama(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     from modules.memory.services import MemoryService
@@ -450,7 +471,8 @@ async def test_memory_records_loader_loads_panorama(
 
 @pytest.mark.asyncio
 async def test_memory_records_loader_empty_fallback(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = MemoryRecordsLoader()
@@ -467,7 +489,8 @@ async def test_memory_records_loader_empty_fallback(
 
 @pytest.mark.asyncio
 async def test_memory_records_loader_exception_returns_empty(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = MemoryRecordsLoader()
@@ -519,11 +542,16 @@ async def _create_outline_arc(
 
 @pytest.mark.asyncio
 async def test_outline_arc_loader_with_chapter_loads_arc(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_outline_arc(
-        db_session, test_project_id, "Arc 1", 1, 5,
+        db_session,
+        test_project_id,
+        "Arc 1",
+        1,
+        5,
         arc_goal="Test goal",
     )
     loader = OutlineArcLoader()
@@ -541,7 +569,8 @@ async def test_outline_arc_loader_with_chapter_loads_arc(
 
 @pytest.mark.asyncio
 async def test_outline_arc_loader_no_chapter_returns_none(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = OutlineArcLoader()
@@ -557,7 +586,8 @@ async def test_outline_arc_loader_no_chapter_returns_none(
 
 @pytest.mark.asyncio
 async def test_outline_arc_loader_missing_arc_returns_none(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = OutlineArcLoader()
@@ -610,16 +640,23 @@ async def _create_plot_thread(
 
 @pytest.mark.asyncio
 async def test_plot_threads_loader_loads_active_threads(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_plot_thread(
-        db_session, test_project_id, "Thread 1",
-        start_chapter=1, planned_payoff_chapter=5,
+        db_session,
+        test_project_id,
+        "Thread 1",
+        start_chapter=1,
+        planned_payoff_chapter=5,
     )
     await _create_plot_thread(
-        db_session, test_project_id, "Thread 2",
-        start_chapter=1, planned_payoff_chapter=10,
+        db_session,
+        test_project_id,
+        "Thread 2",
+        start_chapter=1,
+        planned_payoff_chapter=10,
     )
     loader = PlotThreadsLoader()
     options = _compile_options(test_project_id, chapter_index=3)
@@ -636,16 +673,23 @@ async def test_plot_threads_loader_loads_active_threads(
 
 @pytest.mark.asyncio
 async def test_plot_threads_loader_excludes_inactive_threads(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_plot_thread(
-        db_session, test_project_id, "Active",
-        start_chapter=1, planned_payoff_chapter=10,
+        db_session,
+        test_project_id,
+        "Active",
+        start_chapter=1,
+        planned_payoff_chapter=10,
     )
     await _create_plot_thread(
-        db_session, test_project_id, "Ended",
-        start_chapter=1, planned_payoff_chapter=2,
+        db_session,
+        test_project_id,
+        "Ended",
+        start_chapter=1,
+        planned_payoff_chapter=2,
     )
     loader = PlotThreadsLoader()
     options = _compile_options(test_project_id, chapter_index=5)
@@ -661,7 +705,8 @@ async def test_plot_threads_loader_excludes_inactive_threads(
 
 @pytest.mark.asyncio
 async def test_plot_threads_loader_empty_returns_empty(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = PlotThreadsLoader()
@@ -709,17 +754,21 @@ async def _create_rag_chunk(
 
 @pytest.mark.asyncio
 async def test_rag_chunks_loader_loads_chunks(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_rag_chunk(
-        db_session, test_project_id,
+        db_session,
+        test_project_id,
         text="这是关于测试任务的重要内容",
         chapter_index=1,
     )
     loader = RagChunksLoader()
     options = _compile_options(
-        test_project_id, task="测试任务", chapter_index=1,
+        test_project_id,
+        task="测试任务",
+        chapter_index=1,
     )
     bundle = _bundle(test_project_id)
 
@@ -733,11 +782,13 @@ async def test_rag_chunks_loader_loads_chunks(
 
 @pytest.mark.asyncio
 async def test_rag_chunks_loader_reader_mode_sets_visibility(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_rag_chunk(
-        db_session, test_project_id,
+        db_session,
+        test_project_id,
         text="读者已知的内容片段",
         visibility="reader_known",
     )
@@ -759,7 +810,8 @@ async def test_rag_chunks_loader_reader_mode_sets_visibility(
 
 @pytest.mark.asyncio
 async def test_rag_chunks_loader_empty_returns_empty(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = RagChunksLoader()
@@ -776,12 +828,14 @@ async def test_rag_chunks_loader_empty_returns_empty(
 
 @pytest.mark.asyncio
 async def test_rag_chunks_loader_limits_by_budget(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     for i in range(15):
         await _create_rag_chunk(
-            db_session, test_project_id,
+            db_session,
+            test_project_id,
             text=f"测试任务相关内容段落 {i}",
         )
     loader = RagChunksLoader()
@@ -831,7 +885,8 @@ async def _create_world_entity(
 
 @pytest.mark.asyncio
 async def test_world_entities_loader_with_ids_loads_limited(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     eids = []
@@ -847,24 +902,36 @@ async def test_world_entities_loader_with_ids_loads_limited(
 
     # Assert — limited by core_limit + normal_limit = 8 + 8 = 16
     assert len(bundle.world_entities) == 16
-    assert bundle.budget_used["core_entities"] + bundle.budget_used["normal_entities"] == 16
+    assert (
+        bundle.budget_used["core_entities"] + bundle.budget_used["normal_entities"] == 16
+    )
 
 
 @pytest.mark.asyncio
 async def test_world_entities_loader_without_ids_sorts_by_importance(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_world_entity(
-        db_session, test_project_id, "Normal1", importance=0.3,
+        db_session,
+        test_project_id,
+        "Normal1",
+        importance=0.3,
         importance_level="normal",
     )
     await _create_world_entity(
-        db_session, test_project_id, "Core1", importance=0.9,
+        db_session,
+        test_project_id,
+        "Core1",
+        importance=0.9,
         importance_level="core",
     )
     await _create_world_entity(
-        db_session, test_project_id, "Core2", importance=0.8,
+        db_session,
+        test_project_id,
+        "Core2",
+        importance=0.8,
         importance_level="core",
     )
     loader = WorldEntitiesLoader()
@@ -876,7 +943,9 @@ async def test_world_entities_loader_without_ids_sorts_by_importance(
 
     # Assert — core entities first (by importance), then normal
     assert len(bundle.world_entities) >= 2
-    core_names = {e["name"] for e in bundle.world_entities if e.get("importance_level") == "core"}
+    core_names = {
+        e["name"] for e in bundle.world_entities if e.get("importance_level") == "core"
+    }
     assert "Core1" in core_names
     assert "Core2" in core_names
     assert bundle.budget_used["core_entities"] >= 1
@@ -885,18 +954,23 @@ async def test_world_entities_loader_without_ids_sorts_by_importance(
 
 @pytest.mark.asyncio
 async def test_world_entities_loader_reveal_mode_author_safe_masks_hidden_truth(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_world_entity(
-        db_session, test_project_id, "SecretItem",
+        db_session,
+        test_project_id,
+        "SecretItem",
         importance=0.9,
         importance_level="core",
         hidden_truth="This is a secret",
     )
     loader = WorldEntitiesLoader()
     options = _compile_options(
-        test_project_id, entity_ids=None, reveal_mode="author_safe",
+        test_project_id,
+        entity_ids=None,
+        reveal_mode="author_safe",
     )
     bundle = _bundle(test_project_id)
 
@@ -912,18 +986,23 @@ async def test_world_entities_loader_reveal_mode_author_safe_masks_hidden_truth(
 
 @pytest.mark.asyncio
 async def test_world_entities_loader_author_only_reveals_hidden_truth(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     await _create_world_entity(
-        db_session, test_project_id, "SecretItem",
+        db_session,
+        test_project_id,
+        "SecretItem",
         importance=0.9,
         importance_level="core",
         hidden_truth="This is a secret",
     )
     loader = WorldEntitiesLoader()
     options = _compile_options(
-        test_project_id, entity_ids=None, reveal_mode="author_only",
+        test_project_id,
+        entity_ids=None,
+        reveal_mode="author_only",
     )
     bundle = _bundle(test_project_id)
 
@@ -937,7 +1016,8 @@ async def test_world_entities_loader_author_only_reveals_hidden_truth(
 
 @pytest.mark.asyncio
 async def test_world_entities_loader_empty_returns_empty(
-    db_session: AsyncSession, test_project_id: str,
+    db_session: AsyncSession,
+    test_project_id: str,
 ):
     # Arrange
     loader = WorldEntitiesLoader()

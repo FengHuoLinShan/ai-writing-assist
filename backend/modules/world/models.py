@@ -46,6 +46,7 @@ def _vector_column(dim: int = 768):
 # CoreEntity — 统一核心实体
 # ============================================================
 
+
 class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """统一核心实体 — 所有世界对象的正史记录"""
 
@@ -111,10 +112,7 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     search_text: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment=(
-            "虚拟生成列：name + 别名聚合，"
-            "用于 pg_trgm 模糊搜索（DB 自动维护，ORM 只读）"
-        ),
+        comment="用于 pg_trgm 模糊搜索的文本列（由业务层维护）",
     )
     pinyin_string: Mapped[str | None] = mapped_column(
         String(1024),
@@ -134,21 +132,27 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 
     # 1:1 扩展
     event: Mapped[Event | None] = relationship(
-        "Event", back_populates="core_entity", uselist=False,
+        "Event",
+        back_populates="core_entity",
+        uselist=False,
         foreign_keys="Event.entity_id",
     )
     character: Mapped[Character | None] = relationship(
-        "Character", back_populates="core_entity", uselist=False,
+        "Character",
+        back_populates="core_entity",
+        uselist=False,
         foreign_keys="Character.entity_id",
     )
 
     # 1:N 关系
     source_relations: Mapped[list[EntityRelation]] = relationship(
-        "EntityRelation", back_populates="source",
+        "EntityRelation",
+        back_populates="source",
         foreign_keys="EntityRelation.source_id",
     )
     target_relations: Mapped[list[EntityRelation]] = relationship(
-        "EntityRelation", back_populates="target",
+        "EntityRelation",
+        back_populates="target",
         foreign_keys="EntityRelation.target_id",
     )
 
@@ -161,6 +165,7 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # ============================================================
 # Event — 事件扩展
 # ============================================================
+
 
 class Event(Base, NovelMixin):
     """事件扩展表 — entity_id 为 PK+FK 1:1 绑定 CoreEntity"""
@@ -197,7 +202,8 @@ class Event(Base, NovelMixin):
     )
 
     core_entity: Mapped[CoreEntity] = relationship(
-        "CoreEntity", back_populates="event",
+        "CoreEntity",
+        back_populates="event",
         foreign_keys=[entity_id],
     )
 
@@ -208,6 +214,7 @@ class Event(Base, NovelMixin):
 # ============================================================
 # EntityRelation — 实体关系边
 # ============================================================
+
 
 class EntityRelation(Base, UUIDMixin, TimestampMixin):
     """实体关系边 — UUID FK → core_entities + 章节追溯"""
@@ -274,11 +281,13 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
     )
 
     source: Mapped[CoreEntity] = relationship(
-        "CoreEntity", back_populates="source_relations",
+        "CoreEntity",
+        back_populates="source_relations",
         foreign_keys=[source_id],
     )
     target: Mapped[CoreEntity] = relationship(
-        "CoreEntity", back_populates="target_relations",
+        "CoreEntity",
+        back_populates="target_relations",
         foreign_keys=[target_id],
     )
 
@@ -292,6 +301,7 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
 # ============================================================
 # EntityRevision — 实体快照版本
 # ============================================================
+
 
 class EntityRevision(Base, UUIDMixin):
     """实体快照版本表 — 每次 AI 导入或用户编辑自动打快照"""
@@ -344,6 +354,7 @@ class EntityRevision(Base, UUIDMixin):
 # ============================================================
 # Character — 人物扩展（从 character 模块迁入）
 # ============================================================
+
 
 class Character(Base, TimestampMixin, StatusMixin):
     """人物档案 — entity_id PK+FK → core_entities"""
@@ -452,7 +463,8 @@ class Character(Base, TimestampMixin, StatusMixin):
     )
 
     core_entity: Mapped[CoreEntity] = relationship(
-        "CoreEntity", back_populates="character",
+        "CoreEntity",
+        back_populates="character",
     )
 
     def __repr__(self) -> str:
@@ -473,6 +485,7 @@ EntityAlias = object  # 别名模型已废弃
 # ============================================================
 # CharacterKnowledge — 人物知识边界（从 character 模块迁入）
 # ============================================================
+
 
 class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
     """人物知识边界 — 角色知道什么、不知道什么、误解什么"""
@@ -545,27 +558,40 @@ class TextArchive(Base, UUIDMixin, NovelMixin):
     __table_args__ = {"comment": "文本归档"}
 
     entity_id: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), nullable=True, index=True,
+        PG_UUID(as_uuid=True),
+        nullable=True,
+        index=True,
         comment="关联实体 ID",
     )
     field_name: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="字段名",
+        String(64),
+        nullable=False,
+        comment="字段名",
     )
     text_content: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="变更后的文本内容",
+        Text,
+        nullable=True,
+        comment="变更后的文本内容",
     )
     scene_index: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="变更时的 Scene 索引锚点",
+        Integer,
+        nullable=True,
+        comment="变更时的 Scene 索引锚点",
     )
     source: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="manual_edit",
+        String(32),
+        nullable=False,
+        default="manual_edit",
         comment="来源: manual_edit / ai_extraction / manual_rollback",
     )
     meta: Mapped[dict] = mapped_column(
-        JSON, nullable=True, default=dict,
+        JSON,
+        nullable=True,
+        default=dict,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(),
+        DateTime(timezone=True),
+        server_default=func.now(),
     )
 
     def __repr__(self) -> str:

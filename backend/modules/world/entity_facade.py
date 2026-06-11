@@ -31,7 +31,8 @@ async def list_entities(
 ) -> list[dict[str, Any]]:
     """获取世界对象摘要列表"""
     return await _entity_service.list_entity_summaries(
-        db, novel_id,
+        db,
+        novel_id,
         entity_type=entity_type,
         limit=limit,
     )
@@ -57,7 +58,8 @@ async def get_world_context(
 ) -> WorldContextBundle:
     """获取世界上下文"""
     return await _entity_service.get_entity_context(
-        db, novel_id,
+        db,
+        novel_id,
         entity_ids=entity_ids,
         reveal_mode=reveal_mode,
         limit=limit,
@@ -74,7 +76,8 @@ async def expand_related_entities(
 ) -> list[WorldEntityContext]:
     """扩展关联实体"""
     return await _relation_service.expand_related(
-        db, novel_id,
+        db,
+        novel_id,
         seed_entity_ids=seed_entity_ids,
         depth=depth,
         limit=limit,
@@ -89,13 +92,17 @@ async def find_entity_id_by_name(
 ) -> str | None:
     """按名称查正史实体 ID。"""
     return await _entity_service.find_by_name(
-        db, novel_id, name, entity_type=entity_type,
+        db,
+        novel_id,
+        name,
+        entity_type=entity_type,
     )
 
 
 # ============================================================
 # EntityRelation
 # ============================================================
+
 
 async def upsert_relationship(
     db: AsyncSession,
@@ -109,7 +116,8 @@ async def upsert_relationship(
 ) -> None:
     """兼容旧接口，委托新的 upsert 方法"""
     await _relation_service.upsert(
-        db, novel_id,
+        db,
+        novel_id,
         source_id=source_id,
         target_id=target_id,
         relation_type=relation_type,
@@ -132,6 +140,7 @@ async def create_relation(
     data: dict,
 ) -> EntityRelationResponse:
     from modules.world.schemas import EntityRelationCreate
+
     rel_data = EntityRelationCreate(**data)
     return await _relation_service.create(db, novel_id, rel_data)
 
@@ -145,14 +154,19 @@ async def upsert_relation(
     description: str | None = None,
 ) -> EntityRelationResponse:
     return await _relation_service.upsert(
-        db, novel_id, source_id, target_id,
-        relation_type, description=description,
+        db,
+        novel_id,
+        source_id,
+        target_id,
+        relation_type,
+        description=description,
     )
 
 
 # ============================================================
 # Dedup
 # ============================================================
+
 
 async def find_similar_entities(
     db: AsyncSession,
@@ -163,7 +177,11 @@ async def find_similar_entities(
     query_embedding: list[float] | None = None,
 ) -> list:
     return await _dedup_service.find_similar_entities(
-        db, novel_id, name, aliases=aliases, entity_type=entity_type,
+        db,
+        novel_id,
+        name,
+        aliases=aliases,
+        entity_type=entity_type,
         query_embedding=query_embedding,
     )
 
@@ -175,8 +193,45 @@ async def merge_candidate_into_entity(
     target_entity_id: str,
 ) -> Any:  # MergeResult
     return await _dedup_service.merge_candidate_into_entity(
-        db, novel_id, candidate_id, target_entity_id,
+        db,
+        novel_id,
+        candidate_id,
+        target_entity_id,
     )
+
+
+async def create_entity(
+    db: AsyncSession,
+    novel_id: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """创建单个 CoreEntity，返回 dict。"""
+    from modules.world.schemas import CoreEntityCreate
+
+    entity_data = CoreEntityCreate(**data)
+    result = await _entity_service.create(db, novel_id, entity_data)
+    return result.model_dump()
+
+
+async def count_entities(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    status_filter: list[str] | None = None,
+) -> int:
+    """统计 novel 的 CoreEntity 数量。"""
+    from sqlalchemy import func, select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    conditions = [CoreEntity.novel_id == nid]
+    if status_filter:
+        conditions.append(CoreEntity.status.in_(status_filter))
+    stmt = select(func.count(CoreEntity.id)).where(*conditions)
+    result = await db.execute(stmt)
+    return result.scalar() or 0
 
 
 async def backfill_entity_embeddings(
@@ -187,5 +242,7 @@ async def backfill_entity_embeddings(
 ) -> int:
     """回填 novel 中缺少 embedding 的实体向量。返回回填数量。"""
     return await _entity_service.backfill_embeddings(
-        db, novel_id, batch_size=batch_size,
+        db,
+        novel_id,
+        batch_size=batch_size,
     )

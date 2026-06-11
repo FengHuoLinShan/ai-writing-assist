@@ -21,7 +21,6 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Final
 
 # 尝试加载 .env 文件（dev 环境）
 _env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -46,50 +45,70 @@ class Settings:
     """应用全局配置，不可变对象，通过 get_settings() 获取"""
 
     # --- 数据库 ---
-    database_url: str = field(default_factory=lambda: _env(
-        "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/novel_engine",
-    ))
+    database_url: str = field(
+        default_factory=lambda: _env(
+            "DATABASE_URL",
+            "postgresql+asyncpg://postgres:postgres@localhost:5432/novel_engine",
+        )
+    )
     pool_size: int = int(_env("POOL_SIZE", "10"))
     max_overflow: int = int(_env("MAX_OVERFLOW", "20"))
     echo_sql: bool = _env("ECHO_SQL", "false").lower() == "true"
 
     # --- LLM ---
     llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY", ""))
-    llm_base_url: str = field(default_factory=lambda: _env(
-        "LLM_BASE_URL", "https://api.openai.com/v1",
-    ))
+    llm_base_url: str = field(
+        default_factory=lambda: _env(
+            "LLM_BASE_URL",
+            "https://api.openai.com/v1",
+        )
+    )
     llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", "gpt-4o"))
     llm_max_tokens: int = int(_env("LLM_MAX_TOKENS", "4096"))
     llm_timeout: int = int(_env("LLM_TIMEOUT", "60"))
 
     # --- Embedding ---
     embedding_dim: int = int(_env("EMBEDDING_DIM", "768"))
-    embedding_model: str = field(default_factory=lambda: _env(
-        "EMBEDDING_MODEL", "bge-base-zh-v1.5",
-    ))
-    embedding_provider: str = field(default_factory=lambda: _env(
-        "EMBEDDING_PROVIDER", "bge_onnx",
-    ))
-    embedding_base_url: str = field(default_factory=lambda: _env("EMBEDDING_BASE_URL", ""))
+    embedding_model: str = field(
+        default_factory=lambda: _env(
+            "EMBEDDING_MODEL",
+            "bge-base-zh-v1.5",
+        )
+    )
+    embedding_provider: str = field(
+        default_factory=lambda: _env(
+            "EMBEDDING_PROVIDER",
+            "bge_onnx",
+        )
+    )
+    embedding_base_url: str = field(
+        default_factory=lambda: _env("EMBEDDING_BASE_URL", "")
+    )
     embedding_api_key: str = field(default_factory=lambda: _env("EMBEDDING_API_KEY", ""))
 
     # --- BGE / ONNX Inference ---
-    bge_onnx_model_path: str = field(default_factory=lambda: _env(
-        "BGE_ONNX_MODEL_PATH", "BAAI/bge-base-zh-v1.5",
-    ))
+    bge_onnx_model_path: str = field(
+        default_factory=lambda: _env(
+            "BGE_ONNX_MODEL_PATH",
+            "BAAI/bge-base-zh-v1.5",
+        )
+    )
     bge_onnx_device: str = field(default_factory=lambda: _env("BGE_ONNX_DEVICE", "cpu"))
-    bge_onnx_quantization: str = field(default_factory=lambda: _env(
-        "BGE_ONNX_QUANTIZATION", "int8",
-    ))
+    bge_onnx_quantization: str = field(
+        default_factory=lambda: _env(
+            "BGE_ONNX_QUANTIZATION",
+            "int8",
+        )
+    )
     inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "30.0"))
     inference_worker_max_batch: int = int(_env("INFERENCE_WORKER_MAX_BATCH", "64"))
 
     # --- CORS ---
-    allowed_origins: list[str] = field(default_factory=lambda: [
-        o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",")
-        if o.strip()
-    ])
+    allowed_origins: list[str] = field(
+        default_factory=lambda: [
+            o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+        ]
+    )
 
     # --- 重排序 ---
     reranker_enabled: bool = _env("RERANKER_ENABLED", "false").lower() == "true"
@@ -101,15 +120,21 @@ class Settings:
     log_level: str = field(default_factory=lambda: _env("LOG_LEVEL", "INFO"))
 
     # --- pgvector ---
-    vector_index_type: str = field(default_factory=lambda: _env(
-        "VECTOR_INDEX_TYPE", "hnsw",
-    ))
-    vector_distance: str = field(default_factory=lambda: _env(
-        "VECTOR_DISTANCE", "vector_cosine_ops",
-    ))
+    vector_index_type: str = field(
+        default_factory=lambda: _env(
+            "VECTOR_INDEX_TYPE",
+            "hnsw",
+        )
+    )
+    vector_distance: str = field(
+        default_factory=lambda: _env(
+            "VECTOR_DISTANCE",
+            "vector_cosine_ops",
+        )
+    )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """获取全局配置单例（缓存避免重复创建）"""
     return Settings()  # noqa: F821

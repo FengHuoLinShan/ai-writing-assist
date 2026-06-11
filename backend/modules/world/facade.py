@@ -16,6 +16,7 @@ from modules.world.character_facade import (  # noqa: F401
     find_character_id_by_name,
     get_character_id_by_world_entity,
     get_character_knowledge_context,
+    get_character_knowledge_entries,
     get_character_location_id,
     get_characters_at_location,
     get_characters_context,
@@ -24,6 +25,8 @@ from modules.world.character_facade import (  # noqa: F401
 )
 from modules.world.entity_facade import (  # noqa: F401
     backfill_entity_embeddings,
+    count_entities,
+    create_entity,
     create_relation,
     expand_related_entities,
     find_entity_id_by_name,

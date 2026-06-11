@@ -72,18 +72,12 @@ class CompiledContext(BaseModel):
         current = sum(s.token_count for s in sections)
         if current > self.budget_tokens:
             fixed_cost = sum(
-                s.token_count
-                for s in sections
-                if s.tier in (Tier.P0, Tier.P1)
+                s.token_count for s in sections if s.tier in (Tier.P0, Tier.P1)
             )
             budget_for_p2 = max(0, self.budget_tokens - fixed_cost)
             new_sections: list[ContextSection] = []
             for s in sections:
-                if (
-                    s.tier == Tier.P2
-                    and s.truncatable_per_item
-                    and budget_for_p2 > 0
-                ):
+                if s.tier == Tier.P2 and s.truncatable_per_item and budget_for_p2 > 0:
                     items = s.content.split("\n")
                     kept: list[str] = []
                     used = 0

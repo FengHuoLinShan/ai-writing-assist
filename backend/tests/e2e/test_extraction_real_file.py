@@ -17,9 +17,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
-from shared.protocols import DraftProvider
 from modules.world.services.extraction_service import EntityExtractionService
 from modules.writing.facade import get_latest_draft_for_chapter
+from shared.protocols import DraftProvider
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
@@ -31,6 +31,7 @@ FIRST_10 = 10
 # DirectDraftProvider: 直读 writing_drafts（无 RAG 索引）
 # ============================================================
 
+
 class DirectDraftProvider(DraftProvider):
     """从 writing_drafts 直读章节正文。
 
@@ -39,23 +40,30 @@ class DirectDraftProvider(DraftProvider):
     """
 
     async def load_chapters(
-        self, db: AsyncSession, novel_id: str, start_chapter: int, end_chapter: int,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
     ) -> list[dict]:
         chapters: list[dict] = []
         for idx in range(start_chapter, end_chapter + 1):
             draft = await get_latest_draft_for_chapter(db, novel_id, idx)
             if draft and draft.content:
-                chapters.append({
-                    "chapter_index": idx,
-                    "title": draft.title or f"第{idx}章",
-                    "content": draft.content,
-                })
+                chapters.append(
+                    {
+                        "chapter_index": idx,
+                        "title": draft.title or f"第{idx}章",
+                        "content": draft.content,
+                    }
+                )
         return chapters
 
 
 # ============================================================
 # Cycle 1: 导入前10章（通过 API）
 # ============================================================
+
 
 class TestImportFirst10Chapters:
     """Tracer Bullet: 通过 API 导入前10章"""
@@ -98,11 +106,14 @@ class TestImportFirst10Chapters:
         # Assert (implicit via fixture return)
         return {"project_id": project_id}
 
-    async def test_import_first_10_chapters_creates_drafts_in_order(self, ctx: dict, db_session: AsyncSession):
+    async def test_import_first_10_chapters_creates_drafts_in_order(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """验证前10章正确导入到 writing_drafts"""
         # Arrange
-        from modules.writing.models import WritingDraft
         from sqlalchemy import select
+
+        from modules.writing.models import WritingDraft
 
         # Act
         result = await db_session.execute(
@@ -118,7 +129,9 @@ class TestImportFirst10Chapters:
             assert draft.chapter_index == i + 1
             assert draft.content and len(draft.content) > 500
 
-    async def test_import_first_10_chapters_drafts_readable_by_facade(self, ctx: dict, db_session: AsyncSession):
+    async def test_import_first_10_chapters_drafts_readable_by_facade(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """每章草稿可通过 get_latest_draft_for_chapter 读取"""
         # Arrange
         # (project_id already in ctx)
@@ -126,7 +139,9 @@ class TestImportFirst10Chapters:
         # Act & Assert
         for idx in range(1, FIRST_10 + 1):
             draft = await get_latest_draft_for_chapter(
-                db_session, ctx["project_id"], idx,
+                db_session,
+                ctx["project_id"],
+                idx,
             )
             assert draft is not None, f"第 {idx} 章草稿不可读"
             assert draft.content
@@ -135,6 +150,7 @@ class TestImportFirst10Chapters:
 # ============================================================
 # Cycle 2: 真实 LLM 实体抽取
 # ============================================================
+
 
 class TestRealEntityExtraction:
     """用真实 DeepSeek LLM 从前10章抽取世界对象候选"""
@@ -176,7 +192,9 @@ class TestRealEntityExtraction:
         # Assert (implicit)
         return {"project_id": project_id}
 
-    async def test_extraction_real_llm_creates_core_entity_candidates(self, ctx: dict, db_session: AsyncSession):
+    async def test_extraction_real_llm_creates_core_entity_candidates(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """LLM 抽取应创建世界对象候选（至少2个：主角克莱恩、廷根市等）"""
         # Arrange
         project_id = ctx["project_id"]
@@ -207,15 +225,17 @@ class TestRealEntityExtraction:
 
         all_text = " ".join(created_names)
         has_core_entity = (
-            "克莱恩" in all_text or "主角" in all_text or
-            "周明瑞" in all_text or "值夜者" in all_text or
-            "廷根" in all_text
+            "克莱恩" in all_text
+            or "主角" in all_text
+            or "周明瑞" in all_text
+            or "值夜者" in all_text
+            or "廷根" in all_text
         )
-        assert has_core_entity, (
-            f"未识别出核心世界对象。结果: {created_names}"
-        )
+        assert has_core_entity, f"未识别出核心世界对象。结果: {created_names}"
 
-    async def test_extraction_real_llm_persists_candidates_in_db(self, ctx: dict, db_session: AsyncSession):
+    async def test_extraction_real_llm_persists_candidates_in_db(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """抽取的候选应持久化到 core_entities 表"""
         # Arrange
         project_id = ctx["project_id"]
@@ -225,10 +245,14 @@ class TestRealEntityExtraction:
 
         # Act
         await extraction_service.extract_entities_from_chapters(
-            db_session, novel_id=project_id,
-            start_chapter=1, end_chapter=FIRST_10, batch_size=5,
+            db_session,
+            novel_id=project_id,
+            start_chapter=1,
+            end_chapter=FIRST_10,
+            batch_size=5,
         )
         from modules.world.repositories import CoreEntityRepository
+
         repo = CoreEntityRepository()
         nid = uuid.UUID(hex=project_id)
         entities, total = await repo.get_by_novel(db_session, nid, limit=100)
@@ -241,7 +265,9 @@ class TestRealEntityExtraction:
             print(f"  [{e.entity_type}] {e.name} (status={e.status})")
         assert len(names) >= 2
 
-    async def test_extraction_empty_chapters_raises_exception(self, db_session: AsyncSession, async_client: AsyncClient):
+    async def test_extraction_empty_chapters_raises_exception(
+        self, db_session: AsyncSession, async_client: AsyncClient
+    ):
         """无章节内容时抽取应报 400"""
         # Arrange
         proj_resp = await async_client.post(
@@ -256,11 +282,16 @@ class TestRealEntityExtraction:
         # Act & Assert
         with pytest.raises(Exception, match="未找到章节|400"):
             await extraction_service.extract_entities_from_chapters(
-                db_session, novel_id=project_id,
-                start_chapter=1, end_chapter=10, batch_size=5,
+                db_session,
+                novel_id=project_id,
+                start_chapter=1,
+                end_chapter=10,
+                batch_size=5,
             )
 
-    async def test_extraction_real_llm_idempotent_skips_duplicates(self, ctx: dict, db_session: AsyncSession):
+    async def test_extraction_real_llm_idempotent_skips_duplicates(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """同一批章节抽取两次不应重复创建相同候选"""
         # Arrange
         project_id = ctx["project_id"]
@@ -268,16 +299,22 @@ class TestRealEntityExtraction:
 
         # Act
         result1 = await service.extract_entities_from_chapters(
-            db_session, novel_id=project_id,
-            start_chapter=1, end_chapter=5, batch_size=5,
+            db_session,
+            novel_id=project_id,
+            start_chapter=1,
+            end_chapter=5,
+            batch_size=5,
         )
         result2 = await service.extract_entities_from_chapters(
-            db_session, novel_id=project_id,
-            start_chapter=1, end_chapter=5, batch_size=5,
+            db_session,
+            novel_id=project_id,
+            start_chapter=1,
+            end_chapter=5,
+            batch_size=5,
         )
 
         # Assert
-        print(f"\n=== 幂等性验证 ===")
+        print("\n=== 幂等性验证 ===")
         print(f"第一次: 创建 {result1.total_created}, 跳过 {result1.total_skipped}")
         print(f"第二次: 创建 {result2.total_created}, 跳过 {result2.total_skipped}")
         assert result2.total_created <= result1.total_created + 1
@@ -286,6 +323,7 @@ class TestRealEntityExtraction:
 # ============================================================
 # Cycle 4: Tracer Bullet — 真实文件 → RAG 索引 → Context 编译
 # ============================================================
+
 
 class TestRealFileRagContextPipeline:
     """Tracer Bullet: 真实文件导入 → RAG 索引 → Context 编译全链路
@@ -302,8 +340,11 @@ class TestRealFileRagContextPipeline:
             "/api/projects",
             json={
                 "title": "诡秘之主 RAG+Context 测试",
-                "genre": "西方奇幻", "tone": "维多利亚风格、黑暗",
-                "language": "zh", "target_length": "novel", "current_stage": "writing",
+                "genre": "西方奇幻",
+                "tone": "维多利亚风格、黑暗",
+                "language": "zh",
+                "target_length": "novel",
+                "current_stage": "writing",
             },
         )
         assert proj_resp.status_code == 201, f"创建项目失败: {proj_resp.text}"
@@ -326,31 +367,43 @@ class TestRealFileRagContextPipeline:
             )
         await db_session.flush()
 
-        from modules.rag.facade import index_chapter, get_index_status
+        from modules.rag.facade import get_index_status, index_chapter
 
         for idx in range(1, 4):
             chunk_count = await index_chapter(db_session, project_id, idx)
-            assert chunk_count > 0, f"第{idx}章 index_chapter 应产生 chunk，实际: {chunk_count}"
+            assert chunk_count > 0, (
+                f"第{idx}章 index_chapter 应产生 chunk，实际: {chunk_count}"
+            )
 
         await db_session.flush()
 
         status = await get_index_status(db_session, project_id)
-        assert status["total"] >= 3, f"RAG 索引应有至少 3 个 chunk，实际: {status['total']}"
+        assert status["total"] >= 3, (
+            f"RAG 索引应有至少 3 个 chunk，实际: {status['total']}"
+        )
 
         # Assert (implicit via fixture return)
         return {"project_id": project_id}
 
-    async def test_rag_index_creates_ordered_chunks_per_chapter(self, ctx: dict, db_session: AsyncSession):
+    async def test_rag_index_creates_ordered_chunks_per_chapter(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """RAG 索引后可通过 get_ordered_chapter_chunks 读取"""
         # Arrange
         from modules.rag.facade import get_ordered_chapter_chunks
 
         # Act
         ch1_chunks = await get_ordered_chapter_chunks(
-            db_session, ctx["project_id"], 1, 1,
+            db_session,
+            ctx["project_id"],
+            1,
+            1,
         )
         ch2_chunks = await get_ordered_chapter_chunks(
-            db_session, ctx["project_id"], 2, 2,
+            db_session,
+            ctx["project_id"],
+            2,
+            2,
         )
 
         # Assert
@@ -360,15 +413,21 @@ class TestRealFileRagContextPipeline:
         assert len(ch2_chunks) >= 1
         assert ch2_chunks[0].chapter_index == 2
 
-    async def test_rag_writing_draft_provider_loads_chunks_with_content(self, ctx: dict, db_session: AsyncSession):
+    async def test_rag_writing_draft_provider_loads_chunks_with_content(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """WritingDraftProvider 能从 RAG chunks 加载章节正文"""
         # Arrange
         from modules.world.services.draft_provider import WritingDraftProvider
+
         provider = WritingDraftProvider()
 
         # Act
         chapters = await provider.load_chapters(
-            db_session, ctx["project_id"], 1, 3,
+            db_session,
+            ctx["project_id"],
+            1,
+            3,
         )
 
         # Assert
@@ -378,7 +437,9 @@ class TestRealFileRagContextPipeline:
             assert "content" in ch
             assert "[RAG chunk" in ch["content"] or len(ch["content"]) > 500
 
-    async def test_context_compile_world_scope_returns_project_bundle(self, ctx: dict, db_session: AsyncSession):
+    async def test_context_compile_world_scope_returns_project_bundle(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """Context Compiler scope=world 应包含项目信息"""
         # Arrange
         from modules.context.facade import compile_structure_context
@@ -398,14 +459,17 @@ class TestRealFileRagContextPipeline:
         assert "title" in bundle.project
         assert bundle.scope == "world"
 
-    async def test_rag_retrieve_by_query_returns_matching_chunks(self, ctx: dict, db_session: AsyncSession):
+    async def test_rag_retrieve_by_query_returns_matching_chunks(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """RAG retrieve 通过 facade 直接调用应返回结果"""
         # Arrange
         from modules.rag.facade import retrieve
 
         # Act
         result = await retrieve(
-            db_session, ctx["project_id"],
+            db_session,
+            ctx["project_id"],
             query="周明瑞",
             chapter_index=2,
             top_k=5,
@@ -416,10 +480,15 @@ class TestRealFileRagContextPipeline:
         assert len(result.chunks) > 0
         assert result.chunks[0].chapter_index == 2
 
-    async def test_context_render_world_scope_produces_markdown(self, ctx: dict, db_session: AsyncSession):
+    async def test_context_render_world_scope_produces_markdown(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """Context Render scope=world 应产生有意义的 Markdown"""
         # Arrange
-        from modules.context.facade import compile_structure_context, render_context_markdown
+        from modules.context.facade import (
+            compile_structure_context,
+            render_context_markdown,
+        )
 
         # Act
         bundle = await compile_structure_context(
@@ -435,10 +504,15 @@ class TestRealFileRagContextPipeline:
         assert len(markdown) > 100, f"Markdown 太短: {len(markdown)}"
         assert "诡秘" in markdown or "Test" in ctx["project_id"]
 
-    async def test_context_render_chapter_scope_produces_markdown(self, ctx: dict, db_session: AsyncSession):
+    async def test_context_render_chapter_scope_produces_markdown(
+        self, ctx: dict, db_session: AsyncSession
+    ):
         """Context Render scope=chapter 应产生有意义的 Markdown"""
         # Arrange
-        from modules.context.facade import compile_structure_context, render_context_markdown
+        from modules.context.facade import (
+            compile_structure_context,
+            render_context_markdown,
+        )
 
         # Act
         bundle = await compile_structure_context(
@@ -459,11 +533,14 @@ class TestRealFileRagContextPipeline:
 # Cycle 3: DeepImportWorkflow Step 1
 # ============================================================
 
+
 class TestRealWorkflowStep1:
     """DeepImportWorkflow 使用真实数据执行 Step 1"""
 
     async def test_workflow_step1_real_data_completes_extraction_phase(
-        self, db_session: AsyncSession, async_client: AsyncClient,
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
     ):
         """Workflow 从 pending → awaiting_review"""
         # Arrange
@@ -471,8 +548,11 @@ class TestRealWorkflowStep1:
             "/api/projects",
             json={
                 "title": "诡秘之主 Workflow 测试",
-                "genre": "西方奇幻", "tone": "维多利亚风格、黑暗",
-                "language": "zh", "target_length": "novel", "current_stage": "writing",
+                "genre": "西方奇幻",
+                "tone": "维多利亚风格、黑暗",
+                "language": "zh",
+                "target_length": "novel",
+                "current_stage": "writing",
             },
         )
         project_id = proj_resp.json()["id"]
@@ -480,6 +560,7 @@ class TestRealWorkflowStep1:
         file_bytes = open(REAL_FILE_PATH, "rb").read()
         all_chapters = parse_txt(file_bytes)
         from modules.writing.facade import create_draft
+
         for idx, ch in enumerate(all_chapters[:3]):
             await create_draft(
                 db_session,
@@ -498,7 +579,8 @@ class TestRealWorkflowStep1:
         async def _extract_with_direct(db, novel_id, start_chapter, end_chapter):
             svc = EntityExtractionService(draft_provider=DirectDraftProvider())
             result = await svc.extract_entities_from_chapters(
-                db, novel_id=novel_id,
+                db,
+                novel_id=novel_id,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
                 batch_size=5,

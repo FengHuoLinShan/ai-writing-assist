@@ -1,19 +1,22 @@
-"""SceneSegmentationService — Phase 1: 章节正文 → Scene 切分"""
+"""
+SceneSegmentationService — Phase 1: 章节正文 → Scene 切分
+
+注意: 本模块通过 outline.facade 操作 Scene, 不直接 import outline.models。
+"""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import Scene
-from shared.utils import parse_uuid, parse_llm_json
+from shared.utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 3
+BATCH_SIZE = 5
 OVERLAP = 1
 MAX_LLM_RETRIES = 3
 
@@ -27,9 +30,10 @@ class SceneSegmentationService:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        on_batch_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """切分章节范围 → Scene，写入 scenes 表"""
-        nid = parse_uuid(novel_id, "novel_id")
+        from modules.outline.facade import create_scene, get_next_scene_index
 
         chapters = await self._load_chapters(db, novel_id, start_chapter, end_chapter)
         if not chapters:
@@ -45,17 +49,20 @@ class SceneSegmentationService:
             OVERLAP,
         )
 
-        next_scene_index = await self._get_next_scene_index(db, nid)
+        next_scene_index = await get_next_scene_index(db, novel_id)
         added_count = 0
         failed_batches: list[int] = []
         degraded = False
+
+        if on_batch_progress is not None:
+            await on_batch_progress(0, total_batches)
 
         for batch_idx, batch in enumerate(batches):
             try:
                 batch_scenes = await self._process_batch(db, batch, batch_idx)
                 for s in batch_scenes:
-                    scene = self._build_scene(db, nid, s, next_scene_index, batch)
-                    db.add(scene)
+                    scene_data = self._build_scene_data(s, next_scene_index, batch)
+                    await create_scene(db, novel_id, scene_data)
                     next_scene_index += 1
                     added_count += 1
             except Exception as exc:
@@ -68,8 +75,10 @@ class SceneSegmentationService:
                         batch_idx,
                     )
                     for s in fallback_scenes:
-                        scene = self._build_scene(db, nid, s, next_scene_index, batch)
-                        db.add(scene)
+                        scene_data = self._build_scene_data(
+                            s, next_scene_index, batch
+                        )
+                        await create_scene(db, novel_id, scene_data)
                         next_scene_index += 1
                         added_count += 1
                 except Exception as fb_exc:
@@ -80,22 +89,22 @@ class SceneSegmentationService:
                     )
                     failed_batches.append(batch_idx)
                     for ch in batch:
-                        scene = Scene(
-                            novel_id=nid,
-                            scene_index=next_scene_index,
-                            title=ch.get("title") or f"第{ch['chapter_index']}章",
-                            narrative_tag="draft",
-                            source="deep_import",
-                            scene_chunks=[
+                        mech_data = {
+                            "scene_index": next_scene_index,
+                            "title": ch.get("title")
+                            or f"第{ch['chapter_index']}章",
+                            "narrative_tag": "draft",
+                            "source": "deep_import",
+                            "scene_chunks": [
                                 {
                                     "chapter_index": ch["chapter_index"],
                                     "start_paragraph": 0,
                                 }
                             ],
-                            chapter_ids=[str(ch["chapter_index"])],
-                            status="draft",
-                        )
-                        db.add(scene)
+                            "chapter_ids": [str(ch["chapter_index"])],
+                            "status": "draft",
+                        }
+                        await create_scene(db, novel_id, mech_data)
                         next_scene_index += 1
                         added_count += 1
                     logger.info(
@@ -104,7 +113,9 @@ class SceneSegmentationService:
                         len(batch),
                     )
 
-        await db.flush()
+            if on_batch_progress is not None:
+                await on_batch_progress(batch_idx + 1, total_batches)
+
         return {
             "total_scenes": added_count,
             "failed_batches": failed_batches,
@@ -147,22 +158,17 @@ class SceneSegmentationService:
         return batches
 
     async def _get_next_scene_index(self, db: AsyncSession, nid) -> int:
-        stmt = select(func.coalesce(func.max(Scene.scene_index), -1)).where(
-            Scene.novel_id == nid,
-        )
-        result = await db.execute(stmt)
-        max_idx = result.scalar() or -1
-        return max_idx + 1
+        from modules.outline.facade import get_next_scene_index
 
-    def _build_scene(
-        self,
-        db: AsyncSession,
-        nid,
+        return await get_next_scene_index(db, str(nid))
+
+    @staticmethod
+    def _build_scene_data(
         scene_data: dict,
         scene_index: int,
         batch: list[dict],
-    ) -> Scene:
-        """将 LLM 输出的 scene 数据构建为 Scene ORM 对象"""
+    ) -> dict[str, Any]:
+        """将 LLM 输出的 scene 数据构建为 Scene 创建参数字典"""
         scene_chunks = scene_data.get("scene_chunks", [])
         chapter_ids: list[str] = []
         for chunk in scene_chunks:
@@ -170,25 +176,23 @@ class SceneSegmentationService:
             if ch_idx is not None:
                 chapter_ids.append(str(ch_idx))
 
-        # If no chapter_ids from chunks, derive from batch
         if not chapter_ids:
             first_ch = batch[0] if batch else {}
             if first_ch:
                 chapter_ids.append(str(first_ch.get("chapter_index", "")))
 
-        return Scene(
-            novel_id=nid,
-            scene_index=scene_index,
-            title=scene_data.get("title"),
-            goal=scene_data.get("goal"),
-            core_conflict=scene_data.get("core_conflict"),
-            emotional_beat=scene_data.get("emotional_beat"),
-            narrative_tag=scene_data.get("narrative_tag", "draft"),
-            source="deep_import",
-            scene_chunks=scene_chunks,
-            chapter_ids=chapter_ids,
-            status="draft",
-        )
+        return {
+            "scene_index": scene_index,
+            "title": scene_data.get("title"),
+            "goal": scene_data.get("goal"),
+            "core_conflict": scene_data.get("core_conflict"),
+            "emotional_beat": scene_data.get("emotional_beat"),
+            "narrative_tag": scene_data.get("narrative_tag", "draft"),
+            "source": "deep_import",
+            "scene_chunks": scene_chunks,
+            "chapter_ids": chapter_ids,
+            "status": "draft",
+        }
 
     async def _process_batch(
         self,
@@ -274,7 +278,10 @@ class SceneSegmentationService:
             for attempt in range(MAX_LLM_RETRIES):
                 try:
                     raw = await llm_client.generate(request)
-                    parsed = parse_llm_json(raw.content, f"Single-ch {ch['chapter_index']}")
+                    parsed = parse_llm_json(
+                        raw.content,
+                        f"Single-ch {ch['chapter_index']}",
+                    )
                     scenes = parsed.get("scenes", [])
                     if scenes:
                         all_scenes.extend(scenes)

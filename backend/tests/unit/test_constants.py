@@ -5,16 +5,13 @@ shared/constants.py 单元测试
 """
 
 from shared.constants import (
+    API_PREFIX,
     APP_NAME,
     APP_VERSION,
-    API_PREFIX,
     CONTEXT_BUDGET_DEFAULTS,
     DEDUP_AUTO_MERGE_THRESHOLD,
     DEDUP_CONFLICT_FIELDS,
     DEDUP_DISCARD_THRESHOLD,
-    DEDUP_FUSION_TOP_K,
-    DEDUP_MIN_FINAL_SCORE,
-    DEDUP_PGTRGM_MIN_SIMILARITY,
     DEDUP_REVIEW_THRESHOLD,
     DEFAULT_EMBEDDING_DIM,
     DEFAULT_LLM_MAX_TOKENS,
@@ -36,7 +33,6 @@ from shared.constants import (
     SIMILARITY_MEDIUM_CONFIDENCE,
     TASK_HEARTBEAT_INTERVAL,
     TASK_MAX_HEARTBEAT_GAP,
-    TASK_POLL_INTERVAL,
     VECTOR_INDEX_EF_CONSTRUCTION,
     VECTOR_INDEX_LISTS,
     VECTOR_INDEX_M,
@@ -63,11 +59,14 @@ class TestSimilarity:
     def test_thresholds_ordering(self):
         assert SIMILARITY_HIGH_CONFIDENCE > SIMILARITY_MEDIUM_CONFIDENCE
         assert SIMILARITY_MEDIUM_CONFIDENCE > SIMILARITY_LOW_CONFIDENCE
-        assert all(0 < t < 1 for t in (
-            SIMILARITY_HIGH_CONFIDENCE,
-            SIMILARITY_MEDIUM_CONFIDENCE,
-            SIMILARITY_LOW_CONFIDENCE,
-        ))
+        assert all(
+            0 < t < 1
+            for t in (
+                SIMILARITY_HIGH_CONFIDENCE,
+                SIMILARITY_MEDIUM_CONFIDENCE,
+                SIMILARITY_LOW_CONFIDENCE,
+            )
+        )
 
     def test_high_confidence_value(self):
         assert SIMILARITY_HIGH_CONFIDENCE == 0.88
@@ -92,9 +91,15 @@ class TestRagWeights:
 class TestContextBudget:
     def test_all_keys_present(self):
         expected = {
-            "core_entities", "normal_entities", "characters",
-            "memories", "foreshadowings", "timeline_events",
-            "geo_relationships", "relation_edges", "rag_chunks",
+            "core_entities",
+            "normal_entities",
+            "characters",
+            "memories",
+            "foreshadowings",
+            "timeline_events",
+            "geo_relationships",
+            "relation_edges",
+            "rag_chunks",
         }
         assert set(CONTEXT_BUDGET_DEFAULTS.keys()) == expected
 
@@ -137,7 +142,10 @@ class TestTasks:
 
 class TestExtraction:
     def test_strict_higher_than_normal(self):
-        assert ENTITY_EXTRACTION_MIN_IMPORTANCE_STRICT > ENTITY_EXTRACTION_MIN_IMPORTANCE_NORMAL
+        assert (
+            ENTITY_EXTRACTION_MIN_IMPORTANCE_STRICT
+            > ENTITY_EXTRACTION_MIN_IMPORTANCE_NORMAL
+        )
 
     def test_values_in_range(self):
         assert 0 < ENTITY_EXTRACTION_MIN_IMPORTANCE_STRICT < 1

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+
 from core.config import get_settings
 from infrastructure.embedding.cache import EmbeddingCache
 from infrastructure.embedding.worker import BgeOnnxWorker
@@ -26,12 +27,10 @@ class EmbeddingProvider(ABC):
         text: str | list[str],
         *,
         is_query: bool = False,
-    ) -> list[float] | list[list[float]]:
-        ...
+    ) -> list[float] | list[list[float]]: ...
 
     @abstractmethod
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 class BgeEmbeddingClient(EmbeddingProvider):
@@ -41,7 +40,7 @@ class BgeEmbeddingClient(EmbeddingProvider):
     单例模式：整个应用共享一个 worker 进程。
     """
 
-    _instance: "BgeEmbeddingClient | None" = None
+    _instance: BgeEmbeddingClient | None = None
     _lock = asyncio.Lock()
 
     def __init__(self) -> None:
@@ -57,7 +56,7 @@ class BgeEmbeddingClient(EmbeddingProvider):
         self._started = False
 
     @classmethod
-    async def get_instance(cls) -> "BgeEmbeddingClient":
+    async def get_instance(cls) -> BgeEmbeddingClient:
         if cls._instance is not None and cls._instance._started:
             return cls._instance
         async with cls._lock:
@@ -132,7 +131,9 @@ class BgeEmbeddingClient(EmbeddingProvider):
 
             for idx, emb in zip(uncached_indices, embeddings):
                 results[idx] = emb
-                self._cache.set(uncached_texts[uncached_indices.index(idx)], emb, is_query=is_query)
+                self._cache.set(
+                    uncached_texts[uncached_indices.index(idx)], emb, is_query=is_query
+                )
 
         if is_single:
             return results[0]

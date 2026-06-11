@@ -8,8 +8,8 @@ ADR-0002: 4 typevar 表达类型差异, 4 ClassVar 注入实现, 不上 port。
 """
 
 from core.crud import (  # noqa: F401
-    CrudService,
     CreateT,
+    CrudService,
     ModelT,
     ResponseT,
     UpdateT,

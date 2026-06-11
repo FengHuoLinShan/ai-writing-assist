@@ -28,7 +28,9 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 class CharacterKnowledgeService(
     CrudService[
-        CharacterKnowledge, CharacterKnowledgeCreate, CharacterKnowledgeUpdate,
+        CharacterKnowledge,
+        CharacterKnowledgeCreate,
+        CharacterKnowledgeUpdate,
         CharacterKnowledgeResponse,
     ],
 ):
@@ -81,7 +83,11 @@ class CharacterKnowledgeService(
         cid = parse_uuid(character_id, "character_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self.repo.get_by_character(
-            db, nid, cid, skip=skip, limit=limit,
+            db,
+            nid,
+            cid,
+            skip=skip,
+            limit=limit,
         )
         return CharacterKnowledgeListResponse(
             items=[CharacterKnowledgeResponse.model_validate(k) for k in items],

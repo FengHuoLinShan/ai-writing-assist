@@ -4,7 +4,7 @@ Project API Router
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.project.schemas import (
@@ -80,6 +80,7 @@ async def api_delete_project(
 ) -> None:
     """软删除项目（移至回收站）"""
     await _service.delete_project(db, project_id)
+
 
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
 async def api_restore_project(

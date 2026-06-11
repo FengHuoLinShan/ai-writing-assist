@@ -26,12 +26,12 @@ from modules.context.facade import (
     render_context_markdown,
 )
 from modules.context.markdown_renderer import render_context_markdown as render_md
-from modules.context.services import CompileOptions, ContextCompiler
-
+from modules.context.services import CompileOptions
 
 # ============================================================
 # 基本导入测试
 # ============================================================
+
 
 class TestImports:
     """验证模块可正常导入"""
@@ -39,9 +39,9 @@ class TestImports:
     def test_import_contracts(self) -> None:
         from modules.context.contracts import (
             AUTHOR_ONLY_WARNING,
-            CONTEXT_BUDGET,
             StructureContextBundle,
         )
+
         assert StructureContextBundle is not None
         assert AUTHOR_ONLY_WARNING
         assert isinstance(CONTEXT_BUDGET, dict)
@@ -54,6 +54,7 @@ class TestImports:
             ContextRenderRequest,
             ContextRenderResponse,
         )
+
         assert ContextCompileRequest is not None
         assert ContextCompileResponse is not None
         assert ContextRenderRequest is not None
@@ -65,6 +66,7 @@ class TestImports:
             compile_structure_context,
             render_context_markdown,
         )
+
         assert compile_structure_context is not None
         assert render_context_markdown is not None
 
@@ -72,6 +74,7 @@ class TestImports:
 # ============================================================
 # StructureContextBundle 基础测试
 # ============================================================
+
 
 class TestStructureContextBundle:
     """测试 StructureContextBundle 数据结构"""
@@ -122,6 +125,7 @@ class TestStructureContextBundle:
 # ============================================================
 # Context Compiler 核心测试
 # ============================================================
+
 
 class TestContextCompiler:
     """测试 Context Compiler 核心逻辑"""
@@ -252,6 +256,7 @@ class TestContextCompiler:
 # CompileOptions 测试
 # ============================================================
 
+
 class TestCompileOptions:
     """测试 CompileOptions 数据类"""
 
@@ -287,6 +292,7 @@ class TestCompileOptions:
 # ============================================================
 # Markdown 渲染测试
 # ============================================================
+
 
 class TestMarkdownRenderer:
     """测试 Markdown 渲染"""
@@ -452,6 +458,7 @@ class TestMarkdownRenderer:
 # Static Renderer Tests (no DB needed)
 # ============================================================
 
+
 class TestFacadeRenderContextMarkdown:
     """测试 facade.render_context_markdown（静态渲染，无需 DB）"""
 
@@ -474,7 +481,9 @@ class TestFacadeRenderContextMarkdown:
             scope="world_character",
             project={"title": "测试", "genre": "玄幻"},
             characters=[{"name": "张三", "role": "protagonist"}],
-            world_entities=[{"name": "灵界", "entity_type": "location", "summary": "修炼世界"}],
+            world_entities=[
+                {"name": "灵界", "entity_type": "location", "summary": "修炼世界"}
+            ],
         )
         md = render_context_markdown(bundle)
         assert "测试" in md
@@ -485,6 +494,7 @@ class TestFacadeRenderContextMarkdown:
 # ============================================================
 # API Schema 测试
 # ============================================================
+
 
 class TestApiSchemas:
     """测试 API 请求/响应 Schema 校验"""
@@ -539,4 +549,3 @@ class TestApiSchemas:
 # ============================================================
 # GeoReachabilityFilter 测试
 # ============================================================
-

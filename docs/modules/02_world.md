@@ -8,7 +8,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 - 对象抽取不是 NER，而是长期创作资产识别
 - AI 抽取对象直接以 `status="canonical"` 自动入库，不经过候选池
-- 别名不建新对象，存储于 `core_entities.aliases` JSONB 字段
+- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 对象分级：core / important / normal / temporary
 - 实体变更同时写入 Delta Log + Text Archive，用于版本回滚
 
@@ -22,7 +22,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `character_knowledge` — 人物知识边界
 - `entity_candidates` — 候选对象池（已废弃，AI 抽取直接入正史）
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
-- ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.aliases` JSONB
+- ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB
 
 ## 数据表（关联模块）
 
@@ -71,7 +71,6 @@ async def accept_candidate(db, novel_id, candidate_id, user_edits=None) -> CoreE
 async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
 
 # ---- Dedup ----
-async def find_duplicate_entity_candidates(db, novel_id, candidate_id) -> list[DuplicateSuggestionResult]
 async def find_similar_entities(db, novel_id, name, aliases=None, ...) -> list[DuplicateSuggestionResult]
 
 # ---- Relationships (thin proxy) ----
@@ -113,20 +112,21 @@ GET    /api/world/entities
 GET    /api/world/entities/{id}
 PUT    /api/world/entities/{id}
 DELETE /api/world/entities/{id}
-GET    /api/world/entities/{id}/related
+GET    /api/world/entities/{id}/relations
 
 # 别名（inline on CoreEntity）
-POST   /api/world/entities/{entity_id}/aliases
+GET    /api/world/aliases
+POST   /api/world/aliases
 DELETE /api/world/entities/{entity_id}/aliases
 
-# 关系
-POST   /api/world/relationships
-GET    /api/world/relationships
-PUT    /api/world/relationships/{rel_id}
-DELETE /api/world/relationships/{rel_id}
+# 实体批次
+GET    /api/world/entity-batches
 
-# 合并
-POST   /api/world/entities/{entity_id}/merge-from-candidate/{candidate_id}
+# 关系（v3）
+GET    /api/world/relations
+POST   /api/world/relations
+PUT    /api/world/relations/{rel_id}
+DELETE /api/world/relations/{rel_id}
 
 # 事件
 GET    /api/world/events
@@ -134,13 +134,6 @@ POST   /api/world/events
 GET    /api/world/events/{entity_id}
 PUT    /api/world/events/{entity_id}
 DELETE /api/world/events/{entity_id}
-
-# EntityRelation（v3 新增）
-GET    /api/world/relations
-POST   /api/world/relations
-PUT    /api/world/relations/{rel_id}
-DELETE /api/world/relations/{rel_id}
-GET    /api/world/entities/{entity_id}/relations
 
 # 版本
 GET    /api/world/entities/{entity_id}/revisions

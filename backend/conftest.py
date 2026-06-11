@@ -11,7 +11,7 @@ import os
 
 os.environ.setdefault("EMBEDDING_PROVIDER", "openai")
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import (
@@ -20,17 +20,18 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from core.base import Base
+import infrastructure.tasks.models  # noqa: F401
+import modules.imports.models  # noqa: F401
+
+# character/geo/review/timeline 已从 minimal-core 移除
+import modules.outline.models  # noqa: F401
 
 # 导入所有 ORM 模型注册到 Base.metadata
 import modules.project.models  # noqa: F401
-import modules.world.models  # noqa: F401
-# character/geo/review/timeline 已从 minimal-core 移除
-import modules.outline.models  # noqa: F401
 import modules.rag.models  # noqa: F401
+import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-import modules.imports.models  # noqa: F401
-import infrastructure.tasks.models  # noqa: F401
+from core.base import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

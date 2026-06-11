@@ -185,7 +185,8 @@ class TestHardCases:
     def test_mianjuren_vs_lisi_with_semantic(self, scorer: DedupScorer) -> None:
         """面具人 vs 李四：有语义向量时，语义信号应主导。"""
         s = scorer.compute_signals(
-            "面具人", "李四",
+            "面具人",
+            "李四",
             semantic_cosine=0.88,
         )
         assert s.semantic_cosine == 0.88
@@ -200,7 +201,8 @@ class TestHardCases:
     def test_alias_exact_match(self, scorer: DedupScorer) -> None:
         """别名精确匹配应返回 substring=0.85（单向包含）或更高。"""
         s = scorer.compute_signals(
-            "四哥", "李四",
+            "四哥",
+            "李四",
             candidate_aliases=["四哥"],
         )
         assert s.substring_match >= 0.85
@@ -212,16 +214,19 @@ class TestCascadeScore:
     @pytest.fixture
     def dedup_svc(self) -> EntityDedupService:
         from modules.world.services.dedup_service import EntityDedupService
+
         return EntityDedupService()
 
     def test_exact_name_not_handled_by_cascade(
-        self, dedup_svc: EntityDedupService,
+        self,
+        dedup_svc: EntityDedupService,
     ) -> None:
         # 精确匹配在 find_similar_entities 中直接处理，不走 _cascade_score
         pass
 
     def test_substring_full(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction
+
         s = DedupSignals(substring_match=0.85)
         sim, method, action = dedup_svc._cascade_score(s)
         assert sim == 0.95
@@ -230,6 +235,7 @@ class TestCascadeScore:
 
     def test_high_fuzzy_and_pinyin(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction
+
         s = DedupSignals(rapidfuzz_ratio=0.95, pinyin_jaro=0.95)
         sim, method, action = dedup_svc._cascade_score(s)
         assert sim == 0.90
@@ -238,6 +244,7 @@ class TestCascadeScore:
 
     def test_high_semantic(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction
+
         s = DedupSignals(semantic_cosine=0.88)
         sim, method, action = dedup_svc._cascade_score(s)
         assert sim >= 0.80
@@ -245,10 +252,12 @@ class TestCascadeScore:
         assert action == CandidateAction.merge_with_existing
 
     def test_semantic_high_confidence_boundary(
-        self, dedup_svc: EntityDedupService,
+        self,
+        dedup_svc: EntityDedupService,
     ) -> None:
         """语义 >= 0.85 边界：应直接返回 (0.90, merge_with_existing)。"""
         from shared.enums import CandidateAction
+
         s = DedupSignals(semantic_cosine=0.85)
         sim, method, action = dedup_svc._cascade_score(s)
         assert sim == 0.90
@@ -256,10 +265,12 @@ class TestCascadeScore:
         assert action == CandidateAction.merge_with_existing
 
     def test_semantic_just_below_boundary(
-        self, dedup_svc: EntityDedupService,
+        self,
+        dedup_svc: EntityDedupService,
     ) -> None:
         """语义 0.84 (低于 0.85 边界) 应走语义中分路径，不直接返回 0.90。"""
         from shared.enums import CandidateAction
+
         s = DedupSignals(semantic_cosine=0.84)
         sim, method, action = dedup_svc._cascade_score(s)
         assert method == "semantic"
@@ -269,6 +280,7 @@ class TestCascadeScore:
 
     def test_medium_semantic(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction
+
         s = DedupSignals(semantic_cosine=0.78)
         sim, method, action = dedup_svc._cascade_score(s)
         assert method == "semantic"
@@ -276,6 +288,7 @@ class TestCascadeScore:
 
     def test_low_semantic_falls_to_lexical(self, dedup_svc: EntityDedupService) -> None:
         from shared.enums import CandidateAction
+
         s = DedupSignals(
             semantic_cosine=0.60,
             rapidfuzz_ratio=0.80,
@@ -291,6 +304,7 @@ class TestCascadeScore:
 
     def test_prefix_conflict_downgrades(self, dedup_svc: EntityDedupService) -> None:
         from shared.constants import DEDUP_DISCARD_THRESHOLD
+
         s = DedupSignals(
             rapidfuzz_ratio=0.90,
             pinyin_jaro=0.90,
@@ -305,6 +319,7 @@ class TestCascadeScore:
     def test_below_discard(self, dedup_svc: EntityDedupService) -> None:
         from shared.constants import DEDUP_DISCARD_THRESHOLD
         from shared.enums import CandidateAction
+
         s = DedupSignals(
             rapidfuzz_ratio=0.3,
             pinyin_jaro=0.2,

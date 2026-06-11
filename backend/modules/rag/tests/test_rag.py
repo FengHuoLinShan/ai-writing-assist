@@ -10,12 +10,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.registry import TaskRegistry
 from modules.rag import tasks as rag_tasks  # noqa: F401 — 注册任务处理器
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from modules.rag.contracts import RagChunkContract, RagQueryContract, RagResultBundle
 from modules.rag.facade import (
     create_chunk,
@@ -27,17 +25,14 @@ from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import (
     RagChunkCreate,
-    RagChunkResponse,
-    RagQuery,
-    RagResult,
     SimilarEntity,
 )
 from modules.rag.services import ChunkingService, RetrievalService
 
-
 # ============================================================
 # 任务处理器注册测试
 # ============================================================
+
 
 def test_rag_task_handlers_are_registered() -> None:
     """rag_reindex_novel 和 rag_index_chapter 应在 TaskRegistry 中注册"""
@@ -52,6 +47,7 @@ def test_rag_task_handlers_are_registered() -> None:
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def repo() -> RagChunkRepository:
@@ -106,6 +102,7 @@ def sample_chunk_data_2() -> RagChunkCreate:
 # Repository 测试
 # ============================================================
 
+
 class TestRagChunkRepository:
     """测试数据访问层"""
 
@@ -132,6 +129,7 @@ class TestRagChunkRepository:
         repo: RagChunkRepository,
     ) -> None:
         """PostgreSQL JSONB contains 应绑定数组，而不是 JSON 字符串。"""
+
         class _Dialect:
             name = "postgresql"
 
@@ -143,7 +141,9 @@ class TestRagChunkRepository:
                 return _Bind()
 
         expr = repo._json_array_contains_all(
-            _Db(), RagChunk.character_ids, ["char-1"],
+            _Db(),
+            RagChunk.character_ids,
+            ["char-1"],
         )
 
         assert getattr(expr.right, "value", None) == ["char-1"]
@@ -189,7 +189,9 @@ class TestRagChunkRepository:
         await repo.create(db_with_project, sample_novel_id, sample_chunk_data_2)
         await db_with_project.flush()
 
-        items, total = await repo.get_multi(db_with_project, sample_novel_id, skip=0, limit=10)
+        items, total = await repo.get_multi(
+            db_with_project, sample_novel_id, skip=0, limit=10
+        )
         assert total == 2
         assert len(items) == 2
 
@@ -290,7 +292,10 @@ class TestRagChunkRepository:
     ) -> None:
         """测试向量检索返回空列表（SQLite 模式）"""
         results = await repo.vector_search(
-            db_with_project, sample_novel_id, [0.1] * 10, top_k=5,
+            db_with_project,
+            sample_novel_id,
+            [0.1] * 10,
+            top_k=5,
         )
         assert results == []
 
@@ -328,6 +333,7 @@ class TestRagChunkRepository:
 # ============================================================
 # ChunkingService 测试
 # ============================================================
+
 
 class TestChunkingService:
     """测试分块服务"""
@@ -384,11 +390,13 @@ class TestChunkingService:
         chunking: ChunkingService,
     ) -> None:
         """中文小说分块应保留正文位置，并为长正文创建前后文重叠。"""
-        text = "\n\n".join([
-            "周明瑞睁开眼睛，发现自己躺在陌生的房间里。" * 12,
-            "他按住额头，试图理清脑海里混乱的记忆。" * 12,
-            "窗外的煤气灯仍然亮着，克莱恩这个名字浮了出来。" * 12,
-        ])
+        text = "\n\n".join(
+            [
+                "周明瑞睁开眼睛，发现自己躺在陌生的房间里。" * 12,
+                "他按住额头，试图理清脑海里混乱的记忆。" * 12,
+                "窗外的煤气灯仍然亮着，克莱恩这个名字浮了出来。" * 12,
+            ]
+        )
 
         chunks = chunking.split_chinese_novel(
             text,
@@ -399,7 +407,7 @@ class TestChunkingService:
 
         assert len(chunks) >= 3
         assert chunks[0].chunk_index == 0
-        assert all(c.text == text[c.start_offset:c.end_offset].strip() for c in chunks)
+        assert all(c.text == text[c.start_offset : c.end_offset].strip() for c in chunks)
         assert all(c.char_count == len(c.text) for c in chunks)
         assert any(
             chunks[i].start_offset < chunks[i - 1].end_offset
@@ -407,10 +415,10 @@ class TestChunkingService:
         )
 
 
-
 # ============================================================
 # RetrievalService 测试
 # ============================================================
+
 
 class TestRetrievalService:
     """测试混合检索服务"""
@@ -425,7 +433,8 @@ class TestRetrievalService:
         """测试混合检索"""
         repo_local = RagChunkRepository()
         chunk1 = await repo_local.create(
-            db_with_project, sample_novel_id,
+            db_with_project,
+            sample_novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=1,
@@ -436,7 +445,8 @@ class TestRetrievalService:
             ),
         )
         chunk2 = await repo_local.create(
-            db_with_project, sample_novel_id,
+            db_with_project,
+            sample_novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=2,
@@ -449,7 +459,10 @@ class TestRetrievalService:
 
         # 检索"森林"
         results = await retrieval.hybrid_search(
-            db_with_project, sample_novel_id, "森林", top_k=5,
+            db_with_project,
+            sample_novel_id,
+            "森林",
+            top_k=5,
         )
         assert len(results) >= 1
         top_chunk, top_score = results[0]
@@ -458,7 +471,10 @@ class TestRetrievalService:
 
         # 检索"城堡"
         results = await retrieval.hybrid_search(
-            db_with_project, sample_novel_id, "城堡", top_k=5,
+            db_with_project,
+            sample_novel_id,
+            "城堡",
+            top_k=5,
         )
         assert len(results) >= 1
         top_chunk, top_score = results[0]
@@ -474,7 +490,8 @@ class TestRetrievalService:
         """测试带过滤的混合检索"""
         repo_local = RagChunkRepository()
         await repo_local.create(
-            db_with_project, sample_novel_id,
+            db_with_project,
+            sample_novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="艾伦在森林中探索。",
@@ -483,7 +500,8 @@ class TestRetrievalService:
             ),
         )
         await repo_local.create(
-            db_with_project, sample_novel_id,
+            db_with_project,
+            sample_novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="艾伦在城堡中。",
@@ -494,8 +512,11 @@ class TestRetrievalService:
         await db_with_project.flush()
 
         results = await retrieval.hybrid_search(
-            db_with_project, sample_novel_id, "艾伦",
-            entity_ids=["e1"], top_k=5,
+            db_with_project,
+            sample_novel_id,
+            "艾伦",
+            entity_ids=["e1"],
+            top_k=5,
         )
         assert len(results) >= 1
 
@@ -508,7 +529,8 @@ class TestRetrievalService:
         """抽取模式下，明确人物过滤命中时不要求字段关键词也出现在正文。"""
         char_id = str(uuid.uuid4())
         await create_chunk(
-            db_with_project, str(sample_novel_id),
+            db_with_project,
+            str(sample_novel_id),
             RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=1,
@@ -540,24 +562,29 @@ class TestRetrievalService:
         from modules.world.models import Character, CoreEntity
 
         char_id = uuid.uuid4()
-        db_with_project.add(CoreEntity(
-            id=char_id,
-            novel_id=sample_novel_id,
-            entity_type="character",
-            name="克莱恩·莫雷蒂",
-            content_json={"aliases": [{"alias": "周明瑞", "type": "original_name"}]},
-            status="canonical",
-        ))
-        db_with_project.add(Character(
-            entity_id=char_id,
-            novel_id=sample_novel_id,
-            name="克莱恩·莫雷蒂",
-            aliases=[{"alias": "周明瑞", "type": "original_name"}],
-            role="主角",
-            status="canonical",
-        ))
+        db_with_project.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=sample_novel_id,
+                entity_type="character",
+                name="克莱恩·莫雷蒂",
+                content_json={"aliases": [{"alias": "周明瑞", "type": "original_name"}]},
+                status="canonical",
+            )
+        )
+        db_with_project.add(
+            Character(
+                entity_id=char_id,
+                novel_id=sample_novel_id,
+                name="克莱恩·莫雷蒂",
+                aliases=[{"alias": "周明瑞", "type": "original_name"}],
+                role="主角",
+                status="canonical",
+            )
+        )
         await create_chunk(
-            db_with_project, str(sample_novel_id),
+            db_with_project,
+            str(sample_novel_id),
             RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=1,
@@ -583,7 +610,8 @@ class TestRetrievalService:
 
         repo_local = RagChunkRepository()
         chunk = await repo_local.create(
-            db_with_project, sample_novel_id,
+            db_with_project,
+            sample_novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=1,
@@ -595,7 +623,9 @@ class TestRetrievalService:
 
         with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
             mock_client = AsyncMock()
-            mock_client.generate_embedding = AsyncMock(side_effect=Exception("embedding down"))
+            mock_client.generate_embedding = AsyncMock(
+                side_effect=Exception("embedding down")
+            )
             mock_client_cls.return_value = mock_client
 
             result = await retrieve(db_with_project, str(sample_novel_id), "灰雾")
@@ -603,11 +633,13 @@ class TestRetrievalService:
         assert result.total == 1
         assert result.degraded is True
         assert result.warnings
+
     @pytest.mark.asyncio
     async def test_score_computation(self) -> None:
         """测试评分计算"""
         score = RetrievalService._compute_keyword_score(
-            "艾伦在森林中行走", ["森林"],
+            "艾伦在森林中行走",
+            ["森林"],
         )
         assert score == 1.0
 
@@ -615,7 +647,8 @@ class TestRetrievalService:
         assert score == 0.0
 
         score = RetrievalService._compute_keyword_score(
-            "森林和城堡都在大陆上", ["森林", "城堡"],
+            "森林和城堡都在大陆上",
+            ["森林", "城堡"],
         )
         assert score == 1.0
 
@@ -626,6 +659,7 @@ class TestRetrievalService:
 # ============================================================
 # Facade 测试
 # ============================================================
+
 
 class TestRagFacade:
     """测试对外入口"""
@@ -670,7 +704,8 @@ class TestRagFacade:
         novel_id = str(uuid.uuid4())
 
         await create_chunk(
-            db_with_project, novel_id,
+            db_with_project,
+            novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="艾伦在森林中迷失了方向，四周都是高耸的树木。",
@@ -678,7 +713,8 @@ class TestRagFacade:
             ),
         )
         await create_chunk(
-            db_with_project, novel_id,
+            db_with_project,
+            novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="城堡的大门紧闭，似乎已经很久没有人来过了。",
@@ -704,10 +740,11 @@ class TestRagFacade:
 
         for i in range(5):
             await create_chunk(
-                db_with_project, novel_id,
+                db_with_project,
+                novel_id,
                 RagChunkCreate(
                     source_type="chapter_text",
-                    text=f"这是第{i+1}个测试片段的内容。",
+                    text=f"这是第{i + 1}个测试片段的内容。",
                     importance=0.5,
                 ),
             )
@@ -726,7 +763,8 @@ class TestRagFacade:
         char_id = str(uuid.uuid4())
 
         await create_chunk(
-            db_with_project, novel_id,
+            db_with_project,
+            novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="艾伦在森林中。",
@@ -734,7 +772,8 @@ class TestRagFacade:
             ),
         )
         await create_chunk(
-            db_with_project, novel_id,
+            db_with_project,
+            novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="城堡大门紧闭。",
@@ -744,7 +783,10 @@ class TestRagFacade:
         await db_with_project.flush()
 
         result = await retrieve(
-            db_with_project, novel_id, "艾伦", character_ids=[char_id],
+            db_with_project,
+            novel_id,
+            "艾伦",
+            character_ids=[char_id],
         )
         if result.chunks:
             assert result.chunks[0].character_ids == [char_id]
@@ -761,7 +803,10 @@ class TestRagFacade:
         """测试文本分割长度模式"""
         text = "这是一个测试文本。" * 30
         chunks = await split_text_into_chunks(
-            text, method="length", chunk_size=50, overlap=10,
+            text,
+            method="length",
+            chunk_size=50,
+            overlap=10,
         )
         assert len(chunks) > 1
 
@@ -784,7 +829,8 @@ class TestRagFacade:
         """测试使用默认值创建"""
         novel_id = str(uuid.uuid4())
         chunk = await create_chunk(
-            db_with_project, novel_id,
+            db_with_project,
+            novel_id,
             RagChunkCreate(
                 source_type="chapter_text",
                 text="测试内容",
@@ -801,6 +847,7 @@ class TestRagFacade:
 # ============================================================
 # Contracts 测试
 # ============================================================
+
 
 class TestRagContracts:
     """测试契约类"""
@@ -845,6 +892,7 @@ class TestRagContracts:
 # 中文分词器测试
 # ============================================================
 
+
 class TestSmartTokenizeChinese:
     """测试 _smart_tokenize_chinese 分词器"""
 
@@ -863,7 +911,9 @@ class TestSmartTokenizeChinese:
         assert terms == []
 
     def test_mixed_separators(self) -> None:
-        terms = RetrievalService._smart_tokenize_chinese("克莱恩·莫雷蒂 渴望，目标。动机！")
+        terms = RetrievalService._smart_tokenize_chinese(
+            "克莱恩·莫雷蒂 渴望，目标。动机！"
+        )
         assert "克莱恩" in terms
         assert "莫雷蒂" in terms
         assert "渴望" in terms
@@ -892,21 +942,25 @@ class TestKeywordProximityScore:
 
     def test_proximity_bonus_close_terms(self) -> None:
         score = RetrievalService._compute_keyword_score_with_proximity(
-            "克莱恩渴望力量", ["克莱恩", "渴望"],
+            "克莱恩渴望力量",
+            ["克莱恩", "渴望"],
         )
         assert score > 0.5
 
     def test_proximity_bonus_far_terms(self) -> None:
         score_far = RetrievalService._compute_keyword_score_with_proximity(
-            "克莱恩在很远很远的地方感受到了渴望", ["克莱恩", "渴望"],
+            "克莱恩在很远很远的地方感受到了渴望",
+            ["克莱恩", "渴望"],
         )
         score_close = RetrievalService._compute_keyword_score_with_proximity(
-            "克莱恩渴望力量", ["克莱恩", "渴望"],
+            "克莱恩渴望力量",
+            ["克莱恩", "渴望"],
         )
         assert score_close >= score_far
 
     def test_single_term_no_proximity(self) -> None:
         score = RetrievalService._compute_keyword_score_with_proximity(
-            "克莱恩在森林中", ["克莱恩"],
+            "克莱恩在森林中",
+            ["克莱恩"],
         )
         assert score == 1.0

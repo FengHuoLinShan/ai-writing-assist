@@ -44,6 +44,7 @@ async def db_with_project(db_session: AsyncSession) -> AsyncSession:
 async def sample_novel_id(db_with_project: AsyncSession) -> uuid.UUID:
     """返回已注入 Project 的 ID"""
     from sqlalchemy import select
+
     result = await db_with_project.execute(select(Project.id).limit(1))
     return result.scalar_one()
 
@@ -51,6 +52,7 @@ async def sample_novel_id(db_with_project: AsyncSession) -> uuid.UUID:
 def make_mock_event(**overrides) -> MemoryEvent:
     """工厂函数：创建一个 mock MemoryEvent 对象用于测试"""
     import uuid as _uuid
+
     defaults = {
         "id": _uuid.uuid4(),
         "novel_id": _uuid.uuid4(),

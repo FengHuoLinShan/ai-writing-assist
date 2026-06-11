@@ -13,13 +13,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 枚举
 # ============================================================
 
+
 class EventType(StrEnum):
     """记忆事件类型"""
+
     entity_created = "entity_created"
     entity_updated = "entity_updated"
     entity_removed = "entity_removed"
@@ -32,12 +33,14 @@ class EventType(StrEnum):
 
 class EventSource(StrEnum):
     """事件来源"""
+
     ai_extraction = "ai_extraction"
     manual_edit = "manual_edit"
 
 
 class SnapshotStatus(StrEnum):
     """快照状态"""
+
     current = "current"
     stale = "stale"
 
@@ -46,8 +49,10 @@ class SnapshotStatus(StrEnum):
 # 全景子结构
 # ============================================================
 
+
 class EntityInPanorama(BaseModel):
     """全景中的单个实体"""
+
     id: str
     entity_type: str
     name: str
@@ -62,6 +67,7 @@ class EntityInPanorama(BaseModel):
 
 class RelationInPanorama(BaseModel):
     """全景中的单个关系"""
+
     id: str
     source_id: str
     target_id: str
@@ -73,6 +79,7 @@ class RelationInPanorama(BaseModel):
 
 class CharacterLocationInPanorama(BaseModel):
     """全景中的角色位置"""
+
     location_id: str
     text_state: str = ""
     chapter_index: int | None = None
@@ -80,6 +87,7 @@ class CharacterLocationInPanorama(BaseModel):
 
 class KnowledgeInPanorama(BaseModel):
     """全景中的角色知识"""
+
     id: str
     character_id: str
     target_type: str
@@ -94,6 +102,7 @@ class KnowledgeInPanorama(BaseModel):
 # 全景响应
 # ============================================================
 
+
 class ChapterPanorama(BaseModel):
     """章节关系全景 — memory 模块的核心输出"""
 
@@ -101,13 +110,16 @@ class ChapterPanorama(BaseModel):
     chapter_index: int
     entities: list[EntityInPanorama] = Field(default_factory=list)
     relations: list[RelationInPanorama] = Field(default_factory=list)
-    character_locations: dict[str, CharacterLocationInPanorama] = Field(default_factory=dict)
+    character_locations: dict[str, CharacterLocationInPanorama] = Field(
+        default_factory=dict
+    )
     character_knowledge: list[KnowledgeInPanorama] = Field(default_factory=list)
 
 
 # ============================================================
 # 事件响应
 # ============================================================
+
 
 class MemoryEventResponse(BaseModel):
     """记忆事件响应"""
@@ -136,6 +148,7 @@ class MemoryEventResponse(BaseModel):
 
 class EventListResponse(BaseModel):
     """事件列表响应"""
+
     items: list[MemoryEventResponse]
     total: int
 
@@ -143,6 +156,7 @@ class EventListResponse(BaseModel):
 # ============================================================
 # 快照响应
 # ============================================================
+
 
 class SnapshotResponse(BaseModel):
     """快照响应"""
@@ -164,6 +178,7 @@ class SnapshotResponse(BaseModel):
 
 class SnapshotListResponse(BaseModel):
     """快照列表响应"""
+
     items: list[SnapshotResponse]
     total: int
 
@@ -172,8 +187,10 @@ class SnapshotListResponse(BaseModel):
 # 状态查询
 # ============================================================
 
+
 class MemoryStatusResponse(BaseModel):
     """memory 模块状态"""
+
     novel_id: str
     latest_chapter: int | None = None
     latest_snapshot_chapter: int | None = None

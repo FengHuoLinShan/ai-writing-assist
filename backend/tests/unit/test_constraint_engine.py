@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,7 +36,11 @@ async def test_static_constraints_zh_and_en():
 @pytest.mark.asyncio
 async def test_compile_constraints_returns_at_least_static():
     engine = ConstraintEngine()
-    sections = await engine.compile_constraints(AsyncMock(), "novel-1")
+    db = AsyncMock()
+    execute_result = MagicMock()
+    execute_result.scalars.return_value.all.return_value = []
+    db.execute.return_value = execute_result
+    sections = await engine.compile_constraints(db, str(uuid.uuid4()))
     static = [s for s in sections if s.key == "hard_constraints"]
     assert len(static) == 1
     assert static[0].tier == Tier.P0

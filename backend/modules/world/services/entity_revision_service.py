@@ -86,7 +86,10 @@ class EntityRevisionService:
             )
 
         revisions, total = await self._repo.get_revisions(
-            db, eid, skip=skip, limit=limit,
+            db,
+            eid,
+            skip=skip,
+            limit=limit,
         )
 
         items = [
@@ -148,4 +151,5 @@ class EntityRevisionService:
             )
 
         from modules.world.schemas import CoreEntityResponse
+
         return CoreEntityResponse.model_validate(entity).model_dump()

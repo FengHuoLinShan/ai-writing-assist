@@ -22,7 +22,9 @@ from shared.constants import MAX_PAGE_SIZE
 
 
 class EntityRelationService(
-    CrudService[EntityRelation, EntityRelationCreate, EntityRelationUpdate, EntityRelationResponse],  # noqa: E501
+    CrudService[
+        EntityRelation, EntityRelationCreate, EntityRelationUpdate, EntityRelationResponse
+    ],  # noqa: E501
 ):
     """关系业务服务。
 
@@ -75,7 +77,11 @@ class EntityRelationService(
         for seed_id in seed_entity_ids:
             sid = parse_uuid(seed_id, "entity_id")
             new_related = await self.repo.get_related_entity_ids(
-                db, nid, sid, depth=depth, limit=limit,
+                db,
+                nid,
+                sid,
+                depth=depth,
+                limit=limit,
             )
             related_ids.update(str(rid) for rid in new_related)
 
@@ -112,10 +118,16 @@ class EntityRelationService(
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
         source_rels = await self.repo.get_by_source(
-            db, nid, eid, limit=MAX_PAGE_SIZE,
+            db,
+            nid,
+            eid,
+            limit=MAX_PAGE_SIZE,
         )
         target_rels = await self.repo.get_by_target(
-            db, nid, eid, limit=MAX_PAGE_SIZE,
+            db,
+            nid,
+            eid,
+            limit=MAX_PAGE_SIZE,
         )
         all_rels = source_rels + target_rels
         return EntityRelationListResponse(
@@ -137,6 +149,11 @@ class EntityRelationService(
         sid = parse_uuid(source_id, "source_id")
         tid = parse_uuid(target_id, "target_id")
         rel = await self.repo.upsert(
-            db, nid, sid, tid, relation_type, description=description,
+            db,
+            nid,
+            sid,
+            tid,
+            relation_type,
+            description=description,
         )
         return EntityRelationResponse.model_validate(rel)

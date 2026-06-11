@@ -3,6 +3,7 @@ Writing 业务逻辑层
 
 调用 repository 完成业务操作。
 """
+
 from __future__ import annotations
 
 import logging
@@ -111,7 +112,9 @@ class WritingDraftService:
 
         # 业务规则：至少保留 1 个版本
         version_count = await self._repo.count_versions(
-            db, draft.novel_id, draft.chapter_index,
+            db,
+            draft.novel_id,
+            draft.chapter_index,
         )
         if version_count <= 1:
             raise HTTPException(
@@ -128,7 +131,10 @@ class WritingDraftService:
 
         # 数据完整性：重排后续版本号
         await self._repo.renumber_versions_after_delete(
-            db, draft.novel_id, draft.chapter_index, draft.version_number,
+            db,
+            draft.novel_id,
+            draft.chapter_index,
+            draft.version_number,
         )
 
     async def delete_chapter(

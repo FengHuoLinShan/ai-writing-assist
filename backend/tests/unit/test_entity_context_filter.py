@@ -126,14 +126,15 @@ class TestTemporaryEntityFilter:
 
         # Act
         bundle = await get_world_context(
-            db_session, novel_id, current_chapter=40,
+            db_session,
+            novel_id,
+            current_chapter=40,
         )
 
         # Assert
         names = {e.name for e in bundle.entities}
         assert names == {"永久角色"}, (
-            f"Expected only permanent entity (40-1=39 > default 30), "
-            f"got {names}"
+            f"Expected only permanent entity (40-1=39 > default 30), got {names}"
         )
 
     async def test_get_world_context_with_temporary_within_expiry_keeps_it(
@@ -159,7 +160,9 @@ class TestTemporaryEntityFilter:
 
         # Act
         bundle = await get_world_context(
-            db_session, novel_id, current_chapter=5,
+            db_session,
+            novel_id,
+            current_chapter=5,
         )
 
         # Assert
@@ -195,12 +198,13 @@ class TestTemporaryEntityFilter:
 
         # Act
         bundle = await get_world_context(
-            db_session, novel_id, current_chapter=7,
+            db_session,
+            novel_id,
+            current_chapter=7,
         )
 
         # Assert
         names = {e.name for e in bundle.entities}
         assert names == {"永久角色"}, (
-            f"Expected only permanent entity (7-1=6 > custom 5), "
-            f"got {names}"
+            f"Expected only permanent entity (7-1=6 > custom 5), got {names}"
         )

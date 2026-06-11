@@ -43,6 +43,7 @@ class ChineseNovelChunk:
 # ChunkingService
 # ============================================================
 
+
 class ChunkingService:
     """文本分块服务
 
@@ -60,25 +61,68 @@ class ChunkingService:
 
     SCENE_TRANSITION_PATTERNS: list[str] = [
         # 时间跳跃
-        "第二天", "次日", "翌日", "几日", "数日", "一个月后",
-        "不久之后", "转眼", "转眼间", "黄昏", "清晨",
-        "夜晚", "入夜", "黎明", "次日清晨", "翌日清晨", "半夜",
-        "过了几日", "又过了几日", "几个月后", "半年后", "一年后",
-        "三日后", "七日后", "十日后",
-        "那一年", "从此", "多年后", "曾经", "从前", "后来",
-        "此刻", "就在这时", "突然", "不一会儿",
+        "第二天",
+        "次日",
+        "翌日",
+        "几日",
+        "数日",
+        "一个月后",
+        "不久之后",
+        "转眼",
+        "转眼间",
+        "黄昏",
+        "清晨",
+        "夜晚",
+        "入夜",
+        "黎明",
+        "次日清晨",
+        "翌日清晨",
+        "半夜",
+        "过了几日",
+        "又过了几日",
+        "几个月后",
+        "半年后",
+        "一年后",
+        "三日后",
+        "七日后",
+        "十日后",
+        "那一年",
+        "从此",
+        "多年后",
+        "曾经",
+        "从前",
+        "后来",
+        "此刻",
+        "就在这时",
+        "突然",
+        "不一会儿",
         # 空间/视角切换
-        "与此同时", "另一边", "另一方面",
-        "画面一转", "镜头一转", "视角切",
+        "与此同时",
+        "另一边",
+        "另一方面",
+        "画面一转",
+        "镜头一转",
+        "视角切",
         # 分隔符
-        "***", "---", "===",
-        "——", "……",
+        "***",
+        "---",
+        "===",
+        "——",
+        "……",
     ]
 
     # 地点转换动词 — 在这些词之后紧跟地点时，优先作为切分点
     LOCATION_TRANSITION_VERBS: list[str] = [
-        "回到", "来到", "走进", "离开", "返回", "前往",
-        "抵达", "步入", "踏入", "跨入",
+        "回到",
+        "来到",
+        "走进",
+        "离开",
+        "返回",
+        "前往",
+        "抵达",
+        "步入",
+        "踏入",
+        "跨入",
     ]
 
     def split_by_paragraphs(
@@ -346,6 +390,7 @@ class ChunkingService:
 # RetrievalService
 # ============================================================
 
+
 class RetrievalService:
     """混合检索服务
 
@@ -357,7 +402,7 @@ class RetrievalService:
         self._repo = RagChunkRepository()
         self._chunking = ChunkingService()
 
-    _CHINESE_SEP_RE = re.compile(r'[\s,，.。!！?？、·]+')
+    _CHINESE_SEP_RE = re.compile(r"[\s,，.。!！?？、·]+")
 
     @staticmethod
     def _smart_tokenize_chinese(query: str) -> list[str]:
@@ -486,14 +531,8 @@ class RetrievalService:
             thread_ids=thread_ids,
         )
 
-        relation_only = (
-            mode == "extraction"
-            and bool(
-                entity_ids
-                or character_ids
-                or thread_ids
-                or chapter_index is not None
-            )
+        relation_only = mode == "extraction" and bool(
+            entity_ids or character_ids or thread_ids or chapter_index is not None
         )
         repo_query = "" if relation_only else expanded_query
 
@@ -531,7 +570,8 @@ class RetrievalService:
             if use_chinese_match and chinese_terms:
                 if len(chinese_terms) > 1:
                     keyword_score = self._compute_keyword_score_with_proximity(
-                        chunk.text, chinese_terms,
+                        chunk.text,
+                        chinese_terms,
                     )
                 else:
                     keyword_score = (
@@ -574,7 +614,9 @@ class RetrievalService:
             # 时序衰减：近期章节权重更高
             if reference_chapter_index is not None:
                 decay = self._compute_temporal_decay(
-                    chunk.chapter_index, reference_chapter_index, mode,
+                    chunk.chapter_index,
+                    reference_chapter_index,
+                    mode,
                 )
                 total_score *= decay
 
@@ -590,7 +632,8 @@ class RetrievalService:
             if use_chinese_match:
                 if chinese_terms and len(chinese_terms) > 1:
                     kw = self._compute_keyword_score_with_proximity(
-                        chunk.text, chinese_terms,
+                        chunk.text,
+                        chinese_terms,
                     )
                 else:
                     kw = (
@@ -611,7 +654,8 @@ class RetrievalService:
                     entity_ids=entity_ids,
                     character_ids=character_ids,
                     thread_ids=thread_ids,
-                ) > 0
+                )
+                > 0
                 or (chapter_index is not None and chunk.chapter_index == chapter_index)
                 for chunk, _ in scored_chunks[:top_k]
             )
@@ -876,7 +920,9 @@ class RetrievalService:
                 from modules.rag.reranker import rerank_results
 
                 deduped_chunks = await rerank_results(
-                    query, deduped_chunks, top_k=top_k,
+                    query,
+                    deduped_chunks,
+                    top_k=top_k,
                 )
             except Exception as exc:
                 warnings.append(f"重排序失败，使用原始排序: {exc}")
@@ -888,8 +934,7 @@ class RetrievalService:
         from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
 
         chunk_contracts = [
-            _to_chunk_contract(chunk, score)
-            for chunk, score in deduped_chunks
+            _to_chunk_contract(chunk, score) for chunk, score in deduped_chunks
         ]
 
         # 记录检索指标
@@ -995,7 +1040,7 @@ def _cn_ngrams(term: str, min_n: int = 2, max_n: int = 4) -> list[str]:
     grams: list[str] = []
     for n in range(min_n, min(max_n, len(compact)) + 1):
         for i in range(0, len(compact) - n + 1):
-            gram = compact[i:i + n]
+            gram = compact[i : i + n]
             if gram not in grams:
                 grams.append(gram)
     return grams
@@ -1050,6 +1095,7 @@ async def _expand_query_with_project_terms(
 # IndexingService
 # ============================================================
 
+
 class IndexingService:
     """章节索引服务
 
@@ -1079,6 +1125,7 @@ class IndexingService:
     ):
         """索引指定章节并返回诊断报告。"""
         from modules.rag.contracts import RagIndexReport
+
         _get_latest_draft = _container_get("writing.get_latest_draft_for_chapter")
 
         draft = await _get_latest_draft(db, str(novel_id), chapter_index)
@@ -1111,7 +1158,8 @@ class IndexingService:
 
         for cn_chunk in chunks:
             character_ids, entity_ids, thread_ids = _match_project_terms(
-                cn_chunk.text, project_terms,
+                cn_chunk.text,
+                project_terms,
             )
 
             # 根据匹配实体的重要性计算 chunk 重要性
@@ -1164,7 +1212,11 @@ class IndexingService:
             for chunk in created_chunks:
                 try:
                     embedding = await llm.generate_embedding(chunk.text)
-                    if isinstance(embedding, list) and embedding and isinstance(embedding[0], float):
+                    if (
+                        isinstance(embedding, list)
+                        and embedding
+                        and isinstance(embedding[0], float)
+                    ):
                         await self._repo.update_embedding(db, chunk.id, embedding)
                         chunk.embedding_status = "succeeded"
                     else:
@@ -1251,7 +1303,8 @@ class IndexingService:
                 cn_chunks = self._chunking.split_chinese_novel(new_text)
                 for cn_chunk in cn_chunks:
                     character_ids, entity_ids, thread_ids = _match_project_terms(
-                        cn_chunk.text, project_terms,
+                        cn_chunk.text,
+                        project_terms,
                     )
                     chunk_data = RagChunkCreate(
                         source_type="chapter_text",

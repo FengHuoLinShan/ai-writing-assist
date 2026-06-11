@@ -26,15 +26,44 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # 行政区划前缀 — 冲突时直接降权
-_CN_ADMIN_PREFIXES: frozenset[str] = frozenset({
-    "北京", "上海", "天津", "重庆",
-    "河北", "山西", "辽宁", "吉林", "黑龙江",
-    "江苏", "浙江", "安徽", "福建", "江西", "山东",
-    "河南", "湖北", "湖南", "广东", "海南",
-    "四川", "贵州", "云南", "陕西", "甘肃", "青海",
-    "台湾", "内蒙古", "广西", "西藏", "宁夏", "新疆",
-    "香港", "澳门",
-})
+_CN_ADMIN_PREFIXES: frozenset[str] = frozenset(
+    {
+        "北京",
+        "上海",
+        "天津",
+        "重庆",
+        "河北",
+        "山西",
+        "辽宁",
+        "吉林",
+        "黑龙江",
+        "江苏",
+        "浙江",
+        "安徽",
+        "福建",
+        "江西",
+        "山东",
+        "河南",
+        "湖北",
+        "湖南",
+        "广东",
+        "海南",
+        "四川",
+        "贵州",
+        "云南",
+        "陕西",
+        "甘肃",
+        "青海",
+        "台湾",
+        "内蒙古",
+        "广西",
+        "西藏",
+        "宁夏",
+        "新疆",
+        "香港",
+        "澳门",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +127,7 @@ class DedupScorer:
     def _get_rapidfuzz(self) -> Any:
         if self._rapidfuzz is None:
             from rapidfuzz import fuzz
+
             self._rapidfuzz = fuzz
         return self._rapidfuzz
 
@@ -105,6 +135,7 @@ class DedupScorer:
         if self._pinyin is None and self._pinyin_available:
             try:
                 from pypinyin import lazy_pinyin
+
                 self._pinyin = lazy_pinyin
             except Exception:
                 logger.warning("pypinyin unavailable, pinyin signals will be 0")
@@ -115,6 +146,7 @@ class DedupScorer:
         if self._jaro_winkler is None and self._jaro_winkler_available:
             try:
                 from rapidfuzz.distance.JaroWinkler import similarity
+
                 self._jaro_winkler = similarity
             except Exception:
                 logger.warning("JaroWinkler unavailable, falling back to python")
@@ -224,7 +256,9 @@ class DedupScorer:
 
     @staticmethod
     def _substring_score(
-        q: str, c: str, aliases: list[str] | None,
+        q: str,
+        c: str,
+        aliases: list[str] | None,
     ) -> float:
         """子串匹配评分。
 

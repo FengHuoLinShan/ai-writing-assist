@@ -6,8 +6,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import OutlineArc, PlotThread
-from modules.outline.repositories import PlotThreadRepository, OutlineArcRepository
-from modules.outline.schemas import PlotThreadCreate, PlotThreadUpdate, OutlineArcCreate, OutlineArcUpdate
+from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
+from modules.outline.schemas import (
+    OutlineArcCreate,
+    OutlineArcUpdate,
+    PlotThreadCreate,
+    PlotThreadUpdate,
+)
 
 
 class TestPlotThreadRepository:
@@ -21,13 +26,28 @@ class TestPlotThreadRepository:
             planned_payoff_chapter=kw.get("planned_payoff_chapter"),
             current_stage=kw.get("current_stage"),
             status=kw.get("status", "draft"),
-            **{k: v for k, v in kw.items() if k not in ("name", "thread_type", "start_chapter", "planned_payoff_chapter", "current_stage", "status")},
+            **{
+                k: v
+                for k, v in kw.items()
+                if k
+                not in (
+                    "name",
+                    "thread_type",
+                    "start_chapter",
+                    "planned_payoff_chapter",
+                    "current_stage",
+                    "status",
+                )
+            },
         )
         return await PlotThreadRepository().create(db, nid, data)
 
     @pytest.mark.asyncio
     async def test_create_and_get(
-        self, db_session: AsyncSession, sample_novel_id: str, thread_data: PlotThreadCreate,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        thread_data: PlotThreadCreate,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = PlotThreadRepository()
@@ -45,14 +65,17 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_get_not_found(
-        self, db_session: AsyncSession,
+        self,
+        db_session: AsyncSession,
     ) -> None:
         result = await PlotThreadRepository().get(db_session, uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
     async def test_get_by_novel(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         for i in range(3):
@@ -63,18 +86,25 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_novel_pagination(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         for i in range(5):
             await self._make(db_session, nid, name=f"页{i}", thread_type="secondary")
-        page1, total = await PlotThreadRepository().get_by_novel(db_session, nid, skip=0, limit=2)
+        page1, total = await PlotThreadRepository().get_by_novel(
+            db_session, nid, skip=0, limit=2
+        )
         assert len(page1) == 2
         assert total >= 5
 
     @pytest.mark.asyncio
     async def test_novel_id_isolation(
-        self, db_session: AsyncSession, sample_novel_id: str, other_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
     ) -> None:
         nid_a = uuid.UUID(hex=sample_novel_id)
         nid_b = uuid.UUID(hex=other_novel_id)
@@ -85,7 +115,9 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_update(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = PlotThreadRepository()
@@ -98,7 +130,9 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_update_partial(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = PlotThreadRepository()
@@ -111,7 +145,8 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_update_not_found(
-        self, db_session: AsyncSession,
+        self,
+        db_session: AsyncSession,
     ) -> None:
         update = PlotThreadUpdate(name="不存在")
         result = await PlotThreadRepository().update(db_session, uuid.uuid4(), update)
@@ -119,7 +154,9 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_delete(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = PlotThreadRepository()
@@ -130,18 +167,25 @@ class TestPlotThreadRepository:
 
     @pytest.mark.asyncio
     async def test_delete_not_found(
-        self, db_session: AsyncSession,
+        self,
+        db_session: AsyncSession,
     ) -> None:
         result = await PlotThreadRepository().delete(db_session, uuid.uuid4())
         assert result is False
 
     @pytest.mark.asyncio
     async def test_get_active_filters_by_chapter(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
-        await self._make(db_session, nid, name="早期线", start_chapter=1, status="canonical")
-        await self._make(db_session, nid, name="后期线", start_chapter=10, status="canonical")
+        await self._make(
+            db_session, nid, name="早期线", start_chapter=1, status="canonical"
+        )
+        await self._make(
+            db_session, nid, name="后期线", start_chapter=10, status="canonical"
+        )
         early = await PlotThreadRepository().get_active(db_session, nid, chapter_index=5)
         names = [t.name for t in early]
         assert "早期线" in names
@@ -165,7 +209,10 @@ class TestOutlineArcRepository:
 
     @pytest.mark.asyncio
     async def test_create_and_get(
-        self, db_session: AsyncSession, sample_novel_id: str, arc_data: OutlineArcCreate,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        arc_data: OutlineArcCreate,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = OutlineArcRepository()
@@ -182,7 +229,9 @@ class TestOutlineArcRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_chapter(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = OutlineArcRepository()
@@ -199,16 +248,22 @@ class TestOutlineArcRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_chapter_outside_range(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         await self._make(db_session, nid, title="卷一", start_chapter=1, end_chapter=5)
-        result = await OutlineArcRepository().get_by_chapter(db_session, nid, chapter_index=99)
+        result = await OutlineArcRepository().get_by_chapter(
+            db_session, nid, chapter_index=99
+        )
         assert result is None
 
     @pytest.mark.asyncio
     async def test_update_arc(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = OutlineArcRepository()
@@ -222,7 +277,9 @@ class TestOutlineArcRepository:
 
     @pytest.mark.asyncio
     async def test_delete_arc(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=sample_novel_id)
         repo = OutlineArcRepository()

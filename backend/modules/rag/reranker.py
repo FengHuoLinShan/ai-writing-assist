@@ -59,9 +59,7 @@ async def rerank(
     trimmed = candidates[:max_candidates]
 
     # 构建 prompt
-    passages = "\n\n".join(
-        f"[{i}] {c['text'][:300]}" for i, c in enumerate(trimmed)
-    )
+    passages = "\n\n".join(f"[{i}] {c['text'][:300]}" for i, c in enumerate(trimmed))
     user_prompt = f"查询: {query}\n\n候选片段:\n{passages}"
 
     from infrastructure.llm.schemas import LLMMessage
@@ -122,8 +120,7 @@ async def rerank_results(
         return scored_chunks
 
     candidates = [
-        {"text": chunk.text, "original_score": score}
-        for chunk, score in scored_chunks
+        {"text": chunk.text, "original_score": score} for chunk, score in scored_chunks
     ]
 
     rerank_scores = await rerank(query, candidates, model=model)

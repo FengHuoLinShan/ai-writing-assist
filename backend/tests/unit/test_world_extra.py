@@ -15,7 +15,7 @@ All external dependencies (DB, BGE, etc.) are mocked.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -90,9 +90,22 @@ class TestIsEntityTypeValid:
     """is_entity_type_valid: regex validation"""
 
     def test_valid_types_return_true(self) -> None:
-        for t in ("character", "location", "faction", "item", "event", "rule",
-                  "power_system", "secret", "legend", "resource", "concept",
-                  "creature", "skill", "other"):
+        for t in (
+            "character",
+            "location",
+            "faction",
+            "item",
+            "event",
+            "rule",
+            "power_system",
+            "secret",
+            "legend",
+            "resource",
+            "concept",
+            "creature",
+            "skill",
+            "other",
+        ):
             assert is_entity_type_valid(t) is True
 
     def test_invalid_type_returns_false(self) -> None:
@@ -144,10 +157,14 @@ class TestEntityServiceList:
     async def test_forwards_filters_to_repo(self) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
             svc = WorldEntityService()
-            await svc.list(db, nid, entity_type="location", status="canonical", skip=5, limit=20)
+            await svc.list(
+                db, nid, entity_type="location", status="canonical", skip=5, limit=20
+            )
 
             _, kwargs = svc.repo.get_by_novel.await_args
             assert kwargs["entity_type"] == "location"
@@ -157,7 +174,9 @@ class TestEntityServiceList:
 
     async def test_clamps_limit_to_max(self) -> None:
         db = MagicMock()
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
             svc = WorldEntityService()
             await svc.list(db, str(uuid.uuid4()), limit=9999)
@@ -167,7 +186,9 @@ class TestEntityServiceList:
 
     async def test_returns_list_response(self) -> None:
         db = MagicMock()
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([_mock_entity()], 1))
             svc = WorldEntityService()
             result = await svc.list(db, str(uuid.uuid4()))
@@ -184,7 +205,9 @@ class TestEntityServiceGetEntityContext:
         db = MagicMock()
         nid = str(uuid.uuid4())
         eid = str(uuid.uuid4())
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_ids = AsyncMock(return_value=[_mock_entity()])
             svc = WorldEntityService()
             result = await svc.get_entity_context(db, nid, entity_ids=[eid])
@@ -193,7 +216,9 @@ class TestEntityServiceGetEntityContext:
 
     async def test_without_entity_ids_falls_back_to_get_by_novel(self) -> None:
         db = MagicMock()
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
             svc = WorldEntityService()
             result = await svc.get_entity_context(db, str(uuid.uuid4()), entity_ids=None)
@@ -204,22 +229,30 @@ class TestEntityServiceGetEntityContext:
     async def test_author_only_reveal_mode_includes_hidden_truth(self) -> None:
         db = MagicMock()
         ent = _mock_entity(hidden_truth="deep secret")
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([ent], 1))
             svc = WorldEntityService()
             result = await svc.get_entity_context(
-                db, str(uuid.uuid4()), reveal_mode="author_only",
+                db,
+                str(uuid.uuid4()),
+                reveal_mode="author_only",
             )
             assert result.entities[0].hidden_truth == "deep secret"
 
     async def test_author_safe_reveal_mode_excludes_hidden_truth(self) -> None:
         db = MagicMock()
         ent = _mock_entity(hidden_truth="secret")
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([ent], 1))
             svc = WorldEntityService()
             result = await svc.get_entity_context(
-                db, str(uuid.uuid4()), reveal_mode="author_safe",
+                db,
+                str(uuid.uuid4()),
+                reveal_mode="author_safe",
             )
             assert result.entities[0].hidden_truth is None
 
@@ -230,11 +263,15 @@ class TestEntityServiceGetEntityContext:
         old_temp = _mock_entity(
             content_json={"_meta": {"temporary": True, "source_chapter_index": 1}},
         )
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([old_temp], 1))
             svc = WorldEntityService()
             result = await svc.get_entity_context(
-                db, str(uuid.uuid4()), current_chapter=100,
+                db,
+                str(uuid.uuid4()),
+                current_chapter=100,
             )
             assert result.total_count == 0
 
@@ -243,11 +280,15 @@ class TestEntityServiceGetEntityContext:
         db.execute = AsyncMock()
         db.execute.return_value.scalar_one_or_none = MagicMock(return_value=None)
         normal = _mock_entity(content_json={"_meta": {}})
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([normal], 1))
             svc = WorldEntityService()
             result = await svc.get_entity_context(
-                db, str(uuid.uuid4()), current_chapter=100,
+                db,
+                str(uuid.uuid4()),
+                current_chapter=100,
             )
             assert result.total_count == 1
 
@@ -257,15 +298,22 @@ class TestEntityServiceListEntitySummaries:
         db = MagicMock()
         nid = str(uuid.uuid4())
         ent = _mock_entity(name="Sword", entity_type="item")
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             svc = WorldEntityService()
-            result = await svc.list_entity_summaries(db, nid, entity_type="item", limit=50)
+            result = await svc.list_entity_summaries(
+                db, nid, entity_type="item", limit=50
+            )
             assert len(result) == 1
             assert result[0]["name"] == "Sword"
             assert result[0]["entity_type"] == "item"
             mock_repo.get_by_type_and_status.assert_awaited_once_with(
-                db, uuid.UUID(hex=nid), entity_type="item", limit=50,
+                db,
+                uuid.UUID(hex=nid),
+                entity_type="item",
+                limit=50,
             )
 
 
@@ -275,8 +323,12 @@ class TestEntityServiceListEntityTerms:
         canonical = _mock_entity(name="Hero", status="canonical")
         draft = _mock_entity(name="Sidekick", status="draft")
         merged = _mock_entity(name="Gone", status="merged")
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([canonical, draft, merged], 3))
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
+            mock_repo.get_by_novel = AsyncMock(
+                return_value=([canonical, draft, merged], 3)
+            )
             svc = WorldEntityService()
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
             assert len(result) == 2
@@ -293,7 +345,9 @@ class TestEntityServiceListEntityTerms:
             status="canonical",
             content_json={"aliases": []},
         )
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([ent1, ent2], 2))
             svc = WorldEntityService()
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
@@ -311,7 +365,9 @@ class TestEntityServiceFindByName:
     async def test_found_returns_entity_id_str(self) -> None:
         db = MagicMock()
         eid = str(uuid.uuid4())
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.find_entity_by_name = AsyncMock(return_value=eid)
             svc = WorldEntityService()
             result = await svc.find_by_name(db, str(uuid.uuid4()), "Arthur")
@@ -319,7 +375,9 @@ class TestEntityServiceFindByName:
 
     async def test_not_found_returns_none(self) -> None:
         db = MagicMock()
-        with patch.object(WorldEntityService, "repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
             mock_repo.find_entity_by_name = AsyncMock(return_value=None)
             svc = WorldEntityService()
             result = await svc.find_by_name(db, str(uuid.uuid4()), "Nobody")
@@ -360,7 +418,9 @@ class TestEntityServiceBackfillEmbeddings:
         ents = [_mock_entity(name=f"E{i}") for i in range(4)]
         db = self._make_db(ents)
 
-        result = await WorldEntityService().backfill_embeddings(db, str(uuid.uuid4()), batch_size=4)
+        result = await WorldEntityService().backfill_embeddings(
+            db, str(uuid.uuid4()), batch_size=4
+        )
 
         assert result == 4
         for e, expected_val in zip(ents, [0.1, 0.2, 0.3, 0.4]):
@@ -376,7 +436,9 @@ class TestEntityServiceBackfillEmbeddings:
         empty = _mock_entity(name="")
         db = self._make_db([valid, empty])
 
-        result = await WorldEntityService().backfill_embeddings(db, str(uuid.uuid4()), batch_size=8)
+        result = await WorldEntityService().backfill_embeddings(
+            db, str(uuid.uuid4()), batch_size=8
+        )
 
         assert result == 1
         assert valid.embedding == [0.5]
@@ -384,15 +446,19 @@ class TestEntityServiceBackfillEmbeddings:
     @patch("infrastructure.embedding.client.BgeEmbeddingClient.get_instance")
     async def test_batch_failure_continues_to_next_batch(self, mock_get_instance) -> None:
         bge = AsyncMock()
-        bge.generate_embedding = AsyncMock(side_effect=[
-            RuntimeError("API error"),
-            [[0.9], [1.0]],
-        ])
+        bge.generate_embedding = AsyncMock(
+            side_effect=[
+                RuntimeError("API error"),
+                [[0.9], [1.0]],
+            ]
+        )
         mock_get_instance.return_value = bge
         ents = [_mock_entity(name=f"E{i}") for i in range(4)]
         db = self._make_db(ents)
 
-        result = await WorldEntityService().backfill_embeddings(db, str(uuid.uuid4()), batch_size=2)
+        result = await WorldEntityService().backfill_embeddings(
+            db, str(uuid.uuid4()), batch_size=2
+        )
 
         assert result == 2  # second batch succeeded
 
@@ -588,16 +654,20 @@ class TestDedupGetAliases:
         assert result == ["aliasa", "aliasb"]
 
     def test_dict_aliases_extract_alias_key(self) -> None:
-        entity = _mock_entity(content_json={
-            "aliases": [{"alias": "Nick"}, {"alias": "Name"}],
-        })
+        entity = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "Nick"}, {"alias": "Name"}],
+            }
+        )
         result = EntityDedupService._get_aliases(entity)
         assert result == ["nick", "name"]
 
     def test_mixed_aliases_handled(self) -> None:
-        entity = _mock_entity(content_json={
-            "aliases": ["Simple", {"alias": "Complex"}],
-        })
+        entity = _mock_entity(
+            content_json={
+                "aliases": ["Simple", {"alias": "Complex"}],
+            }
+        )
         result = EntityDedupService._get_aliases(entity)
         assert result == ["simple", "complex"]
 
@@ -614,9 +684,11 @@ class TestDedupGetAliasesRaw:
     """EntityDedupService()._get_aliases_raw — preserves original format"""
 
     def test_dict_entries_preserved(self) -> None:
-        entity = _mock_entity(content_json={
-            "aliases": [{"alias": "Nick", "type": "name"}],
-        })
+        entity = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "Nick", "type": "name"}],
+            }
+        )
         result = EntityDedupService()._get_aliases_raw(entity)
         assert result == [{"alias": "Nick", "type": "name"}]
 
@@ -630,9 +702,11 @@ class TestDedupGetAliasesRaw:
         assert EntityDedupService()._get_aliases_raw(entity) == []
 
     def test_mixed_handled(self) -> None:
-        entity = _mock_entity(content_json={
-            "aliases": ["Str", {"alias": "Dict"}],
-        })
+        entity = _mock_entity(
+            content_json={
+                "aliases": ["Str", {"alias": "Dict"}],
+            }
+        )
         result = EntityDedupService()._get_aliases_raw(entity)
         assert len(result) == 2
         assert {"alias": "Str", "type": "unknown"} in result
@@ -739,12 +813,16 @@ class TestDedupInheritAliases:
         svc = EntityDedupService()
         svc._entity_repo = AsyncMock()
 
-        candidate = _mock_entity(content_json={
-            "aliases": [{"alias": "NewAlias"}],
-        })
-        target = _mock_entity(content_json={
-            "aliases": [{"alias": "ExistingAlias"}],
-        })
+        candidate = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "NewAlias"}],
+            }
+        )
+        target = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "ExistingAlias"}],
+            }
+        )
 
         count = await svc._inherit_aliases(MagicMock(), candidate, target)
 
@@ -757,12 +835,16 @@ class TestDedupInheritAliases:
         svc = EntityDedupService()
         svc._entity_repo = AsyncMock()
 
-        candidate = _mock_entity(content_json={
-            "aliases": [{"alias": "ExistingAlias"}],
-        })
-        target = _mock_entity(content_json={
-            "aliases": [{"alias": "ExistingAlias"}],
-        })
+        candidate = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "ExistingAlias"}],
+            }
+        )
+        target = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "ExistingAlias"}],
+            }
+        )
 
         count = await svc._inherit_aliases(MagicMock(), candidate, target)
 
@@ -773,12 +855,16 @@ class TestDedupInheritAliases:
         svc = EntityDedupService()
         svc._entity_repo = AsyncMock()
 
-        candidate = _mock_entity(content_json={
-            "aliases": [{"alias": "existingalias"}],
-        })
-        target = _mock_entity(content_json={
-            "aliases": [{"alias": "ExistingAlias"}],
-        })
+        candidate = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "existingalias"}],
+            }
+        )
+        target = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "ExistingAlias"}],
+            }
+        )
 
         count = await svc._inherit_aliases(MagicMock(), candidate, target)
 
@@ -789,12 +875,16 @@ class TestDedupInheritAliases:
         svc = EntityDedupService()
         svc._entity_repo = AsyncMock()
 
-        candidate = _mock_entity(content_json={
-            "aliases": ["PlainString"],
-        })
-        target = _mock_entity(content_json={
-            "aliases": [{"alias": "Existing"}],
-        })
+        candidate = _mock_entity(
+            content_json={
+                "aliases": ["PlainString"],
+            }
+        )
+        target = _mock_entity(
+            content_json={
+                "aliases": [{"alias": "Existing"}],
+            }
+        )
 
         count = await svc._inherit_aliases(MagicMock(), candidate, target)
 
@@ -819,7 +909,10 @@ class TestDedupMigrateRelations:
         svc._relation_repo.get_all_for_entity = AsyncMock(return_value=[rel])
 
         result = await svc._migrate_relations(
-            MagicMock(), str(uuid.uuid4()), str(cid), str(uuid.uuid4()),
+            MagicMock(),
+            str(uuid.uuid4()),
+            str(cid),
+            str(uuid.uuid4()),
         )
 
         assert result["migrated"] == 0
@@ -845,7 +938,10 @@ class TestDedupMigrateRelations:
         svc._relation_repo.find_duplicate_relation = AsyncMock(return_value=None)
 
         result = await svc._migrate_relations(
-            MagicMock(), str(uuid.uuid4()), str(cid), str(tid),
+            MagicMock(),
+            str(uuid.uuid4()),
+            str(cid),
+            str(tid),
         )
 
         assert result["migrated"] == 1
@@ -859,7 +955,9 @@ class TestDedupSyncCharacterOnMerge:
         svc = EntityDedupService()
         char_repo = MagicMock()
         char_repo.get = AsyncMock(return_value=None)
-        with patch.object(svc, "_sync_character_on_merge", wraps=svc._sync_character_on_merge) as _:
+        with patch.object(
+            svc, "_sync_character_on_merge", wraps=svc._sync_character_on_merge
+        ) as _:
             # Cannot easily mock CharacterRepository directly since it's created inside
             pass
 
@@ -867,10 +965,15 @@ class TestDedupSyncCharacterOnMerge:
         svc = EntityDedupService()
         char_repo = AsyncMock()
         char_repo.get.return_value = None
-        with patch("modules.world.services.dedup_service.CharacterRepository",
-                   return_value=char_repo):
+        with patch(
+            "modules.world.services.dedup_service.CharacterRepository",
+            return_value=char_repo,
+        ):
             result = await svc._sync_character_on_merge(
-                MagicMock(), str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4()),
+                MagicMock(),
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
             )
         assert result is False
 
@@ -904,10 +1007,15 @@ class TestDedupSyncCharacterOnMerge:
         char_repo.get.side_effect = [candidate_char, target_char]
         char_repo.update = AsyncMock()
 
-        with patch("modules.world.services.dedup_service.CharacterRepository",
-                   return_value=char_repo):
+        with patch(
+            "modules.world.services.dedup_service.CharacterRepository",
+            return_value=char_repo,
+        ):
             result = await svc._sync_character_on_merge(
-                MagicMock(), str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4()),
+                MagicMock(),
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
             )
 
         assert result is True
@@ -946,6 +1054,7 @@ class TestDedupResolveCandidate:
         db = MagicMock()
 
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc:
             await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
         assert exc.value.status_code == 404
@@ -974,16 +1083,18 @@ class TestDedupResolveCandidate:
 
         from modules.world.schemas import DuplicateSuggestionResult
 
-        svc.find_similar_entities = AsyncMock(return_value=[
-            DuplicateSuggestionResult(
-                candidate_name="Dupe",
-                existing_entity_id=str(uuid.uuid4()),
-                existing_entity_name="Existing",
-                similarity_score=0.95,
-                match_method="exact_name",
-                action="merge_with_existing",
-            ),
-        ])
+        svc.find_similar_entities = AsyncMock(
+            return_value=[
+                DuplicateSuggestionResult(
+                    candidate_name="Dupe",
+                    existing_entity_id=str(uuid.uuid4()),
+                    existing_entity_name="Existing",
+                    similarity_score=0.95,
+                    match_method="exact_name",
+                    action="merge_with_existing",
+                ),
+            ]
+        )
         svc.merge_candidate_into_entity = AsyncMock(return_value=MagicMock())
         db = MagicMock()
 
@@ -999,16 +1110,18 @@ class TestDedupResolveCandidate:
 
         from modules.world.schemas import DuplicateSuggestionResult
 
-        svc.find_similar_entities = AsyncMock(return_value=[
-            DuplicateSuggestionResult(
-                candidate_name="Maybe",
-                existing_entity_id=str(uuid.uuid4()),
-                existing_entity_name="Similar",
-                similarity_score=0.75,
-                match_method="lexical_fusion",
-                action="needs_user_decision",
-            ),
-        ])
+        svc.find_similar_entities = AsyncMock(
+            return_value=[
+                DuplicateSuggestionResult(
+                    candidate_name="Maybe",
+                    existing_entity_id=str(uuid.uuid4()),
+                    existing_entity_name="Similar",
+                    similarity_score=0.75,
+                    match_method="lexical_fusion",
+                    action="needs_user_decision",
+                ),
+            ]
+        )
         db = MagicMock()
 
         result = await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
@@ -1049,7 +1162,9 @@ class TestDedupFindSimilarEntities:
         nid = str(uuid.uuid4())
         # "Existing" is a substring of "ExistingEntity" → substring_match=0.85
         result = await svc.find_similar_entities(
-            MagicMock(), nid, "Existing",
+            MagicMock(),
+            nid,
+            "Existing",
             entity_type="character",
         )
 
@@ -1071,7 +1186,9 @@ class TestDedupFindSimilarEntities:
         svc._entity_repo.find_similar_by_embedding = AsyncMock(return_value=[])
 
         result = await svc.find_similar_entities(
-            MagicMock(), str(uuid.uuid4()), "New",
+            MagicMock(),
+            str(uuid.uuid4()),
+            "New",
         )
 
         assert result == []  # pending entities are skipped
@@ -1092,7 +1209,9 @@ class TestDedupFindSimilarEntities:
         svc._entity_repo.find_similar_by_embedding = AsyncMock(return_value=[])
 
         result = await svc.find_similar_entities(
-            MagicMock(), str(uuid.uuid4()), "New",
+            MagicMock(),
+            str(uuid.uuid4()),
+            "New",
             aliases=["King Arthur"],
         )
 
@@ -1110,7 +1229,9 @@ class TestContractsConstruction:
     """Contract dataclasses — default values and frozen nature"""
 
     def test_core_entity_contract_defaults(self) -> None:
-        c = CoreEntityContract(novel_id="n1", entity_id="e1", entity_type="char", name="Test")
+        c = CoreEntityContract(
+            novel_id="n1", entity_id="e1", entity_type="char", name="Test"
+        )
         assert c.novel_id == "n1"
         assert c.summary is None
         assert c.importance == 0.5
@@ -1119,7 +1240,9 @@ class TestContractsConstruction:
         assert c.status == "draft"
 
     def test_core_entity_contract_frozen(self) -> None:
-        c = CoreEntityContract(novel_id="n1", entity_id="e1", entity_type="char", name="T")
+        c = CoreEntityContract(
+            novel_id="n1", entity_id="e1", entity_type="char", name="T"
+        )
         with pytest.raises(AttributeError):
             c.name = "New"  # type: ignore[misc]
 
@@ -1133,8 +1256,10 @@ class TestContractsConstruction:
 
     def test_entity_relation_contract_defaults(self) -> None:
         r = EntityRelationContract(
-            novel_id="n1", relation_id="r1",
-            source_id="s1", target_id="t1",
+            novel_id="n1",
+            relation_id="r1",
+            source_id="s1",
+            target_id="t1",
             relation_type="friend",
         )
         assert r.description is None
@@ -1160,7 +1285,8 @@ class TestContractsConstruction:
 
     def test_character_knowledge_contract_defaults(self) -> None:
         k = CharacterKnowledgeContract(
-            target_type="entity", target_id="e1",
+            target_type="entity",
+            target_id="e1",
             knowledge_level="partial",
         )
         assert k.known_content is None

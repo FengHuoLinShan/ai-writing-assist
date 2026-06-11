@@ -15,15 +15,16 @@ from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import CoreEntityCreate
 from modules.world.services.dedup_service import EntityDedupService
 from modules.world.services.draft_provider import WritingDraftProvider
-from shared.protocols import DraftProvider
 from modules.world.services.helpers import parse_uuid
 from shared.constants import SIMILARITY_HIGH_CONFIDENCE
+from shared.protocols import DraftProvider
 
 logger = logging.getLogger(__name__)
 
 
 class ExtractionResult:
     """抽取结果统计"""
+
     total_chapters: int
     total_created: int
     total_skipped: int
@@ -80,13 +81,20 @@ class EntityExtractionService:
         from modules.world.facade import get_world_context
 
         ctx = await get_world_context(
-            db, novel_id, reveal_mode="author_safe", limit=500,
+            db,
+            novel_id,
+            reveal_mode="author_safe",
+            limit=500,
             current_chapter=start_chapter,
         )
-        existing_context = "\n".join(
-            f"- {e.name} ({e.entity_type})"
-            for e in ctx.entities if e.status in ("canonical", "draft")
-        ) or "无已有对象"
+        existing_context = (
+            "\n".join(
+                f"- {e.name} ({e.entity_type})"
+                for e in ctx.entities
+                if e.status in ("canonical", "draft")
+            )
+            or "无已有对象"
+        )
 
         # 2. 单章读取 WritingDraft
         chapters = await self._load_chapters(db, novel_id, start_chapter, end_chapter)
@@ -97,11 +105,12 @@ class EntityExtractionService:
             )
 
         # 3. 单章顺序抽取
+        from pydantic import BaseModel
+
         from infrastructure.llm.client import LLMClient
         from infrastructure.llm.errors import LLMInvalidResponseError
         from infrastructure.llm.prompt_loader import load_prompt
         from infrastructure.llm.schemas import LLMCallRequest
-        from pydantic import BaseModel
 
         llm = LLMClient()
         total_created = 0
@@ -130,7 +139,8 @@ class EntityExtractionService:
         class _ExtractionOutput(BaseModel):
             entities: list[_ExtractedEntity]
 
-        system_prompt_base = load_prompt("structure_extraction",
+        system_prompt_base = load_prompt(
+            "structure_extraction",
             existing_entities_context=existing_context,
         )
 
@@ -150,19 +160,24 @@ class EntityExtractionService:
 
             try:
                 result = await llm.generate_structured(
-                    request, _ExtractionOutput, max_fix_attempts=3,
+                    request,
+                    _ExtractionOutput,
+                    max_fix_attempts=3,
                 )
             except LLMInvalidResponseError as exc:
                 logger.warning(
                     "LLM extraction failed for chapter %d after 4 attempts: %s",
-                    ch_idx, exc,
+                    ch_idx,
+                    exc,
                 )
                 failed_chapters.append(ch_idx)
                 continue
             except Exception as exc:
                 logger.error(
                     "Unexpected error extracting chapter %d: %s",
-                    ch_idx, exc, exc_info=True,
+                    ch_idx,
+                    exc,
+                    exc_info=True,
                 )
                 failed_chapters.append(ch_idx)
                 continue
@@ -192,14 +207,18 @@ class EntityExtractionService:
                     and extracted.suggested_existing_entity_name
                 ):
                     existing_id = await self._find_entity_by_name(
-                        db, novel_id,
+                        db,
+                        novel_id,
                         extracted.suggested_existing_entity_name,
                         extracted.entity_type,
                     )
                     if existing_id is not None:
                         if extracted.aliases:
                             await self._sync_aliases_to_existing(
-                                db, existing_id, novel_id, extracted.aliases,
+                                db,
+                                existing_id,
+                                novel_id,
+                                extracted.aliases,
                             )
                         total_skipped += 1
                         linked = True
@@ -211,18 +230,29 @@ class EntityExtractionService:
                     continue
 
                 # --- Layer 1: Name embedding dedup ---
-                name_embedding = await self._generate_embedding(llm, extracted.name, is_query=True)
+                name_embedding = await self._generate_embedding(
+                    llm, extracted.name, is_query=True
+                )
                 suggestions = await self._dedup_service.find_similar_entities(
-                    db, novel_id, extracted.name,
+                    db,
+                    novel_id,
+                    extracted.name,
                     entity_type=extracted.entity_type,
                     query_embedding=name_embedding,
                 )
-                high_confidence = [s for s in suggestions if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE]
+                high_confidence = [
+                    s
+                    for s in suggestions
+                    if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE
+                ]
                 if high_confidence:
                     best = high_confidence[0]
                     if extracted.aliases:
                         await self._sync_aliases_to_existing(
-                            db, best.existing_entity_id, novel_id, extracted.aliases,
+                            db,
+                            best.existing_entity_id,
+                            novel_id,
+                            extracted.aliases,
                         )
                     total_skipped += 1
                     new_entity_descriptions.append(
@@ -238,22 +268,32 @@ class EntityExtractionService:
                     content_text_parts.append(extracted.public_info.strip())
                 content_text = ". ".join(content_text_parts).strip()
                 if content_text:
-                    content_embedding = await self._generate_embedding(llm, content_text, is_query=True)
+                    content_embedding = await self._generate_embedding(
+                        llm, content_text, is_query=True
+                    )
                     if content_embedding is not None:
-                        content_suggestions = await self._dedup_service.find_similar_entities(
-                            db, novel_id, extracted.name,
-                            entity_type=extracted.entity_type,
-                            query_embedding=content_embedding,
+                        content_suggestions = (
+                            await self._dedup_service.find_similar_entities(
+                                db,
+                                novel_id,
+                                extracted.name,
+                                entity_type=extracted.entity_type,
+                                query_embedding=content_embedding,
+                            )
                         )
                         high_conf_content = [
-                            s for s in content_suggestions
+                            s
+                            for s in content_suggestions
                             if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE
                         ]
                         if high_conf_content:
                             best = high_conf_content[0]
                             if extracted.aliases:
                                 await self._sync_aliases_to_existing(
-                                    db, best.existing_entity_id, novel_id, extracted.aliases,
+                                    db,
+                                    best.existing_entity_id,
+                                    novel_id,
+                                    extracted.aliases,
                                 )
                             total_skipped += 1
                             new_entity_descriptions.append(
@@ -265,7 +305,8 @@ class EntityExtractionService:
                 if suggested_action == "link_to_existing":
                     logger.warning(
                         "link_to_existing for '%s' (chapter %d) could not resolve; skipping",
-                        extracted.name, ch_idx,
+                        extracted.name,
+                        ch_idx,
                     )
                     total_skipped += 1
                     continue
@@ -286,7 +327,10 @@ class EntityExtractionService:
                 content_json: dict[str, Any] = {"_meta": _meta}
                 if extracted.aliases:
                     content_json["aliases"] = [
-                        {"alias": a.get("alias", "").strip(), "type": a.get("type", "name")}
+                        {
+                            "alias": a.get("alias", "").strip(),
+                            "type": a.get("type", "name"),
+                        }
                         for a in extracted.aliases
                         if isinstance(a, dict) and a.get("alias")
                     ]
@@ -304,18 +348,22 @@ class EntityExtractionService:
                 )
                 try:
                     entity = await self._entity_repo.create(db, nid, entity_data)
-                    storage_embedding = await self._generate_embedding(llm, extracted.name, is_query=False)
+                    storage_embedding = await self._generate_embedding(
+                        llm, extracted.name, is_query=False
+                    )
                     if storage_embedding:
                         entity.embedding = storage_embedding
                         entity.embedding_text = extracted.name.strip()
                     total_created += 1
-                    created_items.append({
-                        "id": str(entity.id),
-                        "name": entity.name,
-                        "entity_type": entity.entity_type,
-                        "batch_id": run_batch_id,
-                        "auto_ingested": True,
-                    })
+                    created_items.append(
+                        {
+                            "id": str(entity.id),
+                            "name": entity.name,
+                            "entity_type": entity.entity_type,
+                            "batch_id": run_batch_id,
+                            "auto_ingested": True,
+                        }
+                    )
                     new_entity_descriptions.append(
                         f"- {extracted.name} ({extracted.entity_type}) [created]"
                     )
@@ -326,7 +374,8 @@ class EntityExtractionService:
             if new_entity_descriptions:
                 new_lines = "\n".join(new_entity_descriptions)
                 existing_context = existing_context + "\n" + new_lines
-                system_prompt_base = load_prompt("structure_extraction",
+                system_prompt_base = load_prompt(
+                    "structure_extraction",
                     existing_entities_context=existing_context,
                 )
 
@@ -363,11 +412,17 @@ class EntityExtractionService:
             return None
         try:
             result = await llm.generate_embedding(text, is_query=is_query)
-            if isinstance(result, list) and len(result) > 0 and all(isinstance(v, (int, float)) for v in result):
+            if (
+                isinstance(result, list)
+                and len(result) > 0
+                and all(isinstance(v, (int, float)) for v in result)
+            ):
                 return [float(v) for v in result]
             return None
         except Exception as exc:
-            logger.warning("Failed to generate embedding, falling back to text-only dedup: %s", exc)
+            logger.warning(
+                "Failed to generate embedding, falling back to text-only dedup: %s", exc
+            )
             return None
 
     async def _sync_aliases_to_existing(
@@ -398,10 +453,12 @@ class EntityExtractionService:
                 continue
             if find_alias_in_list(existing, alias_text.strip()):
                 continue
-            existing.append({
-                "alias": alias_text.strip(),
-                "type": entry.get("type", "name"),
-            })
+            existing.append(
+                {
+                    "alias": alias_text.strip(),
+                    "type": entry.get("type", "name"),
+                }
+            )
             changed = True
 
         if changed:
@@ -418,5 +475,8 @@ class EntityExtractionService:
     ) -> list[dict[str, Any]]:
         """通过 DraftProvider 读取指定范围的 WritingDraft"""
         return await self._draft_provider.load_chapters(
-            db, novel_id, start_chapter, end_chapter,
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
         )

@@ -6,15 +6,13 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Column, DateTime, Float, String, Text, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, DateTime, Float, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, UUIDMixin, TimestampMixin
+from core.base import Base, TimestampMixin, UUIDMixin
 
 
 class AsyncTask(Base, UUIDMixin, TimestampMixin):
@@ -79,7 +77,7 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
 
     def mark_running(self) -> None:
         """标记任务为运行中"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self.status = "running"
         self.started_at = now
         self.heartbeat_at = now
@@ -87,7 +85,7 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
     def mark_done(self, result_data: dict[str, Any] | None = None) -> None:
         """标记任务为已完成"""
         self.status = "done"
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
         self.progress = 1.0
         if result_data:
             self.result = result_data
@@ -95,19 +93,19 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
     def mark_failed(self, error: str) -> None:
         """标记任务为失败"""
         self.status = "failed"
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
         self.error_message = error
 
     def mark_cancelled(self) -> None:
         """标记任务为已取消"""
         self.status = "cancelled"
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
 
     def update_heartbeat(self) -> None:
         """更新心跳时间"""
-        self.heartbeat_at = datetime.now(timezone.utc)
+        self.heartbeat_at = datetime.now(UTC)
 
     def update_progress(self, progress: float) -> None:
         """更新进度并刷新心跳"""
         self.progress = progress
-        self.heartbeat_at = datetime.now(timezone.utc)
+        self.heartbeat_at = datetime.now(UTC)

@@ -83,7 +83,9 @@ class TestImportPipeline:
             draft_resp = await client.get(
                 f"/api/writing/chapters/{ch_idx}/draft?novel_id={pid}",
             )
-            assert draft_resp.status_code == 200, f"第 {ch_idx} 章草稿不存在: {draft_resp.text}"
+            assert draft_resp.status_code == 200, (
+                f"第 {ch_idx} 章草稿不存在: {draft_resp.text}"
+            )
             draft = draft_resp.json()
             content = draft.get("content", "")
             assert len(content) > 100, f"第 {ch_idx} 章正文太短"
@@ -124,7 +126,9 @@ class TestImportPipeline:
         resp = await client.post("/api/imports/upload", files=files, data=data)
 
         # Assert
-        assert resp.status_code == 400, f"应为 400，实际 {resp.status_code} (body: {resp.text[:200]})"
+        assert resp.status_code == 400, (
+            f"应为 400，实际 {resp.status_code} (body: {resp.text[:200]})"
+        )
         assert "不支持" in resp.text
 
     async def test_import_upload_invalid_pdf_returns_400(
@@ -156,10 +160,14 @@ class TestImportPipeline:
 
         # Act & Assert
         for ch_idx in (1, 2):
-            resp = await client.get(f"/api/writing/chapters/{ch_idx}/draft?novel_id={pid}")
+            resp = await client.get(
+                f"/api/writing/chapters/{ch_idx}/draft?novel_id={pid}"
+            )
             assert resp.status_code == 200
             draft = resp.json()
-            assert draft["version_number"] == 1, f"第 {ch_idx} 章版本号应为 1，实际 {draft['version_number']}"
+            assert draft["version_number"] == 1, (
+                f"第 {ch_idx} 章版本号应为 1，实际 {draft['version_number']}"
+            )
 
 
 @pytest.mark.skip(reason="端点已移除: /api/world/candidates")
@@ -235,11 +243,13 @@ class TestEntityCandidateAPI:
         # Arrange
         meta = await create_base_scene(db_session)
         pid = meta["project_id"]
-        for i, (name, action) in enumerate([
-            ("克莱恩", "create_new"),
-            ("愚者", "alias_of_existing"),
-            ("值夜者", "merge_with_existing"),
-        ]):
+        for i, (name, action) in enumerate(
+            [
+                ("克莱恩", "create_new"),
+                ("愚者", "alias_of_existing"),
+                ("值夜者", "merge_with_existing"),
+            ]
+        ):
             await async_client.post(
                 f"/api/world/candidates?novel_id={pid}",
                 json={
@@ -279,7 +289,11 @@ class TestEntityCandidateAPI:
         pid = meta["project_id"]
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "罗塞尔", "entity_type": "character", "suggested_action": "create_new"},
+            json={
+                "name": "罗塞尔",
+                "entity_type": "character",
+                "suggested_action": "create_new",
+            },
         )
         cid = create_resp.json()["id"]
 
@@ -303,7 +317,11 @@ class TestEntityCandidateAPI:
         pid = meta["project_id"]
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "未知实体", "entity_type": "secret", "suggested_action": "needs_user_decision"},
+            json={
+                "name": "未知实体",
+                "entity_type": "secret",
+                "suggested_action": "needs_user_decision",
+            },
         )
         cid = create_resp.json()["id"]
 
@@ -328,7 +346,11 @@ class TestEntityCandidateAPI:
         pid = meta["project_id"]
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "临时", "entity_type": "item", "suggested_action": "temporary_only"},
+            json={
+                "name": "临时",
+                "entity_type": "item",
+                "suggested_action": "temporary_only",
+            },
         )
         cid = create_resp.json()["id"]
 
@@ -499,15 +521,18 @@ class TestAsyncTaskSubmission:
         pid = meta["project_id"]
 
         # Act
-        resp = await async_client.post("/api/tasks", json={
-            "task_type": "world_entity_extraction",
-            "meta": {
-                "novel_id": pid,
-                "start_chapter": 1,
-                "end_chapter": 2,
-                "batch_size": 5,
+        resp = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "world_entity_extraction",
+                "meta": {
+                    "novel_id": pid,
+                    "start_chapter": 1,
+                    "end_chapter": 2,
+                    "batch_size": 5,
+                },
             },
-        })
+        )
 
         # Assert
         assert resp.status_code == 201, f"提交任务失败: {resp.text}"
@@ -548,10 +573,17 @@ class TestAsyncTaskSubmission:
     ):
         """取消 pending 状态的任务应返回 cancelled"""
         # Arrange
-        resp = await async_client.post("/api/tasks", json={
-            "task_type": "world_entity_extraction",
-            "meta": {"novel_id": str(uuid.uuid4()), "start_chapter": 1, "end_chapter": 1},
-        })
+        resp = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "world_entity_extraction",
+                "meta": {
+                    "novel_id": str(uuid.uuid4()),
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                },
+            },
+        )
         task_id = resp.json()["task_id"]
 
         # Act

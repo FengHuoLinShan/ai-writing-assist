@@ -20,8 +20,18 @@ class ProjectCreate(BaseModel):
     language: str = Field(default="zh", max_length=16, description="创作语言")
     target_length: str | None = Field(None, max_length=32, description="目标规模")
     current_stage: str | None = Field(None, max_length=32, description="创作阶段")
-    default_reveal_policy: str = Field(default="author_safe", max_length=32, description="默认揭示策略")
+    default_reveal_policy: str = Field(
+        default="author_safe", max_length=32, description="默认揭示策略"
+    )
     settings: dict = Field(default={}, description="小说配置（JSON）")
+
+    @field_validator("default_reveal_policy")
+    @classmethod
+    def _check_reveal_policy(cls, v: str) -> str:
+        valid = {"author_safe", "author_only", "reader_known", "public"}
+        if v not in valid:
+            raise ValueError(f"default_reveal_policy must be one of {valid}")
+        return v
 
 
 class ProjectUpdate(BaseModel):
@@ -35,6 +45,16 @@ class ProjectUpdate(BaseModel):
     current_stage: Annotated[str | None, Field(None, max_length=32)]
     default_reveal_policy: Annotated[str | None, Field(None, max_length=32)]
     settings: Annotated[dict | None, Field(None, description="小说配置（JSON）")]
+
+    @field_validator("default_reveal_policy")
+    @classmethod
+    def _check_reveal_policy(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        valid = {"author_safe", "author_only", "reader_known", "public"}
+        if v not in valid:
+            raise ValueError(f"default_reveal_policy must be one of {valid}")
+        return v
 
 
 class ProjectResponse(BaseModel):

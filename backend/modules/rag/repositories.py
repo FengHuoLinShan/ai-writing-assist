@@ -21,7 +21,6 @@ from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class RagChunkRepository:
-
     def _json_array_contains_all(
         self,
         db: AsyncSession,
@@ -30,6 +29,7 @@ class RagChunkRepository:
     ) -> ColumnElement[bool]:
         if not values:
             from sqlalchemy import true
+
             return true()
         bind = db.get_bind()
         if bind.dialect.name == "postgresql":
@@ -92,10 +92,7 @@ class RagChunkRepository:
     ) -> tuple[list[RagChunk], int]:
         """获取片段列表（分页），返回 (items, total)"""
         # 获取总数
-        count_stmt = (
-            select(func.count(RagChunk.id))
-            .where(RagChunk.novel_id == novel_id)
-        )
+        count_stmt = select(func.count(RagChunk.id)).where(RagChunk.novel_id == novel_id)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()
 
@@ -264,9 +261,7 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -288,9 +283,7 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -312,9 +305,7 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -370,11 +361,7 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .limit(limit)
-        )
+        stmt = select(RagChunk).where(and_(*conditions)).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -401,12 +388,12 @@ class RagChunkRepository:
         """
         bind = db.get_bind()
         if bind is not None and bind.dialect.name != "postgresql":
-            return await self._vector_search_python(
-                db, novel_id, embedding, top_k=top_k
-            )
+            return await self._vector_search_python(db, novel_id, embedding, top_k=top_k)
 
         # PostgreSQL: 使用 pgvector <#> 内积操作符 + HNSW 索引
-        await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
+        await db.execute(
+            text("SET LOCAL hnsw.ef_search = :ef"), {"ef": ef_search}
+        )
 
         stmt = (
             select(
@@ -435,12 +422,9 @@ class RagChunkRepository:
         """SQLite 回退：Python 层计算余弦相似度"""
         import math
 
-        stmt = (
-            select(RagChunk)
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.embedding.is_not(None),
-            )
+        stmt = select(RagChunk).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding.is_not(None),
         )
         result = await db.execute(stmt)
         chunks: list[RagChunk] = list(result.scalars().all())
@@ -477,10 +461,7 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
     ) -> int:
         """统计小说项目的片段总数"""
-        stmt = (
-            select(func.count(RagChunk.id))
-            .where(RagChunk.novel_id == novel_id)
-        )
+        stmt = select(func.count(RagChunk.id)).where(RagChunk.novel_id == novel_id)
         result = await db.execute(stmt)
         return result.scalar_one()
 
@@ -507,12 +488,9 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
     ) -> int:
         """统计 embedding 失败的 chunk 数。"""
-        stmt = (
-            select(func.count(RagChunk.id))
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.embedding_status == "failed",
-            )
+        stmt = select(func.count(RagChunk.id)).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding_status == "failed",
         )
         result = await db.execute(stmt)
         return result.scalar_one() or 0
@@ -523,12 +501,9 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
     ) -> int:
         """统计待重新向量化的 chunk 数（维度迁移后）。"""
-        stmt = (
-            select(func.count(RagChunk.id))
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.embedding_status == "pending_vectorization",
-            )
+        stmt = select(func.count(RagChunk.id)).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding_status == "pending_vectorization",
         )
         result = await db.execute(stmt)
         return result.scalar_one() or 0

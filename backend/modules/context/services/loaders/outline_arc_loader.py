@@ -29,7 +29,9 @@ class OutlineArcLoader(Loader):
 
         arc_svc = _container_get("outline.arc_service")
         arc = await arc_svc.get_by_chapter(
-            db, options.novel_id, chapter,
+            db,
+            options.novel_id,
+            chapter,
         )
         if arc is not None:
             bundle.outline_arc = {

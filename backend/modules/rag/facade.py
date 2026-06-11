@@ -78,8 +78,7 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     warnings = []
     if pending_vectorization:
         warnings.append(
-            "有 {} 个片段待重新向量化（维度迁移后），"
-            "检索可能暂时不准确".format(pending_vectorization),
+            f"有 {pending_vectorization} 个片段待重新向量化（维度迁移后），检索可能暂时不准确",
         )
     if embedding_failed_count:
         warnings.append(
@@ -212,7 +211,11 @@ async def index_chapter_incremental(
     """
     nid = uuid.UUID(hex=novel_id)
     return await _indexing.index_chapter_incremental(
-        db, nid, chapter_index, old_content, new_content,
+        db,
+        nid,
+        chapter_index,
+        old_content,
+        new_content,
     )
 
 

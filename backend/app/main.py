@@ -11,7 +11,7 @@ from __future__ import annotations  # noqa: I001
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -81,6 +81,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 生命周期管理
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -172,26 +173,35 @@ app = FastAPI(
 
 class _TimingMiddleware:
     """在响应头注入 X-Request-Time-Ms"""
-    def __init__(self, app: "ASGIApp") -> None:
+
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: "Scope", receive: "Receive", send: "Send") -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         start = time.perf_counter()
+
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 elapsed = time.perf_counter() - start
                 headers = list(message.get("headers", []))
-                headers.append((b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode()))
+                headers.append(
+                    (b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode())
+                )
                 message["headers"] = headers
             await send(message)
+
         try:
             await self.app(scope, receive, send_with_headers)
         except Exception:
             elapsed = time.perf_counter() - start
-            logger.error("%s — unhandled exception after %.1fms", scope.get("path", ""), round(elapsed * 1000, 1))
+            logger.error(
+                "%s — unhandled exception after %.1fms",
+                scope.get("path", ""),
+                round(elapsed * 1000, 1),
+            )
             raise
 
 
@@ -273,6 +283,7 @@ async def health_check():
     try:
         async with manager.session() as sess:
             from sqlalchemy import text
+
             result = await sess.execute(text("SELECT 1"))
             db_ok = result.scalar() == 1
     except Exception as exc:
@@ -288,6 +299,7 @@ async def health_check():
     }
     if status == "degraded":
         from fastapi.responses import JSONResponse
+
         return JSONResponse(status_code=503, content=result)
     return result
 
@@ -322,17 +334,18 @@ async def root():
 # 此处 include 时不额外加前缀。
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
 
+import modules.imports.tasks  # noqa: F401 — 注册深度导入任务处理器
+import modules.outline.tasks  # noqa: F401 — 注册剧情结构生成任务处理器
+import modules.rag.tasks  # noqa: F401 — 注册 RAG 索引/重建任务处理器
+import modules.world.tasks  # noqa: F401 — 注册世界模块任务处理器
+import modules.writing.tasks  # noqa: F401 — 注册章节发布任务处理器
 from infrastructure.tasks import api as tasks_api
+from modules.context import api as context_api
+
 # geo/review — 已从 minimal-core 移除
 # character API 已迁入 modules.world.api；模块已删除
 from modules.imports import api as imports_api
 from modules.memory import api as memory_api
-import modules.world.tasks  # noqa: F401 — 注册世界模块任务处理器
-import modules.rag.tasks  # noqa: F401 — 注册 RAG 索引/重建任务处理器
-import modules.outline.tasks  # noqa: F401 — 注册剧情结构生成任务处理器
-import modules.imports.tasks  # noqa: F401 — 注册深度导入任务处理器
-import modules.writing.tasks  # noqa: F401 — 注册章节发布任务处理器
-from modules.context import api as context_api
 from modules.outline import api as outline_api
 from modules.project.api import router as project_router
 from modules.rag import api as rag_api

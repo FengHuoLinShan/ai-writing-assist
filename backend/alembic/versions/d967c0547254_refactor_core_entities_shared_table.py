@@ -8,16 +8,18 @@ Revision ID: d967c0547254
 Revises: aed774d964ff
 Create Date: 2026-05-30
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 
+from alembic import op
+
 revision: str = "d967c0547254"
-down_revision: Union[str, None] = "aed774d964ff"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "aed774d964ff"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -27,26 +29,61 @@ def upgrade() -> None:
     op.create_table(
         "core_entities",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("entity_type", sa.String(32), nullable=False, index=True,
-                  comment="对象类型：character/location/faction/item/concept/event/creature/skill/rule/other"),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "entity_type",
+            sa.String(32),
+            nullable=False,
+            index=True,
+            comment="对象类型：character/location/faction/item/concept/event/creature/skill/rule/other",
+        ),
         sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("aliases", sa.JSON(), nullable=False, server_default=sa.text("'[]'"),
-                  comment="别名列表 JSONB [{alias: str, type: str}]"),
+        sa.Column(
+            "aliases",
+            sa.JSON(),
+            nullable=False,
+            server_default=sa.text("'[]'"),
+            comment="别名列表 JSONB [{alias: str, type: str}]",
+        ),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("public_info", sa.Text(), nullable=True),
         sa.Column("hidden_truth", sa.Text(), nullable=True),
-        sa.Column("content_json", sa.JSON(), nullable=True, server_default=sa.text("'{}'")),
-        sa.Column("importance", sa.Float(), nullable=False, server_default=sa.text("0.5")),
-        sa.Column("importance_level", sa.String(16), nullable=False, server_default="normal"),
-        sa.Column("reveal_level", sa.String(16), nullable=False, server_default="author_only"),
+        sa.Column(
+            "content_json", sa.JSON(), nullable=True, server_default=sa.text("'{}'")
+        ),
+        sa.Column(
+            "importance", sa.Float(), nullable=False, server_default=sa.text("0.5")
+        ),
+        sa.Column(
+            "importance_level", sa.String(16), nullable=False, server_default="normal"
+        ),
+        sa.Column(
+            "reveal_level", sa.String(16), nullable=False, server_default="author_only"
+        ),
         sa.Column("embedding_text", sa.Text(), nullable=True),
         sa.Column("embedding", Vector(1024), nullable=True),
         sa.Column("created_by", sa.String(64), nullable=True),
         sa.Column("approved_by", sa.String(64), nullable=True),
-        sa.Column("status", sa.String(32), nullable=False, server_default="draft", index=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "status", sa.String(32), nullable=False, server_default="draft", index=True
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="共享核心实体表",
     )
@@ -57,7 +94,8 @@ def upgrade() -> None:
     # Deprecated aliases (status = 'deprecated') are intentionally excluded:
     # they represent LLM extraction errors or user-rejected candidates and
     # have no ongoing value in the unified aliases JSONB.
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         INSERT INTO core_entities (
             id, novel_id, entity_type, name, aliases, summary,
             public_info, hidden_truth, content_json, importance,
@@ -98,10 +136,12 @@ def upgrade() -> None:
             we.created_at,
             we.updated_at
         FROM world_entities we
-    """))
+    """)
+    )
 
     # Characters that were not linked to world_entities still need a core row.
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         INSERT INTO core_entities (
             id, novel_id, entity_type, name, aliases, summary,
             content_json, importance, importance_level, reveal_level,
@@ -135,30 +175,45 @@ def upgrade() -> None:
             c.updated_at
         FROM characters c
         WHERE c.world_entity_id IS NULL
-    """))
+    """)
+    )
 
     # Legacy extension rows determine the canonical subtype of linked core rows.
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         UPDATE core_entities ce
         SET entity_type = 'character'
         FROM characters c
         WHERE c.world_entity_id = ce.id
-    """))
-    op.execute(sa.text("""
+    """)
+    )
+    op.execute(
+        sa.text("""
         UPDATE core_entities ce
         SET entity_type = 'location',
             summary = COALESCE(ce.summary, gl.summary)
         FROM geo_locations gl
         WHERE gl.world_entity_id = ce.id
-    """))
+    """)
+    )
 
     # ---------------------------------------------------------------
     # Phase 2: Create temporary extension tables and copy legacy data.
     # ---------------------------------------------------------------
     op.create_table(
         "characters_new",
-        sa.Column("entity_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "entity_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("role", sa.String(64), nullable=True),
         sa.Column("appearance", sa.Text(), nullable=True),
         sa.Column("personality", sa.Text(), nullable=True),
@@ -171,12 +226,29 @@ def upgrade() -> None:
         sa.Column("current_emotion", sa.String(64), nullable=True),
         sa.Column("stance", sa.Text(), nullable=True),
         sa.Column("voice_style", sa.Text(), nullable=True),
-        sa.Column("behavior_rules", sa.JSON(), nullable=False, server_default=sa.text("'[]'")),
+        sa.Column(
+            "behavior_rules", sa.JSON(), nullable=False, server_default=sa.text("'[]'")
+        ),
         sa.Column("relationship_summary", sa.Text(), nullable=True),
-        sa.Column("meta", sa.JSON(), nullable=False, server_default=sa.text("'{}'"),
-                  comment="扩展元数据（AI 抽取建议等）"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "meta",
+            sa.JSON(),
+            nullable=False,
+            server_default=sa.text("'{}'"),
+            comment="扩展元数据（AI 抽取建议等）",
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("entity_id"),
         comment="人物档案扩展表",
     )
@@ -184,28 +256,65 @@ def upgrade() -> None:
     op.create_table(
         "character_knowledge_new",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("character_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "character_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("target_type", sa.String(64), nullable=False),
         sa.Column("target_id", sa.UUID(), nullable=False),
-        sa.Column("knowledge_level", sa.String(32), nullable=False, server_default="unknown"),
+        sa.Column(
+            "knowledge_level", sa.String(32), nullable=False, server_default="unknown"
+        ),
         sa.Column("known_content", sa.Text(), nullable=True),
         sa.Column("misconception", sa.Text(), nullable=True),
         sa.Column("source_chapter_index", sa.Integer(), nullable=True),
         sa.Column("source_memory_id", sa.UUID(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="人物知识边界",
     )
 
     op.create_table(
         "geo_locations_new",
-        sa.Column("entity_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "entity_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("location_level", sa.String(32), nullable=False, index=True),
-        sa.Column("parent_location_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "parent_location_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("x", sa.Float(), nullable=True),
         sa.Column("y", sa.Float(), nullable=True),
         sa.Column("position_label", sa.String(128), nullable=True),
@@ -213,10 +322,25 @@ def upgrade() -> None:
         sa.Column("terrain", sa.String(64), nullable=True),
         sa.Column("climate", sa.String(64), nullable=True),
         sa.Column("access_level", sa.String(32), nullable=False, server_default="normal"),
-        sa.Column("content_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'"),
-                  comment="扩展信息，可包含 era_states 历史时期状态"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "content_json",
+            sa.JSON(),
+            nullable=False,
+            server_default=sa.text("'{}'"),
+            comment="扩展信息，可包含 era_states 历史时期状态",
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("entity_id"),
         comment="地理地点扩展表",
     )
@@ -224,9 +348,24 @@ def upgrade() -> None:
     op.create_table(
         "geo_edges_new",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("source_location_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("target_location_id", sa.UUID(), sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "source_location_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "target_location_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("relation_type", sa.String(32), nullable=False, index=True),
         sa.Column("direction_label", sa.String(64), nullable=True),
         sa.Column("distance_label", sa.String(64), nullable=True),
@@ -234,14 +373,31 @@ def upgrade() -> None:
         sa.Column("difficulty", sa.String(32), nullable=True),
         sa.Column("visibility", sa.String(32), nullable=False, server_default="public"),
         sa.Column("condition_text", sa.Text(), nullable=True),
-        sa.Column("status", sa.String(32), nullable=False, server_default="canonical", index=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "status",
+            sa.String(32),
+            nullable=False,
+            server_default="canonical",
+            index=True,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="地理关系边",
     )
 
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         INSERT INTO characters_new (
             entity_id, novel_id, role, appearance, personality,
             desire, fear, secret, weakness, current_goal, current_state,
@@ -269,11 +425,13 @@ def upgrade() -> None:
             c.created_at,
             c.updated_at
         FROM characters c
-    """))
+    """)
+    )
 
     # target_id may reference legacy characters.id or geo_locations.id,
     # so we LEFT JOIN both extension tables to resolve the canonical core entity ID.
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         INSERT INTO character_knowledge_new (
             id, novel_id, character_id, target_type, target_id,
             knowledge_level, known_content, misconception,
@@ -303,9 +461,11 @@ def upgrade() -> None:
         JOIN characters c ON c.id = ck.character_id
         LEFT JOIN characters target_char ON target_char.id = ck.target_id
         LEFT JOIN geo_locations target_geo ON target_geo.id = ck.target_id
-    """))
+    """)
+    )
 
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         INSERT INTO geo_locations_new (
             entity_id, novel_id, location_level, parent_location_id,
             x, y, position_label, scale_label, terrain, climate,
@@ -328,11 +488,13 @@ def upgrade() -> None:
             gl.updated_at
         FROM geo_locations gl
         LEFT JOIN geo_locations parent ON parent.id = gl.parent_location_id
-    """))
+    """)
+    )
 
     # Edges referencing geo_locations without a world_entity_id are orphaned
     # data (legacy cleanup leftovers) and are intentionally dropped here.
-    op.execute(sa.text("""
+    op.execute(
+        sa.text("""
         INSERT INTO geo_edges_new (
             id, novel_id, source_location_id, target_location_id,
             relation_type, direction_label, distance_label, travel_time,
@@ -359,7 +521,8 @@ def upgrade() -> None:
         LEFT JOIN geo_locations target ON target.id = ge.target_location_id
         WHERE source.world_entity_id IS NOT NULL
           AND target.world_entity_id IS NOT NULL
-    """))
+    """)
+    )
 
     # ---------------------------------------------------------------
     # Phase 3: Drop legacy tables after the data copy, then promote
@@ -378,8 +541,12 @@ def upgrade() -> None:
     op.rename_table("geo_edges_new", "geo_edges")
 
     op.create_index("ix_characters_novel_id", "characters", ["novel_id"])
-    op.create_index("ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"])
-    op.create_index("ix_character_knowledge_char_id", "character_knowledge", ["character_id"])
+    op.create_index(
+        "ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"]
+    )
+    op.create_index(
+        "ix_character_knowledge_char_id", "character_knowledge", ["character_id"]
+    )
     op.create_index("ix_geo_locations_novel_id", "geo_locations", ["novel_id"])
     op.create_index("ix_geo_locations_parent", "geo_locations", ["parent_location_id"])
     op.create_index("ix_geo_edges_novel_id", "geo_edges", ["novel_id"])
@@ -404,7 +571,12 @@ def downgrade() -> None:
     op.create_table(
         "world_entities",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("entity_type", sa.String(32), nullable=False, index=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
@@ -412,15 +584,31 @@ def downgrade() -> None:
         sa.Column("hidden_truth", sa.Text(), nullable=True),
         sa.Column("content_json", sa.JSON(), nullable=True, server_default="{}"),
         sa.Column("importance", sa.Float(), nullable=False, server_default="0.5"),
-        sa.Column("importance_level", sa.String(16), nullable=False, server_default="normal"),
-        sa.Column("reveal_level", sa.String(16), nullable=False, server_default="author_only"),
+        sa.Column(
+            "importance_level", sa.String(16), nullable=False, server_default="normal"
+        ),
+        sa.Column(
+            "reveal_level", sa.String(16), nullable=False, server_default="author_only"
+        ),
         sa.Column("embedding_text", sa.Text(), nullable=True),
         sa.Column("embedding", Vector(1024), nullable=True),
         sa.Column("created_by", sa.String(64), nullable=True),
         sa.Column("approved_by", sa.String(64), nullable=True),
-        sa.Column("status", sa.String(32), nullable=False, server_default="draft", index=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "status", sa.String(32), nullable=False, server_default="draft", index=True
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_world_entities_novel_id", "world_entities", ["novel_id"])
@@ -428,15 +616,36 @@ def downgrade() -> None:
     op.create_table(
         "entity_aliases",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("entity_id", sa.UUID(), sa.ForeignKey("world_entities.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "entity_id",
+            sa.UUID(),
+            sa.ForeignKey("world_entities.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("alias", sa.String(255), nullable=False),
         sa.Column("alias_type", sa.String(20), nullable=False, server_default="name"),
         sa.Column("source_chapter_index", sa.Integer(), nullable=True),
         sa.Column("confidence", sa.Float(), nullable=False, server_default="0.8"),
         sa.Column("status", sa.String(32), nullable=False, server_default="confirmed"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_entity_aliases_novel_id", "entity_aliases", ["novel_id"])
@@ -444,8 +653,18 @@ def downgrade() -> None:
     op.create_table(
         "characters",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("world_entity_id", sa.UUID(), sa.ForeignKey("world_entities.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "world_entity_id",
+            sa.UUID(),
+            sa.ForeignKey("world_entities.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("aliases", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("role", sa.String(64), nullable=True),
@@ -464,8 +683,18 @@ def downgrade() -> None:
         sa.Column("relationship_summary", sa.Text(), nullable=True),
         sa.Column("meta", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_characters_novel_id", "characters", ["novel_id"])
@@ -473,30 +702,71 @@ def downgrade() -> None:
     op.create_table(
         "character_knowledge",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("character_id", sa.UUID(), sa.ForeignKey("characters.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "character_id",
+            sa.UUID(),
+            sa.ForeignKey("characters.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("target_type", sa.String(64), nullable=False),
         sa.Column("target_id", sa.UUID(), nullable=False),
-        sa.Column("knowledge_level", sa.String(32), nullable=False, server_default="unknown"),
+        sa.Column(
+            "knowledge_level", sa.String(32), nullable=False, server_default="unknown"
+        ),
         sa.Column("known_content", sa.Text(), nullable=True),
         sa.Column("misconception", sa.Text(), nullable=True),
         sa.Column("source_chapter_index", sa.Integer(), nullable=True),
         sa.Column("source_memory_id", sa.UUID(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"])
-    op.create_index("ix_character_knowledge_char_id", "character_knowledge", ["character_id"])
+    op.create_index(
+        "ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"]
+    )
+    op.create_index(
+        "ix_character_knowledge_char_id", "character_knowledge", ["character_id"]
+    )
 
     op.create_table(
         "geo_locations",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("world_entity_id", sa.UUID(), sa.ForeignKey("world_entities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "world_entity_id",
+            sa.UUID(),
+            sa.ForeignKey("world_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("location_level", sa.String(32), nullable=False),
-        sa.Column("parent_location_id", sa.UUID(), sa.ForeignKey("geo_locations.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "parent_location_id",
+            sa.UUID(),
+            sa.ForeignKey("geo_locations.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("x", sa.Float(), nullable=True),
         sa.Column("y", sa.Float(), nullable=True),
         sa.Column("position_label", sa.String(128), nullable=True),
@@ -507,8 +777,18 @@ def downgrade() -> None:
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("content_json", sa.JSON(), nullable=False, server_default="{}"),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_geo_locations_novel_id", "geo_locations", ["novel_id"])
@@ -517,9 +797,24 @@ def downgrade() -> None:
     op.create_table(
         "geo_edges",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("source_location_id", sa.UUID(), sa.ForeignKey("geo_locations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("target_location_id", sa.UUID(), sa.ForeignKey("geo_locations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "source_location_id",
+            sa.UUID(),
+            sa.ForeignKey("geo_locations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "target_location_id",
+            sa.UUID(),
+            sa.ForeignKey("geo_locations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("relation_type", sa.String(32), nullable=False),
         sa.Column("direction_label", sa.String(64), nullable=True),
         sa.Column("distance_label", sa.String(64), nullable=True),
@@ -528,8 +823,18 @@ def downgrade() -> None:
         sa.Column("visibility", sa.String(20), nullable=False, server_default="public"),
         sa.Column("condition_text", sa.Text(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_geo_edges_novel_id", "geo_edges", ["novel_id"])

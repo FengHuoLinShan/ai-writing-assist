@@ -486,19 +486,18 @@ const worldView = {
     }])
   },
 
-  deleteAlias(entityId, e) {
-    const alias = (e && e.target) ? e.target.getAttribute("data-alias") : null
+  deleteAlias(entityId, alias) {
     if (!entityId || !alias) {
       toast("参数错误：缺少实体 ID 或别名", "error")
       return
     }
-    confirmAction(`确定删除别名 "${alias}"？`, async () => {
+    confirmAction(`确定删除别名 "${esc(alias)}"？`, async () => {
       try {
         await api.world.deleteAlias(entityId, alias, { novel_id: state.currentProjectId })
         toast("已删除", "success")
         router.navigate("world", "aliases")
       } catch (err) { toast(err.message || "删除失败", "error") }
-    }, `确认删除别名 "${alias}"`)
+    }, `确认删除别名 "${esc(alias)}"`)
   },
 
   editEntity(id) {

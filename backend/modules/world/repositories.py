@@ -45,6 +45,7 @@ from shared.utils import parse_uuid
 # CoreEntityRepository
 # ============================================================
 
+
 class CoreEntityRepository:
     """核心实体数据访问"""
 
@@ -215,8 +216,16 @@ class CoreEntityRepository:
 
         update_values: dict[str, Any] = {}
         for field in (
-            "entity_type", "name", "summary", "public_info", "hidden_truth",
-            "importance", "importance_level", "reveal_level", "status", "approved_by",
+            "entity_type",
+            "name",
+            "summary",
+            "public_info",
+            "hidden_truth",
+            "importance",
+            "importance_level",
+            "reveal_level",
+            "status",
+            "approved_by",
         ):
             value = getattr(data, field, None)
             if value is not None:
@@ -480,11 +489,13 @@ class CoreEntityRepository:
                     "entities": [],
                 }
             batches[batch_id]["entity_count"] += 1
-            batches[batch_id]["entities"].append({
-                "id": str(entity.id),
-                "name": entity.name,
-                "entity_type": entity.entity_type,
-            })
+            batches[batch_id]["entities"].append(
+                {
+                    "id": str(entity.id),
+                    "name": entity.name,
+                    "entity_type": entity.entity_type,
+                }
+            )
 
         sorted_batches = sorted(
             batches.values(),
@@ -497,6 +508,7 @@ class CoreEntityRepository:
 # ============================================================
 # EventRepository
 # ============================================================
+
 
 class EventRepository:
     """事件数据访问"""
@@ -607,9 +619,7 @@ class EventRepository:
 
         if update_values:
             stmt = (
-                update(Event)
-                .where(Event.entity_id == entity_id)
-                .values(**update_values)
+                update(Event).where(Event.entity_id == entity_id).values(**update_values)
             )
             await db.execute(stmt)
             await db.flush()
@@ -631,6 +641,7 @@ class EventRepository:
 # EntityRelationRepository
 # ============================================================
 
+
 class EntityRelationRepository:
     """关系数据访问"""
 
@@ -647,8 +658,12 @@ class EntityRelationRepository:
             relation_type=data.relation_type,
             description=data.description,
             strength=data.strength or 0.5,
-            source_chapter_id=parse_uuid(data.source_chapter_id) if data.source_chapter_id else None,
-            caused_by_event_id=parse_uuid(data.caused_by_event_id) if data.caused_by_event_id else None,
+            source_chapter_id=parse_uuid(data.source_chapter_id)
+            if data.source_chapter_id
+            else None,
+            caused_by_event_id=parse_uuid(data.caused_by_event_id)
+            if data.caused_by_event_id
+            else None,
             quote=data.quote,
             status=data.status or "canonical",
         )
@@ -850,13 +865,17 @@ class EntityRelationRepository:
         relation_type: str,
         description: str | None = None,
     ) -> EntityRelation:
-        stmt = select(EntityRelation).where(
-            EntityRelation.novel_id == novel_id,
-            EntityRelation.source_id == source_id,
-            EntityRelation.target_id == target_id,
-            EntityRelation.relation_type == relation_type,
-            EntityRelation.status == "canonical",
-        ).limit(1)
+        stmt = (
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+                EntityRelation.relation_type == relation_type,
+                EntityRelation.status == "canonical",
+            )
+            .limit(1)
+        )
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
 
@@ -910,7 +929,9 @@ class EntityRelationRepository:
         if target_id is not None:
             values["target_id"] = target_id
         if values:
-            stmt = update(EntityRelation).where(EntityRelation.id == rel_id).values(**values)
+            stmt = (
+                update(EntityRelation).where(EntityRelation.id == rel_id).values(**values)
+            )
             await db.execute(stmt)
 
     async def find_duplicate_relation(
@@ -922,13 +943,17 @@ class EntityRelationRepository:
         relation_type: str,
     ) -> EntityRelation | None:
         """查找已存在的同类型同方向关系。"""
-        stmt = select(EntityRelation).where(
-            EntityRelation.novel_id == novel_id,
-            EntityRelation.source_id == source_id,
-            EntityRelation.target_id == target_id,
-            EntityRelation.relation_type == relation_type,
-            EntityRelation.status != "deprecated",
-        ).limit(1)
+        stmt = (
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+                EntityRelation.relation_type == relation_type,
+                EntityRelation.status != "deprecated",
+            )
+            .limit(1)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -952,6 +977,7 @@ class EntityRelationRepository:
 # ============================================================
 # EntityRevisionRepository
 # ============================================================
+
 
 class EntityRevisionRepository:
     """版本快照数据访问"""
@@ -1013,6 +1039,7 @@ class EntityRevisionRepository:
 # ============================================================
 # CharacterRepository（从 character 模块迁入）
 # ============================================================
+
 
 class CharacterRepository:
     """人物数据访问"""
@@ -1109,9 +1136,20 @@ class CharacterRepository:
 
         update_values: dict[str, Any] = {}
         for field in (
-            "name", "role", "appearance", "personality", "desire", "fear",
-            "secret", "weakness", "current_goal", "current_state",
-            "current_emotion", "stance", "voice_style", "relationship_summary",
+            "name",
+            "role",
+            "appearance",
+            "personality",
+            "desire",
+            "fear",
+            "secret",
+            "weakness",
+            "current_goal",
+            "current_state",
+            "current_emotion",
+            "stance",
+            "voice_style",
+            "relationship_summary",
             "status",
         ):
             value = getattr(data, field, None)
@@ -1179,9 +1217,7 @@ class CharacterRepository:
         meta["chapter_index"] = chapter_index
 
         stmt = (
-            update(Character)
-            .where(Character.entity_id == character_id)
-            .values(meta=meta)
+            update(Character).where(Character.entity_id == character_id).values(meta=meta)
         )
         await db.execute(stmt)
         await db.flush()
@@ -1204,11 +1240,13 @@ class CharacterRepository:
         for c in characters:
             meta = c.meta or {}
             if str(meta.get("location_id", "")) == str(location_id):
-                items.append({
-                    "id": str(c.entity_id),
-                    "name": c.name,
-                    "current_state": c.current_state,
-                })
+                items.append(
+                    {
+                        "id": str(c.entity_id),
+                        "name": c.name,
+                        "current_state": c.current_state,
+                    }
+                )
         return items
 
     async def get_character_location_id(
@@ -1226,6 +1264,7 @@ class CharacterRepository:
 # ============================================================
 # CharacterKnowledgeRepository（从 character 模块迁入）
 # ============================================================
+
 
 class CharacterKnowledgeRepository:
     """人物知识数据访问"""
@@ -1245,7 +1284,9 @@ class CharacterKnowledgeRepository:
             known_content=data.known_content,
             misconception=data.misconception,
             source_chapter_index=data.source_chapter_index,
-            source_memory_id=parse_uuid(data.source_memory_id) if data.source_memory_id else None,
+            source_memory_id=parse_uuid(data.source_memory_id)
+            if data.source_memory_id
+            else None,
             status=data.status or "canonical",
         )
         db.add(knowledge)
@@ -1342,8 +1383,11 @@ class CharacterKnowledgeRepository:
 
         update_values: dict[str, Any] = {}
         for field in (
-            "knowledge_level", "known_content", "misconception",
-            "source_chapter_index", "status",
+            "knowledge_level",
+            "known_content",
+            "misconception",
+            "source_chapter_index",
+            "status",
         ):
             value = getattr(data, field, None)
             if value is not None:

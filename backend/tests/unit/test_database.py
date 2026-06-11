@@ -98,6 +98,7 @@ class TestDatabaseManagerTables:
         await manager.drop_tables()
         await manager.close()
 
+
 class TestDatabaseManagerSession:
     """session 创建与上下文管理器"""
 
@@ -161,4 +162,5 @@ class TestGlobalManager:
         get_manager()
         reset_manager()
         from core.database import _manager
+
         assert _manager is None

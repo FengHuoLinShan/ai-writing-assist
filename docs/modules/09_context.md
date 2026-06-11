@@ -19,12 +19,10 @@ ContextCompiler 使用 Loader 策略模式，每个数据源独立一个 Loader 
 | CharactersLoader | world.facade.get_characters_context |
 | EventsLoader | world.facade.get_events_context（v3 新增，替代 TimelineEventsLoader） |
 | MemoryRecordsLoader | memory.facade.get_recent_story_memory |
-| PlotThreadsLoader | outline.facade.get_active_threads（注：outline 无 facade，实际走 outline api） |
-| OutlineArcLoader | outline.facade.get_arc_context |
-| ChapterCardLoader | outline.facade.get_chapter_card |
+| PlotThreadsLoader | outline.api — get_active_threads（outline 无 facade） |
+| OutlineArcLoader | outline.api — get_arc_context |
+| ChapterCardLoader | outline.api — get_chapter_card |
 | RagChunksLoader | rag.facade.retrieve |
-| GeoReachabilityFilter | character.facade + geo.facade（地缘可达性过滤，暂缓） |
-
 > `TimelineEventsLoader` 和 `GeoLocationsLoader` 已随 timeline/geo 模块移除。
 
 ## Scene-Centric Compiler v2

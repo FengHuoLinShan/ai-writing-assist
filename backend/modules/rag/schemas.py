@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # 请求 Schema
 # ============================================================
 
+
 class RagChunkCreate(BaseModel):
     """创建 RAG 片段请求"""
 
@@ -156,6 +157,7 @@ class RagQuery(BaseModel):
 # ============================================================
 # 响应 Schema
 # ============================================================
+
 
 class RagChunkResponse(BaseModel):
     """RAG 片段响应"""

@@ -1,6 +1,7 @@
 """
 安全与隔离 E2E 测试
 """
+
 from __future__ import annotations
 
 import uuid
@@ -23,7 +24,12 @@ class TestNovelIdIsolation:
         meta_a = await create_base_scene(db_session)
         meta_b = await create_project(db_session)
         await db_session.flush()
-        return async_client, meta_a["project_id"], str(meta_b["project_uuid"]), meta_a["entity_ids"]
+        return (
+            async_client,
+            meta_a["project_id"],
+            str(meta_b["project_uuid"]),
+            meta_a["entity_ids"],
+        )
 
     async def test_security_cross_novel_entity_access_returns_404(self, ctx):
         """使用项目 B 的 novel_id 访问项目 A 的实体应返回 404"""
@@ -66,9 +72,14 @@ class TestNovelIdIsolation:
         """使用项目 B 的 novel_id 访问项目 A 的草稿应返回 404"""
         # Arrange
         client, pid_a, pid_b, _ = ctx
-        draft_resp = await client.post("/api/writing/drafts", json={
-            "novel_id": pid_a, "chapter_index": 1, "content": "A项目草稿",
-        })
+        draft_resp = await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid_a,
+                "chapter_index": 1,
+                "content": "A项目草稿",
+            },
+        )
         assert draft_resp.status_code == 201
         draft_id = draft_resp.json()["draft"]["id"]
 
@@ -85,9 +96,12 @@ class TestNovelIdIsolation:
 
         # Act
         try:
-            resp = await client.post(f"/api/rag/retrieve?novel_id={pid_b}", json={
-                "query": "test",
-            })
+            resp = await client.post(
+                f"/api/rag/retrieve?novel_id={pid_b}",
+                json={
+                    "query": "test",
+                },
+            )
         except Exception:
             pytest.skip("预存 DB schema 问题: rag_chunks.meta 列缺失")
 
@@ -111,9 +125,13 @@ class TestInputValidation:
         name = "<script>alert('xss')</script>"
 
         # Act
-        resp = await client.post(f"/api/world/entities?novel_id={pid}", json={
-            "name": name, "entity_type": "item",
-        })
+        resp = await client.post(
+            f"/api/world/entities?novel_id={pid}",
+            json={
+                "name": name,
+                "entity_type": "item",
+            },
+        )
 
         # Assert
         assert resp.status_code == 201
@@ -138,9 +156,13 @@ class TestInputValidation:
         client, pid = ctx
 
         # Act
-        resp = await client.post(f"/api/world/entities?novel_id={pid}", json={
-            "name": "测试", "entity_type": "nonexistent_type_xyz",
-        })
+        resp = await client.post(
+            f"/api/world/entities?novel_id={pid}",
+            json={
+                "name": "测试",
+                "entity_type": "nonexistent_type_xyz",
+            },
+        )
 
         # Assert
         assert resp.status_code in (201, 422)
@@ -151,14 +173,21 @@ class TestInputValidation:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/writing/drafts", json={
-            "novel_id": pid, "chapter_index": -1, "content": "负章节测试",
-        })
+        resp = await client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": pid,
+                "chapter_index": -1,
+                "content": "负章节测试",
+            },
+        )
 
         # Assert
         assert resp.status_code in (201, 422)
 
-    async def test_security_empty_entity_list_for_unknown_novel_returns_zero_items(self, ctx):
+    async def test_security_empty_entity_list_for_unknown_novel_returns_zero_items(
+        self, ctx
+    ):
         """对不存在的 novel_id 查询实体列表应返回空结果"""
         # Arrange
         client, pid = ctx

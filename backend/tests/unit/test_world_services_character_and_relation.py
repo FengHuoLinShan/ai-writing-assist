@@ -12,9 +12,8 @@ All DB access is mocked via AsyncMock / MagicMock.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -23,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.world.models import Character, CharacterKnowledge, EntityRelation
 from modules.world.schemas import (
     CharacterContextBundle,
-    CharacterContextItem,
     CharacterCreate,
     CharacterKnowledgeContext,
     CharacterKnowledgeCreate,
@@ -31,7 +29,6 @@ from modules.world.schemas import (
     CharacterKnowledgeResponse,
     CharacterKnowledgeUpdate,
     CharacterResponse,
-    CharacterUpdate,
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
@@ -154,7 +151,9 @@ class TestCharacterServiceList:
         _, kwargs = svc.repo.get_by_novel.await_args
         assert kwargs["limit"] <= 500
 
-    async def test_list_with_empty_result_returns_zero_total(self, db_session: AsyncSession):
+    async def test_list_with_empty_result_returns_zero_total(
+        self, db_session: AsyncSession
+    ):
         """Boundary: empty repo result returns ([], 0)."""
         # Arrange
         svc = CharacterService()
@@ -183,8 +182,12 @@ class TestCharacterServiceUpdateCharacterState:
 
         # Act
         result = await svc.update_character_state(
-            db_session, cid, current_state="injured", current_emotion="angry",
-            current_goal="revenge", novel_id=nid,
+            db_session,
+            cid,
+            current_state="injured",
+            current_emotion="angry",
+            current_goal="revenge",
+            novel_id=nid,
         )
 
         # Assert
@@ -208,7 +211,10 @@ class TestCharacterServiceUpdateCharacterState:
 
         # Act
         result = await svc.update_character_state(
-            db_session, cid, current_state="tired", novel_id=nid,
+            db_session,
+            cid,
+            current_state="tired",
+            novel_id=nid,
         )
 
         # Assert
@@ -217,7 +223,9 @@ class TestCharacterServiceUpdateCharacterState:
         assert call_data.current_emotion is None
         assert call_data.current_goal is None
 
-    async def test_update_character_state_not_found_raises_404(self, db_session: AsyncSession):
+    async def test_update_character_state_not_found_raises_404(
+        self, db_session: AsyncSession
+    ):
         """Error: character not found raises 404."""
         # Arrange
         svc = CharacterService()
@@ -229,11 +237,16 @@ class TestCharacterServiceUpdateCharacterState:
         # Act / Assert
         with pytest.raises(HTTPException) as exc_info:
             await svc.update_character_state(
-                db_session, cid, current_state="x", novel_id=nid,
+                db_session,
+                cid,
+                current_state="x",
+                novel_id=nid,
             )
         assert exc_info.value.status_code == 404
 
-    async def test_update_character_state_wrong_novel_raises_404(self, db_session: AsyncSession):
+    async def test_update_character_state_wrong_novel_raises_404(
+        self, db_session: AsyncSession
+    ):
         """Error: character belongs to different novel raises 404."""
         # Arrange
         svc = CharacterService()
@@ -246,11 +259,16 @@ class TestCharacterServiceUpdateCharacterState:
         # Act / Assert
         with pytest.raises(HTTPException) as exc_info:
             await svc.update_character_state(
-                db_session, cid, current_state="x", novel_id=nid,
+                db_session,
+                cid,
+                current_state="x",
+                novel_id=nid,
             )
         assert exc_info.value.status_code == 404
 
-    async def test_update_character_state_repo_returns_none_raises_404(self, db_session: AsyncSession):
+    async def test_update_character_state_repo_returns_none_raises_404(
+        self, db_session: AsyncSession
+    ):
         """Error: repo.update returns None raises 404."""
         # Arrange
         svc = CharacterService()
@@ -264,13 +282,18 @@ class TestCharacterServiceUpdateCharacterState:
         # Act / Assert
         with pytest.raises(HTTPException) as exc_info:
             await svc.update_character_state(
-                db_session, cid, current_state="x", novel_id=nid,
+                db_session,
+                cid,
+                current_state="x",
+                novel_id=nid,
             )
         assert exc_info.value.status_code == 404
 
 
 class TestCharacterServiceGetCharactersContext:
-    async def test_get_characters_context_author_safe_excludes_secret(self, db_session: AsyncSession):
+    async def test_get_characters_context_author_safe_excludes_secret(
+        self, db_session: AsyncSession
+    ):
         """Happy path: author_safe mode does not include secret."""
         # Arrange
         svc = CharacterService()
@@ -294,7 +317,9 @@ class TestCharacterServiceGetCharactersContext:
         assert bundle.reveal_mode == "author_safe"
         assert bundle.characters[0].secret is None
 
-    async def test_get_characters_context_author_only_includes_secret(self, db_session: AsyncSession):
+    async def test_get_characters_context_author_only_includes_secret(
+        self, db_session: AsyncSession
+    ):
         """Boundary: author_only reveal_mode includes secret."""
         # Arrange
         svc = CharacterService()
@@ -311,13 +336,18 @@ class TestCharacterServiceGetCharactersContext:
 
         # Act
         bundle = await svc.get_characters_context(
-            db_session, nid, [cid], reveal_mode="author_only",
+            db_session,
+            nid,
+            [cid],
+            reveal_mode="author_only",
         )
 
         # Assert
         assert bundle.characters[0].secret == "Dark secret"
 
-    async def test_get_characters_context_empty_ids_returns_empty_bundle(self, db_session: AsyncSession):
+    async def test_get_characters_context_empty_ids_returns_empty_bundle(
+        self, db_session: AsyncSession
+    ):
         """Boundary: empty character_ids returns empty bundle."""
         # Arrange
         svc = CharacterService()
@@ -333,7 +363,9 @@ class TestCharacterServiceGetCharactersContext:
 
 
 class TestCharacterServiceGetCharacterKnowledgeContext:
-    async def test_get_character_knowledge_context_with_target_ids(self, db_session: AsyncSession):
+    async def test_get_character_knowledge_context_with_target_ids(
+        self, db_session: AsyncSession
+    ):
         """Happy path: returns knowledge context with target_ids filter."""
         # Arrange
         svc = CharacterService()
@@ -353,7 +385,10 @@ class TestCharacterServiceGetCharacterKnowledgeContext:
 
         # Act
         result = await svc.get_character_knowledge_context(
-            db_session, nid, cid, target_ids=[tid],
+            db_session,
+            nid,
+            cid,
+            target_ids=[tid],
         )
 
         # Assert
@@ -361,7 +396,9 @@ class TestCharacterServiceGetCharacterKnowledgeContext:
         assert isinstance(result[0], CharacterKnowledgeContext)
         assert result[0].knowledge_level == "full"
 
-    async def test_get_character_knowledge_context_none_target_ids(self, db_session: AsyncSession):
+    async def test_get_character_knowledge_context_none_target_ids(
+        self, db_session: AsyncSession
+    ):
         """Boundary: target_ids=None passes None to repo."""
         # Arrange
         svc = CharacterService()
@@ -370,7 +407,10 @@ class TestCharacterServiceGetCharacterKnowledgeContext:
 
         # Act
         result = await svc.get_character_knowledge_context(
-            db_session, str(uuid.uuid4()), str(uuid.uuid4()), target_ids=None,
+            db_session,
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
+            target_ids=None,
         )
 
         # Assert
@@ -408,9 +448,9 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
 
         svc._knowledge_repo = AsyncMock()
         svc._knowledge_repo.get_by_target.side_effect = [
-            [kn_known],   # character target
-            [kn_unknown], # event target
-            [],           # location target (no knowledge)
+            [kn_known],  # character target
+            [kn_unknown],  # event target
+            [],  # location target (no knowledge)
         ]
 
         context_items = [
@@ -421,7 +461,10 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
 
         # Act
         filtered, removed, replaced = await svc.filter_context_by_character_knowledge(
-            db_session, nid, cid, context_items,
+            db_session,
+            nid,
+            cid,
+            context_items,
         )
 
         # Assert
@@ -455,7 +498,10 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
 
         # Act
         filtered, removed, replaced = await svc.filter_context_by_character_knowledge(
-            db_session, nid, cid, context_items,
+            db_session,
+            nid,
+            cid,
+            context_items,
         )
 
         # Assert
@@ -465,7 +511,9 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
         assert filtered[0]["is_misconception"] is True
         assert filtered[0]["original_content"] == "original"
 
-    async def test_filter_false_belief_fallback_to_known_content(self, db_session: AsyncSession):
+    async def test_filter_false_belief_fallback_to_known_content(
+        self, db_session: AsyncSession
+    ):
         """Boundary: false_belief without misconception falls back to known_content."""
         # Arrange
         svc = CharacterService()
@@ -490,13 +538,18 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
 
         # Act
         filtered, removed, replaced = await svc.filter_context_by_character_knowledge(
-            db_session, nid, cid, context_items,
+            db_session,
+            nid,
+            cid,
+            context_items,
         )
 
         # Assert
         assert filtered[0]["content"] == "truth"
 
-    async def test_filter_empty_context_items_returns_empty(self, db_session: AsyncSession):
+    async def test_filter_empty_context_items_returns_empty(
+        self, db_session: AsyncSession
+    ):
         """Boundary: empty context_items returns ([], 0, 0)."""
         # Arrange
         svc = CharacterService()
@@ -504,7 +557,10 @@ class TestCharacterServiceFilterContextByCharacterKnowledge:
 
         # Act
         filtered, removed, replaced = await svc.filter_context_by_character_knowledge(
-            db_session, str(uuid.uuid4()), str(uuid.uuid4()), [],
+            db_session,
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
+            [],
         )
 
         # Assert
@@ -530,7 +586,9 @@ class TestCharacterServiceFacadeLeaks:
         # Assert
         assert result == weid
 
-    async def test_get_id_by_world_entity_not_found_returns_none(self, db_session: AsyncSession):
+    async def test_get_id_by_world_entity_not_found_returns_none(
+        self, db_session: AsyncSession
+    ):
         """Boundary: not found returns None."""
         # Arrange
         svc = CharacterService()
@@ -539,7 +597,9 @@ class TestCharacterServiceFacadeLeaks:
 
         # Act
         result = await svc.get_id_by_world_entity(
-            db_session, str(uuid.uuid4()), str(uuid.uuid4()),
+            db_session,
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
         )
 
         # Assert
@@ -559,7 +619,9 @@ class TestCharacterServiceFacadeLeaks:
 
         # Assert
         assert result == cid
-        svc.repo.find_character_by_name.assert_awaited_once_with(db_session, uuid.UUID(nid), "Hero")
+        svc.repo.find_character_by_name.assert_awaited_once_with(
+            db_session, uuid.UUID(nid), "Hero"
+        )
 
     async def test_find_by_name_not_found_returns_none(self, db_session: AsyncSession):
         """Boundary: not found returns None."""
@@ -588,7 +650,9 @@ class TestCharacterServiceFacadeLeaks:
         # Assert
         svc.repo.update_character_meta_location.assert_awaited_once()
 
-    async def test_get_characters_at_location_delegates_to_repo(self, db_session: AsyncSession):
+    async def test_get_characters_at_location_delegates_to_repo(
+        self, db_session: AsyncSession
+    ):
         """Happy path: delegates to repo.find_characters_by_location."""
         # Arrange
         svc = CharacterService()
@@ -629,7 +693,9 @@ class TestCharacterServiceFacadeLeaks:
 
         # Act
         result = await svc.get_location_id(
-            db_session, str(uuid.uuid4()), str(uuid.uuid4()),
+            db_session,
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
         )
 
         # Assert
@@ -755,7 +821,9 @@ class TestCharacterKnowledgeServiceCreate:
         assert exc_info.value.status_code == 404
         assert "Character not found" in exc_info.value.detail
 
-    async def test_create_character_wrong_novel_raises_404(self, db_session: AsyncSession):
+    async def test_create_character_wrong_novel_raises_404(
+        self, db_session: AsyncSession
+    ):
         """Error: character belongs to different novel raises 404."""
         # Arrange
         svc = CharacterKnowledgeService()
@@ -778,7 +846,9 @@ class TestCharacterKnowledgeServiceCreate:
 
 
 class TestCharacterKnowledgeServiceList:
-    async def test_list_by_character_returns_list_response(self, db_session: AsyncSession):
+    async def test_list_by_character_returns_list_response(
+        self, db_session: AsyncSession
+    ):
         """Happy path: list by character_id returns ListResponse."""
         # Arrange
         svc = CharacterKnowledgeService()
@@ -841,7 +911,10 @@ class TestCharacterKnowledgeServiceInheritedVerbs:
 
         # Act
         result = await svc.update(
-            db_session, kid, CharacterKnowledgeUpdate(knowledge_level="full"), novel_id=nid,
+            db_session,
+            kid,
+            CharacterKnowledgeUpdate(knowledge_level="full"),
+            novel_id=nid,
         )
 
         # Assert
@@ -871,7 +944,9 @@ class TestCharacterKnowledgeServiceInheritedVerbs:
 
 
 class TestEntityRelationServiceGetTraceableRelations:
-    async def test_get_traceable_relations_returns_list_response(self, db_session: AsyncSession):
+    async def test_get_traceable_relations_returns_list_response(
+        self, db_session: AsyncSession
+    ):
         """Happy path: returns EntityRelationListResponse."""
         # Arrange
         svc = EntityRelationService()
@@ -888,7 +963,9 @@ class TestEntityRelationServiceGetTraceableRelations:
         assert isinstance(result, EntityRelationListResponse)
         assert result.total == 1
 
-    async def test_get_traceable_relations_empty_returns_zero_total(self, db_session: AsyncSession):
+    async def test_get_traceable_relations_empty_returns_zero_total(
+        self, db_session: AsyncSession
+    ):
         """Boundary: no relations returns empty list response."""
         # Arrange
         svc = EntityRelationService()
@@ -897,7 +974,9 @@ class TestEntityRelationServiceGetTraceableRelations:
 
         # Act
         result = await svc.get_traceable_relations(
-            db_session, str(uuid.uuid4()), str(uuid.uuid4()),
+            db_session,
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
         )
 
         # Assert
@@ -938,7 +1017,9 @@ class TestEntityRelationServiceExpandRelated:
         assert isinstance(result[0], WorldEntityContext)
         assert result[0].entity_id == str(related_id)
 
-    async def test_expand_related_empty_seed_returns_empty(self, db_session: AsyncSession):
+    async def test_expand_related_empty_seed_returns_empty(
+        self, db_session: AsyncSession
+    ):
         """Boundary: empty seed_ids returns empty list."""
         # Arrange
         svc = EntityRelationService()
@@ -949,7 +1030,9 @@ class TestEntityRelationServiceExpandRelated:
         # Assert
         assert result == []
 
-    async def test_expand_related_no_related_returns_empty(self, db_session: AsyncSession):
+    async def test_expand_related_no_related_returns_empty(
+        self, db_session: AsyncSession
+    ):
         """Boundary: no related entities returns empty list."""
         # Arrange
         svc = EntityRelationService()
@@ -957,7 +1040,9 @@ class TestEntityRelationServiceExpandRelated:
         svc.repo.get_related_entity_ids.return_value = set()
 
         # Act
-        result = await svc.expand_related(db_session, str(uuid.uuid4()), [str(uuid.uuid4())])
+        result = await svc.expand_related(
+            db_session, str(uuid.uuid4()), [str(uuid.uuid4())]
+        )
 
         # Assert
         assert result == []
@@ -991,17 +1076,26 @@ class TestEntityRelationServiceUpsert:
         nid = str(uuid.uuid4())
         sid = str(uuid.uuid4())
         tid = str(uuid.uuid4())
-        rel = _make_relation(novel_id=uuid.UUID(nid), source_id=uuid.UUID(sid), target_id=uuid.UUID(tid))
+        rel = _make_relation(
+            novel_id=uuid.UUID(nid), source_id=uuid.UUID(sid), target_id=uuid.UUID(tid)
+        )
         svc.repo = AsyncMock()
         svc.repo.upsert.return_value = rel
 
         # Act
-        result = await svc.upsert(db_session, nid, sid, tid, "friend", description="Best buds")
+        result = await svc.upsert(
+            db_session, nid, sid, tid, "friend", description="Best buds"
+        )
 
         # Assert
         assert isinstance(result, EntityRelationResponse)
         svc.repo.upsert.assert_awaited_once_with(
-            db_session, uuid.UUID(nid), uuid.UUID(sid), uuid.UUID(tid), "friend", description="Best buds",
+            db_session,
+            uuid.UUID(nid),
+            uuid.UUID(sid),
+            uuid.UUID(tid),
+            "friend",
+            description="Best buds",
         )
 
 
@@ -1069,7 +1163,10 @@ class TestEntityRelationServiceInheritedVerbs:
 
         # Act
         result = await svc.update(
-            db_session, rid, EntityRelationUpdate(description="updated"), novel_id=nid,
+            db_session,
+            rid,
+            EntityRelationUpdate(description="updated"),
+            novel_id=nid,
         )
 
         # Assert

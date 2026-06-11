@@ -20,10 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # In-memory fake — 直接测 base class 的契约, 不依赖具体 ORM
 # ============================================================
 
+
 @dataclass
 class FakeRow:
     """代表任何 ORM 行的最小形状, novel_id 是唯一约束字段。
     id 用 str (Pydantic Response 期望 str), novel_id 用 UUID (per ADR-0002)。"""
+
     id: str
     novel_id: uuid.UUID
     name: str = "fake"
@@ -39,21 +41,31 @@ class FakeRepo:
         return self.store.get(str(id))
 
     async def get_by_novel(
-        self, db: AsyncSession, novel_id: uuid.UUID, *,
-        skip: int, limit: int,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int,
+        limit: int,
     ) -> tuple[list[FakeRow], int]:
         rows = [r for r in self.store.values() if r.novel_id == novel_id]
-        return rows[skip:skip + limit], len(rows)
+        return rows[skip : skip + limit], len(rows)
 
     async def create(
-        self, db: AsyncSession, novel_id: uuid.UUID, data: Any,
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        data: Any,
     ) -> FakeRow:
         row = FakeRow(id=str(uuid.uuid4()), novel_id=novel_id, name=data.name)
         self.store[row.id] = row
         return row
 
     async def update(
-        self, db: AsyncSession, id: uuid.UUID, data: Any,
+        self,
+        db: AsyncSession,
+        id: uuid.UUID,
+        data: Any,
     ) -> FakeRow | None:
         if str(id) not in self.store:
             return None
@@ -82,7 +94,10 @@ class FakeResponse(BaseModel):
 class FakeService(
     # type: ignore[misc]
     __import__("modules.world.services.base", fromlist=["CrudService"]).CrudService[
-        FakeRow, FakeCreate, FakeUpdate, FakeResponse,
+        FakeRow,
+        FakeCreate,
+        FakeUpdate,
+        FakeResponse,
     ],
 ):
     """最小可测的 CrudService 子类。ClassVar 必须在 class 体声明,
@@ -102,6 +117,7 @@ class FakeService(
 # Tests
 # ============================================================
 
+
 @pytest.fixture
 def novel_id() -> str:
     return str(uuid.uuid4())
@@ -113,6 +129,7 @@ def other_novel_id() -> str:
 
 
 # --- 5 verbs ---
+
 
 async def test_create_returns_response(
     db_session: AsyncSession,
@@ -154,7 +171,9 @@ async def test_update_returns_updated(
     svc = FakeService()
     created = await svc.create(db_session, novel_id, FakeCreate(name="alpha"))
     updated = await svc.update(
-        db_session, str(created.id), FakeUpdate(name="beta"),
+        db_session,
+        str(created.id),
+        FakeUpdate(name="beta"),
         novel_id=novel_id,
     )
     assert updated.name == "beta"
@@ -174,6 +193,7 @@ async def test_delete_removes_row(
 
 # --- novel_id 必填 keyword-only ---
 
+
 async def test_get_requires_novel_id(
     db_session: AsyncSession,
     novel_id: str,
@@ -190,7 +210,9 @@ async def test_update_requires_novel_id(
     svc = FakeService()
     with pytest.raises(TypeError):
         await svc.update(  # type: ignore[call-arg]
-            db_session, "any-id", FakeUpdate(name="x"),
+            db_session,
+            "any-id",
+            FakeUpdate(name="x"),
         )
 
 
@@ -204,6 +226,7 @@ async def test_delete_requires_novel_id(
 
 
 # --- novel_id 隔离 (UUID-UUID 比对) ---
+
 
 async def test_get_cross_novel_raises_404(
     db_session: AsyncSession,
@@ -224,7 +247,9 @@ async def test_get_missing_raises_404(
     svc = FakeService()
     with pytest.raises(HTTPException) as exc:
         await svc.get(
-            db_session, str(uuid.uuid4()), novel_id=novel_id,
+            db_session,
+            str(uuid.uuid4()),
+            novel_id=novel_id,
         )
     assert exc.value.status_code == 404
 
@@ -237,12 +262,15 @@ async def test_get_404_message_uses_label(
     fake_id = str(uuid.uuid4())
     with pytest.raises(HTTPException) as exc:
         await svc.get(
-            db_session, fake_id, novel_id=novel_id,
+            db_session,
+            fake_id,
+            novel_id=novel_id,
         )
     assert f"Fake {fake_id} not found" in exc.value.detail
 
 
 # --- __init_subclass__ 守卫 ---
+
 
 def test_subclass_missing_classvar_raises() -> None:
     """缺 ClassVar 的子类必须在 class 定义时立即抛 TypeError (不是延迟到调用)。"""
@@ -251,6 +279,7 @@ def test_subclass_missing_classvar_raises() -> None:
     # class 定义本身就会触发 __init_subclass__ 抛错 — 不用 with pytest.raises
     # 因为 class 关键字在 module load 时执行
     try:
+
         class BadService(  # type: ignore[misc,unused-ignore]
             CrudService[FakeRow, FakeCreate, FakeUpdate, FakeResponse],
         ):
@@ -264,6 +293,7 @@ def test_subclass_missing_classvar_raises() -> None:
 
 
 # --- list 默认 limit 由 base clamp ---
+
 
 async def test_list_clamps_to_max_page_size(
     db_session: AsyncSession,
@@ -280,12 +310,16 @@ async def test_list_clamps_to_max_page_size(
 # Parametric test: 4 个真实 service 都满足 5 verb + 必填 novel_id
 # ============================================================
 
-@pytest.mark.parametrize("service_factory", [
-    "WorldEntityService",
-    "EntityRelationService",
-    "EventService",
-    "CharacterService",
-])
+
+@pytest.mark.parametrize(
+    "service_factory",
+    [
+        "WorldEntityService",
+        "EntityRelationService",
+        "EventService",
+        "CharacterService",
+    ],
+)
 async def test_real_service_enforces_novel_id_keyword_only(
     service_factory: str,
 ) -> None:
@@ -300,6 +334,7 @@ async def test_real_service_enforces_novel_id_keyword_only(
         EventService,
         WorldEntityService,
     )
+
     factories = {
         "WorldEntityService": WorldEntityService,
         "EntityRelationService": EntityRelationService,

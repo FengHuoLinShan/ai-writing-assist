@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from modules.imports.scene_entity_extraction import SceneEntityExtractionService
+from modules.imports.scene_segmentation import SceneSegmentationService
 from modules.imports.workflow import DeepImportWorkflow
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -51,22 +53,34 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._segment_scenes = AsyncMock(return_value={
-            "total_scenes": 5, "failed_batches": [], "degraded": False,
-        })
-        workflow._extract_entities_by_scene = AsyncMock(return_value={
-            "total_created": 3, "total_deltas": 2,
-        })
-        workflow._analyze_structure = AsyncMock(return_value={
-            "total_threads": 2, "total_arcs": 4,
-            "threads": [{"id": "1", "name": "主线"}],
-            "arcs": [{"id": "1", "title": "第一卷"}],
-            "extra_sections": {},
-        })
+        workflow._segment_scenes = AsyncMock(
+            return_value={
+                "total_scenes": 5,
+                "failed_batches": [],
+                "degraded": False,
+            }
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 3,
+                "total_deltas": 2,
+            }
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 2,
+                "total_arcs": 4,
+                "threads": [{"id": "1", "name": "主线"}],
+                "arcs": [{"id": "1", "title": "第一卷"}],
+                "extra_sections": {},
+            }
+        )
 
         result = await workflow.run_step(
-            db=None, novel_id=str(uuid.uuid4()),
-            start_chapter=1, end_chapter=3,
+            db=None,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
             progress=progress,
         )
 
@@ -86,24 +100,38 @@ class TestDeepImportWorkflowAutoRun:
         progress = DeepImportProgress()
         emitted: list[tuple[float, str, str | None, list[str]]] = []
 
-        workflow._segment_scenes = AsyncMock(return_value={
-            "total_scenes": 5, "failed_batches": [], "degraded": False,
-        })
-        workflow._extract_entities_by_scene = AsyncMock(return_value={
-            "total_created": 3, "total_deltas": 2,
-        })
-        workflow._analyze_structure = AsyncMock(return_value={
-            "total_threads": 2, "total_arcs": 4,
-            "threads": [], "arcs": [], "extra_sections": {},
-        })
+        workflow._segment_scenes = AsyncMock(
+            return_value={
+                "total_scenes": 5,
+                "failed_batches": [],
+                "degraded": False,
+            }
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 3,
+                "total_deltas": 2,
+            }
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 2,
+                "total_arcs": 4,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+            }
+        )
 
         async def _on_progress(updated: DeepImportProgress, progress_value: float):
-            emitted.append((
-                progress_value,
-                updated.phase,
-                updated.current_step.value if updated.current_step else None,
-                list(updated.completed_steps),
-            ))
+            emitted.append(
+                (
+                    progress_value,
+                    updated.phase,
+                    updated.current_step.value if updated.current_step else None,
+                    list(updated.completed_steps),
+                )
+            )
 
         await workflow.run_step(
             db=None,
@@ -138,8 +166,10 @@ class TestDeepImportWorkflowAutoRun:
 
         with pytest.raises(ValueError, match="无法处理当前进度状态"):
             await workflow.run_step(
-                db=None, novel_id=str(uuid.uuid4()),
-                start_chapter=1, end_chapter=3,
+                db=None,
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=3,
                 progress=progress,
             )
 
@@ -151,8 +181,10 @@ class TestDeepImportWorkflowAutoRun:
 
         with pytest.raises(ValueError, match="无法处理当前进度状态"):
             await workflow.run_step(
-                db=None, novel_id=str(uuid.uuid4()),
-                start_chapter=1, end_chapter=3,
+                db=None,
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=3,
                 progress=progress,
             )
 
@@ -164,7 +196,91 @@ class TestDeepImportWorkflowAutoRun:
 
         with pytest.raises(ValueError, match="无法处理当前进度状态"):
             await workflow.run_step(
-                db=None, novel_id=str(uuid.uuid4()),
-                start_chapter=1, end_chapter=3,
+                db=None,
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=3,
                 progress=progress,
             )
+
+
+class TestSceneSegmentationProgress:
+    """测试 Scene 切分服务的细粒度进度回调"""
+
+    @pytest.mark.asyncio
+    async def test_segment_chapters_reports_batch_progress(self):
+        service = SceneSegmentationService()
+        service._load_chapters = AsyncMock(
+            return_value=[
+                {"chapter_index": i, "title": f"第{i}章", "content": "..."}
+                for i in range(1, 7)
+            ]
+        )
+        service._process_batch = AsyncMock(
+            return_value=[
+                {"title": "Scene", "scene_chunks": [{"chapter_index": 1}]},
+            ]
+        )
+        service._get_next_scene_index = AsyncMock(return_value=0)
+
+        progress_calls = []
+
+        async def on_progress(completed, total):
+            progress_calls.append((completed, total))
+
+        db = AsyncMock()
+        result = await service.segment_chapters(
+            db=db,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=6,
+            on_batch_progress=on_progress,
+        )
+
+        assert progress_calls[0] == (0, 2)
+        assert progress_calls[1] == (1, 2)
+        assert progress_calls[2] == (2, 2)
+        assert result["total_scenes"] == 2
+
+
+class TestSceneEntityExtractionProgress:
+    """测试实体提取服务的细粒度进度回调"""
+
+    @pytest.mark.asyncio
+    @patch(
+        "modules.world.facade.get_world_context",
+        new_callable=AsyncMock,
+    )
+    async def test_extract_by_scenes_reports_scene_progress(self, mock_ctx):
+        mock_ctx.return_value = Mock(entities=[])
+
+        service = SceneEntityExtractionService()
+        service._get_scenes = AsyncMock(
+            return_value=[
+                Mock(scene_index=1, chapter_ids=["1"]),
+                Mock(scene_index=2, chapter_ids=["2"]),
+            ]
+        )
+        service._process_scene = AsyncMock(
+            return_value={
+                "created": 1,
+                "deltas": 0,
+                "updated_context": "",
+                "updated_memory": [],
+            }
+        )
+
+        progress_calls = []
+
+        async def on_progress(completed, total):
+            progress_calls.append((completed, total))
+
+        db = AsyncMock()
+        result = await service.extract_by_scenes(
+            db=db,
+            novel_id=str(uuid.uuid4()),
+            on_scene_progress=on_progress,
+        )
+
+        assert progress_calls == [(0, 2), (1, 2), (2, 2)]
+        assert result["total_scenes"] == 2

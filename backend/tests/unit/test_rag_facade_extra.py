@@ -36,9 +36,7 @@ class TestIndexChapterWithReport:
         novel_id = "a" * 32
 
         with patch("modules.rag.facade._indexing") as mock_indexing:
-            mock_indexing.index_chapter_with_report = AsyncMock(
-                return_value=expected
-            )
+            mock_indexing.index_chapter_with_report = AsyncMock(return_value=expected)
 
             # Act
             result = await index_chapter_with_report(db, novel_id, 3)
@@ -73,9 +71,7 @@ class TestIndexChapterWithReport:
         report = RagIndexReport(chapter_index=1)
 
         with patch("modules.rag.facade._indexing") as mock_indexing:
-            mock_indexing.index_chapter_with_report = AsyncMock(
-                return_value=report
-            )
+            mock_indexing.index_chapter_with_report = AsyncMock(return_value=report)
 
             # Act
             await index_chapter_with_report(db, novel_id, 1)
@@ -104,9 +100,7 @@ class TestIndexChapterIncremental:
         new_content = "新内容"
 
         with patch("modules.rag.facade._indexing") as mock_indexing:
-            mock_indexing.index_chapter_incremental = AsyncMock(
-                return_value=expected
-            )
+            mock_indexing.index_chapter_incremental = AsyncMock(return_value=expected)
 
             # Act
             result = await index_chapter_incremental(
@@ -132,9 +126,7 @@ class TestIndexChapterIncremental:
 
             # Act / Assert
             with pytest.raises(ValueError, match="content mismatch"):
-                await index_chapter_incremental(
-                    db, novel_id, 1, "old", "new"
-                )
+                await index_chapter_incremental(db, novel_id, 1, "old", "new")
 
     @pytest.mark.asyncio
     async def test_index_chapter_incremental_converts_novel_id_to_uuid(self):
@@ -145,14 +137,10 @@ class TestIndexChapterIncremental:
         report = RagIndexReport(chapter_index=5)
 
         with patch("modules.rag.facade._indexing") as mock_indexing:
-            mock_indexing.index_chapter_incremental = AsyncMock(
-                return_value=report
-            )
+            mock_indexing.index_chapter_incremental = AsyncMock(return_value=report)
 
             # Act
-            await index_chapter_incremental(
-                db, novel_id, 5, "old", "new"
-            )
+            await index_chapter_incremental(db, novel_id, 5, "old", "new")
 
             # Assert
             args = mock_indexing.index_chapter_incremental.await_args

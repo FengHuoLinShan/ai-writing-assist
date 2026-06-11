@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import math
+
+# 将 backend 目录加入 path（允许从项目根直接运行）
+import os as _os
 import sys
 import time
 import uuid
@@ -25,10 +27,9 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# 将 backend 目录加入 path（允许从项目根直接运行）
-import os as _os
-
-_backend = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+_backend = _os.path.dirname(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+)
 if _backend not in sys.path:
     sys.path.insert(0, _backend)
 
@@ -64,7 +65,7 @@ def _dcg(scores: list[float], k: int) -> float:
     """Discounted Cumulative Gain @ k"""
     dcg = 0.0
     for i, s in enumerate(scores[:k]):
-        dcg += (2.0 ** s - 1.0) / math.log2(i + 2)
+        dcg += (2.0**s - 1.0) / math.log2(i + 2)
     return dcg
 
 
@@ -76,7 +77,10 @@ def _ndcg(predicted_ranks: list[str], relevant_ids: set[str], k: int) -> float:
     rels = [1.0 if rid in relevant_ids else 0.0 for rid in predicted_ranks[:k]]
     dcg = _dcg(rels, k)
     # 理想排序：所有相关结果排最前
-    ideal_rels = sorted([1.0] * min(len(relevant_ids), k) + [0.0] * max(0, k - len(relevant_ids)), reverse=True)
+    ideal_rels = sorted(
+        [1.0] * min(len(relevant_ids), k) + [0.0] * max(0, k - len(relevant_ids)),
+        reverse=True,
+    )
     idcg = _dcg(ideal_rels, k)
     if idcg == 0.0:
         return 0.0
@@ -113,8 +117,10 @@ async def build_eval_set(
     if end_chapter is not None:
         conditions.append(RagChunk.chapter_index <= end_chapter)
 
-    stmt = select(RagChunk).where(*conditions).order_by(
-        RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc()
+    stmt = (
+        select(RagChunk)
+        .where(*conditions)
+        .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
     )
     result = await db.execute(stmt)
     chunks: list[RagChunk] = list(result.scalars().all())
@@ -126,7 +132,7 @@ async def build_eval_set(
     # 构建 entity_id → chunk_ids 的倒排索引
     entity_to_chunks: dict[str, set[str]] = {}
     for c in chunks:
-        for eid in (c.entity_ids or []):
+        for eid in c.entity_ids or []:
             entity_to_chunks.setdefault(eid, set()).add(str(c.id))
 
     queries: list[EvalQuery] = []
@@ -141,7 +147,7 @@ async def build_eval_set(
 
         # 收集所有共享 entity 的 chunk（排除自身）
         relevant: set[str] = set()
-        for eid in (c.entity_ids or []):
+        for eid in c.entity_ids or []:
             for chunk_id in entity_to_chunks.get(eid, set()):
                 if chunk_id != str(c.id):
                     relevant.add(chunk_id)
@@ -149,11 +155,13 @@ async def build_eval_set(
         if len(relevant) < 2:
             continue
 
-        queries.append(EvalQuery(
-            query=query_text,
-            relevant_ids=relevant,
-            chapter_index=c.chapter_index,
-        ))
+        queries.append(
+            EvalQuery(
+                query=query_text,
+                relevant_ids=relevant,
+                chapter_index=c.chapter_index,
+            )
+        )
 
     return queries
 
@@ -166,8 +174,8 @@ async def evaluate_weights(
     top_k: int = 10,
 ) -> EvalResult:
     """用给定权重评估检索质量。"""
-    from modules.rag.services import RetrievalService
     from infrastructure.llm.client import LLMClient
+    from modules.rag.services import RetrievalService
 
     retrieval = RetrievalService()
     mrr_sum = 0.0
@@ -191,7 +199,9 @@ async def evaluate_weights(
             pass  # 降级为无向量模式
 
         scored = await retrieval.hybrid_search(
-            db, novel_id, eq.query,
+            db,
+            novel_id,
+            eq.query,
             query_embedding=query_embedding,
             reference_chapter_index=eq.chapter_index,
             weights=weights,
@@ -229,7 +239,7 @@ async def evaluate_weights(
 def generate_weight_combinations() -> list[tuple[float, float, float, float]]:
     """生成网格搜索的权重组合（步长 0.05，sum=1.0）"""
     combos: list[tuple[float, float, float, float]] = []
-    for vw in [round(x * 0.05, 2) for x in range(6, 13)]:   # 0.30 ~ 0.60
+    for vw in [round(x * 0.05, 2) for x in range(6, 13)]:  # 0.30 ~ 0.60
         for kw in [round(x * 0.05, 2) for x in range(3, 9)]:  # 0.15 ~ 0.40
             for rw in [round(x * 0.05, 2) for x in range(1, 6)]:  # 0.05 ~ 0.25
                 iw = round(1.0 - vw - kw - rw, 2)
@@ -251,7 +261,9 @@ async def run_tuning(
     t_start = time.monotonic()
 
     # 1. 构建评估集
-    print(f"构建评估集 (novel={novel_id}, chapters={start_chapter}-{end_chapter or '∞'})...")
+    print(
+        f"构建评估集 (novel={novel_id}, chapters={start_chapter}-{end_chapter or '∞'})..."
+    )
     queries = await build_eval_set(db, nid, start_chapter, end_chapter, max_queries)
     if not queries:
         print("评估集为空，无法调优")
@@ -277,7 +289,9 @@ async def run_tuning(
         result = await evaluate_weights(db, nid, queries, w)
         results.append(result)
         if (i + 1) % 50 == 0 or i == 0:
-            print(f"  [{i+1}/{len(combos)}] v={w[0]:.2f} k={w[1]:.2f} r={w[2]:.2f} i={w[3]:.2f}  MRR={result.mrr:.4f}")
+            print(
+                f"  [{i + 1}/{len(combos)}] v={w[0]:.2f} k={w[1]:.2f} r={w[2]:.2f} i={w[3]:.2f}  MRR={result.mrr:.4f}"
+            )
 
     # 4. 排序取最优
     results.sort(key=lambda r: r.mrr, reverse=True)
@@ -303,7 +317,9 @@ def print_report(report: TuningReport) -> None:
 
     print("Top 5 权重组合:")
     print("-" * 60)
-    print(f"{'排名':<4} {'vector':<8} {'keyword':<8} {'relation':<8} {'importance':<10} {'MRR':<8} {'NDCG@5':<8} {'NDCG@10':<8} {'P@5':<8}")
+    print(
+        f"{'排名':<4} {'vector':<8} {'keyword':<8} {'relation':<8} {'importance':<10} {'MRR':<8} {'NDCG@5':<8} {'NDCG@10':<8} {'P@5':<8}"
+    )
     print("-" * 60)
     for rank, r in enumerate(report.top5, 1):
         print(
@@ -314,11 +330,15 @@ def print_report(report: TuningReport) -> None:
     print()
 
     best = report.best
-    print(f"推荐权重: vector={best.weights[0]:.2f} keyword={best.weights[1]:.2f} relation={best.weights[2]:.2f} importance={best.weights[3]:.2f}")
-    print(f"指标: MRR={best.mrr:.4f} NDCG@5={best.ndcg_at_5:.4f} P@5={best.precision_at_5:.4f} avg_latency={best.avg_latency_ms:.1f}ms")
+    print(
+        f"推荐权重: vector={best.weights[0]:.2f} keyword={best.weights[1]:.2f} relation={best.weights[2]:.2f} importance={best.weights[3]:.2f}"
+    )
+    print(
+        f"指标: MRR={best.mrr:.4f} NDCG@5={best.ndcg_at_5:.4f} P@5={best.precision_at_5:.4f} avg_latency={best.avg_latency_ms:.1f}ms"
+    )
 
     # 输出可直接使用的 Python 常量
-    print(f"\n# 粘贴到 backend/shared/constants.py:")
+    print("\n# 粘贴到 backend/shared/constants.py:")
     print(f"RAG_VECTOR_WEIGHT: Final[float] = {best.weights[0]:.2f}")
     print(f"RAG_KEYWORD_WEIGHT: Final[float] = {best.weights[1]:.2f}")
     print(f"RAG_RELATION_WEIGHT: Final[float] = {best.weights[2]:.2f}")
@@ -330,7 +350,9 @@ async def main() -> None:
     parser.add_argument("--novel-id", required=True, help="小说项目 ID (UUID hex)")
     parser.add_argument("--chapters", default="1-30", help="章节范围，如 1-30")
     parser.add_argument("--max-queries", type=int, default=200, help="最大评估查询数")
-    parser.add_argument("--fast", action="store_true", help="快速模式 (步长 0.1, 约 20 个组合)")
+    parser.add_argument(
+        "--fast", action="store_true", help="快速模式 (步长 0.1, 约 20 个组合)"
+    )
     parser.add_argument("--database-url", default="", help="数据库 URL (默认使用配置)")
     args = parser.parse_args()
 

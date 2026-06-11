@@ -14,6 +14,7 @@ Context 模块单元测试
 
 from __future__ import annotations
 
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -53,6 +54,7 @@ from modules.context.services.protocol import Loader
 # 1. Loader 协议测试
 # ============================================================
 
+
 class TestLoaderProtocol:
     """验证 Loader ABC 协议定义"""
 
@@ -74,8 +76,14 @@ class TestLoaderProtocol:
             OutlineArcLoader(),
         ]
         expected_names = [
-            "project", "world_entities", "characters", "events",
-            "memory_records", "rag_chunks", "plot_threads", "outline_arc",
+            "project",
+            "world_entities",
+            "characters",
+            "events",
+            "memory_records",
+            "rag_chunks",
+            "plot_threads",
+            "outline_arc",
         ]
         for loader, expected_name in zip(loaders, expected_names):
             assert loader.name == expected_name, (
@@ -95,6 +103,7 @@ class TestLoaderProtocol:
 # ============================================================
 # 2. ContextCompiler 调度逻辑测试（Mock Loader）
 # ============================================================
+
 
 class TestContextCompilerDispatch:
     """测试 ContextCompiler 的 Loader 调度逻辑"""
@@ -227,12 +236,14 @@ class TestContextCompilerDispatch:
             async def load(self, db, options, bundle) -> None:
                 results["memory_records"] = True
 
-        compiler = ContextCompiler(loaders=[
-            ProjectLoader(),
-            WorldEntitiesLoader(),
-            BadLoader(),
-            GoodLoader(),
-        ])
+        compiler = ContextCompiler(
+            loaders=[
+                ProjectLoader(),
+                WorldEntitiesLoader(),
+                BadLoader(),
+                GoodLoader(),
+            ]
+        )
         options = CompileOptions(
             novel_id="test-id",
             task="测试",
@@ -256,6 +267,7 @@ class TestCompileWithTiers:
     @pytest.mark.asyncio
     async def test_compile_with_tiers_returns_compiled_context(self) -> None:
         """compile_with_tiers 应返回 CompiledContext，且包含 Tier 标注的段"""
+
         class DummyLoader(Loader):
             @property
             def name(self) -> str:
@@ -264,13 +276,20 @@ class TestCompileWithTiers:
             async def load(self, db, options, bundle) -> None:
                 bundle.project = {"title": "测试小说"}
 
+        def _make_db():
+            db = AsyncMock()
+            execute_result = MagicMock()
+            execute_result.scalars.return_value.all.return_value = []
+            db.execute.return_value = execute_result
+            return db
+
         compiler = ContextCompiler(loaders=[DummyLoader()])
         options = CompileOptions(
-            novel_id="test-id",
+            novel_id=str(uuid.uuid4()),
             task="测试",
             scope="project",
         )
-        result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
+        result = await compiler.compile_with_tiers(db=_make_db(), options=options)
         assert hasattr(result, "sections")
         assert hasattr(result, "total_tokens")
         assert hasattr(result, "budget_tokens")
@@ -279,6 +298,7 @@ class TestCompileWithTiers:
     @pytest.mark.asyncio
     async def test_writing_mode_prefixes_delta(self) -> None:
         """writing 模式应在 P1 段前加 [Delta 模式] 前缀"""
+
         class CharLoader(Loader):
             @property
             def name(self) -> str:
@@ -288,14 +308,21 @@ class TestCompileWithTiers:
                 bundle.characters = [{"name": "主角"}]
                 bundle.memory_records = [{"event": "测试事件"}]
 
+        def _make_db():
+            db = AsyncMock()
+            execute_result = MagicMock()
+            execute_result.scalars.return_value.all.return_value = []
+            db.execute.return_value = execute_result
+            return db
+
         compiler = ContextCompiler(loaders=[CharLoader()])
         options = CompileOptions(
-            novel_id="test-id",
+            novel_id=str(uuid.uuid4()),
             task="测试",
             scope="world_character",
             mode="writing",
         )
-        result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
+        result = await compiler.compile_with_tiers(db=_make_db(), options=options)
         p1_sections = [s for s in result.sections if s.tier == Tier.P1]
         assert len(p1_sections) == 2
         keys = {s.key for s in p1_sections}
@@ -309,6 +336,7 @@ class TestCompileWithTiers:
     @pytest.mark.asyncio
     async def test_debug_mode_prefixes_snapshot(self) -> None:
         """debug 模式应在 P1 段前加 [Snapshot 模式] 前缀"""
+
         class CharLoader(Loader):
             @property
             def name(self) -> str:
@@ -318,14 +346,21 @@ class TestCompileWithTiers:
                 bundle.characters = [{"name": "主角"}]
                 bundle.memory_records = [{"event": "测试事件"}]
 
+        def _make_db():
+            db = AsyncMock()
+            execute_result = MagicMock()
+            execute_result.scalars.return_value.all.return_value = []
+            db.execute.return_value = execute_result
+            return db
+
         compiler = ContextCompiler(loaders=[CharLoader()])
         options = CompileOptions(
-            novel_id="test-id",
+            novel_id=str(uuid.uuid4()),
             task="测试",
             scope="world_character",
             mode="debug",
         )
-        result = await compiler.compile_with_tiers(db=MagicMock(), options=options)
+        result = await compiler.compile_with_tiers(db=_make_db(), options=options)
         p1_sections = [s for s in result.sections if s.tier == Tier.P1]
         assert len(p1_sections) == 2
         keys = {s.key for s in p1_sections}
@@ -340,6 +375,7 @@ class TestCompileWithTiers:
 # ============================================================
 # 3. 各 Loader 加载逻辑测试（Mock Facade）
 # ============================================================
+
 
 class TestProjectLoader:
     """测试 ProjectLoader"""
@@ -367,9 +403,7 @@ class TestProjectLoader:
     async def test_load_project_not_found_adds_warning(self) -> None:
         """项目不存在应添加警告"""
         loader = ProjectLoader()
-        bundle = StructureContextBundle(
-            novel_id="nonexistent", task="t", scope="project"
-        )
+        bundle = StructureContextBundle(novel_id="nonexistent", task="t", scope="project")
 
         with patch(
             "modules.context.services.loaders.project_loader.get_project_context",
@@ -393,19 +427,25 @@ class TestWorldEntitiesLoader:
         """指定 entity_ids 时应按重要性排序并分割 core/normal"""
         mock_entity = MagicMock()
         mock_entity.model_dump.return_value = {
-            "name": "测试物品", "entity_type": "item",
-            "importance": 0.9, "importance_level": "core",
+            "name": "测试物品",
+            "entity_type": "item",
+            "importance": 0.9,
+            "importance_level": "core",
         }
         mock_ctx = MagicMock()
         mock_ctx.entities = [mock_entity]
 
         loader = WorldEntitiesLoader()
         bundle = StructureContextBundle(
-            novel_id="id", task="t", scope="world",
+            novel_id="id",
+            task="t",
+            scope="world",
         )
         options = MagicMock(
-            novel_id="id", reveal_mode="author_safe",
-            entity_ids=["e1"], enable_geo_filter=False,
+            novel_id="id",
+            reveal_mode="author_safe",
+            entity_ids=["e1"],
+            enable_geo_filter=False,
         )
 
         with patch(
@@ -422,20 +462,30 @@ class TestWorldEntitiesLoader:
         """未指定 entity_ids 时应按重要性排序"""
         mock_ctx = MagicMock()
         mock_ctx.entities = [
-            MagicMock(model_dump=lambda: {
-                "name": "低重要性", "entity_type": "item",
-                "importance": 0.3, "importance_level": "normal",
-            }),
-            MagicMock(model_dump=lambda: {
-                "name": "高重要性", "entity_type": "location",
-                "importance": 0.9, "importance_level": "core",
-            }),
+            MagicMock(
+                model_dump=lambda: {
+                    "name": "低重要性",
+                    "entity_type": "item",
+                    "importance": 0.3,
+                    "importance_level": "normal",
+                }
+            ),
+            MagicMock(
+                model_dump=lambda: {
+                    "name": "高重要性",
+                    "entity_type": "location",
+                    "importance": 0.9,
+                    "importance_level": "core",
+                }
+            ),
         ]
         loader = WorldEntitiesLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world")
         options = MagicMock(
-            novel_id="id", reveal_mode="author_safe",
-            entity_ids=None, enable_geo_filter=False,
+            novel_id="id",
+            reveal_mode="author_safe",
+            entity_ids=None,
+            enable_geo_filter=False,
         )
 
         with patch(
@@ -454,17 +504,23 @@ class TestWorldEntitiesLoader:
         """author_safe 模式应标注 hidden_truth"""
         mock_ctx = MagicMock()
         mock_ctx.entities = [
-            MagicMock(model_dump=lambda: {
-                "name": "秘密", "entity_type": "faction",
-                "importance": 0.8, "importance_level": "core",
-                "hidden_truth": "这是隐藏真相",
-            }),
+            MagicMock(
+                model_dump=lambda: {
+                    "name": "秘密",
+                    "entity_type": "faction",
+                    "importance": 0.8,
+                    "importance_level": "core",
+                    "hidden_truth": "这是隐藏真相",
+                }
+            ),
         ]
         loader = WorldEntitiesLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world")
         options = MagicMock(
-            novel_id="id", reveal_mode="author_safe",
-            entity_ids=None, enable_geo_filter=False,
+            novel_id="id",
+            reveal_mode="author_safe",
+            entity_ids=None,
+            enable_geo_filter=False,
         )
 
         with patch(
@@ -484,7 +540,9 @@ class TestCharactersLoader:
         """指定 character_ids 时应加载对应人物"""
         mock_char = MagicMock()
         mock_char.model_dump.return_value = {
-            "name": "主角", "role": "protagonist", "character_id": "c1",
+            "name": "主角",
+            "role": "protagonist",
+            "character_id": "c1",
         }
         mock_ctx = MagicMock()
         mock_ctx.characters = [mock_char]
@@ -492,8 +550,10 @@ class TestCharactersLoader:
         loader = CharactersLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world_character")
         options = MagicMock(
-            novel_id="id", reveal_mode="author_safe",
-            character_ids=["c1"], scope="world_character",
+            novel_id="id",
+            reveal_mode="author_safe",
+            character_ids=["c1"],
+            scope="world_character",
         )
 
         with patch(
@@ -512,8 +572,10 @@ class TestCharactersLoader:
         loader = CharactersLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world_character")
         options = MagicMock(
-            novel_id="id", reveal_mode="author_safe",
-            character_ids=None, scope="world_character",
+            novel_id="id",
+            reveal_mode="author_safe",
+            character_ids=None,
+            scope="world_character",
         )
 
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
@@ -525,27 +587,36 @@ class TestCharactersLoader:
         """scope 非 project 时应调用知识边界过滤"""
         mock_char = MagicMock()
         mock_char.model_dump.return_value = {
-            "name": "主角", "role": "protagonist", "character_id": "c1",
+            "name": "主角",
+            "role": "protagonist",
+            "character_id": "c1",
         }
         mock_ctx = MagicMock()
         mock_ctx.characters = [mock_char]
 
         loader = CharactersLoader()
         bundle = StructureContextBundle(
-            novel_id="id", task="t", scope="world_character",
+            novel_id="id",
+            task="t",
+            scope="world_character",
             world_entities=[{"name": "秘密", "entity_type": "secret"}],
         )
         options = MagicMock(
-            novel_id="id", reveal_mode="author_safe",
-            character_ids=["c1"], scope="world_character",
+            novel_id="id",
+            reveal_mode="author_safe",
+            character_ids=["c1"],
+            scope="world_character",
         )
 
-        with patch(
-            "modules.world.facade.get_characters_context",
-            AsyncMock(return_value=mock_ctx),
-        ), patch(
-            "modules.world.facade.filter_context_by_character_knowledge",
-            AsyncMock(return_value=[]),
+        with (
+            patch(
+                "modules.world.facade.get_characters_context",
+                AsyncMock(return_value=mock_ctx),
+            ),
+            patch(
+                "modules.world.facade.filter_context_by_character_knowledge",
+                AsyncMock(return_value=[]),
+            ),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
@@ -560,7 +631,9 @@ class TestEventsLoader:
         """应加载时间线事件"""
         mock_event = MagicMock()
         mock_event.model_dump.return_value = {
-            "id": "evt1", "title": "大战", "summary": "一场大战",
+            "id": "evt1",
+            "title": "大战",
+            "summary": "一场大战",
         }
         mock_ctx = MagicMock()
         mock_ctx.events = [mock_event]
@@ -628,7 +701,9 @@ class TestRagChunksLoader:
         """应加载 RAG 检索片段"""
         mock_chunk = MagicMock()
         mock_chunk.model_dump.return_value = {
-            "text": "相关文章内容", "score": 0.85, "source_type": "world_entity",
+            "text": "相关文章内容",
+            "score": 0.85,
+            "source_type": "world_entity",
         }
         mock_result = MagicMock()
         mock_result.chunks = [mock_chunk]
@@ -636,8 +711,12 @@ class TestRagChunksLoader:
         loader = RagChunksLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
-            novel_id="id", task="生成章节", reveal_mode="author_safe",
-            entity_ids=None, character_ids=None, chapter_index=1,
+            novel_id="id",
+            task="生成章节",
+            reveal_mode="author_safe",
+            entity_ids=None,
+            character_ids=None,
+            chapter_index=1,
         )
 
         with patch(
@@ -659,8 +738,12 @@ class TestRagChunksLoader:
         loader = RagChunksLoader()
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
-            novel_id="id", task="test", reveal_mode="reader",
-            entity_ids=None, character_ids=None, chapter_index=1,
+            novel_id="id",
+            task="test",
+            reveal_mode="reader",
+            entity_ids=None,
+            character_ids=None,
+            chapter_index=1,
         )
 
         with patch(
@@ -771,13 +854,16 @@ class TestOutlineArcLoader:
 # 4. Facade 函数测试
 # ============================================================
 
+
 class TestFacade:
     """测试 facade 入口函数"""
 
     def test_render_context_markdown_static(self) -> None:
         """render_context_markdown 应委托给 markdown_renderer"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试渲染", scope="project",
+            novel_id="test-id",
+            task="测试渲染",
+            scope="project",
         )
         md = render_context_markdown(bundle)
         assert "# 结构化创作上下文" in md
@@ -789,11 +875,14 @@ class TestFacade:
         from modules.context import facade as ctx_facade
 
         mock_bundle = StructureContextBundle(
-            novel_id="id", task="test", scope="project",
+            novel_id="id",
+            task="test",
+            scope="project",
         )
 
         with patch.object(
-            ctx_facade._compiler, "compile",
+            ctx_facade._compiler,
+            "compile",
             AsyncMock(return_value=mock_bundle),
         ) as mock_compile:
             result = await compile_structure_context(
@@ -810,6 +899,7 @@ class TestFacade:
 # ============================================================
 # 5. Markdown 渲染边界条件
 # ============================================================
+
 
 class TestMarkdownRendererEdgeCases:
     """测试 Markdown 渲染器边界条件"""
@@ -841,7 +931,9 @@ class TestMarkdownRendererEdgeCases:
     def test_render_with_budget_warnings(self) -> None:
         """预算用尽或接近上限应在风险提示中显示"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="full",
+            novel_id="test-id",
+            task="测试",
+            scope="full",
             budget_used={"core_entities": 8, "characters": 5},
         )
         md = render_context_markdown(bundle)
@@ -851,7 +943,9 @@ class TestMarkdownRendererEdgeCases:
     def test_render_with_hidden_plot_threads_in_forbidden(self) -> None:
         """hidden 类型的剧情线应在禁止事项中列出"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="full",
+            novel_id="test-id",
+            task="测试",
+            scope="full",
             plot_threads=[
                 {
                     "name": "暗线",
@@ -880,7 +974,9 @@ class TestMarkdownRendererEdgeCases:
         mock_edge.difficulty = "easy"
 
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="full",
+            novel_id="test-id",
+            task="测试",
+            scope="full",
             geo_locations=[
                 {
                     "location": mock_loc,
@@ -900,7 +996,9 @@ class TestMarkdownRendererEdgeCases:
     def test_render_empty_geo_returns_no_data(self) -> None:
         """空 geo_locations 应显示无相关数据"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="full",
+            novel_id="test-id",
+            task="测试",
+            scope="full",
             geo_locations=[],
         )
         md = render_context_markdown(bundle)
@@ -909,7 +1007,9 @@ class TestMarkdownRendererEdgeCases:
     def test_render_foreshadowing_from_chapter_card(self) -> None:
         """从 chapter_card 提取伏笔信息"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="chapter",
+            novel_id="test-id",
+            task="测试",
+            scope="chapter",
             chapter_card={
                 "foreshadowing_actions": [
                     {"description": "埋下戒指伏笔"},
@@ -927,7 +1027,9 @@ class TestMarkdownRendererEdgeCases:
     def test_render_creative_materials_with_entity_tags(self) -> None:
         """可用创作素材应包含实体标签"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="full",
+            novel_id="test-id",
+            task="测试",
+            scope="full",
             world_entities=[
                 {"id": "e1", "name": "王国"},
                 {"id": "e2", "name": "神器"},
@@ -957,7 +1059,9 @@ class TestMarkdownRendererEdgeCases:
     def test_render_risks_no_warnings(self) -> None:
         """无警告时应显示无相关风险"""
         bundle = StructureContextBundle(
-            novel_id="test-id", task="测试", scope="project",
+            novel_id="test-id",
+            task="测试",
+            scope="project",
         )
         md = render_context_markdown(bundle)
         assert "无相关风险" in md
@@ -976,6 +1080,7 @@ class TestMarkdownRendererEdgeCases:
 # 6. API 路由测试（Mock Facade）
 # ============================================================
 
+
 class TestContextApi:
     """测试 API 路由"""
 
@@ -983,19 +1088,26 @@ class TestContextApi:
     async def test_compile_context_success(self) -> None:
         """POST /api/context/compile 应返回编译结果"""
         mock_bundle = StructureContextBundle(
-            novel_id="nid", task="测试", scope="project",
+            novel_id="nid",
+            task="测试",
+            scope="project",
             budget_used={},
         )
 
-        with patch("modules.context.api.compile_structure_context",
-                    AsyncMock(return_value=mock_bundle)):
+        with patch(
+            "modules.context.api.compile_structure_context",
+            AsyncMock(return_value=mock_bundle),
+        ):
             from modules.context.api import compile_context
 
             request = ContextCompileRequest(
-                novel_id="nid", task="测试", scope="project",
+                novel_id="nid",
+                task="测试",
+                scope="project",
             )
             response = await compile_context(
-                db=MagicMock(), request=request,
+                db=MagicMock(),
+                request=request,
             )
 
         assert isinstance(response, ContextCompileResponse)
@@ -1008,7 +1120,9 @@ class TestContextApi:
         from modules.context.api import compile_context
 
         request = ContextCompileRequest(
-            novel_id="nid", task="测试", scope="invalid_scope",
+            novel_id="nid",
+            task="测试",
+            scope="invalid_scope",
         )
         with pytest.raises(HTTPException) as exc_info:
             await compile_context(db=MagicMock(), request=request)
@@ -1020,19 +1134,26 @@ class TestContextApi:
     async def test_render_context_success(self) -> None:
         """POST /api/context/render 应返回编译+渲染结果"""
         mock_bundle = StructureContextBundle(
-            novel_id="nid", task="测试", scope="project",
+            novel_id="nid",
+            task="测试",
+            scope="project",
             budget_used={},
         )
 
-        with patch("modules.context.api.compile_structure_context",
-                    AsyncMock(return_value=mock_bundle)):
+        with patch(
+            "modules.context.api.compile_structure_context",
+            AsyncMock(return_value=mock_bundle),
+        ):
             from modules.context.api import render_context
 
             request = ContextRenderRequest(
-                novel_id="nid", task="测试", scope="project",
+                novel_id="nid",
+                task="测试",
+                scope="project",
             )
             response = await render_context(
-                db=MagicMock(), request=request,
+                db=MagicMock(),
+                request=request,
             )
 
         assert isinstance(response, ContextRenderResponse)
@@ -1045,7 +1166,9 @@ class TestContextApi:
         from modules.context.api import render_context
 
         request = ContextRenderRequest(
-            novel_id="nid", task="测试", scope="bad",
+            novel_id="nid",
+            task="测试",
+            scope="bad",
         )
         with pytest.raises(HTTPException) as exc_info:
             await render_context(db=MagicMock(), request=request)
@@ -1058,6 +1181,7 @@ class TestContextApi:
 # 7. 契约边界条件
 # ============================================================
 
+
 class TestContracts:
     """测试 contracts 边界条件"""
 
@@ -1065,8 +1189,9 @@ class TestContracts:
         """验证 CONTEXT_BUDGET 所有 key 均为正数"""
         for key, value in CONTEXT_BUDGET.items():
             assert isinstance(key, str), f"key {key} should be str"
-            assert isinstance(value, int) and value > 0, \
+            assert isinstance(value, int) and value > 0, (
                 f"{key} budget should be positive int, got {value}"
+            )
 
     def test_author_only_warning_is_not_empty(self) -> None:
         """AUTHOR_ONLY_WARNING 不应为空"""
@@ -1076,7 +1201,9 @@ class TestContracts:
     def test_bundle_default_values(self) -> None:
         """bundle 默认值应为空列表/None/False"""
         bundle = StructureContextBundle(
-            novel_id="id", task="t", scope="project",
+            novel_id="id",
+            task="t",
+            scope="project",
         )
         assert bundle.world_entities == []
         assert bundle.characters == []
@@ -1096,8 +1223,11 @@ class TestContracts:
     def test_full_bundle_all_fields_set(self) -> None:
         """验证所有字段类型"""
         bundle = StructureContextBundle(
-            novel_id="id", task="t", scope="full",
-            chapter_index=3, arc_id="arc1",
+            novel_id="id",
+            task="t",
+            scope="full",
+            chapter_index=3,
+            arc_id="arc1",
             project={"key": "val"},
             world_entities=[{"name": "e1"}],
             characters=[{"name": "c1"}],
@@ -1125,27 +1255,35 @@ class TestContracts:
 # 8. Schema 校验测试
 # ============================================================
 
+
 class TestSchemaValidation:
     """测试 Schema 数据校验"""
 
     def test_compile_request_chapter_index_ge_zero(self) -> None:
         """chapter_index 必须 >= 0"""
         req = ContextCompileRequest(
-            novel_id="id", task="t", scope="chapter", chapter_index=0,
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            chapter_index=0,
         )
         assert req.chapter_index == 0
 
     def test_compile_request_default_reveal_mode(self) -> None:
         """reveal_mode 默认值应为 author_safe"""
         req = ContextCompileRequest(
-            novel_id="id", task="t", scope="project",
+            novel_id="id",
+            task="t",
+            scope="project",
         )
         assert req.reveal_mode == "author_safe"
 
     def test_compile_response_with_warnings(self) -> None:
         """编译响应应能包含警告"""
         resp = ContextCompileResponse(
-            novel_id="id", task="t", scope="full",
+            novel_id="id",
+            task="t",
+            scope="full",
             reveal_mode="author_safe",
             warnings=["数据库连接失败"],
             section_count=3,
@@ -1157,9 +1295,13 @@ class TestSchemaValidation:
     def test_render_request_all_fields(self) -> None:
         """渲染请求应接受所有字段"""
         req = ContextRenderRequest(
-            novel_id="nid", task="生成章节", scope="chapter",
-            chapter_index=5, arc_id="arc1",
-            entity_ids=["e1"], character_ids=["c1"],
+            novel_id="nid",
+            task="生成章节",
+            scope="chapter",
+            chapter_index=5,
+            arc_id="arc1",
+            entity_ids=["e1"],
+            character_ids=["c1"],
             location_ids=["l1"],
             reveal_mode="character",
             viewpoint_character_id="vc1",
@@ -1181,7 +1323,9 @@ class TestSchemaValidation:
     def test_compile_response_sections_count(self) -> None:
         """section_count 应与 sections_present 长度一致"""
         resp = ContextCompileResponse(
-            novel_id="id", task="t", scope="world",
+            novel_id="id",
+            task="t",
+            scope="world",
             reveal_mode="author_safe",
             sections_present=["project"],
             section_count=1,

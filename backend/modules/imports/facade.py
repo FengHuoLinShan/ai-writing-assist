@@ -34,25 +34,15 @@ async def _check_duplicate_import(
     end_chapter: int,
 ) -> str | None:
     """检查章节范围内是否已有 Scene 或实体数据"""
-    from sqlalchemy import func, select
+    from modules.outline.facade import count_scenes_by_novel
+    from modules.world.facade import count_entities
 
-    from modules.outline.models import Scene
-    from modules.world.models import CoreEntity
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-
-    scene_stmt = select(func.count(Scene.id)).where(
-        Scene.novel_id == nid,
-        Scene.status.in_(["draft", "canonical"]),
+    scene_count = await count_scenes_by_novel(
+        db, novel_id, status_filter=["draft", "canonical"]
     )
-    scene_count = (await db.execute(scene_stmt)).scalar() or 0
-
-    entity_stmt = select(func.count(CoreEntity.id)).where(
-        CoreEntity.novel_id == nid,
-        CoreEntity.status.in_(["canonical", "draft"]),
+    entity_count = await count_entities(
+        db, novel_id, status_filter=["canonical", "draft"]
     )
-    entity_count = (await db.execute(entity_stmt)).scalar() or 0
 
     if scene_count > 0 or entity_count > 0:
         return (
@@ -119,6 +109,7 @@ async def resume_deep_import(
     prev_task = result.scalar_one_or_none()
     if prev_task is None:
         from modules.imports.contracts import TaskNotFoundError
+
         raise TaskNotFoundError(prev_task_id)
 
     prev_meta = prev_task.meta or {}

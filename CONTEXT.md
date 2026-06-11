@@ -22,8 +22,8 @@
 | RAG 分块 | RagChunk | `rag_chunks` | 正文分块 + embedding 向量 + 元信息标注（entity_ids, character_ids, thread_ids） |
 | 事件 | Event | `core_entities` (entity_type="event") | 小说时间线事件。timeline_order 存于 content_json |
 | 导入记录 | ImportRecord | `import_records` | 小说文件导入跟踪。不存原文 |
-| 候选实体 | EntityCandidate | `entity_candidates` | AI 抽取的候选对象池，待用户确认后 promote 为正史 |
-| 关系 | EntityRelation | `relationships` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
+| ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。AI 抽取直接入 `core_entities`（`status=canonical`），不再经过候选池 |
+| 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
 
 ## 2. 状态流转（Status Lifecycle）

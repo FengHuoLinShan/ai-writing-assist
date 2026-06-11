@@ -14,8 +14,8 @@ from pydantic import BaseModel
 
 from core.crud import CrudService
 
-
 # --- 测试辅助类 ---
+
 
 class FakeModel:
     """模拟 ORM 模型实例"""
@@ -44,6 +44,7 @@ class ResponseModel(BaseModel):
 
 
 # --- 合法的子类 ---
+
 
 class ValidCrudService(CrudService[FakeModel, CreateData, UpdateData, ResponseModel]):
     repo = MagicMock()
@@ -173,7 +174,9 @@ class TestCrudServiceList:
 
     @pytest.mark.asyncio
     async def test_list_returns_items_and_total(self, svc, mock_repo, nid):
-        objs = [FakeModel(id=uuid.uuid4(), novel_id=nid, name=f"item_{i}") for i in range(3)]
+        objs = [
+            FakeModel(id=uuid.uuid4(), novel_id=nid, name=f"item_{i}") for i in range(3)
+        ]
         mock_repo.get_by_novel = AsyncMock(return_value=(objs, 3))
 
         items, total = await svc.list(None, NOVEL_ID)
@@ -255,7 +258,9 @@ class TestCrudServiceDelete:
         mock_repo.delete.assert_awaited_once_with(None, eid)
 
     @pytest.mark.asyncio
-    async def test_delete_raises_404_when_repo_returns_false(self, svc, mock_repo, eid, nid):
+    async def test_delete_raises_404_when_repo_returns_false(
+        self, svc, mock_repo, eid, nid
+    ):
         existing = FakeModel(id=eid, novel_id=nid, name="x")
         mock_repo.get = AsyncMock(return_value=existing)
         mock_repo.delete = AsyncMock(return_value=False)

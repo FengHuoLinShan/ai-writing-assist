@@ -98,11 +98,18 @@ class MemoryService:
             state = dict(nearest.full_state)
             start_chapter = nearest.chapter_index + 1
         else:
-            state = {"entities": {}, "relations": [], "character_locations": {}, "character_knowledge": []}
+            state = {
+                "entities": {},
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            }
             start_chapter = 1
 
         if start_chapter <= chapter_index:
-            events = await self._event_repo.get_by_chapter_range(db, nid, start_chapter, chapter_index)
+            events = await self._event_repo.get_by_chapter_range(
+                db, nid, start_chapter, chapter_index
+            )
             state = self._apply_events(state, events)
 
         return state
@@ -166,13 +173,25 @@ class MemoryService:
             state = dict(nearest.full_state)
             start_chapter = nearest.chapter_index + 1
             if start_chapter <= chapter_index:
-                events = await self._event_repo.get_by_chapter_range(db, nid, start_chapter, chapter_index)
+                events = await self._event_repo.get_by_chapter_range(
+                    db, nid, start_chapter, chapter_index
+                )
                 state = self._apply_events(state, events)
         else:
             # 没有任何快照 — 检查是否有事件可重放
-            events = await self._event_repo.get_by_chapter_range(db, nid, 1, chapter_index)
+            events = await self._event_repo.get_by_chapter_range(
+                db, nid, 1, chapter_index
+            )
             if events:
-                state = self._apply_events({"entities": {}, "relations": [], "character_locations": {}, "character_knowledge": []}, events)
+                state = self._apply_events(
+                    {
+                        "entities": {},
+                        "relations": [],
+                        "character_locations": {},
+                        "character_knowledge": [],
+                    },
+                    events,
+                )
             else:
                 # 完全没有数据，回退到 world 当前状态
                 state = await get_full_state(db, novel_id)
@@ -205,7 +224,10 @@ class MemoryService:
         """按章节范围查询事件列表"""
         nid = parse_uuid(novel_id)
         events = await self._event_repo.get_by_chapter_range(
-            db, nid, from_chapter, to_chapter,
+            db,
+            nid,
+            from_chapter,
+            to_chapter,
         )
         items = [MemoryEventResponse.model_validate(e) for e in events]
         return EventListResponse(items=items, total=len(items))
@@ -222,7 +244,11 @@ class MemoryService:
         nid = parse_uuid(novel_id)
         eid = parse_uuid(entity_id)
         events, total = await self._event_repo.get_by_entity(
-            db, nid, eid, skip=skip, limit=limit,
+            db,
+            nid,
+            eid,
+            skip=skip,
+            limit=limit,
         )
         items = [MemoryEventResponse.model_validate(e) for e in events]
         return EventListResponse(items=items, total=total)
@@ -263,7 +289,8 @@ class MemoryService:
         stale_snapshots = [s for s in snapshots if s.status == "stale"]
         stale_from = (
             min((s.chapter_index for s in stale_snapshots), default=None)
-            if stale_snapshots else None
+            if stale_snapshots
+            else None
         )
 
         return MemoryStatusResponse(
@@ -303,7 +330,12 @@ class MemoryService:
         if from_chapter > 1:
             base_state = await self.replay_state(db, novel_id, from_chapter - 1)
         else:
-            base_state = {"entities": {}, "relations": [], "character_locations": {}, "character_knowledge": []}
+            base_state = {
+                "entities": {},
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            }
 
         # 获取当前世界状态
         current_state = await get_full_state(db, novel_id)
@@ -318,8 +350,12 @@ class MemoryService:
             await self.record_events(db, novel_id, from_chapter, all_events)
 
         # 重建快照（每 K 章一个，加上最新章）
-        all_events_after = await self._event_repo.get_by_chapter_range(db, nid, from_chapter, 999999)
-        final_chapter = max((e.chapter_index for e in all_events_after), default=from_chapter)
+        all_events_after = await self._event_repo.get_by_chapter_range(
+            db, nid, from_chapter, 999999
+        )
+        final_chapter = max(
+            (e.chapter_index for e in all_events_after), default=from_chapter
+        )
 
         rebuilt_count = 0
         for ch in range(from_chapter, final_chapter + 1):
@@ -365,8 +401,7 @@ class MemoryService:
             elif etype == EventType.relation_ended:
                 rel_id = after.get("relation_id") or after.get("id")
                 state["relations"] = [
-                    r for r in state["relations"]
-                    if r.get("id") != rel_id
+                    r for r in state["relations"] if r.get("id") != rel_id
                 ]
             elif etype == EventType.knowledge_changed:
                 state["character_knowledge"].append(after)
@@ -386,66 +421,89 @@ class MemoryService:
         for eid, aent in after_entities.items():
             bent = before_entities.get(eid)
             if bent is None:
-                events.append({
-                    "event_type": EventType.entity_created,
-                    "entity_id": eid,
-                    "entity_type": aent.get("entity_type"),
-                    "snapshot_after": aent,
-                    "source": "ai_extraction",
-                })
+                events.append(
+                    {
+                        "event_type": EventType.entity_created,
+                        "entity_id": eid,
+                        "entity_type": aent.get("entity_type"),
+                        "snapshot_after": aent,
+                        "source": "ai_extraction",
+                    }
+                )
             else:
                 # 简单对比：检查关键字段变化
                 changed = False
-                for key in ("name", "summary", "public_info", "hidden_truth", "importance", "status"):
+                for key in (
+                    "name",
+                    "summary",
+                    "public_info",
+                    "hidden_truth",
+                    "importance",
+                    "status",
+                ):
                     if aent.get(key) != bent.get(key):
                         changed = True
                         break
                 if changed:
-                    events.append({
-                        "event_type": EventType.entity_updated,
-                        "entity_id": eid,
-                        "entity_type": aent.get("entity_type"),
-                        "snapshot_before": bent,
-                        "snapshot_after": aent,
-                        "source": "ai_extraction",
-                    })
+                    events.append(
+                        {
+                            "event_type": EventType.entity_updated,
+                            "entity_id": eid,
+                            "entity_type": aent.get("entity_type"),
+                            "snapshot_before": bent,
+                            "snapshot_after": aent,
+                            "source": "ai_extraction",
+                        }
+                    )
 
         # 删除的实体
         for eid in before_entities:
             if eid not in after_entities:
-                events.append({
-                    "event_type": EventType.entity_removed,
-                    "entity_id": eid,
-                    "entity_type": before_entities[eid].get("entity_type"),
-                    "snapshot_before": before_entities[eid],
-                    "snapshot_after": {},
-                    "source": "manual_edit",
-                })
+                events.append(
+                    {
+                        "event_type": EventType.entity_removed,
+                        "entity_id": eid,
+                        "entity_type": before_entities[eid].get("entity_type"),
+                        "snapshot_before": before_entities[eid],
+                        "snapshot_after": {},
+                        "source": "manual_edit",
+                    }
+                )
 
         # 关系变化
-        before_rels = {(r["source_id"], r["target_id"], r.get("relation_type", "")): r for r in before.get("relations", [])}
-        after_rels = {(r["source_id"], r["target_id"], r.get("relation_type", "")): r for r in after.get("relations", [])}
+        before_rels = {
+            (r["source_id"], r["target_id"], r.get("relation_type", "")): r
+            for r in before.get("relations", [])
+        }
+        after_rels = {
+            (r["source_id"], r["target_id"], r.get("relation_type", "")): r
+            for r in after.get("relations", [])
+        }
 
         for key, arel in after_rels.items():
             if key not in before_rels:
-                events.append({
-                    "event_type": EventType.relation_established,
-                    "entity_id": arel.get("source_id"),
-                    "entity_type": "relation",
-                    "snapshot_after": arel,
-                    "source": "ai_extraction",
-                })
+                events.append(
+                    {
+                        "event_type": EventType.relation_established,
+                        "entity_id": arel.get("source_id"),
+                        "entity_type": "relation",
+                        "snapshot_after": arel,
+                        "source": "ai_extraction",
+                    }
+                )
 
         for key, brel in before_rels.items():
             if key not in after_rels:
-                events.append({
-                    "event_type": EventType.relation_ended,
-                    "entity_id": brel.get("source_id"),
-                    "entity_type": "relation",
-                    "snapshot_before": brel,
-                    "snapshot_after": {"relation_id": brel.get("id")},
-                    "source": "manual_edit",
-                })
+                events.append(
+                    {
+                        "event_type": EventType.relation_ended,
+                        "entity_id": brel.get("source_id"),
+                        "entity_type": "relation",
+                        "snapshot_before": brel,
+                        "snapshot_after": {"relation_id": brel.get("id")},
+                        "source": "manual_edit",
+                    }
+                )
 
         # 角色位置变化
         before_locs = before.get("character_locations", {})
@@ -453,14 +511,16 @@ class MemoryService:
         for cid, aloc in after_locs.items():
             bloc = before_locs.get(cid, {})
             if str(aloc.get("location_id")) != str(bloc.get("location_id")):
-                events.append({
-                    "event_type": EventType.entity_moved,
-                    "entity_id": cid,
-                    "entity_type": "character",
-                    "snapshot_before": bloc if bloc else None,
-                    "snapshot_after": aloc,
-                    "source": "ai_extraction",
-                })
+                events.append(
+                    {
+                        "event_type": EventType.entity_moved,
+                        "entity_id": cid,
+                        "entity_type": "character",
+                        "snapshot_before": bloc if bloc else None,
+                        "snapshot_after": aloc,
+                        "source": "ai_extraction",
+                    }
+                )
 
         return events
 
@@ -476,7 +536,9 @@ class MemoryService:
         locations: dict[str, CharacterLocationInPanorama] = {}
         for cid, loc in state.get("character_locations", {}).items():
             locations[cid] = CharacterLocationInPanorama(**loc)
-        knowledge = [KnowledgeInPanorama(**k) for k in state.get("character_knowledge", [])]
+        knowledge = [
+            KnowledgeInPanorama(**k) for k in state.get("character_knowledge", [])
+        ]
 
         return ChapterPanorama(
             novel_id=novel_id,

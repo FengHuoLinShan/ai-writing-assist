@@ -25,7 +25,6 @@ from modules.context.services.loaders import (
     ProjectLoader,
     RagChunksLoader,
     WorldEntitiesLoader,
-    is_loader_available,
 )
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
@@ -37,19 +36,34 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "world": ["project", "world_entities"],
     "world_character": ["project", "world_entities", "characters"],
     "arc": [
-        "project", "world_entities", "characters",
-        "memory_records", "events", "rag_chunks",
-        "plot_threads", "outline_arc",
+        "project",
+        "world_entities",
+        "characters",
+        "memory_records",
+        "events",
+        "rag_chunks",
+        "plot_threads",
+        "outline_arc",
     ],
     "chapter": [
-        "project", "world_entities", "characters",
-        "memory_records", "events", "rag_chunks",
-        "plot_threads", "outline_arc",
+        "project",
+        "world_entities",
+        "characters",
+        "memory_records",
+        "events",
+        "rag_chunks",
+        "plot_threads",
+        "outline_arc",
     ],
     "full": [
-        "project", "world_entities", "characters",
-        "memory_records", "events", "rag_chunks",
-        "plot_threads", "outline_arc",
+        "project",
+        "world_entities",
+        "characters",
+        "memory_records",
+        "events",
+        "rag_chunks",
+        "plot_threads",
+        "outline_arc",
     ],
 }
 
@@ -65,7 +79,7 @@ class ContextCompiler:
 
     def __init__(self, loaders: list[Loader] | None = None) -> None:
         self._loaders: dict[str, Loader] = {}
-        for loader in (loaders or self._default_loaders()):
+        for loader in loaders or self._default_loaders():
             self._loaders[loader.name] = loader
         self._constraint_engine = ConstraintEngine()
 
@@ -193,9 +207,7 @@ class ContextCompiler:
             )
 
         if bundle.chapter_card:
-            content = json.dumps(
-                bundle.chapter_card, ensure_ascii=False, indent=2
-            )
+            content = json.dumps(bundle.chapter_card, ensure_ascii=False, indent=2)
             sections.append(
                 ContextSection(
                     key="scene_blueprint",

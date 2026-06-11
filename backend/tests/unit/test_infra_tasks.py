@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -171,7 +171,7 @@ class TestGetTaskStatus:
         from infrastructure.tasks.api import get_task_status
 
         task_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         task_mock = MagicMock()
         task_mock.id = task_id
@@ -385,7 +385,12 @@ class TestTaskWorkerInitAndProps:
         assert worker._running is False
         assert worker._current_task is None
         assert worker._heartbeat_task is None
-        assert worker._stats == {"processed": 0, "succeeded": 0, "failed": 0, "cancelled": 0}
+        assert worker._stats == {
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
 
     def test_custom_parameters(self) -> None:
         """GREEN: 自定义参数"""
@@ -721,7 +726,9 @@ class TestTaskWorkerHeartbeat:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=hb_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=hb_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         worker = TaskWorker(db_manager=db_manager, heartbeat_interval=0.01)
@@ -752,7 +759,9 @@ class TestTaskWorkerHeartbeat:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=hb_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=hb_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         worker = TaskWorker(db_manager=db_manager, heartbeat_interval=0.01)
@@ -786,7 +795,9 @@ class TestTaskWorkerRecoverStale:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=db_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         worker = TaskWorker(db_manager=db_manager)
@@ -811,7 +822,9 @@ class TestTaskWorkerRecoverStale:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=db_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         worker = TaskWorker(db_manager=db_manager)
@@ -833,7 +846,9 @@ class TestTaskWorkerRecoverStale:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=db_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         worker = TaskWorker(db_manager=db_manager)
@@ -872,7 +887,9 @@ class TestTaskWorkerRunOnce:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=db_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         with patch.object(TaskWorker, "_heartbeat_loop", return_value=None):
@@ -897,7 +914,9 @@ class TestTaskWorkerRunOnce:
 
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
-        db_manager.session_factory.return_value.__aenter__ = AsyncMock(return_value=db_session)
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
         worker = TaskWorker(db_manager=db_manager)

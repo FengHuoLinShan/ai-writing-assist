@@ -3,6 +3,7 @@
 服务在 main.py 启动时注册，模块间通过 container.get() 获取依赖，
 不再直接 import 其他模块的 facade/service。
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,10 +20,7 @@ def register(name: str, instance: Any) -> None:
 def get(name: str) -> Any:
     if name not in _container:
         available = ", ".join(sorted(_container))
-        raise KeyError(
-            f"Service {name!r} not registered. "
-            f"Available: {available}"
-        )
+        raise KeyError(f"Service {name!r} not registered. Available: {available}")
     return _container[name]
 
 

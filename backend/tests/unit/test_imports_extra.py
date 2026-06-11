@@ -99,10 +99,23 @@ class TestLooksLikeChapter:
     @pytest.mark.parametrize(
         "text",
         [
-            "第一章", "第2节", "第三回", "楔子", "序章", "序言",
-            "卷 一", "卷1", "Chapter 1", "Ch 2",
-            "CHAPTER THREE", "ch 4", "Prologue", "PREFACE",
-            "preface", "话 一", "第一话",
+            "第一章",
+            "第2节",
+            "第三回",
+            "楔子",
+            "序章",
+            "序言",
+            "卷 一",
+            "卷1",
+            "Chapter 1",
+            "Ch 2",
+            "CHAPTER THREE",
+            "ch 4",
+            "Prologue",
+            "PREFACE",
+            "preface",
+            "话 一",
+            "第一话",
         ],
     )
     def test_returns_true_for_chapter_like_text(self, text: str):
@@ -112,9 +125,18 @@ class TestLooksLikeChapter:
     @pytest.mark.parametrize(
         "text",
         [
-            "正文开始", "结尾", "后记", "附录", "索引", "鸣谢",
-            "说明", "Title", "Introduction",
-            "Summary", "Notes", "References",
+            "正文开始",
+            "结尾",
+            "后记",
+            "附录",
+            "索引",
+            "鸣谢",
+            "说明",
+            "Title",
+            "Introduction",
+            "Summary",
+            "Notes",
+            "References",
         ],
     )
     def test_returns_false_for_ordinary_text(self, text: str):
@@ -167,23 +189,13 @@ class TestSplitChaptersMore:
 
     def test_numbered_pattern_with_dot(self):
         """数字加点模式 '1. Title' 应被识别"""
-        text = (
-            "1. 相遇\n"
-            "他们在街头相遇。\n\n"
-            "2. 相知\n"
-            "慢慢了解彼此。\n"
-        )
+        text = "1. 相遇\n他们在街头相遇。\n\n2. 相知\n慢慢了解彼此。\n"
         chapters = split_chapters(text)
         assert len(chapters) == 2
 
     def test_chinese_volume_pattern(self):
         """卷模式应被识别"""
-        text = (
-            "卷一 春\n"
-            "春天的故事。\n\n"
-            "卷二 夏\n"
-            "夏天的故事。\n"
-        )
+        text = "卷一 春\n春天的故事。\n\n卷二 夏\n夏天的故事。\n"
         chapters = split_chapters(text)
         assert len(chapters) == 2
         assert chapters[0]["title"] == "卷一 春"
@@ -219,11 +231,7 @@ class TestSplitChaptersMore:
 
     def test_best_pattern_selected_by_match_count(self):
         """选择匹配最多的分章模式"""
-        text = (
-            "第一章 开始\n内容\n"
-            "1. 片段\n内容\n"
-            "第二章 中段\n内容\n"
-        )
+        text = "第一章 开始\n内容\n1. 片段\n内容\n第二章 中段\n内容\n"
         # 中文 CHAPTER_PATTERNS 匹配 "第一章", "第二章" 共 2 个
         # 数字模式匹配 "1." 但只有 1 个
         # 所以应选中文模式
@@ -393,8 +401,11 @@ class TestImportSchemas:
         """ImportListResponse 包含 items 和 total"""
         items = [
             ImportResponse(
-                id="1", novel_id="n1", file_name="a.txt",
-                file_type="txt", status="done",
+                id="1",
+                novel_id="n1",
+                file_name="a.txt",
+                file_type="txt",
+                status="done",
             ),
         ]
         resp = ImportListResponse(items=items, total=1)
@@ -430,8 +441,12 @@ class TestImportSchemas:
         """ImportedChapterListResponse 包含 items 和 total"""
         items = [
             ImportedChapterResponse(
-                id="c1", novel_id="n1", import_record_id="r1",
-                chapter_index=1, title="第一章", content="正文",
+                id="c1",
+                novel_id="n1",
+                import_record_id="r1",
+                chapter_index=1,
+                title="第一章",
+                content="正文",
             ),
         ]
         resp = ImportedChapterListResponse(items=items, total=1)
@@ -584,6 +599,7 @@ class TestImportServiceHelpers:
 
 class TestImportServiceErrors:
     """upload_and_import 异常路径（需 DB session）"""
+
     pytestmark = [pytest.mark.asyncio]
 
     @pytest.fixture
@@ -593,6 +609,7 @@ class TestImportServiceErrors:
     @pytest.fixture
     def repo(self) -> ImportRecordRepository:
         return ImportRecordRepository()
+
     async def test_empty_chapters_raises_400(
         self,
         service: ImportService,
@@ -603,7 +620,10 @@ class TestImportServiceErrors:
         with patch("modules.imports.services.parse_file", return_value=[]):
             with pytest.raises(HTTPException) as exc:
                 await service.upload_and_import(
-                    db_session, test_project_id, "empty.txt", b"",
+                    db_session,
+                    test_project_id,
+                    "empty.txt",
+                    b"",
                 )
         assert exc.value.status_code == 400
         assert "未解析出任何章节" in exc.value.detail
@@ -622,7 +642,10 @@ class TestImportServiceErrors:
         ):
             with pytest.raises(HTTPException) as exc:
                 await service.upload_and_import(
-                    db_session, test_project_id, "bad.txt", b"garbage",
+                    db_session,
+                    test_project_id,
+                    "bad.txt",
+                    b"garbage",
                 )
         assert exc.value.status_code == 422
         assert "导入参数错误" in exc.value.detail
@@ -641,7 +664,10 @@ class TestImportServiceErrors:
         ):
             with pytest.raises(HTTPException) as exc:
                 await service.upload_and_import(
-                    db_session, test_project_id, "bad.txt", b"garbage",
+                    db_session,
+                    test_project_id,
+                    "bad.txt",
+                    b"garbage",
                 )
         assert exc.value.status_code == 500
         assert "服务器错误" in exc.value.detail
@@ -655,12 +681,16 @@ class TestImportServiceErrors:
     ):
         """从 _validate_file 抛出的 HTTPException 应原样传递"""
         with patch.object(
-            service, "_validate_file",
+            service,
+            "_validate_file",
             side_effect=HTTPException(status_code=400, detail="custom error"),
         ):
             with pytest.raises(HTTPException) as exc:
                 await service.upload_and_import(
-                    db_session, test_project_id, "bad", b"data",
+                    db_session,
+                    test_project_id,
+                    "bad",
+                    b"data",
                 )
         assert exc.value.status_code == 400
         assert "custom error" in exc.value.detail
@@ -673,8 +703,8 @@ class TestImportServiceErrors:
 
 class TestImportApi:
     """FastAPI 路由层验证"""
-    pytestmark = [pytest.mark.asyncio]
 
+    pytestmark = [pytest.mark.asyncio]
 
     async def test_upload_returns_201(
         self,
@@ -810,11 +840,13 @@ class TestImportApi:
 
 class TestImportRecordRepositoryMore:
     """ImportRecordRepository 补充覆盖"""
+
     pytestmark = [pytest.mark.asyncio]
 
     @pytest.fixture
     def repo(self) -> ImportRecordRepository:
         return ImportRecordRepository()
+
     async def test_update_status_nonexistent_returns_none(
         self,
         repo: ImportRecordRepository,
@@ -848,8 +880,8 @@ class TestImportRecordRepositoryMore:
 
 class TestImportTaskHandlers:
     """deep_import / deep_import_resume 任务处理器"""
-    pytestmark = [pytest.mark.asyncio]
 
+    pytestmark = [pytest.mark.asyncio]
 
     async def test_handle_deep_import_happy_path(self):
         """正常 deep_import 任务应调用 worklow 并返回进度"""

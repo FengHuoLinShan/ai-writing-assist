@@ -9,25 +9,26 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 ## 核心原则
 
 - 对象抽取不是 NER，而是长期创作资产识别
-- AI 抽取对象先进入 entity_candidates
-- 别名不建新对象，进入 entity_aliases
-- 对象分级：core / important / normal / temporary / alias
+- AI 抽取对象直接以 `status="canonical"` 自动入库，不经过候选池
+- 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
+- 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
+- 对象分级：core / important / normal / temporary
+- 实体变更同时写入 Delta Log + Text Archive，用于版本回滚（R5 逐步实现中）
 
 ## 职责
 
-- 世界对象 CRUD（WorldEntity）
-- 对象关系管理（Relationship）
-- 别名管理（EntityAlias）
-- 候选对象池（EntityCandidate）
+- 世界对象 CRUD（CoreEntity）
+- 对象关系管理（EntityRelation）
+- 别名管理（内联于 CoreEntity.aliases JSONB）
 - 对象去重（EntityDedupService）
 - 向其他模块提供世界上下文（get_world_context）
+- 人物档案与知识边界（Character / CharacterKnowledge）
 
 ## 边界
 
 明确不做：
 
-- 地点地理扩展 → geo 模块
-- 人物档案管理 → character 模块
+- 人物档案管理 → character 已迁入 world，不再独立模块
 - 对象 embedding 全量实时更新 → rag 模块
 - 自动合并正史对象
 - 复杂跨类型实体消歧
@@ -38,134 +39,193 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 | 表名 | 用途 |
 |------|------|
-| `world_entities` | 世界对象正史库 |
-| `relationships` | 对象间关系 |
-| `entity_aliases` | 对象别名（不独立建对象） |
-| `entity_candidates` | AI 生成的候选对象池 |
+| `core_entities` | 统一核心实体正史库（原 `world_entities`） |
+| `entity_relations` | 对象间关系边（原 `relationships`） |
+| `events` | 事件扩展表（entity_id PK+FK → core_entities） |
+| `characters` | 人物档案（entity_id PK+FK → core_entities） |
+| `character_knowledge` | 人物知识边界 |
+| `entity_revisions` | 实体快照版本表（已废弃，后续改用 DeltaLog + TextArchive） |
+| ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
+| ~~`entity_candidates`~~ | 已废弃，AI 抽取直接入正史 |
+| ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
 
-### world_entities 表核心字段
+### core_entities 表核心字段
 
 - `id` — UUID 主键
 - `novel_id` — 项目 ID（FK → projects.id）
-- `entity_type` — 对象类型（location / faction / item / event / rule / power_system / secret / legend / resource / character）
+- `entity_type` — 对象类型（自由字符串，以下为常用示例：character / location / faction / item / concept / event / rule / power_system / secret / legend / resource）
 - `name` — 对象名称
 - `summary` — 概要
 - `public_info` — 对外公开信息
 - `hidden_truth` — 隐藏真相
-- `content_json` — 扩展信息（JSONB）
+- `content_json` — 扩展信息（JSONB，内含 `aliases` 等动态属性）
 - `importance` — 重要性（0~1）
-- `importance_level` — 重要性级别（core / important / normal / temporary / alias）
+- `importance_level` — 重要性级别（core / important / normal / temporary）
 - `reveal_level` — 揭示层级（author_only / hinted / revealed / fully_known）
-- `status` — 状态（draft / candidate / canonical / deprecated / ignored / conflicted / pending）
+- `status` — 状态（draft / canonical / deprecated / ignored / conflicted；`candidate` 为历史兼容，`pending` 属于 async_tasks）
 - `embedding_text` — 用于向量化的文本
-- `embedding` — 向量（1024 维，生产环境使用 pgvector）
+- `embedding` — 向量（768 维，生产环境使用 pgvector bge-base-zh-v1.5）
+- `search_text` — 用于 pg_trgm 模糊搜索的文本列（由业务层维护）
+- `pinyin_string` — name 的拼音字符串缓存（用于去重音似特征）
 - `created_by` / `approved_by` — 创建/确认者
 
-### relationships 表核心字段
+### entity_relations 表核心字段
 
 - `id` — UUID 主键
 - `novel_id` — 项目 ID
-- `source_type` / `source_id` — 源对象类型+ID
-- `target_type` / `target_id` — 目标对象类型+ID
+- `source_id` — 源对象 ID（FK → core_entities.id）
+- `target_id` — 目标对象 ID（FK → core_entities.id）
 - `relation_type` — 关系类型
 - `description` — 关系描述
-- `visibility` — 可见性（author_only / author_safe / reader_known / public）
 - `strength` — 关系强度（0~1）
-- `status` — 状态
+- `quote` — 原文依据
+- `status` — 状态（canonical / deprecated）
+- `source_chapter_id` — 来源章节 ID
+- `caused_by_event_id` — 导致此关系的事件 ID
 
-### entity_aliases 表核心字段
+### aliases（内联 JSONB）
 
-- `id` — UUID 主键
-- `novel_id` — 项目 ID
-- `entity_id` — 所属对象 ID（FK → world_entities.id）
-- `alias` — 别名
-- `alias_type` — 别名类型（name / title / nickname / alias / translation / abbreviation）
-- `source_chapter_index` — 首次出现章节
-- `confidence` — 确认置信度
+存储于 `core_entities.content_json.aliases`，格式为列表：
+```json
+[
+  {"alias": "别名文本", "type": "name|title|nickname|translation|abbreviation"}
+]
+```
 
-### entity_candidates 表核心字段
+- 别名不创建新实体行
+- 去重检查：别名不与已有别名重复（大小写不敏感）
 
-- `id` — UUID 主键
-- `novel_id` — 项目 ID
-- `name` — 候选对象名称
-- `entity_type` — 候选对象类型
-- `summary` — 概要
-- `source_text` — 来源文本
-- `source_chapter_index` — 来源章节
-- `importance_score` — 重要性评分
-- `confidence` — 置信度
-- `candidate_reason` — 推荐理由
-- `suggested_action` — 建议动作（create_new / merge_with_existing / alias_of_existing / ignore / temporary_only / needs_user_decision）
-- `suggested_existing_entity_id` — 建议关联的已有对象
-- `status` — 状态
+### entity_revisions 表（已废弃）
+
+- 原用于实体快照版本管理
+- **后续迁移到 DeltaLog + TextArchive**，不再写入新数据
+- `EntityRevisionService` 保留但标注为 legacy，回滚逻辑后续替换为 Delta Replay
 
 ## 对外契约（contracts.py）
 
 ```python
-@dataclass
-class WorldEntityContract:
+@dataclass(frozen=True)
+class CoreEntityContract:
     novel_id: str
     entity_id: str
     entity_type: str
     name: str
-    summary: str | None
-    public_info: str | None
-    hidden_truth: str | None
-    importance: float
-    importance_level: str
-    reveal_level: str
-    status: str
+    summary: str | None = None
+    public_info: str | None = None
+    hidden_truth: str | None = None
+    importance: float = 0.5
+    importance_level: str = "normal"
+    reveal_level: str = "author_only"
+    status: str = "draft"
 
-@dataclass
-class RelationshipContract:
+@dataclass(frozen=True)
+class EntityRelationContract:
     novel_id: str
-    relationship_id: str
-    source_type: str
+    relation_id: str
     source_id: str
-    target_type: str
     target_id: str
     relation_type: str
-    description: str | None
-    visibility: str
-    strength: float
+    description: str | None = None
+    strength: float = 0.5
+    quote: str | None = None
+    status: str = "canonical"
 
-@dataclass
+@dataclass(frozen=True)
+class EntityRevisionContract:
+    """版本快照契约（已废弃，后续改用 DeltaLog + TextArchive）"""
+    entity_id: str
+    revision_id: str
+    revision_reason: str = "ai_import"
+    created_at: str | None = None
+
+@dataclass(frozen=True)
 class DuplicateSuggestion:
-    candidate_id: str
-    candidate_name: str
-    existing_entity_id: str
-    existing_entity_name: str
-    similarity_score: float
-    match_method: str
-    action: str
+    candidate_id: str = ""
+    candidate_name: str = ""
+    existing_entity_id: str = ""
+    existing_entity_name: str = ""
+    similarity_score: float = 0.0
+    match_method: str = ""
+    action: str = "needs_user_decision"
+
+@dataclass(frozen=True)
+class MergeResult:
+    target_entity_id: str
+    candidate_entity_id: str
+    aliases_inherited: int = 0
+    relations_migrated: int = 0
+    relations_deduplicated: int = 0
+    self_loops_cleaned: int = 0
+    character_synced: bool = False
+    conflicts_archived: int = 0
+
+@dataclass(frozen=True)
+class ResolveResult:
+    action: str  # "merged" | "promoted" | "needs_user_decision"
+    merge_result: MergeResult | None = None
+    promoted_entity_id: str | None = None
+    suggestions: list = field(default_factory=list)
 ```
 
 ## Facade（facade.py）
 
 ```python
-async def get_world_context(
-    db, novel_id: str,
-    entity_ids: list[str] | None = None,
-    reveal_mode: str = "author_safe",
-    limit: int = 20,
-) -> WorldContextBundle: ...
+# ---- CoreEntity ----
+async def list_entities(db, novel_id, *, entity_type=None, status=None, limit=100) -> list[dict]
+async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
+# 注：create_entity / get_entity / update_entity / delete_entity 为内部服务，不对外暴露
 
-async def expand_related_entities(
-    db, novel_id: str,
-    seed_entity_ids: list[str],
-    depth: int = 1,
-    limit: int = 20,
-) -> list[WorldEntityContext]: ...
+# ---- Alias (inline on CoreEntity) ----
+# 注：add_alias / remove_alias 为内部服务，不对外暴露
 
-async def find_duplicate_entity_candidates(
-    db, novel_id: str,
-    candidate_id: str,
-) -> list[DuplicateSuggestion]: ...
+# ---- Entity Context ----
+async def get_world_context(db, novel_id, entity_ids=None, ...) -> WorldContextBundle
+async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
+# 注：get_entity_importance_map 为内部服务，不对外暴露
 
-async def list_entity_terms(db, novel_id: str, limit: int = 500) -> list[dict]: ...
+# ---- Entity Extraction ----
+async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_size=5) -> dict
+
+# ---- Candidates (已废弃) ----
+async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
+# 注：count_pending_candidates / accept_candidate 为内部服务，不对外暴露
+
+# ---- Dedup ----
+async def find_similar_entities(db, novel_id, name, aliases=None, ...) -> list[DuplicateSuggestionResult]
+# 注：find_duplicate_entity_candidates 为内部服务，不对外暴露
+
+# ---- Relationships ----
+async def find_entity_id_by_name(db, novel_id, name, entity_type=None) -> str | None
+async def upsert_relationship(db, novel_id, source_id, target_id, ...) -> None
+# 注：get_location_factions 为内部服务，不对外暴露
+
+# ---- Events ----
+async def create_event(db, novel_id, data: dict) -> dict
+async def get_events_context(db, novel_id, limit=50) -> EventsContextBundle
+async def get_full_state(db, novel_id) -> dict
+async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
+
+# ---- EntityRelation ----
+async def get_entity_relations(db, novel_id, skip=0, limit=100) -> tuple
+async def create_relation(db, novel_id, data: dict) -> EntityRelationResponse
+async def upsert_relation(db, novel_id, source_id, target_id, ...) -> EntityRelationResponse
+
+# ---- EntityRevision (legacy) ----
+async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict
+async def rollback_to_revision(db, novel_id, entity_id, revision_id) -> dict
+
+# ---- Character ----
+async def create_character(db, novel_id, name, world_entity_id=None) -> CharacterResponse
+async def list_characters(db, novel_id, skip=0, limit=100) -> tuple
+async def get_characters_context(db, novel_id, character_ids, ...) -> CharacterContextBundle
+async def get_character_knowledge_context(db, novel_id, character_id, target_ids=None) -> list
+async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
+async def find_character_id_by_name(db, novel_id, name) -> str | None
+async def update_character_location(db, novel_id, character_id, location_id, ...) -> None
+async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
+async def get_character_location_id(db, novel_id, character_id) -> str | None
+async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | None
 ```
-
-世界对象抽取通过 RAG 有序 chunk 组装章节正文材料，AI 输出仍只进入 `entity_candidates`。
 
 ## API 路由
 
@@ -176,19 +236,31 @@ async def list_entity_terms(db, novel_id: str, limit: int = 500) -> list[dict]: 
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
-| GET | `/api/world/entities/{entity_id}/related?depth=1` | 关系扩展 |
-| GET | `/api/world/relationships` | 关系列表 |
-| POST | `/api/world/relationships` | 创建关系 |
-| PUT | `/api/world/relationships/{rel_id}` | 更新关系 |
-| DELETE | `/api/world/relationships/{rel_id}` | 删除关系 |
+| GET | `/api/world/entities/{entity_id}/relations` | 实体关系列表 |
+| DELETE | `/api/world/entities/{entity_id}/aliases` | 删除别名 |
+| GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy, 后续替换为 Delta Replay） |
+| POST | `/api/world/entities/{entity_id}/rollback` | 回滚版本（legacy, 后续替换为 Delta Replay） |
 | GET | `/api/world/aliases` | 别名列表 |
-| POST | `/api/world/aliases` | 创建别名 |
-| GET | `/api/world/candidates` | 候选对象列表 |
-| POST | `/api/world/candidates` | 创建候选对象 |
-| GET | `/api/world/candidates/{candidate_id}` | 候选对象详情 |
-| PUT | `/api/world/candidates/{candidate_id}` | 更新候选 |
-| DELETE | `/api/world/candidates/{candidate_id}` | 删除候选 |
-| POST | `/api/world/candidates/{candidate_id}/dedup` | 候选去重 |
+| POST | `/api/world/aliases` | 添加别名 |
+| GET | `/api/world/entity-batches` | 实体批次分组列表 |
+| GET | `/api/world/relations` | 关系列表（v3） |
+| POST | `/api/world/relations` | 创建关系（v3） |
+| PUT | `/api/world/relations/{rel_id}` | 更新关系（v3） |
+| DELETE | `/api/world/relations/{rel_id}` | 删除关系（v3） |
+| GET | `/api/world/events` | 事件列表 |
+| POST | `/api/world/events` | 创建事件 |
+| GET | `/api/world/events/{entity_id}` | 事件详情 |
+| PUT | `/api/world/events/{entity_id}` | 更新事件 |
+| DELETE | `/api/world/events/{entity_id}` | 删除事件 |
+| GET | `/api/world/characters` | 人物列表 |
+| POST | `/api/world/characters` | 创建人物 |
+| GET | `/api/world/characters/{character_id}` | 人物详情 |
+| PUT | `/api/world/characters/{character_id}` | 更新人物 |
+| DELETE | `/api/world/characters/{character_id}` | 删除人物 |
+| GET | `/api/world/characters/{character_id}/knowledge` | 人物知识边界列表 |
+| POST | `/api/world/characters/{character_id}/knowledge` | 添加人物知识 |
+| PUT | `/api/world/knowledge/{knowledge_id}` | 更新人物知识 |
+| DELETE | `/api/world/knowledge/{knowledge_id}` | 删除人物知识 |
 
 ## 依赖
 
@@ -208,4 +280,4 @@ python -m pytest modules/world/tests/ -v
 
 ## MVP
 
-实现世界对象 CRUD、关系管理、候选对象池、基础别名管理、关系一跳/二跳扩展、规则去重。
+实现世界对象 CRUD、关系管理、基础别名管理、关系一跳/二跳扩展、规则去重、人物档案与知识边界。

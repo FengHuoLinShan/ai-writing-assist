@@ -26,6 +26,7 @@ _service = MemoryService()
 # 全景
 # ============================================================
 
+
 @router.get("/panorama", response_model=ChapterPanorama)
 async def get_panorama(
     db: DbSession,
@@ -39,6 +40,7 @@ async def get_panorama(
 # ============================================================
 # 事件
 # ============================================================
+
 
 @router.get("/events", response_model=EventListResponse)
 async def list_events(
@@ -61,13 +63,18 @@ async def get_entity_timeline(
 ) -> EventListResponse:
     """获取单个实体的变化时间线"""
     return await _service.get_entity_timeline(
-        db, novel_id, entity_id, skip, limit,
+        db,
+        novel_id,
+        entity_id,
+        skip,
+        limit,
     )
 
 
 # ============================================================
 # 快照
 # ============================================================
+
 
 @router.post("/snapshots/capture", response_model=SnapshotResponse, status_code=201)
 async def trigger_capture(
@@ -92,6 +99,7 @@ async def list_snapshots(
 # 全更新
 # ============================================================
 
+
 @router.post("/rebuild")
 async def trigger_rebuild(
     db: DbSession,
@@ -105,6 +113,7 @@ async def trigger_rebuild(
 # ============================================================
 # 状态
 # ============================================================
+
 
 @router.get("/status", response_model=MemoryStatusResponse)
 async def get_status(

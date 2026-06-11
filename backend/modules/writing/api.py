@@ -23,17 +23,20 @@ from modules.writing.services import WritingDraftService
 
 class ChapterIndicesResponse(BaseModel):
     """章节索引列表响应"""
+
     chapter_indices: list[int]
 
 
 class PublishResponse(BaseModel):
     """发布响应 — draft + 异步 task_id"""
+
     draft: WritingDraftResponse
     task_id: str | None = None
 
 
 class DeleteChapterResponse(BaseModel):
     """整章删除响应"""
+
     chapter_index: int
     deleted_versions: int
 

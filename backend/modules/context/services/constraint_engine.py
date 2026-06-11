@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.services.compiled_context import ContextSection, Tier
@@ -42,17 +41,13 @@ class ConstraintEngine:
         sections: list[ContextSection] = []
         sections.extend(await self._static_constraints("zh"))
         sections.extend(await self._scene_constraints(db, novel_id, scene_id))
-        sections.extend(
-            await self._knowledge_constraints(db, novel_id, chapter_index)
-        )
+        sections.extend(await self._knowledge_constraints(db, novel_id, chapter_index))
         sections.extend(
             await self._foreshadowing_constraints(db, novel_id, chapter_index)
         )
         return sections
 
-    async def _static_constraints(
-        self, language: str = "zh"
-    ) -> list[ContextSection]:
+    async def _static_constraints(self, language: str = "zh") -> list[ContextSection]:
         constraints = (
             _STATIC_CONSTRAINTS_ZH if language == "zh" else _STATIC_CONSTRAINTS_EN
         )
@@ -80,22 +75,14 @@ class ConstraintEngine:
         if not scene_id:
             return []
 
-        from shared.utils import parse_uuid
+        from modules.outline.facade import get_scene
 
-        sid = parse_uuid(scene_id, "scene_id")
-        from modules.outline.models import Scene
+        scene = await get_scene(db, scene_id)
 
-        stmt = select(Scene).where(Scene.id == sid)
-        result = await db.execute(stmt)
-        scene = result.scalar_one_or_none()
-
-        if not scene or not scene.must_not_happen:
+        if not scene or not scene.get("must_not_happen"):
             return []
 
-        content = (
-            f"## 当前 Scene 禁止事件\n\n"
-            f"- {scene.must_not_happen}"
-        )
+        content = f"## 当前 Scene 禁止事件\n\n- {scene['must_not_happen']}"
         return [
             ContextSection(
                 key="scene_constraints",
@@ -120,16 +107,9 @@ class ConstraintEngine:
         对于 knowledge_level = "unknown" 的目标实体 → 角色不能使用该信息
         对于 knowledge_level = "false_belief" → 角色应按误判表现
         """
-        from shared.utils import parse_uuid
+        from modules.world.facade import get_character_knowledge_entries
 
-        nid = parse_uuid(novel_id, "novel_id")
-        from modules.world.models import CharacterKnowledge
-
-        stmt = select(CharacterKnowledge).where(
-            CharacterKnowledge.novel_id == nid,
-        )
-        result = await db.execute(stmt)
-        entries = result.scalars().all()
+        entries = await get_character_knowledge_entries(db, novel_id)
 
         if not entries:
             return []
@@ -139,13 +119,16 @@ class ConstraintEngine:
         false_beliefs: list[str] = []
 
         for entry in entries:
-            level = entry.knowledge_level
-            target_ref = f"{entry.target_type}:{entry.target_id}"
+            level = entry.get("knowledge_level")
+            target_ref = (
+                f"{entry.get('target_type', '')}:{entry.get('target_id', '')}"
+            )
             if level == "unknown":
                 unknown_count += 1
             elif level == "false_belief":
-                if entry.misconception:
-                    false_beliefs.append(f"- {target_ref}: {entry.misconception}")
+                misconception = entry.get("misconception")
+                if misconception:
+                    false_beliefs.append(f"- {target_ref}: {misconception}")
 
         if unknown_count > 0:
             lines.append(
@@ -187,17 +170,9 @@ class ConstraintEngine:
         状态为 "seeded" 且 planned_payoff_chapter > 当前章节的伏笔
         → LLM 不得在当前章节提前揭示
         """
-        from shared.utils import parse_uuid
+        from modules.outline.facade import get_active_foreshadowing
 
-        nid = parse_uuid(novel_id, "novel_id")
-        from modules.outline.models import ForeshadowingPlan
-
-        stmt = select(ForeshadowingPlan).where(
-            ForeshadowingPlan.novel_id == nid,
-            ForeshadowingPlan.status == "seeded",
-        )
-        result = await db.execute(stmt)
-        plans = result.scalars().all()
+        plans = await get_active_foreshadowing(db, novel_id, status="seeded")
 
         if not plans:
             return []
@@ -205,10 +180,11 @@ class ConstraintEngine:
         # Filter: only warn about foreshadowing whose payoff is after current chapter
         active = []
         for plan in plans:
+            payoff_ch = plan.get("planned_payoff_chapter")
             if (
                 chapter_index is not None
-                and plan.planned_payoff_chapter is not None
-                and plan.planned_payoff_chapter <= chapter_index
+                and payoff_ch is not None
+                and payoff_ch <= chapter_index
             ):
                 continue  # already due for payoff, no constraint
             active.append(plan)
@@ -218,13 +194,12 @@ class ConstraintEngine:
 
         lines = ["## 伏笔约束\n\n以下伏笔已埋下但尚未到兑现章节，禁止提前揭示："]
         for plan in active:
-            payoff = (
-                f"第{plan.planned_payoff_chapter}章"
-                if plan.planned_payoff_chapter
-                else "待定"
-            )
+            payoff_ch = plan.get("planned_payoff_chapter")
+            payoff = f"第{payoff_ch}章" if payoff_ch else "待定"
+            surface = plan.get("surface_meaning") or plan.get("summary") or ""
+            name = plan.get("name", "")
             lines.append(
-                f"- **{plan.name}**: {plan.surface_meaning or plan.summary or ''} "
+                f"- **{name}**: {surface} "
                 f"(计划兑现: {payoff})"
             )
 

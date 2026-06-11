@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.contracts import ProjectContext
@@ -64,6 +65,7 @@ def update_data() -> ProjectUpdate:
 # ============================================================
 # CRUD 测试（直接测试模块级函数）
 # ============================================================
+
 
 class TestProjectCrud:
     """测试模块级 CRUD 函数"""
@@ -197,35 +199,189 @@ class TestProjectCrud:
         assert updated is not None
         assert updated.title == "测试小说"
 
+    # --------------------------------------------------------
+    # 软删除
+    # --------------------------------------------------------
+
     @pytest.mark.asyncio
-    async def test_delete(
+    async def test_soft_delete(
         self,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
-        """测试删除项目"""
+        """测试软删除项目"""
         created = await _repo.create(db_session, sample_create_data)
-        deleted = await _repo.delete(db_session, created.id)
+        deleted = await _repo.soft_delete(db_session, created.id)
         assert deleted is True
 
-        # 验证已被删除
+        # get 不过滤 deleted_at，仍能获取
+        fetched = await _repo.get(db_session, created.id)
+        assert fetched is not None
+        assert fetched.deleted_at is not None
+
+        # 但不在正常 list 中
+        items, total = await _repo.list(db_session, skip=0, limit=10)
+        assert all(item.id != created.id for item in items)
+
+    @pytest.mark.asyncio
+    async def test_soft_delete_already_deleted(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试对已软删除的项目再次软删除返回 False"""
+        created = await _repo.create(db_session, sample_create_data)
+        first = await _repo.soft_delete(db_session, created.id)
+        assert first is True
+
+        second = await _repo.soft_delete(db_session, created.id)
+        assert second is False
+
+    @pytest.mark.asyncio
+    async def test_soft_delete_not_found(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试对不存在的项目软删除返回 False"""
+        fake_id = uuid.uuid4()
+        deleted = await _repo.soft_delete(db_session, fake_id)
+        assert deleted is False
+
+    # --------------------------------------------------------
+    # 恢复
+    # --------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_restore(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试软删除后恢复项目"""
+        created = await _repo.create(db_session, sample_create_data)
+        await _repo.soft_delete(db_session, created.id)
+
+        restored = await _repo.restore(db_session, created.id)
+        assert restored is True
+
+        # 恢复后重新出现在 list 中
+        items, total = await _repo.list(db_session, skip=0, limit=10)
+        assert any(item.id == created.id for item in items)
+
+    @pytest.mark.asyncio
+    async def test_restore_not_in_recycle_bin(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试对未删除的项目恢复返回 False"""
+        created = await _repo.create(db_session, sample_create_data)
+        restored = await _repo.restore(db_session, created.id)
+        assert restored is False
+
+    @pytest.mark.asyncio
+    async def test_restore_not_found(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试对不存在的项目恢复返回 False"""
+        fake_id = uuid.uuid4()
+        restored = await _repo.restore(db_session, fake_id)
+        assert restored is False
+
+    # --------------------------------------------------------
+    # 回收站列表
+    # --------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_list_deleted(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试回收站列表包含已删除项目"""
+        created = await _repo.create(db_session, sample_create_data)
+        await _repo.soft_delete(db_session, created.id)
+
+        items, total = await _repo.list_deleted(db_session, skip=0, limit=10)
+        assert total >= 1
+        assert any(item.id == created.id for item in items)
+
+    @pytest.mark.asyncio
+    async def test_list_deleted_empty(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试无删除项目时回收站返回空列表"""
+        items, total = await _repo.list_deleted(db_session, skip=0, limit=10)
+        assert total == 0
+        assert items == []
+
+    @pytest.mark.asyncio
+    async def test_list_deleted_pagination(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试回收站分页"""
+        for i in range(5):
+            proj = await _repo.create(
+                db_session,
+                ProjectCreate(title=f"待删项目{i}"),
+            )
+            await _repo.soft_delete(db_session, proj.id)
+        await db_session.flush()
+
+        items, total = await _repo.list_deleted(db_session, skip=0, limit=2)
+        assert total == 5
+        assert len(items) == 2
+
+    # --------------------------------------------------------
+    # 永久删除
+    # --------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_permanent_delete(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试软删除后永久删除项目"""
+        created = await _repo.create(db_session, sample_create_data)
+        await _repo.soft_delete(db_session, created.id)
+
+        result = await _repo.permanent_delete(db_session, created.id)
+        assert result is True
+
+        # 彻底消失
         fetched = await _repo.get(db_session, created.id)
         assert fetched is None
 
     @pytest.mark.asyncio
-    async def test_delete_not_found(
+    async def test_permanent_delete_without_soft_delete(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试未软删除的项目不能直接永久删除"""
+        created = await _repo.create(db_session, sample_create_data)
+        result = await _repo.permanent_delete(db_session, created.id)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_permanent_delete_not_found(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """测试删除不存在的项目"""
+        """测试对不存在的项目永久删除返回 False"""
         fake_id = uuid.uuid4()
-        deleted = await _repo.delete(db_session, fake_id)
-        assert deleted is False
+        result = await _repo.permanent_delete(db_session, fake_id)
+        assert result is False
 
 
 # ============================================================
 # Service 测试
 # ============================================================
+
 
 class TestProjectService:
     """测试业务逻辑层"""
@@ -257,6 +413,22 @@ class TestProjectService:
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_delete_project(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试服务层软删除项目成功"""
+        created = await service.create_project(
+            db_session,
+            sample_create_data,
+        )
+        # 成功时不抛异常，返回 None
+        result = await service.delete_project(db_session, created.id)
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_delete_project_not_found(
         self,
         service: ProjectService,
@@ -266,6 +438,86 @@ class TestProjectService:
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
             await service.delete_project(db_session, fake_id)
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_restore_project(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试服务层恢复项目成功"""
+        created = await service.create_project(
+            db_session,
+            sample_create_data,
+        )
+        await service.delete_project(db_session, created.id)
+
+        resp = await service.restore_project(db_session, created.id)
+        assert resp.id == created.id
+        assert resp.deleted_at is None
+
+    @pytest.mark.asyncio
+    async def test_restore_project_not_found(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试服务层恢复不存在的项目返回 404"""
+        fake_id = str(uuid.uuid4())
+        with pytest.raises(HTTPException) as exc_info:
+            await service.restore_project(db_session, fake_id)
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_list_deleted_projects(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试服务层回收站列表"""
+        created = await service.create_project(
+            db_session,
+            sample_create_data,
+        )
+        await service.delete_project(db_session, created.id)
+
+        resp = await service.list_deleted_projects(db_session, skip=0, limit=10)
+        assert resp.total >= 1
+        assert any(item.id == created.id for item in resp.items)
+
+    @pytest.mark.asyncio
+    async def test_permanent_delete_project(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试服务层永久删除项目成功"""
+        created = await service.create_project(
+            db_session,
+            sample_create_data,
+        )
+        await service.delete_project(db_session, created.id)
+
+        result = await service.permanent_delete_project(
+            db_session,
+            created.id,
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_permanent_delete_project_not_found(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试服务层永久删除不存在的项目返回 404"""
+        fake_id = str(uuid.uuid4())
+        with pytest.raises(HTTPException) as exc_info:
+            await service.permanent_delete_project(db_session, fake_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -310,10 +562,40 @@ class TestProjectService:
             await service.get_project(db_session, "not-a-uuid")
         assert exc_info.value.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_create_project_empty_title(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+    ) -> None:
+        """测试空字符串标题创建时返回 422"""
+        with pytest.raises(ValidationError):
+            ProjectCreate(title="")
+
+    @pytest.mark.asyncio
+    async def test_get_project_novel_id_isolation(
+        self,
+        service: ProjectService,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """测试 novel_id 隔离：用另一个 ID 获取应返回 404"""
+        created = await service.create_project(
+            db_session,
+            sample_create_data,
+        )
+        # 使用另一个不存在的 UUID 去获取
+        other_id = str(uuid.uuid4())
+        assert other_id != created.id
+        with pytest.raises(HTTPException) as exc_info:
+            await service.get_project(db_session, other_id)
+        assert exc_info.value.status_code == 404
+
 
 # ============================================================
 # Facade 测试
 # ============================================================
+
 
 class TestProjectFacade:
     """测试对外入口"""

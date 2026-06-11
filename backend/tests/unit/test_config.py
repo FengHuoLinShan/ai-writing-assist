@@ -33,7 +33,7 @@ class TestSettingsEffectiveDefaults:
         assert Settings().embedding_dim == 1024  # .env 覆盖默认 768
 
     def test_effective_inference_timeout(self):
-        assert Settings().inference_worker_timeout == 5.0
+        assert Settings().inference_worker_timeout == 30.0
 
     def test_effective_inference_max_batch(self):
         assert Settings().inference_worker_max_batch == 64

@@ -72,7 +72,9 @@ class TestRetryWithBackoff:
             return "ok"
 
         result = await retry_with_backoff(
-            eventually_succeed, max_attempts=3, base_delay=0.01,
+            eventually_succeed,
+            max_attempts=3,
+            base_delay=0.01,
         )
         assert result == "ok"
         assert call_count == 3

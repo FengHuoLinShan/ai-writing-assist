@@ -9,13 +9,8 @@ API 分层测试 — 覆盖全部 11 个业务模块 + 系统端点
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
-
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -24,13 +19,17 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 # Scaffold helpers
 # ============================================================
 
+
 async def _create_project(client: AsyncClient) -> str:
-    resp = await client.post("/api/projects", json={
-        "title": "API 测试小说",
-        "genre": "奇幻",
-        "tone": "dark",
-        "language": "zh",
-    })
+    resp = await client.post(
+        "/api/projects",
+        json={
+            "title": "API 测试小说",
+            "genre": "奇幻",
+            "tone": "dark",
+            "language": "zh",
+        },
+    )
     assert resp.status_code in (200, 201)
     data = resp.json()
     return data.get("id") or data["project_id"]
@@ -39,6 +38,7 @@ async def _create_project(client: AsyncClient) -> str:
 # ============================================================
 # System
 # ============================================================
+
 
 class TestApiSystem:
     """System API 层测试 — 覆盖 health / root 端点"""
@@ -78,6 +78,7 @@ class TestApiSystem:
 # ============================================================
 # Project
 # ============================================================
+
 
 class TestApiProject:
     """Project API 层测试 — 覆盖 happy path / error path / 边界条件"""
@@ -188,6 +189,7 @@ class TestApiProject:
 # ============================================================
 # World — 世界对象
 # ============================================================
+
 
 class TestApiWorld:
     """World API 层测试 — 覆盖 happy path / error path / 边界条件"""
@@ -331,6 +333,7 @@ class TestApiWorld:
 # Memory — 事件溯源世界全景
 # ============================================================
 
+
 class TestApiMemory:
     """Memory API 层测试 — 覆盖 happy path / error path / 边界条件"""
 
@@ -472,6 +475,7 @@ class TestApiMemory:
 # RAG — 检索增强
 # ============================================================
 
+
 class TestApiRag:
     """RAG API 层测试 — 覆盖 happy path / error path / 边界条件"""
 
@@ -577,6 +581,7 @@ class TestApiRag:
 # Context — 上下文编译
 # ============================================================
 
+
 class TestApiContext:
     """Context API 层测试 — 覆盖 happy path / error path / 边界条件"""
 
@@ -655,6 +660,7 @@ class TestApiContext:
 # Writing — 草稿
 # ============================================================
 
+
 class TestApiWriting:
     """Writing API 层测试 — 覆盖 happy path / error path / 边界条件"""
 
@@ -718,6 +724,7 @@ class TestApiWriting:
 # ============================================================
 # Tasks — 任务队列
 # ============================================================
+
 
 class TestApiTasks:
     """Tasks API 层测试 — 覆盖 happy path / error path / 边界条件"""

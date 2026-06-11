@@ -6,7 +6,7 @@ core/base.py 单元测试
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import String
@@ -14,11 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import (
-    UUIDMixin,
-    TimestampMixin,
-    StatusMixin,
-    NovelMixin,
     Base,
+    NovelMixin,
+    StatusMixin,
+    TimestampMixin,
+    UUIDMixin,
 )
 
 SQLITE_URL = "sqlite+aiosqlite:///:memory:"
@@ -81,7 +81,7 @@ class TestTimestampMixin:
         db.add(obj)
         await db.flush()
         assert isinstance(obj.created_at, datetime)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         assert abs((now - obj.created_at).total_seconds()) < 5
 
     async def test_updated_at_set_on_insert(self, db):
@@ -112,9 +112,7 @@ class TestStatusMixin:
         assert obj.status == "draft"
 
     async def test_status_can_be_set_explicitly(self, db):
-        obj = _TestModel(
-            novel_id=uuid.uuid4(), name="test", status="canonical"
-        )
+        obj = _TestModel(novel_id=uuid.uuid4(), name="test", status="canonical")
         db.add(obj)
         await db.flush()
         assert obj.status == "canonical"
@@ -142,4 +140,5 @@ class TestBase:
 
     def test_base_is_declarative_base(self):
         from sqlalchemy.orm import DeclarativeBase
+
         assert issubclass(Base, DeclarativeBase)

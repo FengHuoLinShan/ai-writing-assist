@@ -26,7 +26,9 @@ class PlotThreadsLoader(Loader):
         chapter = options.chapter_index or 1
         thread_svc = _container_get("outline.thread_service")
         threads = await thread_svc.get_active(
-            db, options.novel_id, chapter,
+            db,
+            options.novel_id,
+            chapter,
         )
         bundle.plot_threads = [
             {

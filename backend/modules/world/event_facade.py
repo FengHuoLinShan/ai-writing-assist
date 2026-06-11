@@ -23,12 +23,14 @@ _revision_service = EntityRevisionService()
 # Event
 # ============================================================
 
+
 async def create_event(
     db: AsyncSession,
     novel_id: str,
     data: dict,
 ) -> dict:
     from modules.world.schemas import EventCreate
+
     event_data = EventCreate(**data)
     event = await _event_service.create(db, novel_id, event_data)
     return EventContext(
@@ -49,12 +51,14 @@ async def get_events_context(
 
     event_contexts: list[EventContext] = []
     for ev in events:
-        event_contexts.append(EventContext(
-            entity_id=ev.entity_id,
-            entity_name="",
-            timeline_order=ev.timeline_order,
-            occurrence_time_label=ev.occurrence_time_label,
-        ))
+        event_contexts.append(
+            EventContext(
+                entity_id=ev.entity_id,
+                entity_name="",
+                timeline_order=ev.timeline_order,
+                occurrence_time_label=ev.occurrence_time_label,
+            )
+        )
 
     return EventsContextBundle(
         novel_id=novel_id,
@@ -67,6 +71,7 @@ async def get_events_context(
 # EntityRevision
 # ============================================================
 
+
 async def get_entity_revisions(
     db: AsyncSession,
     novel_id: str,
@@ -75,7 +80,11 @@ async def get_entity_revisions(
     limit: int = 20,
 ) -> dict:
     return await _revision_service.get_revisions(
-        db, entity_id, novel_id, skip=skip, limit=limit,
+        db,
+        entity_id,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
 
 
@@ -86,13 +95,17 @@ async def rollback_to_revision(
     revision_id: str,
 ) -> dict:
     return await _revision_service.rollback_to_revision(
-        db, entity_id, revision_id, novel_id,
+        db,
+        entity_id,
+        revision_id,
+        novel_id,
     )
 
 
 # ============================================================
 # Extraction
 # ============================================================
+
 
 async def run_entity_extraction(
     db: AsyncSession,
@@ -124,6 +137,7 @@ async def run_entity_extraction(
 # 完整状态导出（供 memory 模块快照用）
 # ============================================================
 
+
 async def get_full_state(
     db: AsyncSession,
     novel_id: str,
@@ -134,4 +148,5 @@ async def get_full_state(
     ADR-0001: 真正的实现归 world.state_assembler, facade 只剩薄代理。
     """
     from modules.world.state_assembler import assemble
+
     return await assemble(db, novel_id)

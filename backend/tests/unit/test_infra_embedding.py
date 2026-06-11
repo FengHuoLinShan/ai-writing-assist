@@ -1009,8 +1009,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
             # text_a 命中, text_b 未命中
-            client._cache.get.side_effect = (
-                lambda t, **kw: [0.1] if t == "text_a" else None
+            client._cache.get.side_effect = lambda t, **kw: (
+                [0.1] if t == "text_a" else None
             )
             client._worker = MagicMock()
             client._worker.encode.return_value = [[0.2]]

@@ -6,6 +6,8 @@ Import API 路由
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 
 from core.dependencies import DbSession
@@ -28,7 +30,7 @@ async def upload_file(
     return await _service.upload_and_import(
         db,
         novel_id,
-        file.filename or "unknown",
+        os.path.basename(file.filename or "unknown"),
         content,
     )
 
@@ -84,9 +86,11 @@ async def submit_deep_import(
 
     if not novel_id:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="novel_id is required")
     if end_chapter < start_chapter:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="end_chapter must be >= start_chapter")
 
     # 自动检测最后章节
@@ -123,13 +127,16 @@ async def submit_deep_import_sync(
 
     if not novel_id:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="novel_id is required")
     if end_chapter < start_chapter:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="end_chapter must be >= start_chapter")
 
     if end_chapter == 0:
         from modules.writing.facade import list_chapter_indices
+
         indices = await list_chapter_indices(db, novel_id)
         end_chapter = max(indices) if indices else 1
 
@@ -170,6 +177,7 @@ async def resume_deep_import(
     prev_task_id = body.get("task_id", "")
     if not prev_task_id:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="task_id is required")
 
     from modules.imports.contracts import TaskNotFoundError
@@ -178,5 +186,6 @@ async def resume_deep_import(
         result = await _resume(db, prev_task_id)
     except TaskNotFoundError as exc:
         from fastapi import HTTPException
+
         raise HTTPException(404, detail=str(exc)) from exc
     return result

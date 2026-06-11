@@ -17,28 +17,32 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, text as sql_text, update
+from sqlalchemy import select, update
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import DatabaseManager, get_manager
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
-from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TASK_POLL_INTERVAL
+from shared.constants import (
+    TASK_HEARTBEAT_INTERVAL,
+    TASK_MAX_HEARTBEAT_GAP,
+    TASK_POLL_INTERVAL,
+)
 
 logger = logging.getLogger(__name__)
 
 # 注册 projects 表（NovelMixin FK 依赖）
+import modules.imports.tasks  # noqa: F401
+import modules.outline.tasks  # noqa: F401
 import modules.project.models  # noqa: F401
+import modules.rag.tasks  # noqa: F401
 
 # 注册所有任务处理器（与 app/main.py 同步）
 import modules.world.tasks  # noqa: F401
-import modules.rag.tasks  # noqa: F401
-import modules.outline.tasks  # noqa: F401
-import modules.imports.tasks  # noqa: F401
 import modules.writing.tasks  # noqa: F401
 
 
@@ -49,33 +53,52 @@ def _register_container_services() -> None:
     幂等调用：已注册的服务不会重复注册。
     """
     from core.container import register as _reg
-
     from modules.context.facade import compile_structure_context as _ctx_compile
-    from modules.memory.services import MemoryService as _MemSvc
-    from modules.outline.services import (
-        OutlineArcService as _OAS,
-        PlotStructureGenerator as _PSG,
-        PlotThreadService as _PTS,
-        SceneService as _SceneSvc,
-    )
     from modules.imports.scene_entity_extraction import (
         SceneEntityExtractionService as _SceneExtSvc,
     )
+    from modules.memory.services import MemoryService as _MemSvc
+    from modules.outline.services import (
+        OutlineArcService as _OAS,
+    )
+    from modules.outline.services import (
+        PlotStructureGenerator as _PSG,
+    )
+    from modules.outline.services import (
+        PlotThreadService as _PTS,
+    )
+    from modules.outline.services import (
+        SceneService as _SceneSvc,
+    )
     from modules.rag.facade import (
         get_ordered_chapter_chunks as _rag_get_chunks,
-        index_chapter_with_report as _rag_index,
     )
-    from modules.writing.facade import (
-        get_latest_draft_for_chapter as _w_get_draft,
-        list_chapter_indices as _w_list_indices,
+    from modules.rag.facade import (
+        index_chapter_with_report as _rag_index,
     )
     from modules.world.facade import (
         create_character as _w_create_char,
+    )
+    from modules.world.facade import (
         get_character_id_by_world_entity as _w_get_char_id,
+    )
+    from modules.world.facade import (
         list_characters as _w_list_chars,
+    )
+    from modules.world.facade import (
         list_entities as _w_list_entities,
+    )
+    from modules.world.facade import (
         list_entity_terms as _w_list_terms,
+    )
+    from modules.world.facade import (
         run_entity_extraction as _w_extract,
+    )
+    from modules.writing.facade import (
+        get_latest_draft_for_chapter as _w_get_draft,
+    )
+    from modules.writing.facade import (
+        list_chapter_indices as _w_list_indices,
     )
 
     _svc_map = {
@@ -291,12 +314,14 @@ class TaskWorker:
                         stmt = (
                             update(AsyncTask)
                             .where(AsyncTask.id == task_id)
-                            .values(heartbeat_at=datetime.now(timezone.utc))
+                            .values(heartbeat_at=datetime.now(UTC))
                         )
                         await hb_session.execute(stmt)
                         await hb_session.commit()
                 except Exception:
-                    logger.warning("Heartbeat update failed for task %s", task_id, exc_info=True)
+                    logger.warning(
+                        "Heartbeat update failed for task %s", task_id, exc_info=True
+                    )
         except asyncio.CancelledError:
             pass
 

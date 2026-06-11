@@ -28,7 +28,16 @@ from modules.world.repositories import CoreEntityRepository
 from modules.writing.facade import create_draft
 from shared.utils import parse_uuid
 
-pytestmark = [pytest.mark.asyncio]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skip(
+        reason=(
+            "需要真实 LLM API，运行成本高。"
+            "如需执行：pytest tests/integration/test_extraction_pipeline.py "
+            "-v --run-expensive"
+        )
+    ),
+]
 
 
 # ============================================================
@@ -116,7 +125,9 @@ async def chapter_draft(db_session: AsyncSession, novel_id: str) -> dict:
 
 
 @pytest_asyncio.fixture
-async def indexed_chunks(db_session: AsyncSession, novel_id: str, chapter_draft: dict) -> list:
+async def indexed_chunks(
+    db_session: AsyncSession, novel_id: str, chapter_draft: dict
+) -> list:
     """RAG 索引章节，返回 chunk 列表"""
     await index_chapter(db_session, novel_id, chapter_index=1)
     await db_session.flush()
@@ -146,7 +157,9 @@ async def _create_entity_via_service(
         entity_type=entity_type,
         name=name,
         summary=summary,
-        content_json={"aliases": [{"alias": a, "type": "name"} for a in (aliases or [])]} if aliases else None,
+        content_json={"aliases": [{"alias": a, "type": "name"} for a in (aliases or [])]}
+        if aliases
+        else None,
         status="canonical",
     )
     await db.flush()
@@ -161,7 +174,9 @@ async def _create_entity_via_service(
 class TestWriteAndIndex:
     """写入草稿 → RAG 分块索引 — 验证内容持久化与分块元数据正确性"""
 
-    async def test_extraction_pipeline_write_draft_returns_valid_uuid(self, chapter_draft):
+    async def test_extraction_pipeline_write_draft_returns_valid_uuid(
+        self, chapter_draft
+    ):
         """写入草稿后返回有效 draft_id（UUID hex 格式）"""
         # Arrange
         draft_id = chapter_draft["draft_id"]
@@ -173,7 +188,9 @@ class TestWriteAndIndex:
         assert draft_id is not None
         assert len(draft_id) == 36
 
-    async def test_extraction_pipeline_draft_content_persisted_with_correct_index(self, chapter_draft):
+    async def test_extraction_pipeline_draft_content_persisted_with_correct_index(
+        self, chapter_draft
+    ):
         """草稿内容正确持久化且章节索引为 1"""
         # Arrange
         draft_id = chapter_draft["draft_id"]
@@ -186,7 +203,9 @@ class TestWriteAndIndex:
         assert draft_id is not None
         assert chapter_index == 1
 
-    async def test_extraction_pipeline_index_chapter_creates_non_empty_chunks(self, indexed_chunks):
+    async def test_extraction_pipeline_index_chapter_creates_non_empty_chunks(
+        self, indexed_chunks
+    ):
         """索引后生成至少 1 个 chunk"""
         # Arrange
         chunks = indexed_chunks
@@ -197,7 +216,9 @@ class TestWriteAndIndex:
         # Assert
         assert len(chunks) > 0
 
-    async def test_extraction_pipeline_chunks_contain_non_empty_source_text(self, indexed_chunks):
+    async def test_extraction_pipeline_chunks_contain_non_empty_source_text(
+        self, indexed_chunks
+    ):
         """每个 chunk 包含非空原文片段"""
         # Arrange
         chunks = indexed_chunks
@@ -224,7 +245,9 @@ class TestWriteAndIndex:
             assert chunk.chapter_index == 1
             assert chunk.char_count > 0
 
-    async def test_extraction_pipeline_index_reports_positive_chunk_count(self, indexed_chunks):
+    async def test_extraction_pipeline_index_reports_positive_chunk_count(
+        self, indexed_chunks
+    ):
         """index_chapter 返回的 chunk 列表长度大于 0"""
         # Arrange
         chunks = indexed_chunks
@@ -253,8 +276,10 @@ class TestEntityExtraction:
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
@@ -274,8 +299,10 @@ class TestEntityExtraction:
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
@@ -294,16 +321,17 @@ class TestEntityExtraction:
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
         extracted_names = [item["name"] for item in result["items"]]
         found_key = [n for n in EXPECTED_CHARACTERS if n in extracted_names]
         assert len(found_key) >= 2, (
-            f"应至少抽到 2 个核心角色，实际抽到: {found_key}, "
-            f"全部抽取: {extracted_names}"
+            f"应至少抽到 2 个核心角色，实际抽到: {found_key}, 全部抽取: {extracted_names}"
         )
 
 
@@ -321,13 +349,17 @@ class TestAliasAndDedup:
         """精确名称匹配：已有 '白砚'，搜索 '白砚' 返回高分匹配"""
         # Arrange
         await _create_entity_via_service(
-            db_session, novel_id,
-            name="白砚", entity_type="character", summary="主角",
+            db_session,
+            novel_id,
+            name="白砚",
+            entity_type="character",
+            summary="主角",
         )
 
         # Act
         results = await find_similar_entities(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             name="白砚",
             entity_type="character",
         )
@@ -335,7 +367,9 @@ class TestAliasAndDedup:
         # Assert
         assert len(results) > 0, "精确匹配应找到已有实体"
         best = results[0]
-        assert best.similarity_score > 0.9, f"精确匹配分数应 > 0.9，实际: {best.similarity_score}"
+        assert best.similarity_score > 0.9, (
+            f"精确匹配分数应 > 0.9，实际: {best.similarity_score}"
+        )
 
     async def test_extraction_pipeline_duplicate_detection_skips_existing_entity(
         self, db_session: AsyncSession, novel_id: str, indexed_chunks
@@ -344,14 +378,18 @@ class TestAliasAndDedup:
         # Arrange
         assert len(indexed_chunks) > 0
         await _create_entity_via_service(
-            db_session, novel_id,
-            name="霜华剑", entity_type="item",
+            db_session,
+            novel_id,
+            name="霜华剑",
+            entity_type="item",
         )
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
@@ -378,8 +416,10 @@ class TestAmbiguousReferences:
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
@@ -398,8 +438,10 @@ class TestAmbiguousReferences:
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
@@ -426,16 +468,16 @@ class TestAmbiguousReferences:
 
         # Act
         result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+            db_session,
+            novel_id,
+            start_chapter=1,
+            end_chapter=1,
         )
 
         # Assert
         extracted_names = [item["name"].strip() for item in result["items"]]
         for prop in ORDINARY_PROPS:
-            assert prop not in extracted_names, (
-                f"普通道具 '{prop}' 不应被抽取为实体"
-            )
+            assert prop not in extracted_names, f"普通道具 '{prop}' 不应被抽取为实体"
 
 
 # ============================================================
@@ -455,7 +497,8 @@ class TestHybridRetrieval:
 
         # Act
         result = await retrieve(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             query="霜华剑",
             mode="search",
             top_k=5,
@@ -474,7 +517,8 @@ class TestHybridRetrieval:
 
         # Act
         result = await retrieve(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             query="白砚",
             mode="search",
             top_k=5,
@@ -492,7 +536,8 @@ class TestHybridRetrieval:
 
         # Act
         result = await retrieve(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             query="一把传说中的宝剑",
             mode="search",
             top_k=5,
@@ -512,7 +557,8 @@ class TestHybridRetrieval:
 
         # Act
         result = await retrieve(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             query="苏荇",
             mode="search",
             top_k=3,
@@ -541,7 +587,8 @@ class TestContextCompilation:
 
         # Act
         bundle = await compile_structure_context(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             task="测试上下文编译",
             scope="world",
             reveal_mode="author_safe",
@@ -557,13 +604,16 @@ class TestContextCompilation:
         """指定 entity_ids 编译不报错并返回有效 bundle"""
         # Arrange
         entity_id = await _create_entity_via_service(
-            db_session, novel_id,
-            name="霜华剑", entity_type="item",
+            db_session,
+            novel_id,
+            name="霜华剑",
+            entity_type="item",
         )
 
         # Act
         bundle = await compile_structure_context(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             task="查询霜华剑信息",
             scope="world",
             entity_ids=[entity_id],
@@ -582,7 +632,8 @@ class TestContextCompilation:
 
         # Act
         bundle = await compile_structure_context(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             task="测试",
             scope="project",
         )
@@ -596,7 +647,8 @@ class TestContextCompilation:
         """Markdown 渲染输出非空字符串"""
         # Arrange
         bundle = await compile_structure_context(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             task="测试",
             scope="project",
         )

@@ -1,6 +1,7 @@
 """
 上下文编译 E2E 测试
 """
+
 from __future__ import annotations
 
 import pytest
@@ -28,9 +29,14 @@ class TestContextCompile:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "world", "scope": "project",
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "project",
+            },
+        )
 
         # Assert
         assert resp.status_code == 200
@@ -42,10 +48,15 @@ class TestContextCompile:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "plot", "scope": "full",
-            "chapter_index": 5,
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "plot",
+                "scope": "full",
+                "chapter_index": 5,
+            },
+        )
 
         # Assert
         assert resp.status_code == 200
@@ -56,10 +67,15 @@ class TestContextCompile:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "world", "scope": "chapter",
-            "chapter_index": 1,
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "chapter",
+                "chapter_index": 1,
+            },
+        )
 
         # Assert
         assert resp.status_code == 200
@@ -70,9 +86,14 @@ class TestContextCompile:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/context/render", json={
-            "novel_id": pid, "task": "world", "scope": "project",
-        })
+        resp = await client.post(
+            "/api/context/render",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "project",
+            },
+        )
 
         # Assert
         assert resp.status_code == 200
@@ -85,10 +106,15 @@ class TestContextCompile:
         client, pid = ctx
 
         # Act
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "world", "scope": "full",
-            "reveal_mode": "author_safe",
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "full",
+                "reveal_mode": "author_safe",
+            },
+        )
 
         # Assert
         assert resp.status_code == 200

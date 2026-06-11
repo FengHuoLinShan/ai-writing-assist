@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 _P = TypeVar("_P", bound=BaseModel)
 
 
-class PlotThreadService(CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]):
+class PlotThreadService(
+    CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]
+):
     repo = PlotThreadRepository()
     response = PlotThreadResponse
     list_response = PlotThreadListResponse
@@ -50,15 +52,21 @@ class PlotThreadService(CrudService[PlotThread, PlotThreadCreate, PlotThreadUpda
     id_param = "thread_id"
 
     async def get_active(
-        self, db: AsyncSession, novel_id: str, chapter_index: int,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
     ) -> list[PlotThreadContract]:
         nid = parse_uuid(novel_id, "novel_id")
         threads = await self.repo.get_active(db, nid, chapter_index)
         return [
             PlotThreadContract(
-                id=str(t.id), novel_id=str(t.novel_id),
-                name=t.name, thread_type=t.thread_type,
-                summary=t.summary, visible_goal=t.visible_goal,
+                id=str(t.id),
+                novel_id=str(t.novel_id),
+                name=t.name,
+                thread_type=t.thread_type,
+                summary=t.summary,
+                visible_goal=t.visible_goal,
                 hidden_truth=t.hidden_truth,
                 start_chapter=t.start_chapter,
                 planned_payoff_chapter=t.planned_payoff_chapter,
@@ -73,7 +81,9 @@ class PlotThreadService(CrudService[PlotThread, PlotThreadCreate, PlotThreadUpda
         ]
 
 
-class OutlineArcService(CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse]):
+class OutlineArcService(
+    CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse]
+):
     repo = OutlineArcRepository()
     response = OutlineArcResponse
     list_response = OutlineArcListResponse
@@ -81,20 +91,30 @@ class OutlineArcService(CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpda
     id_param = "arc_id"
 
     async def get_by_chapter(
-        self, db: AsyncSession, novel_id: str, chapter_index: int,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
     ) -> OutlineArcContract | None:
         nid = parse_uuid(novel_id, "novel_id")
         arc = await self.repo.get_by_chapter(db, nid, chapter_index)
         if arc is None:
             return None
         return OutlineArcContract(
-            id=str(arc.id), novel_id=str(arc.novel_id),
-            title=arc.title, arc_index=arc.arc_index,
-            start_chapter=arc.start_chapter, end_chapter=arc.end_chapter,
-            arc_goal=arc.arc_goal, core_conflict=arc.core_conflict,
-            main_opposition=arc.main_opposition, entry_hook=arc.entry_hook,
-            midpoint_turn=arc.midpoint_turn, climax=arc.climax,
-            result=arc.result, next_hook=arc.next_hook,
+            id=str(arc.id),
+            novel_id=str(arc.novel_id),
+            title=arc.title,
+            arc_index=arc.arc_index,
+            start_chapter=arc.start_chapter,
+            end_chapter=arc.end_chapter,
+            arc_goal=arc.arc_goal,
+            core_conflict=arc.core_conflict,
+            main_opposition=arc.main_opposition,
+            entry_hook=arc.entry_hook,
+            midpoint_turn=arc.midpoint_turn,
+            climax=arc.climax,
+            result=arc.result,
+            next_hook=arc.next_hook,
             related_thread_ids=arc.related_thread_ids or [],
             related_character_ids=arc.related_character_ids or [],
             related_entity_ids=arc.related_entity_ids or [],
@@ -110,15 +130,20 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
     id_param = "scene_id"
 
     async def get_ordered(
-        self, db: AsyncSession, novel_id: str,
+        self,
+        db: AsyncSession,
+        novel_id: str,
     ) -> list[SceneContract]:
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return [
             SceneContract(
-                id=str(s.id), novel_id=str(s.novel_id),
-                scene_index=s.scene_index, title=s.title,
-                goal=s.goal, core_conflict=s.core_conflict,
+                id=str(s.id),
+                novel_id=str(s.novel_id),
+                scene_index=s.scene_index,
+                title=s.title,
+                goal=s.goal,
+                core_conflict=s.core_conflict,
                 emotional_beat=s.emotional_beat,
                 must_happen=s.must_happen,
                 must_not_happen=s.must_not_happen,
@@ -133,15 +158,21 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         ]
 
     async def get_by_chapter(
-        self, db: AsyncSession, novel_id: str, chapter_index: int,
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
     ) -> list[SceneContract]:
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self.repo.get_by_chapter(db, nid, chapter_index)
         return [
             SceneContract(
-                id=str(s.id), novel_id=str(s.novel_id),
-                scene_index=s.scene_index, title=s.title,
-                goal=s.goal, core_conflict=s.core_conflict,
+                id=str(s.id),
+                novel_id=str(s.novel_id),
+                scene_index=s.scene_index,
+                title=s.title,
+                goal=s.goal,
+                core_conflict=s.core_conflict,
                 emotional_beat=s.emotional_beat,
                 must_happen=s.must_happen,
                 must_not_happen=s.must_not_happen,
@@ -156,7 +187,10 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         ]
 
     async def reorder(
-        self, db: AsyncSession, novel_id: str, scene_ids: list[str],
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_ids: list[str],
     ) -> dict:
         """批量重排 Scene 顺序"""
         nid = parse_uuid(novel_id, "novel_id")
@@ -176,7 +210,6 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         从 chapter_index 开始的所有章节从源 Scene 移除，归入目标 Scene。
         如果 target_scene_id 为 None，则新建一个 Scene。
         """
-        from modules.outline.schemas import SceneCreate
 
         nid = parse_uuid(novel_id, "novel_id")
         tid = parse_uuid(target_scene_id, "scene_id") if target_scene_id else None
@@ -215,7 +248,9 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
                 raise ValueError(f"Target Scene {target_scene_id} not found")
             target_ids = list(target.chapter_ids or [])
             target_ids.extend(move_ids)
-            target_ids = sorted(set(target_ids), key=lambda x: int(x) if str(x).isdigit() else 0)
+            target_ids = sorted(
+                set(target_ids), key=lambda x: int(x) if str(x).isdigit() else 0
+            )
             target.chapter_ids = target_ids
             db.add(target)
         else:
@@ -235,9 +270,12 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return [
             SceneContract(
-                id=str(s.id), novel_id=str(s.novel_id),
-                scene_index=s.scene_index, title=s.title,
-                goal=s.goal, core_conflict=s.core_conflict,
+                id=str(s.id),
+                novel_id=str(s.novel_id),
+                scene_index=s.scene_index,
+                title=s.title,
+                goal=s.goal,
+                core_conflict=s.core_conflict,
                 emotional_beat=s.emotional_beat,
                 must_happen=s.must_happen,
                 must_not_happen=s.must_not_happen,
@@ -284,13 +322,21 @@ def _per_item_validate(
             logger.warning("Skipping invalid arc: %s", e)
 
     extra_kw: dict[str, list] = {}
-    section_keys = ("foreshadowing_plans", "reveal_plans",
-                    "offscreen_progress", "risks", "questions_for_user")
+    section_keys = (
+        "foreshadowing_plans",
+        "reveal_plans",
+        "offscreen_progress",
+        "risks",
+        "questions_for_user",
+    )
     for section_key in section_keys:
         items = data.get(section_key, [])
         if not isinstance(items, list):
-            logger.warning("_per_item_validate: '%s' expected list, got %s",
-                           section_key, type(items).__name__)
+            logger.warning(
+                "_per_item_validate: '%s' expected list, got %s",
+                section_key,
+                type(items).__name__,
+            )
             extra_kw[section_key] = []
             continue
         model_cls = (extra_models or {}).get(section_key)
@@ -331,7 +377,8 @@ class PlotStructureGenerator:
         # 1. 加载上下文
         # ============================================================
         bundle = await _container_get("context.compile")(
-            db=db, novel_id=novel_id,
+            db=db,
+            novel_id=novel_id,
             task="生成剧情结构",
             scope="full",
             chapter_index=start_chapter,
@@ -369,9 +416,11 @@ class PlotStructureGenerator:
         # 3. 加载 prompt（已无用的模板变量保留以兼容现有结构）
         # ============================================================
         from core.config import get_settings
+
         settings = get_settings()
 
-        system_prompt = load_prompt("structure_plot",
+        system_prompt = load_prompt(
+            "structure_plot",
             world_context="",
             user_intent="",
             target_scope=f"章节 {start_chapter}-{end_chapter}",
@@ -456,10 +505,13 @@ class PlotStructureGenerator:
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": (
-                    f"请为章节 {start_chapter}-{end_chapter} 生成剧情结构和篇章大纲。"
-                    f"\n\n当前上下文：\n{context_md}"
-                )},
+                {
+                    "role": "user",
+                    "content": (
+                        f"请为章节 {start_chapter}-{end_chapter} 生成剧情结构和篇章大纲。"
+                        f"\n\n当前上下文：\n{context_md}"
+                    ),
+                },
             ],
             temperature=0.5,
             response_format={"type": "json_object"},
@@ -471,11 +523,17 @@ class PlotStructureGenerator:
         for attempt in range(self.MAX_EMPTY_RETRIES + 1):
             try:
                 parsed = await llm_client.generate_structured(request, _GenerationOutput)
-            except (LLMInvalidResponseError, ValidationError, json.JSONDecodeError) as exc:
+            except (
+                LLMInvalidResponseError,
+                ValidationError,
+                json.JSONDecodeError,
+            ) as exc:
                 logger.warning(
                     "Structured validation failed (attempt %d/%d), "
                     "falling back to per-item validation: %s",
-                    attempt + 1, self.MAX_EMPTY_RETRIES + 1, exc,
+                    attempt + 1,
+                    self.MAX_EMPTY_RETRIES + 1,
+                    exc,
                 )
                 # Fix 4：降级到逐项校验
                 try:
@@ -489,20 +547,33 @@ class PlotStructureGenerator:
                         "questions_for_user": _Question,
                     }
                     parsed = _per_item_validate(
-                        raw_data, _GeneratedThread, _GeneratedArc, extra_models, _GenerationOutput,
+                        raw_data,
+                        _GeneratedThread,
+                        _GeneratedArc,
+                        extra_models,
+                        _GenerationOutput,
                     )
                 except Exception as inner_exc:
                     logger.warning("Per-item validation also failed: %s", inner_exc)
                     continue
             except Exception as exc:
-                logger.warning("LLM call failed (attempt %d/%d): %s", attempt + 1, self.MAX_EMPTY_RETRIES + 1, exc)
+                logger.warning(
+                    "LLM call failed (attempt %d/%d): %s",
+                    attempt + 1,
+                    self.MAX_EMPTY_RETRIES + 1,
+                    exc,
+                )
                 continue
 
             # Fix 3：检查空结果（覆盖全部 section 字段，避免 extra_sections 被丢弃）
             has_content = (
-                parsed.plot_threads or parsed.outline_arcs or
-                parsed.foreshadowing_plans or parsed.reveal_plans or
-                parsed.offscreen_progress or parsed.risks or parsed.questions_for_user
+                parsed.plot_threads
+                or parsed.outline_arcs
+                or parsed.foreshadowing_plans
+                or parsed.reveal_plans
+                or parsed.offscreen_progress
+                or parsed.risks
+                or parsed.questions_for_user
             )
             if has_content:
                 result = parsed
@@ -510,13 +581,19 @@ class PlotStructureGenerator:
 
             logger.warning(
                 "Empty LLM result (attempt %d/%d), retrying...",
-                attempt + 1, self.MAX_EMPTY_RETRIES + 1,
+                attempt + 1,
+                self.MAX_EMPTY_RETRIES + 1,
             )
         else:
-            logger.error("All %d generation attempts returned empty or failed", self.MAX_EMPTY_RETRIES + 1)
+            logger.error(
+                "All %d generation attempts returned empty or failed",
+                self.MAX_EMPTY_RETRIES + 1,
+            )
             return {
-                "total_threads": 0, "total_arcs": 0,
-                "threads": [], "arcs": [],
+                "total_threads": 0,
+                "total_arcs": 0,
+                "threads": [],
+                "arcs": [],
                 "extra_sections": {},
                 "warnings": ["LLM 多次返回空结果，请重试"],
             }
@@ -524,8 +601,10 @@ class PlotStructureGenerator:
         # Fix 12：for-else 保证 result 非空；防御性检查防 python -O 跳过 assert
         if result is None:
             return {
-                "total_threads": 0, "total_arcs": 0,
-                "threads": [], "arcs": [],
+                "total_threads": 0,
+                "total_arcs": 0,
+                "threads": [],
+                "arcs": [],
                 "extra_sections": {},
                 "warnings": ["LLM 生成结果为空，请重试"],
             }
@@ -534,10 +613,16 @@ class PlotStructureGenerator:
         # 6. 去重检查（Fix 6）
         # ============================================================
         existing_threads = await PlotThreadRepository().count_by_novel_and_range(
-            db, nid, start_chapter, end_chapter,
+            db,
+            nid,
+            start_chapter,
+            end_chapter,
         )
         existing_arcs = await OutlineArcRepository().count_by_novel_and_range(
-            db, nid, start_chapter, end_chapter,
+            db,
+            nid,
+            start_chapter,
+            end_chapter,
         )
         if existing_threads > 0 or existing_arcs > 0:
             msg = (
@@ -557,11 +642,13 @@ class PlotStructureGenerator:
 
             # 映射名称到 UUID
             thread_char_ids = [
-                character_name_to_id[n] for n in t.related_character_names
+                character_name_to_id[n]
+                for n in t.related_character_names
                 if n in character_name_to_id
             ]
             thread_entity_ids = [
-                entity_name_to_id[n] for n in t.related_entity_names
+                entity_name_to_id[n]
+                for n in t.related_entity_names
                 if n in entity_name_to_id
             ]
 
@@ -571,7 +658,9 @@ class PlotStructureGenerator:
                 summary=t.summary,
                 visible_goal=t.visible_goal,
                 hidden_truth=t.hidden_truth,
-                start_chapter=t.start_chapter if t.start_chapter is not None else start_chapter,
+                start_chapter=t.start_chapter
+                if t.start_chapter is not None
+                else start_chapter,
                 planned_payoff_chapter=t.planned_payoff_chapter,
                 current_stage=t.current_stage,
                 related_character_ids=thread_char_ids,
@@ -580,10 +669,13 @@ class PlotStructureGenerator:
             )
             try:
                 thread = await PlotThreadRepository().create(db, nid, thread_data)
-                created_threads.append({
-                    "id": str(thread.id), "name": thread.name,
-                    "thread_type": thread.thread_type,
-                })
+                created_threads.append(
+                    {
+                        "id": str(thread.id),
+                        "name": thread.name,
+                        "thread_type": thread.thread_type,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to create thread '%s': %s", t.name, exc)
 
@@ -601,22 +693,27 @@ class PlotStructureGenerator:
                 continue
 
             arc_related_thread_ids = [
-                thread_name_to_id[n] for n in a.related_thread_names
+                thread_name_to_id[n]
+                for n in a.related_thread_names
                 if n in thread_name_to_id
             ]
             arc_related_char_ids = [
-                character_name_to_id[n] for n in a.related_character_names
+                character_name_to_id[n]
+                for n in a.related_character_names
                 if n in character_name_to_id
             ]
             arc_related_entity_ids = [
-                entity_name_to_id[n] for n in a.related_entity_names
+                entity_name_to_id[n]
+                for n in a.related_entity_names
                 if n in entity_name_to_id
             ]
 
             arc_data = OutlineArcCreate(
                 title=a.title,
                 arc_index=a.arc_index,
-                start_chapter=a.start_chapter if a.start_chapter is not None else start_chapter,
+                start_chapter=a.start_chapter
+                if a.start_chapter is not None
+                else start_chapter,
                 end_chapter=a.end_chapter if a.end_chapter is not None else end_chapter,
                 arc_goal=a.arc_goal,
                 core_conflict=a.core_conflict,
@@ -633,10 +730,13 @@ class PlotStructureGenerator:
             )
             try:
                 arc = await OutlineArcRepository().create(db, nid, arc_data)
-                created_arcs.append({
-                    "id": str(arc.id), "title": arc.title,
-                    "arc_index": arc.arc_index,
-                })
+                created_arcs.append(
+                    {
+                        "id": str(arc.id),
+                        "title": arc.title,
+                        "arc_index": arc.arc_index,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to create arc '%s': %s", a.title, exc)
 
@@ -654,18 +754,25 @@ class PlotStructureGenerator:
             if not fp.name:
                 continue
             try:
-                plan = await _fp_repo.create(db, nid, {
-                    "name": fp.name,
-                    "summary": fp.summary,
-                    "surface_meaning": getattr(fp, "surface_meaning", None),
-                    "hidden_meaning": getattr(fp, "hidden_meaning", None),
-                    "planned_seed_chapter": fp.planned_seed_chapter,
-                    "planned_payoff_chapter": fp.planned_payoff_chapter,
-                    "status": "draft",
-                })
-                created_foreshadowing.append({
-                    "id": str(plan.id), "name": plan.name,
-                })
+                plan = await _fp_repo.create(
+                    db,
+                    nid,
+                    {
+                        "name": fp.name,
+                        "summary": fp.summary,
+                        "surface_meaning": getattr(fp, "surface_meaning", None),
+                        "hidden_meaning": getattr(fp, "hidden_meaning", None),
+                        "planned_seed_chapter": fp.planned_seed_chapter,
+                        "planned_payoff_chapter": fp.planned_payoff_chapter,
+                        "status": "draft",
+                    },
+                )
+                created_foreshadowing.append(
+                    {
+                        "id": str(plan.id),
+                        "name": plan.name,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to create foreshadowing '%s': %s", fp.name, exc)
 
@@ -674,24 +781,31 @@ class PlotStructureGenerator:
         for rp in result.reveal_plans:
             if not rp.target_name:
                 continue
-            target_id = (
-                entity_name_to_id.get(rp.target_name)
-                or character_name_to_id.get(rp.target_name)
+            target_id = entity_name_to_id.get(rp.target_name) or character_name_to_id.get(
+                rp.target_name
             )
             try:
-                plan = await _rp_repo.create(db, nid, {
-                    "target_type": rp.target_type,
-                    "target_id": target_id or "00000000-0000-0000-0000-000000000000",
-                    "secret_summary": rp.secret_summary or "",
-                    "status": "draft",
-                })
-                created_reveals.append({
-                    "id": str(plan.id),
-                    "target_name": rp.target_name,
-                })
+                plan = await _rp_repo.create(
+                    db,
+                    nid,
+                    {
+                        "target_type": rp.target_type,
+                        "target_id": target_id or "00000000-0000-0000-0000-000000000000",
+                        "secret_summary": rp.secret_summary or "",
+                        "status": "draft",
+                    },
+                )
+                created_reveals.append(
+                    {
+                        "id": str(plan.id),
+                        "target_name": rp.target_name,
+                    }
+                )
             except Exception as exc:
                 logger.warning(
-                    "Failed to create reveal for '%s': %s", rp.target_name, exc,
+                    "Failed to create reveal for '%s': %s",
+                    rp.target_name,
+                    exc,
                 )
 
         await db.flush()
@@ -707,15 +821,9 @@ class PlotStructureGenerator:
             "extra_sections": {
                 "foreshadowing_plans": created_foreshadowing,
                 "reveal_plans": created_reveals,
-                "offscreen_progress": [
-                    p.model_dump() for p in result.offscreen_progress
-                ],
-                "risks": [
-                    p.model_dump() for p in result.risks
-                ],
-                "questions_for_user": [
-                    q.model_dump() for q in result.questions_for_user
-                ],
+                "offscreen_progress": [p.model_dump() for p in result.offscreen_progress],
+                "risks": [p.model_dump() for p in result.risks],
+                "questions_for_user": [q.model_dump() for q in result.questions_for_user],
             },
             "warnings": warnings_list,
         }

@@ -22,4 +22,6 @@ class WritingDraftContract:
 
 
 # facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.writing.schemas import WritingDraftResponse  # noqa: F401 — facade.create_draft 返回
+from modules.writing.schemas import (
+    WritingDraftResponse,  # noqa: F401 — facade.create_draft 返回
+)

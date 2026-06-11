@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import DeltaLog
 from shared.utils import parse_llm_json, parse_uuid
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ class SceneEntityExtractionService:
         self,
         db: AsyncSession,
         novel_id: str,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -52,6 +53,9 @@ class SceneEntityExtractionService:
         total_scenes = len(scenes)
         accumulated_memory: list[dict] = []
 
+        if on_scene_progress is not None:
+            await on_scene_progress(0, total_scenes)
+
         for scene_idx, scene in enumerate(scenes):
             try:
                 scene_result = await self._process_scene(
@@ -70,11 +74,14 @@ class SceneEntityExtractionService:
                 logger.warning(
                     "Scene %d (idx=%d) extraction failed after %d retries: %s",
                     scene_idx,
-                    scene.scene_index,
+                    scene.get("scene_index"),
                     MAX_RETRIES,
                     exc,
                 )
                 continue
+
+            if on_scene_progress is not None:
+                await on_scene_progress(scene_idx + 1, total_scenes)
 
         await db.flush()
         return {
@@ -87,32 +94,26 @@ class SceneEntityExtractionService:
     # Internal
     # ------------------------------------------------------------------
 
-    async def _get_scenes(self, db: AsyncSession, nid):
-        from sqlalchemy import select
+    async def _get_scenes(self, db: AsyncSession, nid) -> list[dict[str, Any]]:
+        from modules.outline.facade import get_scenes_by_novel
 
-        from modules.outline.models import Scene
-
-        stmt = (
-            select(Scene)
-            .where(
-                Scene.novel_id == nid,
-                Scene.status.in_(["draft", "canonical"]),
-                Scene.narrative_tag.notin_(["valley", "transition"]),
-            )
-            .order_by(Scene.scene_index)
+        return await get_scenes_by_novel(
+            db,
+            str(nid),
+            status_filter=["draft", "canonical"],
+            exclude_narrative_tags=["valley", "transition"],
         )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
 
     async def _process_scene(
         self,
         db: AsyncSession,
         nid,
-        scene,
+        scene: dict[str, Any],
         scene_idx: int,
         existing_context: str,
         accumulated_memory: list[dict],
     ) -> dict[str, Any]:
+        scene_index = scene["scene_index"]
         chapters_text = await self._load_scene_chapters(db, scene)
         if not chapters_text:
             return {
@@ -129,8 +130,12 @@ class SceneEntityExtractionService:
             memory_context,
         )
 
-        created_count = await self._persist_entities(db, nid, entities, scene.scene_index)
-        delta_count = await self._record_deltas(db, nid, delta_events, scene.scene_index)
+        created_count = await self._persist_entities(
+            db, nid, entities, scene_index
+        )
+        delta_count = await self._record_deltas(
+            db, nid, delta_events, scene_index
+        )
 
         new_names = [
             e.get("name", "")
@@ -149,7 +154,7 @@ class SceneEntityExtractionService:
         )
 
         updated_memory = accumulated_memory + [
-            {"scene_index": scene.scene_index, "entities": len(entities)},
+            {"scene_index": scene_index, "entities": len(entities)},
         ]
 
         # Memory snapshot every 10 scenes
@@ -160,7 +165,7 @@ class SceneEntityExtractionService:
                 await _get("memory.capture_snapshot")(
                     db,
                     novel_id=str(nid),
-                    chapter_index=scene.scene_index,
+                    chapter_index=scene_index,
                 )
             except Exception as exc:
                 logger.warning(
@@ -176,18 +181,20 @@ class SceneEntityExtractionService:
             "updated_memory": updated_memory,
         }
 
-    async def _load_scene_chapters(self, db: AsyncSession, scene) -> str:
+    async def _load_scene_chapters(
+        self, db: AsyncSession, scene: dict[str, Any]
+    ) -> str:
         from modules.writing.facade import get_latest_draft_for_chapter
 
         parts: list[str] = []
-        for ch_id_str in scene.chapter_ids or []:
+        for ch_id_str in scene.get("chapter_ids") or []:
             try:
                 ch_idx = int(ch_id_str)
             except (ValueError, TypeError):
                 continue
             draft = await get_latest_draft_for_chapter(
                 db,
-                str(scene.novel_id),
+                scene["novel_id"],
                 ch_idx,
             )
             if draft and draft.content:
@@ -262,12 +269,9 @@ class SceneEntityExtractionService:
         entities: list[dict],
         scene_index: int,
     ) -> int:
-        from modules.world.facade import find_similar_entities
-        from modules.world.schemas import CoreEntityCreate
-        from modules.world.services.entity_service import WorldEntityService
+        from modules.world.facade import create_entity, find_similar_entities
 
         created = 0
-        entity_service = WorldEntityService()
 
         for ent in entities:
             action = ent.get("suggested_action", "ignore")
@@ -283,18 +287,18 @@ class SceneEntityExtractionService:
                 continue
 
             try:
-                await entity_service.create(
+                await create_entity(
                     db,
                     str(nid),
-                    CoreEntityCreate(
-                        name=name,
-                        entity_type=ent.get("entity_type", "character"),
-                        summary=ent.get("summary"),
-                        public_info=ent.get("public_info"),
-                        hidden_truth=ent.get("hidden_truth"),
-                        importance=ent.get("importance", 0.5),
-                        status="canonical",
-                    ),
+                    {
+                        "name": name,
+                        "entity_type": ent.get("entity_type", "character"),
+                        "summary": ent.get("summary"),
+                        "public_info": ent.get("public_info"),
+                        "hidden_truth": ent.get("hidden_truth"),
+                        "importance": ent.get("importance", 0.5),
+                        "status": "canonical",
+                    },
                 )
                 created += 1
             except Exception as exc:
@@ -313,10 +317,13 @@ class SceneEntityExtractionService:
         delta_events: list[dict],
         scene_index: int,
     ) -> int:
+        from modules.memory.facade import create_delta_log
+
         count = 0
         for event in delta_events or []:
-            delta = DeltaLog(
-                novel_id=nid,
+            await create_delta_log(
+                db,
+                str(nid),
                 scene_index=scene_index,
                 category=event.get("category", "ENTITY_UPDATED"),
                 field_path=event.get("field"),
@@ -325,6 +332,5 @@ class SceneEntityExtractionService:
                 source="ai_extraction",
                 meta=event.get("meta", {}),
             )
-            db.add(delta)
             count += 1
         return count

@@ -58,6 +58,7 @@ _knowledge_service = CharacterKnowledgeService()
 # CoreEntity 路由
 # ============================================================
 
+
 @router.get("/entities", response_model=CoreEntityListResponse)
 async def list_entities(
     db: DbSession,
@@ -66,12 +67,15 @@ async def list_entities(
     status: str | None = Query(None, description="状态过滤"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
         description="每页条数",
     ),
 ) -> CoreEntityListResponse:
     return await _entity_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         entity_type=entity_type,
         status=status,
         skip=skip,
@@ -130,13 +134,16 @@ async def get_entity_relations(
 # Event 路由
 # ============================================================
 
+
 @router.get("/events", response_model=EventListResponse)
 async def list_events(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
         description="每页条数",
     ),
 ) -> EventListResponse:
@@ -185,13 +192,16 @@ async def delete_event(
 # EntityRelation 路由
 # ============================================================
 
+
 @router.get("/relations", response_model=EntityRelationListResponse)
 async def list_relations(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
         description="每页条数",
     ),
 ) -> EntityRelationListResponse:
@@ -231,6 +241,7 @@ async def delete_relation(
 # EntityRevision 路由
 # ============================================================
 
+
 @router.get("/entities/{entity_id}/revisions")
 async def list_revisions(
     db: DbSession,
@@ -240,7 +251,11 @@ async def list_revisions(
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
 ):
     return await _revision_service.get_revisions(
-        db, entity_id, novel_id, skip=skip, limit=limit,
+        db,
+        entity_id,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
 
 
@@ -252,7 +267,10 @@ async def rollback_entity(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     return await _revision_service.rollback_to_revision(
-        db, entity_id, revision_id, novel_id,
+        db,
+        entity_id,
+        revision_id,
+        novel_id,
     )
 
 
@@ -260,18 +278,24 @@ async def rollback_entity(
 # Character 路由
 # ============================================================
 
+
 @router.get("/characters", response_model=CharacterListResponse)
 async def list_characters(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
         description="每页条数",
     ),
 ) -> CharacterListResponse:
     items, total = await _character_service.list(
-        db, novel_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
     return CharacterListResponse(items=items, total=total)
 
@@ -292,7 +316,9 @@ async def get_character(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterResponse:
     return await _character_service.get(
-        db, character_id, novel_id=novel_id,
+        db,
+        character_id,
+        novel_id=novel_id,
     )
 
 
@@ -304,7 +330,10 @@ async def update_character(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterResponse:
     return await _character_service.update(
-        db, character_id, data, novel_id=novel_id,
+        db,
+        character_id,
+        data,
+        novel_id=novel_id,
     )
 
 
@@ -321,6 +350,7 @@ async def delete_character(
 # CharacterKnowledge 路由 (独立 CharacterKnowledgeService)
 # ============================================================
 
+
 @router.get(
     "/characters/{character_id}/knowledge",
     response_model=CharacterKnowledgeListResponse,
@@ -331,12 +361,18 @@ async def list_knowledge(
     novel_id: str = Query(..., description="项目 ID"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
-        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE,
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
         description="每页条数",
     ),
 ) -> CharacterKnowledgeListResponse:
     return await _knowledge_service.list(
-        db, novel_id, character_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        character_id,
+        skip=skip,
+        limit=limit,
     )
 
 
@@ -365,7 +401,10 @@ async def update_knowledge(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterKnowledgeResponse:
     return await _knowledge_service.update(
-        db, knowledge_id, data, novel_id=novel_id,
+        db,
+        knowledge_id,
+        data,
+        novel_id=novel_id,
     )
 
 
@@ -376,7 +415,9 @@ async def delete_knowledge(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     await _knowledge_service.delete(
-        db, knowledge_id, novel_id=novel_id,
+        db,
+        knowledge_id,
+        novel_id=novel_id,
     )
 
 
@@ -392,7 +433,9 @@ async def list_entity_batches(
     按入库时间倒序排列。
     """
     return await _entity_service.list_entity_batches(
-        db, novel_id, limit=limit,
+        db,
+        novel_id,
+        limit=limit,
     )
 
 
@@ -410,7 +453,10 @@ async def list_aliases(
 ) -> list[dict]:
     """列出项目下所有实体的别名"""
     return await _entity_service.list_aliases(
-        db, novel_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
 
 
@@ -422,7 +468,11 @@ async def create_alias(
 ) -> dict:
     """为实体添加别名"""
     return await _entity_service.create_alias(
-        db, novel_id, data.entity_id, data.alias, data.alias_type,
+        db,
+        novel_id,
+        data.entity_id,
+        data.alias,
+        data.alias_type,
     )
 
 
@@ -435,5 +485,8 @@ async def delete_alias(
 ) -> dict:
     """删除实体的指定别名"""
     return await _entity_service.delete_alias(
-        db, novel_id, entity_id, alias,
+        db,
+        novel_id,
+        entity_id,
+        alias,
     )

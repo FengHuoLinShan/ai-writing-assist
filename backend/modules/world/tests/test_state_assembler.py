@@ -18,6 +18,7 @@ from modules.world.models import CoreEntity
 # Tracer bullet — canonical entities filter
 # ============================================================
 
+
 async def test_assemble_returns_only_canonical_entities(
     db_session: AsyncSession,
     novel_id: str,
@@ -240,45 +241,71 @@ async def test_assemble_isolates_novel_id_across_all_sections(
     a_rel_src = uuid.uuid4()
     a_rel_tgt = uuid.uuid4()
 
-    db_session.add_all([
-        # novel A 的正史
-        CoreEntity(
-            id=uuid.uuid4(), novel_id=novel_a,
-            entity_type="item", name="A 的剑", status="canonical",
-        ),
-        CoreEntity(
-            id=uuid.uuid4(), novel_id=novel_b,
-            entity_type="item", name="B 的剑", status="canonical",
-        ),
-        EntityRelation(
-            id=uuid.uuid4(), novel_id=novel_a,
-            source_id=a_rel_src, target_id=a_rel_tgt,
-            relation_type="ally", status="canonical",
-        ),
-        EntityRelation(
-            id=uuid.uuid4(), novel_id=novel_b,
-            source_id=uuid.uuid4(), target_id=uuid.uuid4(),
-            relation_type="ally", status="canonical",
-        ),
-        Character(
-            entity_id=a_char_id, novel_id=novel_a,
-            name="A 主角", meta={"location_id": str(uuid.uuid4())},
-        ),
-        Character(
-            entity_id=uuid.uuid4(), novel_id=novel_b,
-            name="B 主角", meta={"location_id": str(uuid.uuid4())},
-        ),
-        CharacterKnowledge(
-            id=uuid.uuid4(), novel_id=novel_a, character_id=a_char_id,
-            target_type="entity", target_id=uuid.uuid4(),
-            knowledge_level="full", known_content="A 知道",
-        ),
-        CharacterKnowledge(
-            id=uuid.uuid4(), novel_id=novel_b, character_id=uuid.uuid4(),
-            target_type="entity", target_id=uuid.uuid4(),
-            knowledge_level="full", known_content="B 知道",
-        ),
-    ])
+    db_session.add_all(
+        [
+            # novel A 的正史
+            CoreEntity(
+                id=uuid.uuid4(),
+                novel_id=novel_a,
+                entity_type="item",
+                name="A 的剑",
+                status="canonical",
+            ),
+            CoreEntity(
+                id=uuid.uuid4(),
+                novel_id=novel_b,
+                entity_type="item",
+                name="B 的剑",
+                status="canonical",
+            ),
+            EntityRelation(
+                id=uuid.uuid4(),
+                novel_id=novel_a,
+                source_id=a_rel_src,
+                target_id=a_rel_tgt,
+                relation_type="ally",
+                status="canonical",
+            ),
+            EntityRelation(
+                id=uuid.uuid4(),
+                novel_id=novel_b,
+                source_id=uuid.uuid4(),
+                target_id=uuid.uuid4(),
+                relation_type="ally",
+                status="canonical",
+            ),
+            Character(
+                entity_id=a_char_id,
+                novel_id=novel_a,
+                name="A 主角",
+                meta={"location_id": str(uuid.uuid4())},
+            ),
+            Character(
+                entity_id=uuid.uuid4(),
+                novel_id=novel_b,
+                name="B 主角",
+                meta={"location_id": str(uuid.uuid4())},
+            ),
+            CharacterKnowledge(
+                id=uuid.uuid4(),
+                novel_id=novel_a,
+                character_id=a_char_id,
+                target_type="entity",
+                target_id=uuid.uuid4(),
+                knowledge_level="full",
+                known_content="A 知道",
+            ),
+            CharacterKnowledge(
+                id=uuid.uuid4(),
+                novel_id=novel_b,
+                character_id=uuid.uuid4(),
+                target_type="entity",
+                target_id=uuid.uuid4(),
+                knowledge_level="full",
+                known_content="B 知道",
+            ),
+        ]
+    )
     await db_session.flush()
 
     state_a = await assemble(db_session, nid_a_str)
@@ -319,33 +346,42 @@ async def test_in_memory_source_drives_assemble_without_db(
     canon = CoreEntity(
         id=uuid.uuid4(),
         novel_id=uuid.UUID(hex=novel_id),
-        entity_type="item", name="内存里的剑", status="canonical",
+        entity_type="item",
+        name="内存里的剑",
+        status="canonical",
     )
     rel = EntityRelation(
         id=uuid.uuid4(),
         novel_id=uuid.UUID(hex=novel_id),
-        source_id=uuid.uuid4(), target_id=uuid.uuid4(),
-        relation_type="ally", status="canonical",
+        source_id=uuid.uuid4(),
+        target_id=uuid.uuid4(),
+        relation_type="ally",
+        status="canonical",
     )
     ch = Character(
         entity_id=uuid.uuid4(),
         novel_id=uuid.UUID(hex=novel_id),
-        name="内存主角", meta={"location_id": str(uuid.uuid4())},
+        name="内存主角",
+        meta={"location_id": str(uuid.uuid4())},
     )
     kn = CharacterKnowledge(
         id=uuid.uuid4(),
         novel_id=uuid.UUID(hex=novel_id),
         character_id=ch.entity_id,
-        target_type="entity", target_id=uuid.uuid4(),
-        knowledge_level="full", known_content="全部知道",
+        target_type="entity",
+        target_id=uuid.uuid4(),
+        knowledge_level="full",
+        known_content="全部知道",
     )
 
-    set_default_source(InMemoryStateSource(
-        entities=[canon],
-        relations=[rel],
-        characters=[ch],
-        knowledge=[kn],
-    ))
+    set_default_source(
+        InMemoryStateSource(
+            entities=[canon],
+            relations=[rel],
+            characters=[ch],
+            knowledge=[kn],
+        )
+    )
     try:
         # db_session 不被触碰 — InMemoryStateSource 完全在内存中
         state = await assemble(db_session, novel_id)
@@ -361,6 +397,7 @@ async def test_in_memory_source_drives_assemble_without_db(
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def novel_id() -> str:

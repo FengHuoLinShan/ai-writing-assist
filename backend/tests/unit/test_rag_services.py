@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import math
-import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,10 +29,10 @@ from modules.rag.tuning import (
     generate_weight_combinations,
 )
 
-
 # ============================================================
 # CircuitBreaker
 # ============================================================
+
 
 class TestCircuitBreaker:
     """熔断器状态机单元测试"""
@@ -52,15 +51,11 @@ class TestCircuitBreaker:
     def test_allow_request_open_within_cooldown_returns_false(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=60.0)
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
             cb.record_failure()
 
         # Act
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=30.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=30.0):
             allowed = cb.allow_request()
 
         # Assert
@@ -70,15 +65,11 @@ class TestCircuitBreaker:
     def test_allow_request_open_after_cooldown_transitions_half_open(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
             cb.record_failure()
 
         # Act
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
             allowed = cb.allow_request()
 
         # Assert
@@ -88,13 +79,9 @@ class TestCircuitBreaker:
     def test_allow_request_half_open_returns_true(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
             cb.record_failure()
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
             cb.allow_request()  # -> HALF_OPEN
 
         # Act
@@ -107,13 +94,9 @@ class TestCircuitBreaker:
     def test_record_success_half_open_closes_and_resets(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
             cb.record_failure()
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
             cb.allow_request()
 
         # Act
@@ -151,13 +134,9 @@ class TestCircuitBreaker:
     def test_record_failure_half_open_returns_to_open(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
             cb.record_failure()
-        with patch(
-            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0
-        ):
+        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
             cb.allow_request()
 
         # Act
@@ -208,6 +187,7 @@ class TestCircuitBreaker:
 # Reranker
 # ============================================================
 
+
 class TestReranker:
     """LLM 重排序单元测试"""
 
@@ -218,9 +198,7 @@ class TestReranker:
                 instance = MockClient.return_value
                 instance._settings.llm_model = model_name
                 instance.generate = AsyncMock(
-                    return_value=MagicMock(
-                        content=json.dumps({"scores": scores})
-                    )
+                    return_value=MagicMock(content=json.dumps({"scores": scores}))
                 )
                 yield MockClient, instance
 
@@ -246,9 +224,7 @@ class TestReranker:
             instance = MockClient.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
-                return_value=MagicMock(
-                    content=json.dumps({"scores": [0.8]})
-                )
+                return_value=MagicMock(content=json.dumps({"scores": [0.8]}))
             )
 
             # Act
@@ -267,9 +243,7 @@ class TestReranker:
             instance = MockClient.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
-                return_value=MagicMock(
-                    content=json.dumps({"scores": [1.0] * 24})
-                )
+                return_value=MagicMock(content=json.dumps({"scores": [1.0] * 24}))
             )
 
             # Act
@@ -303,9 +277,7 @@ class TestReranker:
             instance = MockClient.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
-                return_value=MagicMock(
-                    content=json.dumps({"scores": [-0.5, 1.5]})
-                )
+                return_value=MagicMock(content=json.dumps({"scores": [-0.5, 1.5]}))
             )
 
             # Act
@@ -338,9 +310,7 @@ class TestReranker:
             instance = MockClient.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
-                return_value=MagicMock(
-                    content=json.dumps({"scores": [0.9, 0.5, 0.8]})
-                )
+                return_value=MagicMock(content=json.dumps({"scores": [0.9, 0.5, 0.8]}))
             )
 
             # Act
@@ -356,6 +326,7 @@ class TestReranker:
 # ============================================================
 # Tuning
 # ============================================================
+
 
 class TestTuning:
     """调优算法单元测试"""
@@ -375,7 +346,7 @@ class TestTuning:
         result = _dcg(scores, 2)
 
         # Assert
-        expected = (2 ** 1 - 1) / math.log2(2) + (2 ** 1 - 1) / math.log2(3)
+        expected = (2**1 - 1) / math.log2(2) + (2**1 - 1) / math.log2(3)
         assert result == pytest.approx(expected)
 
     def test_ndcg_no_relevant_returns_zero(self):
@@ -453,6 +424,7 @@ class TestTuning:
 # ============================================================
 # Mappers
 # ============================================================
+
 
 class TestMappers:
     """数据映射单元测试"""
@@ -614,6 +586,7 @@ class TestMappers:
 # ============================================================
 # Metrics
 # ============================================================
+
 
 class TestMetrics:
     """检索指标单元测试"""

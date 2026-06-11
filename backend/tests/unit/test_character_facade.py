@@ -8,7 +8,6 @@ We mock _character_service to isolate the facade layer.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -55,7 +54,10 @@ async def test_create_character_with_valid_data_returns_character_response(
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await create_character(
-            db_session, novel_id, name, world_entity_id,
+            db_session,
+            novel_id,
+            name,
+            world_entity_id,
         )
 
     # Assert
@@ -86,7 +88,10 @@ async def test_create_character_with_none_world_entity_id_uses_empty_string(
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await create_character(
-            db_session, novel_id, name, world_entity_id=None,
+            db_session,
+            novel_id,
+            name,
+            world_entity_id=None,
         )
 
     # Assert
@@ -155,7 +160,10 @@ async def test_list_characters_with_defaults_returns_tuple(
 
     # Assert
     mock_service.list.assert_awaited_once_with(
-        db_session, novel_id, skip=0, limit=100,
+        db_session,
+        novel_id,
+        skip=0,
+        limit=100,
     )
     assert items == expected_items
     assert total == expected_total
@@ -176,7 +184,10 @@ async def test_list_characters_with_custom_pagination_returns_tuple(
 
     # Assert
     mock_service.list.assert_awaited_once_with(
-        db_session, novel_id, skip=10, limit=50,
+        db_session,
+        novel_id,
+        skip=10,
+        limit=50,
     )
 
 
@@ -238,12 +249,17 @@ async def test_get_characters_context_with_defaults_returns_bundle(
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await get_characters_context(
-            db_session, novel_id, [char_id],
+            db_session,
+            novel_id,
+            [char_id],
         )
 
     # Assert
     mock_service.get_characters_context.assert_awaited_once_with(
-        db_session, novel_id, [char_id], "author_safe",
+        db_session,
+        novel_id,
+        [char_id],
+        "author_safe",
     )
     assert result == expected
 
@@ -266,12 +282,18 @@ async def test_get_characters_context_with_custom_reveal_mode_returns_bundle(
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await get_characters_context(
-            db_session, novel_id, [char_id], reveal_mode="author_only",
+            db_session,
+            novel_id,
+            [char_id],
+            reveal_mode="author_only",
         )
 
     # Assert
     mock_service.get_characters_context.assert_awaited_once_with(
-        db_session, novel_id, [char_id], "author_only",
+        db_session,
+        novel_id,
+        [char_id],
+        "author_only",
     )
     assert result.reveal_mode == "author_only"
 
@@ -312,7 +334,9 @@ async def test_get_characters_context_propagates_service_exception(
     with patch("modules.world.character_facade._character_service", mock_service):
         with pytest.raises(PermissionError, match="denied"):
             await get_characters_context(
-                db_session, novel_id, [str(uuid.uuid4())],
+                db_session,
+                novel_id,
+                [str(uuid.uuid4())],
             )
 
 
@@ -343,12 +367,18 @@ async def test_get_character_knowledge_context_with_target_ids_returns_list(
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await get_character_knowledge_context(
-            db_session, novel_id, char_id, target_ids=[target_id],
+            db_session,
+            novel_id,
+            char_id,
+            target_ids=[target_id],
         )
 
     # Assert
     mock_service.get_character_knowledge_context.assert_awaited_once_with(
-        db_session, novel_id, char_id, [target_id],
+        db_session,
+        novel_id,
+        char_id,
+        [target_id],
     )
     assert result == expected
 
@@ -367,12 +397,18 @@ async def test_get_character_knowledge_context_with_none_target_ids_returns_list
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await get_character_knowledge_context(
-            db_session, novel_id, char_id, target_ids=None,
+            db_session,
+            novel_id,
+            char_id,
+            target_ids=None,
         )
 
     # Assert
     mock_service.get_character_knowledge_context.assert_awaited_once_with(
-        db_session, novel_id, char_id, None,
+        db_session,
+        novel_id,
+        char_id,
+        None,
     )
     assert result == []
 
@@ -391,12 +427,18 @@ async def test_get_character_knowledge_context_with_empty_target_ids_returns_lis
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await get_character_knowledge_context(
-            db_session, novel_id, char_id, target_ids=[],
+            db_session,
+            novel_id,
+            char_id,
+            target_ids=[],
         )
 
     # Assert
     mock_service.get_character_knowledge_context.assert_awaited_once_with(
-        db_session, novel_id, char_id, [],
+        db_session,
+        novel_id,
+        char_id,
+        [],
     )
     assert result == []
 
@@ -417,7 +459,9 @@ async def test_get_character_knowledge_context_propagates_service_exception(
     with patch("modules.world.character_facade._character_service", mock_service):
         with pytest.raises(ConnectionError, match="db down"):
             await get_character_knowledge_context(
-                db_session, novel_id, char_id,
+                db_session,
+                novel_id,
+                char_id,
             )
 
 
@@ -450,18 +494,26 @@ async def test_filter_context_by_character_knowledge_with_items_returns_filtered
     ]
     mock_service = AsyncMock()
     mock_service.filter_context_by_character_knowledge.return_value = (
-        expected_filtered, 0, 0,
+        expected_filtered,
+        0,
+        0,
     )
 
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await filter_context_by_character_knowledge(
-            db_session, novel_id, char_id, context_items,
+            db_session,
+            novel_id,
+            char_id,
+            context_items,
         )
 
     # Assert
     mock_service.filter_context_by_character_knowledge.assert_awaited_once_with(
-        db_session, novel_id, char_id, context_items,
+        db_session,
+        novel_id,
+        char_id,
+        context_items,
     )
     assert result == expected_filtered
 
@@ -479,7 +531,10 @@ async def test_filter_context_by_character_knowledge_with_empty_items_returns_em
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await filter_context_by_character_knowledge(
-            db_session, novel_id, char_id, [],
+            db_session,
+            novel_id,
+            char_id,
+            [],
         )
 
     # Assert
@@ -496,13 +551,18 @@ async def test_filter_context_by_character_knowledge_discards_counts(
     context_items = [{"target_type": "event", "target_id": str(uuid.uuid4())}]
     mock_service = AsyncMock()
     mock_service.filter_context_by_character_knowledge.return_value = (
-        [], 5, 3,
+        [],
+        5,
+        3,
     )
 
     # Act
     with patch("modules.world.character_facade._character_service", mock_service):
         result = await filter_context_by_character_knowledge(
-            db_session, novel_id, char_id, context_items,
+            db_session,
+            novel_id,
+            char_id,
+            context_items,
         )
 
     # Assert
@@ -526,7 +586,10 @@ async def test_filter_context_by_character_knowledge_propagates_service_exceptio
     with patch("modules.world.character_facade._character_service", mock_service):
         with pytest.raises(OSError, match="disk full"):
             await filter_context_by_character_knowledge(
-                db_session, novel_id, char_id, [{}],
+                db_session,
+                novel_id,
+                char_id,
+                [{}],
             )
 
 
@@ -573,7 +636,10 @@ async def test_list_characters_with_negative_skip_passes_through(
 
     # Assert
     mock_service.list.assert_awaited_once_with(
-        db_session, novel_id, skip=-1, limit=100,
+        db_session,
+        novel_id,
+        skip=-1,
+        limit=100,
     )
 
 
@@ -598,5 +664,8 @@ async def test_get_characters_context_with_multiple_ids_passes_all(
 
     # Assert
     mock_service.get_characters_context.assert_awaited_once_with(
-        db_session, novel_id, ids, "author_safe",
+        db_session,
+        novel_id,
+        ids,
+        "author_safe",
     )

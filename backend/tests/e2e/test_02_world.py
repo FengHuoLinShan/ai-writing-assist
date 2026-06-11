@@ -25,16 +25,18 @@ class TestWorldEntityCRUD:
         await db_session.flush()
         return async_client, meta["project_id"], meta["entity_ids"]
 
-    async def test_world_entity_create_basic_returns_201_with_draft_status(
-        self, ctx
-    ):
+    async def test_world_entity_create_basic_returns_201_with_draft_status(self, ctx):
         """使用基本字段创建世界对象应返回 201 且状态为 draft"""
         client, pid, _ = ctx
 
         # Act
         resp = await client.post(
             f"/api/world/entities?novel_id={pid}",
-            json={"name": "测试城市", "entity_type": "location", "summary": "一座测试城市"},
+            json={
+                "name": "测试城市",
+                "entity_type": "location",
+                "summary": "一座测试城市",
+            },
         )
 
         # Assert
@@ -44,9 +46,7 @@ class TestWorldEntityCRUD:
         assert data["entity_type"] == "location"
         assert data["status"] == "draft"
 
-    async def test_world_entity_create_with_all_fields_persists_all_values(
-        self, ctx
-    ):
+    async def test_world_entity_create_with_all_fields_persists_all_values(self, ctx):
         """使用完整字段创建世界对象应持久化所有字段值"""
         client, pid, _ = ctx
 
@@ -73,9 +73,7 @@ class TestWorldEntityCRUD:
         assert data["importance"] == 0.9
         assert data["importance_level"] == "core"
 
-    async def test_world_entity_create_minimal_uses_default_importance(
-        self, ctx
-    ):
+    async def test_world_entity_create_minimal_uses_default_importance(self, ctx):
         """仅必填字段创建世界对象应使用默认 importance"""
         client, pid, _ = ctx
 
@@ -89,9 +87,7 @@ class TestWorldEntityCRUD:
         assert resp.status_code == 201
         assert resp.json()["importance"] == 0.5  # 默认值
 
-    async def test_world_entity_list_returns_seeded_entities(
-        self, ctx
-    ):
+    async def test_world_entity_list_returns_seeded_entities(self, ctx):
         """列表接口应返回种子数据中预置的实体"""
         client, pid, eids = ctx
 
@@ -107,14 +103,14 @@ class TestWorldEntityCRUD:
         assert "克莱恩·莫雷蒂" in names
         assert "廷根市" in names
 
-    async def test_world_entity_list_filter_by_type_returns_only_matching(
-        self, ctx
-    ):
+    async def test_world_entity_list_filter_by_type_returns_only_matching(self, ctx):
         """按 entity_type 过滤应仅返回匹配类型的实体"""
         client, pid, _ = ctx
 
         # Act
-        resp = await client.get(f"/api/world/entities?novel_id={pid}&entity_type=location")
+        resp = await client.get(
+            f"/api/world/entities?novel_id={pid}&entity_type=location"
+        )
 
         # Assert
         assert resp.status_code == 200
@@ -134,11 +130,12 @@ class TestWorldEntityCRUD:
         # Assert
         assert resp.status_code == 200
         assert resp.json()["name"] == "克莱恩·莫雷蒂"
-        assert resp.json()["hidden_truth"] == "来自另一个世界的穿越者，灵魂附身于克莱恩·莫雷蒂"
+        assert (
+            resp.json()["hidden_truth"]
+            == "来自另一个世界的穿越者，灵魂附身于克莱恩·莫雷蒂"
+        )
 
-    async def test_world_entity_get_nonexistent_returns_404(
-        self, ctx
-    ):
+    async def test_world_entity_get_nonexistent_returns_404(self, ctx):
         """获取不存在的实体 ID 应返回 404"""
         client, pid, _ = ctx
 
@@ -148,9 +145,7 @@ class TestWorldEntityCRUD:
         # Assert
         assert resp.status_code == 404
 
-    async def test_world_entity_update_summary_persists_change(
-        self, ctx
-    ):
+    async def test_world_entity_update_summary_persists_change(self, ctx):
         """更新实体 summary 应持久化新值"""
         client, pid, eids = ctx
         eid = eids["值夜者"]
@@ -165,9 +160,7 @@ class TestWorldEntityCRUD:
         assert resp.status_code == 200
         assert resp.json()["summary"] == "更新后的摘要"
 
-    async def test_world_entity_update_partial_preserves_untouched_fields(
-        self, ctx
-    ):
+    async def test_world_entity_update_partial_preserves_untouched_fields(self, ctx):
         """部分更新实体应只修改指定字段，其余保持不变"""
         client, pid, eids = ctx
         eid = eids["值夜者"]
@@ -184,9 +177,7 @@ class TestWorldEntityCRUD:
         assert data["summary"] == "仅更新摘要"
         assert data["name"] == "值夜者"  # 原名称不变
 
-    async def test_world_entity_delete_removes_entity_and_returns_404(
-        self, ctx
-    ):
+    async def test_world_entity_delete_removes_entity_and_returns_404(self, ctx):
         """删除实体后再次获取应返回 404"""
         client, pid, _ = ctx
 
@@ -219,9 +210,7 @@ class TestRelationshipCRUD:
         await db_session.flush()
         return async_client, meta["project_id"], meta["entity_ids"]
 
-    async def test_relationship_create_between_entities_returns_201(
-        self, ctx
-    ):
+    async def test_relationship_create_between_entities_returns_201(self, ctx):
         """在两个实体之间创建关系应返回 201"""
         client, pid, eids = ctx
 
@@ -242,21 +231,26 @@ class TestRelationshipCRUD:
         assert resp.status_code == 201
         assert resp.json()["relation_type"] == "member_of"
 
-    async def test_relationship_list_returns_created_relationships(
-        self, ctx
-    ):
+    async def test_relationship_list_returns_created_relationships(self, ctx):
         """列表接口应返回已创建的关系"""
         client, pid, eids = ctx
 
         # Arrange
-        for rel in [("member_of", "值夜者"), ("related_to", "源堡"), ("related_to", "罗塞尔日记")]:
-            await client.post(f"/api/world/relations?novel_id={pid}", json={
-                "source_type": "world_entity",
-                "source_id": eids["克莱恩·莫雷蒂"],
-                "target_type": "world_entity",
-                "target_id": eids[rel[1]],
-                "relation_type": rel[0],
-            })
+        for rel in [
+            ("member_of", "值夜者"),
+            ("related_to", "源堡"),
+            ("related_to", "罗塞尔日记"),
+        ]:
+            await client.post(
+                f"/api/world/relations?novel_id={pid}",
+                json={
+                    "source_type": "world_entity",
+                    "source_id": eids["克莱恩·莫雷蒂"],
+                    "target_type": "world_entity",
+                    "target_id": eids[rel[1]],
+                    "relation_type": rel[0],
+                },
+            )
 
         # Act
         resp = await client.get(f"/api/world/relations?novel_id={pid}")
@@ -266,20 +260,21 @@ class TestRelationshipCRUD:
         items = resp.json().get("items", [])
         assert len(items) >= 3
 
-    async def test_relationship_delete_returns_204(
-        self, ctx
-    ):
+    async def test_relationship_delete_returns_204(self, ctx):
         """删除关系应返回 204"""
         client, pid, eids = ctx
 
         # Arrange
-        create = await client.post(f"/api/world/relations?novel_id={pid}", json={
-            "source_type": "world_entity",
-            "source_id": eids["克莱恩·莫雷蒂"],
-            "target_type": "world_entity",
-            "target_id": eids["秘修会"],
-            "relation_type": "opposes",
-        })
+        create = await client.post(
+            f"/api/world/relations?novel_id={pid}",
+            json={
+                "source_type": "world_entity",
+                "source_id": eids["克莱恩·莫雷蒂"],
+                "target_type": "world_entity",
+                "target_id": eids["秘修会"],
+                "relation_type": "opposes",
+            },
+        )
         rel_id = create.json()["id"]
 
         # Act
@@ -298,19 +293,13 @@ class TestAliasCRUD:
         await db_session.flush()
         return async_client, meta["project_id"], meta["entity_ids"]
 
-    async def test_alias_create_for_entity_returns_201(
-        self, ctx
-    ):
+    async def test_alias_create_for_entity_returns_201(self, ctx):
         pytest.skip("端点已移除: /api/world/aliases")
 
-    async def test_alias_list_by_entity_returns_all_aliases(
-        self, ctx
-    ):
+    async def test_alias_list_by_entity_returns_all_aliases(self, ctx):
         pytest.skip("端点已移除: /api/world/aliases")
 
-    async def test_alias_delete_returns_204(
-        self, ctx
-    ):
+    async def test_alias_delete_returns_204(self, ctx):
         pytest.skip("端点已移除: /api/world/aliases")
 
 
@@ -323,31 +312,28 @@ class TestWorldCandidateAndGraphFlows:
         await db_session.flush()
         return async_client, meta["project_id"], meta["entity_ids"]
 
-    async def test_candidate_accept_creates_canonical_entity(
-        self, ctx
-    ):
+    async def test_candidate_accept_creates_canonical_entity(self, ctx):
         pytest.skip("端点已移除: /api/world/candidates")
 
-    async def test_candidate_ignore_updates_suggested_action(
-        self, ctx
-    ):
+    async def test_candidate_ignore_updates_suggested_action(self, ctx):
         pytest.skip("端点已移除: /api/world/candidates")
 
-    async def test_task_submit_entity_extraction_returns_pending_task(
-        self, ctx
-    ):
+    async def test_task_submit_entity_extraction_returns_pending_task(self, ctx):
         """提交实体抽取任务应返回 pending 状态的任务"""
         client, pid, _ = ctx
 
         # Act
-        submit_resp = await client.post("/api/tasks", json={
-            "task_type": "world_entity_extraction",
-            "meta": {
-                "novel_id": pid,
-                "start_chapter": 1,
-                "end_chapter": 1,
+        submit_resp = await client.post(
+            "/api/tasks",
+            json={
+                "task_type": "world_entity_extraction",
+                "meta": {
+                    "novel_id": pid,
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                },
             },
-        })
+        )
 
         # Assert
         assert submit_resp.status_code == 201

@@ -4,7 +4,6 @@ import uuid
 from unittest import mock
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import StructureContextBundle
@@ -39,13 +38,23 @@ class TestPlotStructureGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_creates_threads_and_arcs(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         bundle = _make_bundle(sample_novel_id)
+        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
-            mock.patch("modules.context.facade.compile_structure_context", return_value=bundle),
-            mock.patch("infrastructure.llm.client.LLMClient.generate_structured") as mock_llm,
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+            mock.patch(
+                "modules.outline.services._container_get", return_value=_mock_compile
+            ),
         ):
             from pydantic import BaseModel
 
@@ -117,23 +126,47 @@ class TestPlotStructureGenerator:
 
             mock_llm.return_value = _GO(
                 plot_threads=[
-                    _GT(name="主线：寻剑", thread_type="main", summary="主角寻找霜华剑",
-                        start_chapter=1, planned_payoff_chapter=30, current_stage="初期"),
-                    _GT(name="暗线：魔神复苏", thread_type="hidden", summary="霜华剑封印松动",
-                        start_chapter=5, planned_payoff_chapter=40),
+                    _GT(
+                        name="主线：寻剑",
+                        thread_type="main",
+                        summary="主角寻找霜华剑",
+                        start_chapter=1,
+                        planned_payoff_chapter=30,
+                        current_stage="初期",
+                    ),
+                    _GT(
+                        name="暗线：魔神复苏",
+                        thread_type="hidden",
+                        summary="霜华剑封印松动",
+                        start_chapter=5,
+                        planned_payoff_chapter=40,
+                    ),
                 ],
                 outline_arcs=[
-                    _GA(title="第一卷：启程", arc_index=1, start_chapter=1, end_chapter=10,
-                        arc_goal="建立世界观", core_conflict="主角与家族的冲突"),
-                    _GA(title="第二卷：寻剑", arc_index=2, start_chapter=11, end_chapter=20,
-                        arc_goal="寻找霜华剑"),
+                    _GA(
+                        title="第一卷：启程",
+                        arc_index=1,
+                        start_chapter=1,
+                        end_chapter=10,
+                        arc_goal="建立世界观",
+                        core_conflict="主角与家族的冲突",
+                    ),
+                    _GA(
+                        title="第二卷：寻剑",
+                        arc_index=2,
+                        start_chapter=11,
+                        end_chapter=20,
+                        arc_goal="寻找霜华剑",
+                    ),
                 ],
             )
 
             generator = PlotStructureGenerator()
             result = await generator.generate(
-                db_session, sample_novel_id,
-                start_chapter=1, end_chapter=10,
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=10,
             )
 
         assert result["total_threads"] == 2
@@ -142,7 +175,8 @@ class TestPlotStructureGenerator:
         assert isinstance(result["extra_sections"], dict)
 
         threads, _ = await PlotThreadRepository().get_by_novel(
-            db_session, uuid.UUID(hex=sample_novel_id),
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
         )
         assert len(threads) == 2
         thread_names = [t.name for t in threads]
@@ -150,7 +184,8 @@ class TestPlotStructureGenerator:
         assert "暗线：魔神复苏" in thread_names
 
         arcs, _ = await OutlineArcRepository().get_by_novel(
-            db_session, uuid.UUID(hex=sample_novel_id),
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
         )
         assert len(arcs) == 2
         arc_titles = [a.title for a in arcs]
@@ -159,14 +194,24 @@ class TestPlotStructureGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_empty_llm_output(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         """LLM 返回空列表时不应崩溃"""
         bundle = _make_bundle(sample_novel_id)
+        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
-            mock.patch("modules.context.facade.compile_structure_context", return_value=bundle),
-            mock.patch("infrastructure.llm.client.LLMClient.generate_structured") as mock_llm,
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+            mock.patch(
+                "modules.outline.services._container_get", return_value=_mock_compile
+            ),
         ):
             from pydantic import BaseModel
 
@@ -240,8 +285,10 @@ class TestPlotStructureGenerator:
 
             generator = PlotStructureGenerator()
             result = await generator.generate(
-                db_session, sample_novel_id,
-                start_chapter=1, end_chapter=10,
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=10,
             )
 
         assert result["total_threads"] == 0
@@ -250,19 +297,32 @@ class TestPlotStructureGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_llm_failure_graceful(
-        self, db_session: AsyncSession, sample_novel_id: str,
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
     ) -> None:
         """LLM 异常时应优雅降级"""
         bundle = _make_bundle(sample_novel_id)
+        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
-            mock.patch("modules.context.facade.compile_structure_context", return_value=bundle),
-            mock.patch("infrastructure.llm.client.LLMClient.generate_structured", side_effect=Exception("LLM down")),
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                side_effect=Exception("LLM down"),
+            ),
+            mock.patch(
+                "modules.outline.services._container_get", return_value=_mock_compile
+            ),
         ):
             generator = PlotStructureGenerator()
             result = await generator.generate(
-                db_session, sample_novel_id,
-                start_chapter=1, end_chapter=10,
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=10,
             )
 
         assert result["total_threads"] == 0

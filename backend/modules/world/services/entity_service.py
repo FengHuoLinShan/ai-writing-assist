@@ -27,7 +27,10 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 class WorldEntityService(
     CrudService[
-        CoreEntity, CoreEntityCreate, CoreEntityUpdate, CoreEntityResponse,
+        CoreEntity,
+        CoreEntityCreate,
+        CoreEntityUpdate,
+        CoreEntityResponse,
     ],
 ):
     """核心实体业务服务。
@@ -60,7 +63,8 @@ class WorldEntityService(
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self.repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             entity_type=entity_type,
             status=status,
             skip=skip,
@@ -94,15 +98,14 @@ class WorldEntityService(
 
         # Filter expired temporary entities
         if current_chapter is not None:
-            from modules.project.models import Project
+            from modules.project.facade import get_project_context
 
-            pid = parse_uuid(novel_id, "novel_id")
-            stmt = select(Project).where(Project.id == pid)
-            result = await db.execute(stmt)
-            project = result.scalar_one_or_none()
+            project_ctx = await get_project_context(db, novel_id)
             expiry = 30
-            if project is not None and project.settings:
-                expiry = project.settings.get("temporary_entity_expiry_chapters", 30)
+            if project_ctx is not None and project_ctx.settings:
+                expiry = project_ctx.settings.get(
+                    "temporary_entity_expiry_chapters", 30
+                )
 
             filtered: list[CoreEntity] = []
             for entity in entities:
@@ -118,9 +121,7 @@ class WorldEntityService(
                 filtered.append(entity)
             entities = filtered
 
-        contexts = [
-            _entity_to_context(entity, reveal_mode) for entity in entities
-        ]
+        contexts = [_entity_to_context(entity, reveal_mode) for entity in entities]
 
         return WorldContextBundle(
             novel_id=novel_id,
@@ -139,7 +140,10 @@ class WorldEntityService(
     ) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
         result = await self.repo.get_by_type_and_status(
-            db, nid, entity_type=entity_type, limit=limit,
+            db,
+            nid,
+            entity_type=entity_type,
+            limit=limit,
         )
         return [
             {"id": item.id, "name": item.name, "entity_type": item.entity_type}
@@ -166,15 +170,16 @@ class WorldEntityService(
             item_terms = [item.name]
             aliases = (item.content_json or {}).get("aliases", [])
             item_terms.extend(
-                a if isinstance(a, str) else a.get("alias", "")
-                for a in aliases
+                a if isinstance(a, str) else a.get("alias", "") for a in aliases
             )
-            terms.append({
-                "id": str(item.id),
-                "name": item.name,
-                "entity_type": item.entity_type,
-                "terms": [t for t in item_terms if t],
-            })
+            terms.append(
+                {
+                    "id": str(item.id),
+                    "name": item.name,
+                    "entity_type": item.entity_type,
+                    "terms": [t for t in item_terms if t],
+                }
+            )
         return terms
 
     async def find_by_name(
@@ -187,7 +192,10 @@ class WorldEntityService(
         """按名称查正史实体 ID, 返 str 或 None。"""
         nid = parse_uuid(novel_id, "novel_id")
         return await self.repo.find_entity_by_name(
-            db, nid, name, entity_type=entity_type,
+            db,
+            nid,
+            name,
+            entity_type=entity_type,
         )
 
     async def list_entity_batches(
@@ -218,13 +226,15 @@ class WorldEntityService(
             for a in aliases:
                 alias_text = a if isinstance(a, str) else a.get("alias", "")
                 alias_type = a.get("type", "name") if isinstance(a, dict) else "name"
-                result.append({
-                    "entity_id": str(entity.id),
-                    "entity_name": entity.name,
-                    "alias": alias_text,
-                    "alias_type": alias_type,
-                })
-        return result[skip:skip + limit]
+                result.append(
+                    {
+                        "entity_id": str(entity.id),
+                        "entity_name": entity.name,
+                        "alias": alias_text,
+                        "alias_type": alias_type,
+                    }
+                )
+        return result[skip : skip + limit]
 
     async def create_alias(
         self,
@@ -246,7 +256,9 @@ class WorldEntityService(
         for a in aliases:
             existing = a if isinstance(a, str) else a.get("alias", "")
             if existing == alias:
-                raise HTTPException(status_code=409, detail=f"Alias already exists: {alias}")
+                raise HTTPException(
+                    status_code=409, detail=f"Alias already exists: {alias}"
+                )
         aliases.append({"alias": alias, "type": alias_type})
         content["aliases"] = aliases
         entity.content_json = content
@@ -296,13 +308,10 @@ class WorldEntityService(
         _logger = logging.getLogger(__name__)
         nid = parse_uuid(novel_id, "novel_id")
 
-        stmt = (
-            select(CoreEntity)
-            .where(
-                CoreEntity.novel_id == nid,
-                CoreEntity.embedding.is_(None),
-                CoreEntity.status.in_(["canonical", "draft"]),
-            )
+        stmt = select(CoreEntity).where(
+            CoreEntity.novel_id == nid,
+            CoreEntity.embedding.is_(None),
+            CoreEntity.status.in_(["canonical", "draft"]),
         )
         result = await db.execute(stmt)
         entities = list(result.scalars().all())

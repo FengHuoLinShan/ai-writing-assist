@@ -58,7 +58,11 @@ class EntityRelationContract:
 
 @dataclass(frozen=True)
 class EntityRevisionContract:
-    """版本快照契约"""
+    """版本快照契约
+
+    .. deprecated::
+       entity_revisions 表已废弃，后续统一改用 DeltaLog + TextArchive 实现版本回滚。
+    """
 
     entity_id: str
     revision_id: str
@@ -96,6 +100,7 @@ class CharacterKnowledgeContract:
 @dataclass(frozen=True)
 class DuplicateSuggestion:
     """去重建议（向后兼容）"""
+
     candidate_id: str = ""
     candidate_name: str = ""
     existing_entity_id: str = ""
@@ -130,7 +135,7 @@ class ResolveResult:
 
 
 # facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.world.schemas import (  # noqa: F401
+from modules.world.schemas import (  # noqa: E402, F401
     CharacterContextBundle,
     CharacterKnowledgeContext,
     CharacterResponse,

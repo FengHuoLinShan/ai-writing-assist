@@ -8,15 +8,17 @@
 Revision ID: aed774d96500
 Revises: aed774d964ff
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 
+from alembic import op
+
 revision: str = "aed774d96500"
-down_revision: Union[str, None] = "aed774d964ff"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "aed774d964ff"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -80,8 +82,10 @@ def upgrade() -> None:
     # 2e. 添加新 FK → core_entities
     op.create_foreign_key(
         "fk_characters_entity",
-        "characters", "core_entities",
-        ["entity_id"], ["id"],
+        "characters",
+        "core_entities",
+        ["entity_id"],
+        ["id"],
         ondelete="CASCADE",
     )
 
@@ -90,8 +94,10 @@ def upgrade() -> None:
     # ---------------------------------------------------------------
     op.create_foreign_key(
         "fk_character_knowledge_character",
-        "character_knowledge", "characters",
-        ["character_id"], ["entity_id"],
+        "character_knowledge",
+        "characters",
+        ["character_id"],
+        ["entity_id"],
         ondelete="CASCADE",
     )
 
@@ -101,26 +107,42 @@ def upgrade() -> None:
     op.create_table(
         "imported_chapters",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"),
-                  nullable=False),
-        sa.Column("import_record_id", sa.UUID(),
-                  sa.ForeignKey("import_records.id", ondelete="CASCADE"),
-                  nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "import_record_id",
+            sa.UUID(),
+            sa.ForeignKey("import_records.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("chapter_index", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("is_analyzed", sa.Boolean(), nullable=False,
-                  server_default=sa.text("false")),
-        sa.Column("created_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("timezone('utc', now())"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("timezone('utc', now())"), nullable=False),
+        sa.Column(
+            "is_analyzed", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="已导入的章节内容",
     )
     op.create_index(
-        "ix_imported_chapters_novel", "imported_chapters",
+        "ix_imported_chapters_novel",
+        "imported_chapters",
         ["novel_id", "chapter_index"],
     )
 
@@ -130,25 +152,37 @@ def upgrade() -> None:
     op.create_table(
         "events",
         sa.Column("entity_id", sa.UUID(), primary_key=True),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"),
-                  nullable=False),
-        sa.Column("source_chapter_id", sa.UUID(),
-                  sa.ForeignKey("imported_chapters.id", ondelete="CASCADE"),
-                  nullable=False),
-        sa.Column("location_entity_id", sa.UUID(),
-                  sa.ForeignKey("core_entities.id", ondelete="RESTRICT"),
-                  nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "source_chapter_id",
+            sa.UUID(),
+            sa.ForeignKey("imported_chapters.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "location_entity_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("timeline_order", sa.Integer(), nullable=False),
         sa.Column("occurrence_time_label", sa.String(100), nullable=True),
         sa.ForeignKeyConstraint(
-            ["entity_id"], ["core_entities.id"],
+            ["entity_id"],
+            ["core_entities.id"],
             ondelete="CASCADE",
         ),
         comment="事件扩展表 (entity_id PK+FK → core_entities)",
     )
     op.create_index(
-        "ix_events_timeline_order", "events", ["timeline_order"],
+        "ix_events_timeline_order",
+        "events",
+        ["timeline_order"],
     )
 
     # ---------------------------------------------------------------
@@ -157,30 +191,53 @@ def upgrade() -> None:
     op.create_table(
         "entity_relations",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"),
-                  nullable=False),
-        sa.Column("source_id", sa.UUID(),
-                  sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
-                  nullable=False),
-        sa.Column("target_id", sa.UUID(),
-                  sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
-                  nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "source_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "target_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("relation_type", sa.String(64), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("strength", sa.Float(), nullable=False, server_default="0.5"),
-        sa.Column("source_chapter_id", sa.UUID(),
-                  sa.ForeignKey("imported_chapters.id", ondelete="SET NULL"),
-                  nullable=True),
-        sa.Column("caused_by_event_id", sa.UUID(),
-                  sa.ForeignKey("core_entities.id", ondelete="SET NULL"),
-                  nullable=True),
+        sa.Column(
+            "source_chapter_id",
+            sa.UUID(),
+            sa.ForeignKey("imported_chapters.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column(
+            "caused_by_event_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("quote", sa.Text(), nullable=True),
         sa.Column("status", sa.String(16), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("timezone('utc', now())"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("timezone('utc', now())"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="实体关系边 (UUID FK → core_entities + 追溯字段)",
     )
@@ -193,20 +250,34 @@ def upgrade() -> None:
     op.create_table(
         "entity_revisions",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("entity_id", sa.UUID(),
-                  sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
-                  nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"),
-                  nullable=False),
+        sa.Column(
+            "entity_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("snapshot", sa.JSON(), nullable=False),
-        sa.Column("source_chapter_id", sa.UUID(),
-                  sa.ForeignKey("imported_chapters.id", ondelete="SET NULL"),
-                  nullable=True),
-        sa.Column("revision_reason", sa.String(32), nullable=False,
-                  server_default="ai_import"),
-        sa.Column("created_at", sa.DateTime(timezone=True),
-                  server_default=sa.text("timezone('utc', now())"), nullable=False),
+        sa.Column(
+            "source_chapter_id",
+            sa.UUID(),
+            sa.ForeignKey("imported_chapters.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column(
+            "revision_reason", sa.String(32), nullable=False, server_default="ai_import"
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="实体快照版本表",
     )
@@ -228,10 +299,18 @@ def downgrade() -> None:
     op.create_table(
         "entity_aliases",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("entity_id", sa.UUID(),
-                  sa.ForeignKey("core_entities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "entity_id",
+            sa.UUID(),
+            sa.ForeignKey("core_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("alias", sa.String(255), nullable=False),
         sa.Column("alias_type", sa.String(20), nullable=False, server_default="name"),
         sa.Column("source_chapter_index", sa.Integer(), nullable=True),
@@ -245,8 +324,12 @@ def downgrade() -> None:
     op.create_table(
         "entity_candidates",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("entity_type", sa.String(32), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
@@ -255,8 +338,12 @@ def downgrade() -> None:
         sa.Column("importance_score", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("confidence", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("candidate_reason", sa.Text(), nullable=True),
-        sa.Column("suggested_action", sa.String(32), nullable=False,
-                  server_default="needs_user_decision"),
+        sa.Column(
+            "suggested_action",
+            sa.String(32),
+            nullable=False,
+            server_default="needs_user_decision",
+        ),
         sa.Column("suggested_existing_entity_id", sa.String(36), nullable=True),
         sa.Column("embedding_text", sa.Text(), nullable=True),
         sa.Column("embedding", sa.Text(), nullable=True),
@@ -269,15 +356,21 @@ def downgrade() -> None:
     op.create_table(
         "relationships",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("source_type", sa.String(32), nullable=False),
         sa.Column("source_id", sa.String(36), nullable=False),
         sa.Column("target_type", sa.String(32), nullable=False),
         sa.Column("target_id", sa.String(36), nullable=False),
         sa.Column("relation_type", sa.String(32), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("visibility", sa.String(20), nullable=False, server_default="author_only"),
+        sa.Column(
+            "visibility", sa.String(20), nullable=False, server_default="author_only"
+        ),
         sa.Column("strength", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
@@ -288,8 +381,12 @@ def downgrade() -> None:
     op.create_table(
         "timeline_events",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(),
-                  sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("order_index", sa.Integer(), nullable=False),
@@ -300,8 +397,12 @@ def downgrade() -> None:
         sa.Column("related_thread_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_location_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("geo_effects", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("visibility", sa.String(20), nullable=False, server_default="author_only"),
-        sa.Column("known_by_character_ids", sa.JSON(), nullable=True, server_default="[]"),
+        sa.Column(
+            "visibility", sa.String(20), nullable=False, server_default="author_only"
+        ),
+        sa.Column(
+            "known_by_character_ids", sa.JSON(), nullable=True, server_default="[]"
+        ),
         sa.Column("status", sa.String(32), nullable=False, server_default="candidate"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
@@ -345,14 +446,18 @@ def downgrade() -> None:
     )
     op.create_foreign_key(
         "character_knowledge_character_id_fkey",
-        "character_knowledge", "characters",
-        ["character_id"], ["id"],
+        "character_knowledge",
+        "characters",
+        ["character_id"],
+        ["id"],
         ondelete="CASCADE",
     )
     op.create_foreign_key(
         "characters_world_entity_id_fkey",
-        "characters", "core_entities",
-        ["world_entity_id"], ["id"],
+        "characters",
+        "core_entities",
+        ["world_entity_id"],
+        ["id"],
         ondelete="SET NULL",
     )
 

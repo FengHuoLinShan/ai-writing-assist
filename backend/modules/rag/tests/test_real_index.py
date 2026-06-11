@@ -4,6 +4,7 @@ RAG 真实数据重建索引测试 — 诡秘之主_第一部_小丑.txt 前10�
 Cycle 1: 重建索引 + 验证分块
 Cycle 2: 检索匹配度确定性验证
 """
+
 from __future__ import annotations
 
 import uuid
@@ -14,8 +15,8 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
+from modules.rag.facade import get_index_status, index_chapter
 from modules.writing.facade import create_draft
-from modules.rag.facade import index_chapter, get_index_status
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
 FIRST_10_CHAPTER_COUNT = 10
@@ -24,6 +25,7 @@ FIRST_10_CHAPTER_COUNT = 10
 # ============================================================
 # Cycle 1: 重建索引 + 验证
 # ============================================================
+
 
 class TestRebuildIndexFirst10Chapters:
     """用真实前10章正文重建 RAG 索引，验证索引流程完整"""
@@ -34,15 +36,20 @@ class TestRebuildIndexFirst10Chapters:
         assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
 
         from modules.imports.parsers import parse_txt
+
         file_bytes = REAL_FILE_PATH.read_bytes()
         all_chapters = parse_txt(file_bytes)
         assert len(all_chapters) >= FIRST_10_CHAPTER_COUNT
 
         pid = uuid.uuid4()
         project = Project(
-            id=pid, title="诡秘之主 RAG 重建索引测试",
-            genre="西方奇幻", tone="维多利亚风格、黑暗",
-            language="zh", target_length="novel", current_stage="writing",
+            id=pid,
+            title="诡秘之主 RAG 重建索引测试",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
         )
         db_session.add(project)
         await db_session.flush()
@@ -63,7 +70,9 @@ class TestRebuildIndexFirst10Chapters:
 
     @pytest.mark.asyncio
     async def test_index_all_chapters_creates_chunks(
-        self, ctx: dict, db_session: AsyncSession,
+        self,
+        ctx: dict,
+        db_session: AsyncSession,
     ):
         """遍历前10章索引，每章至少创建1个 chunk"""
         project_id = ctx["project_id"]
@@ -73,13 +82,16 @@ class TestRebuildIndexFirst10Chapters:
 
         for idx in range(1, FIRST_10_CHAPTER_COUNT + 1):
             from modules.rag.facade import index_chapter_with_report
+
             report = await index_chapter_with_report(db_session, project_id, idx)
-            chapter_results.append({
-                "chapter": idx,
-                "chunks_created": report.chunks_created,
-                "embedding_failed": report.embedding_failed_count,
-                "warnings": report.warnings,
-            })
+            chapter_results.append(
+                {
+                    "chapter": idx,
+                    "chunks_created": report.chunks_created,
+                    "embedding_failed": report.embedding_failed_count,
+                    "warnings": report.warnings,
+                }
+            )
             total_chunks += report.chunks_created
             assert report.chunks_created > 0, (
                 f"第{idx}章应创建至少1个 chunk，实际创建 {report.chunks_created}"
@@ -95,7 +107,9 @@ class TestRebuildIndexFirst10Chapters:
 
     @pytest.mark.asyncio
     async def test_index_status_reflects_rebuild(
-        self, ctx: dict, db_session: AsyncSession,
+        self,
+        ctx: dict,
+        db_session: AsyncSession,
     ):
         """索引后 get_index_status 应返回正确的统计"""
         project_id = ctx["project_id"]
@@ -112,13 +126,17 @@ class TestRebuildIndexFirst10Chapters:
         status_after = await get_index_status(db_session, project_id)
         assert status_after["total"] > 0
         assert status_after["degraded"] == (status_after["embedding_failed_count"] > 0)
-        print(f"\n索引状态: total={status_after['total']}, "
-              f"embedding_failed={status_after['embedding_failed_count']}, "
-              f"degraded={status_after['degraded']}")
+        print(
+            f"\n索引状态: total={status_after['total']}, "
+            f"embedding_failed={status_after['embedding_failed_count']}, "
+            f"degraded={status_after['degraded']}"
+        )
 
     @pytest.mark.asyncio
     async def test_chunks_have_entity_character_ids(
-        self, ctx: dict, db_session: AsyncSession,
+        self,
+        ctx: dict,
+        db_session: AsyncSession,
     ):
         """chunk 的 entity_ids 和 character_ids 应被正确填充"""
         project_id = ctx["project_id"]
@@ -159,6 +177,7 @@ class TestRebuildIndexFirst10Chapters:
 # Cycle 2: 检索匹配度确定性验证
 # ============================================================
 
+
 class TestRetrievalDeterminism:
     """验证相同查询多次检索返回相同匹配度"""
 
@@ -168,15 +187,20 @@ class TestRetrievalDeterminism:
         assert REAL_FILE_PATH.exists()
 
         from modules.imports.parsers import parse_txt
+
         file_bytes = REAL_FILE_PATH.read_bytes()
         all_chapters = parse_txt(file_bytes)
         assert len(all_chapters) >= 3
 
         pid = uuid.uuid4()
         project = Project(
-            id=pid, title="诡秘之主 匹配度确定性测试",
-            genre="西方奇幻", tone="维多利亚风格、黑暗",
-            language="zh", target_length="novel", current_stage="writing",
+            id=pid,
+            title="诡秘之主 匹配度确定性测试",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
         )
         db_session.add(project)
         await db_session.flush()
@@ -202,27 +226,34 @@ class TestRetrievalDeterminism:
 
     @pytest.mark.asyncio
     async def test_same_query_same_scores(
-        self, ctx: dict, db_session: AsyncSession,
+        self,
+        ctx: dict,
+        db_session: AsyncSession,
     ):
         """相同查询两次检索返回完全一致的匹配度"""
         project_id = ctx["project_id"]
 
         from modules.rag.facade import retrieve
-        from shared.utils import parse_uuid
 
         query = "克莱恩 廷根 值夜者"
 
         # 第一次检索
         result1 = await retrieve(
-            db_session, project_id, query,
-            mode="search", top_k=8,
+            db_session,
+            project_id,
+            query,
+            mode="search",
+            top_k=8,
             chapter_index=1,
         )
 
         # 第二次检索（完全相同参数）
         result2 = await retrieve(
-            db_session, project_id, query,
-            mode="search", top_k=8,
+            db_session,
+            project_id,
+            query,
+            mode="search",
+            top_k=8,
             chapter_index=1,
         )
 
@@ -239,8 +270,8 @@ class TestRetrievalDeterminism:
                 f"  chunk {c1.id}: query={query}"
             )
 
-        print(f"\n=== 匹配度确定性验证 ===")
-        print(f"查询: \"{query}\"")
+        print("\n=== 匹配度确定性验证 ===")
+        print(f'查询: "{query}"')
         print(f"返回 {len(result1.chunks)} 条结果")
         for c in result1.chunks:
             print(f"  [{c.id[:8]}...] score={c.score:.4f} 源={c.source_type}")
@@ -248,7 +279,9 @@ class TestRetrievalDeterminism:
 
     @pytest.mark.asyncio
     async def test_score_meaningful_match_guard(
-        self, ctx: dict, db_session: AsyncSession,
+        self,
+        ctx: dict,
+        db_session: AsyncSession,
     ):
         """无关键词命中的查询应返回空结果（Meaningful Match 守卫）"""
         project_id = ctx["project_id"]
@@ -258,19 +291,24 @@ class TestRetrievalDeterminism:
         # 使用不存在于小说中的词汇
         query = "xyzzy_nonexistent_term_42"
         result = await retrieve(
-            db_session, project_id, query,
-            mode="search", top_k=8,
+            db_session,
+            project_id,
+            query,
+            mode="search",
+            top_k=8,
         )
 
         # Meaningful Match 守卫：无关键词命中时清空结果
         assert len(result.chunks) == 0, (
             f"不存在的关键词应返回空结果，实际 {len(result.chunks)} 条"
         )
-        print(f"\nMeaningful Match 守卫: \"{query}\" → 空结果 ✓")
+        print(f'\nMeaningful Match 守卫: "{query}" → 空结果 ✓')
 
     @pytest.mark.asyncio
     async def test_different_query_different_scores(
-        self, ctx: dict, db_session: AsyncSession,
+        self,
+        ctx: dict,
+        db_session: AsyncSession,
     ):
         """不同查询返回不同的匹配度分布"""
         project_id = ctx["project_id"]
@@ -282,19 +320,25 @@ class TestRetrievalDeterminism:
         query_b = "邓恩 队长 笔记"
 
         result_a = await retrieve(
-            db_session, project_id, query_a,
-            mode="search", top_k=8,
+            db_session,
+            project_id,
+            query_a,
+            mode="search",
+            top_k=8,
         )
         result_b = await retrieve(
-            db_session, project_id, query_b,
-            mode="search", top_k=8,
+            db_session,
+            project_id,
+            query_b,
+            mode="search",
+            top_k=8,
         )
 
         # 验证结果不是完全相同
         ids_a = [c.id for c in result_a.chunks]
         ids_b = [c.id for c in result_b.chunks]
-        assert ids_a, f"查询 A 应有结果"
-        assert ids_b, f"查询 B 应有结果"
+        assert ids_a, "查询 A 应有结果"
+        assert ids_b, "查询 B 应有结果"
 
         # 不同查询应有不同的返回
         if ids_a == ids_b:
@@ -305,11 +349,11 @@ class TestRetrievalDeterminism:
                 f"不同查询的 score 分布应不同\n  A: {scores_a}\n  B: {scores_b}"
             )
 
-        print(f"\n=== 不同查询区分度 ===")
-        print(f"查询 A: \"{query_a}\"")
+        print("\n=== 不同查询区分度 ===")
+        print(f'查询 A: "{query_a}"')
         for c in result_a.chunks[:5]:
             print(f"  [{c.id[:8]}...] score={c.score:.4f}")
-        print(f"查询 B: \"{query_b}\"")
+        print(f'查询 B: "{query_b}"')
         for c in result_b.chunks[:5]:
             print(f"  [{c.id[:8]}...] score={c.score:.4f}")
 
@@ -318,17 +362,18 @@ class TestRetrievalDeterminism:
 # Cycle 3: 真实 LLM Embedding 调用测试
 # ============================================================
 
+
 class TestRealEmbedding:
     """验证 LLM embedding API 的可用性与确定性"""
 
     @pytest.mark.asyncio
     async def test_embedding_api_availability(self):
         """测试 embedding API 是否可用"""
-        from infrastructure.llm.client import LLMClient
         from core.config import get_settings
+        from infrastructure.llm.client import LLMClient
 
         settings = get_settings()
-        print(f"\nEmbedding 配置:")
+        print("\nEmbedding 配置:")
         print(f"  model: {settings.embedding_model}")
         print(f"  base_url: {settings.embedding_base_url or '(同 LLM)'}")
         print(f"  api_key set: {bool(settings.embedding_api_key)}")
@@ -350,7 +395,7 @@ class TestRealEmbedding:
             assert result == result2, (
                 "相同文本的 embedding 应完全一致，LLM 提供的 embedding 应是确定性的"
             )
-            print(f"  ✓ 确定性确认: 两次相同输入返回相同向量")
+            print("  ✓ 确定性确认: 两次相同输入返回相同向量")
         except Exception as e:
             pytest.skip(
                 f"Embedding API 不可用: {e}\n"
@@ -393,6 +438,7 @@ class TestRealEmbedding:
 
             # 计算相似度矩阵
             from modules.rag.services import RetrievalService
+
             svc = RetrievalService()
             sims = []
             for i in range(len(texts)):
@@ -400,7 +446,7 @@ class TestRealEmbedding:
                     sim = svc._cosine_similarity(embeddings[i], embeddings[j])
                     sims.append((i, j, round(sim, 4)))
 
-            print(f"\n文本相似度矩阵:")
+            print("\n文本相似度矩阵:")
             for i, j, sim in sims:
                 print(f"  文本{i} ↔ 文本{j}: cosine={sim}")
         except Exception as e:
