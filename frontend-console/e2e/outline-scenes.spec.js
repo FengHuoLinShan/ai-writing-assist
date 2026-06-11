@@ -48,7 +48,11 @@ test.describe("Outline View — Scene 卡", () => {
   })
 
   test("创建 Scene 卡", async ({ page }) => {
-    await page.evaluate(() => outlineView._showCreateSceneForm())
+    // Given: 用户在 Scene 卡空态页面
+    await expect(page.locator(SEL.emptyState)).toContainText("暂无 Scene")
+
+    // When: 点击新建 Scene 按钮，填写表单并提交
+    await page.locator('[data-action="create-scene"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建 Scene 卡")
 
     await page.locator("#create-scene-title").fill("初入江湖")
@@ -62,12 +66,10 @@ test.describe("Outline View — Scene 卡", () => {
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
-    // 手动刷新数据并重新渲染
-    await page.evaluate(async () => {
-      await outlineView.onEnter()
-      const content = document.getElementById("workspace-content")
-      if (content) content.innerHTML = await outlineView.render()
-    })
+    // Then: 刷新页面后列表显示新 Scene 卡
+    await page.reload()
+    await page.locator(SEL.navItem("outline")).click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
 
     const card = page.locator(".scene-card").first()
     await expect(card).toContainText("初入江湖")
@@ -76,24 +78,19 @@ test.describe("Outline View — Scene 卡", () => {
   })
 
   test("编辑 Scene 卡", async ({ page }) => {
-    // 先创建一个 Scene
-    await page.evaluate(() => outlineView._showCreateSceneForm())
+    // Given: 已存在一个 Scene 卡
+    await page.locator('[data-action="create-scene"]').click()
     await page.locator("#create-scene-title").fill("原始标题")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
-    await page.evaluate(async () => {
-      await outlineView.onEnter()
-      const content = document.getElementById("workspace-content")
-      if (content) content.innerHTML = await outlineView.render()
-    })
+    // 刷新以显示列表
+    await page.reload()
+    await page.locator(SEL.navItem("outline")).click()
     await expect(page.locator(".scene-card")).toContainText("原始标题")
 
-    // 直接调用编辑方法
-    await page.evaluate(() => {
-      const id = outlineView._scenes[0]?.id
-      if (id) outlineView._editScene(id)
-    })
+    // When: 点击编辑按钮，修改字段并保存
+    await page.locator('[data-action="edit-scene"]').first().click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑 Scene 卡")
 
     await page.locator("#edit-scene-title").fill("修改后的标题")
@@ -102,52 +99,37 @@ test.describe("Outline View — Scene 卡", () => {
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
 
-    // 手动刷新
-    await page.evaluate(async () => {
-      await outlineView.onEnter()
-      const content = document.getElementById("workspace-content")
-      if (content) content.innerHTML = await outlineView.render()
-    })
-
-    const card = page.locator(".scene-card").first()
-    await expect(card).toContainText("修改后的标题")
-    await expect(card).toContainText("冲突升级")
-    await expect(card).toContainText("新的目标")
+    // Then: 刷新后列表更新
+    await page.reload()
+    await page.locator(SEL.navItem("outline")).click()
+    await expect(page.locator(".scene-card")).toContainText("修改后的标题")
+    await expect(page.locator(".scene-card")).toContainText("冲突升级")
+    await expect(page.locator(".scene-card")).toContainText("新的目标")
   })
 
   test("删除 Scene 卡", async ({ page }) => {
-    // 先创建一个 Scene
-    await page.evaluate(() => outlineView._showCreateSceneForm())
+    // Given: 已存在一个 Scene 卡
+    await page.locator('[data-action="create-scene"]').click()
     await page.locator("#create-scene-title").fill("待删除 Scene")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
-    await page.evaluate(async () => {
-      await outlineView.onEnter()
-      const content = document.getElementById("workspace-content")
-      if (content) content.innerHTML = await outlineView.render()
-    })
+    // 刷新以显示列表
+    await page.reload()
+    await page.locator(SEL.navItem("outline")).click()
     await expect(page.locator(".scene-card")).toContainText("待删除 Scene")
 
-    // 直接调用删除方法
-    await page.evaluate(() => {
-      const id = outlineView._scenes[0]?.id
-      if (id) outlineView._deleteScene(id)
-    })
+    // When: 点击删除按钮，确认删除
+    await page.locator('[data-action="delete-scene"]').first().click()
 
     // 确认对话框
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
 
-    // 手动刷新
-    await page.evaluate(async () => {
-      await outlineView.onEnter()
-      const content = document.getElementById("workspace-content")
-      if (content) content.innerHTML = await outlineView.render()
-    })
-
-    // 验证列表为空
+    // Then: 刷新后列表为空
+    await page.reload()
+    await page.locator(SEL.navItem("outline")).click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无 Scene")
   })
 })

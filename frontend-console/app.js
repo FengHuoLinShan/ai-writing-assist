@@ -52,11 +52,11 @@ const App = {
    */
   _bindNavigation() {
     document.querySelectorAll(".nav-item[data-view]").forEach((el) => {
-      el.addEventListener("click", () => {
+      el.addEventListener("click", async () => {
         const viewName = el.dataset.view
         const route = router.getRoute(viewName)
         const lastSub = router.getLastSubView(viewName)
-        router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
+        await router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
       })
     })
 

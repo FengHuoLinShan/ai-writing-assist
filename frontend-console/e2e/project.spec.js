@@ -82,6 +82,7 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
+    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -104,6 +105,7 @@ test.describe("项目模块", () => {
 
     // 前端编辑后不会自动刷新列表，需要手动刷新页面验证
     await page.reload()
+    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("编辑后标题")
   })
 
@@ -116,6 +118,7 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
+    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -132,8 +135,8 @@ test.describe("项目模块", () => {
     const confirmBtn = page.locator(SEL.modalFooter).locator(SEL.btnDanger)
     await confirmBtn.click()
 
-    // 等待删除成功 toast
-    await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 15000 })
+    // 等待删除成功 toast（软删除 → 回收站）
+    await expect(page.locator(SEL.toastContainer)).toContainText("已移至回收站", { timeout: 15000 })
 
     // 刷新页面验证项目已消失
     await page.reload()
@@ -150,6 +153,7 @@ test.describe("项目模块", () => {
     testProjectId = project.id
 
     await page.reload()
+    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 

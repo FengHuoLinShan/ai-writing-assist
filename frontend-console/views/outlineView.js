@@ -393,14 +393,14 @@ const outlineView = {
     `
     showModal("新建篇章纲", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
-        const name = document.getElementById("create-arc-name")?.value
-        if (!name) { toast("请输入名称", "warning"); return }
+        const title = document.getElementById("create-arc-name")?.value
+        if (!title) { toast("请输入名称", "warning"); return }
         try {
           await api.outline.createArc(state.currentProjectId, {
-            name,
+            title,
             start_chapter: parseInt(document.getElementById("create-arc-start")?.value || "1", 10),
             end_chapter: parseInt(document.getElementById("create-arc-end")?.value || "10", 10),
-            description: document.getElementById("create-arc-desc")?.value || "",
+            arc_goal: document.getElementById("create-arc-desc")?.value || "",
           })
           toast("篇章纲已创建", "success")
           router.navigate("outline", "arcs")
