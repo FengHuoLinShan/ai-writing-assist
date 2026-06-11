@@ -209,7 +209,7 @@ async function renderCurrentView() {
   }
 }
 
-function navigate(viewName, subView = null, pushHistory = true) {
+async function navigate(viewName, subView = null, pushHistory = true) {
   if (!routes[viewName]) {
     console.warn(`未知路由: ${viewName}`)
     return
@@ -238,7 +238,7 @@ function navigate(viewName, subView = null, pushHistory = true) {
   }
 
   // 渲染
-  renderCurrentView()
+  await renderCurrentView()
 }
 
 /**

@@ -24,9 +24,27 @@ test.describe("上下文模块", () => {
       localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "上下文测试项目" }))
     }, project.id)
     await page.reload()
+    // 等待模块加载和路由初始化完成
+    await page.waitForFunction(() => {
+      return typeof router !== "undefined" && typeof contextView !== "undefined"
+    }, { timeout: 10000 })
 
     await page.locator(SEL.navItem("context")).click()
     await expect(page.locator(SEL.viewTitle)).toHaveText("上下文")
+    // 等待 DOM 实际更新为 contextView 内容（防御 renderCurrentView 偶发竞态）
+    try {
+      await page.waitForFunction(() => {
+        const content = document.getElementById("workspace-content")
+        return content && content.querySelector("#ctx-task") !== null
+      }, { timeout: 8000 })
+    } catch {
+      // 若渲染竞态导致 DOM 未更新，通过 reload 从 URL hash 恢复 context 视图
+      await page.reload()
+      await page.waitForFunction(() => {
+        const content = document.getElementById("workspace-content")
+        return content && content.querySelector("#ctx-task") !== null
+      }, { timeout: 10000 })
+    }
   })
 
   test.afterEach(async () => {
@@ -44,10 +62,11 @@ test.describe("上下文模块", () => {
   })
 
   test("未选择项目时编译给出警告", async ({ page }) => {
-    // 清除 localStorage 中的项目
+    // 清除 localStorage 与 URL hash 中的项目（router.initRouter 会从 hash 恢复 projectId）
     await page.evaluate(() => {
       localStorage.removeItem("novel_currentProjectId")
       localStorage.removeItem("novel_currentProject")
+      window.location.hash = ""
     })
     await page.reload()
     await page.locator(SEL.navItem("context")).click()

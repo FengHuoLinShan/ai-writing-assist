@@ -15,9 +15,9 @@
  * @param {object<string, Function>} handlerMap - action 名到 handler 的映射
  */
 export function bindDelegation(view, element, eventType, handlerMap) {
-  const key = `_${eventType}Delegation`
-  if (view[key]) element.removeEventListener(eventType, view[key])
-  view[key] = (e) => {
+  const key = `__delegation_${eventType}`
+  if (element[key]) element.removeEventListener(eventType, element[key])
+  element[key] = (e) => {
     const t = e.target.closest("[data-action]")
     if (!t) return
     const a = t.getAttribute("data-action")
@@ -28,7 +28,7 @@ export function bindDelegation(view, element, eventType, handlerMap) {
     const handler = handlerMap[a]
     if (handler) handler.call(view, e, t, ctx)
   }
-  element.addEventListener(eventType, view[key])
+  element.addEventListener(eventType, element[key])
 }
 
 /**

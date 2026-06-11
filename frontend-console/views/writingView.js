@@ -721,6 +721,9 @@ const writingView = {
         this._chapters[this._currentChapter].title = title
       }
 
+      // 直接从发布结果获取 draftId，避免 _refreshVersions 偶发返回空版本
+      const createdDraftId = result.draft?.id || null
+
       if (result.task_id) {
         this._publishTaskId = result.task_id
         this._publishProgress = { phase: "running", step: 0, message: "正在存入 RAG 系统...", showModal: false }
@@ -728,6 +731,11 @@ const writingView = {
       }
 
       await this._refreshVersions(this._currentChapter)
+      // 若 _refreshVersions 因竞态未设置 draftId，回退到发布结果
+      if (!this._currentDraftId && createdDraftId) {
+        this._currentDraftId = createdDraftId
+        this._currentVersionNumber = result.draft?.version_number || 1
+      }
       await this._rerender()
       toast("已发布", "success")
     } catch (err) {
@@ -743,15 +751,19 @@ const writingView = {
       if (!this._publishTaskId) { this._stopPublishPolling(); return }
       try {
         const task = await api.tasks.get(this._publishTaskId)
+        let needRerender = false
 
         if (task.progress !== undefined && task.progress !== null) {
           const p = parseFloat(task.progress)
-          this._publishProgress.step = p
-          this._publishProgress.phase = task.status
-          if (p < 0.5) {
-            this._publishProgress.message = "正在存入 RAG 系统..."
-          } else if (p < 1.0) {
-            this._publishProgress.message = "正在创建历史状态..."
+          if (this._publishProgress.step !== p || this._publishProgress.phase !== task.status) {
+            this._publishProgress.step = p
+            this._publishProgress.phase = task.status
+            if (p < 0.5) {
+              this._publishProgress.message = "正在存入 RAG 系统..."
+            } else if (p < 1.0) {
+              this._publishProgress.message = "正在创建历史状态..."
+            }
+            needRerender = true
           }
         }
 
@@ -777,7 +789,9 @@ const writingView = {
         }
 
         this._updatePublishBar()
-        await this._rerender()
+        if (needRerender) {
+          await this._rerender()
+        }
       } catch {
         this._stopPublishPolling()
       }

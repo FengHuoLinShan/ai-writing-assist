@@ -83,6 +83,12 @@ const projectView = {
       `
 
       html += `
+        <div style="margin-top:16px;">
+          <button class="btn btn-ghost btn-sm" data-action="toggle-import">
+            ${this._importSectionOpen ? "收起导入" : "导入小说到当前项目"}
+          </button>
+          ${this._importSectionOpen ? this._renderImportSection() : ""}
+        </div>
         <div class="import-list">
           <div class="import-list-header">导入记录</div>
           <div id="import-list-body">
@@ -523,7 +529,7 @@ const projectView = {
           }
         }
         xhr.onerror = () => reject(new Error("网络错误"))
-        xhr.open("POST", "/api" + "/imports/upload")
+        xhr.open("POST", (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api/imports/upload")
         xhr.send(formData)
       })
 
