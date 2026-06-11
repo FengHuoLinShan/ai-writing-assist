@@ -95,6 +95,7 @@ class DraftListItem(BaseModel):
     id: str
     version_number: int
     title: str | None = None
+    word_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

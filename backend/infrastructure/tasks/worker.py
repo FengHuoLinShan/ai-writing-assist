@@ -34,6 +34,77 @@ logger = logging.getLogger(__name__)
 # 注册 projects 表（NovelMixin FK 依赖）
 import modules.project.models  # noqa: F401
 
+# 注册所有任务处理器（与 app/main.py 同步）
+import modules.world.tasks  # noqa: F401
+import modules.rag.tasks  # noqa: F401
+import modules.outline.tasks  # noqa: F401
+import modules.imports.tasks  # noqa: F401
+import modules.writing.tasks  # noqa: F401
+
+
+def _register_container_services() -> None:
+    """注册 DI 容器服务（worker 进程不会经过 main.py，需独立注册）
+
+    所有 import 放在函数体内，避免模块级循环导入。
+    幂等调用：已注册的服务不会重复注册。
+    """
+    from core.container import register as _reg
+
+    from modules.context.facade import compile_structure_context as _ctx_compile
+    from modules.memory.services import MemoryService as _MemSvc
+    from modules.outline.services import (
+        OutlineArcService as _OAS,
+        PlotStructureGenerator as _PSG,
+        PlotThreadService as _PTS,
+        SceneService as _SceneSvc,
+    )
+    from modules.imports.scene_entity_extraction import (
+        SceneEntityExtractionService as _SceneExtSvc,
+    )
+    from modules.rag.facade import (
+        get_ordered_chapter_chunks as _rag_get_chunks,
+        index_chapter_with_report as _rag_index,
+    )
+    from modules.writing.facade import (
+        get_latest_draft_for_chapter as _w_get_draft,
+        list_chapter_indices as _w_list_indices,
+    )
+    from modules.world.facade import (
+        create_character as _w_create_char,
+        get_character_id_by_world_entity as _w_get_char_id,
+        list_characters as _w_list_chars,
+        list_entities as _w_list_entities,
+        list_entity_terms as _w_list_terms,
+        run_entity_extraction as _w_extract,
+    )
+
+    _svc_map = {
+        "world.list_characters": _w_list_chars,
+        "world.list_entity_terms": _w_list_terms,
+        "world.run_entity_extraction": _w_extract,
+        "world.list_entities": _w_list_entities,
+        "world.run_scene_entity_extraction": _SceneExtSvc().extract_by_scenes,
+        "world.create_character": _w_create_char,
+        "world.get_character_id_by_world_entity": _w_get_char_id,
+        "rag.index_chapter": _rag_index,
+        "rag.get_ordered_chapter_chunks": _rag_get_chunks,
+        "writing.list_chapter_indices": _w_list_indices,
+        "writing.get_latest_draft_for_chapter": _w_get_draft,
+        "outline.generate_structure": _PSG().generate,
+        "outline.arc_service": _OAS(),
+        "outline.thread_service": _PTS(),
+        "outline.scene_service": _SceneSvc(),
+        "context.compile": _ctx_compile,
+        "memory.service": _MemSvc(),
+        "memory.capture_snapshot": _MemSvc().capture_snapshot,
+    }
+
+    for name, svc in _svc_map.items():
+        try:
+            _reg(name, svc)
+        except ValueError:
+            pass  # 已在 main.py 中注册（测试/开发模式共用进程时）
+
 
 class TaskWorker:
     """轻量任务队列 Worker
@@ -82,6 +153,7 @@ class TaskWorker:
         Returns:
             执行完成的任务对象，如果没有 pending 任务则返回 None
         """
+        _register_container_services()
         async with self._db_manager.session_factory() as session:
             task = await self._claim_task(session)
             if task is None:
@@ -91,6 +163,7 @@ class TaskWorker:
 
     async def run_forever(self) -> None:
         """常驻循环：持续领取并执行任务"""
+        _register_container_services()
         self._running = True
         logger.info(
             "TaskWorker started — poll_interval=%.1fs, heartbeat_interval=%.1fs",

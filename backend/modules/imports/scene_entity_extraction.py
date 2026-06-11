@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.models import DeltaLog
-from shared.utils import parse_uuid
+from shared.utils import parse_llm_json, parse_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,7 @@ class SceneEntityExtractionService:
         from core.config import get_settings
         from infrastructure.llm.client import LLMClient
         from infrastructure.llm.prompt_loader import load_prompt
-        from infrastructure.llm.schemas import LLMCallRequest
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
         system_prompt = load_prompt(
             "structure_extraction",
@@ -225,21 +225,22 @@ class SceneEntityExtractionService:
         request = LLMCallRequest(
             model=settings.llm_model,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": f"请从以下正文中提取世界对象。\n\n{chapters_text}",
-                },
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(
+                    role="user",
+                    content=f"请从以下正文中提取世界对象。\n\n{chapters_text}",
+                ),
             ],
             temperature=0.3,
+            max_tokens=16384,
             response_format={"type": "json_object"},
         )
 
-        llm_client = LLMClient()
+        llm_client = LLMClient(timeout=180)
         for attempt in range(MAX_RETRIES):
             try:
                 raw = await llm_client.generate(request)
-                parsed = json.loads(raw.content)
+                parsed = parse_llm_json(raw.content, "Entity extraction")
                 return (
                     parsed.get("entities", []),
                     parsed.get("delta_events", []),
@@ -263,10 +264,10 @@ class SceneEntityExtractionService:
     ) -> int:
         from modules.world.facade import find_similar_entities
         from modules.world.schemas import CoreEntityCreate
-        from modules.world.services.entity_service import EntityService
+        from modules.world.services.entity_service import WorldEntityService
 
         created = 0
-        entity_service = EntityService()
+        entity_service = WorldEntityService()
 
         for ent in entities:
             action = ent.get("suggested_action", "ignore")

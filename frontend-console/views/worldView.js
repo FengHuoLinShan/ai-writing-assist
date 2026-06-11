@@ -538,7 +538,7 @@ const worldView = {
               summary: document.getElementById("edit-entity-summary")?.value,
             }, state.currentProjectId)
             toast("已保存", "success")
-            router.navigate("world", "objects")
+            router.refresh()
           } catch (err) {
             toast(`保存失败：${err.message}`, "error")
           }
@@ -552,7 +552,7 @@ const worldView = {
       try {
         await api.world.deleteEntity(id, state.currentProjectId)
         toast("已删除", "success")
-        router.navigate("world", "objects")
+        router.refresh()
       } catch (err) {
         toast(`删除失败：${err.message}`, "error")
       }
@@ -623,7 +623,7 @@ const worldView = {
               summary: document.getElementById("create-entity-summary")?.value || "",
             }, state.currentProjectId)
             toast(`对象 "${name}" 已创建`, "success")
-            router.navigate("world", "objects")
+            router.refresh()
           } catch (err) {
             toast(`创建失败：${err.message}`, "error")
           }

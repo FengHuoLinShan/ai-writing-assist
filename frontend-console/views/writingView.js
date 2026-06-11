@@ -29,6 +29,10 @@ const writingView = {
   _deepImportTimer: null,
   _scenes: [],
   _currentSceneId: null,
+  _autoSaveTimer: null,
+  _autoSaving: false,
+  _lastSavedContent: null,
+  _beforeUnloadHandler: null,
 
   // ============================================================
   // 生命周期
@@ -63,6 +67,21 @@ const writingView = {
     this._publishTimer = null
     this._outlineThreads = []
     this._outlineArc = null
+    this._autoSaveTimer = null
+    this._autoSaving = false
+    this._lastSavedContent = null
+
+    // beforeunload 处理：有未保存内容时弹出确认
+    this._beforeUnloadHandler = (e) => {
+      const editor = document.getElementById("writing-editor")
+      if (!editor || this._isReadonly) return
+      const currentContent = editor.value
+      if (currentContent !== this._lastSavedContent && currentContent.trim()) {
+        e.preventDefault()
+        e.returnValue = ""
+      }
+    }
+    window.addEventListener("beforeunload", this._beforeUnloadHandler)
 
     if (!state.currentProjectId) {
       this._loading = false
@@ -120,18 +139,23 @@ const writingView = {
         手动工作台 — 选择章节，撰写正文。
       </p>
       <div style="display:grid;grid-template-columns:200px 1fr 260px;gap:12px;align-items:start;">
-        ${this._renderSceneTree()}
-        ${this._renderEditor()}
-        ${this._renderScenePanel()}
+        <div id="writing-tree-container">${this._renderSceneTree()}</div>
+        <div id="writing-editor-container">${this._renderEditor()}</div>
+        <div id="writing-panel-container">${this._renderScenePanel()}</div>
       </div>
-      ${this._renderPublishBar()}
-      ${this._renderDeepImportBar()}
+      <div id="writing-publish-bar-container">${this._renderPublishBar()}</div>
+      <div id="writing-deep-import-bar-container">${this._renderDeepImportBar()}</div>
     `
     setTimeout(() => this._bindEvents(), 0)
     return html
   },
 
   onLeave() {
+    this._clearAutoSaveTimer()
+    if (this._beforeUnloadHandler) {
+      window.removeEventListener("beforeunload", this._beforeUnloadHandler)
+      this._beforeUnloadHandler = null
+    }
     const editor = document.getElementById("writing-editor")
     state.viewStates.writing = {
       currentChapter: this._currentChapter,
@@ -163,14 +187,107 @@ const writingView = {
   },
 
   onDeactivate() {
+    this._clearAutoSaveTimer()
     // 保存当前编辑器内容到状态，避免缓存 DOM 与状态不一致
     const editor = document.getElementById("writing-editor")
     if (editor) {
       this._currentContent = editor.value
+      // 写入 localStorage 后备
+      if (editor.value.trim() && this._currentChapter) {
+        this._saveBackup(editor.value, this._currentTitle || "")
+      }
     }
     const titleInput = document.getElementById("writing-title-input")
     if (titleInput) {
       this._currentTitle = titleInput.value
+    }
+  },
+
+  // ============================================================
+  // 保存辅助方法
+  // ============================================================
+
+  /** 导航离开前保存当前编辑内容 */
+  async _saveBeforeNavigate() {
+    this._clearAutoSaveTimer()
+    const editor = document.getElementById("writing-editor")
+    if (!editor || !this._currentChapter || this._isReadonly) return
+
+    const content = editor.value
+    const titleInput = document.getElementById("writing-title-input")
+    const title = titleInput ? titleInput.value.trim() : ""
+
+    if (this._currentDraftId) {
+      try {
+        const result = await api.writing.autosave(
+          this._currentDraftId,
+          { title, content, expected_version: this._currentVersionNumber },
+          state.currentProjectId,
+        )
+        this._currentContent = content
+        this._currentTitle = title
+        this._currentVersionNumber = result.version_number
+        this._lastSavedContent = content
+        this._saveBackup(null, null) // 清除 localStorage 后备
+      } catch (err) {
+        this._saveBackup(content, title)
+        if (err.status === 409) {
+          toast("该章节已被其他会话更新，请刷新后重新编辑", "error")
+        } else {
+          toast("保存失败，内容已暂存到本地", "warning")
+        }
+      }
+    } else if (content.trim()) {
+      this._saveBackup(content, title)
+    }
+  },
+
+  /** 清除自动保存计时器 */
+  _clearAutoSaveTimer() {
+    if (this._autoSaveTimer) {
+      clearTimeout(this._autoSaveTimer)
+      this._autoSaveTimer = null
+    }
+  },
+
+  /** 安排自动保存（3 秒防抖） */
+  _scheduleAutoSave() {
+    this._clearAutoSaveTimer()
+    this._autoSaveTimer = setTimeout(() => {
+      this._autoSaveTimer = null
+      this._autosave()
+    }, 3000)
+  },
+
+  /** localStorage 后备保存 */
+  _saveBackup(content, title) {
+    if (!state.currentProjectId || !this._currentChapter) return
+    const key = `draft_backup_${state.currentProjectId}_${this._currentChapter}`
+    if (!content) {
+      localStorage.removeItem(key)
+      return
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        content, title: title || "",
+        chapter_index: this._currentChapter,
+        timestamp: Date.now(),
+      }))
+    } catch {
+      // localStorage 满了，忽略
+    }
+  },
+
+  /** 从 localStorage 加载后备内容 */
+  _loadBackup(chapterIndex) {
+    if (!state.currentProjectId) return null
+    const key = `draft_backup_${state.currentProjectId}_${chapterIndex}`
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) return null
+      return JSON.parse(raw)
+    } catch {
+      return null
     }
   },
 
@@ -312,9 +429,9 @@ const writingView = {
             </span>
             <span id="writing-version-info" style="color:var(--text-dim);font-size:11px;">${esc(draftLabel)}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;align-items:center;gap:6px;" id="writing-editor-buttons">
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
-            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>暂存</button>
+            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
             ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import" style="font-size:11px;color:var(--accent);">深度导入</button>` : ''}
           </div>
@@ -349,7 +466,6 @@ const writingView = {
   _renderVersionSelector() {
     if (!this._currentChapter || this._versions.length === 0) return ''
 
-    const isLatest = this._currentVersionNumber === this._versions[0]?.version_number
     let html = `
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;font-size:12px;">
         <span style="color:var(--text-dim);">版本：</span>
@@ -439,6 +555,8 @@ const writingView = {
 
     html += `
       <hr style="border:none;border-top:1px solid var(--border);margin:8px 0;">
+      ${currentScene && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene" style="font-size:11px;width:100%;margin-bottom:4px;">断章至此</button>` : ''}
+      ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards" style="font-size:11px;width:100%;margin-bottom:4px;color:var(--accent);">AI 提取章节卡</button>` : ''}
       <button class="btn btn-sm" data-action="open-outline" style="font-size:11px;width:100%;">管理大纲</button>
     `
 
@@ -450,11 +568,6 @@ const writingView = {
     if (!this._publishProgress) return ''
 
     const progress = this._publishProgress
-    const steps = [
-      { key: "save", label: "写入草稿" },
-      { key: "rag", label: "正在存入 RAG 系统..." },
-      { key: "snapshot", label: "正在创建历史状态..." },
-    ]
 
     let html = `
       <div style="position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--border);padding:8px 16px;z-index:100;font-size:12px;">
@@ -498,6 +611,16 @@ const writingView = {
   },
 
   async _selectChapter(chapterIndex) {
+    // 点击同一章节：刷新内容
+    if (this._currentChapter === chapterIndex && this._currentDraftId) {
+      await this._refreshVersions(chapterIndex)
+      await this._rerender()
+      return
+    }
+
+    // 切换前保存当前内容
+    await this._saveBeforeNavigate()
+
     delete state.viewStates.writing
     this._currentChapter = chapterIndex
     this._currentDraftId = null
@@ -528,16 +651,39 @@ const writingView = {
         const latest = this._versions[0]
         const draftData = await api.writing.get(latest.id, state.currentProjectId)
         this._currentDraftId = draftData.id
-        this._currentContent = draftData.content || ''
-        this._currentTitle = draftData.title || ''
+        this._currentContent = draftData.content || ""
+        this._currentTitle = draftData.title || ""
         this._currentVersionNumber = latest.version_number
+        this._lastSavedContent = draftData.content || ""
         this._isReadonly = false
       } else {
         this._currentDraftId = null
-        this._currentContent = ''
-        this._currentTitle = ''
+        this._currentContent = ""
+        this._currentTitle = ""
         this._currentVersionNumber = null
+        this._lastSavedContent = null
         this._isReadonly = false
+
+        // 检查 localStorage 后备（仅在首次加载且无服务端版本时）
+        const backup = this._loadBackup(chapterIndex)
+        if (backup && backup.content) {
+          const age = ((Date.now() - (backup.timestamp || 0)) / 1000 / 60).toFixed(0)
+          const confirmed = await new Promise((resolve) => {
+            confirmAction(
+              `检测到本地暂存的第 ${chapterIndex} 章内容（${age} 分钟前）。是否恢复？`,
+              () => resolve(true),
+              "恢复本地内容",
+            )
+            setTimeout(() => {
+              const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
+              if (cancelBtn) cancelBtn.onclick = () => resolve(false)
+            }, 50)
+          })
+          if (confirmed) {
+            this._currentContent = backup.content
+            this._currentTitle = backup.title || ""
+          }
+        }
       }
     } catch {
       this._versions = []
@@ -549,6 +695,9 @@ const writingView = {
     if (!input) return
     const idx = parseInt(input, 10)
     if (isNaN(idx) || idx < 1) { toast("请输入有效的章节号（≥1）", "warning"); return }
+
+    // 保存当前章节内容
+    await this._saveBeforeNavigate()
 
     this._currentChapter = idx
     this._currentDraftId = null
@@ -604,7 +753,7 @@ const writingView = {
     let listHtml = '<div style="max-height:400px;overflow-y:auto;">'
     for (const v of this._versions) {
       const isLatest = v.version_number === latestVersion
-      const wordCount = v.word_count || (v.content ? v.content.length : 0)
+      const wordCount = v.word_count || 0
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === this._currentVersionNumber
       listHtml += `
@@ -659,10 +808,10 @@ const writingView = {
     if (!this._restoreSourceVersion) return
 
     this._isReadonly = false
-    this._restoreSourceVersion = null
+    // 不清除 _restoreSourceVersion — 用于 _autosave 判断走 POST 而非 PUT
 
     await this._rerender()
-    toast(`已基于 v${this._currentVersionNumber} 开始编辑，发布后将创建新版本`, "info")
+    toast(`已基于 v${this._currentVersionNumber} 开始编辑，保存时将创建新版本`, "info")
   },
 
   // ============================================================
@@ -670,25 +819,46 @@ const writingView = {
   // ============================================================
 
   async _autosave() {
+    this._clearAutoSaveTimer()
     const editor = document.getElementById("writing-editor")
     const titleInput = document.getElementById("writing-title-input")
-    if (!editor || !this._currentDraftId) return
+    if (!editor || this._autoSaving) return
 
+    // 从历史版本恢复后编辑：走发布流程（POST 创建新版本），不覆盖旧版本
+    if (this._restoreSourceVersion) {
+      return this._publish()
+    }
+
+    if (!this._currentDraftId) return
+
+    this._autoSaving = true
     const content = editor.value
-    const title = titleInput ? titleInput.value.trim() : ''
+    const title = titleInput ? titleInput.value.trim() : ""
 
     try {
-      const result = await api.writing.autosave(this._currentDraftId, { title, content }, state.currentProjectId)
+      const result = await api.writing.autosave(
+        this._currentDraftId,
+        { title, content, expected_version: this._currentVersionNumber },
+        state.currentProjectId,
+      )
       this._currentContent = content
       this._currentTitle = title
       this._currentVersionNumber = result.version_number
+      this._lastSavedContent = content
+      this._saveBackup(null, null)
 
       if (this._chapters[this._currentChapter]) {
         this._chapters[this._currentChapter].title = title
       }
       toast("已暂存", "success")
     } catch (err) {
-      toast(err.message || "暂存失败", "error")
+      if (err.status === 409) {
+        toast("该章节已被其他会话更新（当前 v" + this._currentVersionNumber + "）。请刷新后重新编辑。", "error")
+      } else {
+        toast(err.message || "暂存失败", "error")
+      }
+    } finally {
+      this._autoSaving = false
     }
   },
 
@@ -730,6 +900,7 @@ const writingView = {
         this._startPublishPolling()
       }
 
+      this._restoreSourceVersion = null
       await this._refreshVersions(this._currentChapter)
       // 若 _refreshVersions 因竞态未设置 draftId，回退到发布结果
       if (!this._currentDraftId && createdDraftId) {
@@ -941,6 +1112,95 @@ const writingView = {
     }
   },
 
+  async _showSplitSceneForm() {
+    if (!this._currentChapter) { toast("请先选择章节", "warning"); return }
+    const currentScene = this._findCurrentScene()
+    if (!currentScene) { toast("当前章节未关联 Scene", "warning"); return }
+
+    const otherScenes = this._scenes.filter((s) => s.id !== currentScene.id)
+    const sceneOptions = otherScenes.map((s) =>
+      `<option value="${esc(s.id)}">#${s.scene_index} ${esc(s.title || "未命名")}</option>`
+    ).join("")
+
+    const html = `
+      <div class="form-group">
+        <label>从第几章开始断章</label>
+        <input class="form-input" id="split-chapter-index" type="number" min="1" value="${this._currentChapter}" />
+      </div>
+      <div class="form-group">
+        <label>当前 Scene：${esc(currentScene.title || "未命名")}</label>
+      </div>
+      <div class="form-group">
+        <label>目标 Scene</label>
+        <select class="form-input" id="split-target-scene">
+          ${sceneOptions || '<option value="">（新建 Scene）</option>'}
+          <option value="">（新建 Scene）</option>
+        </select>
+      </div>
+      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
+        从指定章节开始，将后续章节从当前 Scene 移到目标 Scene。
+      </p>
+    `
+    showModal("断章", html, [{
+      text: "确认断章", class: "btn-primary",
+      handler: async () => {
+        const chIdx = parseInt(document.getElementById("split-chapter-index")?.value || "", 10)
+        const targetScene = document.getElementById("split-target-scene")?.value || null
+        if (!chIdx || chIdx < 1) { toast("请输入有效的章节号", "warning"); return }
+        closeModal()
+        await this._doSplitScene(chIdx, targetScene)
+      },
+    }])
+  },
+
+  async _doSplitScene(chapterIndex, targetSceneId) {
+    try {
+      const scenes = await api.outline.splitChapters(state.currentProjectId, chapterIndex, targetSceneId)
+      this._scenes = scenes || []
+      toast("断章完成", "success")
+      await this._rerender()
+    } catch (err) {
+      toast(err.message || "断章失败", "error")
+    }
+  },
+
+  async _extractChapterCards() {
+    if (!this._chapterList.length) { toast("没有可分析的章节", "warning"); return }
+    const firstCh = this._chapterList[0]
+    const lastCh = this._chapterList[this._chapterList.length - 1]
+    const formHtml = `
+      <div class="form-group">
+        <label>起始章节</label>
+        <input class="form-input" id="extract-start" type="number" min="1" value="${firstCh}" />
+      </div>
+      <div class="form-group">
+        <label>结束章节</label>
+        <input class="form-input" id="extract-end" type="number" min="1" value="${lastCh}" />
+      </div>
+      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
+        调用 AI 分析章节内容，生成 Scene 卡（场景目标、冲突、情感节奏等）。
+      </p>
+    `
+    showModal("AI 提取章节卡", formHtml, [{
+      text: "开始提取", class: "btn-primary",
+      handler: async () => {
+        const start = parseInt(document.getElementById("extract-start")?.value || "1", 10)
+        const end = parseInt(document.getElementById("extract-end")?.value || "10", 10)
+        if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+        closeModal()
+        try {
+          toast("正在 AI 分析中，请稍候...", "info")
+          await api.outline.generate(state.currentProjectId, start, end)
+          this._scenes = await api.outline.listScenesOrdered(state.currentProjectId) || []
+          toast("章节卡提取完成", "success")
+          await this._rerender()
+        } catch (err) {
+          toast(err.message || "提取失败", "error")
+        }
+      },
+    }])
+  },
+
   // ============================================================
   // 深度导入
   // ============================================================
@@ -975,12 +1235,12 @@ const writingView = {
     }])
   },
 
-  async _submitDeepImport(startChapter, endChapter) {
+  async _submitDeepImport(startChapter, endChapter, force = false) {
     try {
       const result = await api.imports.deepImport(
-        state.currentProjectId, startChapter, endChapter,
+        state.currentProjectId, startChapter, endChapter, force,
       )
-      if (result.warning) {
+      if (result.requires_confirmation) {
         const confirmed = await new Promise((resolve) => {
           confirmAction(result.warning, () => resolve(true), "确认覆盖")
           // Add cancel handler
@@ -990,6 +1250,13 @@ const writingView = {
           }, 50)
         })
         if (!confirmed) return
+        await this._submitDeepImport(startChapter, endChapter, true)
+        return
+      }
+
+      if (!result.task_id) {
+        toast(result.message || "深度导入未启动", "warning")
+        return
       }
 
       this._deepImportTaskId = result.task_id
@@ -1110,6 +1377,8 @@ const writingView = {
       "deep-import": () => this._showDeepImportForm(),
       "dismiss-deep-import": () => { this._deepImportProgress = null; this._rerender() },
       "open-outline": () => router.navigate("outline", null),
+      "split-scene": () => this._showSplitSceneForm(),
+      "extract-cards": () => this._extractChapterCards(),
       "select-scene": (_e, t) => this._selectScene(t.getAttribute("data-scene-id")),
       "toggle-scene-group": (_e, t) => {
         const chapters = t.parentElement.querySelector(".scene-tree-chapters")
@@ -1135,18 +1404,124 @@ const writingView = {
 
     const titleInput = document.getElementById("writing-title-input")
     if (titleInput) {
-      titleInput.oninput = () => { this._currentTitle = titleInput.value }
+      titleInput.oninput = () => { this._currentTitle = titleInput.value; this._scheduleAutoSave() }
     }
     const editorEl = document.getElementById("writing-editor")
     if (editorEl) {
-      editorEl.oninput = () => { this._currentContent = editorEl.value }
+      editorEl.oninput = () => {
+        this._currentContent = editorEl.value
+        this._scheduleAutoSave()
+      }
     }
   },
 
   async _rerender() {
     const container = document.getElementById("workspace-content")
-    if (container) {
+    if (!container) return
+
+    // 首次渲染或结构变更（如从空状态切换到有章节）：全量替换
+    const treeEl = document.getElementById("writing-tree-container")
+    if (!treeEl) {
       container.innerHTML = await this.render()
+      return
+    }
+
+    // 增量更新：只替换非编辑器区域，保留 textarea 状态
+    treeEl.innerHTML = this._renderSceneTree()
+
+    const panelEl = document.getElementById("writing-panel-container")
+    if (panelEl) panelEl.innerHTML = this._renderScenePanel()
+
+    const publishBarEl = document.getElementById("writing-publish-bar-container")
+    if (publishBarEl) publishBarEl.innerHTML = this._renderPublishBar()
+
+    const deepImportBarEl = document.getElementById("writing-deep-import-bar-container")
+    if (deepImportBarEl) deepImportBarEl.innerHTML = this._renderDeepImportBar()
+
+    // 更新编辑器元信息（版本号、按钮、只读状态等），但保留 textarea 内容
+    this._updateEditorMeta()
+
+    this._bindEvents()
+  },
+
+  /** 局部更新编辑器元信息，不触碰 textarea */
+  _updateEditorMeta() {
+    const versionInfo = document.getElementById("writing-version-info")
+    const versionLabel = this._currentVersionNumber ? `v${this._currentVersionNumber}` : ""
+    const readOnlyLabel = this._isReadonly ? "（只读）" : ""
+    if (versionInfo) versionInfo.textContent = `${versionLabel} ${readOnlyLabel}`
+
+    const chapterTitle = document.getElementById("writing-chapter-title")
+    if (chapterTitle && this._currentChapter) {
+      chapterTitle.textContent = `第 ${this._currentChapter} 章`
+    }
+
+    // 同步 textarea 内容（首次渲染时 textarea 可能为空）
+    const editorEl = document.getElementById("writing-editor")
+    if (editorEl && this._currentContent !== null && editorEl.value !== this._currentContent) {
+      editorEl.value = this._currentContent
+      this._lastSavedContent = this._currentContent
+    }
+    // 同步标题输入
+    const titleInputEl = document.getElementById("writing-title-input")
+    if (titleInputEl && this._currentTitle !== null && titleInputEl.value !== this._currentTitle) {
+      titleInputEl.value = this._currentTitle
+    }
+
+    // 更新版本选择器
+    const versionSelector = document.getElementById("version-selector")
+    if (versionSelector) {
+      versionSelector.innerHTML = ""
+      for (const v of this._versions) {
+        const selected = v.version_number === this._currentVersionNumber
+        const isCurLatest = v.version_number === this._versions[0]?.version_number
+        const opt = document.createElement("option")
+        opt.value = v.id
+        opt.setAttribute("data-version", v.version_number)
+        opt.setAttribute("data-latest", isCurLatest ? "1" : "0")
+        opt.selected = selected
+        opt.textContent = `v${v.version_number}${isCurLatest ? " (最新)" : ""}`
+        versionSelector.appendChild(opt)
+      }
+      versionSelector.onchange = () => {
+        const opt = versionSelector.options[versionSelector.selectedIndex]
+        const draftId = opt.value
+        const vn = parseInt(opt.getAttribute("data-version"), 10)
+        const isLat = opt.getAttribute("data-latest") === "1"
+        this._switchVersion(draftId, vn, isLat)
+      }
+    }
+
+    // 更新只读状态相关按钮
+    const restoreBtn = document.getElementById("btn-restore-from-version")
+    if (this._isReadonly) {
+      if (!restoreBtn) {
+        const btnContainer = document.getElementById("writing-editor-buttons")
+        if (btnContainer) {
+          const btn = document.createElement("button")
+          btn.className = "btn btn-primary"
+          btn.id = "btn-restore-from-version"
+          btn.setAttribute("data-action", "restore-from-version")
+          btn.textContent = "基于此版本创建"
+          btn.onclick = () => this._restoreFromVersion()
+          btnContainer.insertBefore(btn, btnContainer.firstChild)
+        }
+      }
+    } else if (restoreBtn) {
+      restoreBtn.remove()
+    }
+
+    const btnAutosave = document.getElementById("btn-autosave")
+    if (btnAutosave) {
+      const hasSelection = this._currentChapter !== null
+      btnAutosave.disabled = !(hasSelection && !this._isReadonly)
+      btnAutosave.textContent = this._restoreSourceVersion ? "发布为新版本" : "暂存"
+    }
+
+    const btnPublish = document.getElementById("btn-publish")
+    if (btnPublish) {
+      const hasSelection = this._currentChapter !== null
+      btnPublish.disabled = !(hasSelection && !this._isReadonly)
     }
   },
 }

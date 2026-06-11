@@ -1157,36 +1157,30 @@ class IndexingService:
 
         embedding_failed_count = 0
         if created_chunks:
-            try:
-                from infrastructure.llm.client import LLMClient
+            from infrastructure.llm.client import LLMClient
 
-                llm = LLMClient()
-                texts = [chunk.text for chunk in created_chunks]
-                embeddings = await llm.generate_embedding(texts)
-                if (
-                    isinstance(embeddings, list)
-                    and len(embeddings) == len(created_chunks)
-                ):
-                    for chunk, emb in zip(created_chunks, embeddings):
-                        await self._repo.update_embedding(db, chunk.id, emb)
+            llm = LLMClient()
+
+            for chunk in created_chunks:
+                try:
+                    embedding = await llm.generate_embedding(chunk.text)
+                    if isinstance(embedding, list) and embedding and isinstance(embedding[0], float):
+                        await self._repo.update_embedding(db, chunk.id, embedding)
                         chunk.embedding_status = "succeeded"
-                    await db.flush()
-                else:
-                    raise ValueError("embedding result count does not match chunk count")
-            except Exception as exc:
-                warning = f"embedding 生成失败，本章检索将降级为关键词/词典匹配: {exc}"
-                warnings.append(warning)
-                logger.warning(
-                    "Failed to generate embeddings for chapter %d: %s",
-                    chapter_index,
-                    exc,
-                )
-                embedding_failed_count = len(created_chunks)
-                for chunk in created_chunks:
+                    else:
+                        raise ValueError("embedding 返回格式异常")
+                except Exception as exc:
                     chunk.embedding_status = "failed"
                     chunk.embedding_error = str(exc)[:1000]
-                    chunk.index_warnings = [warning]
-                await db.flush()
+                    chunk.index_warnings = [f"embedding 生成失败: {exc}"]
+                    embedding_failed_count += 1
+
+            await db.flush()
+
+            if embedding_failed_count > 0:
+                warnings.append(
+                    f"本章 {embedding_failed_count}/{len(created_chunks)} 个片段 embedding 失败，检索将降级为关键词匹配",
+                )
 
         return RagIndexReport(
             chapter_index=chapter_index,

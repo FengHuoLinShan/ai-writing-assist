@@ -37,7 +37,6 @@ const projectView = {
       html += `
         <div class="project-header">
           <div style="display:flex;align-items:center;justify-content:space-between;">
-            <h1>项目</h1>
             <button class="btn btn-ghost btn-sm" data-action="recycle-bin" style="font-size:12px;">回收站</button>
           </div>
           <p>选择一个项目继续创作，或创建新项目。</p>
@@ -249,7 +248,7 @@ const projectView = {
             state.currentProjectId = null
             state.currentProject = null
           }
-          router.navigate("project")
+          router.refresh()
         } catch (err) {
           toast(`删除失败：${err.message}`, "error")
         }
@@ -293,9 +292,9 @@ const projectView = {
           btn.onclick = async () => {
             try {
               await api.projects.restore(btn.dataset.id)
-              closeModal()
               toast("项目已恢复", "success")
-              router.navigate("project")
+              router.refresh()
+              this.showRecycleBin()
             } catch (err) {
               toast(`恢复失败：${err.message}`, "error")
             }
@@ -304,14 +303,13 @@ const projectView = {
         document.querySelectorAll(".perm-delete-project-btn").forEach((btn) => {
           btn.onclick = () => {
             const pid = btn.dataset.id
-            closeModal()
             confirmAction(
               "确定永久删除此项目？此操作不可恢复，所有关联数据将被级联删除。",
               async () => {
                 try {
                   await api.projects.permanentDelete(pid)
                   toast("项目已永久删除", "success")
-                  router.navigate("project")
+                  this.showRecycleBin()
                 } catch (err) {
                   toast(`删除失败：${err.message}`, "error")
                 }

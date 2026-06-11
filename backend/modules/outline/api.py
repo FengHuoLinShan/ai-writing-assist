@@ -19,6 +19,7 @@ from modules.outline.schemas import (
     SceneReorderResponse,
     SceneResponse,
     SceneUpdate,
+    SplitChaptersRequest,
 )
 from modules.outline.services import (
     OutlineArcService,
@@ -216,6 +217,19 @@ async def api_reorder_scenes(
 ):
     """批量重排 Scene 顺序，按 scene_ids 列表顺序从 0 重新编号"""
     return await _scene_service.reorder(db, novel_id, data.scene_ids)
+
+
+@router.post("/scenes/split", response_model=list[SceneResponse])
+async def api_split_chapters(
+    data: SplitChaptersRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    """断章：从 chapter_index 开始将章节从当前 Scene 移到目标 Scene"""
+    contracts = await _scene_service.split_chapters(
+        db, novel_id, data.chapter_index, data.target_scene_id,
+    )
+    return [SceneResponse.model_validate(c.__dict__) for c in contracts]
 
 
 # ============================================================

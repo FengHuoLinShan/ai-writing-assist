@@ -184,7 +184,8 @@ async def test_index_chapter_with_embeddings(
         "infrastructure.llm.client.LLMClient",
     ) as mock_client_cls:
         mock_client = AsyncMock()
-        mock_client.generate_embedding = AsyncMock(return_value=[fake_embedding])
+        # 逐 chunk 调用：单个字符串 → 返回 list[float]
+        mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
         mock_client_cls.return_value = mock_client
 
         chunk_count = await index_chapter(db_session, test_project_id, 1)
@@ -196,14 +197,13 @@ async def test_index_chapter_with_embeddings(
     for c in chunks:
         assert c.embedding is not None, f"chunk {c.id} 应有 embedding"
 
-    # 验证 generate_embedding 被调用（批量调用）
-    mock_client.generate_embedding.assert_called_once()
-    args = mock_client.generate_embedding.call_args
-    assert args is not None, "generate_embedding 应被调用"
-    # 参数应为字符串列表（批量）
-    input_texts = args[0][0] if args else []
-    assert isinstance(input_texts, list), "应接收文本列表（批量）"
-    assert all(isinstance(t, str) for t in input_texts), "每项应为字符串"
+    # 验证 generate_embedding 按逐 chunk 模式被调用
+    call_count = mock_client.generate_embedding.call_count
+    assert call_count > 0, "generate_embedding 应被调用"
+    assert call_count == len(chunks), f"应为 {len(chunks)} 次调用（逐 chunk），实际 {call_count} 次"
+    for call_args in mock_client.generate_embedding.call_args_list:
+        input_text = call_args[0][0] if call_args else ""
+        assert isinstance(input_text, str), "应接收字符串（逐 chunk）"
 
 
 @pytest.mark.asyncio

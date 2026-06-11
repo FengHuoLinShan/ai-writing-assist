@@ -395,6 +395,29 @@ class SceneRepository:
         ]
         return matching
 
+    async def get_by_chapter_index(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> Scene | None:
+        """获取包含指定章节的 Scene（一个章节只属于一个 Scene）"""
+        conditions = [
+            Scene.novel_id == novel_id,
+            Scene.status.in_(["draft", "canonical"]),
+        ]
+        stmt = (
+            select(Scene)
+            .where(*conditions)
+            .order_by(Scene.scene_index)
+        )
+        result = await db.execute(stmt)
+        all_scenes: Sequence[Scene] = result.scalars().all()
+        for s in all_scenes:
+            if s.chapter_ids and str(chapter_index) in s.chapter_ids:
+                return s
+        return None
+
     async def update(
         self,
         db: AsyncSession,

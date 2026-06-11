@@ -73,6 +73,7 @@ globalThis.router = {
   navigate: vi.fn((viewName) => {
     state.currentView = viewName
   }),
+  refresh: vi.fn(),
   registerView: vi.fn(),
   getCurrentView: vi.fn(() => state.currentView),
   onNavigate: vi.fn(),

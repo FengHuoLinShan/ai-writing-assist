@@ -166,7 +166,11 @@ class WritingDraftService:
         """获取章节版本历史"""
         nid = parse_uuid(novel_id, "novel")
         versions = await self._repo.get_version_history(db, nid, chapter_index)
-        items = [DraftListItem.model_validate(v) for v in versions]
+        items = []
+        for v in versions:
+            item = DraftListItem.model_validate(v)
+            item.word_count = len(v.content) if v.content else 0
+            items.append(item)
         return VersionHistoryResponse(
             novel_id=novel_id,
             chapter_index=chapter_index,

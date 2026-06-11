@@ -152,6 +152,24 @@ describe("projectView", () => {
       expect(confirmMock.mock.calls[0][0]).toContain("项目A")
       expect(confirmMock.mock.calls[0][2]).toBe("移至回收站")
     })
+
+    it("确认后删除并调用 router.refresh 刷新列表", async () => {
+      state.projects = [{ id: "p1", title: "项目A" }]
+      api.projects.remove.mockResolvedValue({})
+      // 让 confirmAction 立即执行确认回调
+      vi.mocked(globalThis.confirmAction).mockImplementation(async (_msg, onConfirm) => {
+        await onConfirm()
+      })
+
+      projectView.deleteProject("p1")
+      // 等待 confirmAction 内的异步回调结算
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(api.projects.remove).toHaveBeenCalledWith("p1")
+      // 回归：必须用 refresh（重新拉数据），而非同位置 navigate（会因 isSameRender 跳过 onEnter 显示旧数据）
+      expect(router.refresh).toHaveBeenCalledOnce()
+    })
   })
 
   // ============================================================

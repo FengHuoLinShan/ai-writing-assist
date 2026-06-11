@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { createProject, deleteProject, waitForBackend } from "./helpers/api-client.js"
+import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -32,7 +32,7 @@ test.describe("深度导入流水线", () => {
 
   test.afterEach(async () => {
     if (testProjectId) {
-      try { await deleteProject(testProjectId) } catch {}
+      try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
     }
   })

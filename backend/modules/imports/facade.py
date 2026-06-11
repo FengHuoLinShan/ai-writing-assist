@@ -67,6 +67,7 @@ async def start_deep_import(
     novel_id: str,
     start_chapter: int,
     end_chapter: int,
+    force: bool = False,
 ) -> dict[str, Any]:
     """提交深度导入任务（异步）
 
@@ -75,6 +76,13 @@ async def start_deep_import(
     from infrastructure.tasks.enqueuer import enqueue_task
 
     warning = await _check_duplicate_import(db, novel_id, start_chapter, end_chapter)
+    if warning and not force:
+        return {
+            "status": "requires_confirmation",
+            "requires_confirmation": True,
+            "warning": warning,
+            "message": warning,
+        }
 
     task_id = enqueue_task(
         db,
@@ -90,10 +98,9 @@ async def start_deep_import(
     result: dict[str, Any] = {
         "task_id": task_id,
         "status": "pending",
+        "requires_confirmation": False,
         "message": f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）",
     }
-    if warning:
-        result["warning"] = warning
     return result
 
 

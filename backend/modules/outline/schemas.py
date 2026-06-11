@@ -238,3 +238,12 @@ class SceneReorderResponse(BaseModel):
 class SceneListResponse(BaseModel):
     items: list[SceneResponse]
     total: int
+
+
+class SplitChaptersRequest(BaseModel):
+    """断章请求：将章节从当前 Scene 移到目标 Scene"""
+
+    chapter_index: int = Field(..., ge=1, description="从第几章开始断")
+    target_scene_id: str | None = Field(
+        None, description="目标 Scene ID，为空则新建 Scene"
+    )

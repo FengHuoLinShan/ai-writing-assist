@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         progress: DeepImportProgress,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
             progress.phase = "running"
@@ -37,6 +39,7 @@ class DeepImportWorkflow:
             # Phase 1: Scene 切分
             progress.current_step = DeepImportStep.scene_segmentation
             progress.message = "正在切分叙事 Scene..."
+            await self._emit_progress(progress, 0.0, on_progress)
             phase1_result = await self._segment_scenes(
                 db,
                 novel_id,
@@ -55,6 +58,7 @@ class DeepImportWorkflow:
             # Phase 2: 实体增量提取
             progress.current_step = DeepImportStep.entity_extraction
             progress.message = "正在按 Scene 提取世界对象..."
+            await self._emit_progress(progress, 0.4, on_progress)
             phase2_result = await self._extract_entities_by_scene(
                 db,
                 novel_id,
@@ -68,6 +72,7 @@ class DeepImportWorkflow:
             # Phase 3: 剧情结构分析
             progress.current_step = DeepImportStep.structure_analysis
             progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
+            await self._emit_progress(progress, 0.8, on_progress)
             phase3_result = await self._analyze_structure(
                 db,
                 novel_id,
@@ -85,11 +90,21 @@ class DeepImportWorkflow:
                 f"{phase3_result.get('total_threads', 0)} 条剧情线，"
                 f"{phase3_result.get('total_arcs', 0)} 个篇章纲。"
             )
+            await self._emit_progress(progress, 1.0, on_progress)
 
         else:
             raise ValueError(f"无法处理当前进度状态: {progress.phase}")
 
         return progress
+
+    @staticmethod
+    async def _emit_progress(
+        progress: DeepImportProgress,
+        progress_value: float,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
+    ) -> None:
+        if on_progress is not None:
+            await on_progress(progress, progress_value)
 
     # ------------------------------------------------------------------
     # Phase 1: Scene 切分

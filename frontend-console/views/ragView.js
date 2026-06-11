@@ -189,7 +189,7 @@ const ragView = {
       for (const warning of (result.warnings || [])) {
         toast(warning, "warning")
       }
-      await this.onEnter()
+      await router.refresh()
     } catch (err) {
       toast(err.message || "重建失败", "error")
     }

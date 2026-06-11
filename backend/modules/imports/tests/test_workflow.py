@@ -80,6 +80,58 @@ class TestDeepImportWorkflowAutoRun:
         assert "4 个篇章纲" in result.message
 
     @pytest.mark.asyncio
+    async def test_run_step_emits_phase_progress_updates(self):
+        """运行中应暴露可轮询的阶段进度，而不是只在任务完成后写最终结果。"""
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+        emitted: list[tuple[float, str, str | None, list[str]]] = []
+
+        workflow._segment_scenes = AsyncMock(return_value={
+            "total_scenes": 5, "failed_batches": [], "degraded": False,
+        })
+        workflow._extract_entities_by_scene = AsyncMock(return_value={
+            "total_created": 3, "total_deltas": 2,
+        })
+        workflow._analyze_structure = AsyncMock(return_value={
+            "total_threads": 2, "total_arcs": 4,
+            "threads": [], "arcs": [], "extra_sections": {},
+        })
+
+        async def _on_progress(updated: DeepImportProgress, progress_value: float):
+            emitted.append((
+                progress_value,
+                updated.phase,
+                updated.current_step.value if updated.current_step else None,
+                list(updated.completed_steps),
+            ))
+
+        await workflow.run_step(
+            db=None,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+            on_progress=_on_progress,
+        )
+
+        assert emitted == [
+            (0.0, "running", "scene_segmentation", []),
+            (0.4, "running", "entity_extraction", ["scene_segmentation"]),
+            (
+                0.8,
+                "running",
+                "structure_analysis",
+                ["scene_segmentation", "entity_extraction"],
+            ),
+            (
+                1.0,
+                "done",
+                None,
+                ["scene_segmentation", "entity_extraction", "structure_analysis"],
+            ),
+        ]
+
+    @pytest.mark.asyncio
     async def test_rejects_non_pending_phase(self):
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress(phase="running")

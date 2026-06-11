@@ -44,6 +44,16 @@ async def api_list_projects(
     return await _service.list_projects(db, skip=skip, limit=limit)
 
 
+@router.get("/recycle-bin", response_model=ProjectListResponse)
+async def api_list_deleted_projects(
+    db: DbSession,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+) -> ProjectListResponse:
+    """获取回收站中的项目列表"""
+    return await _service.list_deleted_projects(db, skip=skip, limit=limit)
+
+
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def api_get_project(
     db: DbSession,
@@ -70,17 +80,6 @@ async def api_delete_project(
 ) -> None:
     """软删除项目（移至回收站）"""
     await _service.delete_project(db, project_id)
-
-
-@router.get("/recycle-bin", response_model=ProjectListResponse)
-async def api_list_deleted_projects(
-    db: DbSession,
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-) -> ProjectListResponse:
-    """获取回收站中的项目列表"""
-    return await _service.list_deleted_projects(db, skip=skip, limit=limit)
-
 
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
 async def api_restore_project(

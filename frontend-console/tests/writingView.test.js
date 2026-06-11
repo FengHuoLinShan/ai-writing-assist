@@ -98,3 +98,34 @@ describe("_bindEvents", () => {
     spy.mockRestore()
   })
 })
+
+describe("_submitDeepImport", () => {
+  it("重复导入需要确认时，确认后使用 force=true 重新提交", async () => {
+    state.currentProjectId = "p1"
+    api.imports.deepImport
+      .mockResolvedValueOnce({
+        status: "requires_confirmation",
+        requires_confirmation: true,
+        warning: "第 1-5 章已有数据。重新导入将覆盖现有数据。是否继续？",
+      })
+      .mockResolvedValueOnce({
+        task_id: "task-2",
+        status: "pending",
+        requires_confirmation: false,
+      })
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    const pollingSpy = vi
+      .spyOn(writingView, "_startDeepImportPolling")
+      .mockImplementation(() => {})
+
+    await writingView._submitDeepImport(1, 5)
+
+    expect(api.imports.deepImport).toHaveBeenNthCalledWith(1, "p1", 1, 5, false)
+    expect(api.imports.deepImport).toHaveBeenNthCalledWith(2, "p1", 1, 5, true)
+    expect(writingView._deepImportTaskId).toBe("task-2")
+    expect(writingView._deepImportProgress.phase).toBe("running")
+    expect(pollingSpy).toHaveBeenCalled()
+
+    pollingSpy.mockRestore()
+  })
+})

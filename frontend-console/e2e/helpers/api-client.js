@@ -34,6 +34,12 @@ export async function deleteProject(id) {
   return request(`/projects/${id}`, { method: "DELETE" })
 }
 
+/** 永久删除项目（先软删再硬删，用于测试清理，不留回收站残留） */
+export async function cleanupProject(id) {
+  try { await deleteProject(id) } catch {}
+  try { await request(`/projects/${id}/permanent`, { method: "DELETE" }) } catch {}
+}
+
 export async function listProjects() {
   return request("/projects")
 }
@@ -54,4 +60,30 @@ export async function waitForBackend(maxWaitMs = 30000) {
     await new Promise((r) => setTimeout(r, 500))
   }
   throw new Error("Backend did not become healthy in time")
+}
+
+// ---- Writing helpers ----
+
+export async function createDraft(novelId, chapterIndex, title, content) {
+  return request(`/writing/drafts?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify({ novel_id: novelId, chapter_index: chapterIndex, title, content }),
+  })
+}
+
+export async function listChapters(novelId) {
+  return request(`/writing/chapters?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+// ---- Outline helpers ----
+
+export async function createScene(novelId, data) {
+  return request(`/outline/scenes?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function listScenesOrdered(novelId) {
+  return request(`/outline/scenes/ordered?novel_id=${encodeURIComponent(novelId)}`)
 }

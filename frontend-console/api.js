@@ -18,9 +18,15 @@ function _cacheKey(path, options) {
 }
 
 function _invalidateRelatedCache(path) {
+  // 失效该资源集合的所有 GET 缓存。
+  // 写操作(含 /{id}/restore、/{id}/permanent 这类子动作)都会影响同一集合的列表,
+  // 因此按集合根(第一路径段,如 /projects)清除,避免子路径动作遗漏集合级列表(如 recycle-bin)缓存。
   const base = path.split("?")[0]
+  const collectionRoot = "/" + base.split("/").filter(Boolean)[0]
   for (const key of _apiCache.keys()) {
-    if (key.includes(base) || key.includes(base.split("/").slice(0, -1).join("/"))) {
+    // key 形如 "GET:/projects/recycle-bin?..." — 取出其路径部分按集合根匹配
+    const keyPath = key.slice(key.indexOf(":") + 1)
+    if (keyPath === collectionRoot || keyPath.startsWith(collectionRoot + "/") || keyPath.startsWith(collectionRoot + "?")) {
       _apiCache.delete(key)
     }
   }
@@ -254,12 +260,12 @@ const api = {
 
     /** 获取关系列表 */
     async listRelationships(params = {}) {
-      return request("/world/relationships" + buildQueryString(params))
+      return request("/world/relations" + buildQueryString(params))
     },
 
     /** 创建关系 */
     async createRelationship(payload, novelId) {
-      return request(`/world/relationships${buildQueryString({ novel_id: novelId })}`, {
+      return request(`/world/relations${buildQueryString({ novel_id: novelId })}`, {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -267,7 +273,7 @@ const api = {
 
     /** 删除关系 */
     async deleteRelationship(id, params = {}) {
-      return request(`/world/relationships/${id}` + buildQueryString(params), { method: "DELETE" })
+      return request(`/world/relations/${id}` + buildQueryString(params), { method: "DELETE" })
     },
 
     /** 获取别名列表 */
@@ -475,7 +481,7 @@ const api = {
     },
 
     /** 提交深度导入任务（全自动三步：抽取 + 人物同步 + 剧情生成） */
-    async deepImport(novelId, startChapter, endChapter) {
+    async deepImport(novelId, startChapter, endChapter, force = false) {
       return request("/imports/deep", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -483,6 +489,7 @@ const api = {
           novel_id: novelId,
           start_chapter: startChapter,
           end_chapter: endChapter,
+          force,
         }),
       })
     },
@@ -600,7 +607,16 @@ const api = {
     async reorderScenes(novelId, sceneIds) {
       return request(`/outline/scenes/reorder?novel_id=${encodeURIComponent(novelId)}`, {
         method: "POST",
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ scene_ids: sceneIds }),
+      })
+    },
+    /** 断章：从 chapter_index 开始将章节移到目标 Scene */
+    async splitChapters(novelId, chapterIndex, targetSceneId) {
+      return request(`/outline/scenes/split?novel_id=${encodeURIComponent(novelId)}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ chapter_index: chapterIndex, target_scene_id: targetSceneId || null }),
       })
     },
   },

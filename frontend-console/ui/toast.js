@@ -2,8 +2,48 @@
  * Toast 通知系统
  *
  * 支持 info / success / warning / error 四种类型。
- * 自动 3 秒后淡出消失，同一时间只显示一条。
+ * 最多同时显示 3 条，超出则排队。不同类型有不同显示时长。
  */
+
+const TOAST_DURATIONS = {
+  success: 1500,
+  info: 3000,
+  warning: 4000,
+  error: 5000,
+}
+const MAX_VISIBLE_TOASTS = 3
+let _toastQueue = []
+let _visibleToasts = 0
+
+function _showNextToast() {
+  if (_toastQueue.length === 0 || _visibleToasts >= MAX_VISIBLE_TOASTS) return
+
+  const { message, type } = _toastQueue.shift()
+  const container = document.getElementById("toast-container")
+  if (!container) return
+
+  _visibleToasts++
+
+  const el = document.createElement("div")
+  el.className = "toast " + (type || "info")
+  el.setAttribute("role", "alert")
+  el.setAttribute("aria-live", "polite")
+  el.textContent = message
+  container.appendChild(el)
+
+  const duration = TOAST_DURATIONS[type] || 3000
+  setTimeout(() => {
+    if (el.parentNode) {
+      el.style.opacity = "0"
+      el.style.transition = "opacity 0.3s"
+      setTimeout(() => {
+        if (el.parentNode) el.parentNode.removeChild(el)
+        _visibleToasts--
+        _showNextToast()
+      }, 300)
+    }
+  }, duration)
+}
 
 /**
  * 显示 Toast 通知
@@ -12,38 +52,8 @@
 function showToastNotification(toast) {
   if (!toast || !toast.message) return
 
-  const container = document.getElementById("toast-container")
-  if (!container) return
-
-  // 清除旧的定时器和 toast 元素
-  const app = window.appState
-  if (app && app._toastTimer !== null) {
-    clearTimeout(app._toastTimer)
-    app._toastTimer = null
-  }
-  const existingToasts = container.querySelectorAll(".toast")
-  existingToasts.forEach((t) => {
-    if (t.parentNode) t.parentNode.removeChild(t)
-  })
-
-  const el = document.createElement("div")
-  el.className = "toast " + (toast.type || "info")
-  el.textContent = toast.message
-  container.appendChild(el)
-
-  // 3 秒后自动消失
-  if (app) {
-    app._toastTimer = setTimeout(() => {
-      if (el.parentNode) {
-        el.style.opacity = "0"
-        el.style.transition = "opacity 0.3s"
-        setTimeout(() => {
-          if (el.parentNode) el.parentNode.removeChild(el)
-          if (app) app._toastTimer = null
-        }, 300)
-      }
-    }, 3000)
-  }
+  _toastQueue.push({ message: toast.message, type: toast.type || "info" })
+  _showNextToast()
 }
 
 /**

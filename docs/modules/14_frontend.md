@@ -1,4 +1,4 @@
-# Module: frontend / 前端控制台（原设计以外新增）
+# Module: frontend / 前端控制台
 
 ## 定位
 
@@ -21,30 +21,54 @@ SPA 入口 `index.html`，文件职责：`state.js`（Proxy 响应式）、`rout
 
 | 视图 | 功能 |
 |------|------|
-| projectView | 新建/选择/编辑/删除项目 |
-| worldView | 对象/候选/关系/别名 CRUD + 合并候选 |
-| geoView | 地点树/关系边/历史时期 |
-| characterView | 人物 CRUD + 知识边界 CRUD + AI 抽取（全部更新/单人物） + AI 建议对比确认 |
-| memoryView | 记录列表 + 提案确认/拒绝 |
-| timelineView | 事件 CRUD + 排序（v3 中 API 已迁移至 /api/world/events） |
-| outlineView | 五标签 + 统一提取面板（世界对象抽取/剧情线生成/章节卡提取）|
+| projectView | 新建/选择/编辑/删除项目；回收站管理（列出/恢复/永久删除）；文件上传进度条 |
+| worldView | 实体/候选/关系/别名 CRUD + 合并候选 + 去重检测 |
+| geoView | 已移除（页面保留，数据由 world 模块管理） |
+| characterView | 已移除（页面保留，功能迁入 worldView character 子标签） |
+| memoryView | 全景查询 + 事件列表 + 快照管理 + 全量重建 |
+| timelineView | 已移除（页面保留，功能迁入 worldView events 子标签） |
+| outlineView | 三个子标签：剧情线/篇章纲/Scene。Scene 卡片 CRUD + 拖拽重排 + AI 结构生成 + 章节卡提取 |
 | ragView | 检索 + 索引重建 + 状态 |
-| contextView | 上下文编译 + 预算配置 |
-| reviewView | 复查报告列表/详情 |
-| writingView | 手动工作台（章节树+编辑器+细纲面板）+ 深度导入 + 章节卡提取 |
+| contextView | 上下文编译 + 渲染 |
+| reviewView | 已移除（页面保留） |
+| writingView | 写作工作台：左侧 Scene 树导航 → 中间编辑器 → 右侧 Scene 卡面板；版本历史模态框；深度导入三阶段进度条（40%/40%/20%）；章节卡提取；Ctrl+S 保存 |
 | generateView | 四大 Prompt 生成入口 |
+
+## 写作工作台布局
+
+```
+┌─────────────────┬─────────────────┬──────────────────┐
+│  Scene 树       │  编辑器         │  Scene 卡面板    │
+│                  │                  │                  │
+│ ├─ Scene 1      │  textarea       │  goal: xxx      │
+│ │  ├─ 第1章     │                  │  conflict: xxx  │
+│ │  ├─ 第2章     │                  │  emotional: xxx │
+│ │  └─ 第3章     │                  │  must_happen:   │
+│ ├─ Scene 2      │                  │  must_not:      │
+│ └─ ...          │                  │  tag: rising    │
+└─────────────────┴─────────────────┴──────────────────┘
+```
 
 ## 状态保存机制
 
 - 子标签记忆：`router.js` 维护 `_lastSubViewMap`，切换视图时恢复最后访问的子标签
 - 编辑器内容保持：`state.js` 的 `viewStates` 命名空间独立存储各视图状态，`writingView` 切换时保存/恢复编辑器内容
+- Scene 切换：编辑器内容自动保存到 `viewStates`，加载目标 Scene 的第一个 Chapter
 
 ## API 封装风格
 
 - 统一 `request()` 函数：超时 / 错误映射 / FormData 自动处理
 - 按模块分组：`api.projects.list()` / `api.world.listEntities()` / `api.imports.upload()`
 - 查询字符串：`qs()` 辅助函数
-- AI 抽取：`api.character.extract()` / `extractAll()` / `getSuggestions()` / `applySuggestions()`
+- AI 抽取：`api.world.extractEntities()` / outline 生成
+
+## 深度导入进度轮询
+
+writingView 的深度导入按钮每 3 秒轮询 `GET /api/tasks/{task_id}`，显示三阶段进度条：
+- Phase 1: "Scene 切分: X/Y 批已完成"
+- Phase 2: "实体提取: X/Y 个 Scene"
+- Phase 3: "结构分析..."
+- 降级标记：黄色警告显示降级批次数
 
 ## XSS 防护
 

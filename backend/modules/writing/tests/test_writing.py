@@ -625,7 +625,13 @@ class TestWritingFacade:
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        draft, task_id = await create_draft(db_session, sample_draft_data)
+        draft, task_id = await create_draft(
+            db_session,
+            sample_draft_data.novel_id,
+            sample_draft_data.chapter_index,
+            sample_draft_data.title,
+            sample_draft_data.content or "",
+        )
         assert draft.id is not None
         assert task_id is not None  # 发布任务也应创建
         assert draft.title == "第一章：开端"
@@ -637,7 +643,13 @@ class TestWritingFacade:
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        draft, _ = await create_draft(db_session, sample_draft_data)
+        draft, _ = await create_draft(
+            db_session,
+            sample_draft_data.novel_id,
+            sample_draft_data.chapter_index,
+            sample_draft_data.title,
+            sample_draft_data.content or "",
+        )
         contract = await get_draft(db_session, draft.id)
         assert contract is not None
         assert isinstance(contract, WritingDraftContract)
@@ -657,7 +669,13 @@ class TestWritingFacade:
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await create_draft(db_session, sample_draft_data)
+        await create_draft(
+            db_session,
+            sample_draft_data.novel_id,
+            sample_draft_data.chapter_index,
+            sample_draft_data.title,
+            sample_draft_data.content or "",
+        )
         contract = await get_latest_draft_for_chapter(
             db_session, sample_draft_data.novel_id, 1,
         )
@@ -678,10 +696,7 @@ class TestWritingFacade:
     ) -> None:
         novel_id = str(uuid.uuid4())
         for ch in (1, 1, 3, 5):
-            await create_draft(db_session, WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content="内容",
-            ))
+            await create_draft(db_session, novel_id, ch, f"第{ch}章", "内容")
         indices = await list_chapter_indices(db_session, novel_id)
         assert indices == [1, 3, 5]
 

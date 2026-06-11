@@ -53,6 +53,7 @@ class ProjectResponse(BaseModel):
     settings: dict = {}
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    deleted_at: datetime | None = None
 
     @field_validator("id", mode="before")
     @classmethod

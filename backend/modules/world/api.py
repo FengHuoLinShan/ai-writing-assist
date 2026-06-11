@@ -22,6 +22,7 @@ from modules.world.schemas import (
     CoreEntityListResponse,
     CoreEntityResponse,
     CoreEntityUpdate,
+    EntityAliasCreate,
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
@@ -392,4 +393,47 @@ async def list_entity_batches(
     """
     return await _entity_service.list_entity_batches(
         db, novel_id, limit=limit,
+    )
+
+
+# ============================================================
+# Entity Alias 路由（操作 core_entities.content_json.aliases）
+# ============================================================
+
+
+@router.get("/aliases")
+async def list_aliases(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict]:
+    """列出项目下所有实体的别名"""
+    return await _entity_service.list_aliases(
+        db, novel_id, skip=skip, limit=limit,
+    )
+
+
+@router.post("/aliases", status_code=201)
+async def create_alias(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    data: EntityAliasCreate = ...,
+) -> dict:
+    """为实体添加别名"""
+    return await _entity_service.create_alias(
+        db, novel_id, data.entity_id, data.alias, data.alias_type,
+    )
+
+
+@router.delete("/entities/{entity_id}/aliases")
+async def delete_alias(
+    db: DbSession,
+    entity_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    alias: str = Query(..., description="要删除的别名文本"),
+) -> dict:
+    """删除实体的指定别名"""
+    return await _entity_service.delete_alias(
+        db, novel_id, entity_id, alias,
     )

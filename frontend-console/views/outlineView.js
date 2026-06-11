@@ -319,7 +319,7 @@ const outlineView = {
             description: document.getElementById("create-thread-desc")?.value || "",
           })
           toast("剧情线已创建", "success")
-          router.navigate("outline", "threads")
+          router.refresh()
         } catch (err) { toast(err.message || "创建失败", "error") }
       },
     }])
@@ -356,7 +356,7 @@ const outlineView = {
             description: document.getElementById("edit-thread-desc")?.value,
           })
           toast("已保存", "success")
-          router.navigate("outline", "threads")
+          router.refresh()
         } catch (err) { toast(err.message || "保存失败", "error") }
       },
     }])
@@ -367,7 +367,7 @@ const outlineView = {
       try {
         await api.outline.deleteThread(id, state.currentProjectId)
         toast("已删除", "success")
-        router.navigate("outline", "threads")
+        router.refresh()
       } catch (err) { toast(err.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -403,7 +403,7 @@ const outlineView = {
             arc_goal: document.getElementById("create-arc-desc")?.value || "",
           })
           toast("篇章纲已创建", "success")
-          router.navigate("outline", "arcs")
+          router.refresh()
         } catch (err) { toast(err.message || "创建失败", "error") }
       },
     }])
@@ -441,7 +441,7 @@ const outlineView = {
             description: document.getElementById("edit-arc-desc")?.value?.trim(),
           })
           toast("已保存", "success")
-          router.navigate("outline", "arcs")
+          router.refresh()
         } catch (err) { toast(err.message || "保存失败", "error") }
       },
     }])
@@ -452,7 +452,7 @@ const outlineView = {
       try {
         await api.outline.deleteArc(id, state.currentProjectId)
         toast("已删除", "success")
-        router.navigate("outline", "arcs")
+        router.refresh()
       } catch (err) { toast(err.message || "删除失败", "error") }
     }, "确认删除")
   },
@@ -527,7 +527,7 @@ const outlineView = {
             status: "draft",
           })
           toast("Scene 卡已创建", "success")
-          router.navigate("outline", "scenes")
+          router.refresh()
         } catch (err) { toast(err.message || "创建失败", "error") }
       },
     }])
@@ -591,7 +591,7 @@ const outlineView = {
             must_not_happen: document.getElementById("edit-scene-must-not")?.value?.trim() || null,
           })
           toast("已保存", "success")
-          router.navigate("outline", "scenes")
+          router.refresh()
         } catch (err) { toast(err.message || "保存失败", "error") }
       },
     }])
@@ -602,7 +602,7 @@ const outlineView = {
       try {
         await api.outline.deleteScene(id, state.currentProjectId)
         toast("已删除", "success")
-        router.navigate("outline", "scenes")
+        router.refresh()
       } catch (err) { toast(err.message || "删除失败", "error") }
     }, "确认删除")
   },

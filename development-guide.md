@@ -25,7 +25,7 @@ python run_worker.py --reload    # Task worker with auto-reload
 
 # Database
 make db                          # docker compose up -d
-make migrate                     # alembic upgrade head
+make migrate                     # alembic upgrade head (demo 阶段也可直接重建开发库)
 
 # Testing & linting
 make test                        # All tests
@@ -80,8 +80,9 @@ modules/<name>/
 
 ## Database Design Principles
 
-- Candidate-separate-from-canonical: AI output into candidate/proposal tables first
-- Status over deletion: Use status field (draft/candidate/canonical/deprecated/ignored/conflicted) instead of hard DELETE
+- Candidate-separate-from-canonical by default: AI output enters candidate/proposal tables first; user-confirmed automated pipelines may write canonical records directly with editable/rollback metadata
+- Runtime business deletes prefer status fields (draft/candidate/canonical/deprecated/ignored/conflicted); project permanent delete and demo database rebuilds may hard delete
+- Demo-stage schema refactors do not need data-preserving migrations; drop/recreate the dev database when faster
 - Prompts merge, data splits: One prompt output contains multiple arrays → stored into separate tables
 - JSONB for flex fields: Scene cards in chapter_cards.scene_cards JSONB
 - PostgreSQL + pgvector + pg_trgm for vector search, name similarity, dedup
@@ -100,8 +101,9 @@ modules/<name>/
 ## AI Development Rules
 
 - When modifying contracts.py, facade.py, API routes, Pydantic schemas, or DB schema: must also update module README, tests, all callers, and docs
+- DB schema refactors may reset the demo database instead of carrying historical migrations; keep ORM/schema/tests/docs in sync
 - Each module owns its tests. Run that module's tests after modification. Cross-module flows go in tests/integration/
-- The system uses 4 core creative prompts (not multi-agent). Tool-specific prompt files may exist for bounded workflows, e.g. `structure_extraction.md` for entity candidate extraction.
+- The system uses core creative prompts plus bounded tool prompts, not an autonomous multi-agent runtime.
 - Entity extraction is NOT NER. Extract only "long-term creative assets."
 
 ## Frontend Principles

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { createProject, deleteProject, waitForBackend } from "./helpers/api-client.js"
+import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("世界对象 — 关系与别名", () => {
   let testProjectId = null
@@ -31,7 +31,7 @@ test.describe("世界对象 — 关系与别名", () => {
 
   test.afterEach(async () => {
     if (testProjectId) {
-      try { await deleteProject(testProjectId) } catch {}
+      try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
     }
   })

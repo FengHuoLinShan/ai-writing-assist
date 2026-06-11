@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -10,11 +9,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import Scene
-from shared.utils import parse_uuid
+from shared.utils import parse_uuid, parse_llm_json
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 5
+BATCH_SIZE = 3
 OVERLAP = 1
 MAX_LLM_RETRIES = 3
 
@@ -215,16 +214,17 @@ class SceneSegmentationService:
                 ),
             ],
             temperature=0.3,
+            max_tokens=16384,
             response_format={"type": "json_object"},
         )
 
-        llm_client = LLMClient()
+        llm_client = LLMClient(timeout=180)
         last_error: Exception | None = None
 
         for attempt in range(MAX_LLM_RETRIES):
             try:
                 raw = await llm_client.generate(request)
-                parsed = json.loads(raw.content)
+                parsed = parse_llm_json(raw.content, f"Batch {batch_idx} LLM response")
                 scenes_data = parsed.get("scenes", [])
                 if not scenes_data:
                     raise ValueError("LLM returned empty scenes list")
@@ -267,14 +267,14 @@ class SceneSegmentationService:
                     ),
                 ],
                 temperature=0.3,
-                response_format={"type": "json_object"},
+                max_tokens=4096,
             )
 
-            llm_client = LLMClient()
+            llm_client = LLMClient(timeout=120)
             for attempt in range(MAX_LLM_RETRIES):
                 try:
                     raw = await llm_client.generate(request)
-                    parsed = json.loads(raw.content)
+                    parsed = parse_llm_json(raw.content, f"Single-ch {ch['chapter_index']}")
                     scenes = parsed.get("scenes", [])
                     if scenes:
                         all_scenes.extend(scenes)

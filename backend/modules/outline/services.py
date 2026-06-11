@@ -164,6 +164,93 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         updated = await self.repo.reorder(db, nid, ids)
         return {"updated": updated, "total": len(scene_ids)}
 
+    async def split_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        target_scene_id: str | None = None,
+    ) -> list[SceneContract]:
+        """断章：将章节从当前 Scene 移到目标 Scene（或新建 Scene）。
+
+        从 chapter_index 开始的所有章节从源 Scene 移除，归入目标 Scene。
+        如果 target_scene_id 为 None，则新建一个 Scene。
+        """
+        from modules.outline.schemas import SceneCreate
+
+        nid = parse_uuid(novel_id, "novel_id")
+        tid = parse_uuid(target_scene_id, "scene_id") if target_scene_id else None
+
+        # 找到包含此章节的源 Scene
+        source_scene = await self.repo.get_by_chapter_index(db, nid, chapter_index)
+        if source_scene is None:
+            raise ValueError(f"Chapter {chapter_index} is not assigned to any Scene")
+
+        src_ids = source_scene.chapter_ids or []
+        # 找到断点位置
+        split_point = None
+        for i, cid in enumerate(src_ids):
+            try:
+                if int(cid) >= chapter_index:
+                    split_point = i
+                    break
+            except (ValueError, TypeError):
+                continue
+
+        if split_point is None:
+            raise ValueError(f"Chapter {chapter_index} not found in source Scene")
+
+        # 从断点分割
+        keep_ids = src_ids[:split_point]
+        move_ids = src_ids[split_point:]
+
+        # 更新源 Scene
+        source_scene.chapter_ids = keep_ids
+        db.add(source_scene)
+
+        # 目标 Scene
+        if tid:
+            target = await self.repo.get(db, tid)
+            if target is None or str(target.novel_id) != str(nid):
+                raise ValueError(f"Target Scene {target_scene_id} not found")
+            target_ids = list(target.chapter_ids or [])
+            target_ids.extend(move_ids)
+            target_ids = sorted(set(target_ids), key=lambda x: int(x) if str(x).isdigit() else 0)
+            target.chapter_ids = target_ids
+            db.add(target)
+        else:
+            # 新建 Scene
+            new_scene = Scene(
+                novel_id=nid,
+                scene_index=source_scene.scene_index + 1,
+                title=f"Scene (断章自 Ch.{chapter_index})",
+                chapter_ids=move_ids,
+                source="manual",
+            )
+            db.add(new_scene)
+
+        await db.flush()
+
+        # 返回更新后的 scenes
+        scenes = await self.repo.get_by_novel_ordered(db, nid)
+        return [
+            SceneContract(
+                id=str(s.id), novel_id=str(s.novel_id),
+                scene_index=s.scene_index, title=s.title,
+                goal=s.goal, core_conflict=s.core_conflict,
+                emotional_beat=s.emotional_beat,
+                must_happen=s.must_happen,
+                must_not_happen=s.must_not_happen,
+                narrative_tag=s.narrative_tag,
+                source=s.source,
+                scene_chunks=s.scene_chunks or [],
+                chapter_ids=s.chapter_ids or [],
+                pov_character_id=s.pov_character_id,
+                status=s.status,
+            )
+            for s in scenes
+        ]
+
 
 def _per_item_validate(
     data: dict | list | None,

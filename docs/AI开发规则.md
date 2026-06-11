@@ -43,9 +43,10 @@
 
 ## 4. 数据与正史规则
 
-- AI 生成内容不直接入正史。必须通过 candidate / proposal → 用户确认 → canonical 流程。
+- AI 生成内容默认不直接入正史，走 candidate / proposal → 用户确认 → canonical；用户确认启动的自动流水线可直接写入 canonical，并保留可编辑/可回滚标记。
 - 所有 LLM 输出必须经过 Pydantic schema 校验。
 - API 不允许跨 novel_id 读写数据。
+- 当前处于 demo 阶段，数据库 schema 重构不要求保留旧数据迁移；可以直接删除并重建开发数据库。
 
 ## 5. 修改公共接口
 

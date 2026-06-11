@@ -82,7 +82,7 @@ class Settings:
     bge_onnx_quantization: str = field(default_factory=lambda: _env(
         "BGE_ONNX_QUANTIZATION", "int8",
     ))
-    inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "5.0"))
+    inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "30.0"))
     inference_worker_max_batch: int = int(_env("INFERENCE_WORKER_MAX_BATCH", "64"))
 
     # --- CORS ---

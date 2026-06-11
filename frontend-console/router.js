@@ -126,6 +126,9 @@ function getLastSubView(viewName) {
   return _lastSubViewMap[viewName] || null
 }
 
+/** @type {boolean} 下一次渲染强制重新执行 onEnter（用于增删改后刷新当前视图） */
+let _forceRefresh = false
+
 async function renderCurrentView() {
   const viewName = state.currentView
   const content = document.getElementById("workspace-content")
@@ -154,7 +157,9 @@ async function renderCurrentView() {
   }
   _prevView = viewName
 
-  const isSameRender = _prevRenderedView === viewName && _prevRenderedSubView === (state.currentSubView || "")
+  const forceRefresh = _forceRefresh
+  _forceRefresh = false
+  const isSameRender = !forceRefresh && _prevRenderedView === viewName && _prevRenderedSubView === (state.currentSubView || "")
   const renderer = viewRenderers[viewName]
 
   state.loading = true
@@ -163,7 +168,7 @@ async function renderCurrentView() {
     if (renderer) {
       const cacheKey = `${viewName}:${state.currentSubView || ""}`
       const cached = _viewDomCache[cacheKey]
-      if (cached && _keepAliveViews.has(viewName)) {
+      if (cached && _keepAliveViews.has(viewName) && !forceRefresh) {
         content.innerHTML = ""
         content.appendChild(cached)
         delete _viewDomCache[cacheKey]
@@ -242,6 +247,18 @@ async function navigate(viewName, subView = null, pushHistory = true) {
 }
 
 /**
+ * 强制刷新当前视图：重新执行 onEnter()（重新拉取数据）并重渲染。
+ * 用于增删改操作后刷新列表 —— navigate 到当前位置会因 isSameRender 跳过 onEnter，
+ * 导致界面显示旧数据，refresh 绕过该优化。
+ */
+async function refresh() {
+  _forceRefresh = true
+  const cacheKey = `${state.currentView}:${state.currentSubView || ""}`
+  delete _viewDomCache[cacheKey]
+  await renderCurrentView()
+}
+
+/**
  * 根据当前 hash 初始化路由
  */
 function initRouter() {
@@ -289,4 +306,4 @@ function initRouter() {
 }
 
 // 导出
-window.router = { navigate, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView }
+window.router = { navigate, refresh, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView }

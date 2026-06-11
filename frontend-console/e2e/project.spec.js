@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { createProject, deleteProject, waitForBackend } from "./helpers/api-client.js"
+import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("项目模块", () => {
   let testProjectId = null
@@ -19,7 +19,7 @@ test.describe("项目模块", () => {
   test.afterEach(async () => {
     if (testProjectId) {
       try {
-        await deleteProject(testProjectId)
+        await cleanupProject(testProjectId)
       } catch {}
       testProjectId = null
     }
@@ -141,7 +141,6 @@ test.describe("项目模块", () => {
     // 刷新页面验证项目已消失
     await page.reload()
     await expect(page.locator(SEL.projectCard(project.id))).toHaveCount(0, { timeout: 15000 })
-    testProjectId = null
   })
 
   test("点击项目行切换到项目并显示在世界视图", async ({ page }) => {

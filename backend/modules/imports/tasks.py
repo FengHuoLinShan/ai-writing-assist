@@ -34,12 +34,22 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
 
     workflow = DeepImportWorkflow()
     progress = DeepImportProgress()
+
+    async def _record_progress(
+        updated: DeepImportProgress,
+        progress_value: float,
+    ) -> None:
+        task.result = updated.model_dump(mode="json")
+        task.update_progress(progress_value)
+        await db.commit()
+
     progress = await workflow.run_step(
         db,
         novel_id=novel_id,
         start_chapter=start_chapter,
         end_chapter=end_chapter,
         progress=progress,
+        on_progress=_record_progress,
     )
 
     logger.info(
