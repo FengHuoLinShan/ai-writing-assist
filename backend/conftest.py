@@ -24,6 +24,7 @@ import infrastructure.tasks.models  # noqa: F401
 import modules.imports.models  # noqa: F401
 
 # character/geo/review/timeline 已从 minimal-core 移除
+import modules.memory.models  # noqa: F401
 import modules.outline.models  # noqa: F401
 
 # 导入所有 ORM 模型注册到 Base.metadata
