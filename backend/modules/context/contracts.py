@@ -20,6 +20,8 @@ class CompileOptions:
     task: str
     scope: str
     chapter_index: int | None = None
+    scene_id: str | None = None
+    """当前 Scene ID（scene-centric 编译时提供）"""
     arc_id: str | None = None
     entity_ids: list[str] | None = None
     character_ids: list[str] | None = None
@@ -30,6 +32,10 @@ class CompileOptions:
     """视角人物 ID（reveal_mode="character" 时必填）"""
     enable_geo_filter: bool = False
     mode: str = "writing"  # CompileMode value: "writing" or "debug"
+    budget_tokens: int = 4000
+    """总 token 预算，默认 4000"""
+    top_k: int = 8
+    """RAG 检索上限"""
 
 
 @dataclass
@@ -71,6 +77,8 @@ class StructureContextBundle:
     """当前篇章纲"""
     chapter_card: dict | None = None
     """当前章节卡"""
+    scene: dict | None = None
+    """当前 Scene 卡"""
     rag_chunks: list = field(default_factory=list)
     """RAG 检索片段列表"""
 

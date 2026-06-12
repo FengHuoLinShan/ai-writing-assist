@@ -23,6 +23,10 @@ class ContextCompileRequest(BaseModel):
         ge=0,
         description="当前章节索引（scope=chapter 时必填）",
     )
+    scene_id: str | None = Field(
+        None,
+        description="当前 Scene ID（scene-centric 编译时使用）",
+    )
     arc_id: str | None = Field(
         None,
         description="当前篇章 ID（scope=arc 时必填）",
@@ -50,6 +54,12 @@ class ContextCompileRequest(BaseModel):
     enable_geo_filter: bool = Field(
         default=False,
         description="是否启用地缘可达性过滤",
+    )
+    budget_tokens: int = Field(
+        default=4000,
+        ge=500,
+        le=32000,
+        description="总 token 预算",
     )
 
 
@@ -100,6 +110,10 @@ class ContextRenderRequest(BaseModel):
         ge=0,
         description="当前章节索引",
     )
+    scene_id: str | None = Field(
+        None,
+        description="当前 Scene ID（scene-centric 编译时使用）",
+    )
     arc_id: str | None = Field(
         None,
         description="当前篇章 ID",
@@ -128,6 +142,12 @@ class ContextRenderRequest(BaseModel):
         default=False,
         description="是否启用地缘可达性过滤",
     )
+    budget_tokens: int = Field(
+        default=4000,
+        ge=500,
+        le=32000,
+        description="总 token 预算",
+    )
 
 
 class ContextRenderResponse(BaseModel):
@@ -138,3 +158,30 @@ class ContextRenderResponse(BaseModel):
         ...,
         description="编译元信息",
     )
+
+
+class ContextSectionItem(BaseModel):
+    """单个 Tier 段"""
+
+    key: str = Field(..., description="段标识")
+    tier: int = Field(..., description="优先级 Tier 0-4")
+    content: str = Field(..., description="段内容")
+    token_count: int = Field(..., description="估算 token 数")
+    truncated: bool = Field(default=False, description="是否被截断")
+
+
+class ContextTierCompileResponse(BaseModel):
+    """Scene-Centric 编译响应"""
+
+    novel_id: str
+    task: str
+    scope: str
+    reveal_mode: str
+    scene_id: str | None = None
+    viewpoint_character_id: str | None = None
+    total_tokens: int = Field(default=0)
+    budget_tokens: int = Field(default=4000)
+    sections: list[ContextSectionItem] = Field(default_factory=list)
+    evicted: list[str] = Field(default_factory=list, description="被驱逐的段 key 列表")
+    truncated: list[str] = Field(default_factory=list, description="被截断的段 key 列表")
+    warnings: list[str] = Field(default_factory=list)

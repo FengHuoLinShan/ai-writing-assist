@@ -33,6 +33,8 @@ from modules.context.schemas import (
     ContextCompileResponse,
     ContextRenderRequest,
     ContextRenderResponse,
+    ContextSectionItem,
+    ContextTierCompileResponse,
 )
 from modules.context.services import CompileOptions, ContextCompiler
 from modules.context.services.compiled_context import Tier
@@ -1332,3 +1334,60 @@ class TestSchemaValidation:
             section_count=1,
         )
         assert resp.section_count == len(resp.sections_present)
+
+    def test_compile_request_accepts_scene_id_and_budget_tokens(self) -> None:
+        """编译请求应接受 scene_id 和 budget_tokens"""
+        req = ContextCompileRequest(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            scene_id="scene-1",
+            budget_tokens=8000,
+        )
+        assert req.scene_id == "scene-1"
+        assert req.budget_tokens == 8000
+
+    def test_compile_request_budget_tokens_bounds(self) -> None:
+        """budget_tokens 低于 500 或高于 32000 应被拒绝"""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ContextCompileRequest(
+                novel_id="id",
+                task="t",
+                scope="chapter",
+                budget_tokens=499,
+            )
+
+        with pytest.raises(ValidationError):
+            ContextCompileRequest(
+                novel_id="id",
+                task="t",
+                scope="chapter",
+                budget_tokens=32001,
+            )
+
+    def test_tier_compile_response_defaults(self) -> None:
+        """Tier 编译响应默认值应正确"""
+        resp = ContextTierCompileResponse(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            reveal_mode="author_safe",
+        )
+        assert resp.total_tokens == 0
+        assert resp.budget_tokens == 4000
+        assert resp.sections == []
+        assert resp.evicted == []
+        assert resp.truncated == []
+        assert resp.warnings == []
+
+    def test_section_item_defaults(self) -> None:
+        """ContextSectionItem 默认值应正确"""
+        item = ContextSectionItem(
+            key="project",
+            tier=0,
+            content="test",
+            token_count=10,
+        )
+        assert item.truncated is False
