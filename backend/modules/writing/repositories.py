@@ -43,6 +43,7 @@ class WritingDraftRepository:
             title=data.title,
             content=data.content,
             version_number=next_version,
+            status="draft",
         )
         db.add(draft)
         await db.flush()

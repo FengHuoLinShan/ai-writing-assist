@@ -23,3 +23,4 @@ class WritingDraftContract:
     title: str | None = None
     content: str | None = None
     version_number: int = 1
+    status: str = "draft"

@@ -62,8 +62,17 @@ def split_chapters(text: str) -> list[dict[str, str]]:
 
 def parse_txt(data: bytes) -> list[dict[str, str]]:
     """解析 TXT 文件内容"""
+    if not data:
+        return []
     encoding = detect_encoding(data)
-    text = data.decode(encoding, errors="replace")
+    if encoding is None:
+        raise ValueError("无法检测文本编码，请使用 UTF-8 或常见中文编码保存文件")
+    try:
+        text = data.decode(encoding, errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            "文本编码无法正确解析，请使用 UTF-8 或常见中文编码保存文件"
+        ) from exc
     return split_chapters(text)
 
 

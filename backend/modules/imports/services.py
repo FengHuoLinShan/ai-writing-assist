@@ -122,15 +122,16 @@ class ImportService:
 
             logger = logging.getLogger(__name__)
             logger.warning("导入参数错误: %s", exc)
+            error_message = str(exc)[:1000]
             await self._repo.update_status(
                 db,
                 record.id,
                 status="failed",
-                error_message=str(exc)[:1000],
+                error_message=error_message,
             )
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="导入参数错误",
+                detail=error_message,
             ) from exc
         except Exception as exc:
             import logging
@@ -186,14 +187,18 @@ class ImportService:
         """校验文件类型和大小，返回文件类型"""
         ext = _get_extension(file_name)
         if ext not in ALLOWED_EXTENSIONS:
+            allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的文件类型: {ext}。仅支持: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+                detail=f"不支持的文件类型: {ext}。仅支持: {allowed}",
             )
         if file_size > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"文件过大（{file_size} bytes），最大允许 {MAX_FILE_SIZE} bytes（50MB）",
+                detail=(
+                    f"文件过大（{file_size} bytes），"
+                    f"最大允许 {MAX_FILE_SIZE} bytes（50MB）"
+                ),
             )
         # 文件类型去掉点号
         return ext.lstrip(".")
