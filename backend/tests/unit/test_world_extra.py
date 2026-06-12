@@ -568,7 +568,8 @@ class TestDedupCascadeScore:
         )
         # sim = round(0.50 + 0.95 * 0.35, 4) = 0.8325
         # 0.8325 > 0.88? No -> falls through
-        # Wait: if semantic_cosine >= 0.85 -> already handled. 0.95 >= 0.85 -> returns (0.90, "semantic", merge)
+        # Wait: if semantic_cosine >= 0.85 -> already handled.
+        # 0.95 >= 0.85 -> returns (0.90, "semantic", merge)
         assert sim == 0.90
         assert method == "semantic"
 

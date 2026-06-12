@@ -214,7 +214,8 @@ class TestRealEntityExtraction:
         # Assert
         assert result.total_chapters == FIRST_10
         assert result.total_created > 0, (
-            f"应抽取到世界对象候选。创建 {result.total_created}，跳过 {result.total_skipped}"
+            f"应抽取到世界对象候选。创建 {result.total_created}，"
+            f"跳过: {result.total_skipped}"
         )
         created_names = [item["name"] for item in result.items]
         created_types = [item["entity_type"] for item in result.items]
