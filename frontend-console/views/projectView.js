@@ -440,7 +440,7 @@ const projectView = {
         state.projects = data.items || data || []
 
         const result = await api.imports.upload(project.id, file)
-        toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
+        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，成功 ${result.imported_chapters || 0} 章`, "success")
         api.clearCache()
         await router.navigate("writing")
         await router.refresh()
@@ -516,7 +516,7 @@ const projectView = {
         <span class="status-dot ${r.status === "done" ? "success" : r.status === "failed" ? "error" : r.status === "processing" ? "warning" : "info"}"></span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-body);">${esc(r.file_name)}</span>
         <span class="pill ${statusClass[r.status] || ""}">${statusMap[r.status] || r.status}</span>
-        <span style="color:var(--text-secondary);font-size:12px;">${r.imported_chapters || 0}/${r.total_chapters || 0} 章</span>
+        <span style="color:var(--text-secondary);font-size:12px;">成功 ${r.imported_chapters || 0} / 共 ${r.total_chapters || 0} 章</span>
         <span style="color:var(--text-tertiary);font-size:12px;font-family:var(--font-mono);">${time}</span>
       </div>`
     }
@@ -576,7 +576,7 @@ const projectView = {
         xhr.send(formData)
       })
 
-      toast(`导入完成：${result.imported_chapters} 章`, "success")
+      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，成功 ${result.imported_chapters || 0} 章`, "success")
       api.clearCache()
       await router.navigate("writing")
       await router.refresh()
