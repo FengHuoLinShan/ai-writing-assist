@@ -673,6 +673,20 @@ class CharacterListResponse(BaseModel):
     total: int
 
 
+def _require_misconception_for_false_belief_or_misunderstood(
+    model: BaseModel,
+) -> BaseModel:
+    """shared model_validator: false_belief/misunderstood 必须提供 misconception。"""
+    if (
+        getattr(model, "knowledge_level") in {"false_belief", "misunderstood"}
+        and not getattr(model, "misconception")
+    ):
+        raise ValueError(
+            "false_belief/misunderstood knowledge must provide misconception",
+        )
+    return model
+
+
 class CharacterKnowledgeCreate(BaseModel):
     """创建人物知识记录请求。novel_id 由 service 注入。"""
 
@@ -690,22 +704,20 @@ class CharacterKnowledgeCreate(BaseModel):
     knowledge_level: str = Field(
         ...,
         max_length=32,
-        description="了解程度（unknown/rumor/partial/full/false_belief）",
+        description="了解程度（unknown/rumor/partial/full/false_belief/restricted/misunderstood）",
     )
     known_content: str | None = Field(None, description="角色已知的内容")
     misconception: str | None = Field(
         None,
-        description="角色的误解内容（仅 false_belief 时使用）",
+        description="角色的误解内容（false_belief 或 misunderstood 时使用）",
     )
     source_chapter_index: int | None = Field(None, ge=0, description="信息来源章节")
     source_memory_id: str | None = Field(None, description="关联的 memory 记录 ID")
     status: str = Field(default="canonical", max_length=32, description="状态")
 
-    @model_validator(mode="after")
-    def require_misconception_for_false_belief(self) -> CharacterKnowledgeCreate:
-        if self.knowledge_level == "false_belief" and not self.misconception:
-            raise ValueError("false_belief knowledge must provide misconception")
-        return self
+    require_misconception_for_false_belief_or_misunderstood = model_validator(
+        mode="after",
+    )(_require_misconception_for_false_belief_or_misunderstood)
 
 
 class CharacterKnowledgeUpdate(BaseModel):
@@ -717,6 +729,10 @@ class CharacterKnowledgeUpdate(BaseModel):
     source_chapter_index: Annotated[int | None, Field(None, ge=0)]
     source_memory_id: Annotated[str | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
+
+    require_misconception_for_false_belief_or_misunderstood = model_validator(
+        mode="after",
+    )(_require_misconception_for_false_belief_or_misunderstood)
 
 
 class CharacterKnowledgeResponse(BaseModel):

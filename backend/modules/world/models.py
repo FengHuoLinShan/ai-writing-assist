@@ -520,7 +520,7 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
         String(32),
         nullable=False,
         default="unknown",
-        comment="了解程度（unknown/rumor/partial/full/false_belief）",
+        comment="了解程度（unknown/rumor/partial/full/false_belief/restricted/misunderstood）",
     )
     known_content: Mapped[str | None] = mapped_column(
         Text,
@@ -530,7 +530,7 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
     misconception: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="角色的误解内容（仅 false_belief 时使用）",
+        comment="角色的误解内容（false_belief 或 misunderstood 时使用）",
     )
     source_chapter_index: Mapped[int | None] = mapped_column(
         Integer,

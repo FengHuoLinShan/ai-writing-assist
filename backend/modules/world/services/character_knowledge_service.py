@@ -26,6 +26,18 @@ from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
+def _require_misconception_for_misunderstood(
+    level: str,
+    misconception: str | None,
+) -> None:
+    """misunderstood 作为 false_belief 的别名，同样要求提供 misconception。"""
+    if level == "misunderstood" and not misconception:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="misunderstood knowledge must provide misconception",
+        )
+
+
 class CharacterKnowledgeService(
     CrudService[
         CharacterKnowledge,
@@ -63,7 +75,35 @@ class CharacterKnowledgeService(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Character not found in this novel",
             )
+        # Schema 已做基础校验；服务层再次检查作为 defense-in-depth，
+        # 确保任何绕过 schema 的情况都能返回受控的 HTTP 422 错误信息。
+        _require_misconception_for_misunderstood(
+            data.knowledge_level,
+            data.misconception,
+        )
         return await super().create(db, novel_id, data)
+
+    async def update(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        id: str,
+        data: CharacterKnowledgeUpdate,
+        *,
+        novel_id: str,
+    ) -> CharacterKnowledgeResponse:
+        """update 时校验 misunderstood 必须提供 misconception。"""
+        # Schema 已校验；服务层保留 defense-in-depth 二次校验，统一返回 HTTP 422。
+        if data.knowledge_level == "misunderstood":
+            rid = parse_uuid(id, self.id_param)
+            existing = await self.repo.get(db, rid)
+            misconception = data.misconception
+            if existing is not None and misconception is None:
+                misconception = existing.misconception
+            _require_misconception_for_misunderstood(
+                data.knowledge_level,
+                misconception,
+            )
+        return await super().update(db, id, data, novel_id=novel_id)
 
     # ============================================================
     # list 加按 character_id 过滤 (base 的 list 是按 novel_id 列表)

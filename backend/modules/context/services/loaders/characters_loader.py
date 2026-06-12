@@ -95,7 +95,7 @@ class CharactersLoader(Loader):
                     mapped.pop("target_type", None)
                     mapped.pop("target_id", None)
                     mapped.pop("original_content", None)
-                    if ent.get("knowledge_level") == "false_belief":
+                    if ent.get("knowledge_level") in {"false_belief", "misunderstood"}:
                         misconception = ent.get("content", "")
                         if misconception:
                             mapped["summary"] = misconception

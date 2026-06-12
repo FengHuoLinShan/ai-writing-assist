@@ -226,21 +226,37 @@ class CharacterService(
 
             if level == "unknown":
                 removed_count += 1
-            elif level == "false_belief":
+            elif level in {"false_belief", "misunderstood"}:
                 filtered_item = dict(item)
+                filtered_item.pop("hidden_truth", None)
                 filtered_item["original_content"] = filtered_item.get("content", "")
                 filtered_item["content"] = (
                     knowledge["misconception"] or knowledge["known_content"] or ""
                 )
-                filtered_item["knowledge_level"] = "false_belief"
+                filtered_item["knowledge_level"] = level
                 filtered_item["is_misconception"] = True
                 filtered_items.append(filtered_item)
                 replaced_count += 1
-            else:
+            elif level == "restricted":
+                filtered_item = dict(item)
+                filtered_item.pop("hidden_truth", None)
+                filtered_item["knowledge_level"] = level
+                if knowledge["known_content"]:
+                    filtered_item["content"] = knowledge["known_content"]
+                    filtered_item["summary"] = knowledge["known_content"]
+                filtered_items.append(filtered_item)
+            elif level in {"partial", "rumor"}:
                 filtered_item = dict(item)
                 filtered_item["knowledge_level"] = level
                 if knowledge["known_content"]:
-                    filtered_item["character_known_content"] = knowledge["known_content"]
+                    filtered_item["character_known_content"] = knowledge[
+                        "known_content"
+                    ]
+                filtered_items.append(filtered_item)
+            else:
+                # full 等明确等级：按原样保留（包括 hidden_truth）
+                filtered_item = dict(item)
+                filtered_item["knowledge_level"] = level
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
