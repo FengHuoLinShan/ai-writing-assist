@@ -5,6 +5,9 @@
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 
+const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
+const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
+
 const outlineView = {
   _threads: [],
   _arcs: [],
@@ -130,8 +133,8 @@ const outlineView = {
     )
 
     html += '<div class="scene-card-list">'
-    const allowedTags = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
-    const allowedStatuses = new Set(["canonical", "draft", "candidate", "deprecated"])
+    const allowedTags = SCENE_ALLOWED_TAGS
+    const allowedStatuses = ENTITY_ALLOWED_STATUSES
 
     for (const s of sorted) {
       const tagLabel = this._narrativeTagLabel(s.narrative_tag)
@@ -217,7 +220,7 @@ const outlineView = {
         <tbody>
     `
 
-    const allowedStatuses = new Set(["canonical", "draft", "candidate", "deprecated"])
+    const allowedStatuses = ENTITY_ALLOWED_STATUSES
 
     for (const t of this._threads) {
       const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
@@ -276,7 +279,7 @@ const outlineView = {
         <tbody>
     `
 
-    const allowedStatuses = new Set(["canonical", "draft", "candidate", "deprecated"])
+    const allowedStatuses = ENTITY_ALLOWED_STATUSES
 
     for (const a of this._arcs) {
       const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
