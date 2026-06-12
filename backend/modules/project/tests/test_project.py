@@ -204,23 +204,22 @@ class TestProjectCrud:
     # --------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_soft_delete(
+    async def test_soft_delete_hides_from_get_and_list(
         self,
         db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
-        """测试软删除项目"""
         created = await _repo.create(db_session, sample_create_data)
+
         deleted = await _repo.soft_delete(db_session, created.id)
+
         assert deleted is True
+        assert await _repo.get(db_session, created.id) is None
+        deleted_project = await _repo.get_deleted(db_session, created.id)
+        assert deleted_project is not None
+        assert deleted_project.deleted_at is not None
 
-        # get 不过滤 deleted_at，仍能获取
-        fetched = await _repo.get(db_session, created.id)
-        assert fetched is not None
-        assert fetched.deleted_at is not None
-
-        # 但不在正常 list 中
-        items, total = await _repo.list(db_session, skip=0, limit=10)
+        items, _total = await _repo.list(db_session, skip=0, limit=10)
         assert all(item.id != created.id for item in items)
 
     @pytest.mark.asyncio
@@ -439,6 +438,21 @@ class TestProjectService:
         with pytest.raises(HTTPException) as exc_info:
             await service.delete_project(db_session, fake_id)
         assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_restore_project_returns_restored_row(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        service = ProjectService()
+        created = await service.create_project(db_session, sample_create_data)
+        await service.delete_project(db_session, created.id)
+
+        restored = await service.restore_project(db_session, created.id)
+
+        assert restored.id == created.id
+        assert restored.deleted_at is None
 
     @pytest.mark.asyncio
     async def test_restore_project(

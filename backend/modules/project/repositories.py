@@ -94,6 +94,18 @@ class ProjectRepository:
     # 软删除
     # ============================================================
 
+    async def get_deleted(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> Project | None:
+        stmt = select(Project).where(
+            Project.id == project_id,
+            Project.deleted_at.isnot(None),
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def soft_delete(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
         """标记项目为软删除（设置 deleted_at）"""
         stmt = (

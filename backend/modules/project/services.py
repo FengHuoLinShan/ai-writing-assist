@@ -90,6 +90,11 @@ class ProjectService:
                 detail=f"Project {project_id} not found in recycle bin",
             )
         project = await self._repo.get(db, pid)
+        if project is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Project {project_id} not found after restore",
+            )
         return ProjectResponse.model_validate(project)
 
     async def permanent_delete_project(
