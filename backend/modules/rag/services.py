@@ -685,13 +685,13 @@ class RetrievalService:
         if reference_chapter_index is None or chunk_chapter_index is None:
             return 1.0
 
-        MAX_WINDOW = 10
-        MIN_WEIGHT = 0.5
+        max_window = 10
+        min_weight = 0.5
         distance = abs(chunk_chapter_index - reference_chapter_index)
 
-        if distance >= MAX_WINDOW:
-            return MIN_WEIGHT
-        return 1.0 - (distance / MAX_WINDOW) * (1.0 - MIN_WEIGHT)
+        if distance >= max_window:
+            return min_weight
+        return 1.0 - (distance / max_window) * (1.0 - min_weight)
 
     @staticmethod
     def _compute_keyword_score(text: str, query_terms: list[str]) -> float:
@@ -1160,9 +1160,6 @@ class IndexingService:
 
         # 构建 embedding 文本：BGE 模型直接使用原始 chunk 文本，不需要上下文前缀
         # OpenAI embedding 模式下前缀在 facade 层拼接（见 facade.retrieve）
-        import logging
-
-        logger = logging.getLogger(__name__)
         created_chunks: list[RagChunk] = []
         warnings: list[str] = []
 
@@ -1241,7 +1238,8 @@ class IndexingService:
 
             if embedding_failed_count > 0:
                 warnings.append(
-                    f"本章 {embedding_failed_count}/{len(created_chunks)} 个片段 embedding 失败，检索将降级为关键词匹配",
+                    f"本章 {embedding_failed_count}/{len(created_chunks)} "
+                    "个片段 embedding 失败，检索将降级为关键词匹配",
                 )
 
         return RagIndexReport(

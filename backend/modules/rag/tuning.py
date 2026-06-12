@@ -290,7 +290,9 @@ async def run_tuning(
         results.append(result)
         if (i + 1) % 50 == 0 or i == 0:
             print(
-                f"  [{i + 1}/{len(combos)}] v={w[0]:.2f} k={w[1]:.2f} r={w[2]:.2f} i={w[3]:.2f}  MRR={result.mrr:.4f}"
+                f"  [{i + 1}/{len(combos)}] "
+                f"v={w[0]:.2f} k={w[1]:.2f} r={w[2]:.2f} i={w[3]:.2f}  "
+                f"MRR={result.mrr:.4f}"
             )
 
     # 4. 排序取最优
@@ -318,23 +320,29 @@ def print_report(report: TuningReport) -> None:
     print("Top 5 权重组合:")
     print("-" * 60)
     print(
-        f"{'排名':<4} {'vector':<8} {'keyword':<8} {'relation':<8} {'importance':<10} {'MRR':<8} {'NDCG@5':<8} {'NDCG@10':<8} {'P@5':<8}"
+        f"{'排名':<4} {'vector':<8} {'keyword':<8} {'relation':<8} "
+        f"{'importance':<10} {'MRR':<8} {'NDCG@5':<8} {'NDCG@10':<8} {'P@5':<8}"
     )
     print("-" * 60)
     for rank, r in enumerate(report.top5, 1):
         print(
             f"{rank:<4} {r.weights[0]:<8.2f} {r.weights[1]:<8.2f} "
             f"{r.weights[2]:<8.2f} {r.weights[3]:<10.2f} "
-            f"{r.mrr:<8.4f} {r.ndcg_at_5:<8.4f} {r.ndcg_at_10:<8.4f} {r.precision_at_5:<8.4f}"
+            f"{r.mrr:<8.4f} {r.ndcg_at_5:<8.4f} "
+            f"{r.ndcg_at_10:<8.4f} {r.precision_at_5:<8.4f}"
         )
     print()
 
     best = report.best
     print(
-        f"推荐权重: vector={best.weights[0]:.2f} keyword={best.weights[1]:.2f} relation={best.weights[2]:.2f} importance={best.weights[3]:.2f}"
+        f"推荐权重: vector={best.weights[0]:.2f} "
+        f"keyword={best.weights[1]:.2f} relation={best.weights[2]:.2f} "
+        f"importance={best.weights[3]:.2f}"
     )
     print(
-        f"指标: MRR={best.mrr:.4f} NDCG@5={best.ndcg_at_5:.4f} P@5={best.precision_at_5:.4f} avg_latency={best.avg_latency_ms:.1f}ms"
+        f"指标: MRR={best.mrr:.4f} NDCG@5={best.ndcg_at_5:.4f} "
+        f"P@5={best.precision_at_5:.4f} "
+        f"avg_latency={best.avg_latency_ms:.1f}ms"
     )
 
     # 输出可直接使用的 Python 常量
