@@ -610,10 +610,9 @@ class TestDraftProvider:
     def teardown_method(self):
         reset()
 
-    async def \
-        test_writing_draft_provider_load_chapters_with_draft_and_rag_returns_chapters(
-            self,
-        ):
+    async def test_draft_provider_loads_draft_and_rag_chapters(
+        self,
+    ):
         """Happy path: uses RAG chunks when available."""
         db = MagicMock()
         novel_id = str(uuid.uuid4())

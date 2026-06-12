@@ -348,8 +348,7 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    async def \
-    test_extract_entities_from_chapters_with_content_embedding_match_skips_entity(
+    async def test_content_embedding_match_skips_entity(
         self,
         mock_llm_client,
         mock_load_prompt,
@@ -403,8 +402,7 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    async def \
-    test_extract_entities_from_chapters_with_multiple_chapters_accumulates_context(
+    async def test_multiple_chapters_accumulate_context(
         self,
         mock_llm_client,
         mock_load_prompt,
@@ -468,8 +466,7 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    async def \
-    test_extract_entities_from_chapters_with_empty_entities_returns_zero_created(
+    async def test_empty_entities_returns_zero_created(
         self,
         mock_llm_client,
         mock_load_prompt,
@@ -506,7 +503,7 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    async def test_extract_entities_from_chapters_with_empty_name_skips_entity(
+    async def test_empty_name_skips_entity(
         self,
         mock_llm_client,
         mock_load_prompt,
@@ -543,8 +540,7 @@ class TestEntityExtractionService:
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
     @mock.patch("infrastructure.llm.client.LLMClient")
-    async def \
-    test_extract_entities_from_chapters_with_embedding_failure_still_creates_entity(
+    async def test_embedding_failure_still_creates_entity(
         self,
         mock_llm_client,
         mock_load_prompt,

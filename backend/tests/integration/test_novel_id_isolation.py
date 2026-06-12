@@ -170,11 +170,10 @@ class TestNovelIdIsolation:
         if char_b_id:
             assert status in (200, 404, 422), f"读取角色: {status}"
 
-    async def \
-        test_novel_id_isolation_cross_project_rag_retrieve_returns_no_foreign_chunks(
-            self,
-            async_client: AsyncClient,
-        ):
+    async def test_cross_project_rag_retrieve_returns_no_foreign_chunks(
+        self,
+        async_client: AsyncClient,
+    ):
         """RAG 检索按 novel_id 过滤，不应返回其他小说的内容"""
         # Arrange
         nid_a, _ = await self._create_project_and_entity(async_client, "A")

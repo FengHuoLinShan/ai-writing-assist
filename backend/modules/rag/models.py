@@ -47,8 +47,7 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         String(64),
         nullable=False,
         comment=(
-            "来源类型（chapter_text / world_entity / character / "
-            "memory / outline 等）"
+            "来源类型（chapter_text / world_entity / character / memory / outline 等）"
         ),
     )
     source_id: Mapped[uuid.UUID | None] = mapped_column(
