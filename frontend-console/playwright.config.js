@@ -14,7 +14,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "cd ../backend && uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      command: "cd ../backend && APP_ENV=test uvicorn app.main:app --host 0.0.0.0 --port 8000",
       url: "http://localhost:8000/api/health",
       timeout: 60000,
       reuseExistingServer: !process.env.CI,
