@@ -208,7 +208,8 @@ class TestSceneSegmentationProgress:
     """测试 Scene 切分服务的细粒度进度回调"""
 
     @pytest.mark.asyncio
-    async def test_segment_chapters_reports_batch_progress(self):
+    @patch("modules.outline.facade.get_next_scene_index", return_value=0)
+    async def test_segment_chapters_reports_batch_progress(self, mock_get_next):
         service = SceneSegmentationService()
         service._load_chapters = AsyncMock(
             return_value=[
@@ -221,7 +222,6 @@ class TestSceneSegmentationProgress:
                 {"title": "Scene", "scene_chunks": [{"chapter_index": 1}]},
             ]
         )
-        service._get_next_scene_index = AsyncMock(return_value=0)
 
         progress_calls = []
 
