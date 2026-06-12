@@ -1426,7 +1426,13 @@ const writingView = {
           this._deepImportProgress.phase = "done"
           this._stopDeepImportPolling()
           toast("深度导入完成！", "success")
-          setTimeout(() => { this._deepImportProgress = null; this._rerender() }, 3000)
+          // 深度导入会创建 / 更新 Scene，需要清空 API 缓存和视图 DOM 缓存，
+          // 否则 KeepAlive 视图会显示旧数据（看不到新生成的 Scene）。
+          api.clearCache()
+          setTimeout(() => {
+            this._deepImportProgress = null
+            router.refresh()
+          }, 1500)
           return
         }
         if (task.status === "failed") {
