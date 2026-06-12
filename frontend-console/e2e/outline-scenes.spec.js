@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { createEntity, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("Outline View — Scene 卡", () => {
   let testProjectId = null
@@ -132,15 +132,17 @@ test.describe("Outline View — Scene 卡", () => {
 
     // 刷新以显示列表
     await reloadWorkbench(page, "outline", "scenes")
-    await expect(page.locator(".scene-card")).toContainText("Scene A")
-    await expect(page.locator(".scene-card")).toContainText("Scene B")
+    await expect(page.locator(".scene-card").filter({ hasText: "Scene A" })).toHaveCount(1)
+    await expect(page.locator(".scene-card").filter({ hasText: "Scene B" })).toHaveCount(1)
 
     // When: 点击第二个 Scene 的上移
     const secondCard = page.locator(".scene-card").nth(1)
     await secondCard.locator('[data-action="move-scene-up"]').click()
 
-    // Then: 提示顺序已更新
+    // Then: 提示顺序已更新，且列表顺序已交换
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 顺序已更新", { timeout: 10000 })
+    const titles = await page.locator(".scene-card .scene-card-title").allTextContents()
+    expect(titles).toEqual(["Scene B", "Scene A"])
   })
 
   test("AI 生成结构弹窗", async ({ page }) => {
@@ -159,12 +161,51 @@ test.describe("Outline View — Scene 卡", () => {
   })
 
   test("管理伏笔与揭示计划", async ({ page }) => {
-    // 预期：存在"伏笔"子标签，可管理伏笔计划
+    // 伏笔子标签：创建后可见、可切换状态
     await page.locator('[data-action="nav-foreshadowing"]').click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无伏笔")
 
-    // 揭示子标签
+    await page.locator('[data-action="create-foreshadowing"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建伏笔计划")
+
+    await page.locator("#create-foreshadowing-name").fill("古剑封印")
+    await page.locator("#create-foreshadowing-summary").fill("主角会在前期接触古剑")
+    await page.locator("#create-foreshadowing-seed").fill("2")
+    await page.locator("#create-foreshadowing-payoff").fill("8")
+    await page.locator("#create-foreshadowing-status").selectOption("draft")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("伏笔计划已创建", { timeout: 10000 })
+
+    await reloadWorkbench(page, "outline", "foreshadowing")
+    await expect(page.locator(SEL.dataTable)).toContainText("古剑封印")
+
+    await page.locator(".foreshadowing-status-select").first().selectOption("active")
+    await expect(page.locator(SEL.toastContainer)).toContainText("伏笔状态已更新", { timeout: 10000 })
+    await expect(page.locator(".data-table")).toContainText("激活")
+
+    // 揭示子标签：创建后可见
     await page.locator('[data-action="nav-reveals"]').click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无揭示")
+
+    await page.locator('[data-action="create-reveal"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("新建揭示计划")
+
+    const entity = await createEntity(testProjectId, {
+      name: "古剑",
+      entity_type: "artifact",
+      status: "canonical",
+    })
+
+    await page.locator("#create-reveal-target-type").fill("world_entity")
+    await page.locator("#create-reveal-target-id").fill(entity.id)
+    await page.locator("#create-reveal-secret").fill("古剑其实封印着魔神")
+    await page.locator("#create-reveal-chapter").fill("4")
+    await page.locator("#create-reveal-content").fill("第一次揭示古剑异动")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("揭示计划已创建", { timeout: 10000 })
+
+    await reloadWorkbench(page, "outline", "reveals")
+    await expect(page.locator(SEL.dataTable)).toContainText("world_entity")
+    await expect(page.locator(SEL.dataTable)).toContainText("古剑其实封印着魔神")
   })
 })

@@ -338,8 +338,14 @@ const outlineView = {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
     }
 
+    let html = `
+      <div style="margin-bottom:8px;">
+        <button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔计划</button>
+      </div>
+    `
+
     if (this._foreshadowing.length === 0) {
-      return `
+      return html + `
         <div class="empty-state">
           <div class="empty-icon">&#128220;</div>
           <p>暂无伏笔计划。</p>
@@ -350,10 +356,10 @@ const outlineView = {
 
     const statusLabels = { draft: "草稿", active: "激活", resolved: "已兑现", abandoned: "已废弃" }
 
-    let html = '<table class="data-table"><thead><tr><th>状态</th><th>名称</th><th>摘要</th><th>种子章节</th><th>兑现章节</th><th>操作</th></tr></thead><tbody>'
+    let tableHtml = '<table class="data-table"><thead><tr><th>状态</th><th>名称</th><th>摘要</th><th>种子章节</th><th>兑现章节</th><th>操作</th></tr></thead><tbody>'
     for (const f of this._foreshadowing) {
       const st = statusLabels[f.status] || f.status
-      html += `<tr data-id="${esc(f.id)}">
+      tableHtml += `<tr data-id="${esc(f.id)}">
         <td><span class="badge badge-${esc(f.status || "draft")}">${esc(st)}</span></td>
         <td>${esc(f.name)}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.summary || "-")}</td>
@@ -363,11 +369,12 @@ const outlineView = {
           <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
             ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${statusLabels[s] || s}</option>`).join("")}
           </select>
+          <button class="btn btn-sm btn-danger" data-action="delete-foreshadowing" data-id="${esc(f.id)}">删除</button>
         </td>
       </tr>`
     }
-    html += '</tbody></table>'
-    return html
+    tableHtml += '</tbody></table>'
+    return html + tableHtml
   },
 
   _renderReveals() {
@@ -375,8 +382,14 @@ const outlineView = {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
     }
 
+    let html = `
+      <div style="margin-bottom:8px;">
+        <button class="btn btn-primary" data-action="create-reveal">新建揭示计划</button>
+      </div>
+    `
+
     if (this._reveals.length === 0) {
-      return `
+      return html + `
         <div class="empty-state">
           <div class="empty-icon">&#128065;</div>
           <p>暂无揭示计划。</p>
@@ -385,18 +398,160 @@ const outlineView = {
       `
     }
 
-    let html = '<table class="data-table"><thead><tr><th>状态</th><th>目标类型</th><th>秘密摘要</th><th>揭示阶段</th></tr></thead><tbody>'
+    const statusLabels = { draft: "草稿", active: "激活", resolved: "已兑现", abandoned: "已废弃" }
+
+    html += '<table class="data-table"><thead><tr><th>状态</th><th>目标类型</th><th>秘密摘要</th><th>揭示阶段</th><th>操作</th></tr></thead><tbody>'
     for (const r of this._reveals) {
       const stageCount = Array.isArray(r.reveal_stages) ? r.reveal_stages.length : 0
+      const st = statusLabels[r.status] || r.status || "草稿"
       html += `<tr data-id="${esc(r.id)}">
-        <td><span class="badge badge-${esc(r.status || "draft")}">${esc(r.status || "draft")}</span></td>
-        <td>${esc(r.target_type)}</td>
-        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary)}</td>
+        <td><span class="badge badge-${esc(r.status || "draft")}">${esc(st)}</span></td>
+        <td>${esc(r.target_type || "-")}</td>
+        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary || "-")}</td>
         <td style="font-family:var(--font-mono);font-size:12px;">${stageCount} 阶段</td>
+        <td><button class="btn btn-sm btn-danger" data-action="delete-reveal" data-id="${esc(r.id)}">删除</button></td>
       </tr>`
     }
     html += '</tbody></table>'
     return html
+  },
+
+  _showCreateForeshadowingForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>名称 *</label>
+        <input class="form-input" id="create-foreshadowing-name" placeholder="伏笔名称" />
+      </div>
+      <div class="form-group">
+        <label>摘要</label>
+        <textarea class="form-textarea" id="create-foreshadowing-summary" rows="3" placeholder="伏笔摘要"></textarea>
+      </div>
+      <div class="form-group">
+        <label>种子章节</label>
+        <input class="form-input" id="create-foreshadowing-seed" type="number" min="1" placeholder="例如 3" />
+      </div>
+      <div class="form-group">
+        <label>兑现章节</label>
+        <input class="form-input" id="create-foreshadowing-payoff" type="number" min="1" placeholder="例如 12" />
+      </div>
+      <div class="form-group">
+        <label>状态</label>
+        <select class="form-select" id="create-foreshadowing-status">
+          <option value="draft">草稿</option>
+          <option value="active">激活</option>
+          <option value="resolved">已兑现</option>
+          <option value="abandoned">已废弃</option>
+        </select>
+      </div>
+    `
+    showModal("新建伏笔计划", formHtml, [{
+      text: "创建", class: "btn-primary", handler: async () => {
+        const name = document.getElementById("create-foreshadowing-name")?.value?.trim()
+        if (!name) { toast("请输入名称", "warning"); return }
+        try {
+          await api.outline.createForeshadowing(state.currentProjectId, {
+            name,
+            summary: document.getElementById("create-foreshadowing-summary")?.value?.trim() || null,
+            planned_seed_chapter: (() => {
+              const value = document.getElementById("create-foreshadowing-seed")?.value
+              return value ? parseInt(value, 10) : null
+            })(),
+            planned_payoff_chapter: (() => {
+              const value = document.getElementById("create-foreshadowing-payoff")?.value
+              return value ? parseInt(value, 10) : null
+            })(),
+            status: document.getElementById("create-foreshadowing-status")?.value || "draft",
+          })
+          toast("伏笔计划已创建", "success")
+          router.refresh()
+        } catch (err) {
+          toast(err.message || "创建失败", "error")
+        }
+      },
+    }])
+  },
+
+  async _deleteForeshadowing(id) {
+    confirmAction("确定删除此伏笔计划？", async () => {
+      try {
+        await api.outline.deleteForeshadowing(id, state.currentProjectId)
+        toast("已删除", "success")
+        router.refresh()
+      } catch (err) {
+        toast(err.message || "删除失败", "error")
+      }
+    })
+  },
+
+  _showCreateRevealForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>目标类型 *</label>
+        <input class="form-input" id="create-reveal-target-type" placeholder="world_entity / character / scene" />
+      </div>
+      <div class="form-group">
+        <label>目标 ID *</label>
+        <input class="form-input" id="create-reveal-target-id" placeholder="UUID" />
+      </div>
+      <div class="form-group">
+        <label>秘密摘要 *</label>
+        <textarea class="form-textarea" id="create-reveal-secret" rows="3" placeholder="被隐藏的秘密"></textarea>
+      </div>
+      <div class="form-group">
+        <label>首个揭示章节 *</label>
+        <input class="form-input" id="create-reveal-chapter" type="number" min="1" placeholder="例如 5" />
+      </div>
+      <div class="form-group">
+        <label>首个揭示内容 *</label>
+        <textarea class="form-textarea" id="create-reveal-content" rows="3" placeholder="首次揭示给读者的内容"></textarea>
+      </div>
+    `
+    showModal("新建揭示计划", formHtml, [{
+      text: "创建", class: "btn-primary", handler: async () => {
+        const targetType = document.getElementById("create-reveal-target-type")?.value?.trim()
+        const targetId = document.getElementById("create-reveal-target-id")?.value?.trim()
+        const secretSummary = document.getElementById("create-reveal-secret")?.value?.trim()
+        const chapterValue = document.getElementById("create-reveal-chapter")?.value
+        const revealContent = document.getElementById("create-reveal-content")?.value?.trim()
+        if (!targetType || !targetId || !secretSummary || !chapterValue || !revealContent) {
+          toast("请完整填写揭示计划信息", "warning")
+          return
+        }
+        const chapterIndex = parseInt(chapterValue, 10)
+        if (!Number.isInteger(chapterIndex) || chapterIndex < 1) {
+          toast("揭示章节必须大于 0", "warning")
+          return
+        }
+        try {
+          await api.outline.createReveal(state.currentProjectId, {
+            target_type: targetType,
+            target_id: targetId,
+            secret_summary: secretSummary,
+            reveal_stages: [{
+              stage_index: 0,
+              chapter_index: chapterIndex,
+              reveal_content: revealContent,
+            }],
+          })
+          toast("揭示计划已创建", "success")
+          router.refresh()
+        } catch (err) {
+          toast(err.message || "创建失败", "error")
+        }
+      },
+    }])
+  },
+
+  async _deleteReveal(id) {
+    confirmAction("确定删除此揭示计划？", async () => {
+      try {
+        await api.outline.deleteReveal(id, state.currentProjectId)
+        toast("已删除", "success")
+        router.refresh()
+      } catch (err) {
+        toast(err.message || "删除失败", "error")
+      }
+    })
   },
 
   _showCreateThreadForm() {
@@ -799,6 +954,10 @@ const outlineView = {
       "move-scene-down": (_e, _t, ctx) => ctx.id && this._moveSceneDown(ctx.id),
       "edit-scene": (_e, _t, ctx) => ctx.id && this._editScene(ctx.id),
       "delete-scene": (_e, _t, ctx) => ctx.id && this._deleteScene(ctx.id),
+      "create-foreshadowing": () => this._showCreateForeshadowingForm(),
+      "delete-foreshadowing": (_e, _t, ctx) => ctx.id && this._deleteForeshadowing(ctx.id),
+      "create-reveal": () => this._showCreateRevealForm(),
+      "delete-reveal": (_e, _t, ctx) => ctx.id && this._deleteReveal(ctx.id),
     })
     // 伏笔状态变更：change 事件委托
     document.querySelectorAll(".foreshadowing-status-select").forEach((sel) => {

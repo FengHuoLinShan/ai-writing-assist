@@ -49,19 +49,21 @@ make format-fix                  # ruff format
 
 ```
 modules/<name>/
-├── README.md        — Responsibility, owned tables, facade, tests
-├── contracts.py     — Cross-module data contracts (dataclasses)
-├── models.py        — SQLAlchemy ORM model
+├── README.md        — Responsibility, owned data, stable interface, tests
+├── contracts.py     — Cross-module data contracts, when callers need them
+├── facade.py        — Public cross-module API, when it adds real leverage
+├── models.py        — SQLAlchemy ORM model, when persistent state exists
 ├── schemas.py       — Pydantic request/response schemas
-├── repositories.py  — Data access layer (SQLAlchemy queries)
-├── services.py      — Business logic (calls repository)
-├── facade.py        — Public cross-module API (thin proxy)
+├── repositories.py  — Data access layer, when persistent state exists
+├── services.py      — Business logic
 ├── api.py           — FastAPI router (thin: validate → delegate)
 ├── tasks.py         — Async task handler (optional, @task_handler)
 └── tests/
     ├── conftest.py  — Module-specific fixtures (SQLite in-memory)
     └── test_*.py    — Per-layer tests
 ```
+
+Modules choose files by responsibility. Do not create empty contracts or pass-through facades just to match the template.
 
 ## Module Boundary Rules
 
@@ -70,6 +72,9 @@ modules/<name>/
 - `modules/*` → `infrastructure/llm`, `infrastructure/tasks`
 - `modules/A` → `modules/B/contracts.py`
 - `modules/A` → `modules/B/facade.py`
+- `modules/A` → DI container port registered by `app.main` / worker startup
+
+**Forbidden imports:** cross-module imports of another module's `models.py`, `repositories.py`, or `services.py`.
 
 ## Core Infrastructure
 
@@ -84,23 +89,23 @@ modules/<name>/
 - Runtime business deletes prefer status fields (draft/candidate/canonical/deprecated/ignored/conflicted); project permanent delete and demo database rebuilds may hard delete
 - Demo-stage schema refactors do not need data-preserving migrations; drop/recreate the dev database when faster
 - Prompts merge, data splits: One prompt output contains multiple arrays → stored into separate tables
-- JSONB for flex fields: Scene cards in chapter_cards.scene_cards JSONB
+- JSONB for flex fields where the shape is genuinely unstable; current Scene cards are managed through the `scenes` table, with older JSONB references treated as historical context
 - PostgreSQL + pgvector + pg_trgm for vector search, name similarity, dedup
 
 ## Key Design Decisions
 
-- **Candidate → Canonical pipeline**: AI output always enters as "candidate"; user must review and promote. No auto-promotion.
-- **Facade gate**: Cross-module access only through `facade.py`. Services/repos never imported across modules.
+- **Candidate → Canonical pipeline**: AI output enters candidate by default; user-confirmed automated pipelines may write canonical records with editable/rollback metadata.
+- **Stable interface gate**: Cross-module access goes through contracts/facade or DI ports. Services/repos/models are never imported across modules.
 - **Context Budget**: Context Compiler enforces per-category item limits to stay within token budgets.
 - **Reveal Levels**: Every entity has visibility/reveal metadata to prevent premature spoilers in LLM prompts.
 - **Enums centralized**: All shared enums in `shared/enums.py` to avoid circular imports.
 - **Memory proposals only**: AI generates proposals; user confirms before writing to memory_records.
 - **Lightweight timeline**: No complex relative-time reasoning, no calendar system, no automatic history simulation.
-- **Scene cards in JSONB**: Scene cards live in chapter_cards.scene_cards initially, no separate table until needed.
+- **Scene table**: `scenes` is the active minimal narrative-unit table; older `chapter_cards.scene_cards` references are compatibility/history only.
 
 ## AI Development Rules
 
-- When modifying contracts.py, facade.py, API routes, Pydantic schemas, or DB schema: must also update module README, tests, all callers, and docs
+- Public contract, user-visible behavior, data model, or cross-module call changes require updating authoritative docs and affected tests. Pure internal rearrangement does not require design-doc churn.
 - DB schema refactors may reset the demo database instead of carrying historical migrations; keep ORM/schema/tests/docs in sync
 - Each module owns its tests. Run that module's tests after modification. Cross-module flows go in tests/integration/
 - The system uses core creative prompts plus bounded tool prompts, not an autonomous multi-agent runtime.
@@ -111,9 +116,9 @@ modules/<name>/
 - **中文优先**: All UI text in Chinese. No engineering jargon.
 - **命令行风格但易用**: Buttons + keyboard shortcuts + command bar in parallel.
 - **纯文字为主**: Tables, tree views, cards, collapsible panels, ASCII maps.
-- **低依赖**: Vanilla JS, no framework required, no heavy component libraries.
-- **易用性**: Every page has: empty state, help text, action buttons, status labels, error messages, danger confirmation, one-click copy/export, undo last action.
-- **XSS防护**: Use textContent, never innerHTML for user/AI content; sanitize Markdown rendering.
+- **低依赖**: Vanilla JS by default. New frontend stack or heavy component libraries require user/ADR approval.
+- **易用性**: Every workflow needs clear empty/error states and danger confirmation. Copy/export/undo are added only where the workflow naturally needs them.
+- **XSS防护**: Never write unescaped user/AI/API dynamic content into `innerHTML`; static templates and `esc()`-escaped dynamic content are acceptable.
 
 ## Data Security Rules
 

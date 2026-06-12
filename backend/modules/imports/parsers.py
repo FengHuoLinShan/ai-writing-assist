@@ -37,6 +37,9 @@ def detect_encoding(data: bytes) -> str:
 
 def split_chapters(text: str) -> list[dict[str, str]]:
     """按章节模式分割文本，返回 [{title, content}]"""
+    if not text or not text.strip():
+        return []
+
     best_splits: list[tuple[int, str]] = []
     for pattern in CHAPTER_PATTERNS:
         matches = list(pattern.finditer(text))

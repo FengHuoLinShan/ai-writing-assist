@@ -480,10 +480,10 @@ const worldView = {
         if (!eid || !text) { toast("请输入对象 ID 和别名", "warning"); return }
         try {
           await api.world.createAlias({
-            novel_id: state.currentProjectId,
-            entity_id: eid, alias: text,
+            entity_id: eid,
+            alias: text,
             alias_type: document.getElementById("alias-type")?.value || "name",
-          })
+          }, state.currentProjectId)
           toast("别名已创建", "success")
           router.navigate("world", "aliases")
         } catch (err) { toast(err.message || "创建失败", "error") }

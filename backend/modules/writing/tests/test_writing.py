@@ -475,9 +475,10 @@ class TestWritingDraftService:
             content="v2 content",
         )
         await service.create_draft(db_session, v2_data)
+        # 期望版本落后于章节最新版本时触发 409
         conflict_update = WritingDraftUpdate(
             title="conflict",
-            expected_version=2,
+            expected_version=1,
         )
         with pytest.raises(HTTPException) as exc_info:
             await service.update_draft(
@@ -487,7 +488,7 @@ class TestWritingDraftService:
                 sample_draft_data.novel_id,
             )
         assert exc_info.value.status_code == 409
-        assert "v1" in exc_info.value.detail or "1" in exc_info.value.detail
+        assert "v2" in exc_info.value.detail or "2" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_update_draft_no_conflict_when_expected_version_matches(

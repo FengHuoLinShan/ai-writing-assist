@@ -157,7 +157,7 @@ test.describe("深度导入真实流水线 (无 Mock)", () => {
     console.log(`[E2E] First scene card title: "${titleText}"`)
 
     // ============================================================
-    // Step 5: 返回手动工作台 → 验证 Scene 树
+    // Step 5: 返回写作台 → 验证 Scene 树
     // ============================================================
     await page.evaluate(() => {
       const pid = localStorage.getItem("novel_currentProjectId")

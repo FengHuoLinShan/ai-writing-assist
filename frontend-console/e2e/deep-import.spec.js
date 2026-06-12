@@ -58,9 +58,11 @@ test.describe("深度导入流水线", () => {
     // 等待写作视图加载完成
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
 
-    // Step 3: 验证深度导入按钮存在
+    // Step 3: 验证深度导入按钮存在，且导入后弹出深度导入确认
     const deepImportBtn = page.locator('[data-action="deep-import"]')
     await expect(deepImportBtn).toBeVisible()
+    await expect(page.locator(SEL.modalTitle)).toContainText("确认操作")
+    await expect(page.locator("#modal-body")).toContainText("是否启动深度导入")
 
     // Step 4: Mock 深度导入 API 以加速测试
     await page.route("**/api/imports/deep", async (route) => {
@@ -86,21 +88,15 @@ test.describe("深度导入流水线", () => {
       }
     })
 
-    // Step 5: 点击深度导入按钮，验证弹窗
-    await deepImportBtn.click()
-    await expect(page.locator(SEL.modalTitle)).toContainText("深度导入")
-    await expect(page.locator("#deep-import-start")).toBeVisible()
-    await expect(page.locator("#deep-import-end")).toBeVisible()
+    // Step 5: 在导入后确认弹窗中点击“启动深度导入”
+    await page.locator("#modal-footer").getByRole("button", { name: "启动深度导入" }).click()
 
-    // Step 6: 提交深度导入
-    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
-
-    // Step 7: 验证深度导入相关 toast（可能显示"已启动"或"完成"）
+    // Step 6: 验证深度导入相关 toast（可能显示"已启动"或"完成"）
     await expect(page.locator(SEL.toastContainer)).toContainText("深度导入", { timeout: 10000 })
 
-    // Step 8: 验证进度条出现（由于 Mock 快速完成，进度条可能一闪而过）
+    // Step 7: 验证进度条出现（由于 Mock 快速完成，进度条可能一闪而过）
     // 至少验证页面没有报错
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台")
   })
 
   test("深度导入进度条在路由切换后恢复", async ({ page }) => {
@@ -141,7 +137,7 @@ test.describe("深度导入流水线", () => {
       await window.router.navigate("writing")
     })
     await page.waitForFunction(() => !state.loading, { timeout: 15000 })
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
 
     // 验证深度导入进度条恢复显示（_recoverDeepImportTask 在 onEnter 中被触发）
     await expect(page.locator("#writing-deep-import-bar-container")).toContainText("Phase 2/3", { timeout: 10000 })

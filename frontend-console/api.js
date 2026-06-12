@@ -108,8 +108,31 @@ async function request(path, options = {}) {
       let detail = "", responseBody = ""
       try {
         const errBody = await resp.json()
-        detail = errBody.detail || errBody.message || ""
+        const rawDetail = errBody.detail || errBody.message || ""
         responseBody = JSON.stringify(errBody).slice(0, 500)
+
+        // FastAPI 校验错误 detail 可能是对象或数组；提取可读消息
+        if (Array.isArray(rawDetail)) {
+          detail = rawDetail
+            .map((item) => {
+              if (typeof item === "string") return item
+              if (item && typeof item === "object") {
+                const parts = []
+                if (item.loc && Array.isArray(item.loc)) parts.push(item.loc.join("."))
+                if (item.msg) parts.push(item.msg)
+                if (item.type) parts.push(`(${item.type})`)
+                return parts.filter(Boolean).join(" — ")
+              }
+              return String(item)
+            })
+            .join("；")
+        } else if (rawDetail && typeof rawDetail === "object") {
+          detail = Object.entries(rawDetail)
+            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`)
+            .join("；")
+        } else {
+          detail = String(rawDetail || "")
+        }
       } catch (e) { console.warn("解析错误响应失败", e) }
 
       const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
@@ -122,7 +145,9 @@ async function request(path, options = {}) {
         body: options.body ? String(options.body).slice(0, 200) : undefined,
       }
 
-      throw new Error(detail ? `${msg}：${detail}` : msg)
+      const err = new Error(detail ? `${msg}：${detail}` : msg)
+      err.status = resp.status
+      throw err
     }
 
     if (resp.status === 204) {
@@ -282,8 +307,8 @@ const api = {
     },
 
     /** 创建别名 */
-    async createAlias(payload) {
-      return request("/world/aliases", {
+    async createAlias(payload, novelId) {
+      return request(`/world/aliases${buildQueryString({ novel_id: novelId })}`, {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -661,6 +686,14 @@ const api = {
     async listForeshadowing(novelId) {
       return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId }))
     },
+    /** 创建伏笔计划 */
+    async createForeshadowing(novelId, payload) {
+      return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId }), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+    },
     /** 更新伏笔计划 */
     async updateForeshadowing(id, novelId, payload) {
       return request(`/outline/foreshadowing/${id}${buildQueryString({ novel_id: novelId })}`, {
@@ -669,9 +702,23 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+    /** 删除伏笔计划 */
+    async deleteForeshadowing(id, novelId) {
+      return request(`/outline/foreshadowing/${id}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
+    },
     /** 列出揭示计划 */
     async listReveals(novelId) {
       return request("/outline/reveals" + buildQueryString({ novel_id: novelId }))
+    },
+    /** 创建揭示计划 */
+    async createReveal(novelId, payload) {
+      return request("/outline/reveals" + buildQueryString({ novel_id: novelId }), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
     },
     /** 更新揭示计划 */
     async updateReveal(id, novelId, payload) {
@@ -681,6 +728,20 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+    /** 删除揭示计划 */
+    async deleteReveal(id, novelId) {
+      return request(`/outline/reveals/${id}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
+    },
+  },
+
+  // ============================================================
+  // 缓存清除（跨模块写操作后需要刷新 GET 缓存）
+  // ============================================================
+  clearCache() {
+    _apiCache.clear()
+    _pendingRequests.clear()
   },
 
   // ============================================================

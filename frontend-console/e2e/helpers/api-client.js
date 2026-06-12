@@ -62,6 +62,15 @@ export async function waitForBackend(maxWaitMs = 30000) {
   throw new Error("Backend did not become healthy in time")
 }
 
+export async function getTask(taskId) {
+  const resp = await fetch(`${API_BASE}/tasks/${taskId}`)
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(`Task ${taskId} failed (${resp.status}): ${text}`)
+  }
+  return resp.json()
+}
+
 // ---- Writing helpers ----
 
 export async function createDraft(novelId, chapterIndex, title, content) {
@@ -117,4 +126,3 @@ export async function seedEntityArchive(novelId, entityId, textContent, opts = {
     }),
   })
 }
-

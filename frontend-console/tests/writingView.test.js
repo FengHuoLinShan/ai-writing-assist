@@ -45,7 +45,7 @@ describe("render", () => {
     writingView._scenes = []
     writingView._versions = []
     const html = await writingView.render()
-    expect(html).toContain("Scene 树")
+    expect(html).toContain("章节（1）")
     expect(html).toContain("writing-editor")
   })
 })

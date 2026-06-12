@@ -76,4 +76,55 @@ test.describe("上下文模块", () => {
     // 编译可能成功也可能因为没有数据而返回空结果
     await expect(page.locator("#ctx-output")).not.toContainText("填写左侧参数后点击编译", { timeout: 15000 })
   })
+
+  test("角色揭示模式缺少视角人物时不提交编译", async ({ page }) => {
+    let compileCalled = false
+    await page.route("**/api/context/compile", async (route) => {
+      compileCalled = true
+      await route.fulfill({ status: 500, body: JSON.stringify({ detail: "should not call" }) })
+    })
+
+    await page.locator("#ctx-reveal").selectOption("character")
+    await page.locator("#ctx-task").fill("写角色视角场景")
+    await page.locator('[data-action="compile"]').click()
+
+    await expect(page.locator(SEL.toastContainer)).toContainText("请输入视角人物 ID", { timeout: 10000 })
+    expect(compileCalled).toBeFalsy()
+  })
+
+  test("选择角色揭示模式时提交 reveal_mode=character", async ({ page }) => {
+    const requests = []
+    await page.route("**/api/context/compile", async (route) => {
+      const body = route.request().postDataJSON()
+      requests.push(body)
+      const warnings = body.reveal_mode === "character"
+        ? ["POV Knowledge: 角色误以为铜铃只是普通遗物"]
+        : ["Author Notes: 隐藏真相：铜铃属于旧王密探"]
+
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          novel_id: body.novel_id,
+          task: body.task,
+          scope: body.scope,
+          reveal_mode: body.reveal_mode,
+          budgets: [],
+          warnings,
+          section_count: 1,
+          sections_present: ["characters"],
+        }),
+      })
+    })
+
+    await page.locator("#ctx-reveal").selectOption("character")
+    await page.locator("#ctx-characters").fill("00000000-0000-0000-0000-000000000123")
+    await page.locator("#ctx-task").fill("写角色视角场景")
+    await page.locator('[data-action="compile"]').click()
+
+    await expect(page.locator("#ctx-output")).toContainText("误以为", { timeout: 10000 })
+    await expect(page.locator("#ctx-output")).not.toContainText("隐藏真相")
+    expect(requests.at(-1).reveal_mode).toBe("character")
+    expect(requests.at(-1).character_ids).toEqual(["00000000-0000-0000-0000-000000000123"])
+    expect(requests.at(-1).viewpoint_character_id).toBe("00000000-0000-0000-0000-000000000123")
+  })
 })

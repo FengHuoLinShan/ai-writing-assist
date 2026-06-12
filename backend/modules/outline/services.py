@@ -30,6 +30,7 @@ from modules.outline.repositories import (
 )
 from modules.outline.reveal_repository import RevealPlanRepository
 from modules.outline.schemas import (
+    ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
     ForeshadowingPlanResponse,
     ForeshadowingPlanUpdate,
@@ -41,6 +42,7 @@ from modules.outline.schemas import (
     PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
+    RevealPlanCreate,
     RevealPlanListResponse,
     RevealPlanResponse,
     RevealPlanUpdate,
@@ -137,7 +139,7 @@ class OutlineArcService(
 class ForeshadowingPlanService(
     CrudService[
         ForeshadowingPlan,
-        ForeshadowingPlanUpdate,
+        ForeshadowingPlanCreate,
         ForeshadowingPlanUpdate,
         ForeshadowingPlanResponse,
     ]
@@ -147,6 +149,16 @@ class ForeshadowingPlanService(
     list_response = ForeshadowingPlanListResponse
     label = "ForeshadowingPlan"
     id_param = "plan_id"
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: ForeshadowingPlanCreate,
+    ) -> ForeshadowingPlanResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        plan = await self.repo.create(db, nid, data.model_dump())
+        return self.response.model_validate(plan)
 
     async def update(
         self,
@@ -165,13 +177,24 @@ class ForeshadowingPlanService(
 
 
 class RevealPlanService(
-    CrudService[RevealPlan, RevealPlanUpdate, RevealPlanUpdate, RevealPlanResponse]
+    CrudService[RevealPlan, RevealPlanCreate, RevealPlanUpdate, RevealPlanResponse]
 ):
     repo = RevealPlanRepository()
     response = RevealPlanResponse
     list_response = RevealPlanListResponse
     label = "RevealPlan"
     id_param = "plan_id"
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: RevealPlanCreate,
+    ) -> RevealPlanResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        payload = data.model_dump()
+        plan = await self.repo.create(db, nid, payload)
+        return self.response.model_validate(plan)
 
     async def update(
         self,

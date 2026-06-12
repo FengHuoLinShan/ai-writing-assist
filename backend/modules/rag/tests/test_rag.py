@@ -628,11 +628,55 @@ class TestRetrievalService:
             )
             mock_client_cls.return_value = mock_client
 
-            result = await retrieve(db_with_project, str(sample_novel_id), "灰雾")
+            async def _no_expand(*args, **kwargs) -> str:  # noqa: ANN002, ANN003
+                return str(args[2])
+
+            with patch(
+                "modules.rag.services._expand_query_with_project_terms",
+                side_effect=_no_expand,
+            ):
+                result = await retrieve(db_with_project, str(sample_novel_id), "灰雾")
 
         assert result.total == 1
         assert result.degraded is True
         assert result.warnings
+
+    @pytest.mark.asyncio
+    async def test_retrieve_reports_degraded_when_returned_chunk_embedding_failed(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """召回结果包含 failed embedding chunk 时应暴露顶层降级状态。"""
+        from unittest.mock import patch
+
+        repo_local = RagChunkRepository()
+        await repo_local.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="铜铃在雨夜响起。",
+                embedding_status="failed",
+                embedding_error="embedding down",
+                index_warnings=["embedding 降级为关键词检索"],
+            ),
+        )
+        await db_with_project.flush()
+
+        async def _no_expand(*args, **kwargs) -> str:  # noqa: ANN002, ANN003
+            return str(args[2])
+
+        with patch(
+            "modules.rag.services._expand_query_with_project_terms",
+            side_effect=_no_expand,
+        ):
+            result = await retrieve(db_with_project, str(sample_novel_id), "铜铃")
+
+        assert result.total == 1
+        assert result.degraded is True
+        assert "embedding 降级为关键词检索" in result.warnings
 
     @pytest.mark.asyncio
     async def test_score_computation(self) -> None:

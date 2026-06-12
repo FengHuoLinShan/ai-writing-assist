@@ -109,11 +109,15 @@ const writingView = {
       this._chapterList = []
     }
 
-    this._loading = false
-
-    if (saved && saved.currentChapter) {
-      this._refreshVersions(saved.currentChapter)
-      this._loadOutlineData(saved.currentChapter)
+    try {
+      if (saved && saved.currentChapter) {
+        await Promise.all([
+          this._refreshVersions(saved.currentChapter),
+          this._loadOutlineData(saved.currentChapter),
+        ])
+      }
+    } finally {
+      this._loading = false
     }
 
     // 恢复持久化的深度导入任务进度
@@ -225,7 +229,7 @@ const writingView = {
     }
   },
 
-  onActivate() {
+  async onActivate() {
     // KeepAlive 恢复后重新绑定事件
     this._bindEvents()
     // 恢复编辑器焦点
@@ -233,8 +237,8 @@ const writingView = {
     if (editor && this._currentContent !== null) {
       editor.focus()
     }
-    // KeepAlive 切回时同样需要恢复深度导入进度
-    this._recoverDeepImportTask()
+    // KeepAlive 切回时同样需要恢复深度导入进度，等待完成以避免生命周期竞态
+    await this._recoverDeepImportTask()
   },
 
   onDeactivate() {
@@ -386,6 +390,11 @@ const writingView = {
   // ============================================================
 
   _renderSceneTree() {
+    // 无 Scene 时退回到普通章节树，避免所有章节被折叠在“未归类”中不可见
+    if (this._scenes.length === 0) {
+      return this._renderChapterTree()
+    }
+
     const assignedChapters = new Set()
     const sceneChapterMap = this._scenes.map((s) => {
       const chIds = (s.chapter_ids || []).map((id) => {
@@ -922,7 +931,7 @@ const writingView = {
       toast("已暂存", "success")
     } catch (err) {
       if (err.status === 409) {
-        toast("该章节已被其他会话更新（当前 v" + this._currentVersionNumber + "）。请刷新后重新编辑。", "error")
+        toast("该章节已被其他会话更新，请刷新后重新编辑", "error")
       } else {
         toast(err.message || "暂存失败", "error")
       }
@@ -1219,8 +1228,16 @@ const writingView = {
     }])
   },
 
-  async _doSplitScene(splitPos, currentScene) {
+  async _doSplitScene(splitPos, currentScene, retried = false) {
     try {
+      // 确保当前章节的最新草稿已加载，避免注入状态或缓存导致 draft id 不一致
+      const latestDraftId = this._versions[0]?.id
+      const hasLatestDraft = latestDraftId && latestDraftId === this._currentDraftId
+      if (!hasLatestDraft && this._currentChapter && !retried) {
+        await this._selectChapter(this._currentChapter)
+        return this._doSplitScene(splitPos, currentScene, true)
+      }
+
       await this._saveBeforeNavigate()
       const editor = document.getElementById("writing-editor")
       if (editor && this._currentContent !== editor.value) {
@@ -1233,7 +1250,14 @@ const writingView = {
         state.currentProjectId,
       )
       this._scenes = result.scenes || this._scenes
-      this._chapters[result.new_chapter_index] = { draftCount: 1 }
+      this._chapters[result.source_chapter_index] = {
+        title: result.source_draft?.title,
+        draftCount: (this._chapters[result.source_chapter_index]?.draftCount || 0) + 1,
+      }
+      this._chapters[result.new_chapter_index] = {
+        title: result.new_draft?.title,
+        draftCount: 1,
+      }
       this._chapterList = [...new Set([...this._chapterList, result.new_chapter_index])].sort((a, b) => a - b)
       this._currentChapter = result.new_chapter_index
       this._currentDraftId = result.new_draft.id
@@ -1524,9 +1548,12 @@ const writingView = {
     const container = document.getElementById("workspace-content")
     if (!container) return
 
-    // 首次渲染或结构变更（如从空状态切换到有章节）：全量替换
+    // 首次渲染或结构变更（如从空状态切换到有章节、或选中章节后需要创建编辑器）：全量替换
     const treeEl = document.getElementById("writing-tree-container")
-    if (!treeEl) {
+    const editorEl = document.getElementById("writing-editor")
+    const hasSelection = this._currentChapter !== null
+    const needsFullRender = !treeEl || (hasSelection && !editorEl) || (!hasSelection && editorEl)
+    if (needsFullRender) {
       container.innerHTML = await this.render()
       return
     }

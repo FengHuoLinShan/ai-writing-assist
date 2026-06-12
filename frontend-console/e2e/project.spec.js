@@ -36,7 +36,7 @@ test.describe("项目模块", () => {
     }
   })
 
-  test("创建项目并自动切换到世界视图", async ({ page }) => {
+  test("创建项目并自动切换到写作视图", async ({ page }) => {
     await page.locator("#btn-create-project").click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
@@ -48,8 +48,9 @@ test.describe("项目模块", () => {
     const modalFooter = page.locator(SEL.modalFooter)
     await modalFooter.locator(SEL.btnPrimary).click()
 
-    // 创建成功后应切换到世界视图
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象", { timeout: 10000 })
+    // 创建成功后应切换到写作视图
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
     await expect(page.locator(SEL.topbarProject)).toContainText("E2E 测试小说")
 
     // 记录项目ID用于清理
@@ -143,7 +144,7 @@ test.describe("项目模块", () => {
     await expect(page.locator(SEL.projectCard(project.id))).toHaveCount(0, { timeout: 15000 })
   })
 
-  test("点击项目行切换到项目并显示在世界视图", async ({ page }) => {
+  test("点击项目行切换到项目并显示在写作视图", async ({ page }) => {
     const project = await createProject({
       title: "点击切换项目",
       genre: "wuxia",
@@ -159,8 +160,9 @@ test.describe("项目模块", () => {
     // 点击项目卡片
     await card.click()
 
-    // 应切换到世界视图的对象库
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象", { timeout: 10000 })
+    // 应切换到写作视图
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
     await expect(page.locator(SEL.topbarProject)).toContainText("点击切换项目")
   })
 })

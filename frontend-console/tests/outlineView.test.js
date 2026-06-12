@@ -239,6 +239,34 @@ describe("render buttons", () => {
     expect(html).toContain('data-action="move-scene-up"')
     expect(html).toContain('data-action="move-scene-down"')
   })
+
+  it("renders foreshadowing and reveal create buttons and delete actions", async () => {
+    outlineView._loading = false
+    state.currentProjectId = "p1"
+
+    state.currentSubView = "foreshadowing"
+    outlineView._foreshadowing = [{
+      id: "f1",
+      name: "伏笔A",
+      summary: "摘要",
+      status: "draft",
+    }]
+    let html = await outlineView.render()
+    expect(html).toContain('data-action="create-foreshadowing"')
+    expect(html).toContain('data-action="delete-foreshadowing"')
+
+    state.currentSubView = "reveals"
+    outlineView._reveals = [{
+      id: "r1",
+      target_type: "world_entity",
+      secret_summary: "秘密",
+      status: "draft",
+      reveal_stages: [{ stage_index: 0, chapter_index: 1, reveal_content: "揭示" }],
+    }]
+    html = await outlineView.render()
+    expect(html).toContain('data-action="create-reveal"')
+    expect(html).toContain('data-action="delete-reveal"')
+  })
 })
 
 describe("_showGenerateStructureForm", () => {
@@ -286,5 +314,87 @@ describe("_showGenerateStructureForm", () => {
     await capturedHandler()
 
     expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
+  })
+})
+
+describe("foreshadowing and reveal forms", () => {
+  afterEach(() => {
+    showModal.mockClear()
+    confirmAction.mockClear()
+  })
+
+  it("creates foreshadowing through the API", async () => {
+    state.currentProjectId = "p1"
+    let handler
+    showModal.mockImplementation((_title, _html, buttons) => {
+      handler = buttons[0]?.handler
+    })
+    document.getElementById = vi.fn((id) => {
+      if (id === "create-foreshadowing-name") return { value: "伏笔名" }
+      if (id === "create-foreshadowing-summary") return { value: "摘要" }
+      if (id === "create-foreshadowing-seed") return { value: "3" }
+      if (id === "create-foreshadowing-payoff") return { value: "12" }
+      if (id === "create-foreshadowing-status") return { value: "active" }
+      return null
+    })
+    api.outline.createForeshadowing.mockResolvedValue({})
+
+    outlineView._showCreateForeshadowingForm()
+    await handler()
+
+    expect(api.outline.createForeshadowing).toHaveBeenCalledWith("p1", {
+      name: "伏笔名",
+      summary: "摘要",
+      planned_seed_chapter: 3,
+      planned_payoff_chapter: 12,
+      status: "active",
+    })
+    expect(toast).toHaveBeenCalledWith("伏笔计划已创建", "success")
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("creates reveal plans through the API", async () => {
+    state.currentProjectId = "p1"
+    let handler
+    showModal.mockImplementation((_title, _html, buttons) => {
+      handler = buttons[0]?.handler
+    })
+    document.getElementById = vi.fn((id) => {
+      if (id === "create-reveal-target-type") return { value: "world_entity" }
+      if (id === "create-reveal-target-id") return { value: "entity-1" }
+      if (id === "create-reveal-secret") return { value: "秘密" }
+      if (id === "create-reveal-chapter") return { value: "5" }
+      if (id === "create-reveal-content") return { value: "首次揭示" }
+      return null
+    })
+    api.outline.createReveal.mockResolvedValue({})
+
+    outlineView._showCreateRevealForm()
+    await handler()
+
+    expect(api.outline.createReveal).toHaveBeenCalledWith("p1", {
+      target_type: "world_entity",
+      target_id: "entity-1",
+      secret_summary: "秘密",
+      reveal_stages: [{ stage_index: 0, chapter_index: 5, reveal_content: "首次揭示" }],
+    })
+    expect(toast).toHaveBeenCalledWith("揭示计划已创建", "success")
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("deletes foreshadowing and reveal plans through confirmation", async () => {
+    state.currentProjectId = "p1"
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    api.outline.deleteForeshadowing.mockResolvedValue(null)
+    api.outline.deleteReveal.mockResolvedValue(null)
+
+    await outlineView._deleteForeshadowing("f1")
+    await outlineView._deleteReveal("r1")
+
+    expect(confirmAction).toHaveBeenCalledWith("确定删除此伏笔计划？", expect.any(Function))
+    expect(confirmAction).toHaveBeenCalledWith("确定删除此揭示计划？", expect.any(Function))
+    expect(api.outline.deleteForeshadowing).toHaveBeenCalledWith("f1", "p1")
+    expect(api.outline.deleteReveal).toHaveBeenCalledWith("r1", "p1")
+    expect(router.refresh).toHaveBeenCalled()
   })
 })

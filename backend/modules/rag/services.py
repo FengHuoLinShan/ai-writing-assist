@@ -936,6 +936,16 @@ class RetrievalService:
         chunk_contracts = [
             _to_chunk_contract(chunk, score) for chunk, score in deduped_chunks
         ]
+        for chunk in chunk_contracts:
+            if chunk.embedding_status in ("failed", "pending_vectorization"):
+                degraded = True
+                if chunk.index_warnings:
+                    warnings.extend(chunk.index_warnings)
+                elif chunk.embedding_status == "failed":
+                    warnings.append("召回结果包含 embedding 失败片段，检索可能不准确")
+                else:
+                    warnings.append("召回结果包含待重新向量化片段，检索可能不准确")
+        warnings = list(dict.fromkeys(warnings))
 
         # 记录检索指标
         _latency_ms = (_time.monotonic() - _t0) * 1000

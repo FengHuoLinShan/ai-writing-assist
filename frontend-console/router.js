@@ -16,7 +16,7 @@ const routes = {
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
   outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"] },
-  writing: { title: "手动工作台", subViews: [] },
+  writing: { title: "写作台", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
 }
 
@@ -132,7 +132,6 @@ let _forceRefresh = false
 async function renderCurrentView() {
   const viewName = state.currentView
   const content = document.getElementById("workspace-content")
-
   if (!content) return
 
   // 离开旧视图

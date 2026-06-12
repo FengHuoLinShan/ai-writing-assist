@@ -1,12 +1,12 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench } from "./helpers/workbench.js"
+import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   createProject, cleanupProject, waitForBackend,
   createDraft, createScene,
 } from "./helpers/api-client.js"
 
-test.describe("手动工作台模块", () => {
+test.describe("写作台模块", () => {
   let testProjectId = null
 
   test.beforeAll(async () => {
@@ -206,37 +206,32 @@ test.describe("手动工作台模块", () => {
 
   test("新 Scene 创建和断章更新左侧树", async ({ page }) => {
     // 创建 3 个章节
-    const d1 = await createDraft(testProjectId, 1, "ch1", "第一章内容")
+    await createDraft(testProjectId, 1, "ch1", "第一章内容")
     await createDraft(testProjectId, 2, "ch2", "第二章内容")
     await createDraft(testProjectId, 3, "ch3", "第三章内容")
 
-    // 创建 Scene 包含 1-3 章
+    // 创建 Scene 包含 1-3 章（split 依赖 scene_chunks）
     const scene = await createScene(testProjectId, {
       scene_index: 0, title: "测试Scene",
       chapter_ids: ["1", "2", "3"], narrative_tag: "draft",
+      scene_chunks: [
+        { chapter_index: 1, start_pos: 0, end_pos: 5 },
+        { chapter_index: 2, start_pos: 0, end_pos: 5 },
+        { chapter_index: 3, start_pos: 0, end_pos: 5 },
+      ],
     })
 
-    // 注入完整状态
-    await page.evaluate(({ scene, d1 }) => {
-      writingView._scenes = [{
-        id: scene.id, scene_index: 0, title: "测试Scene",
-        chapter_ids: ["1", "2", "3"],
-        narrative_tag: "draft", source: "manual",
-        goal: null, core_conflict: null, emotional_beat: null,
-        must_happen: null, must_not_happen: null,
-      }]
-      writingView._currentChapter = 2
-      writingView._currentDraftId = d1.draft.id
-      writingView._currentVersionNumber = 1
-      writingView._chapterList = [1, 2, 3]
-      writingView._chapters[1] = { title: "ch1", draftCount: 1 }
-      writingView._chapters[2] = { title: "ch2", draftCount: 1 }
-      writingView._chapters[3] = { title: "ch3", draftCount: 1 }
-      writingView._currentContent = d1.draft.content
-      writingView._currentTitle = d1.draft.title
-      writingView._isReadonly = false
-      return writingView._rerender()
-    }, { scene, d1 })
+    // 通过真实导航加载第 2 章，避免注入状态不一致
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await expect(page.locator("#writing-tree-container")).toContainText("测试Scene")
+
+    // Scene 默认折叠，先展开 Scene 节点再选择第 2 章
+    await page.locator('[data-action="select-scene"]').click()
+    await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("#writing-editor")).toHaveValue("第一章内容", { timeout: 5000 })
+    await page.locator('[data-action="select-chapter"][data-chapter="2"]').click()
+    await expect(page.locator("#writing-editor")).toHaveValue("第二章内容", { timeout: 5000 })
 
     // 验证左侧树显示 Scene 节点
     await expect(page.locator("#writing-tree-container")).toContainText("测试Scene")
@@ -269,37 +264,38 @@ test.describe("手动工作台模块", () => {
       scene_index: 0,
       title: "Scene A",
       narrative_tag: "draft",
+      chapter_ids: ["1"],
       scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 5 }],
     })
     await createScene(testProjectId, {
       scene_index: 1,
       title: "Scene B",
       narrative_tag: "draft",
+      chapter_ids: ["1"],
       scene_chunks: [{ chapter_index: 1, start_pos: 5, end_pos: 10 }],
     })
 
-    await page.reload()
+    await reloadWorkbench(page, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
 
-    // 选中第 1 章
-    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    // 展开 Scene 节点并选中第 1 章
+    await page.locator('[data-action="select-scene"]').first().click()
     await expect(page.locator("#writing-editor")).toHaveValue("ABCDEFGHIJ", { timeout: 5000 })
 
     // 光标落在第一个 chunk → 显示 Scene A
+    await page.locator("#writing-editor").focus()
     await page.evaluate(() => {
-      writingView._cursorOffset = 2
-      writingView._updateCurrentScene()
-      const panel = document.getElementById("writing-panel-container")
-      if (panel) panel.innerHTML = writingView._renderScenePanel()
+      const editor = document.getElementById("writing-editor")
+      editor.setSelectionRange(2, 2)
+      document.dispatchEvent(new Event("selectionchange"))
     })
     await expect(page.locator("#writing-panel-container")).toContainText("Scene A")
 
     // 光标落在第二个 chunk → 显示 Scene B
     await page.evaluate(() => {
-      writingView._cursorOffset = 7
-      writingView._updateCurrentScene()
-      const panel = document.getElementById("writing-panel-container")
-      if (panel) panel.innerHTML = writingView._renderScenePanel()
+      const editor = document.getElementById("writing-editor")
+      editor.setSelectionRange(7, 7)
+      document.dispatchEvent(new Event("selectionchange"))
     })
     await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
@@ -310,7 +306,7 @@ test.describe("手动工作台模块", () => {
 
   test("AI 提取章节卡按钮和对话框", async ({ page }) => {
     await createDraft(testProjectId, 1, "ch1", "测试正文")
-    await page.reload()
+    await reloadWorkbench(page, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
 
     // 验证"AI 提取章节卡"按钮存在

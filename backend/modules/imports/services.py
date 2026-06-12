@@ -19,6 +19,8 @@ from modules.imports.schemas import ImportListResponse, ImportResponse
 from modules.writing.facade import create_draft_only
 from shared.utils import parse_uuid
 
+NO_EFFECTIVE_CHAPTERS_MESSAGE = "文件中未检测到有效章节"
+
 
 class ImportService:
     """小说文件导入服务"""
@@ -58,11 +60,11 @@ class ImportService:
                     db,
                     record.id,
                     status="failed",
-                    error_message="文件中未解析出任何章节",
+                    error_message=NO_EFFECTIVE_CHAPTERS_MESSAGE,
                 )
                 raise HTTPException(
                     status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="文件中未解析出任何章节",
+                    detail=NO_EFFECTIVE_CHAPTERS_MESSAGE,
                 )
 
             # 逐章创建 WritingDraft + 排 RAG 索引任务

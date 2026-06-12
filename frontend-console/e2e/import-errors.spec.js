@@ -56,7 +56,7 @@ test.describe("导入异常流", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("50MB", { timeout: 5000 })
   })
 
-  test("上传空文件可以在后端被导入（解析为空章节）", async ({ page }) => {
+  test("上传空文件标记导入失败且不创建章节", async ({ page }) => {
     await page.locator('[data-action="toggle-import"]').click()
     await expect(page.locator("#pv-import-file")).toBeVisible()
 
@@ -64,7 +64,7 @@ test.describe("导入异常流", () => {
     await page.locator("#pv-import-file").setInputFiles(filePath)
     await page.locator('[data-action="upload-file"]').click()
 
-    // 后端将 0 字节文件解析为 1 个空章节
-    await expect(page.locator(SEL.toastContainer)).toContainText("导入", { timeout: 15000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("文件中未检测到有效章节", { timeout: 15000 })
+    await expect(page.locator("#import-list-body")).toContainText("失败", { timeout: 15000 })
   })
 })

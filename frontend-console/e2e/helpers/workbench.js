@@ -1,9 +1,7 @@
 /**
  * 共享的工作台导航辅助函数
  *
- * app.js 因包含 `export default App`（非 module 脚本中的语法错误）而无法执行，
- * 导致 _restoreProjectState() 与 _bindNavigation() 永不运行。
- * 因此侧边栏点击导航完全不可用，必须通过 window.router.navigate 直接导航。
+ * 提供确定性的视图导航与页面刷新后恢复，供 E2E 场景复用。
  */
 
 import { expect } from "@playwright/test"
@@ -11,20 +9,20 @@ import { SEL } from "./selectors.js"
 
 /**
  * 导航到指定工作台视图
- * 代替已损坏的侧边栏点击导航。
  */
 export async function openWorkbench(page, project, view = "writing", subview = null) {
   await page.goto("/")
-  await page.evaluate(({ projectData, viewName, subViewName }) => {
+  await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+  await page.evaluate(async ({ projectData, viewName, subViewName }) => {
     localStorage.setItem("novel_currentProjectId", projectData.id)
     localStorage.setItem("novel_currentProject", JSON.stringify(projectData))
     state.currentProjectId = projectData.id
     state.currentProject = projectData
-    window.router.navigate(viewName, subViewName)
+    await window.router.navigate(viewName, subViewName)
   }, { projectData: project, viewName: view, subViewName: subview })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   const expectedTitle = {
-    writing: "手动工作台",
+    writing: "写作台",
     world: "世界对象",
     outline: "大纲",
     rag: "RAG 检索",
@@ -40,15 +38,25 @@ export async function openWorkbench(page, project, view = "writing", subview = n
  */
 export async function openProjectList(page) {
   await page.goto("/")
-  await page.evaluate(() => {
+  await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+  await page.evaluate(async () => {
     localStorage.removeItem("novel_currentProjectId")
     localStorage.removeItem("novel_currentProject")
     state.currentProjectId = null
     state.currentProject = null
-    window.router.navigate("project")
+    await window.router.navigate("project")
   })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
+}
+
+/**
+ * 刷新页面后等待项目列表渲染完成
+ */
+export async function reloadProjectList(page) {
+  await page.reload()
+  await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+  await expect(page.locator(SEL.projectGrid).or(page.locator(SEL.emptyState))).toBeVisible({ timeout: 10000 })
 }
 
 /**
@@ -56,12 +64,13 @@ export async function openProjectList(page) {
  */
 export async function openProjectView(page, project) {
   await page.goto("/")
-  await page.evaluate((projectData) => {
+  await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+  await page.evaluate(async (projectData) => {
     localStorage.setItem("novel_currentProjectId", projectData.id)
     localStorage.setItem("novel_currentProject", JSON.stringify(projectData))
     state.currentProjectId = projectData.id
     state.currentProject = projectData
-    window.router.navigate("project")
+    await window.router.navigate("project")
   }, project)
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
@@ -69,11 +78,11 @@ export async function openProjectView(page, project) {
 
 /**
  * 刷新页面后重新导航到指定视图
- * 代替测试体内的 page.reload() + 侧边栏点击模式。
  */
 export async function reloadWorkbench(page, view, subview = null) {
   await page.reload()
-  await page.evaluate(({ viewName, subViewName }) => {
+  await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+  await page.evaluate(async ({ viewName, subViewName }) => {
     const pid = localStorage.getItem("novel_currentProjectId")
     if (pid) {
       state.currentProjectId = pid
@@ -82,7 +91,7 @@ export async function reloadWorkbench(page, view, subview = null) {
         if (proj) state.currentProject = proj
       } catch {}
     }
-    window.router.navigate(viewName, subViewName)
+    await window.router.navigate(viewName, subViewName)
   }, { viewName: view, subViewName: subview })
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 }

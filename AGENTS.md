@@ -33,7 +33,7 @@ AI 长篇小说结构化创作引擎 v2.0 — 多 Agent 协作开发规范。
 所有编码 Agent 在开始任何工作前，必须读取：
 1. 本文档 — 理解协作规则与禁止事项
 2. `CLAUDE.md` — 理解架构与开发流程
-3. 目标模块的 `contracts.py` → `facade.py`（如存在）
+3. 目标模块的稳定接口说明（`contracts.py` / `facade.py` / DI 注册说明，如存在）
 
 ### 1.2 创作 Agent 的工作模式
 
@@ -86,16 +86,13 @@ Skills 使用规则：
 ### 2.2 编码 Agent 不能做什么
 
 **架构级禁止**：
-- 未经用户明确要求或 ADR，不引入多 Agent 协同系统、Neo4j、Qdrant、PostGIS、地图瓦片服务
-- 未经用户明确要求或 ADR，不引入 Redis、Celery（任务队列默认基于 PostgreSQL）
-- 未经用户明确要求或 ADR，不引入前端框架或 TypeScript（当前前端默认 vanilla JS）
-- 未经用户明确要求或 ADR，不引入 mypy/pyright 类型检查
-- 未经用户明确要求或 ADR，不引入新的数据库引擎或向量存储
+- 未经用户明确要求或 ADR，不引入新的运行时基础设施、前端技术栈、数据库/队列/向量存储或类型检查体系
+- 当前默认：FastAPI + PostgreSQL async task queue + vanilla JS；偏离默认栈必须先记录决策理由
 
 **代码级禁止**：
 - 不跨模块 import `models.py` / `repositories.py` / `services.py`
 - 不在 API 层或 facade 层写复杂业务逻辑
-- 不对用户/AI 内容使用 `innerHTML`（必须 `textContent` 或 `esc()`）
+- 不把未转义的用户/AI/API 动态内容写入 `innerHTML`；静态模板或经 `esc()` 处理的动态内容允许
 - 不 `eval` / `exec` LLM 输出
 - 不硬编码 API Key，不将 Key 写入日志或返回前端
 
@@ -155,12 +152,7 @@ Agent 启动新任务前：
 git push → 自动触发 /structure-docs-update → 对比代码与设计文档 → 同步不一致内容
 ```
 
-- 修改 `contracts.py`、`facade.py`、API 路由、Pydantic schema、数据库表结构后，必须同步更新：
-  - 模块 README
-  - 模块测试
-  - 所有调用方
-  - `docs/` 目录下对应文件
-- `CLAUDE.md` 和 `AGENTS.md` 的禁止事项必须保持同步
+- 公共契约、用户可见行为、数据模型或跨模块调用变化时，必须同步更新权威文档和受影响测试；纯内部重排不强制更新设计文档
 - 文档更新不属于 "额外工作" — 是与代码修改同等的交付物
 
 ### 3.4 Issue 流转协议
@@ -198,7 +190,7 @@ wontfix → 关闭（不处理）
 1. **用户显式指令** — 最高优先级，覆盖所有文档规则
 2. **本文档 + CLAUDE.md 的禁止项** — 绝对约束，不可绕过
 3. **ADRs 记录的设计决策** — 不得静默覆盖，推翻需走 ADR 更新流程
-4. **模块 contracts/facade 接口** — 跨模块的权威契约
+4. **模块稳定接口** — `contracts.py` / `facade.py` / DI port 等跨模块权威契约
 5. **Spec 文件中的显式需求** — 实现必须满足
 6. **Agent 自行判断** — 最低优先级，需在 PR 中记录决策理由
 
@@ -273,7 +265,7 @@ Agent 必须在以下条件之一满足时停止，不得无限循环：
 2. **`CLAUDE.md`** — 架构、流程、命名约定
 3. **`development-guide.md`** — 命令参考与架构详解
 4. **`testing-guide.md`** — 测试规范
-5. **目标模块** — `README.md` → `contracts.py` → `facade.py`（如存在）→ `models.py` → `services.py`
+5. **目标模块** — `README.md` → 稳定接口文件（如存在）→ `models.py` → `services.py`
 
 不要在模块外进行全仓库搜索，优先在目标模块内完成开发。
 
@@ -282,7 +274,7 @@ Agent 必须在以下条件之一满足时停止，不得无限循环：
 - **首次接触项目**：按 1→2→3→4 顺序完整阅读
 - **已熟悉项目**：重读 1+2，跳读 3+4 的相关章节
 - **只改一个模块**：读 1+2 + 目标模块的文件 5
-- **跨模块修改**：读 1+2 + 所有受影响模块的 contracts/facade
+- **跨模块修改**：读 1+2 + 所有受影响模块的稳定接口
 
 ---
 
@@ -324,8 +316,7 @@ Agent 实现核心逻辑 → PR → 人工 Code Review → Agent 根据 Review �
 
 ## 8. Meta
 
-- **本文档 vs CLAUDE.md**：本文档定义 "Agent 如何协作"，CLAUDE.md 定义 "Claude 如何开发"。禁止事项保持同步。
+- **本文档 vs CLAUDE.md**：本文档定义硬约束和协作规则，CLAUDE.md 只补充开发入口和架构导航。
 - **本文档 vs AI开发规则.md**：本文档是权威的 Agent 行为规范。AI开发规则.md 是设计说明，不直接约束 Agent 运行时行为。
 - **优先级链条**：用户指令 > 本文档 > CLAUDE.md > 模块 CLAUDE.md > Agent 默认行为
-- **禁止事项同步**：修改本文档的禁止事项时，必须同步更新 CLAUDE.md 的对应部分
 - 本文档不承载项目结构、实施计划、命令说明或长篇设计说明。此类内容见 `development-guide.md`。

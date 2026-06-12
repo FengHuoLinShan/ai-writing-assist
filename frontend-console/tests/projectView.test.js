@@ -73,14 +73,14 @@ describe("projectView", () => {
   // ============================================================
 
   describe("openProject", () => {
-    it("选中项目并导航到 world 视图", () => {
+    it("选中项目并导航到写作视图", () => {
       state.projects = [{ id: "p1", title: "项目A" }]
 
       projectView.openProject("p1")
 
       expect(state.currentProjectId).toBe("p1")
       expect(state.currentProject?.title).toBe("项目A")
-      expect(router.navigate).toHaveBeenCalledWith("world", "objects")
+      expect(router.navigate).toHaveBeenCalledWith("writing")
       expect(globalThis.toast).toHaveBeenCalled()
     })
 
@@ -109,6 +109,32 @@ describe("projectView", () => {
       expect(html).toContain("create-title")
       expect(buttons).toHaveLength(1)
       expect(buttons[0].text).toBe("创建")
+    })
+
+    it("创建成功后导航到写作视图", async () => {
+      api.projects.create.mockResolvedValue({ id: "p-new", title: "新项目" })
+      projectView.showCreateForm()
+
+      const showModalMock = vi.mocked(globalThis.showModal)
+      const buttons = showModalMock.mock.calls[0][2]
+      // 模拟用户输入
+      const titleInput = document.createElement("input")
+      titleInput.id = "create-title"
+      titleInput.value = "新项目"
+      document.body.appendChild(titleInput)
+
+      await buttons[0].handler()
+
+      expect(api.projects.create).toHaveBeenCalledWith({
+        title: "新项目",
+        genre: "",
+        tone: "",
+        language: "zh",
+      })
+      expect(state.currentProjectId).toBe("p-new")
+      expect(router.navigate).toHaveBeenCalledWith("writing")
+
+      titleInput.remove()
     })
   })
 

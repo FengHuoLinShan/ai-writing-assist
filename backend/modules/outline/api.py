@@ -5,6 +5,7 @@ from fastapi import status as http_status
 
 from core.dependencies import DbSession
 from modules.outline.schemas import (
+    ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
     ForeshadowingPlanResponse,
     ForeshadowingPlanUpdate,
@@ -16,6 +17,7 @@ from modules.outline.schemas import (
     PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
+    RevealPlanCreate,
     RevealPlanListResponse,
     RevealPlanResponse,
     RevealPlanUpdate,
@@ -277,6 +279,19 @@ async def api_generate_plot_structure(
 # ============================================================
 
 
+@router.post(
+    "/foreshadowing",
+    response_model=ForeshadowingPlanResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_create_foreshadowing(
+    data: ForeshadowingPlanCreate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _foreshadowing_service.create(db, novel_id, data)
+
+
 @router.get("/foreshadowing", response_model=ForeshadowingPlanListResponse)
 async def api_list_foreshadowing(
     db: DbSession,
@@ -299,9 +314,34 @@ async def api_update_foreshadowing(
     return await _foreshadowing_service.update(db, plan_id, data, novel_id=novel_id)
 
 
+@router.delete(
+    "/foreshadowing/{plan_id}",
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def api_delete_foreshadowing(
+    plan_id: str,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    await _foreshadowing_service.delete(db, plan_id, novel_id=novel_id)
+
+
 # ============================================================
 # Reveal Plans
 # ============================================================
+
+
+@router.post(
+    "/reveals",
+    response_model=RevealPlanResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_create_reveal(
+    data: RevealPlanCreate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _reveal_service.create(db, novel_id, data)
 
 
 @router.get("/reveals", response_model=RevealPlanListResponse)
@@ -324,3 +364,15 @@ async def api_update_reveal(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     return await _reveal_service.update(db, plan_id, data, novel_id=novel_id)
+
+
+@router.delete(
+    "/reveals/{plan_id}",
+    status_code=http_status.HTTP_204_NO_CONTENT,
+)
+async def api_delete_reveal(
+    plan_id: str,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    await _reveal_service.delete(db, plan_id, novel_id=novel_id)

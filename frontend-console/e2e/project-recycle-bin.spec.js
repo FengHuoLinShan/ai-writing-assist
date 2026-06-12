@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { openProjectList } from "./helpers/workbench.js"
+import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("项目回收站", () => {
@@ -29,8 +29,7 @@ test.describe("项目回收站", () => {
     })
     testProjectId = project.id
 
-    await page.reload()
-    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
+    await reloadProjectList(page)
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -46,8 +45,7 @@ test.describe("项目回收站", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已移至回收站", { timeout: 15000 })
 
     // 项目从列表消失
-    await page.reload()
-    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
+    await reloadProjectList(page)
     await expect(page.locator(SEL.projectCard(project.id))).toHaveCount(0)
 
     // 打开回收站
@@ -57,12 +55,11 @@ test.describe("项目回收站", () => {
     await expect(page.locator(SEL.modalBody)).toContainText("回收站恢复测试项目")
 
     // 恢复项目
-    await page.locator('.restore-project-btn').click()
+    await page.locator(`.restore-project-btn[data-id="${project.id}"]`).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已恢复", { timeout: 10000 })
 
     // 刷新后项目回到列表
-    await page.reload()
-    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
+    await reloadProjectList(page)
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("回收站恢复测试项目")
   })
 
@@ -74,8 +71,7 @@ test.describe("项目回收站", () => {
     })
     testProjectId = project.id
 
-    await page.reload()
-    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
+    await reloadProjectList(page)
     const card = page.locator(SEL.projectCard(project.id))
     await expect(card).toBeVisible()
 
@@ -90,13 +86,13 @@ test.describe("项目回收站", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已移至回收站", { timeout: 15000 })
 
     // 打开回收站
-    await page.reload()
+    await reloadProjectList(page)
     await page.locator('[data-action="recycle-bin"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("回收站")
     await expect(page.locator(SEL.modalBody)).toContainText("永久删除测试项目")
 
     // 永久删除
-    await page.locator('.perm-delete-project-btn').click()
+    await page.locator(`.perm-delete-project-btn[data-id="${project.id}"]`).click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await expect(page.locator(SEL.modalBody)).toContainText("不可恢复")
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()

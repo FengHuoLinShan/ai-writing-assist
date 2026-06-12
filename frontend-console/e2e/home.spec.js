@@ -33,7 +33,7 @@ test.describe("首页与导航", () => {
     await expect(page.locator(SEL.navItem("world"))).toHaveClass(/active/)
 
     await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台")
     await expect(page.locator(SEL.navItem("writing"))).toHaveClass(/active/)
 
     await page.locator(SEL.navItem("rag")).click()

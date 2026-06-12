@@ -259,6 +259,19 @@ class SplitChaptersRequest(BaseModel):
 # ============================================================
 
 
+class ForeshadowingPlanCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    summary: str | None = None
+    surface_meaning: str | None = None
+    hidden_meaning: str | None = None
+    planned_seed_chapter: int | None = Field(None, ge=1)
+    planned_reinforce_chapters: list[Annotated[int, Field(ge=1)]] = []
+    planned_payoff_chapter: int | None = Field(None, ge=1)
+    related_entity_ids: list[str] = []
+    related_thread_ids: list[str] = []
+    status: str = "draft"
+
+
 class ForeshadowingPlanUpdate(BaseModel):
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
     summary: Annotated[str | None, Field(None)]
@@ -315,6 +328,14 @@ class RevealStage(BaseModel):
     reveal_content: str | None = None
     trigger: str | None = None
     effect: str | None = None
+
+
+class RevealPlanCreate(BaseModel):
+    target_type: str = Field(..., max_length=32)
+    target_id: uuid.UUID = Field(...)
+    secret_summary: str = Field(...)
+    reveal_stages: list[RevealStage] = []
+    status: str = "draft"
 
 
 class RevealPlanUpdate(BaseModel):

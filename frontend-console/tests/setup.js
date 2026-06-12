@@ -70,6 +70,7 @@ globalThis.router = {
   getLastSubView(viewName) {
     return _lastSubViewMap[viewName] || null
   },
+  initRouter: vi.fn(),
   navigate: vi.fn((viewName) => {
     state.currentView = viewName
   }),
@@ -84,6 +85,8 @@ globalThis.router = {
 // 模拟 API (api.js)
 // ============================================================
 globalThis.api = {
+  healthCheck: vi.fn(),
+  clearCache: vi.fn(),
   projects: {
     list: vi.fn(),
     create: vi.fn(),
@@ -123,9 +126,13 @@ globalThis.api = {
     deleteArc: vi.fn(),
     generate: vi.fn(),
     listForeshadowing: vi.fn(),
+    createForeshadowing: vi.fn(),
     updateForeshadowing: vi.fn(),
+    deleteForeshadowing: vi.fn(),
     listReveals: vi.fn(),
+    createReveal: vi.fn(),
     updateReveal: vi.fn(),
+    deleteReveal: vi.fn(),
   },
   writing: {
     listChapters: vi.fn(),

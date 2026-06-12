@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Body, File, Form, Query, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
 
 from core.dependencies import DbSession
 from modules.imports.schemas import ImportListResponse, ImportResponse
-from modules.imports.services import ImportService
+from modules.imports.services import ImportService, NO_EFFECTIVE_CHAPTERS_MESSAGE
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
@@ -27,12 +27,17 @@ async def upload_file(
 ) -> ImportResponse:
     """上传小说文件并自动导入"""
     content = await file.read()
-    return await _service.upload_and_import(
-        db,
-        novel_id,
-        os.path.basename(file.filename or "unknown"),
-        content,
-    )
+    try:
+        return await _service.upload_and_import(
+            db,
+            novel_id,
+            os.path.basename(file.filename or "unknown"),
+            content,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 400 and exc.detail == NO_EFFECTIVE_CHAPTERS_MESSAGE:
+            await db.commit()
+        raise
 
 
 @router.get("", response_model=ImportListResponse)

@@ -8,7 +8,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as container_get
+from core.container import register
 from modules.project.models import Project
+from modules.world.facade import list_characters, list_entity_terms
 
 
 @pytest.fixture
@@ -23,6 +26,14 @@ async def db_with_project(
     sample_novel_id: uuid.UUID,
 ) -> AsyncSession:
     """创建包含 projects 记录的测试数据库"""
+    try:
+        container_get("world.list_characters")
+    except KeyError:
+        register("world.list_characters", list_characters)
+    try:
+        container_get("world.list_entity_terms")
+    except KeyError:
+        register("world.list_entity_terms", list_entity_terms)
     project = Project(
         id=sample_novel_id,
         title="测试小说项目",
@@ -31,4 +42,4 @@ async def db_with_project(
     )
     db_session.add(project)
     await db_session.flush()
-    return db_session
+    yield db_session

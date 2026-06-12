@@ -7,7 +7,7 @@ Import 模块测试
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -88,7 +88,12 @@ class TestParseTxt:
     def test_empty_content(self):
         """测试空内容"""
         chapters = parse_txt(b"")
-        assert len(chapters) == 1
+        assert chapters == []
+
+    def test_whitespace_only_content(self):
+        """纯空白内容不产生有效章节"""
+        chapters = parse_txt(" \n\t \n".encode())
+        assert chapters == []
 
     def test_parse_file_unified(self, sample_txt_content: bytes):
         """测试统一入口 parse_file"""
@@ -351,22 +356,42 @@ class TestImportService:
         assert exc.value.status_code == 413
 
     @pytest.mark.asyncio
-    async def test_upload_empty_file(
+    async def test_upload_empty_file_records_failed_status(
         self,
         service,
         db_session: AsyncSession,
         test_project_id: str,
+        monkeypatch,
     ):
-        """空文件应成功导入为 1 章（标题'全文'，内容为空）"""
-        resp = await service.upload_and_import(
-            db_session,
-            test_project_id,
-            "empty.txt",
-            b"",
+        """空文件应记录 failed，不创建正文草稿"""
+        commit_spy = AsyncMock()
+        monkeypatch.setattr(db_session, "commit", commit_spy)
+
+        with pytest.raises(HTTPException) as exc:
+            await service.upload_and_import(
+                db_session,
+                test_project_id,
+                "empty.txt",
+                b"",
+            )
+
+        assert exc.value.status_code == 400
+        assert "文件中未检测到有效章节" in str(exc.value.detail)
+
+        records = await service.list_import_records(db_session, test_project_id)
+        assert records.total == 1
+        assert records.items[0].status == "failed"
+        assert records.items[0].error_message == "文件中未检测到有效章节"
+
+        from modules.writing.models import WritingDraft
+
+        result = await db_session.execute(
+            select(WritingDraft).where(
+                WritingDraft.novel_id == uuid.UUID(test_project_id)
+            )
         )
-        assert resp.status == "done"
-        assert resp.total_chapters == 1
-        assert resp.imported_chapters == 1
+        assert list(result.scalars().all()) == []
+        commit_spy.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_record_novel_id_isolation(

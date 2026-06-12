@@ -15,7 +15,7 @@
 
 ### 修改代码前
 
-1. 读取目标模块的 `README.md` → `contracts.py` → `facade.py`（如存在）
+1. 读取目标模块的 `README.md` → 稳定接口文件（`contracts.py` / `facade.py` / DI 注册说明，如存在）
 2. 确认修改不违反模块边界规则（见下方"架构约束"）
 3. 确认修改不违反禁止事项（见 `AGENTS.md` 第 2 节）
 4. 如涉及跨模块影响，先读相关模块的 `contracts.py`
@@ -25,46 +25,31 @@
 
 1. 运行受影响模块的测试
 2. 运行 `make lint`
-3. 如修改了 `contracts.py`、`facade.py`、API 路由、Pydantic schema、数据库表结构：
-   - 更新模块 README
-   - 更新模块测试
-   - 更新所有调用方
-   - 更新 `docs/` 下对应文档
+3. 公共契约、用户可见行为、数据模型或跨模块调用变化时，同步更新权威文档和受影响测试；纯内部重排不强制更新设计文档
 4. `git push` 后自动触发 `/structure-docs-update` 同步设计文档
 
 ### 合并前 Checklist
 
 - [ ] 受影响模块测试全部通过
 - [ ] Lint 通过
-- [ ] 跨模块 import 仅通过 contracts/facade
+- [ ] 跨模块依赖仅通过稳定接口（contracts/facade/DI port）
 - [ ] novel_id 隔离未破坏
 - [ ] 无 AI 输出直接写入正史
-- [ ] 无 innerHTML / eval / exec 风险
+- [ ] 无未转义动态 HTML / eval / exec 风险
 - [ ] 危险操作（合并/删除/废弃）保留二次确认
-- [ ] `AGENTS.md` 与 `CLAUDE.md` 禁止项保持同步
+- [ ] 不违反 `AGENTS.md` 的硬约束
 
 ---
 
 ## 高优先级原则
 
-### P0 — 违反即阻塞合并
+硬约束以 `AGENTS.md` 第 2 节为准；本文件不复制禁令清单，避免漂移。
 
-1. **Candidate → Canonical 默认流程**：AI 输出默认进入 candidate，用户确认后入正史；深度导入等用户确认启动的自动流水线可直接写入 canonical，并保留可编辑/可回滚标记。
-2. **业务删除优先状态化**：常规业务对象优先使用 `draft`/`candidate`/`canonical`/`deprecated`/`ignored`/`conflicted` 状态字段；项目永久删除和 demo 开发库重建可硬删除。
-3. **novel_id 隔离**：所有 API 在 service 层强制校验跨 novel 访问控制。
-4. **模块边界**：跨模块只 import `contracts.py` 和 `facade.py`，禁止 import `models.py` / `repositories.py` / `services.py`。
-5. **无 innerHTML**：用户/AI 内容使用 `textContent` 或 `esc()`。
-6. **无 eval/exec**：禁止对 LLM 输出执行 eval/exec。
-7. **API Key 安全**：仅环境变量，不写日志，不返前端。
-8. **危险操作确认**：合并/删除/废弃操作必须有用户二次确认。
-
-### P1 — 发布前必须修复
-
-- 模块直接 import 其他模块的内部实现
-- Context Compiler 无预算控制
-- LLM 输出未校验即入库
-- 文件上传绕过类型/大小限制
-- 缺少模块级基础测试
+开发时重点检查：
+- `novel_id` 隔离、API Key 安全、LLM 输出 schema 校验
+- 未转义用户/AI/API 动态内容不得进入 HTML
+- 跨模块不直接 import 其他模块内部实现
+- 默认 candidate → 用户确认 → canonical；用户确认启动的自动流水线可写 canonical，但必须保留可编辑/可回滚标记
 
 ### Demo 阶段数据库策略
 
@@ -92,16 +77,18 @@
 
 ```
 modules/<name>/
-├── README.md        — 职责、表、facade、测试方式
-├── contracts.py     — 跨模块数据契约
-├── models.py        — SQLAlchemy ORM
+├── README.md        — 职责、拥有的数据、稳定接口、测试方式
+├── contracts.py     — 跨模块数据契约（有跨模块消费者时）
+├── facade.py        — 公开跨模块 API（有真实抽象收益时）
+├── models.py        — SQLAlchemy ORM（有持久化时）
 ├── schemas.py       — Pydantic 请求/响应
-├── repositories.py  — 数据访问层
+├── repositories.py  — 数据访问层（有持久化时）
 ├── services.py      — 业务逻辑
-├── facade.py        — 公开跨模块 API（薄层转发）
 ├── api.py           — FastAPI 路由（薄层：校验 → 委托）
 └── tasks.py         — 异步任务（可选）
 ```
+
+模块按职责选择文件；不要为了满足模板创建 pass-through facade 或空 contracts。
 
 ### 三层架构
 
@@ -125,9 +112,9 @@ modules/<name>/
 
 已移除：`geo`, `review`, `character`, `timeline`。Character 功能合并到 `modules/world`。
 
-### 跨模块导入（严格）
+### 跨模块依赖
 
-- 允许：`modules/A` → `modules/B/contracts.py` 或 `facade.py`
+- 允许：`modules/A` → `modules/B/contracts.py`、`facade.py` 或已注册的 DI port
 - 允许：`modules/*` → `core/`, `shared/`, `infrastructure/llm/`, `infrastructure/tasks/`
 - 禁止：直接 import 其他模块的 `models.py` / `repositories.py` / `services.py`
 - 禁止：API 层或 facade 层写复杂业务逻辑
@@ -138,7 +125,7 @@ modules/<name>/
 
 - **实体抽取 ≠ NER**：只抽取长期创作资产，不抽取路人/普通道具/代词/一次性场景
 - **别名内联存储**：`core_entities.aliases` JSONB，标记 `alias_of_existing`
-- **场景卡 JSONB**：`chapter_cards.scene_cards` JSONB，无独立表
+- **Scene 独立管理**：当前以 `scenes` 表作为最小叙事单元；旧 `chapter_cards.scene_cards` JSONB 只作为历史兼容语境
 - **创作 Agent 非多 Agent 系统**：4 核心创作 Prompt + 工具提取 Prompt，非自治 Agent
 - **无复杂多 Agent**：未经用户明确要求或 ADR，不引入多 Agent 协同框架
 
@@ -151,10 +138,10 @@ modules/<name>/
 | Unit/Integration | SQLite 内存 (`aiosqlite`) | 每测试会话新建表 |
 | E2E | 真实 PostgreSQL | Docker PG via `docker compose` |
 
-- 优先通过 facade 测试（`from modules.x.facade import func`）
+- 优先通过模块稳定接口测试（facade、DI port 或 API/service 公共方法）
 - 每个测试 `conftest.py` 必须 import 所有 FK 依赖的模型（至少 `modules.project.models`）
 - `pytest-asyncio` 模式：`asyncio_mode = "auto"`
-- E2E 测试使用真实 LLM 调用（不 mock）
+- 业务 E2E 默认使用 mock/fixture 隔离外部 LLM；真实 LLM 仅放在 provider 集成测试或手动验收
 
 ---
 
@@ -206,7 +193,7 @@ modules/<name>/
 
 ## Meta
 
-- `AGENTS.md` ↔ `CLAUDE.md` 禁止项保持同步
+- `AGENTS.md` 是硬约束源头；本文件只补充开发入口和架构导航
 - 用户显式指令 > 本文档 > 模块 CLAUDE.md
 - `git push` 后运行 `/structure-docs-update`
 - 本文档不承载项目结构、实施计划、长篇设计说明 — 此类内容见 `development-guide.md`

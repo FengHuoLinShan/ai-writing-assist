@@ -206,6 +206,26 @@ describe("别名", () => {
       worldView.showAliasCreateForm()
       expect(showModal).toHaveBeenCalled()
     })
+
+    it("提交正确的别名载荷和 novel_id 查询参数", async () => {
+      state.currentProjectId = "p1"
+      api.world.createAlias.mockResolvedValue({ id: "a1" })
+      worldView.showAliasCreateForm()
+
+      const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
+      document.body.innerHTML = `
+        <input id="alias-entity" value="e1" />
+        <input id="alias-text" value="小名" />
+        <select id="alias-type"><option value="nickname" selected>昵称</option></select>
+      `
+      await handler()
+
+      expect(api.world.createAlias).toHaveBeenCalledWith(
+        { entity_id: "e1", alias: "小名", alias_type: "nickname" },
+        "p1",
+      )
+      expect(router.navigate).toHaveBeenCalledWith("world", "aliases")
+    })
   })
 
   describe("deleteAlias", () => {

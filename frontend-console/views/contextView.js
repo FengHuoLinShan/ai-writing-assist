@@ -56,7 +56,9 @@ const contextView = {
               <label>揭示模式</label>
               <select class="form-select" id="ctx-reveal">
                 <option value="author_safe">作者安全模式（隐藏隐藏真相）</option>
-                <option value="author_only">作者全知模式（显示所有信息）</option>
+                <option value="author_full">作者全知模式（显示所有信息）</option>
+                <option value="reader">读者模式（仅显示读者已知信息）</option>
+                <option value="character">角色视角模式（按人物知识边界）</option>
               </select>
             </div>
             <button class="btn btn-primary" data-action="compile">编译上下文</button>
@@ -118,6 +120,11 @@ const contextView = {
     const entityIds = entitiesInput ? entitiesInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
+    const viewpointCharacterId = reveal === "character" ? characterIds?.[0] : undefined
+    if (reveal === "character" && !viewpointCharacterId) {
+      toast("请输入视角人物 ID", "warning")
+      return
+    }
 
     output.innerHTML = '<div class="loading">编译中...</div>'
     if (renderBtn) renderBtn.disabled = true
@@ -132,6 +139,7 @@ const contextView = {
         entity_ids: entityIds,
         character_ids: characterIds,
         reveal_mode: reveal,
+        viewpoint_character_id: viewpointCharacterId,
       })
       this._lastBundle = data
       this._renderCompileResult(data)
@@ -199,12 +207,18 @@ const contextView = {
     const entityIds = entitiesInput ? entitiesInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
+    const viewpointCharacterId = reveal === "character" ? characterIds?.[0] : undefined
+    if (reveal === "character" && !viewpointCharacterId) {
+      toast("请输入视角人物 ID", "warning")
+      return
+    }
 
     try {
       const data = await api.context.render({
         novel_id: state.currentProjectId, task, scope,
         chapter_index: chapterIndex, entity_ids: entityIds,
         character_ids: characterIds, reveal_mode: reveal,
+        viewpoint_character_id: viewpointCharacterId,
       })
       if (data && data.markdown) {
         output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:4px;border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`

@@ -177,7 +177,7 @@ const projectView = {
       state.currentProjectId = id
       state.currentProject = project
       toast(`已切换到项目：${project.title || project.name}`, "success")
-      router.navigate("world", "objects")
+      router.navigate("writing")
     }
   },
 
@@ -412,12 +412,14 @@ const projectView = {
 
         const result = await api.imports.upload(project.id, file)
         toast(`项目「${projectName}」已创建，导入 ${result.imported_chapters} 章`, "success")
-        router.navigate("writing")
+        api.clearCache()
+        await router.navigate("writing")
+        await router.refresh()
         if (result.imported_chapters > 0) {
           confirmAction(
             `已导入 ${result.imported_chapters} 章，是否启动深度导入？`,
             async () => {
-              // 深度导入的启动由 writingView 处理
+              await writingView._submitDeepImport(1, result.imported_chapters)
             },
             "启动深度导入",
           )
@@ -546,11 +548,24 @@ const projectView = {
       })
 
       toast(`导入完成：${result.imported_chapters} 章`, "success")
-      router.navigate("writing")
+      api.clearCache()
+      await router.navigate("writing")
+      await router.refresh()
       input.value = ""
       this._renderImportHistory()
+      if (result.imported_chapters > 0) {
+        confirmAction(
+          `已导入 ${result.imported_chapters} 章，是否启动深度导入？`,
+          async () => {
+            await writingView._submitDeepImport(1, result.imported_chapters)
+          },
+          "启动深度导入",
+        )
+      }
     } catch (err) {
       toast(err.message || "导入失败", "error")
+      api.clearCache()
+      await this._renderImportHistory()
     } finally {
       this._importUploading = false
       this._uploadProgress = null
