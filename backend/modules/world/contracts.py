@@ -60,7 +60,8 @@ class EntityRelationContract:
 class EntityRevisionContract:
     """版本快照契约
 
-    `entity_revisions` 在回滚时作为兜底使用，并继续承担显式 `rollback-by-revision` 快照的存储。
+    `entity_revisions` 在回滚时作为兜底使用，并继续承担显式
+    `rollback-by-revision` 快照的存储。
     当 `TextArchive` 可用时，优先使用 TextArchive 作为回滚数据源。
     """
 

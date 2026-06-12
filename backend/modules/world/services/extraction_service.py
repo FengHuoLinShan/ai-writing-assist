@@ -120,7 +120,7 @@ class EntityExtractionService:
         run_batch_id = str(uuid.uuid4())
 
         # 定义 Pydantic schema（内联以保持模块级命名空间干净）
-        _Action = Literal["create_new", "link_to_existing", "ignore", "temporary_only"]
+        _action = Literal["create_new", "link_to_existing", "ignore", "temporary_only"]
 
         class _ExtractedEntity(BaseModel):
             name: str
@@ -129,7 +129,7 @@ class EntityExtractionService:
             public_info: str
             hidden_truth: str
             importance: float
-            suggested_action: _Action
+            suggested_action: _action
             suggested_existing_entity_name: str | None = None
             candidate_reason: str
             confidence: float
@@ -223,7 +223,8 @@ class EntityExtractionService:
                         total_skipped += 1
                         linked = True
                         new_entity_descriptions.append(
-                            f"- {extracted.name} ({extracted.entity_type}) [linked to existing]"
+                            f"- {extracted.name} ({extracted.entity_type}) "
+                            "[linked to existing]"
                         )
 
                 if linked:
@@ -256,7 +257,8 @@ class EntityExtractionService:
                         )
                     total_skipped += 1
                     new_entity_descriptions.append(
-                        f"- {extracted.name} ({extracted.entity_type}) [matched via name embedding]"
+                        f"- {extracted.name} ({extracted.entity_type}) "
+                        "[matched via name embedding]"
                     )
                     continue
 
@@ -297,14 +299,16 @@ class EntityExtractionService:
                                 )
                             total_skipped += 1
                             new_entity_descriptions.append(
-                                f"- {extracted.name} ({extracted.entity_type}) [matched via content embedding]"
+                                f"- {extracted.name} ({extracted.entity_type}) "
+                                "[matched via content embedding]"
                             )
                             continue
 
                 # 若 LLM 指定 link_to_existing 但未能解析，跳过
                 if suggested_action == "link_to_existing":
                     logger.warning(
-                        "link_to_existing for '%s' (chapter %d) could not resolve; skipping",
+                        "link_to_existing for '%s' (chapter %d) "
+                        "could not resolve; skipping",
                         extracted.name,
                         ch_idx,
                     )
