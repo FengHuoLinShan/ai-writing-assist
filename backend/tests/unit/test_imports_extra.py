@@ -201,16 +201,14 @@ class TestSplitChaptersMore:
         assert chapters[0]["title"] == "卷一 春"
 
     def test_empty_text(self):
-        """空字符串应返回单章全文"""
+        """空字符串应返回空章节列表"""
         chapters = split_chapters("")
-        assert len(chapters) == 1
-        assert chapters[0]["title"] == "全文"
+        assert chapters == []
 
     def test_whitespace_only_text(self):
-        """空白文本应返回单章全文"""
+        """空白文本应返回空章节列表"""
         chapters = split_chapters("   \n\n  \t  ")
-        assert len(chapters) == 1
-        assert chapters[0]["title"] == "全文"
+        assert chapters == []
 
     def test_single_chapter_no_pattern(self):
         """无分章模式的长文本应返回单章"""
@@ -250,16 +248,16 @@ class TestParseTextMore:
         assert len(chapters) == 2
 
     def test_mixed_encoding_bytes(self):
-        """含非法 UTF-8 序列不应抛出异常"""
+        """含非法 UTF-8 序列应抛出 ValueError"""
         raw = b"\xff\xfe\x00\xe4\xbd\xa0\xe5\xa5\xbd"
-        chapters = parse_txt(raw)
-        assert isinstance(chapters[0]["content"], str)
+        with pytest.raises(ValueError, match="文本编码无法正确解析"):
+            parse_txt(raw)
 
     def test_content_only_bom(self):
-        """纯 BOM 头部内容应能处理"""
+        """纯 BOM 头部内容应返回空章节列表"""
         data = b"\xef\xbb\xbf"
         chapters = parse_txt(data)
-        assert len(chapters) >= 1
+        assert chapters == []
 
 
 class TestParseHtml:
@@ -626,7 +624,7 @@ class TestImportServiceErrors:
                     b"",
                 )
         assert exc.value.status_code == 400
-        assert "未解析出任何章节" in exc.value.detail
+        assert "文件中未检测到有效章节" in exc.value.detail
 
     @pytest.mark.asyncio
     async def test_parse_value_error_raises_422(
@@ -648,7 +646,7 @@ class TestImportServiceErrors:
                     b"garbage",
                 )
         assert exc.value.status_code == 422
-        assert "导入参数错误" in exc.value.detail
+        assert "bad format" in exc.value.detail
 
     @pytest.mark.asyncio
     async def test_generic_exception_raises_500(
