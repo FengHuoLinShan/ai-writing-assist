@@ -1,23 +1,28 @@
 /**
  * 大纲视图
  *
- * 子标签：场景卡 | 剧情线 | 篇章纲
+ * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
+const FORESHADOWING_STATUSES = ["draft", "active", "resolved", "abandoned"]
 
 const outlineView = {
   _threads: [],
   _arcs: [],
   _scenes: [],
+  _foreshadowing: [],
+  _reveals: [],
   _loading: true,
 
   async onEnter() {
     this._loading = true
     this._threads = []
     this._arcs = []
+    this._foreshadowing = []
+    this._reveals = []
 
     if (!state.currentProjectId) {
       this._loading = false
@@ -27,6 +32,8 @@ const outlineView = {
     const subView = state.currentSubView || "scenes"
     const fetchThreads = subView === "threads" || subView === "scenes"
     const fetchArcs = subView === "arcs"
+    const fetchForeshadowing = subView === "foreshadowing"
+    const fetchReveals = subView === "reveals"
 
     const promises = []
     if (fetchThreads) {
@@ -48,6 +55,20 @@ const outlineView = {
         api.outline.listScenes(state.currentProjectId)
           .then((data) => { this._scenes = data.items || data || [] })
           .catch(() => { this._scenes = [] })
+      )
+    }
+    if (fetchForeshadowing) {
+      promises.push(
+        api.outline.listForeshadowing(state.currentProjectId)
+          .then((data) => { this._foreshadowing = data.items || data || [] })
+          .catch(() => { this._foreshadowing = [] })
+      )
+    }
+    if (fetchReveals) {
+      promises.push(
+        api.outline.listReveals(state.currentProjectId)
+          .then((data) => { this._reveals = data.items || data || [] })
+          .catch(() => { this._reveals = [] })
       )
     }
 
@@ -89,6 +110,8 @@ const outlineView = {
         <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景卡</span>
         <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
         <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+        <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
+        <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
       </div>
     `
 
@@ -100,6 +123,10 @@ const outlineView = {
       html += this._renderThreads()
     } else if (subView === "arcs") {
       html += this._renderArcs()
+    } else if (subView === "foreshadowing") {
+      html += this._renderForeshadowing()
+    } else if (subView === "reveals") {
+      html += this._renderReveals()
     }
 
     setTimeout(() => this._bindEvents(), 0)
@@ -303,6 +330,72 @@ const outlineView = {
     }
 
     html += "</tbody></table>"
+    return html
+  },
+
+  _renderForeshadowing() {
+    if (!state.currentProjectId) {
+      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+    }
+
+    if (this._foreshadowing.length === 0) {
+      return `
+        <div class="empty-state">
+          <div class="empty-icon">&#128220;</div>
+          <p>暂无伏笔计划。</p>
+          <p style="color:var(--text-dim);font-size:12px;">伏笔是埋设在早期章节的线索，在后续章节揭示其真实含义。</p>
+        </div>
+      `
+    }
+
+    const statusLabels = { draft: "草稿", active: "激活", resolved: "已兑现", abandoned: "已废弃" }
+
+    let html = '<table class="data-table"><thead><tr><th>状态</th><th>名称</th><th>摘要</th><th>种子章节</th><th>兑现章节</th><th>操作</th></tr></thead><tbody>'
+    for (const f of this._foreshadowing) {
+      const st = statusLabels[f.status] || f.status
+      html += `<tr data-id="${esc(f.id)}">
+        <td><span class="badge badge-${esc(f.status || "draft")}">${esc(st)}</span></td>
+        <td>${esc(f.name)}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.summary || "-")}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;">${f.planned_seed_chapter != null ? esc(String(f.planned_seed_chapter)) : "-"}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;">${f.planned_payoff_chapter != null ? esc(String(f.planned_payoff_chapter)) : "-"}</td>
+        <td>
+          <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
+            ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${statusLabels[s] || s}</option>`).join("")}
+          </select>
+        </td>
+      </tr>`
+    }
+    html += '</tbody></table>'
+    return html
+  },
+
+  _renderReveals() {
+    if (!state.currentProjectId) {
+      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+    }
+
+    if (this._reveals.length === 0) {
+      return `
+        <div class="empty-state">
+          <div class="empty-icon">&#128065;</div>
+          <p>暂无揭示计划。</p>
+          <p style="color:var(--text-dim);font-size:12px;">揭示计划跟踪一个秘密如何分阶段向读者揭露。</p>
+        </div>
+      `
+    }
+
+    let html = '<table class="data-table"><thead><tr><th>状态</th><th>目标类型</th><th>秘密摘要</th><th>揭示阶段</th></tr></thead><tbody>'
+    for (const r of this._reveals) {
+      const stageCount = Array.isArray(r.reveal_stages) ? r.reveal_stages.length : 0
+      html += `<tr data-id="${esc(r.id)}">
+        <td><span class="badge badge-${esc(r.status || "draft")}">${esc(r.status || "draft")}</span></td>
+        <td>${esc(r.target_type)}</td>
+        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary)}</td>
+        <td style="font-family:var(--font-mono);font-size:12px;">${stageCount} 阶段</td>
+      </tr>`
+    }
+    html += '</tbody></table>'
     return html
   },
 
@@ -692,6 +785,8 @@ const outlineView = {
       "nav-scenes": () => router.navigate("outline", "scenes"),
       "nav-threads": () => router.navigate("outline", "threads"),
       "nav-arcs": () => router.navigate("outline", "arcs"),
+      "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
+      "nav-reveals": () => router.navigate("outline", "reveals"),
       "create-thread": () => this._showCreateThreadForm(),
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),
@@ -704,6 +799,18 @@ const outlineView = {
       "move-scene-down": (_e, _t, ctx) => ctx.id && this._moveSceneDown(ctx.id),
       "edit-scene": (_e, _t, ctx) => ctx.id && this._editScene(ctx.id),
       "delete-scene": (_e, _t, ctx) => ctx.id && this._deleteScene(ctx.id),
+    })
+    // 伏笔状态变更：change 事件委托
+    document.querySelectorAll(".foreshadowing-status-select").forEach((sel) => {
+      sel.onchange = async () => {
+        const id = sel.dataset.id
+        if (!id) return
+        try {
+          await api.outline.updateForeshadowing(id, state.currentProjectId, { status: sel.value })
+          toast("伏笔状态已更新", "success")
+          await this.onEnter()
+        } catch (err) { toast(err.message || "更新失败", "error") }
+      }
     })
   },
 }

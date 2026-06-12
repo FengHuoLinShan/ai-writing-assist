@@ -10,6 +10,8 @@ beforeEach(() => {
   outlineView._threads = []
   outlineView._arcs = []
   outlineView._scenes = []
+  outlineView._foreshadowing = []
+  outlineView._reveals = []
   outlineView._loading = false
   vi.clearAllMocks()
 })
@@ -53,6 +55,39 @@ describe("onEnter", () => {
 
     expect(outlineView._scenes.length).toBe(1)
   })
+
+  it("加载 foreshadowing 子标签数据", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "foreshadowing"
+    api.outline.listForeshadowing.mockResolvedValue({ items: [{ id: "f1", name: "隐藏神器" }] })
+
+    await outlineView.onEnter()
+
+    expect(outlineView._foreshadowing.length).toBe(1)
+    expect(outlineView._foreshadowing[0].name).toBe("隐藏神器")
+  })
+
+  it("加载 reveals 子标签数据", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "reveals"
+    api.outline.listReveals.mockResolvedValue({ items: [{ id: "r1", target_type: "entity" }] })
+
+    await outlineView.onEnter()
+
+    expect(outlineView._reveals.length).toBe(1)
+    expect(outlineView._reveals[0].target_type).toBe("entity")
+  })
+
+  it("foreshadowing API 失败时降级为空列表", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "foreshadowing"
+    api.outline.listForeshadowing.mockRejectedValue(new Error("fail"))
+
+    await outlineView.onEnter()
+
+    expect(outlineView._foreshadowing).toEqual([])
+    expect(outlineView._loading).toBe(false)
+  })
 })
 
 describe("render", () => {
@@ -81,6 +116,22 @@ describe("render", () => {
     outlineView._threads = [{ id: "t1", name: "主线A", thread_type: "main", summary: "desc" }]
     const html = await outlineView.render()
     expect(html).toContain("主线A")
+  })
+
+  it("Foreshadowing 子标签包含伏笔文字", async () => {
+    outlineView._loading = false
+    state.currentSubView = "foreshadowing"
+    state.currentProjectId = "p1"
+    const html = await outlineView.render()
+    expect(html).toContain("伏笔")
+  })
+
+  it("Reveals 子标签包含揭示文字", async () => {
+    outlineView._loading = false
+    state.currentSubView = "reveals"
+    state.currentProjectId = "p1"
+    const html = await outlineView.render()
+    expect(html).toContain("揭示")
   })
 })
 

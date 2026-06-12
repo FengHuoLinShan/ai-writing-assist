@@ -158,14 +158,13 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
   })
 
-  /*
-   * TODO: outlineView 当前只有"场景卡 / 剧情线 / 篇章纲"三个子标签，
-   * 没有伏笔/揭示计划管理 UI。后端 API `/api/outline/foreshadowing` 与
-   * `/api/outline/reveals` 已就绪，待前端增加对应子标签与表单后解 fixme。
-   */
-  test.fixme("管理伏笔与揭示计划", async ({ page }) => {
-    // 预期：存在"伏笔"子标签，可创建/编辑/标记回收伏笔
+  test("管理伏笔与揭示计划", async ({ page }) => {
+    // 预期：存在"伏笔"子标签，可管理伏笔计划
     await page.locator('[data-action="nav-foreshadowing"]').click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无伏笔")
+
+    // 揭示子标签
+    await page.locator('[data-action="nav-reveals"]').click()
+    await expect(page.locator(SEL.emptyState)).toContainText("暂无揭示")
   })
 })

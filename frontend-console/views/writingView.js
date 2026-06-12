@@ -115,6 +115,50 @@ const writingView = {
       this._refreshVersions(saved.currentChapter)
       this._loadOutlineData(saved.currentChapter)
     }
+
+    // 恢复持久化的深度导入任务进度
+    await this._recoverDeepImportTask()
+  },
+
+  async _recoverDeepImportTask() {
+    let taskId
+    try { taskId = localStorage.getItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+    if (!taskId) return
+    try {
+      const task = await api.tasks.get(taskId)
+      if (!task || task.status === "done" || task.status === "failed") {
+        if (task && task.result) {
+          this._deepImportTaskId = taskId
+          this._deepImportProgress = {
+            phase: "done",
+            step: "",
+            message: task.result.message || (task.status === "failed" ? "导入失败" : "导入完成"),
+            percent: 100,
+            stepLabel: (task.status === "failed" ? "失败" : "完成"),
+            degraded: task.result.degraded || false,
+          }
+        }
+        try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+        await this._rerender()
+        return
+      }
+      // 仍在运行中，恢复轮询
+      this._deepImportTaskId = taskId
+      const result = task.result || {}
+      this._deepImportProgress = {
+        phase: result.phase || "running",
+        step: result.current_step || "",
+        message: result.message || "深度导入中...",
+        percent: result.phase === "running" ? 50 : 0,
+        stepLabel: result.current_step ? `Phase: ${result.current_step}` : "恢复进度中...",
+        degraded: result.degraded || false,
+      }
+      await this._rerender()
+      this._startDeepImportPolling()
+    } catch {
+      try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+      await this._rerender()
+    }
   },
 
   async render() {
@@ -134,6 +178,7 @@ const writingView = {
             <button class="btn btn-primary" data-action="new-chapter">+ 新建章节</button>
           </div>
         </div>
+        <div id="writing-deep-import-bar-container">${this._renderDeepImportBar()}</div>
       `
     }
 
@@ -188,6 +233,8 @@ const writingView = {
     if (editor && this._currentContent !== null) {
       editor.focus()
     }
+    // KeepAlive 切回时同样需要恢复深度导入进度
+    this._recoverDeepImportTask()
   },
 
   onDeactivate() {
@@ -1300,6 +1347,8 @@ const writingView = {
         phase: "running", step: "scene_segmentation",
         message: "正在切分 Scene...", percent: 0,
       }
+      // 持久化 task id，页面刷新后可恢复进度条
+      try { localStorage.setItem("novel_deepImportTaskId", result.task_id) } catch {} // eslint-disable-line no-empty
       toast("深度导入已启动", "success")
       await this._rerender()
       this._startDeepImportPolling()
@@ -1375,6 +1424,7 @@ const writingView = {
   _stopDeepImportPolling() {
     if (this._deepImportTimer) { clearInterval(this._deepImportTimer); this._deepImportTimer = null }
     this._deepImportTaskId = null
+    try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
   },
 
   _renderDeepImportBar() {

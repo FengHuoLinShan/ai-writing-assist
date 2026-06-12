@@ -15,7 +15,7 @@ const routes = {
   world: { title: "世界对象", subViews: ["objects", "relations", "aliases"] },
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
-  outline: { title: "大纲", subViews: ["scenes", "threads", "arcs"] },
+  outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"] },
   writing: { title: "手动工作台", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
 }

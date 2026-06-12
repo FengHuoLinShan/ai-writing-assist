@@ -1,7 +1,10 @@
 /**
- * 深度导入真实 E2E 测试 — 不上 mock，走完整后端流水线
+ * 深度导入真实 E2E 测试 — 走 POST /api/imports/deep/sync 同步路径
  *
- * 流程：创建项目 → 上传 6 章 → 深度导入 1-6 章（同步模式）→
+ * 此测试不覆盖浏览器关闭恢复、后台任务轮询等异步场景。
+ * 异步深度导入的浏览器恢复/轮询覆盖在 deep-import.spec.js 中。
+ *
+ * 流程：创建项目 → 上传 6 章 → 深度导入 1-6 章（同步模式 sync）→
  *       大纲界面验证 Scene 卡 → 写作工作台验证 Scene 树
  */
 import { test, expect } from "@playwright/test"

@@ -265,6 +265,89 @@ describe("_submitDeepImport", () => {
   })
 })
 
+describe("_recoverDeepImportTask", () => {
+  beforeEach(() => {
+    vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
+    vi.spyOn(writingView, "_startDeepImportPolling").mockImplementation(() => {})
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("无 localStorage 时不恢复", async () => {
+    await writingView._recoverDeepImportTask()
+    expect(api.tasks.get).not.toHaveBeenCalled()
+  })
+
+  it("已完成的 task 显示进度后清理 localStorage", async () => {
+    localStorage.setItem("novel_deepImportTaskId", "task-done")
+    api.tasks.get.mockResolvedValue({
+      status: "done",
+      result: { message: "导入完成: 5 个 Scene" },
+    })
+
+    await writingView._recoverDeepImportTask()
+
+    expect(writingView._deepImportTaskId).toBe("task-done")
+    expect(writingView._deepImportProgress.phase).toBe("done")
+    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+  })
+
+  it("运行中的 task 恢复轮询", async () => {
+    localStorage.setItem("novel_deepImportTaskId", "task-running")
+    api.tasks.get.mockResolvedValue({
+      status: "running",
+      result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" },
+    })
+
+    await writingView._recoverDeepImportTask()
+
+    expect(writingView._deepImportTaskId).toBe("task-running")
+    expect(writingView._deepImportProgress.phase).toBe("running")
+    expect(writingView._startDeepImportPolling).toHaveBeenCalled()
+  })
+
+  it("失败的 task 显示失败消息后清理 localStorage", async () => {
+    localStorage.setItem("novel_deepImportTaskId", "task-failed")
+    api.tasks.get.mockResolvedValue({
+      status: "failed",
+      result: { message: "解析失败" },
+    })
+
+    await writingView._recoverDeepImportTask()
+
+    expect(writingView._deepImportProgress.phase).toBe("done")
+    expect(writingView._deepImportProgress.percent).toBe(100)
+    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+  })
+
+  it("API 异常时清理 localStorage", async () => {
+    localStorage.setItem("novel_deepImportTaskId", "task-err")
+    api.tasks.get.mockRejectedValue(new Error("network error"))
+
+    await writingView._recoverDeepImportTask()
+
+    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+  })
+
+  it("onActivate 也会触发恢复", async () => {
+    localStorage.setItem("novel_deepImportTaskId", "task-reactivate")
+    api.tasks.get.mockResolvedValue({
+      status: "running",
+      result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" },
+    })
+    vi.spyOn(writingView, "_bindEvents").mockImplementation(() => {})
+    vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
+
+    await writingView.onActivate()
+
+    expect(api.tasks.get).toHaveBeenCalledWith("task-reactivate")
+    expect(writingView._deepImportProgress.phase).toBe("running")
+  })
+})
+
 describe("_showSplitSceneForm", () => {
   it("无当前章节时提示", async () => {
     writingView._currentChapter = null
