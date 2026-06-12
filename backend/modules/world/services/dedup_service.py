@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -424,9 +426,6 @@ class EntityDedupService:
         target = result.scalar_one_or_none()
 
         if target is None:
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Target entity {target_entity_id} not found",
@@ -434,9 +433,6 @@ class EntityDedupService:
 
         # 1. 加载 Candidate（FOR UPDATE 防并发重复合并）
         if cid == tid:
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="Cannot merge an entity into itself",
@@ -445,9 +441,6 @@ class EntityDedupService:
         result = await db.execute(stmt)
         candidate = result.scalar_one_or_none()
         if candidate is None:
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Candidate entity {candidate_id} not found",
@@ -455,9 +448,6 @@ class EntityDedupService:
 
         # 校验同 novel_id
         if str(candidate.novel_id) != str(target.novel_id):
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="Cannot merge entities across novels",
@@ -465,17 +455,11 @@ class EntityDedupService:
 
         # 校验 target 必须是 canonical，candidate 必须是 draft/candidate
         if target.status != "canonical":
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail=f"Merge target must be canonical, got {target.status}",
             )
         if candidate.status not in ("draft", "candidate"):
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
@@ -568,9 +552,6 @@ class EntityDedupService:
         cid = parse_uuid(candidate_id, "candidate_id")
         candidate = await self._entity_repo.get(db, cid)
         if candidate is None:
-            from fastapi import HTTPException
-            from fastapi import status as http_status
-
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Candidate entity {candidate_id} not found",
