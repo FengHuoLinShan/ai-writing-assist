@@ -6,6 +6,7 @@
  */
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench } from "./helpers/workbench.js"
 import {
   createProject, cleanupProject, waitForBackend,
   listScenesOrdered,
@@ -35,15 +36,7 @@ test.describe("深度导入真实流水线 (无 Mock)", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({
-        id, title: "深度导入真实验证",
-      }))
-    }, project.id)
-    await page.reload()
+    await openWorkbench(page, project, "writing")
   })
 
   test.afterEach(async () => {
@@ -54,6 +47,9 @@ test.describe("深度导入真实流水线 (无 Mock)", () => {
   })
 
   test("完整深度导入流程：上传 6 章 → 深度导入 → 验证 Scene 卡", async ({ page }) => {
+    // Navigate to project view for file upload
+    await page.evaluate(() => window.router.navigate("project"))
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
     // ============================================================
     // Step 1: 在项目视图上传 6 章小说文件
     // ============================================================
@@ -122,8 +118,12 @@ test.describe("深度导入真实流水线 (无 Mock)", () => {
     // ============================================================
     // Step 4: 导航到大纲 → 验证 Scene 卡列表
     // ============================================================
-    await page.locator(SEL.navItem("outline")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await page.evaluate(() => {
+      const pid = localStorage.getItem("novel_currentProjectId")
+      if (pid) state.currentProjectId = pid
+      window.router.navigate("outline", "scenes")
+    })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     // 子标签应为场景卡（默认激活）
     const scenesTab = page.locator('[data-action="nav-scenes"]')
@@ -156,12 +156,12 @@ test.describe("深度导入真实流水线 (无 Mock)", () => {
     // ============================================================
     // Step 5: 返回手动工作台 → 验证 Scene 树
     // ============================================================
-    await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台")
-    await page.waitForFunction(
-      () => typeof writingView !== "undefined" && writingView._loading === false,
-      { timeout: 10000 },
-    )
+    await page.evaluate(() => {
+      const pid = localStorage.getItem("novel_currentProjectId")
+      if (pid) state.currentProjectId = pid
+      window.router.navigate("writing")
+    })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     // 左侧章节树应该有 Scene 节点
     const treeText = await page.locator("#writing-tree-container").textContent()

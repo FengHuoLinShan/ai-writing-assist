@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench } from "./helpers/workbench.js"
 import {
   createProject, cleanupProject, waitForBackend,
 } from "./helpers/api-client.js"
@@ -19,16 +20,7 @@ test.describe("写作工作台 — 版本冲突", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "冲突测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台")
+    await openWorkbench(page, project, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
   })
 

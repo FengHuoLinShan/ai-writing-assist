@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -21,13 +22,7 @@ test.describe("深度导入流水线", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "深度导入测试项目" }))
-    }, project.id)
-    await page.reload()
+    await openWorkbench(page, project, "writing")
   })
 
   test.afterEach(async () => {
@@ -38,6 +33,9 @@ test.describe("深度导入流水线", () => {
   })
 
   test("从项目视图导入小说后启动深度导入", async ({ page }) => {
+    // Navigate to project view for file upload
+    await page.evaluate(() => window.router.navigate("project"))
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
     // Step 1: 在项目视图展开导入区域并上传文件
     await page.locator('[data-action="toggle-import"]').click()
     await expect(page.locator("#pv-import-file")).toBeVisible()
@@ -50,8 +48,12 @@ test.describe("深度导入流水线", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("导入完成", { timeout: 15000 })
 
     // Step 2: 导航到写作工作台
-    await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台")
+    await page.evaluate(() => {
+      const pid = localStorage.getItem("novel_currentProjectId")
+      if (pid) state.currentProjectId = pid
+      window.router.navigate("writing")
+    })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     // 等待写作视图加载完成
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
@@ -103,9 +105,12 @@ test.describe("深度导入流水线", () => {
 
   test("无章节时深度导入按钮不显示", async ({ page }) => {
     // 导航到写作工作台，不导入任何章节
-    await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("手动工作台")
-    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.evaluate(() => {
+      const pid = localStorage.getItem("novel_currentProjectId")
+      if (pid) state.currentProjectId = pid
+      window.router.navigate("writing")
+    })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     // 空状态下（无章节）不渲染编辑器区域，因此深度导入按钮不显示
     await expect(page.locator('[data-action="new-chapter"]')).toBeVisible()

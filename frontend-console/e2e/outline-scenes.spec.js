@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("Outline View — Scene 卡", () => {
@@ -17,17 +18,7 @@ test.describe("Outline View — Scene 卡", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "Scene E2E 测试" }))
-    }, project.id)
-    await page.reload()
-
-    // 导航到大纲视图
-    await page.locator(SEL.navItem("outline")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await openWorkbench(page, project, "outline", "scenes")
   })
 
   test.afterEach(async () => {
@@ -67,9 +58,7 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
     // Then: 刷新页面后列表显示新 Scene 卡
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await reloadWorkbench(page, "outline", "scenes")
 
     const card = page.locator(".scene-card").first()
     await expect(card).toContainText("初入江湖")
@@ -85,8 +74,7 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await expect(page.locator(".scene-card")).toContainText("原始标题")
 
     // When: 点击编辑按钮，修改字段并保存
@@ -100,8 +88,7 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
 
     // Then: 刷新后列表更新
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await expect(page.locator(".scene-card")).toContainText("修改后的标题")
     await expect(page.locator(".scene-card")).toContainText("冲突升级")
     await expect(page.locator(".scene-card")).toContainText("新的目标")
@@ -115,8 +102,7 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await expect(page.locator(".scene-card")).toContainText("待删除 Scene")
 
     // When: 点击删除按钮，确认删除
@@ -128,8 +114,7 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
 
     // Then: 刷新后列表为空
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await expect(page.locator(SEL.emptyState)).toContainText("暂无 Scene")
   })
 
@@ -146,8 +131,7 @@ test.describe("Outline View — Scene 卡", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await expect(page.locator(".scene-card")).toContainText("Scene A")
     await expect(page.locator(".scene-card")).toContainText("Scene B")
 

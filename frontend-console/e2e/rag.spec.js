@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("RAG 检索模块", () => {
@@ -17,16 +18,7 @@ test.describe("RAG 检索模块", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "RAG 测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    await page.locator(SEL.navItem("rag")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("RAG 检索")
+    await openWorkbench(page, project, "rag", "status")
   })
 
   test.afterEach(async () => {

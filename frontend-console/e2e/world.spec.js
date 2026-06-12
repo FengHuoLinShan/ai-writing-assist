@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { createProject, cleanupProject, waitForBackend, createEntity, createCharacter } from "./helpers/api-client.js"
+import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { createProject, cleanupProject, waitForBackend, createEntity, createCharacter, seedEntityArchive } from "./helpers/api-client.js"
 
 test.describe("世界对象模块", () => {
   let testProjectId = null
@@ -17,17 +18,7 @@ test.describe("世界对象模块", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "世界对象测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    // 导航到世界视图
-    await page.locator(SEL.navItem("world")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
+    await openWorkbench(page, project, "world", "objects")
   })
 
   test.afterEach(async () => {
@@ -61,9 +52,7 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
     // 刷新页面验证列表
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
+    await reloadWorkbench(page, "world", "objects")
 
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("测试城堡")
@@ -79,8 +68,7 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("编辑前名称")
 
     // When: 点击编辑按钮，修改字段并保存
@@ -94,8 +82,7 @@ test.describe("世界对象模块", () => {
     // Then: 保存成功，刷新后列表更新
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
 
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("编辑后名称")
     await expect(page.locator(SEL.dataTable)).toContainText("faction")
   })
@@ -108,8 +95,7 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("待删除对象")
 
     // When: 点击删除按钮，确认删除
@@ -122,8 +108,7 @@ test.describe("世界对象模块", () => {
     // Then: 删除成功，刷新后列表为空
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
 
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.emptyState)).toBeVisible()
   })
 
@@ -154,8 +139,7 @@ test.describe("世界对象模块", () => {
       status: "draft",
     })
 
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("目标实体")
     await expect(page.locator(SEL.dataTable)).toContainText("候选实体")
 
@@ -169,12 +153,7 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
   })
 
-  /*
-   * TODO: 实体回滚需要预先存在的 TextArchive 或 EntityRevision 记录。
-   * 当前 UI 已提供"回滚"按钮（输入目标 scene_index），但 E2E 缺少便捷的
-   * 归档/快照种子方式，待后端在实体更新时自动写入 TextArchive 后再解 fixme。
-   */
-  test.fixme("回滚实体到指定场景索引", async ({ page }) => {
+  test("回滚实体到指定场景索引", async ({ page }) => {
     const entity = await createEntity(testProjectId, {
       name: "待回滚实体",
       entity_type: "item",
@@ -182,15 +161,18 @@ test.describe("世界对象模块", () => {
       summary: "原始摘要",
     })
 
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    // 通过种子 API 写入 TextArchive 归档值（原始摘要 → 归档摘要）
+    await seedEntityArchive(testProjectId, entity.id, "归档摘要", { sceneIndex: 5 })
+
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("待回滚实体")
 
     await page.locator('tr:has-text("待回滚实体") [data-action="rollback-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("回滚对象")
-    await page.locator("#rollback-scene-index").fill("0")
+    await page.locator("#rollback-scene-index").fill("5")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
+    // 回滚后实体的 summary 应恢复为归档值
     await expect(page.locator(SEL.toastContainer)).toContainText("回滚完成", { timeout: 10000 })
   })
 
@@ -211,8 +193,7 @@ test.describe("世界对象模块", () => {
       name: "主角",
     })
 
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("主角")
     await expect(page.locator(SEL.dataTable)).toContainText("秘密组织")
 

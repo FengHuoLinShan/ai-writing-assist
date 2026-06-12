@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("上下文模块", () => {
@@ -17,20 +18,7 @@ test.describe("上下文模块", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "上下文测试项目" }))
-    }, project.id)
-    await page.reload()
-    // 等待模块加载和路由初始化完成
-    await page.waitForFunction(() => {
-      return typeof router !== "undefined" && typeof contextView !== "undefined"
-    }, { timeout: 10000 })
-
-    await page.locator(SEL.navItem("context")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("上下文")
+    await openWorkbench(page, project, "context")
     // 等待 DOM 实际更新为 contextView 内容（防御 renderCurrentView 偶发竞态）
     try {
       await page.waitForFunction(() => {
@@ -62,14 +50,18 @@ test.describe("上下文模块", () => {
   })
 
   test("未选择项目时编译给出警告", async ({ page }) => {
-    // 清除 localStorage 与 URL hash 中的项目（router.initRouter 会从 hash 恢复 projectId）
+    // 清除 localStorage 中的项目选择后导航到上下文视图
     await page.evaluate(() => {
       localStorage.removeItem("novel_currentProjectId")
       localStorage.removeItem("novel_currentProject")
-      window.location.hash = ""
     })
     await page.reload()
-    await page.locator(SEL.navItem("context")).click()
+    await page.evaluate(() => {
+      state.currentProjectId = null
+      state.currentProject = null
+      window.router.navigate("context")
+    })
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
 
     await page.locator("#ctx-task").fill("测试任务")
     await page.locator('[data-action="compile"]').click()

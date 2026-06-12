@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("生成中心模块", () => {
@@ -17,16 +18,7 @@ test.describe("生成中心模块", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "生成测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    await page.locator(SEL.navItem("generate")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("生成中心")
+    await openWorkbench(page, project, "generate")
 
     // Mock 上下文编译 API
     await page.route("**/api/context/compile", async (route) => {

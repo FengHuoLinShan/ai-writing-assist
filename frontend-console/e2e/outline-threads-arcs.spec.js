@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("Outline View — 剧情线与篇章纲", () => {
@@ -17,16 +18,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "剧情线篇章纲测试" }))
-    }, project.id)
-    await page.reload()
-
-    await page.locator(SEL.navItem("outline")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("大纲")
+    await openWorkbench(page, project, "outline", "threads")
   })
 
   test.afterEach(async () => {
@@ -54,8 +46,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("剧情线已创建", { timeout: 10000 })
 
     // Then: 刷新后列表显示新剧情线
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("主线剧情")
@@ -71,8 +62,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("剧情线已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("原始剧情线")
 
@@ -86,8 +76,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
 
     // Then: 刷新后列表更新
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("修改后的剧情线")
     await expect(page.locator(SEL.dataTable)).toContainText("sub")
@@ -102,8 +91,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("剧情线已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("待删除剧情线")
 
@@ -114,8 +102,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
 
     // Then: 刷新后列表为空
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无剧情线")
   })
@@ -139,8 +126,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("篇章纲已创建", { timeout: 10000 })
 
     // Then: 刷新后列表显示新篇章纲
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-arcs"]').click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("第一卷")
@@ -157,8 +143,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("篇章纲已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-arcs"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("原始篇章")
 
@@ -172,8 +157,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
 
     // Then: 刷新后列表更新
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-arcs"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("修改后的篇章")
     await expect(page.locator(SEL.dataTable)).toContainText("20")
@@ -188,8 +172,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("篇章纲已创建", { timeout: 10000 })
 
     // 刷新以显示列表
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-arcs"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("待删除篇章")
 
@@ -200,8 +183,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
 
     // Then: 刷新后列表为空
-    await page.reload()
-    await page.locator(SEL.navItem("outline")).click()
+    await reloadWorkbench(page, "outline", "scenes")
     await page.locator('[data-action="nav-arcs"]').click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无篇章纲")
   })

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openProjectView } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -21,15 +22,7 @@ test.describe("导入异常流", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "导入异常测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await openProjectView(page, project)
   })
 
   test.afterEach(async () => {
@@ -61,5 +54,17 @@ test.describe("导入异常流", () => {
 
     // 前端在 _uploadFile 中检查 50MB 限制并直接 toast 错误
     await expect(page.locator(SEL.toastContainer)).toContainText("50MB", { timeout: 5000 })
+  })
+
+  test("上传空文件可以在后端被导入（解析为空章节）", async ({ page }) => {
+    await page.locator('[data-action="toggle-import"]').click()
+    await expect(page.locator("#pv-import-file")).toBeVisible()
+
+    const filePath = path.join(__dirname, "helpers", "fixtures", "empty.txt")
+    await page.locator("#pv-import-file").setInputFiles(filePath)
+    await page.locator('[data-action="upload-file"]').click()
+
+    // 后端将 0 字节文件解析为 1 个空章节
+    await expect(page.locator(SEL.toastContainer)).toContainText("导入", { timeout: 15000 })
   })
 })

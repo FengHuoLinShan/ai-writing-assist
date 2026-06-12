@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openProjectList } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("项目回收站", () => {
@@ -10,10 +11,7 @@ test.describe("项目回收站", () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.reload()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await openProjectList(page)
   })
 
   test.afterEach(async () => {

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openProjectView } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -21,15 +22,7 @@ test.describe("导入模块", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "导入测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await openProjectView(page, project)
   })
 
   test.afterEach(async () => {

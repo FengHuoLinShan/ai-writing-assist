@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
+import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("世界对象 — 关系与别名", () => {
@@ -17,16 +18,7 @@ test.describe("世界对象 — 关系与别名", () => {
     })
     testProjectId = project.id
 
-    await page.goto("/")
-    await page.evaluate(() => localStorage.clear())
-    await page.evaluate((id) => {
-      localStorage.setItem("novel_currentProjectId", id)
-      localStorage.setItem("novel_currentProject", JSON.stringify({ id, title: "关系别名测试项目" }))
-    }, project.id)
-    await page.reload()
-
-    await page.locator(SEL.navItem("world")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
+    await openWorkbench(page, project, "world", "objects")
   })
 
   test.afterEach(async () => {
@@ -55,8 +47,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
     // 刷新获取实体 ID
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("源对象")
     await expect(page.locator(SEL.dataTable)).toContainText("目标对象")
 
@@ -79,8 +70,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("关系已创建", { timeout: 10000 })
 
     // Then: 刷新后列表显示新关系
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await page.locator(SEL.subnavItem("relations")).click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("ally_of")
@@ -99,8 +89,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
     // 刷新获取实体 ID
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("主角")
     const entityId = await page.locator("tr:has-text('主角')").getAttribute("data-id")
 
@@ -119,8 +108,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("别名已创建", { timeout: 10000 })
 
     // Then: 刷新后列表显示新别名
-    await page.reload()
-    await page.locator(SEL.navItem("world")).click()
+    await reloadWorkbench(page, "world", "objects")
     await page.locator(SEL.subnavItem("aliases")).click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("小名")
