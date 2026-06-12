@@ -18,19 +18,19 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 导入所有 ORM 模型以注册到 Base.metadata
-import infrastructure.tasks.models  # noqa: F401
+import infrastructure.tasks.models  # noqa: E402, F401
 
 # character 模块已删除，模型在 modules.world.models
-import modules.imports.models  # noqa: F401  # noqa: F401
-import modules.memory.models  # noqa: F401  # noqa: F401
-import modules.outline.models  # noqa: F401
+import modules.imports.models  # noqa: E402, F401
+import modules.memory.models  # noqa: E402, F401
+import modules.outline.models  # noqa: E402, F401
 
 # 显式导入所有模块的模型，确保 alembic autogenerate 能检测到所有表
-import modules.project.models  # noqa: F401
-import modules.rag.models  # noqa: F401
-import modules.world.models  # noqa: F401
-import modules.writing.models  # noqa: F401
-from core.base import Base
+import modules.project.models  # noqa: E402, F401
+import modules.rag.models  # noqa: E402, F401
+import modules.world.models  # noqa: E402, F401
+import modules.writing.models  # noqa: E402, F401
+from core.base import Base  # noqa: E402
 
 target_metadata = Base.metadata
 

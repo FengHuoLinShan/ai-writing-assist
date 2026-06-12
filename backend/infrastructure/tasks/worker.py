@@ -36,14 +36,14 @@ from shared.constants import (
 logger = logging.getLogger(__name__)
 
 # 注册 projects 表（NovelMixin FK 依赖）
-import modules.imports.tasks  # noqa: F401
-import modules.outline.tasks  # noqa: F401
-import modules.project.models  # noqa: F401
-import modules.rag.tasks  # noqa: F401
+import modules.imports.tasks  # noqa: E402, F401
+import modules.outline.tasks  # noqa: E402, F401
+import modules.project.models  # noqa: E402, F401
+import modules.rag.tasks  # noqa: E402, F401
 
 # 注册所有任务处理器（与 app/main.py 同步）
-import modules.world.tasks  # noqa: F401
-import modules.writing.tasks  # noqa: F401
+import modules.world.tasks  # noqa: E402, F401
+import modules.writing.tasks  # noqa: E402, F401
 
 
 def _register_container_services() -> None:
@@ -59,13 +59,13 @@ def _register_container_services() -> None:
     )
     from modules.memory.services import MemoryService as _MemSvc
     from modules.outline.services import (
-        OutlineArcService as _OAS,
+        OutlineArcService as _OAS,  # noqa: N814
     )
     from modules.outline.services import (
-        PlotStructureGenerator as _PSG,
+        PlotStructureGenerator as _PSG,  # noqa: N814
     )
     from modules.outline.services import (
-        PlotThreadService as _PTS,
+        PlotThreadService as _PTS,  # noqa: N814
     )
     from modules.outline.services import (
         SceneService as _SceneSvc,
@@ -213,7 +213,8 @@ class TaskWorker:
         finally:
             self._running = False
             logger.info(
-                "TaskWorker stopped — processed=%d, succeeded=%d, failed=%d, cancelled=%d",
+                "TaskWorker stopped — processed=%d, succeeded=%d, "
+                "failed=%d, cancelled=%d",
                 self._stats["processed"],
                 self._stats["succeeded"],
                 self._stats["failed"],
@@ -338,7 +339,8 @@ class TaskWorker:
             result = await session.execute(
                 sql_text(
                     "UPDATE async_tasks "
-                    "SET status = 'pending', error_message = 'Task recovered: heartbeat timeout' "
+                    "SET status = 'pending', "
+                    "error_message = 'Task recovered: heartbeat timeout' "
                     "WHERE status = 'running' "
                     "AND heartbeat_at < NOW() - make_interval(secs => :gap)"
                 ),

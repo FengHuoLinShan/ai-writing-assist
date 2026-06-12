@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from modules.world.models import (
+from modules.world.models import (  # noqa: E402
     Character,
     CharacterKnowledge,
     CoreEntity,
@@ -26,7 +26,7 @@ from modules.world.models import (
     EntityRevision,
     Event,
 )
-from modules.world.schemas import (
+from modules.world.schemas import (  # noqa: E402
     CharacterCreate,
     CharacterKnowledgeCreate,
     CharacterKnowledgeUpdate,
@@ -38,8 +38,8 @@ from modules.world.schemas import (
     EventCreate,
     EventUpdate,
 )
-from shared.constants import DEFAULT_PAGE_SIZE
-from shared.utils import parse_uuid
+from shared.constants import DEFAULT_PAGE_SIZE  # noqa: E402
+from shared.utils import parse_uuid  # noqa: E402
 
 # ============================================================
 # CoreEntityRepository
