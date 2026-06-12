@@ -46,6 +46,47 @@ class WorldEntityService(
     id_param = "entity_id"
 
     # ============================================================
+    # Override: create 加重复确认
+    # ============================================================
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: CoreEntityCreate,
+    ) -> CoreEntityResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+
+        if not data.force_create:
+            similar = await self.repo.find_similar_by_search_text(
+                db,
+                nid,
+                data.name,
+                entity_type=data.entity_type,
+                status_filter=["canonical", "draft"],
+                min_similarity=0.9,
+                top_k=5,
+            )
+            if similar:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "requires_confirmation": True,
+                        "similar_entities": [
+                            {
+                                "id": str(e.id),
+                                "name": e.name,
+                                "similarity_score": round(score, 2),
+                            }
+                            for e, score in similar[:5]
+                        ],
+                    },
+                )
+
+        obj = await self.repo.create(db, nid, data)
+        return self._to_response(obj)
+
+    # ============================================================
     # Override: list 加 filter kwargs + 返 ListResponse 包装
     # ============================================================
 
