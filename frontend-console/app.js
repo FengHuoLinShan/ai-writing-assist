@@ -147,7 +147,7 @@ const App = {
     const bar = document.getElementById("command-bar")
     const suggestions = document.getElementById("command-suggestions")
     if (bar) bar.classList.remove("active", "has-suggestions")
-    if (suggestions) suggestions.innerHTML = ""
+    if (suggestions) suggestions.replaceChildren()
   },
 
   /**
@@ -190,30 +190,42 @@ const App = {
       const prefix = value.slice(1)
       const suggestions = commands.getSuggestions(prefix)
       if (suggestions.length > 0) {
-        suggestionsEl.innerHTML = suggestions.slice(0, 6).map((s) => {
-          return `<div class="suggestion" data-cmd="${esc(s.name)}">
-            <span>${esc(s.name)} ${s.description ? `<span style="color:var(--text-tertiary);margin-left:8px;font-size:12px;">${esc(s.description)}</span>` : ""}</span>
-            <span class="suggestion-key">Enter</span>
-          </div>`
-        }).join("")
-        bar.classList.add("has-suggestions")
-
-        suggestionsEl.querySelectorAll(".suggestion").forEach((el) => {
-          el.addEventListener("mousedown", (e) => {
+        suggestionsEl.replaceChildren()
+        for (const s of suggestions.slice(0, 6)) {
+          const row = document.createElement("div")
+          row.className = "suggestion"
+          row.dataset.cmd = s.name
+          const label = document.createElement("span")
+          label.textContent = s.name
+          if (s.description) {
+            const desc = document.createElement("span")
+            desc.style.color = "var(--text-tertiary)"
+            desc.style.marginLeft = "8px"
+            desc.style.fontSize = "12px"
+            desc.textContent = s.description
+            label.appendChild(desc)
+          }
+          const key = document.createElement("span")
+          key.className = "suggestion-key"
+          key.textContent = "Enter"
+          row.append(label, key)
+          row.addEventListener("mousedown", (e) => {
             e.preventDefault()
-            const cmd = el.dataset.cmd
+            const cmd = row.dataset.cmd
             if (cmd) {
               input.value = ""
               this._hideCommandBar()
               commands.execute(cmd)
             }
           })
-        })
+          suggestionsEl.appendChild(row)
+        }
+        bar.classList.add("has-suggestions")
         return
       }
     }
 
-    suggestionsEl.innerHTML = ""
+    suggestionsEl.replaceChildren()
     bar.classList.remove("has-suggestions")
   },
 
@@ -491,10 +503,10 @@ const App = {
   },
 }
 
-// 暴露到全局以便测试和调试
-globalThis.App = App
-
 // 页面加载完成后启动
 document.addEventListener("DOMContentLoaded", () => {
   App.init()
 })
+
+window.App = App
+export default App
