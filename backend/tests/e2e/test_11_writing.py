@@ -57,7 +57,6 @@ class TestWritingDraft:
             },
         )
         assert resp.status_code == 201
-        v1_id = resp.json()["draft"]["id"]
 
         # Act
         resp2 = await client.post(

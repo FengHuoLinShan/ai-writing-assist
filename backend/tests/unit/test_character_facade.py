@@ -105,7 +105,6 @@ async def test_create_character_with_empty_name_raises_validation_error(
 ):
     """边界: 空名称应触发 schema validation 异常"""
     # Arrange
-    novel_id = str(uuid.uuid4())
     name = ""
 
     # Act / Assert

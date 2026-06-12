@@ -210,7 +210,7 @@ class TestCharacterServiceUpdateCharacterState:
         svc.repo.update.return_value = char
 
         # Act
-        result = await svc.update_character_state(
+        _ = await svc.update_character_state(
             db_session,
             cid,
             current_state="tired",
@@ -674,7 +674,7 @@ class TestCharacterServiceFacadeLeaks:
         svc = CharacterService()
         cid = str(uuid.uuid4())
         loc_id = str(uuid.uuid4())
-        char = _make_character(entity_id=uuid.UUID(cid), meta={"location_id": loc_id})
+        _ = _make_character(entity_id=uuid.UUID(cid), meta={"location_id": loc_id})
         svc.repo = AsyncMock()
         svc.repo.get_character_location_id.return_value = loc_id
 
