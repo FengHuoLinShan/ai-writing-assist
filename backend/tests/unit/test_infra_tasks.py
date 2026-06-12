@@ -104,14 +104,14 @@ class TestSubmitTask:
 
         with patch(
             "infrastructure.tasks.api.TaskRegistry",
-        ) as MockRegistry:
-            registry_instance = MockRegistry.return_value
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
             registry_instance.__contains__ = MagicMock(return_value=True)
 
             response = await submit_task(request, db=db)
 
         assert response.task_id is not None
-        u = uuid.UUID(hex=response.task_id)  # valid UUID
+        _ = uuid.UUID(hex=response.task_id)  # valid UUID
         assert response.status == "pending"
         db.add.assert_called_once()
         db.flush.assert_awaited_once()
@@ -127,8 +127,8 @@ class TestSubmitTask:
 
         with patch(
             "infrastructure.tasks.api.TaskRegistry",
-        ) as MockRegistry:
-            registry_instance = MockRegistry.return_value
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
             registry_instance.__contains__ = MagicMock(return_value=False)
             registry_instance.registered_types = ["type_a", "type_b"]
 
@@ -152,11 +152,11 @@ class TestSubmitTask:
 
         with patch(
             "infrastructure.tasks.api.TaskRegistry",
-        ) as MockRegistry:
-            registry_instance = MockRegistry.return_value
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
             registry_instance.__contains__ = MagicMock(return_value=True)
 
-            response = await submit_task(request, db=db)
+            _ = await submit_task(request, db=db)
 
         task = db.add.call_args[0][0]
         assert task.meta == {}
