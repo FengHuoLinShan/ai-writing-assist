@@ -169,6 +169,11 @@ class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin
         nullable=True,
         comment="兑现章节",
     )
+    planned_payoff_scene: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="兑现 Scene 索引（scene-centric 编译使用）",
+    )
     related_entity_ids: Mapped[list] = mapped_column(
         JSON,
         nullable=True,

@@ -187,6 +187,7 @@ async def get_active_foreshadowing(
             "status": p.status,
             "planned_seed_chapter": p.planned_seed_chapter,
             "planned_payoff_chapter": p.planned_payoff_chapter,
+            "planned_payoff_scene": p.planned_payoff_scene,
             "planned_reinforce_chapters": p.planned_reinforce_chapters or [],
             "related_entity_ids": p.related_entity_ids or [],
             "related_thread_ids": p.related_thread_ids or [],

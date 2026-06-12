@@ -267,6 +267,7 @@ class ForeshadowingPlanCreate(BaseModel):
     planned_seed_chapter: int | None = Field(None, ge=1)
     planned_reinforce_chapters: list[Annotated[int, Field(ge=1)]] = []
     planned_payoff_chapter: int | None = Field(None, ge=1)
+    planned_payoff_scene: int | None = Field(None, ge=0)
     related_entity_ids: list[str] = []
     related_thread_ids: list[str] = []
     status: str = "draft"
@@ -283,6 +284,7 @@ class ForeshadowingPlanUpdate(BaseModel):
         Field(None),
     ]
     planned_payoff_chapter: Annotated[int | None, Field(None, ge=1)]
+    planned_payoff_scene: Annotated[int | None, Field(None, ge=0)]
     related_entity_ids: Annotated[list[str] | None, Field(None)]
     related_thread_ids: Annotated[list[str] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
@@ -300,6 +302,7 @@ class ForeshadowingPlanResponse(BaseModel):
     planned_seed_chapter: int | None = None
     planned_reinforce_chapters: list = []
     planned_payoff_chapter: int | None = None
+    planned_payoff_scene: int | None = None
     related_entity_ids: list = []
     related_thread_ids: list = []
     status: str = "draft"
