@@ -49,7 +49,7 @@ const projectView = {
         const p = projects[i]
         const status = p.status || "active"
         const isCanonical = status === "active" || status === "canonical"
-        const updated = p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : ""
+        const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
         html += `
           <div class="project-card ${i === 0 ? "featured" : ""}" data-id="${esc(p.id)}" data-action="open-project">
             <div class="project-status">
@@ -63,7 +63,7 @@ const projectView = {
             </div>
             <div class="project-desc">${esc(p.tone || p.description || "暂无描述")}</div>
             <div class="project-meta">
-              ${updated ? `更新于 ${updated}` : "刚刚创建"}
+              ${created ? `创建于 ${created}` : "刚刚创建"}
             </div>
             <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;opacity:0;transition:opacity .15s;">
               <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
@@ -187,16 +187,31 @@ const projectView = {
 
     const formHtml = `
       <div class="form-group">
-        <label>项目名称</label>
-        <input class="form-input" id="edit-title" value="${project.title || project.name || ""}" />
+        <label>项目标题</label>
+        <input class="form-input" id="edit-title" value="${esc(project.title || project.name || "")}" />
       </div>
       <div class="form-group">
         <label>题材</label>
-        <input class="form-input" id="edit-genre" value="${project.genre || ""}" />
+        <input class="form-input" id="edit-genre" value="${esc(project.genre || "")}" />
+      </div>
+      <div class="form-group">
+        <label>风格基调</label>
+        <input class="form-input" id="edit-tone" value="${esc(project.tone || "")}" placeholder="如：黑暗、幽默、写实" />
+      </div>
+      <div class="form-group">
+        <label>目标规模</label>
+        <select class="form-select" id="edit-target-length">
+          <option value="">未设置</option>
+          <option value="short" ${project.target_length === "short" ? "selected" : ""}>短篇</option>
+          <option value="medium" ${project.target_length === "medium" ? "selected" : ""}>中篇</option>
+          <option value="novel" ${project.target_length === "novel" ? "selected" : ""}>长篇</option>
+          <option value="epic" ${project.target_length === "epic" ? "selected" : ""}>史诗</option>
+        </select>
       </div>
       <div class="form-group">
         <label>创作阶段</label>
         <select class="form-select" id="edit-stage">
+          <option value="">未设置</option>
           <option value="world_building" ${project.current_stage === "world_building" ? "selected" : ""}>世界构建中</option>
           <option value="outlining" ${project.current_stage === "outlining" ? "selected" : ""}>大纲规划中</option>
           <option value="writing" ${project.current_stage === "writing" ? "selected" : ""}>正文写作中</option>
@@ -212,17 +227,31 @@ const projectView = {
         handler: async () => {
           const title = document.getElementById("edit-title")?.value
           const genre = document.getElementById("edit-genre")?.value
+          const tone = document.getElementById("edit-tone")?.value
+          const targetLength = document.getElementById("edit-target-length")?.value
           const stage = document.getElementById("edit-stage")?.value
 
+          if (!title) {
+            toast("请输入项目标题", "warning")
+            return
+          }
+
+          const payload = {
+            title,
+            genre: genre || null,
+            tone: tone || null,
+            target_length: targetLength || null,
+            current_stage: stage || null,
+          }
+
           try {
-            await api.projects.update(id, {
-              title: title || project.title,
-              genre: genre || project.genre,
-              current_stage: stage,
-            })
-            Object.assign(project, { title: title || project.title, genre: genre || project.genre, current_stage: stage })
+            const updated = await api.projects.update(id, payload)
+            const idx = state.projects.findIndex((p) => p.id === id)
+            if (idx >= 0) {
+              state.projects[idx] = { ...state.projects[idx], ...updated }
+            }
             if (state.currentProjectId === id) {
-              state.currentProject = { ...state.currentProject, title: title || project.title, genre: genre || project.genre, current_stage: stage }
+              state.currentProject = { ...state.currentProject, ...updated }
             }
             toast("项目已更新", "success")
             closeModal()
@@ -366,7 +395,7 @@ const projectView = {
         handler: async () => {
           const title = document.getElementById("create-title")?.value
           if (!title) {
-            toast("请输入项目名称", "warning")
+            toast("请输入项目标题", "warning")
             return
           }
 

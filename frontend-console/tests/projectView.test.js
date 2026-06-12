@@ -136,6 +136,25 @@ describe("projectView", () => {
 
       titleInput.remove()
     })
+
+    it("空标题提交时提示请输入项目标题", async () => {
+      api.projects.create.mockResolvedValue({ id: "p-new", title: "新项目" })
+      projectView.showCreateForm()
+
+      const showModalMock = vi.mocked(globalThis.showModal)
+      const buttons = showModalMock.mock.calls[0][2]
+      const titleInput = document.createElement("input")
+      titleInput.id = "create-title"
+      titleInput.value = ""
+      document.body.appendChild(titleInput)
+
+      await buttons[0].handler()
+
+      expect(api.projects.create).not.toHaveBeenCalled()
+      expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
+
+      titleInput.remove()
+    })
   })
 
   // ============================================================
@@ -144,7 +163,7 @@ describe("projectView", () => {
 
   describe("editProject", () => {
     it("项目存在时调用 showModal", () => {
-      state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", current_stage: "writing" }]
+      state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", tone: "黑暗", target_length: "novel", current_stage: "writing" }]
 
       projectView.editProject("p1")
 
@@ -154,12 +173,63 @@ describe("projectView", () => {
       const html = showModalMock.mock.calls[0][1]
       expect(title).toBe("编辑项目")
       expect(html).toContain("项目A")
-      expect(html).toContain("fantasy")
+      expect(html).toContain("edit-tone")
+      expect(html).toContain("edit-target-length")
     })
 
     it("项目不存在时不操作", () => {
       projectView.editProject("nonexistent")
       expect(globalThis.showModal).not.toHaveBeenCalled()
+    })
+
+    it("保存成功后同步项目列表与面包屑状态", async () => {
+      state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", tone: "黑暗", target_length: "novel" }]
+      state.currentProjectId = "p1"
+      state.currentProject = { ...state.projects[0] }
+
+      const updated = { id: "p1", title: "项目A-改", genre: "武侠", tone: "热血", target_length: "epic" }
+      api.projects.update.mockResolvedValue(updated)
+
+      projectView.editProject("p1")
+      const showModalMock = vi.mocked(globalThis.showModal)
+      const buttons = showModalMock.mock.calls[0][2]
+
+      const titleInput = document.createElement("input")
+      titleInput.id = "edit-title"
+      titleInput.value = "项目A-改"
+      document.body.appendChild(titleInput)
+
+      const genreInput = document.createElement("input")
+      genreInput.id = "edit-genre"
+      genreInput.value = "武侠"
+      document.body.appendChild(genreInput)
+
+      const toneInput = document.createElement("input")
+      toneInput.id = "edit-tone"
+      toneInput.value = "热血"
+      document.body.appendChild(toneInput)
+
+      const targetSelect = document.createElement("select")
+      targetSelect.id = "edit-target-length"
+      targetSelect.innerHTML = `<option value="">未设置</option><option value="epic" selected>史诗</option>`
+      document.body.appendChild(targetSelect)
+
+      await buttons[0].handler()
+
+      expect(api.projects.update).toHaveBeenCalledWith("p1", {
+        title: "项目A-改",
+        genre: "武侠",
+        tone: "热血",
+        target_length: "epic",
+        current_stage: null,
+      })
+      expect(state.projects[0]).toEqual(updated)
+      expect(state.currentProject).toEqual(updated)
+
+      titleInput.remove()
+      genreInput.remove()
+      toneInput.remove()
+      targetSelect.remove()
     })
   })
 

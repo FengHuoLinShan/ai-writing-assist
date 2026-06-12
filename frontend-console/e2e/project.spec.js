@@ -74,7 +74,7 @@ test.describe("项目模块", () => {
     await expect(page.locator(SEL.projectCard(project.id))).toContainText("scifi")
   })
 
-  test("编辑项目信息", async ({ page }) => {
+  test("编辑项目信息并同步面包屑", async ({ page }) => {
     const project = await createProject({
       title: "编辑前标题",
       genre: "mystery",
@@ -97,17 +97,19 @@ test.describe("项目模块", () => {
 
     await page.locator("#edit-title").fill("编辑后标题")
     await page.locator("#edit-genre").fill("武侠")
-    await page.locator("#edit-stage").selectOption("writing")
+    await page.locator("#edit-tone").fill("热血")
+    await page.locator("#edit-target-length").selectOption("epic")
 
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
-    // 等待模态框关闭
+    // 等待模态框关闭并提示更新成功
     await expect(page.locator(SEL.modalOverlay)).toHaveClass(/hidden/)
+    await expect(page.locator(SEL.toastContainer)).toContainText("项目已更新", { timeout: 10000 })
 
-    // 前端编辑后不会自动刷新列表，需要手动刷新页面验证
-    await page.reload()
-    await expect(page.locator(SEL.projectGrid)).toBeVisible({ timeout: 10000 })
-    await expect(page.locator(SEL.projectCard(project.id))).toContainText("编辑后标题")
+    // 进入工作台验证面包屑同步刷新
+    await card.click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.topbarProject)).toHaveText("编辑后标题", { timeout: 10000 })
   })
 
   test("删除项目", async ({ page }) => {
