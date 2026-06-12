@@ -284,3 +284,57 @@ class TestSceneEntityExtractionProgress:
 
         assert progress_calls == [(0, 2), (1, 2), (2, 2)]
         assert result["total_scenes"] == 2
+
+
+class TestHandleDeepImportTaskResult:
+    """测试 task handler 在阶段边界更新 task.result"""
+
+    @pytest.mark.asyncio
+    async def test_handle_deep_import_updates_task_result_at_phase_boundaries(self):
+        from modules.imports.tasks import handle_deep_import
+
+        class FakeTask:
+            def __init__(self):
+                self.meta = {
+                    "novel_id": str(uuid.uuid4()),
+                    "start_chapter": 1,
+                    "end_chapter": 3,
+                }
+                self.result = {}
+                self.progress_values = []
+
+            def update_progress(self, value):
+                self.progress_values.append(value)
+
+        task = FakeTask()
+        mock_db = AsyncMock()
+
+        with patch.object(
+            DeepImportWorkflow,
+            "_segment_scenes",
+            new_callable=AsyncMock,
+            return_value={
+                "total_scenes": 5,
+                "failed_batches": [],
+                "degraded": False,
+            },
+        ), patch.object(
+            DeepImportWorkflow,
+            "_extract_entities_by_scene",
+            new_callable=AsyncMock,
+            return_value={"total_created": 3, "total_deltas": 2},
+        ), patch.object(
+            DeepImportWorkflow,
+            "_analyze_structure",
+            new_callable=AsyncMock,
+            return_value={"total_threads": 2, "total_arcs": 4},
+        ):
+            result = await handle_deep_import(db=mock_db, task=task)
+
+        assert result["phase"] == "done"
+        assert task.result["phase"] == "done"
+        assert DeepImportStep.scene_segmentation.value in task.result["completed_steps"]
+        assert DeepImportStep.entity_extraction.value in task.result["completed_steps"]
+        assert DeepImportStep.structure_analysis.value in task.result["completed_steps"]
+        assert len(task.progress_values) >= 4
+        assert 1.0 in task.progress_values
