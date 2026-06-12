@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -31,11 +32,19 @@ import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-from app.main import app
+from app.main import _register_container_services, app
 from core.base import Base
+from core.container import reset as reset_container
 from core.dependencies import get_db
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True)
+def _reset_and_register_di_container() -> None:
+    """每个测试前重置 DI 容器并重新注册服务，消除全局状态污染。"""
+    reset_container()
+    _register_container_services()
 
 
 @pytest_asyncio.fixture

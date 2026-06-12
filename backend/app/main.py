@@ -56,24 +56,36 @@ from modules.world.facade import (
 import modules.project.models  # noqa: F401, I001
 import modules.world.models  # noqa: F401, I001
 
-_register("world.list_characters", _world_list_characters)
-_register("world.list_entity_terms", _world_list_entity_terms)
-_register("world.run_entity_extraction", _world_extract)
-_register("world.list_entities", _world_list_entities)
-_register("world.run_scene_entity_extraction", _SceneExtractSvc().extract_by_scenes)
-_register("world.create_character", _world_create_char)
-_register("world.get_character_id_by_world_entity", _world_get_char_id)
-_register("rag.index_chapter", _rag_index)
-_register("rag.get_ordered_chapter_chunks", _rag_get_chunks)
 
-_register("writing.list_chapter_indices", _writing_list_indices)
-_register("writing.get_latest_draft_for_chapter", _writing_get_draft)
-_register("outline.generate_structure", _PSG().generate)
-_register("outline.arc_service", _OAS())
-_register("outline.thread_service", _PTS())
-_register("outline.scene_service", _SceneSvc())
-_register("context.compile", _ctx_compile)
-_register("memory.service", _MemorySvc())
+def _register_container_services() -> None:
+    """注册所有模块服务到 DI 容器。
+
+    抽成函数以便在应用启动和测试 fixture 中复用。
+    """
+    _register("world.list_characters", _world_list_characters)
+    _register("world.list_entity_terms", _world_list_entity_terms)
+    _register("world.run_entity_extraction", _world_extract)
+    _register("world.list_entities", _world_list_entities)
+    _register(
+        "world.run_scene_entity_extraction",
+        _SceneExtractSvc().extract_by_scenes,
+    )
+    _register("world.create_character", _world_create_char)
+    _register("world.get_character_id_by_world_entity", _world_get_char_id)
+    _register("rag.index_chapter", _rag_index)
+    _register("rag.get_ordered_chapter_chunks", _rag_get_chunks)
+
+    _register("writing.list_chapter_indices", _writing_list_indices)
+    _register("writing.get_latest_draft_for_chapter", _writing_get_draft)
+    _register("outline.generate_structure", _PSG().generate)
+    _register("outline.arc_service", _OAS())
+    _register("outline.thread_service", _PTS())
+    _register("outline.scene_service", _SceneSvc())
+    _register("context.compile", _ctx_compile)
+    _register("memory.service", _MemorySvc())
+
+
+_register_container_services()
 
 logger = logging.getLogger(__name__)
 
