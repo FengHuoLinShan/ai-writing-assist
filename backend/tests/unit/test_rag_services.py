@@ -194,13 +194,13 @@ class TestReranker:
     @pytest.fixture
     def mock_llm_client(self):
         def _make(scores, model_name="test-model"):
-            with patch("modules.rag.reranker.LLMClient") as MockClient:
-                instance = MockClient.return_value
+            with patch("modules.rag.reranker.LLMClient") as mock_client:
+                instance = mock_client.return_value
                 instance._settings.llm_model = model_name
                 instance.generate = AsyncMock(
                     return_value=MagicMock(content=json.dumps({"scores": scores}))
                 )
-                yield MockClient, instance
+                yield mock_client, instance
 
         return _make
 
@@ -220,8 +220,8 @@ class TestReranker:
             {"text": "片段一"},
             {"text": "片段二"},
         ]
-        with patch("modules.rag.reranker.LLMClient") as MockClient:
-            instance = MockClient.return_value
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
                 return_value=MagicMock(content=json.dumps({"scores": [0.8]}))
@@ -239,8 +239,8 @@ class TestReranker:
     async def test_rerank_truncated_candidates_get_default_score(self):
         # Arrange
         candidates = [{"text": f"片段{i}"} for i in range(30)]
-        with patch("modules.rag.reranker.LLMClient") as MockClient:
-            instance = MockClient.return_value
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
                 return_value=MagicMock(content=json.dumps({"scores": [1.0] * 24}))
@@ -258,8 +258,8 @@ class TestReranker:
     async def test_rerank_llm_exception_returns_uniform_scores(self):
         # Arrange
         candidates = [{"text": "片段"}]
-        with patch("modules.rag.reranker.LLMClient") as MockClient:
-            instance = MockClient.return_value
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(side_effect=RuntimeError("boom"))
 
@@ -273,8 +273,8 @@ class TestReranker:
     async def test_rerank_scores_clamped_to_0_1(self):
         # Arrange
         candidates = [{"text": "片段"}]
-        with patch("modules.rag.reranker.LLMClient") as MockClient:
-            instance = MockClient.return_value
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
                 return_value=MagicMock(content=json.dumps({"scores": [-0.5, 1.5]}))
@@ -306,8 +306,8 @@ class TestReranker:
         c3 = SimpleNamespace(text="t3")
         scored = [(c1, 0.9), (c2, 0.8), (c3, 0.7)]
 
-        with patch("modules.rag.reranker.LLMClient") as MockClient:
-            instance = MockClient.return_value
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
             instance._settings.llm_model = "m"
             instance.generate = AsyncMock(
                 return_value=MagicMock(content=json.dumps({"scores": [0.9, 0.5, 0.8]}))
