@@ -1165,6 +1165,7 @@ const writingView = {
       handler: async () => {
         const splitPos = parseInt(document.getElementById("split-pos")?.value || "", 10)
         if (!splitPos || splitPos < 1) { toast("请输入有效的断章位置", "warning"); return }
+        if (splitPos >= contentLength) { toast("断章位置必须小于正文长度", "warning"); return }
         closeModal()
         await this._doSplitScene(splitPos, currentScene)
       },
