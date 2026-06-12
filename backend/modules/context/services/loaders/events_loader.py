@@ -30,12 +30,6 @@ class EventsLoader(Loader):
 
         from modules.world.facade import get_events_context
 
-        entity_ids_for_tl = (
-            options.entity_ids
-            or [e.get("entity_id", e.get("id", "")) for e in bundle.world_entities]
-            or None
-        )
-
         ctx = await get_events_context(
             db,
             options.novel_id,
