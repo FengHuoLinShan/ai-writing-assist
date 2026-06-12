@@ -88,21 +88,21 @@ class TestCrudServiceSubclassValidation:
     def test_missing_repo_raises_type_error(self):
         with pytest.raises(TypeError, match="'repo'"):
 
-            class _(CrudService):
+            class _MissingRepoService(CrudService):
                 response = ResponseModel
                 label = "X"
 
     def test_missing_response_raises_type_error(self):
         with pytest.raises(TypeError, match="'response'"):
 
-            class _(CrudService):
+            class _MissingResponseService(CrudService):
                 repo = MagicMock()
                 label = "X"
 
     def test_missing_label_raises_type_error(self):
         with pytest.raises(TypeError, match="'label'"):
 
-            class _(CrudService):
+            class _MissingLabelService(CrudService):
                 repo = MagicMock()
                 response = ResponseModel
 
