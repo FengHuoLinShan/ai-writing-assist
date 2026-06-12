@@ -21,7 +21,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Ensure pg_trgm extension is available (it was created in 0001 but may not exist in test DBs)
+    # Ensure pg_trgm extension is available
+    # (it was created in 0001 but may not exist in test DBs)
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
     # Add generated column that aggregates name + aliases for full-text fuzzy search

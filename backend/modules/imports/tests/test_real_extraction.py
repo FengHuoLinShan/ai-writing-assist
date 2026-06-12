@@ -213,7 +213,8 @@ class TestRealEntityExtraction:
         created_names = [item["name"] for item in result.items]
         print(f"抽取到的实体: {created_names}")
         print(
-            f"生成率: {result.total_created}/{result.total_created + result.total_skipped}"
+            f"生成率: {result.total_created}/"
+            f"{result.total_created + result.total_skipped}"
         )
 
         # 验证结果包含自动入库标记
@@ -477,7 +478,9 @@ class TestAutoIngestContextLoading:
         )
 
         print(
-            f"首次创建: {ctx['first_created']}, 第二次创建: {second_result.total_created}, 跳过: {second_result.total_skipped}"
+            f"首次创建: {ctx['first_created']}, "
+            f"第二次创建: {second_result.total_created}, "
+            f"跳过: {second_result.total_skipped}"
         )
         # 第二次不应创建比第一次更多实体（已创建的应被去重逻辑识别）
         assert second_result.total_created <= ctx["first_created"], (
@@ -502,5 +505,6 @@ class TestAutoIngestContextLoading:
             f"批次应有至少1个实体，实际 {batch['entity_count']}"
         )
         print(
-            f"批次 {batch['batch_id']}: {batch['entity_count']} 个实体, 导入时间 {batch['ingested_at']}"
+            f"批次 {batch['batch_id']}: {batch['entity_count']} 个实体, "
+            f"导入时间 {batch['ingested_at']}"
         )

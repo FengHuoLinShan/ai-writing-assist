@@ -44,7 +44,8 @@ logger = logging.getLogger(__name__)
 class OpenAIProvider:
     """OpenAI-compatible API Provider
 
-    支持 OpenAI、Azure OpenAI、以及任何 OpenAI-compatible 的 API（如 Ollama、vLLM、DeepSeek 等）。
+    支持 OpenAI、Azure OpenAI、以及任何 OpenAI-compatible 的 API
+    （如 Ollama、vLLM、DeepSeek 等）。
     """
 
     def __init__(
@@ -111,7 +112,9 @@ class OpenAIProvider:
         logger.debug("LLM call — model=%s, messages=%s", model, len(request.messages))
 
         try:
-            response = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            response = await self._client.chat.completions.create(
+                **kwargs,
+            )  # type: ignore[arg-type]
         except APITimeoutError as e:
             raise LLMTimeoutError(
                 f"OpenAI API timeout after {self._timeout}s",
@@ -189,7 +192,9 @@ class OpenAIProvider:
         logger.debug("LLM stream call — model=%s", model)
 
         try:
-            stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            stream = await self._client.chat.completions.create(
+                **kwargs,
+            )  # type: ignore[arg-type]
         except APITimeoutError as e:
             raise LLMTimeoutError(
                 f"OpenAI API timeout after {self._timeout}s",

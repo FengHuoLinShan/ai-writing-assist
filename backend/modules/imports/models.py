@@ -108,4 +108,7 @@ class ImportedChapter(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<ImportedChapter id={self.id} index={self.chapter_index} title={self.title!r}>"
+        return (
+            f"<ImportedChapter id={self.id} index={self.chapter_index} "
+            f"title={self.title!r}>"
+        )

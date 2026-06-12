@@ -49,8 +49,12 @@ def upgrade() -> None:
     # ---------------------------------------------------------------
     # 2a. 为 world_entity_id=NULL 的行创建 core_entities 占位记录
     op.execute("""
-        INSERT INTO core_entities (id, novel_id, entity_type, name, status, created_at, updated_at)
-        SELECT gen_random_uuid(), c.novel_id, 'character_ref', c.name, c.status, c.created_at, c.updated_at
+        INSERT INTO core_entities (
+            id, novel_id, entity_type, name, status, created_at, updated_at
+        )
+        SELECT
+            gen_random_uuid(), c.novel_id, 'character_ref', c.name,
+            c.status, c.created_at, c.updated_at
         FROM characters c
         WHERE c.world_entity_id IS NULL
     """)

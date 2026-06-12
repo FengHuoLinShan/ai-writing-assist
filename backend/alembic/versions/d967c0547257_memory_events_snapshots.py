@@ -44,7 +44,11 @@ def upgrade() -> None:
             "event_type",
             sa.String(64),
             nullable=False,
-            comment="entity_created | entity_updated | entity_removed | entity_moved | relation_established | relation_ended | knowledge_changed | manual_correction",
+            comment=(
+                "entity_created | entity_updated | entity_removed | entity_moved | "
+                "relation_established | relation_ended | knowledge_changed | "
+                "manual_correction"
+            ),
         ),
         sa.Column(
             "entity_id",

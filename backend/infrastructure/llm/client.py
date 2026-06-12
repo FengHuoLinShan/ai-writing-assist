@@ -208,7 +208,8 @@ class LLMClient:
                 # 修复模式：追加错误信息，让模型修正输出
                 fix_msg = fix_prompt or (
                     f"Your previous response failed validation. Error: {last_error}\n"
-                    f"Please output valid JSON matching this schema: {schema.model_json_schema()}"
+                    f"Please output valid JSON matching this schema: "
+                    f"{schema.model_json_schema()}"
                 )
                 req.messages.append(
                     LLMMessage(role="assistant", content=response.content)
