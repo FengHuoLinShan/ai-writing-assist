@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from core.config import get_settings
 from core.dependencies import DbSession
 from modules.world.schemas import (
     CharacterCreate,
@@ -36,6 +37,8 @@ from modules.world.schemas import (
     EventListResponse,
     EventResponse,
     EventUpdate,
+    TextArchiveSeedRequest,
+    TextArchiveSeedResponse,
 )
 from modules.world.services import (
     CharacterKnowledgeService,
@@ -320,6 +323,37 @@ async def rollback_entity_by_revision(
         entity_id,
         revision_id,
         novel_id,
+    )
+
+
+@router.post(
+    "/_test/entities/{entity_id}/text-archive",
+    response_model=TextArchiveSeedResponse,
+    status_code=201,
+    summary="E2E 测试专用：为实体写入 TextArchive 归档",
+)
+async def seed_entity_text_archive(
+    db: DbSession,
+    entity_id: str,
+    data: TextArchiveSeedRequest,
+) -> TextArchiveSeedResponse:
+    settings = get_settings()
+    if settings.app_env != "test":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    archive = await _revision_service.seed_text_archive(
+        db,
+        entity_id=entity_id,
+        novel_id=data.novel_id,
+        field_name=data.field_name,
+        text_content=data.text_content,
+        scene_index=data.scene_index,
+    )
+    return TextArchiveSeedResponse(
+        status="ok",
+        entity_id=entity_id,
+        field_name=data.field_name,
+        archive_id=str(archive.id),
     )
 
 

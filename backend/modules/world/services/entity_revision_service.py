@@ -287,3 +287,35 @@ class EntityRevisionService:
             "restored_fields": restored_fields,
             "warnings": warnings,
         }
+
+    async def seed_text_archive(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        novel_id: str,
+        field_name: str,
+        text_content: str,
+        scene_index: int = 0,
+    ) -> TextArchive:
+        """E2E 测试专用：在验证实体所有权后插入一条 TextArchive 记录。"""
+        eid = parse_uuid(entity_id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
+
+        entity = await self._entity_repo.get(db, eid)
+        if entity is None or entity.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Entity not found",
+            )
+
+        archive = TextArchive(
+            novel_id=nid,
+            entity_id=eid,
+            field_name=field_name,
+            text_content=text_content,
+            scene_index=scene_index,
+            source="test_seed",
+        )
+        db.add(archive)
+        await db.flush()
+        return archive

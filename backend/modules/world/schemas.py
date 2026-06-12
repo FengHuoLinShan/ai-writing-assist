@@ -485,6 +485,24 @@ class EntityRevisionListResponse(BaseModel):
     total: int
 
 
+class TextArchiveSeedRequest(BaseModel):
+    """E2E 测试专用：写入 TextArchive 归档请求"""
+
+    novel_id: str
+    field_name: str = "summary"
+    text_content: str
+    scene_index: int = 0
+
+
+class TextArchiveSeedResponse(BaseModel):
+    """E2E 测试专用：写入 TextArchive 归档响应"""
+
+    status: str = "ok"
+    entity_id: str
+    field_name: str
+    archive_id: str
+
+
 # ============================================================
 # Character Schema（从 character 模块迁入）
 # ============================================================

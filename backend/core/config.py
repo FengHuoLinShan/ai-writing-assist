@@ -113,6 +113,9 @@ class Settings:
     # --- 重排序 ---
     reranker_enabled: bool = _env("RERANKER_ENABLED", "false").lower() == "true"
 
+    # --- 运行环境 ---
+    app_env: str = field(default_factory=lambda: _env("APP_ENV", "development"))
+
     # --- 应用 ---
     app_name: str = "ai-novel-structural-engine"
     app_version: str = "2.0.0"

@@ -107,8 +107,14 @@ export async function createCharacter(novelId, data) {
 /** 为实体插入 TextArchive 记录（E2E 回滚测试种子） */
 export async function seedEntityArchive(novelId, entityId, textContent, opts = {}) {
   const { fieldName = "summary", sceneIndex = 5 } = opts
-  const params = new URLSearchParams({ novel_id: novelId, text_content: textContent, field_name: fieldName, scene_index: String(sceneIndex) })
-  return request(`/world/_test/entities/${entityId}/text-archive?${params}`, {
+  return request(`/world/_test/entities/${entityId}/text-archive`, {
     method: "POST",
+    body: JSON.stringify({
+      novel_id: novelId,
+      field_name: fieldName,
+      text_content: textContent,
+      scene_index: sceneIndex,
+    }),
   })
 }
+
