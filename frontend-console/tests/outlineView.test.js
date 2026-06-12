@@ -1,7 +1,7 @@
 /**
  * outlineView 测试 — 核心生命周期和辅助方法
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import outlineView from "../views/outlineView.js"
 
 beforeEach(() => {
@@ -91,5 +91,149 @@ describe("_narrativeTagLabel", () => {
     expect(outlineView._narrativeTagLabel("draft")).toBe("草稿")
     expect(outlineView._narrativeTagLabel(null)).toBe("草稿")
     expect(outlineView._narrativeTagLabel("unknown")).toBe("unknown")
+  })
+})
+
+describe("helpers", () => {
+  const originalOnEnter = outlineView.onEnter
+
+  beforeEach(() => {
+    outlineView.onEnter = vi.fn()
+  })
+
+  afterEach(() => {
+    outlineView.onEnter = originalOnEnter
+  })
+
+  it("reorders scenes through the API", async () => {
+    state.currentProjectId = "p1"
+    outlineView._scenes = [{ id: "s1" }, { id: "s2" }]
+    api.outline.reorderScenes.mockResolvedValue({ updated: 2, total: 2 })
+
+    await outlineView._reorderScenes(["s2", "s1"])
+
+    expect(api.outline.reorderScenes).toHaveBeenCalledWith("p1", ["s2", "s1"])
+    expect(toast).toHaveBeenCalledWith("Scene 顺序已更新", "success")
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("generates structure from outline view", async () => {
+    state.currentProjectId = "p1"
+    api.outline.generate.mockResolvedValue({ plot_threads: [], outline_arcs: [] })
+
+    const result = await outlineView._generateStructure(1, 5)
+
+    expect(api.outline.generate).toHaveBeenCalledWith("p1", 1, 5)
+    expect(toast).toHaveBeenCalledWith("结构生成完成", "success")
+    expect(result).toEqual({ plot_threads: [], outline_arcs: [] })
+  })
+
+  it("reorders scenes up correctly", async () => {
+    state.currentProjectId = "p1"
+    outlineView._scenes = [
+      { id: "s1", scene_index: 0 },
+      { id: "s2", scene_index: 1 },
+      { id: "s3", scene_index: 2 },
+    ]
+    api.outline.reorderScenes.mockResolvedValue({ updated: 3, total: 3 })
+
+    await outlineView._moveSceneUp("s2")
+
+    expect(api.outline.reorderScenes).toHaveBeenCalledWith("p1", ["s2", "s1", "s3"])
+  })
+
+  it("reorders scenes down correctly", async () => {
+    state.currentProjectId = "p1"
+    outlineView._scenes = [
+      { id: "s1", scene_index: 0 },
+      { id: "s2", scene_index: 1 },
+      { id: "s3", scene_index: 2 },
+    ]
+    api.outline.reorderScenes.mockResolvedValue({ updated: 3, total: 3 })
+
+    await outlineView._moveSceneDown("s2")
+
+    expect(api.outline.reorderScenes).toHaveBeenCalledWith("p1", ["s1", "s3", "s2"])
+  })
+
+  it("reorder error shows toast", async () => {
+    state.currentProjectId = "p1"
+    outlineView._scenes = [{ id: "s1" }, { id: "s2" }]
+    api.outline.reorderScenes.mockRejectedValue(new Error("network error"))
+
+    await outlineView._reorderScenes(["s2", "s1"])
+
+    expect(toast).toHaveBeenCalledWith("network error", "error")
+  })
+
+  it("generate structure error shows toast", async () => {
+    state.currentProjectId = "p1"
+    api.outline.generate.mockRejectedValue(new Error("llm fail"))
+
+    await expect(outlineView._generateStructure(1, 5)).rejects.toThrow("llm fail")
+    expect(toast).toHaveBeenCalledWith("llm fail", "error")
+  })
+})
+
+describe("render buttons", () => {
+  it("renders generate structure and move buttons", async () => {
+    outlineView._loading = false
+    state.currentSubView = "scenes"
+    state.currentProjectId = "p1"
+    outlineView._scenes = [
+      { id: "s1", scene_index: 0, title: "A", narrative_tag: "hook", status: "draft", source: "manual" },
+    ]
+    const html = await outlineView.render()
+    expect(html).toContain('data-action="generate-structure"')
+    expect(html).toContain('data-action="move-scene-up"')
+    expect(html).toContain('data-action="move-scene-down"')
+  })
+})
+
+describe("_showGenerateStructureForm", () => {
+  let capturedHandler
+
+  beforeEach(() => {
+    capturedHandler = null
+    showModal.mockImplementation((title, html, buttons) => {
+      capturedHandler = buttons[0]?.handler
+    })
+  })
+
+  afterEach(() => {
+    showModal.mockClear()
+  })
+
+  it("validates end chapter >= start chapter", async () => {
+    outlineView._showGenerateStructureForm()
+    expect(capturedHandler).toBeTruthy()
+
+    document.getElementById = vi.fn((id) => {
+      if (id === "generate-structure-start") return { value: "5" }
+      if (id === "generate-structure-end") return { value: "3" }
+      return null
+    })
+    outlineView._generateStructure = vi.fn()
+
+    await capturedHandler()
+
+    expect(toast).toHaveBeenCalledWith("结束章节不能小于起始章节", "warning")
+    expect(outlineView._generateStructure).not.toHaveBeenCalled()
+  })
+
+  it("calls generate with valid range", async () => {
+    outlineView._showGenerateStructureForm()
+    expect(capturedHandler).toBeTruthy()
+
+    document.getElementById = vi.fn((id) => {
+      if (id === "generate-structure-start") return { value: "1" }
+      if (id === "generate-structure-end") return { value: "5" }
+      return null
+    })
+    outlineView._generateStructure = vi.fn()
+
+    await capturedHandler()
+
+    expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
   })
 })

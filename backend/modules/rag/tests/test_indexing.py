@@ -29,7 +29,7 @@ async def test_delete_by_chapter_removes_chunks(
     nid = uuid.UUID(hex=test_project_id)
 
     # 先创建 2 个第 1 章 chunk + 1 个第 2 章 chunk
-    chunk1 = await repo.create(
+    await repo.create(
         db_session,
         nid,
         RagChunkCreate(
@@ -38,7 +38,7 @@ async def test_delete_by_chapter_removes_chunks(
             text="第一章内容。",
         ),
     )
-    chunk2 = await repo.create(
+    await repo.create(
         db_session,
         nid,
         RagChunkCreate(
@@ -96,7 +96,6 @@ async def test_index_chapter_creates_chunks_with_character_ids(
     from modules.writing.models import WritingDraft
 
     nid_uuid = uuid.UUID(hex=test_project_id)
-    cid_uuid = uuid.UUID(hex=test_character_id)
 
     # 先创建一个草稿
     draft = WritingDraft(
@@ -425,3 +424,110 @@ async def test_index_chapter_skips_no_draft(
 
     count = await index_chapter(db_session, test_project_id, 99)
     assert count == 0, "无草稿章节应返回 0"
+
+
+@pytest.mark.asyncio
+async def test_index_chapter_replaces_stale_chunks_on_update(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """RED: 更新章节正文后重新索引，旧 chunk 不应残留，新 chunk 应出现"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.rag.facade import index_chapter_with_report
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+
+    db_session.add(
+        WritingDraft(
+            id=_uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章",
+            content="旧正文片段。旧正文片段。旧内容应被清除。" * 6,
+            version_number=1,
+        )
+    )
+    await db_session.flush()
+
+    fake_embedding = [0.1] * 768
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
+        mock_client_cls.return_value = mock_client
+        result = await index_chapter_with_report(db_session, test_project_id, 1)
+
+    assert result.chunks_created > 0
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert any("旧正文片段" in c.text for c in chunks)
+    assert len(chunks) == result.chunks_created, "首次索引后 chunk 总数应与报告一致"
+
+    # 更新章节：创建新版本草稿
+    db_session.add(
+        WritingDraft(
+            id=_uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章（修订）",
+            content="新正文片段。新正文片段。新内容应保留。" * 6,
+            version_number=2,
+        )
+    )
+    await db_session.flush()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
+        mock_client_cls.return_value = mock_client
+        result = await index_chapter_with_report(db_session, test_project_id, 1)
+
+    assert result.chunks_created > 0
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert all("旧正文片段" not in c.text for c in chunks)
+    assert any("新正文片段" in c.text for c in chunks)
+    assert len(chunks) == result.chunks_created, (
+        "重新索引后旧 chunk 应被删除，总数应与报告一致"
+    )
+
+
+@pytest.mark.asyncio
+async def test_index_chapter_with_report_marks_failed_embeddings(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """RED: embedding 失败时 chunk 状态应为 failed 且报告携带 warnings"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.rag.facade import index_chapter_with_report
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+
+    db_session.add(
+        WritingDraft(
+            id=_uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章",
+            content="测试正文。用于验证 embedding 失败降级。" * 8,
+            version_number=1,
+        )
+    )
+    await db_session.flush()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(
+            side_effect=Exception("embedding down"),
+        )
+        mock_client_cls.return_value = mock_client
+        result = await index_chapter_with_report(db_session, test_project_id, 1)
+
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert any(c.embedding_status == "failed" for c in chunks)
+    assert result.warnings

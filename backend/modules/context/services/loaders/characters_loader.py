@@ -45,21 +45,68 @@ class CharactersLoader(Loader):
             if ctx:
                 bundle.characters = [c.model_dump() for c in ctx.characters]
 
-        # 知识边界过滤
-        if limited_ids and bundle.world_entities and options.scope != "project":
+        # 知识边界过滤：仅在 character reveal 模式下执行，使用视角人物作为过滤主体。
+        if (
+            options.reveal_mode == "character"
+            and limited_ids
+            and bundle.world_entities
+            and options.scope != "project"
+        ):
             from modules.world.facade import filter_context_by_character_knowledge
 
+            filter_character_id = options.viewpoint_character_id or limited_ids[0]
+            if not options.viewpoint_character_id:
+                logger.warning(
+                    "character reveal 模式未提供 viewpoint_character_id，"
+                    "使用 limited_ids[0] 作为过滤角色: %s",
+                    filter_character_id,
+                )
+
             try:
+                # 世界对象字段 (entity_type/entity_id) 需要映射为知识过滤器的
+                # target_type/target_id 才能正确匹配 character_knowledge 记录。
+                # character_knowledge 的 target_type 使用粗粒度分类：
+                # character/location/event 保持原样，其它世界对象统一归为 entity。
+                filter_input: list[dict] = []
+                for ent in bundle.world_entities:
+                    mapped = dict(ent)
+                    etype = ent.get("entity_type", "")
+                    if etype == "character":
+                        mapped["target_type"] = "character"
+                    elif etype in ("location", "event"):
+                        mapped["target_type"] = etype
+                    else:
+                        mapped["target_type"] = "entity"
+                    mapped["target_id"] = ent.get("entity_id", "") or ent.get("id", "")
+                    filter_input.append(mapped)
+
                 filtered = await filter_context_by_character_knowledge(
                     db,
                     options.novel_id,
-                    limited_ids[0],
-                    bundle.world_entities,
+                    filter_character_id,
+                    filter_input,
                 )
+
+                # 将过滤结果映射回世界对象字段，并整合知识边界信息。
+                # false_belief 时用 misconception 替换 summary，且不暴露 hidden_truth。
+                restored: list[dict] = []
+                for ent in filtered or []:
+                    mapped = dict(ent)
+                    mapped.pop("target_type", None)
+                    mapped.pop("target_id", None)
+                    mapped.pop("original_content", None)
+                    if ent.get("knowledge_level") == "false_belief":
+                        misconception = ent.get("content", "")
+                        if misconception:
+                            mapped["summary"] = misconception
+                            mapped["misconception"] = misconception
+                        mapped.pop("hidden_truth", None)
+                    restored.append(mapped)
+
                 if filtered is not None:
-                    bundle.world_entities = filtered
+                    bundle.world_entities = restored
             except Exception:
-                pass
+                logger.warning("知识边界过滤失败", exc_info=True)
 
         bundle.budget_used["characters"] = len(bundle.characters)
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.main import app
+from core.dependencies import get_db
 from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
 
 
@@ -17,6 +21,60 @@ def sample_novel_id() -> str:
 @pytest.fixture
 def other_novel_id() -> str:
     return str(uuid.uuid4())
+
+
+@pytest_asyncio.fixture
+async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """FastAPI test client with SQLite db override"""
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def test_project_id(db_session: AsyncSession) -> str:
+    """创建一个测试项目并返回其 ID"""
+    from modules.project.models import Project
+
+    pid = uuid.uuid4()
+    p = Project(
+        id=pid,
+        title="测试小说",
+        genre="奇幻悬疑",
+        tone="黑暗",
+        language="zh",
+        current_stage="世界构建中",
+    )
+    db_session.add(p)
+    await db_session.flush()
+    return str(pid)
+
+
+@pytest_asyncio.fixture
+async def test_entity_id(db_session: AsyncSession, test_project_id: str) -> str:
+    """创建一个测试世界对象并返回其 ID"""
+    from modules.world.models import CoreEntity
+
+    eid = uuid.uuid4()
+    e = CoreEntity(
+        id=eid,
+        novel_id=uuid.UUID(hex=test_project_id),
+        entity_type="item",
+        name="测试物品",
+        summary="一个测试物品",
+        status="canonical",
+    )
+    db_session.add(e)
+    await db_session.flush()
+    return str(eid)
 
 
 @pytest.fixture

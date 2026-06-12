@@ -208,6 +208,52 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return [row[0] for row in result.all()]
 
+    async def update_latest_content(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        *,
+        title: str | None,
+        content: str,
+    ) -> WritingDraft:
+        draft = await self.get_latest_by_chapter(db, novel_id, chapter_index)
+        if draft is None:
+            raise ValueError(f"No draft found for chapter {chapter_index}")
+        draft.title = title
+        draft.content = content
+        db.add(draft)
+        await db.flush()
+        return draft
+
+    async def shift_chapter_indices_from(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_index: int,
+    ) -> None:
+        stmt = (
+            select(WritingDraft.chapter_index)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index >= start_index,
+            )
+            .distinct()
+            .order_by(WritingDraft.chapter_index.desc())
+        )
+        result = await db.execute(stmt)
+        indices = [row[0] for row in result.all()]
+        for idx in indices:
+            await db.execute(
+                update(WritingDraft)
+                .where(
+                    WritingDraft.novel_id == novel_id,
+                    WritingDraft.chapter_index == idx,
+                )
+                .values(chapter_index=idx + 1)
+            )
+        await db.flush()
+
     async def _next_version_number(
         self,
         db: AsyncSession,

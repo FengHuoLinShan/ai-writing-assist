@@ -214,6 +214,10 @@ class CharacterService(
             key = f"{item.get('target_type', '')}:{item.get('target_id', '')}"
             knowledge = knowledge_map.get(key)
 
+            # 设计选择：在 character reveal 模式下，调用方（characters_loader）
+            # 只在 reveal_mode == "character" 时才会进入本方法。因此此处缺失
+            # knowledge 记录代表该视角人物对这个实体没有任何认知边界信息，
+            # 按“未知”处理并 intentional 地从该人物的 compiled context 中移除。
             if knowledge is None:
                 removed_count += 1
                 continue

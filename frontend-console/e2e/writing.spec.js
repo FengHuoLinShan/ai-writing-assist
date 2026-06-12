@@ -256,15 +256,60 @@ test.describe("手动工作台模块", () => {
     await expect(page.locator("#modal-overlay")).toBeVisible({ timeout: 5000 })
     await expect(page.locator("#modal-overlay")).toContainText("断章")
 
-    // 确认断章（从第 2 章开始，新建 Scene）
-    await page.locator("#split-chapter-index").fill("2")
-    await page.locator("#split-target-scene").selectOption("")
+    // 确认断章（在第 2 章内容 offset 2 处切分）
+    await page.locator("#split-pos").fill("2")
     await page.locator("#modal-footer .btn-primary").click()
     await expect(page.locator(SEL.toastContainer)).toContainText("断章完成", { timeout: 10000 })
 
     // 验证树已更新
     const treeText = await page.locator("#writing-tree-container").textContent()
     expect(treeText).toContain("Scene")
+  })
+
+  // ============================================================
+  // 光标位置联动右侧 Scene 卡面板
+  // ============================================================
+
+  test("光标位置联动右侧 Scene 卡面板", async ({ page }) => {
+    // 创建一个 10 字符的章节，并用 scene_chunks 分成两个 Scene
+    await createDraft(testProjectId, 1, "ch1", "ABCDEFGHIJ")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "Scene A",
+      narrative_tag: "draft",
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 5 }],
+    })
+    await createScene(testProjectId, {
+      scene_index: 1,
+      title: "Scene B",
+      narrative_tag: "draft",
+      scene_chunks: [{ chapter_index: 1, start_pos: 5, end_pos: 10 }],
+    })
+
+    await page.reload()
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+
+    // 选中第 1 章
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await expect(page.locator("#writing-editor")).toHaveValue("ABCDEFGHIJ", { timeout: 5000 })
+
+    // 光标落在第一个 chunk → 显示 Scene A
+    await page.evaluate(() => {
+      writingView._cursorOffset = 2
+      writingView._updateCurrentScene()
+      const panel = document.getElementById("writing-panel-container")
+      if (panel) panel.innerHTML = writingView._renderScenePanel()
+    })
+    await expect(page.locator("#writing-panel-container")).toContainText("Scene A")
+
+    // 光标落在第二个 chunk → 显示 Scene B
+    await page.evaluate(() => {
+      writingView._cursorOffset = 7
+      writingView._updateCurrentScene()
+      const panel = document.getElementById("writing-panel-container")
+      if (panel) panel.innerHTML = writingView._renderScenePanel()
+    })
+    await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
 
   // ============================================================

@@ -211,7 +211,9 @@ class RevealPlan(Base, UUIDMixin, TimestampMixin, NovelMixin):
         JSON,
         nullable=True,
         default=list,
-        comment="揭示阶段 [{stage_index, chapter_index, reveal_content, trigger, effect}]",
+        comment=(
+            "揭示阶段 [{stage_index, chapter_index, reveal_content, trigger, effect}]"
+        ),
     )
     status: Mapped[str] = mapped_column(
         String(32),

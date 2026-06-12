@@ -13,7 +13,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - 对象分级：core / important / normal / temporary
-- 实体变更同时写入 Delta Log + Text Archive，用于版本回滚（R5 逐步实现中）
+- 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 
 ## 职责
 
@@ -44,7 +44,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | `events` | 事件扩展表（entity_id PK+FK → core_entities） |
 | `characters` | 人物档案（entity_id PK+FK → core_entities） |
 | `character_knowledge` | 人物知识边界 |
-| `entity_revisions` | 实体快照版本表（已废弃，后续改用 DeltaLog + TextArchive） |
+| `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃，AI 抽取直接入正史 |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
@@ -95,11 +95,12 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 别名不创建新实体行
 - 去重检查：别名不与已有别名重复（大小写不敏感）
 
-### entity_revisions 表（已废弃）
+### entity_revisions 表（legacy 快照兜底）
 
 - 原用于实体快照版本管理
-- **后续迁移到 DeltaLog + TextArchive**，不再写入新数据
-- `EntityRevisionService` 保留但标注为 legacy，回滚逻辑后续替换为 Delta Replay
+- `POST /api/world/entities/{entity_id}/rollback` 是当前活跃的版本回滚路由，请求体：`{ "target_scene_index": 12 }`；由 `EntityRevisionService.rollback_to_scene_index` 实现，优先使用 `TextArchive`，无归档时回退到最近 `EntityRevision`
+- `POST /api/world/entities/{entity_id}/rollback-by-revision` 是 `entity_revisions` 的兼容路由，按显式 `revision_id` 回滚
+- `EntityRevisionService` 同时承担活跃回滚实现与 legacy 兼容，不应再被描述为仅 read/compat
 
 ## 对外契约（contracts.py）
 
@@ -132,7 +133,7 @@ class EntityRelationContract:
 
 @dataclass(frozen=True)
 class EntityRevisionContract:
-    """版本快照契约（已废弃，后续改用 DeltaLog + TextArchive）"""
+    """版本快照契约（legacy，活跃回滚优先使用 TextArchive，无归档时回退到 EntityRevision）"""
     entity_id: str
     revision_id: str
     revision_reason: str = "ai_import"
@@ -171,46 +172,38 @@ class ResolveResult:
 
 ```python
 # ---- CoreEntity ----
-async def list_entities(db, novel_id, *, entity_type=None, status=None, limit=100) -> list[dict]
+async def list_entities(db, novel_id, *, entity_type=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
-# 注：create_entity / get_entity / update_entity / delete_entity 为内部服务，不对外暴露
-
-# ---- Alias (inline on CoreEntity) ----
-# 注：add_alias / remove_alias 为内部服务，不对外暴露
+async def create_entity(db, novel_id, data: dict) -> dict
+async def count_entities(db, novel_id, *, status_filter=None) -> int
+async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 
 # ---- Entity Context ----
 async def get_world_context(db, novel_id, entity_ids=None, ...) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
-# 注：get_entity_importance_map 为内部服务，不对外暴露
 
 # ---- Entity Extraction ----
 async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_size=5) -> dict
 
-# ---- Candidates (已废弃) ----
-async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
-# 注：count_pending_candidates / accept_candidate 为内部服务，不对外暴露
-
 # ---- Dedup ----
 async def find_similar_entities(db, novel_id, name, aliases=None, ...) -> list[DuplicateSuggestionResult]
-# 注：find_duplicate_entity_candidates 为内部服务，不对外暴露
+async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
 
-# ---- Relationships ----
+# ---- Relationships (thin proxy) ----
 async def find_entity_id_by_name(db, novel_id, name, entity_type=None) -> str | None
 async def upsert_relationship(db, novel_id, source_id, target_id, ...) -> None
-# 注：get_location_factions 为内部服务，不对外暴露
+
+# ---- EntityRelation ----
+async def get_entity_relations(db, novel_id, skip=0, limit=100) -> tuple
+async def create_relation(db, novel_id, data: dict) -> EntityRelationResponse
+async def upsert_relation(db, novel_id, source_id, target_id, relation_type, ...) -> EntityRelationResponse
 
 # ---- Events ----
 async def create_event(db, novel_id, data: dict) -> dict
 async def get_events_context(db, novel_id, limit=50) -> EventsContextBundle
 async def get_full_state(db, novel_id) -> dict
-async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 
-# ---- EntityRelation ----
-async def get_entity_relations(db, novel_id, skip=0, limit=100) -> tuple
-async def create_relation(db, novel_id, data: dict) -> EntityRelationResponse
-async def upsert_relation(db, novel_id, source_id, target_id, ...) -> EntityRelationResponse
-
-# ---- EntityRevision (legacy) ----
+# ---- EntityRevision (legacy rollback by revision_id) ----
 async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict
 async def rollback_to_revision(db, novel_id, entity_id, revision_id) -> dict
 
@@ -219,6 +212,7 @@ async def create_character(db, novel_id, name, world_entity_id=None) -> Characte
 async def list_characters(db, novel_id, skip=0, limit=100) -> tuple
 async def get_characters_context(db, novel_id, character_ids, ...) -> CharacterContextBundle
 async def get_character_knowledge_context(db, novel_id, character_id, target_ids=None) -> list
+async def get_character_knowledge_entries(db, novel_id) -> list[dict]
 async def filter_context_by_character_knowledge(db, novel_id, character_id, context_items) -> list[dict]
 async def find_character_id_by_name(db, novel_id, name) -> str | None
 async def update_character_location(db, novel_id, character_id, location_id, ...) -> None
@@ -238,8 +232,9 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
 | GET | `/api/world/entities/{entity_id}/relations` | 实体关系列表 |
 | DELETE | `/api/world/entities/{entity_id}/aliases` | 删除别名 |
-| GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy, 后续替换为 Delta Replay） |
-| POST | `/api/world/entities/{entity_id}/rollback` | 回滚版本（legacy, 后续替换为 Delta Replay） |
+| GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy，只读兼容） |
+| POST | `/api/world/entities/{entity_id}/rollback` | 回滚到指定 scene_index（优先 TextArchive，无归档时回退到 EntityRevision） |
+| POST | `/api/world/entities/{entity_id}/rollback-by-revision` | 按 revision_id 回滚（`entity_revisions` 兼容） |
 | GET | `/api/world/aliases` | 别名列表 |
 | POST | `/api/world/aliases` | 添加别名 |
 | GET | `/api/world/entity-batches` | 实体批次分组列表 |

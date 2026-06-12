@@ -73,22 +73,30 @@ class CharacterKnowledgeService(
         self,
         db: AsyncSession,
         novel_id: str,
-        character_id: str,
+        character_id: str | None = None,
         *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> CharacterKnowledgeListResponse:
-        """按 character_id 过滤, 返 ListResponse 包装。"""
+        """按 novel_id 列表；可选按 character_id 过滤, 返 ListResponse 包装。"""
         nid = parse_uuid(novel_id, "novel_id")
-        cid = parse_uuid(character_id, "character_id")
         limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self.repo.get_by_character(
-            db,
-            nid,
-            cid,
-            skip=skip,
-            limit=limit,
-        )
+        if character_id is not None:
+            cid = parse_uuid(character_id, "character_id")
+            items, total = await self.repo.get_by_character(
+                db,
+                nid,
+                cid,
+                skip=skip,
+                limit=limit,
+            )
+        else:
+            items, total = await self.repo.get_by_novel(
+                db,
+                nid,
+                skip=skip,
+                limit=limit,
+            )
         return CharacterKnowledgeListResponse(
             items=[CharacterKnowledgeResponse.model_validate(k) for k in items],
             total=total,

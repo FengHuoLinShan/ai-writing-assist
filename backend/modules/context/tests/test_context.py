@@ -14,6 +14,8 @@ Context 模块没有自己的数据表，它是纯组合层。
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -250,6 +252,238 @@ class TestContextCompiler:
         )
         # 项目不存在时 project 应为 None
         assert bundle.project is None
+
+    @pytest.mark.asyncio
+    async def test_compile_character_false_belief_hides_hidden_truth(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """RED: character 视角 false_belief 应显示误解，不暴露 hidden_truth"""
+        from modules.project.models import Project
+        from modules.world.models import Character, CharacterKnowledge, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+
+        # POV 人物
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+
+        # 目标实体：带 hidden_truth
+        target_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="faction",
+                name="暗影组织",
+                summary="一个神秘组织。",
+                hidden_truth="真实隐藏真相：首领是国王。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+
+        # 人物知识边界：false_belief
+        db_session.add(
+            CharacterKnowledge(
+                id=uuid.uuid4(),
+                novel_id=nid,
+                character_id=char_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="false_belief",
+                known_content="一个神秘组织。",
+                misconception="错误认知：暗影组织是正义的。",
+            )
+        )
+        await db_session.flush()
+
+        bundle = await compile_structure_context(
+            db=db_session,
+            novel_id=novel_id,
+            task="生成章节",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
+        )
+        rendered = render_context_markdown(bundle)
+
+        assert "错误认知" in rendered
+        assert "真实隐藏真相" not in rendered
+
+        # 强断言：summary 被 misconception 替换，hidden_truth 字段被移除
+        assert bundle.world_entities, "应保留至少一个世界对象"
+        assert bundle.world_entities[0]["summary"] == "错误认知：暗影组织是正义的。"
+        assert "hidden_truth" not in bundle.world_entities[0]
+
+    @pytest.mark.asyncio
+    async def test_compile_author_safe_preserves_entities_without_knowledge(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """RED: 非 character 模式下，无 knowledge 记录的世界对象应被保留"""
+        from modules.project.models import Project
+        from modules.world.models import Character, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+
+        target_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="faction",
+                name="暗影组织",
+                summary="一个神秘组织。",
+                hidden_truth="真实隐藏真相：首领是国王。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+        await db_session.flush()
+
+        bundle = await compile_structure_context(
+            db=db_session,
+            novel_id=novel_id,
+            task="生成章节",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="author_safe",
+        )
+
+        faction_entities = [
+            e for e in bundle.world_entities if e.get("entity_type") == "faction"
+        ]
+        assert len(faction_entities) == 1, (
+            "无 knowledge 记录的 faction 实体在 author_safe 模式下应被保留"
+        )
+        assert faction_entities[0]["name"] == "暗影组织"
+        assert faction_entities[0]["summary"] == "一个神秘组织。"
+
+    @pytest.mark.asyncio
+    async def test_compile_character_reveal_removes_entity_without_knowledge(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """RED: character 视角下，无 knowledge 记录的世界对象应被过滤为 unknown 并移除"""
+        from modules.project.models import Project
+        from modules.world.models import Character, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+
+        target_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="faction",
+                name="暗影组织",
+                summary="一个神秘组织。",
+                hidden_truth="真实隐藏真相：首领是国王。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+        await db_session.flush()
+
+        bundle = await compile_structure_context(
+            db=db_session,
+            novel_id=novel_id,
+            task="生成章节",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
+        )
+
+        faction_entities = [
+            e for e in bundle.world_entities if e.get("entity_type") == "faction"
+        ]
+        assert len(faction_entities) == 0, (
+            "character reveal 模式下，无 knowledge 记录的实体应被当作 unknown 移除"
+        )
 
 
 # ============================================================

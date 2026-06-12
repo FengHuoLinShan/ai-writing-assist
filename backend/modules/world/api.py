@@ -6,7 +6,7 @@ World API 路由 — v3 因果时空网
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from core.dependencies import DbSession
 from modules.world.schemas import (
@@ -23,10 +23,15 @@ from modules.world.schemas import (
     CoreEntityResponse,
     CoreEntityUpdate,
     EntityAliasCreate,
+    EntityMergeRequest,
+    EntityMergeResponse,
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
     EntityRelationUpdate,
+    EntityRevisionListResponse,
+    EntityRollbackRequest,
+    EntityRollbackResponse,
     EventCreate,
     EventListResponse,
     EventResponse,
@@ -118,6 +123,22 @@ async def delete_entity(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     await _entity_service.delete(db, entity_id, novel_id=novel_id)
+
+
+@router.post("/entities/{candidate_id}/merge", response_model=EntityMergeResponse)
+async def merge_entity(
+    db: DbSession,
+    candidate_id: str,
+    data: EntityMergeRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> EntityMergeResponse:
+    result = await _dedup_service.merge_candidate_into_entity(
+        db,
+        novel_id,
+        candidate_id,
+        data.target_entity_id,
+    )
+    return EntityMergeResponse(target_entity_id=result.target_entity_id)
 
 
 @router.get("/entities/{entity_id}/relations", response_model=EntityRelationListResponse)
@@ -242,30 +263,58 @@ async def delete_relation(
 # ============================================================
 
 
-@router.get("/entities/{entity_id}/revisions")
+@router.get(
+    "/entities/{entity_id}/revisions",
+    response_model=EntityRevisionListResponse,
+)
 async def list_revisions(
     db: DbSession,
     entity_id: str,
     novel_id: str = Query(..., description="项目 ID"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
-):
-    return await _revision_service.get_revisions(
+) -> EntityRevisionListResponse:
+    result = await _revision_service.get_revisions(
         db,
         entity_id,
         novel_id,
         skip=skip,
         limit=limit,
     )
+    return EntityRevisionListResponse(items=result["items"], total=result["total"])
 
 
-@router.post("/entities/{entity_id}/rollback")
+@router.post("/entities/{entity_id}/rollback", response_model=EntityRollbackResponse)
 async def rollback_entity(
+    db: DbSession,
+    entity_id: str,
+    data: EntityRollbackRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> EntityRollbackResponse:
+    result = await _revision_service.rollback_to_scene_index(
+        db,
+        entity_id,
+        data.target_scene_index,
+        novel_id,
+    )
+    return EntityRollbackResponse(
+        entity_id=result["entity_id"],
+        target_scene_index=result["target_scene_index"],
+        restored_fields=result["restored_fields"],
+        warnings=result["warnings"],
+    )
+
+
+@router.post(
+    "/entities/{entity_id}/rollback-by-revision",
+    response_model=CoreEntityResponse,
+)
+async def rollback_entity_by_revision(
     db: DbSession,
     entity_id: str,
     revision_id: str = Query(..., description="目标版本 ID"),
     novel_id: str = Query(..., description="项目 ID"),
-):
+) -> CoreEntityResponse:
     return await _revision_service.rollback_to_revision(
         db,
         entity_id,
@@ -387,6 +436,11 @@ async def create_knowledge(
     data: CharacterKnowledgeCreate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> CharacterKnowledgeResponse:
+    if data.character_id != character_id:
+        raise HTTPException(
+            status_code=400,
+            detail="character_id in path and body must match",
+        )
     return await _knowledge_service.create(db, novel_id, data)
 
 

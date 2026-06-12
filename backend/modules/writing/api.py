@@ -13,6 +13,8 @@ from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.writing.facade import create_draft_only as _create_draft_only
 from modules.writing.schemas import (
+    ChapterSplitRequest,
+    ChapterSplitResponse,
     VersionHistoryResponse,
     WritingDraftCreate,
     WritingDraftResponse,
@@ -152,3 +154,22 @@ async def list_chapters(
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     indices = await _service.list_chapter_indices(db, novel_id)
     return ChapterIndicesResponse(chapter_indices=indices)
+
+
+@router.post(
+    "/chapters/{chapter_index}/split",
+    response_model=ChapterSplitResponse,
+)
+async def split_chapter(
+    db: DbSession,
+    data: ChapterSplitRequest,
+    chapter_index: int = Path(..., ge=1, description="章节索引"),
+    novel_id: str = Query(..., description="小说项目 ID"),
+) -> ChapterSplitResponse:
+    return await _service.split_chapter_at_offset(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        split_pos=data.split_pos,
+        source_scene_id=data.source_scene_id,
+    )

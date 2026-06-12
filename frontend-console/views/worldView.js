@@ -294,8 +294,10 @@ const worldView = {
 
     for (const e of entities) {
       const statusClass = `badge-${e.status || "canonical"}`
-      const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
+      const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃", merged: "已合并" }
       const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;">新</span>' : ""
+      const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
+      const canMerge = e.status === "draft" || e.status === "candidate"
       html += `
         <tr data-id="${esc(e.id || e.entity_id)}" class="clickable">
           <td><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
@@ -305,6 +307,9 @@ const worldView = {
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
+            ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(e.id || e.entity_id)}">合并</button>` : ""}
+            <button class="btn btn-sm" data-action="rollback-entity" data-id="${esc(e.id || e.entity_id)}">回滚</button>
+            ${isCharacter ? `<button class="btn btn-sm" data-action="knowledge-entity" data-id="${esc(e.id || e.entity_id)}">知识</button>` : ""}
             <button class="btn btn-sm btn-danger" data-action="delete-entity" data-id="${esc(e.id || e.entity_id)}">删除</button>
           </td>
         </tr>
@@ -568,6 +573,9 @@ const worldView = {
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
       "delete-entity": (_e, _t, ctx) => ctx.id && this.deleteEntity(ctx.id),
+      "merge-entity": (_e, _t, ctx) => ctx.id && this.showMergeForm(ctx.id),
+      "rollback-entity": (_e, _t, ctx) => ctx.id && this.showRollbackForm(ctx.id),
+      "knowledge-entity": (_e, _t, ctx) => ctx.id && this.showKnowledgeForm(ctx.id),
       "create-relation": () => this.showRelationCreateForm(),
       "delete-relation": (_e, _t, ctx) => ctx.id && this.deleteRelation(ctx.id),
       "create-alias": () => this.showAliasCreateForm(),
@@ -629,6 +637,154 @@ const worldView = {
         },
       },
     ])
+  },
+
+  // ============================================================
+  // 合并、回滚与知识边界
+  // ============================================================
+
+  showMergeForm(candidateId) {
+    const entity = this._entities.find((e) => (e.id || e.entity_id) === candidateId)
+    if (!entity) return
+
+    const formHtml = `
+      <p style="margin-bottom:10px;">将 <strong>${esc(entity.name)}</strong> 合并到目标正史对象。</p>
+      <div class="form-group">
+        <label>目标对象 ID *</label>
+        <input class="form-input" id="merge-target-id" placeholder="目标对象 ID" />
+      </div>
+    `
+    showModal("合并对象", formHtml, [{
+      text: "合并",
+      class: "btn-primary",
+      handler: async () => {
+        const targetId = document.getElementById("merge-target-id")?.value
+        if (!targetId) { toast("请输入目标对象 ID", "warning"); return }
+        try {
+          await this._mergeEntity(candidateId, targetId)
+        } catch (err) {
+          toast(err.message || "合并失败", "error")
+        }
+      },
+    }])
+  },
+
+  async _mergeEntity(candidateId, targetId) {
+    try {
+      await api.world.mergeEntity(candidateId, targetId, state.currentProjectId)
+      toast("实体已合并", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "合并失败", "error")
+    }
+  },
+
+  showRollbackForm(entityId) {
+    const entity = this._entities.find((e) => (e.id || e.entity_id) === entityId)
+    if (!entity) return
+
+    const formHtml = `
+      <p style="margin-bottom:10px;">回滚 <strong>${esc(entity.name)}</strong> 到指定场景索引。</p>
+      <div class="form-group">
+        <label>目标场景索引 *</label>
+        <input class="form-input" id="rollback-scene-index" type="number" min="0" value="0" />
+      </div>
+    `
+    showModal("回滚对象", formHtml, [{
+      text: "回滚",
+      class: "btn-primary",
+      handler: async () => {
+        const idx = parseInt(document.getElementById("rollback-scene-index")?.value || "0", 10)
+        if (Number.isNaN(idx)) { toast("请输入有效的场景索引", "warning"); return }
+        try {
+          await this._rollbackEntity(entityId, idx)
+        } catch (err) {
+          toast(err.message || "回滚失败", "error")
+        }
+      },
+    }])
+  },
+
+  async _rollbackEntity(entityId, targetSceneIndex) {
+    try {
+      const result = await api.world.rollbackEntity(entityId, targetSceneIndex, state.currentProjectId)
+      toast((result.warnings || []).length ? "回滚完成，存在警告" : "回滚完成", (result.warnings || []).length ? "warning" : "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "回滚失败", "error")
+    }
+  },
+
+  showKnowledgeForm(characterId) {
+    const character = this._entities.find((e) => (e.id || e.entity_id) === characterId)
+    if (!character) return
+
+    const formHtml = `
+      <p style="margin-bottom:10px;">为 <strong>${esc(character.name)}</strong> 添加知识边界。</p>
+      <div class="form-group">
+        <label>目标对象 ID *</label>
+        <input class="form-input" id="knowledge-target-id" placeholder="目标对象 ID" />
+      </div>
+      <div class="form-group">
+        <label>了解程度 *</label>
+        <select class="form-select" id="knowledge-level">
+          <option value="unknown">未知</option>
+          <option value="rumor">传闻</option>
+          <option value="partial">部分了解</option>
+          <option value="full">完全了解</option>
+          <option value="false_belief">错误认知</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>已知内容</label>
+        <textarea class="form-textarea" id="knowledge-content" rows="2" placeholder="角色知道什么"></textarea>
+      </div>
+      <div class="form-group">
+        <label>误解内容（仅错误认知）</label>
+        <textarea class="form-textarea" id="knowledge-misconception" rows="2" placeholder="角色的误解"></textarea>
+      </div>
+      <div class="form-group">
+        <label>来源章节索引</label>
+        <input class="form-input" id="knowledge-chapter" type="number" min="0" placeholder="可选" />
+      </div>
+    `
+    showModal("添加知识边界", formHtml, [{
+      text: "添加",
+      class: "btn-primary",
+      handler: async () => {
+        const payload = {
+          character_id: characterId,
+          target_id: document.getElementById("knowledge-target-id")?.value,
+          target_type: "entity",
+          knowledge_level: document.getElementById("knowledge-level")?.value,
+          known_content: document.getElementById("knowledge-content")?.value || "",
+          misconception: document.getElementById("knowledge-misconception")?.value || "",
+          source_chapter_index: document.getElementById("knowledge-chapter")?.value
+            ? parseInt(document.getElementById("knowledge-chapter").value, 10)
+            : null,
+        }
+        if (!payload.target_id) { toast("请输入目标对象 ID", "warning"); return }
+        try {
+          await this._createKnowledge(characterId, payload)
+        } catch (err) {
+          toast(err.message || "添加知识边界失败", "error")
+        }
+      },
+    }])
+  },
+
+  async _createKnowledge(characterId, payload) {
+    if (payload.knowledge_level === "false_belief" && !payload.misconception) {
+      toast("错误认知必须填写误解内容", "warning")
+      return
+    }
+    try {
+      await api.world.createKnowledge(characterId, payload, state.currentProjectId)
+      toast("知识边界已添加", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "添加知识边界失败", "error")
+    }
   },
 }
 

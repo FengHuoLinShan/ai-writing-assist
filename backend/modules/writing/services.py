@@ -12,11 +12,11 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
-
+from modules.outline.facade import split_scene_chunk_to_new_chapter
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
+    ChapterSplitResponse,
     DraftListItem,
     VersionHistoryResponse,
     WritingDraftCreate,
@@ -24,6 +24,8 @@ from modules.writing.schemas import (
     WritingDraftUpdate,
 )
 from shared.utils import parse_uuid
+
+logger = logging.getLogger(__name__)
 
 
 class WritingDraftService:
@@ -228,3 +230,70 @@ class WritingDraftService:
         """列出该小说所有有草稿的章节索引"""
         nid = parse_uuid(novel_id, "novel")
         return await self._repo.list_chapter_indices(db, nid)
+
+    async def split_chapter_at_offset(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        split_pos: int,
+        source_scene_id: str | None,
+    ) -> ChapterSplitResponse:
+        nid = parse_uuid(novel_id, "novel")
+        latest = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
+        if latest is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No draft found for chapter {chapter_index}",
+            )
+        content = latest.content or ""
+        if not (0 < split_pos < len(content)):
+            raise HTTPException(
+                status_code=422,
+                detail="split_pos must be inside the chapter content",
+            )
+
+        head = content[:split_pos]
+        tail = content[split_pos:]
+        new_chapter_index = chapter_index + 1
+
+        await self._repo.shift_chapter_indices_from(db, nid, new_chapter_index)
+        source = await self._repo.update_latest_content(
+            db,
+            nid,
+            chapter_index,
+            title=latest.title,
+            content=head,
+        )
+        new_draft = await self._repo.create(
+            db,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=new_chapter_index,
+                title=f"第{new_chapter_index}章",
+                content=tail,
+            ),
+        )
+
+        scenes: list[dict] = []
+        if source_scene_id:
+            scenes = await split_scene_chunk_to_new_chapter(
+                db,
+                novel_id,
+                source_scene_id=source_scene_id,
+                source_chapter_id=str(chapter_index),
+                source_chapter_index=chapter_index,
+                new_chapter_id=str(new_chapter_index),
+                new_chapter_index=new_chapter_index,
+                split_pos=split_pos,
+                new_chapter_length=len(tail),
+            )
+
+        return ChapterSplitResponse(
+            source_chapter_index=chapter_index,
+            new_chapter_index=new_chapter_index,
+            source_draft=WritingDraftResponse.model_validate(source),
+            new_draft=WritingDraftResponse.model_validate(new_draft),
+            scenes=scenes,
+        )

@@ -31,6 +31,7 @@ from shared.constants import (
     DEDUP_CONFLICT_FIELDS,
     DEDUP_DISCARD_THRESHOLD,
     DEDUP_FUSION_TOP_K,
+    DEDUP_REVIEW_THRESHOLD,
 )
 from shared.enums import CandidateAction
 
@@ -297,12 +298,6 @@ class EntityDedupService:
     @staticmethod
     def _model_score(signals) -> tuple[float, str, CandidateAction]:
         """LR 模型评分：predict_proba → 基于校准阈值的 action。"""
-        from shared.constants import (
-            DEDUP_AUTO_MERGE_THRESHOLD,
-            DEDUP_DISCARD_THRESHOLD,
-            DEDUP_REVIEW_THRESHOLD,
-        )
-
         proxy = DedupModelProxy()
         proba, _ = proxy.predict(signals.to_vector())
         thresholds = proxy.calibrated_thresholds
@@ -340,12 +335,6 @@ class EntityDedupService:
         Returns:
             (similarity, match_method, action)
         """
-        from shared.constants import (
-            DEDUP_AUTO_MERGE_THRESHOLD,
-            DEDUP_DISCARD_THRESHOLD,
-            DEDUP_REVIEW_THRESHOLD,
-        )
-
         # 路径2：强子串包含（简称⊂全称）
         if signals.substring_match >= 0.85:
             return (0.95, "substring", CandidateAction.merge_with_existing)
@@ -472,6 +461,27 @@ class EntityDedupService:
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="Cannot merge entities across novels",
+            )
+
+        # 校验 target 必须是 canonical，candidate 必须是 draft/candidate
+        if target.status != "canonical":
+            from fastapi import HTTPException
+            from fastapi import status as http_status
+
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Merge target must be canonical, got {target.status}",
+            )
+        if candidate.status not in ("draft", "candidate"):
+            from fastapi import HTTPException
+            from fastapi import status as http_status
+
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Merge candidate must be draft or candidate, "
+                    f"got {candidate.status}"
+                ),
             )
 
         # 2. 别名继承
@@ -769,7 +779,9 @@ class EntityDedupService:
 
         target_char = await char_repo.get(db, tid)
         if target_char is None:
-            return False
+            # candidate 有 Character 而 target 没有：直接迁移 Character 行
+            migrated = await char_repo.migrate_entity_id(db, cid, tid)
+            return migrated
 
         # 合并别名
         target_aliases: list[dict] = list(target_char.aliases or [])

@@ -29,6 +29,8 @@ const writingView = {
   _deepImportTimer: null,
   _scenes: [],
   _currentSceneId: null,
+  _cursorOffset: 0,
+  _cursorDebounceTimer: null,
   _autoSaveTimer: null,
   _autoSaving: false,
   _lastSavedContent: null,
@@ -152,6 +154,7 @@ const writingView = {
 
   onLeave() {
     this._clearAutoSaveTimer()
+    this._clearCursorDebounceTimer()
     if (this._beforeUnloadHandler) {
       window.removeEventListener("beforeunload", this._beforeUnloadHandler)
       this._beforeUnloadHandler = null
@@ -247,6 +250,14 @@ const writingView = {
     if (this._autoSaveTimer) {
       clearTimeout(this._autoSaveTimer)
       this._autoSaveTimer = null
+    }
+  },
+
+  /** 清除光标场景面板防抖计时器 */
+  _clearCursorDebounceTimer() {
+    if (this._cursorDebounceTimer) {
+      clearTimeout(this._cursorDebounceTimer)
+      this._cursorDebounceTimer = null
     }
   },
 
@@ -495,6 +506,15 @@ const writingView = {
   _findCurrentScene() {
     if (!this._currentChapter || !this._scenes.length) return null
     const chStr = String(this._currentChapter)
+    const offset = this._cursorOffset || 0
+    const byOffset = this._scenes.find((s) =>
+      (s.scene_chunks || []).some((c) =>
+        String(c.chapter_index) === chStr &&
+        Number(c.start_pos || 0) <= offset &&
+        offset < Number(c.end_pos || 0)
+      )
+    )
+    if (byOffset) return byOffset
     const exact = this._scenes.find((s) =>
       (s.chapter_ids || []).includes(chStr)
     )
@@ -506,11 +526,8 @@ const writingView = {
   },
 
   _updateCurrentScene() {
-    this._currentSceneId = null
     const scene = this._findCurrentScene()
-    if (scene) {
-      this._currentSceneId = scene.id
-    }
+    this._currentSceneId = scene?.id || null
   },
 
   _renderScenePanel() {
@@ -529,13 +546,13 @@ const writingView = {
         hook: "钩子", payoff: "爽点", draft: "草稿",
       }
       const tagLabel = tagLabels[s.narrative_tag] || s.narrative_tag || "草稿"
-      const tagClass = `narrative-tag-${s.narrative_tag || "draft"}`
+      const tagClass = `narrative-tag-${esc(s.narrative_tag || "draft")}`
 
       html += `
         <div style="margin-bottom:10px;">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-            <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;">#${s.scene_index}</span>
-            <span class="narrative-tag ${tagClass}">${tagLabel}</span>
+            <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;">#${esc(s.scene_index)}</span>
+            <span class="narrative-tag ${tagClass}">${esc(tagLabel)}</span>
           </div>
           <div style="font-size:14px;font-weight:500;margin-bottom:8px;">${esc(s.title || "未命名 Scene")}</div>
           ${s.goal ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">目标</div><div style="color:var(--text);">${esc(s.goal)}</div></div>` : ''}
@@ -630,6 +647,7 @@ const writingView = {
     this._versions = []
     this._isReadonly = false
     this._restoreSourceVersion = null
+    this._cursorOffset = 0
 
     await Promise.all([
       this._refreshVersions(chapterIndex),
@@ -707,6 +725,7 @@ const writingView = {
     this._versions = []
     this._isReadonly = false
     this._restoreSourceVersion = null
+    this._cursorOffset = 0
 
     if (!this._chapters[idx]) {
       this._chapters[idx] = { title: null, draftCount: 0 }
@@ -727,6 +746,7 @@ const writingView = {
       this._currentDraftId = draftData.id
       this._currentTitle = draftData.title || ''
       this._currentVersionNumber = versionNumber
+      this._cursorOffset = 0
 
       if (isLatest) {
         this._isReadonly = false
@@ -808,6 +828,7 @@ const writingView = {
     if (!this._restoreSourceVersion) return
 
     this._isReadonly = false
+    this._cursorOffset = 0
     // 不清除 _restoreSourceVersion — 用于 _autosave 判断走 POST 而非 PUT
 
     await this._rerender()
@@ -1117,46 +1138,59 @@ const writingView = {
     const currentScene = this._findCurrentScene()
     if (!currentScene) { toast("当前章节未关联 Scene", "warning"); return }
 
-    const otherScenes = this._scenes.filter((s) => s.id !== currentScene.id)
-    const sceneOptions = otherScenes.map((s) =>
-      `<option value="${esc(s.id)}">#${s.scene_index} ${esc(s.title || "未命名")}</option>`
-    ).join("")
+    const editor = document.getElementById("writing-editor")
+    const cursorPos = editor ? (editor.selectionStart || 0) : 0
+    const contentLength = editor ? (editor.value || "").length : 0
+
+    if (contentLength < 2) {
+      toast("当前章节内容太短，无法断章", "warning")
+      return
+    }
 
     const html = `
       <div class="form-group">
-        <label>从第几章开始断章</label>
-        <input class="form-input" id="split-chapter-index" type="number" min="1" value="${this._currentChapter}" />
+        <label>断章位置（字符 offset）</label>
+        <input class="form-input" id="split-pos" type="number" min="1" max="${Math.max(1, contentLength - 1)}" value="${cursorPos}" />
       </div>
       <div class="form-group">
         <label>当前 Scene：${esc(currentScene.title || "未命名")}</label>
       </div>
-      <div class="form-group">
-        <label>目标 Scene</label>
-        <select class="form-input" id="split-target-scene">
-          ${sceneOptions || '<option value="">（新建 Scene）</option>'}
-          <option value="">（新建 Scene）</option>
-        </select>
-      </div>
       <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
-        从指定章节开始，将后续章节从当前 Scene 移到目标 Scene。
+        从当前章节的指定 offset 处切分为新章节，并同步更新 Scene chunk。
       </p>
     `
     showModal("断章", html, [{
       text: "确认断章", class: "btn-primary",
       handler: async () => {
-        const chIdx = parseInt(document.getElementById("split-chapter-index")?.value || "", 10)
-        const targetScene = document.getElementById("split-target-scene")?.value || null
-        if (!chIdx || chIdx < 1) { toast("请输入有效的章节号", "warning"); return }
+        const splitPos = parseInt(document.getElementById("split-pos")?.value || "", 10)
+        if (!splitPos || splitPos < 1) { toast("请输入有效的断章位置", "warning"); return }
         closeModal()
-        await this._doSplitScene(chIdx, targetScene)
+        await this._doSplitScene(splitPos, currentScene)
       },
     }])
   },
 
-  async _doSplitScene(chapterIndex, targetSceneId) {
+  async _doSplitScene(splitPos, currentScene) {
     try {
-      const scenes = await api.outline.splitChapters(state.currentProjectId, chapterIndex, targetSceneId)
-      this._scenes = scenes || []
+      await this._saveBeforeNavigate()
+      const editor = document.getElementById("writing-editor")
+      if (editor && this._currentContent !== editor.value) {
+        this._currentContent = editor.value
+      }
+
+      const result = await api.writing.splitChapter(
+        this._currentChapter,
+        { split_pos: splitPos, source_scene_id: currentScene.id },
+        state.currentProjectId,
+      )
+      this._scenes = result.scenes || this._scenes
+      this._chapters[result.new_chapter_index] = { draftCount: 1 }
+      this._chapterList = [...new Set([...this._chapterList, result.new_chapter_index])].sort((a, b) => a - b)
+      this._currentChapter = result.new_chapter_index
+      this._currentDraftId = result.new_draft.id
+      this._currentContent = result.new_draft.content || ""
+      this._currentTitle = result.new_draft.title || ""
+      this._currentVersionNumber = result.new_draft.version_number
       toast("断章完成", "success")
       await this._rerender()
     } catch (err) {
@@ -1408,9 +1442,26 @@ const writingView = {
     }
     const editorEl = document.getElementById("writing-editor")
     if (editorEl) {
+      this._clearCursorDebounceTimer()
       editorEl.oninput = () => {
         this._currentContent = editorEl.value
         this._scheduleAutoSave()
+      }
+      editorEl.onclick = null
+      editorEl.onselect = null
+      editorEl.onkeyup = null
+      const updateCursorScene = () => {
+        this._cursorOffset = editorEl.selectionStart || 0
+        this._updateCurrentScene()
+        this._clearCursorDebounceTimer()
+        const panelEl = document.getElementById("writing-panel-container")
+        if (panelEl) panelEl.innerHTML = this._renderScenePanel()
+      }
+      editorEl.onclick = updateCursorScene
+      editorEl.onselect = updateCursorScene
+      editorEl.onkeyup = () => {
+        this._clearCursorDebounceTimer()
+        this._cursorDebounceTimer = setTimeout(updateCursorScene, 150)
       }
     }
   },

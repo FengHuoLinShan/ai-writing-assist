@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.facade import (
@@ -42,6 +43,11 @@ from modules.world.services.dedup_service import EntityDedupService
 @pytest.fixture
 def novel_id() -> str:
     return str(uuid.uuid4())
+
+
+@pytest.fixture
+def sample_novel_id(novel_id: str) -> str:
+    return novel_id
 
 
 @pytest.fixture
@@ -636,6 +642,165 @@ class TestEntityDedupService:
         assert entity_a.content_json.get("ability") == "御剑术"
 
 
+@pytest.mark.asyncio
+async def test_merge_entity_api_service_marks_candidate_merged(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    entity_service = WorldEntityService()
+    target = await entity_service.create(
+        db_session,
+        sample_novel_id,
+        WorldEntityCreate(entity_type="character", name="张三", status="canonical"),
+    )
+    candidate = await entity_service.create(
+        db_session,
+        sample_novel_id,
+        WorldEntityCreate(
+            entity_type="character", name="张老三", status="draft", force_create=True,
+        ),
+    )
+
+    from modules.world.services.dedup_service import EntityDedupService
+
+    result = await EntityDedupService().merge_candidate_into_entity(
+        db_session,
+        sample_novel_id,
+        candidate.id,
+        target.id,
+    )
+
+    assert result.target_entity_id == target.id
+    merged = await entity_service.get(db_session, candidate.id, novel_id=sample_novel_id)
+    assert merged.status == "merged"
+
+
+@pytest.mark.asyncio
+async def test_merge_entity_route_marks_candidate_merged(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """POST /api/world/entities/{candidate_id}/merge 将候选实体标记为 merged"""
+    # 创建测试项目
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "合并路由测试",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    # 创建目标实体（canonical）
+    target_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "character",
+            "name": " route_target ",
+            "status": "canonical",
+        },
+    )
+    assert target_resp.status_code == 201
+    target_id = target_resp.json()["id"]
+
+    # 创建候选实体（draft）
+    candidate_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "character",
+            "name": " route_candidate ",
+            "status": "draft",
+        },
+    )
+    assert candidate_resp.status_code == 201
+    candidate_id = candidate_resp.json()["id"]
+
+    # 调用合并路由
+    merge_resp = await async_client.post(
+        f"/api/world/entities/{candidate_id}/merge?novel_id={novel_id}",
+        json={"target_entity_id": target_id},
+    )
+    assert merge_resp.status_code == 200
+
+    # 验证候选实体状态为 merged
+    get_resp = await async_client.get(
+        f"/api/world/entities/{candidate_id}?novel_id={novel_id}",
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["status"] == "merged"
+
+
+@pytest.mark.asyncio
+async def test_rollback_entity_route_uses_scene_index(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """POST /api/world/entities/{entity_id}/rollback 接收 scene_index 并恢复归档字段"""
+    import uuid
+
+    from modules.world.models import TextArchive
+
+    # 创建测试项目
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "回滚路由测试",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    # 创建实体
+    entity_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "location",
+            "name": "回滚测试地点",
+            "summary": "当前摘要",
+            "status": "canonical",
+        },
+    )
+    assert entity_resp.status_code == 201
+    entity_id = entity_resp.json()["id"]
+
+    # 写入 TextArchive 归档值
+    db_session.add(
+        TextArchive(
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_id=uuid.UUID(hex=entity_id),
+            field_name="summary",
+            text_content="归档摘要",
+            scene_index=5,
+            source="manual_edit",
+        )
+    )
+    await db_session.flush()
+
+    # 调用回滚路由
+    rollback_resp = await async_client.post(
+        f"/api/world/entities/{entity_id}/rollback?novel_id={novel_id}",
+        json={"target_scene_index": 5},
+    )
+    assert rollback_resp.status_code == 200
+    data = rollback_resp.json()
+    assert data["entity_id"] == entity_id
+    assert data["target_scene_index"] == 5
+    assert "summary" in data["restored_fields"]
+
+    # 验证实体已恢复
+    get_resp = await async_client.get(
+        f"/api/world/entities/{entity_id}?novel_id={novel_id}",
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["summary"] == "归档摘要"
+
+
 # ============================================================
 # Facade 测试
 # ============================================================
@@ -1103,3 +1268,241 @@ class TestFacadeLeakGetCharacterLocationId:
             str(char.entity_id),
         )
         assert result is None
+
+
+class TestWorldErrorPaths:
+    """World 模块 API 错误路径测试"""
+
+    @pytest.mark.asyncio
+    async def test_merge_target_not_canonical_returns_400_or_422(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """合并目标不是 canonical 时返回 400/422"""
+        project_resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "合并目标非正史测试",
+                "genre": "奇幻",
+                "tone": "正剧",
+                "language": "zh",
+            },
+        )
+        assert project_resp.status_code == 201
+        novel_id = project_resp.json()["id"]
+
+        target_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "目标草稿",
+                "status": "draft",
+            },
+        )
+        assert target_resp.status_code == 201
+        target_id = target_resp.json()["id"]
+
+        candidate_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "候选草稿",
+                "status": "draft",
+                "force_create": True,
+            },
+        )
+        assert candidate_resp.status_code == 201
+        candidate_id = candidate_resp.json()["id"]
+
+        merge_resp = await async_client.post(
+            f"/api/world/entities/{candidate_id}/merge?novel_id={novel_id}",
+            json={"target_entity_id": target_id},
+        )
+        assert merge_resp.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_merge_candidate_not_draft_returns_400_or_422(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """合并候选不是 draft/candidate 时返回 400/422"""
+        project_resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "合并候选非草稿测试",
+                "genre": "奇幻",
+                "tone": "正剧",
+                "language": "zh",
+            },
+        )
+        assert project_resp.status_code == 201
+        novel_id = project_resp.json()["id"]
+
+        target_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "目标正史",
+                "status": "canonical",
+            },
+        )
+        assert target_resp.status_code == 201
+        target_id = target_resp.json()["id"]
+
+        candidate_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "候选正史",
+                "status": "canonical",
+                "force_create": True,
+            },
+        )
+        assert candidate_resp.status_code == 201
+        candidate_id = candidate_resp.json()["id"]
+
+        merge_resp = await async_client.post(
+            f"/api/world/entities/{candidate_id}/merge?novel_id={novel_id}",
+            json={"target_entity_id": target_id},
+        )
+        assert merge_resp.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_merge_self_returns_400_or_422(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """合并自身时返回 400/422"""
+        project_resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "合并自身测试",
+                "genre": "奇幻",
+                "tone": "正剧",
+                "language": "zh",
+            },
+        )
+        assert project_resp.status_code == 201
+        novel_id = project_resp.json()["id"]
+
+        entity_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "自身实体",
+                "status": "canonical",
+            },
+        )
+        assert entity_resp.status_code == 201
+        entity_id = entity_resp.json()["id"]
+
+        merge_resp = await async_client.post(
+            f"/api/world/entities/{entity_id}/merge?novel_id={novel_id}",
+            json={"target_entity_id": entity_id},
+        )
+        assert merge_resp.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_create_knowledge_character_id_mismatch_returns_400(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """知识记录 path 与 body 的 character_id 不一致时返回 400"""
+        project_resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "知识 character_id 不一致测试",
+                "genre": "奇幻",
+                "tone": "正剧",
+                "language": "zh",
+            },
+        )
+        assert project_resp.status_code == 201
+        novel_id = project_resp.json()["id"]
+
+        entity_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "知识角色",
+                "status": "canonical",
+            },
+        )
+        assert entity_resp.status_code == 201
+        character_id = entity_resp.json()["id"]
+
+        target_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "location",
+                "name": "目标地点",
+                "status": "canonical",
+            },
+        )
+        assert target_resp.status_code == 201
+        target_id = target_resp.json()["id"]
+
+        other_id = str(uuid.uuid4())
+        knowledge_resp = await async_client.post(
+            f"/api/world/characters/{character_id}/knowledge?novel_id={novel_id}",
+            json={
+                "character_id": other_id,
+                "target_type": "entity",
+                "target_id": target_id,
+                "knowledge_level": "partial",
+                "known_content": "知道一点",
+            },
+        )
+        assert knowledge_resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_create_knowledge_false_belief_without_misconception_returns_422(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """false_belief 知识未提供 misconception 时返回 422"""
+        project_resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "知识 false_belief 校验测试",
+                "genre": "奇幻",
+                "tone": "正剧",
+                "language": "zh",
+            },
+        )
+        assert project_resp.status_code == 201
+        novel_id = project_resp.json()["id"]
+
+        entity_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "误解角色",
+                "status": "canonical",
+            },
+        )
+        assert entity_resp.status_code == 201
+        character_id = entity_resp.json()["id"]
+
+        target_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "location",
+                "name": "误解目标",
+                "status": "canonical",
+            },
+        )
+        assert target_resp.status_code == 201
+        target_id = target_resp.json()["id"]
+
+        knowledge_resp = await async_client.post(
+            f"/api/world/characters/{character_id}/knowledge?novel_id={novel_id}",
+            json={
+                "character_id": character_id,
+                "target_type": "entity",
+                "target_id": target_id,
+                "knowledge_level": "false_belief",
+                "known_content": "错误认知",
+            },
+        )
+        assert knowledge_resp.status_code == 422

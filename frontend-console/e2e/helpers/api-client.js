@@ -87,3 +87,19 @@ export async function createScene(novelId, data) {
 export async function listScenesOrdered(novelId) {
   return request(`/outline/scenes/ordered?novel_id=${encodeURIComponent(novelId)}`)
 }
+
+// ---- World helpers ----
+
+export async function createEntity(novelId, data) {
+  return request(`/world/entities?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function createCharacter(novelId, data) {
+  return request(`/world/characters?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}

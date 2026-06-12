@@ -132,4 +132,56 @@ test.describe("Outline View — Scene 卡", () => {
     await page.locator(SEL.navItem("outline")).click()
     await expect(page.locator(SEL.emptyState)).toContainText("暂无 Scene")
   })
+
+  test("上移/下移 Scene 卡调整顺序", async ({ page }) => {
+    // Given: 已存在两个 Scene 卡
+    await page.locator('[data-action="create-scene"]').click()
+    await page.locator("#create-scene-title").fill("Scene A")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
+
+    await page.locator('[data-action="create-scene"]').click()
+    await page.locator("#create-scene-title").fill("Scene B")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("Scene 卡已创建", { timeout: 10000 })
+
+    // 刷新以显示列表
+    await page.reload()
+    await page.locator(SEL.navItem("outline")).click()
+    await expect(page.locator(".scene-card")).toContainText("Scene A")
+    await expect(page.locator(".scene-card")).toContainText("Scene B")
+
+    // When: 点击第二个 Scene 的上移
+    const secondCard = page.locator(".scene-card").nth(1)
+    await secondCard.locator('[data-action="move-scene-up"]').click()
+
+    // Then: 提示顺序已更新
+    await expect(page.locator(SEL.toastContainer)).toContainText("Scene 顺序已更新", { timeout: 10000 })
+  })
+
+  test("AI 生成结构弹窗", async ({ page }) => {
+    // Given: 用户在大纲 Scene 标签
+    await expect(page.locator('[data-action="generate-structure"]')).toBeVisible()
+
+    // When: 点击 AI 生成结构
+    await page.locator('[data-action="generate-structure"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("AI 生成剧情结构")
+    await expect(page.locator("#generate-structure-start")).toBeVisible()
+    await expect(page.locator("#generate-structure-end")).toBeVisible()
+
+    // 关闭弹窗
+    await page.locator(SEL.modalClose).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+  })
+
+  /*
+   * TODO: outlineView 当前只有"场景卡 / 剧情线 / 篇章纲"三个子标签，
+   * 没有伏笔/揭示计划管理 UI。后端 API `/api/outline/foreshadowing` 与
+   * `/api/outline/reveals` 已就绪，待前端增加对应子标签与表单后解 fixme。
+   */
+  test.fixme("管理伏笔与揭示计划", async ({ page }) => {
+    // 预期：存在"伏笔"子标签，可创建/编辑/标记回收伏笔
+    await page.locator('[data-action="nav-foreshadowing"]').click()
+    await expect(page.locator(SEL.emptyState)).toContainText("暂无伏笔")
+  })
 })

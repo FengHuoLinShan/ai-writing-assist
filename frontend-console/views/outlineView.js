@@ -111,6 +111,7 @@ const outlineView = {
     let html = `
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-scene">新建 Scene</button>
+        <button class="btn btn-sm" data-action="generate-structure">AI 生成结构</button>
       </div>
     `
 
@@ -129,20 +130,25 @@ const outlineView = {
     )
 
     html += '<div class="scene-card-list">'
+    const allowedTags = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
+    const allowedStatuses = new Set(["canonical", "draft", "candidate", "deprecated"])
+
     for (const s of sorted) {
       const tagLabel = this._narrativeTagLabel(s.narrative_tag)
-      const tagClass = `narrative-tag-${s.narrative_tag || "draft"}`
+      const safeTag = allowedTags.has(s.narrative_tag) ? s.narrative_tag : "draft"
+      const tagClass = `narrative-tag-${safeTag}`
       const sourceLabel = s.source === "deep_import" ? "AI导入"
         : s.source === "ai_generated" ? "AI生成" : "手动"
       const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
-      const statusClass = `badge-${s.status || "draft"}`
+      const safeStatus = allowedStatuses.has(s.status) ? s.status : "draft"
+      const statusClass = `badge-${safeStatus}`
 
       html += `
         <div class="scene-card" data-id="${esc(s.id)}">
           <div class="scene-card-header">
-            <span class="scene-index">#${s.scene_index}</span>
-            <span class="narrative-tag ${tagClass}">${tagLabel}</span>
-            <span class="badge ${statusClass}">${statusMap[s.status] || esc(s.status)}</span>
+            <span class="scene-index">#${esc(s.scene_index)}</span>
+            <span class="narrative-tag ${tagClass}">${esc(tagLabel)}</span>
+            <span class="badge ${statusClass}">${statusMap[safeStatus] || esc(s.status)}</span>
             <span class="scene-source">${sourceLabel}</span>
           </div>
           <div class="scene-card-title">${esc(s.title || "未命名 Scene")}</div>
@@ -150,6 +156,8 @@ const outlineView = {
           ${s.core_conflict ? `<div class="scene-card-field"><span class="field-label">冲突</span>${esc(s.core_conflict)}</div>` : ""}
           ${s.emotional_beat ? `<div class="scene-card-field"><span class="field-label">情感</span>${esc(s.emotional_beat)}</div>` : ""}
           <div class="scene-card-actions">
+            <button class="btn btn-sm" data-action="move-scene-up" data-id="${esc(s.id)}">上移</button>
+            <button class="btn btn-sm" data-action="move-scene-down" data-id="${esc(s.id)}">下移</button>
             <button class="btn btn-sm" data-action="edit-scene" data-id="${esc(s.id)}">编辑</button>
             <button class="btn btn-sm btn-danger" data-action="delete-scene" data-id="${esc(s.id)}">删除</button>
           </div>
@@ -209,12 +217,15 @@ const outlineView = {
         <tbody>
     `
 
+    const allowedStatuses = new Set(["canonical", "draft", "candidate", "deprecated"])
+
     for (const t of this._threads) {
       const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
-      const statusClass = `badge-${t.status || "canonical"}`
+      const safeStatus = allowedStatuses.has(t.status) ? t.status : "draft"
+      const statusClass = `badge-${safeStatus}`
       html += `
         <tr data-id="${esc(t.id || t.thread_id)}">
-          <td><span class="badge ${statusClass}">${statusMap[t.status] || esc(t.status)}</span></td>
+          <td><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
           <td>${esc(t.name || t.title)}</td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(t.thread_type || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
@@ -265,15 +276,18 @@ const outlineView = {
         <tbody>
     `
 
+    const allowedStatuses = new Set(["canonical", "draft", "candidate", "deprecated"])
+
     for (const a of this._arcs) {
       const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
-      const statusClass = `badge-${a.status || "canonical"}`
+      const safeStatus = allowedStatuses.has(a.status) ? a.status : "draft"
+      const statusClass = `badge-${safeStatus}`
       const range = a.start_chapter != null && a.end_chapter != null
         ? `${a.start_chapter}-${a.end_chapter}`
         : "-"
       html += `
         <tr data-id="${esc(a.id || a.arc_id)}">
-          <td><span class="badge ${statusClass}">${statusMap[a.status] || esc(a.status)}</span></td>
+          <td><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
           <td>${esc(a.name || a.title)}</td>
           <td style="font-family:var(--font-mono);font-size:12px;">${esc(range)}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
@@ -607,6 +621,69 @@ const outlineView = {
     }, "确认删除")
   },
 
+  async _reorderScenes(sceneIds) {
+    try {
+      await api.outline.reorderScenes(state.currentProjectId, sceneIds)
+      toast("Scene 顺序已更新", "success")
+      await this.onEnter?.()
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "操作失败", "error")
+    }
+  },
+
+  async _generateStructure(startChapter, endChapter) {
+    try {
+      const result = await api.outline.generate(state.currentProjectId, startChapter, endChapter)
+      toast("结构生成完成", "success")
+      await this.onEnter?.()
+      router.refresh()
+      return result
+    } catch (err) {
+      toast(err.message || "操作失败", "error")
+      throw err
+    }
+  },
+
+  async _moveSceneUp(id) {
+    const sorted = [...this._scenes].sort((a, b) => (a.scene_index || 0) - (b.scene_index || 0))
+    const idx = sorted.findIndex((s) => s.id === id)
+    if (idx <= 0) return
+    ;[sorted[idx - 1], sorted[idx]] = [sorted[idx], sorted[idx - 1]]
+    await this._reorderScenes(sorted.map((s) => s.id))
+  },
+
+  async _moveSceneDown(id) {
+    const sorted = [...this._scenes].sort((a, b) => (a.scene_index || 0) - (b.scene_index || 0))
+    const idx = sorted.findIndex((s) => s.id === id)
+    if (idx < 0 || idx >= sorted.length - 1) return
+    ;[sorted[idx], sorted[idx + 1]] = [sorted[idx + 1], sorted[idx]]
+    await this._reorderScenes(sorted.map((s) => s.id))
+  },
+
+  _showGenerateStructureForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>起始章节</label>
+        <input class="form-input" id="generate-structure-start" type="number" min="1" value="1" />
+      </div>
+      <div class="form-group">
+        <label>结束章节</label>
+        <input class="form-input" id="generate-structure-end" type="number" min="1" value="10" />
+      </div>
+    `
+    showModal("AI 生成剧情结构", formHtml, [{
+      text: "生成", class: "btn-primary", handler: async () => {
+        const start = parseInt(document.getElementById("generate-structure-start")?.value || "1", 10)
+        const end = parseInt(document.getElementById("generate-structure-end")?.value || "10", 10)
+        if (end < start) { toast("结束章节不能小于起始章节", "warning"); return }
+        try {
+          await this._generateStructure(start, end)
+        } catch (err) { toast(err.message || "生成失败", "error") }
+      },
+    }])
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
@@ -619,6 +696,9 @@ const outlineView = {
       "edit-arc": (_e, _t, ctx) => ctx.id && this._editArc(ctx.id),
       "delete-arc": (_e, _t, ctx) => ctx.id && this._deleteArc(ctx.id),
       "create-scene": () => this._showCreateSceneForm(),
+      "generate-structure": () => this._showGenerateStructureForm(),
+      "move-scene-up": (_e, _t, ctx) => ctx.id && this._moveSceneUp(ctx.id),
+      "move-scene-down": (_e, _t, ctx) => ctx.id && this._moveSceneDown(ctx.id),
       "edit-scene": (_e, _t, ctx) => ctx.id && this._editScene(ctx.id),
       "delete-scene": (_e, _t, ctx) => ctx.id && this._deleteScene(ctx.id),
     })

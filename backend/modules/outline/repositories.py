@@ -80,7 +80,10 @@ class PlotThreadRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> list[PlotThread]:
-        """获取某个章节时活跃的剧情线（start_chapter <= chapter_index，且未完结或 planned_payoff >= chapter）"""
+        """获取某个章节时活跃的剧情线。
+
+        start_chapter <= chapter_index，且未完结或 planned_payoff >= chapter。
+        """
         conditions = [
             PlotThread.novel_id == novel_id,
             PlotThread.status.in_(["draft", "canonical"]),

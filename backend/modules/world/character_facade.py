@@ -152,8 +152,8 @@ async def get_character_knowledge_entries(
     """获取 novel 中所有人物知识边界条目，返回 dict 列表。"""
     from modules.world.services import CharacterKnowledgeService
 
-    items, _ = await CharacterKnowledgeService().list(db, novel_id, limit=10000)
-    return [item.model_dump() for item in items]
+    response = await CharacterKnowledgeService().list(db, novel_id, limit=10000)
+    return [item.model_dump() for item in response.items]
 
 
 async def list_characters(

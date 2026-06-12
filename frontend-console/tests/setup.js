@@ -121,6 +121,11 @@ globalThis.api = {
     createArc: vi.fn(),
     updateArc: vi.fn(),
     deleteArc: vi.fn(),
+    generate: vi.fn(),
+    listForeshadowing: vi.fn(),
+    updateForeshadowing: vi.fn(),
+    listReveals: vi.fn(),
+    updateReveal: vi.fn(),
   },
   writing: {
     listChapters: vi.fn(),
@@ -133,6 +138,7 @@ globalThis.api = {
     getVersionHistory: vi.fn(),
     deleteDraft: vi.fn(),
     deleteChapter: vi.fn(),
+    splitChapter: vi.fn(),
   },
   world: {
     listEntities: vi.fn(),
@@ -146,6 +152,10 @@ globalThis.api = {
     deleteRelationship: vi.fn(),
     createAlias: vi.fn(),
     deleteAlias: vi.fn(),
+    mergeEntity: vi.fn(),
+    rollbackEntity: vi.fn(),
+    listKnowledge: vi.fn(),
+    createKnowledge: vi.fn(),
   },
   tasks: {
     submit: vi.fn(),

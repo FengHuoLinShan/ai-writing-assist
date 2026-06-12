@@ -124,6 +124,34 @@ async def get_next_scene_index(db: AsyncSession, novel_id: str) -> int:
     return (result.scalar() or -1) + 1
 
 
+async def split_scene_chunk_to_new_chapter(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    source_scene_id: str,
+    source_chapter_id: str,
+    source_chapter_index: int,
+    new_chapter_id: str,
+    new_chapter_index: int,
+    split_pos: int,
+    new_chapter_length: int,
+) -> list[dict[str, Any]]:
+    from modules.outline.services import SceneService
+
+    scenes = await SceneService().split_scene_chunk_to_new_chapter(
+        db,
+        novel_id=novel_id,
+        source_scene_id=source_scene_id,
+        source_chapter_id=source_chapter_id,
+        source_chapter_index=source_chapter_index,
+        new_chapter_id=new_chapter_id,
+        new_chapter_index=new_chapter_index,
+        split_pos=split_pos,
+        new_chapter_length=new_chapter_length,
+    )
+    return [_scene_to_dict(scene) for scene in scenes]
+
+
 # ============================================================
 # ForeshadowingPlan
 # ============================================================

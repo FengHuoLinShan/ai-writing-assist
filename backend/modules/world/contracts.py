@@ -60,8 +60,8 @@ class EntityRelationContract:
 class EntityRevisionContract:
     """版本快照契约
 
-    .. deprecated::
-       entity_revisions 表已废弃，后续统一改用 DeltaLog + TextArchive 实现版本回滚。
+    `entity_revisions` 在回滚时作为兜底使用，并继续承担显式 `rollback-by-revision` 快照的存储。
+    当 `TextArchive` 可用时，优先使用 TextArchive 作为回滚数据源。
     """
 
     entity_id: str

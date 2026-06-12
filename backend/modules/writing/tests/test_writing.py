@@ -10,8 +10,11 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.repositories import SceneRepository
+from modules.outline.schemas import SceneCreate
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.facade import (
     create_draft,
@@ -748,6 +751,131 @@ class TestWritingDraftService:
         assert count >= 1
 
 
+@pytest.mark.asyncio
+async def test_split_chapter_at_offset_creates_new_chapter_without_publish_task(
+    service: WritingDraftService,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    original = await service.create_draft(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=5,
+            title="第五章",
+            content="前半段内容。后半段内容。",
+        ),
+    )
+
+    result = await service.split_chapter_at_offset(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=5,
+        split_pos=5,
+        source_scene_id=None,
+    )
+
+    assert result.source_chapter_index == 5
+    assert result.new_chapter_index == 6
+    assert result.source_draft.content == "前半段内容"
+    assert result.new_draft.content == "。后半段内容。"
+    assert result.source_draft.version_number == original.version_number
+    assert result.new_draft.version_number == 1
+
+
+@pytest.mark.asyncio
+async def test_split_chapter_shifts_later_chapters(
+    service: WritingDraftService,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    await service.create_draft(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id, chapter_index=5, title="第五章", content="甲乙丙丁"
+        ),
+    )
+    await service.create_draft(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id, chapter_index=6, title="第六章", content="原第六章"
+        ),
+    )
+
+    result = await service.split_chapter_at_offset(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=5,
+        split_pos=2,
+        source_scene_id=None,
+    )
+
+    assert result.new_chapter_index == 6
+    indices = await service.list_chapter_indices(db_session, novel_id)
+    assert indices == [5, 6, 7]
+    shifted = await service.get_latest_draft(db_session, novel_id, 7)
+    assert shifted.content == "原第六章"
+
+
+@pytest.mark.asyncio
+async def test_split_chapter_at_offset_syncs_scene_chunks(
+    service: WritingDraftService,
+    db_session: AsyncSession,
+) -> None:
+    """跨模块测试：切分章节时同步切分 source Scene 的 chunk 并新建 Scene"""
+    novel_id = str(uuid.uuid4())
+    await service.create_draft(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=1,
+            title="第一章",
+            content="一二三四五六七八九十",
+        ),
+    )
+
+    repo = SceneRepository()
+    nid = uuid.UUID(hex=novel_id)
+    source_scene = await repo.create(
+        db_session,
+        nid,
+        SceneCreate(
+            scene_index=0,
+            title="Source Scene",
+            chapter_ids=["1"],
+            scene_chunks=[
+                {"chapter_id": "1", "chapter_index": 1, "start_pos": 0, "end_pos": 10}
+            ],
+            status="draft",
+        ),
+    )
+    await db_session.flush()
+
+    result = await service.split_chapter_at_offset(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=1,
+        split_pos=4,
+        source_scene_id=str(source_scene.id),
+    )
+
+    assert result.source_chapter_index == 1
+    assert result.new_chapter_index == 2
+    assert result.source_draft.content == "一二三四"
+    assert result.new_draft.content == "五六七八九十"
+    assert len(result.scenes) >= 2
+
+    source_id = str(source_scene.id)
+    source_item = next(item for item in result.scenes if item.id == source_id)
+    assert source_item.scene_chunks[0]["end_pos"] == 4
+
+    new_item = next(item for item in result.scenes if item.id != source_id)
+    assert new_item.chapter_ids == ["2"]
+    assert new_item.scene_chunks[0]["chapter_id"] == "2"
+    assert new_item.scene_chunks[0]["chapter_index"] == 2
+    assert new_item.scene_index == source_item.scene_index + 1
+
+
 # ============================================================
 # Facade 测试
 # ============================================================
@@ -844,3 +972,58 @@ class TestWritingFacade:
     ) -> None:
         indices = await list_chapter_indices(db_session, str(uuid.uuid4()))
         assert indices == []
+
+
+# ============================================================
+# API 路由测试
+# ============================================================
+
+
+class TestWritingSplitApi:
+    @pytest.mark.asyncio
+    async def test_split_chapter_endpoint(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """POST /api/writing/chapters/{chapter_index}/split 返回切分结果"""
+        novel_id = str(uuid.uuid4())
+        service = WritingDraftService()
+        await service.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="第一章",
+                content="abcdefghij",
+            ),
+        )
+
+        repo = SceneRepository()
+        scene = await repo.create(
+            db_session,
+            uuid.UUID(hex=novel_id),
+            SceneCreate(
+                scene_index=0,
+                title="Scene 1",
+                chapter_ids=["1"],
+                scene_chunks=[
+                {"chapter_id": "1", "chapter_index": 1, "start_pos": 0, "end_pos": 10}
+            ],
+                status="draft",
+            ),
+        )
+        await db_session.flush()
+
+        response = await async_client.post(
+            f"/api/writing/chapters/1/split?novel_id={novel_id}",
+            json={"split_pos": 4, "source_scene_id": str(scene.id)},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["source_chapter_index"] == 1
+        assert data["new_chapter_index"] == 2
+        assert data["source_draft"]["content"] == "abcd"
+        assert data["new_draft"]["content"] == "efghij"
+        assert len(data["scenes"]) >= 2

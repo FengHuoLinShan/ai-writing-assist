@@ -37,22 +37,10 @@ test.describe("世界对象 — 关系与别名", () => {
   })
 
   /*
-   * BLOCKED: 后端缺少关系管理 API
-   *
-   * 前端 worldView.js 已实现关系创建/删除 UI，但后端 world 模块
-   * 未提供以下端点：
-   *   POST   /api/world/relationships
-   *   DELETE /api/world/relationships/:id
-   *
-   * 当前调用返回 404 "请求的资源不存在：Not Found"。
-   *
-   * 实现计划：
-   * 1. 在 backend/modules/world/api.py 添加关系 CRUD 路由
-   * 2. 在 backend/modules/world/services.py 实现关系业务逻辑
-   * 3. 确认 relationships 表已存在（alembic 迁移检查）
-   * 4. 解除本测试的 fixme 标记并验证
+   * 关系管理 API 已就绪：POST /api/world/relations、DELETE /api/world/relations/:id
+   * 前端 worldView.js 通过"关系"子标签提供创建/删除 UI。
    */
-  test.fixme("创建关系并显示在列表中", async ({ page }) => {
+  test("创建关系并显示在列表中", async ({ page }) => {
     // Given: 已存在两个实体
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("源对象")
@@ -99,22 +87,10 @@ test.describe("世界对象 — 关系与别名", () => {
   })
 
   /*
-   * BLOCKED: 后端缺少别名管理 API
-   *
-   * 前端 worldView.js 已实现别名创建/删除 UI，但后端 world 模块
-   * 未提供以下端点：
-   *   POST   /api/world/aliases
-   *   DELETE /api/world/entities/:id/aliases
-   *
-   * 当前调用返回 404 "请求的资源不存在：Not Found"。
-   *
-   * 实现计划：
-   * 1. 在 backend/modules/world/api.py 添加别名 CRUD 路由
-   * 2. 在 backend/modules/world/services.py 实现别名业务逻辑
-   *    （别名存储在 core_entities.aliases JSONB 字段中）
-   * 3. 解除本测试的 fixme 标记并验证
+   * 别名管理 API 已就绪：POST /api/world/aliases、DELETE /api/world/entities/:id/aliases
+   * 前端 worldView.js 通过"别名"子标签提供创建/删除 UI。
    */
-  test.fixme("创建别名并显示在列表中", async ({ page }) => {
+  test("创建别名并显示在列表中", async ({ page }) => {
     // Given: 已存在一个实体
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("主角")

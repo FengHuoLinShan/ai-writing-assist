@@ -5,6 +5,9 @@ from fastapi import status as http_status
 
 from core.dependencies import DbSession
 from modules.outline.schemas import (
+    ForeshadowingPlanListResponse,
+    ForeshadowingPlanResponse,
+    ForeshadowingPlanUpdate,
     OutlineArcCreate,
     OutlineArcListResponse,
     OutlineArcResponse,
@@ -13,6 +16,9 @@ from modules.outline.schemas import (
     PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
+    RevealPlanListResponse,
+    RevealPlanResponse,
+    RevealPlanUpdate,
     SceneCreate,
     SceneListResponse,
     SceneReorderRequest,
@@ -22,9 +28,11 @@ from modules.outline.schemas import (
     SplitChaptersRequest,
 )
 from modules.outline.services import (
+    ForeshadowingPlanService,
     OutlineArcService,
     PlotStructureGenerator,
     PlotThreadService,
+    RevealPlanService,
     SceneService,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -35,6 +43,8 @@ _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
 _scene_service = SceneService()
 _generator = PlotStructureGenerator()
+_foreshadowing_service = ForeshadowingPlanService()
+_reveal_service = RevealPlanService()
 
 
 # ============================================================
@@ -260,3 +270,57 @@ async def api_generate_plot_structure(
 ):
     result = await _generator.generate(db, novel_id, start_chapter, end_chapter)
     return result
+
+
+# ============================================================
+# Foreshadowing Plans
+# ============================================================
+
+
+@router.get("/foreshadowing", response_model=ForeshadowingPlanListResponse)
+async def api_list_foreshadowing(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+):
+    return await _foreshadowing_service.list_with_response(
+        db, novel_id, skip=skip, limit=limit
+    )
+
+
+@router.patch("/foreshadowing/{plan_id}", response_model=ForeshadowingPlanResponse)
+async def api_update_foreshadowing(
+    plan_id: str,
+    data: ForeshadowingPlanUpdate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _foreshadowing_service.update(db, plan_id, data, novel_id=novel_id)
+
+
+# ============================================================
+# Reveal Plans
+# ============================================================
+
+
+@router.get("/reveals", response_model=RevealPlanListResponse)
+async def api_list_reveals(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+):
+    return await _reveal_service.list_with_response(
+        db, novel_id, skip=skip, limit=limit
+    )
+
+
+@router.patch("/reveals/{plan_id}", response_model=RevealPlanResponse)
+async def api_update_reveal(
+    plan_id: str,
+    data: RevealPlanUpdate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _reveal_service.update(db, plan_id, data, novel_id=novel_id)

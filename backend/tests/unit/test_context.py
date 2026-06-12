@@ -584,7 +584,7 @@ class TestCharactersLoader:
 
     @pytest.mark.asyncio
     async def test_character_knowledge_filter_called(self) -> None:
-        """scope 非 project 时应调用知识边界过滤"""
+        """character reveal 模式且 scope 非 project 时应调用知识边界过滤"""
         mock_char = MagicMock()
         mock_char.model_dump.return_value = {
             "name": "主角",
@@ -603,7 +603,8 @@ class TestCharactersLoader:
         )
         options = MagicMock(
             novel_id="id",
-            reveal_mode="author_safe",
+            reveal_mode="character",
+            viewpoint_character_id="c1",
             character_ids=["c1"],
             scope="world_character",
         )

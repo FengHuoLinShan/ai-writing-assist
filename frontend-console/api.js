@@ -294,6 +294,35 @@ const api = {
       params.alias = alias
       return request(`/world/entities/${entityId}/aliases` + buildQueryString(params), { method: "DELETE" })
     },
+
+    /** 合并候选实体到目标实体 */
+    async mergeEntity(candidateId, targetEntityId, novelId) {
+      return request(`/world/entities/${candidateId}/merge${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify({ target_entity_id: targetEntityId }),
+      })
+    },
+
+    /** 回滚实体到指定场景索引 */
+    async rollbackEntity(entityId, targetSceneIndex, novelId) {
+      return request(`/world/entities/${entityId}/rollback${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify({ target_scene_index: targetSceneIndex }),
+      })
+    },
+
+    /** 列出人物知识边界 */
+    async listKnowledge(characterId, novelId) {
+      return request(`/world/characters/${characterId}/knowledge${buildQueryString({ novel_id: novelId })}`)
+    },
+
+    /** 创建人物知识边界 */
+    async createKnowledge(characterId, payload, novelId) {
+      return request(`/world/characters/${characterId}/knowledge${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
   },
 
   // ============================================================
@@ -411,6 +440,14 @@ const api = {
     /** 获取章节版本历史 */
     async getVersionHistory(chapterIndex, novelId) {
       return request(`/writing/chapters/${chapterIndex}/versions${buildQueryString({ novel_id: novelId })}`)
+    },
+
+    /** 断章：从当前章节指定 offset 切分为新章节 */
+    async splitChapter(chapterIndex, payload, novelId) {
+      return request(`/writing/chapters/${chapterIndex}/split${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
     },
   },
 
@@ -559,7 +596,7 @@ const api = {
 
     /** 生成剧情结构 */
     async generate(novelId, startChapter, endChapter) {
-      return request(`/outline/generate?novel_id=${encodeURIComponent(novelId)}&start_chapter=${startChapter}&end_chapter=${endChapter}`, {
+      return request("/outline/generate" + buildQueryString({ novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter }), {
         method: "POST",
       })
     },
@@ -617,6 +654,31 @@ const api = {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ chapter_index: chapterIndex, target_scene_id: targetSceneId || null }),
+      })
+    },
+
+    /** 列出伏笔计划 */
+    async listForeshadowing(novelId) {
+      return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId }))
+    },
+    /** 更新伏笔计划 */
+    async updateForeshadowing(id, novelId, payload) {
+      return request(`/outline/foreshadowing/${id}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 列出揭示计划 */
+    async listReveals(novelId) {
+      return request("/outline/reveals" + buildQueryString({ novel_id: novelId }))
+    },
+    /** 更新揭示计划 */
+    async updateReveal(id, novelId, payload) {
+      return request(`/outline/reveals/${id}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       })
     },
   },

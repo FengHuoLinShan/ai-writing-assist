@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,13 +15,24 @@ from modules.outline.contracts import (
     PlotThreadContract,
     SceneContract,
 )
-from modules.outline.models import OutlineArc, PlotThread, Scene
+from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
+from modules.outline.models import (
+    ForeshadowingPlan,
+    OutlineArc,
+    PlotThread,
+    RevealPlan,
+    Scene,
+)
 from modules.outline.repositories import (
     OutlineArcRepository,
     PlotThreadRepository,
     SceneRepository,
 )
+from modules.outline.reveal_repository import RevealPlanRepository
 from modules.outline.schemas import (
+    ForeshadowingPlanListResponse,
+    ForeshadowingPlanResponse,
+    ForeshadowingPlanUpdate,
     OutlineArcCreate,
     OutlineArcListResponse,
     OutlineArcResponse,
@@ -30,6 +41,9 @@ from modules.outline.schemas import (
     PlotThreadListResponse,
     PlotThreadResponse,
     PlotThreadUpdate,
+    RevealPlanListResponse,
+    RevealPlanResponse,
+    RevealPlanUpdate,
     SceneCreate,
     SceneListResponse,
     SceneResponse,
@@ -38,8 +52,6 @@ from modules.outline.schemas import (
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
-
-_P = TypeVar("_P", bound=BaseModel)
 
 
 class PlotThreadService(
@@ -119,6 +131,61 @@ class OutlineArcService(
             related_character_ids=arc.related_character_ids or [],
             related_entity_ids=arc.related_entity_ids or [],
             status=arc.status,
+        )
+
+
+class ForeshadowingPlanService(
+    CrudService[
+        ForeshadowingPlan,
+        ForeshadowingPlanUpdate,
+        ForeshadowingPlanUpdate,
+        ForeshadowingPlanResponse,
+    ]
+):
+    repo = ForeshadowingPlanRepository()
+    response = ForeshadowingPlanResponse
+    list_response = ForeshadowingPlanListResponse
+    label = "ForeshadowingPlan"
+    id_param = "plan_id"
+
+    async def update(
+        self,
+        db: AsyncSession,
+        id: str,
+        data: ForeshadowingPlanUpdate,
+        *,
+        novel_id: str,
+    ) -> ForeshadowingPlanResponse:
+        return await super().update(
+            db,
+            id,
+            data.model_dump(exclude_unset=True),
+            novel_id=novel_id,
+        )
+
+
+class RevealPlanService(
+    CrudService[RevealPlan, RevealPlanUpdate, RevealPlanUpdate, RevealPlanResponse]
+):
+    repo = RevealPlanRepository()
+    response = RevealPlanResponse
+    list_response = RevealPlanListResponse
+    label = "RevealPlan"
+    id_param = "plan_id"
+
+    async def update(
+        self,
+        db: AsyncSession,
+        id: str,
+        data: RevealPlanUpdate,
+        *,
+        novel_id: str,
+    ) -> RevealPlanResponse:
+        return await super().update(
+            db,
+            id,
+            data.model_dump(exclude_unset=True),
+            novel_id=novel_id,
         )
 
 
@@ -289,14 +356,95 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             for s in scenes
         ]
 
+    async def split_scene_chunk_to_new_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        source_scene_id: str,
+        source_chapter_id: str,
+        source_chapter_index: int,
+        new_chapter_id: str,
+        new_chapter_index: int,
+        split_pos: int,
+        new_chapter_length: int,
+    ) -> list[Scene]:
+        """将 source_scene 中指定 chapter 的 chunk 从 split_pos 处切分，
 
-def _per_item_validate(
+        后半部分归属到新 chapter 对应的新 Scene。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(source_scene_id, "scene_id")
+        source = await self.repo.get(db, sid)
+        if source is None or str(source.novel_id) != str(nid):
+            raise ValueError(f"Source Scene {source_scene_id} not found")
+
+        chunks = source.scene_chunks or []
+        target_chunk = None
+        for chunk in chunks:
+            if (
+                chunk.get("chapter_id") == source_chapter_id
+                or chunk.get("chapter_index") == source_chapter_index
+            ):
+                target_chunk = chunk
+                break
+
+        if target_chunk is None:
+            raise ValueError(
+                f"Chapter {source_chapter_id} not found in source Scene chunks"
+            )
+
+        start_pos = target_chunk.get("start_pos", 0)
+        end_pos = target_chunk.get("end_pos", 0)
+        if not (start_pos < split_pos < end_pos):
+            raise ValueError(
+                f"split_pos {split_pos} must be inside chunk range "
+                f"({start_pos}, {end_pos})"
+            )
+
+        target_chunk["end_pos"] = split_pos
+        source.scene_chunks = chunks
+        db.add(source)
+
+        new_scene = Scene(
+            novel_id=nid,
+            scene_index=source.scene_index + 1,
+            chapter_ids=[new_chapter_id],
+            scene_chunks=[
+                {
+                    "chapter_id": new_chapter_id,
+                    "chapter_index": new_chapter_index,
+                    "start_pos": 0,
+                    "end_pos": new_chapter_length,
+                }
+            ],
+            source="manual",
+            narrative_tag="draft",
+            status="draft",
+        )
+        db.add(new_scene)
+
+        # Shift later scene_index values（排除刚新建的 Scene）
+        later = await self.repo.get_by_novel_ordered(db, nid)
+        excluded_ids = {source.id, new_scene.id}
+        for s in later:
+            if s.id not in excluded_ids and s.scene_index > source.scene_index:
+                s.scene_index = s.scene_index + 1
+                db.add(s)
+
+        await db.flush()
+
+        scenes = await self.repo.get_by_novel_ordered(db, nid)
+        return list(scenes)
+
+
+def _per_item_validate[P: BaseModel](
     data: dict | list | None,
     thread_cls: type[BaseModel],
     arc_cls: type[BaseModel],
     extra_models: dict[str, type[BaseModel]] | None,
-    output_cls: type[_P],
-) -> _P:
+    output_cls: type[P],
+) -> P:
     """逐项校验，单字段错不整批丢弃。
 
     LLM 常输出类型错误的值（如 planned_payoff_chapter="后续篇章"），
@@ -394,11 +542,17 @@ class PlotStructureGenerator:
         if bundle.world_entities:
             context_md += "## 世界对象\n"
             for e in bundle.world_entities:
-                context_md += f"- {e.get('name', '?')} ({e.get('entity_type', '?')}): {e.get('summary', '')}\n"
+                context_md += (
+                    f"- {e.get('name', '?')} ({e.get('entity_type', '?')}): "
+                    f"{e.get('summary', '')}\n"
+                )
         if bundle.characters:
             context_md += "\n## 人物\n"
             for c in bundle.characters:
-                context_md += f"- {c.get('name', '?')} ({c.get('role', '?')}): {c.get('desire', '')}\n"
+                context_md += (
+                    f"- {c.get('name', '?')} ({c.get('role', '?')}): "
+                    f"{c.get('desire', '')}\n"
+                )
 
         # 构建名称→ID 映射表（用于 Fix 2：related_*_names → related_*_ids）
         entity_name_to_id = {

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ============================================================
 # 内部工具
@@ -168,6 +168,10 @@ class CoreEntityCreate(BaseModel):
         None,
         max_length=64,
         description="创建者标识",
+    )
+    force_create: bool = Field(
+        default=False,
+        description="强制创建，跳过去重检查（当前 create 不主动去重）",
     )
 
 
@@ -440,6 +444,47 @@ class RollbackRequest(BaseModel):
     )
 
 
+class EntityRollbackRequest(BaseModel):
+    """实体按 Scene 索引回滚请求"""
+
+    target_scene_index: int = Field(
+        ...,
+        ge=0,
+        description="目标 Scene 索引",
+    )
+
+
+class EntityMergeRequest(BaseModel):
+    """实体合并请求"""
+
+    target_entity_id: str = Field(
+        ...,
+        description="合并目标实体 ID",
+    )
+
+
+class EntityMergeResponse(BaseModel):
+    """实体合并响应"""
+
+    target_entity_id: str
+
+
+class EntityRollbackResponse(BaseModel):
+    """实体回滚响应"""
+
+    entity_id: str
+    target_scene_index: int | None
+    restored_fields: list[str]
+    warnings: list[str]
+
+
+class EntityRevisionListResponse(BaseModel):
+    """实体版本列表响应"""
+
+    items: list[dict[str, Any]]
+    total: int
+
+
 # ============================================================
 # Character Schema（从 character 模块迁入）
 # ============================================================
@@ -637,6 +682,12 @@ class CharacterKnowledgeCreate(BaseModel):
     source_chapter_index: int | None = Field(None, ge=0, description="信息来源章节")
     source_memory_id: str | None = Field(None, description="关联的 memory 记录 ID")
     status: str = Field(default="canonical", max_length=32, description="状态")
+
+    @model_validator(mode="after")
+    def require_misconception_for_false_belief(self) -> CharacterKnowledgeCreate:
+        if self.knowledge_level == "false_belief" and not self.misconception:
+            raise ValueError("false_belief knowledge must provide misconception")
+        return self
 
 
 class CharacterKnowledgeUpdate(BaseModel):

@@ -119,3 +119,38 @@ class VersionHistoryResponse(BaseModel):
     chapter_index: int
     versions: list[DraftListItem]
     total: int
+
+
+class ChapterSplitRequest(BaseModel):
+    split_pos: int = Field(..., ge=1, description="编辑器 offset，必须位于正文中间")
+    source_scene_id: str | None = Field(
+        None, description="当前 Scene ID，用于同步 scene_chunks"
+    )
+
+
+class SceneSplitItem(BaseModel):
+    """章节切分后同步更新的 Scene 项"""
+
+    id: str
+    novel_id: str
+    scene_index: int
+    title: str | None = None
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: str | None = None
+    source: str | None = None
+    scene_chunks: list[dict] = []
+    chapter_ids: list[str] = []
+    pov_character_id: str | None = None
+    status: str | None = None
+
+
+class ChapterSplitResponse(BaseModel):
+    source_chapter_index: int
+    new_chapter_index: int
+    source_draft: WritingDraftResponse
+    new_draft: WritingDraftResponse
+    scenes: list[SceneSplitItem] = Field(default_factory=list)

@@ -1174,6 +1174,22 @@ class CharacterRepository:
 
         return await self.get(db, character_id)
 
+    async def migrate_entity_id(
+        self,
+        db: AsyncSession,
+        source_entity_id: uuid.UUID,
+        target_entity_id: uuid.UUID,
+    ) -> bool:
+        """将 Character 行从 source_entity_id 迁移到 target_entity_id（用于合并）。"""
+        stmt = (
+            update(Character)
+            .where(Character.entity_id == source_entity_id)
+            .values(entity_id=target_entity_id)
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0
+
     async def delete(
         self,
         db: AsyncSession,

@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from modules.writing.schemas import (
+    WritingDraftResponse,  # noqa: F401 — facade.create_draft 返回
+)
+
 
 @dataclass(frozen=True)
 class WritingDraftContract:
@@ -19,9 +23,3 @@ class WritingDraftContract:
     title: str | None = None
     content: str | None = None
     version_number: int = 1
-
-
-# facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.writing.schemas import (
-    WritingDraftResponse,  # noqa: F401 — facade.create_draft 返回
-)

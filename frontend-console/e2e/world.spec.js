@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { createProject, cleanupProject, waitForBackend, createEntity, createCharacter } from "./helpers/api-client.js"
 
 test.describe("世界对象模块", () => {
   let testProjectId = null
@@ -139,5 +139,92 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
     await expect(page.locator(SEL.subnavItem("aliases"))).toHaveClass(/active/)
     await expect(page.locator(SEL.emptyState)).toBeVisible()
+  })
+
+  test("合并实体到目标实体", async ({ page }) => {
+    // Given: 通过 API 创建目标正史实体与候选草稿实体
+    const target = await createEntity(testProjectId, {
+      name: "目标实体",
+      entity_type: "location",
+      status: "canonical",
+    })
+    const candidate = await createEntity(testProjectId, {
+      name: "候选实体",
+      entity_type: "location",
+      status: "draft",
+    })
+
+    await page.reload()
+    await page.locator(SEL.navItem("world")).click()
+    await expect(page.locator(SEL.dataTable)).toContainText("目标实体")
+    await expect(page.locator(SEL.dataTable)).toContainText("候选实体")
+
+    // When: 在候选实体行点击合并，输入目标 ID
+    await page.locator('tr:has-text("候选实体") [data-action="merge-entity"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
+    await page.locator("#merge-target-id").fill(target.id)
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+
+    // Then: 提示合并完成
+    await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
+  })
+
+  /*
+   * TODO: 实体回滚需要预先存在的 TextArchive 或 EntityRevision 记录。
+   * 当前 UI 已提供"回滚"按钮（输入目标 scene_index），但 E2E 缺少便捷的
+   * 归档/快照种子方式，待后端在实体更新时自动写入 TextArchive 后再解 fixme。
+   */
+  test.fixme("回滚实体到指定场景索引", async ({ page }) => {
+    const entity = await createEntity(testProjectId, {
+      name: "待回滚实体",
+      entity_type: "item",
+      status: "canonical",
+      summary: "原始摘要",
+    })
+
+    await page.reload()
+    await page.locator(SEL.navItem("world")).click()
+    await expect(page.locator(SEL.dataTable)).toContainText("待回滚实体")
+
+    await page.locator('tr:has-text("待回滚实体") [data-action="rollback-entity"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("回滚对象")
+    await page.locator("#rollback-scene-index").fill("0")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+
+    await expect(page.locator(SEL.toastContainer)).toContainText("回滚完成", { timeout: 10000 })
+  })
+
+  test("为人物添加知识边界", async ({ page }) => {
+    // Given: 目标实体 + 人物实体/Character 行
+    const target = await createEntity(testProjectId, {
+      name: "秘密组织",
+      entity_type: "faction",
+      status: "canonical",
+    })
+    const charEntity = await createEntity(testProjectId, {
+      name: "主角",
+      entity_type: "character_ref",
+      status: "canonical",
+    })
+    await createCharacter(testProjectId, {
+      entity_id: charEntity.id,
+      name: "主角",
+    })
+
+    await page.reload()
+    await page.locator(SEL.navItem("world")).click()
+    await expect(page.locator(SEL.dataTable)).toContainText("主角")
+    await expect(page.locator(SEL.dataTable)).toContainText("秘密组织")
+
+    // When: 点击人物行的"知识"按钮，填写知识条目
+    await page.locator('tr:has-text("主角") [data-action="knowledge-entity"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("添加知识边界")
+    await page.locator("#knowledge-target-id").fill(target.id)
+    await page.locator("#knowledge-level").selectOption("partial")
+    await page.locator("#knowledge-content").fill("知道组织存在，但不了解核心")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+
+    // Then: 提示添加成功
+    await expect(page.locator(SEL.toastContainer)).toContainText("知识边界已添加", { timeout: 10000 })
   })
 })

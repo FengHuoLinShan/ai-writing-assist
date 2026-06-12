@@ -252,3 +252,98 @@ class SplitChaptersRequest(BaseModel):
     target_scene_id: str | None = Field(
         None, description="目标 Scene ID，为空则新建 Scene"
     )
+
+
+# ============================================================
+# ForeshadowingPlan
+# ============================================================
+
+
+class ForeshadowingPlanUpdate(BaseModel):
+    name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
+    summary: Annotated[str | None, Field(None)]
+    surface_meaning: Annotated[str | None, Field(None)]
+    hidden_meaning: Annotated[str | None, Field(None)]
+    planned_seed_chapter: Annotated[int | None, Field(None, ge=1)]
+    planned_reinforce_chapters: Annotated[
+        list[Annotated[int, Field(ge=1)]] | None,
+        Field(None),
+    ]
+    planned_payoff_chapter: Annotated[int | None, Field(None, ge=1)]
+    related_entity_ids: Annotated[list[str] | None, Field(None)]
+    related_thread_ids: Annotated[list[str] | None, Field(None)]
+    status: Annotated[str | None, Field(None, max_length=32)]
+
+
+class ForeshadowingPlanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    name: str
+    summary: str | None = None
+    surface_meaning: str | None = None
+    hidden_meaning: str | None = None
+    planned_seed_chapter: int | None = None
+    planned_reinforce_chapters: list = []
+    planned_payoff_chapter: int | None = None
+    related_entity_ids: list = []
+    related_thread_ids: list = []
+    status: str = "draft"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class ForeshadowingPlanListResponse(BaseModel):
+    items: list[ForeshadowingPlanResponse]
+    total: int
+
+
+# ============================================================
+# RevealPlan
+# ============================================================
+
+
+class RevealStage(BaseModel):
+    stage_index: int = Field(..., ge=0)
+    chapter_index: int = Field(..., ge=1)
+    reveal_content: str | None = None
+    trigger: str | None = None
+    effect: str | None = None
+
+
+class RevealPlanUpdate(BaseModel):
+    target_type: Annotated[str | None, Field(None, max_length=32)]
+    target_id: Annotated[str | None, Field(None)]
+    secret_summary: Annotated[str | None, Field(None)]
+    reveal_stages: Annotated[list[RevealStage] | None, Field(None)]
+    status: Annotated[str | None, Field(None, max_length=32)]
+
+
+class RevealPlanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    target_type: str
+    target_id: str
+    secret_summary: str
+    reveal_stages: list = []
+    status: str = "draft"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "target_id", mode="before")
+    @classmethod
+    def coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class RevealPlanListResponse(BaseModel):
+    items: list[RevealPlanResponse]
+    total: int

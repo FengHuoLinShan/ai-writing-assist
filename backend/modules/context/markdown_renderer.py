@@ -113,7 +113,10 @@ def _render_hard_constraints(context: StructureContextBundle) -> str:
         "4. **不让角色知道不该知道的信息**。严格遵守 character_knowledge 边界。",
         "5. **不凭空增加重大设定**。新设定必须有合理来源或用户确认。",
         "6. **输出必须符合 JSON schema**。",
-        "7. **不重要对象不要升级为正史对象**。别名标记为 alias_of_existing，临时对象标记为 temporary_only。",
+        (
+            "7. **不重要对象不要升级为正史对象**。"
+            "别名标记为 alias_of_existing，临时对象标记为 temporary_only。"
+        ),
     ]
     return "\n".join(lines) + "\n"
 
@@ -223,8 +226,10 @@ def _render_world_entities(context: StructureContextBundle) -> str:
             lines.append(f"- **概要**: {ent['summary']}")
         if ent.get("public_info"):
             lines.append(f"- **公开信息**: {ent['public_info']}")
+        if ent.get("misconception"):
+            lines.append(f"- **角色误解（false_belief）**: {ent['misconception']}")
         if ent.get("hidden_truth"):
-            lines.append(f"- **{ent['hidden_truth']}**")
+            lines.append(f"- **隐藏真相**: {ent['hidden_truth']}")
         if ent.get("importance_level"):
             lines.append(f"- **重要性**: {ent['importance_level']}")
         lines.append("")
@@ -400,7 +405,6 @@ def _render_memory(context: StructureContextBundle) -> str:
         loc_map = {}
         for cid, loc in locations.items():
             loc_name = loc.get("location_id", "?")[:8]
-            text_state = loc.get("text_state", "")
             loc_map.setdefault(loc_name, []).append(cid[:8])
         for loc_name, chars in loc_map.items():
             lines.append(f"- {loc_name}: {', '.join(chars)}")
