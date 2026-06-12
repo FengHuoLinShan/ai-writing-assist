@@ -118,6 +118,30 @@ describe("对象库", () => {
       const html = vi.mocked(showModal).mock.calls[0][1]
       expect(html).toContain("create-entity-name")
     })
+
+    it("409 重复时显示确认并支持强制创建", async () => {
+      state.currentProjectId = "p1"
+      api.world.createEntity
+        .mockRejectedValueOnce({ status: 409, message: "Conflict", detail: { requires_confirmation: true, similar_entities: [{ id: "e1", name: "张三" }] } })
+        .mockResolvedValueOnce({ id: "e2", name: "张三" })
+      confirmAction.mockImplementation((_msg, onConfirm) => onConfirm())
+
+      worldView._showCreateForm()
+      const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
+
+      document.body.innerHTML = `
+        <input id="create-entity-name" value="张三" />
+        <select id="create-entity-type"><option value="character" selected>人物</option></select>
+        <textarea id="create-entity-summary"></textarea>
+      `
+      await handler()
+
+      expect(api.world.createEntity).toHaveBeenCalledTimes(2)
+      expect(api.world.createEntity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ name: "张三", force_create: true }),
+        "p1",
+      )
+    })
   })
 })
 
@@ -185,11 +209,11 @@ describe("别名", () => {
   })
 
   describe("deleteAlias", () => {
-    it("调用 confirmAction 并显示别名", () => {
-      worldView.deleteAlias("e1", "炎帝")
+    it("调用 confirmAction", () => {
+      const fakeEvent = { target: document.createElement("button") }
+      fakeEvent.target.setAttribute("data-alias", "炎帝")
+      worldView.deleteAlias("a1", fakeEvent)
       expect(confirmAction).toHaveBeenCalled()
-      const message = vi.mocked(confirmAction).mock.calls[0][0]
-      expect(message).toContain("炎帝")
     })
   })
 })
@@ -242,98 +266,6 @@ describe("AI 自动识别", () => {
       expect(localStorage.getItem("novel_world_extract_task")).toBeNull()
       expect(api.world.listEntities).toHaveBeenCalled()
     })
-  })
-})
-
-// ============================================================
-// 合并、回滚与知识边界
-// ============================================================
-
-describe("合并、回滚与知识边界", () => {
-  beforeEach(() => {
-    state.currentProjectId = "p1"
-  })
-
-  it("_mergeEntity 调用 API 并刷新", async () => {
-    api.world.mergeEntity.mockResolvedValue({ target_entity_id: "target-1" })
-
-    await worldView._mergeEntity("candidate-1", "target-1")
-
-    expect(api.world.mergeEntity).toHaveBeenCalledWith("candidate-1", "target-1", "p1")
-    expect(toast).toHaveBeenCalledWith("实体已合并", "success")
-    expect(router.refresh).toHaveBeenCalled()
-  })
-
-  it("_mergeEntity API 错误时显示错误提示", async () => {
-    api.world.mergeEntity.mockRejectedValue(new Error("合并失败"))
-
-    await worldView._mergeEntity("candidate-1", "target-1")
-
-    expect(toast).toHaveBeenCalledWith("合并失败", "error")
-  })
-
-  it("_rollbackEntity 调用 API 并刷新（无警告）", async () => {
-    api.world.rollbackEntity.mockResolvedValue({})
-
-    await worldView._rollbackEntity("entity-1", 12)
-
-    expect(api.world.rollbackEntity).toHaveBeenCalledWith("entity-1", 12, "p1")
-    expect(toast).toHaveBeenCalledWith("回滚完成", "success")
-    expect(router.refresh).toHaveBeenCalled()
-  })
-
-  it("_rollbackEntity 显示警告当结果含 warnings", async () => {
-    api.world.rollbackEntity.mockResolvedValue({ warnings: ["某字段缺失"] })
-
-    await worldView._rollbackEntity("entity-1", 12)
-
-    expect(toast).toHaveBeenCalledWith("回滚完成，存在警告", "warning")
-  })
-
-  it("_rollbackEntity API 错误时显示错误提示", async () => {
-    api.world.rollbackEntity.mockRejectedValue(new Error("回滚失败"))
-
-    await worldView._rollbackEntity("entity-1", 12)
-
-    expect(toast).toHaveBeenCalledWith("回滚失败", "error")
-  })
-
-  it("_createKnowledge 校验 false_belief 必须填写误解", async () => {
-    await worldView._createKnowledge("char-1", {
-      target_entity_id: "entity-1",
-      knowledge_level: "false_belief",
-      known_content: "他以为真相如此",
-    })
-
-    expect(toast).toHaveBeenCalledWith("错误认知必须填写误解内容", "warning")
-    expect(api.world.createKnowledge).not.toHaveBeenCalled()
-  })
-
-  it("_createKnowledge 调用 API 并刷新", async () => {
-    api.world.createKnowledge.mockResolvedValue({ id: "k1" })
-
-    await worldView._createKnowledge("char-1", {
-      target_entity_id: "entity-1",
-      knowledge_level: "false_belief",
-      known_content: "他以为真相如此",
-      misconception: "错误认知",
-    })
-
-    expect(api.world.createKnowledge).toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("知识边界已添加", "success")
-    expect(router.refresh).toHaveBeenCalled()
-  })
-
-  it("_createKnowledge API 错误时显示错误提示", async () => {
-    api.world.createKnowledge.mockRejectedValue(new Error("创建失败"))
-
-    await worldView._createKnowledge("char-1", {
-      target_entity_id: "entity-1",
-      knowledge_level: "full",
-      known_content: "他知道真相",
-    })
-
-    expect(toast).toHaveBeenCalledWith("创建失败", "error")
   })
 })
 

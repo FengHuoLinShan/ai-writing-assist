@@ -623,15 +623,40 @@ const worldView = {
             return
           }
 
+          const payload = {
+            name,
+            entity_type: document.getElementById("create-entity-type")?.value || "item",
+            summary: document.getElementById("create-entity-summary")?.value || "",
+          }
+
           try {
-            await api.world.createEntity({
-              name,
-              entity_type: document.getElementById("create-entity-type")?.value || "item",
-              summary: document.getElementById("create-entity-summary")?.value || "",
-            }, state.currentProjectId)
+            await api.world.createEntity(payload, state.currentProjectId)
             toast(`对象 "${name}" 已创建`, "success")
             router.refresh()
           } catch (err) {
+            if (err.status === 409 || (err.message && err.message.includes("409"))) {
+              let detail = err.detail
+              if (typeof detail === "string") {
+                try { detail = JSON.parse(detail) } catch { /* keep string */ }
+              }
+              if (detail && detail.requires_confirmation) {
+                const similar = (detail.similar_entities || []).map((s) => s.name).join(", ")
+                confirmAction(
+                  `发现相似对象：${similar}。是否仍要创建？`,
+                  async () => {
+                    try {
+                      await api.world.createEntity({ ...payload, force_create: true }, state.currentProjectId)
+                      toast(`对象 "${name}" 已创建`, "success")
+                      router.refresh()
+                    } catch (err2) {
+                      toast(`创建失败：${err2.message}`, "error")
+                    }
+                  },
+                  "强制创建",
+                )
+                return
+              }
+            }
             toast(`创建失败：${err.message}`, "error")
           }
         },
