@@ -491,6 +491,9 @@ const App = {
   },
 }
 
+// 暴露到全局以便测试和调试
+globalThis.App = App
+
 // 页面加载完成后启动
 document.addEventListener("DOMContentLoaded", () => {
   App.init()
