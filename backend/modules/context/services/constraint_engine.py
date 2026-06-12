@@ -36,14 +36,21 @@ class ConstraintEngine:
         db: AsyncSession,
         novel_id: str,
         scene_id: str | None = None,
+        scene_index: int | None = None,
         chapter_index: int | None = None,
     ) -> list[ContextSection]:
         sections: list[ContextSection] = []
         sections.extend(await self._static_constraints("zh"))
-        sections.extend(await self._scene_constraints(db, novel_id, scene_id))
-        sections.extend(await self._knowledge_constraints(db, novel_id, chapter_index))
         sections.extend(
-            await self._foreshadowing_constraints(db, novel_id, chapter_index)
+            await self._scene_constraints(db, novel_id, scene_id=scene_id)
+        )
+        sections.extend(
+            await self._knowledge_constraints(db, novel_id, chapter_index=chapter_index)
+        )
+        sections.extend(
+            await self._foreshadowing_constraints(
+                db, novel_id, scene_index=scene_index, chapter_index=chapter_index
+            )
         )
         return sections
 
@@ -105,7 +112,8 @@ class ConstraintEngine:
         """加载人物知识边界约束
 
         对于 knowledge_level = "unknown" 的目标实体 → 角色不能使用该信息
-        对于 knowledge_level = "false_belief" → 角色应按误判表现
+        对于 knowledge_level = "restricted"/"partial"/"rumor" → 只能使用已知内容
+        对于 knowledge_level = "false_belief"/"misunderstood" → 角色应按错误认知表现
         """
         from modules.world.facade import get_character_knowledge_entries
 
@@ -116,7 +124,8 @@ class ConstraintEngine:
 
         lines: list[str] = []
         unknown_count = 0
-        false_beliefs: list[str] = []
+        restricted_count = 0
+        misunderstood: list[str] = []
 
         for entry in entries:
             level = entry.get("knowledge_level")
@@ -125,20 +134,27 @@ class ConstraintEngine:
             )
             if level == "unknown":
                 unknown_count += 1
-            elif level == "false_belief":
+            elif level in ("restricted", "partial", "rumor"):
+                restricted_count += 1
+            elif level in ("false_belief", "misunderstood"):
                 misconception = entry.get("misconception")
                 if misconception:
-                    false_beliefs.append(f"- {target_ref}: {misconception}")
+                    misunderstood.append(f"- {target_ref}: {misconception}")
 
         if unknown_count > 0:
             lines.append(
                 f"角色对 {unknown_count} 个目标实体/人物的知识级别为 unknown，"
                 f"写作时不得让角色知晓这些实体的隐藏信息"
             )
-        if false_beliefs:
+        if restricted_count > 0:
+            lines.append(
+                f"角色对 {restricted_count} 个目标实体/人物的知识受限，"
+                f"只能使用已知内容(known_content)描述，不得暴露 hidden_truth"
+            )
+        if misunderstood:
             lines.append(
                 "角色对以下实体存在错误认知，应按错误认知表现:\n"
-                + "\n".join(false_beliefs)
+                + "\n".join(misunderstood)
             )
 
         if not lines:
@@ -163,12 +179,13 @@ class ConstraintEngine:
         self,
         db: AsyncSession,
         novel_id: str,
+        scene_index: int | None = None,
         chapter_index: int | None = None,
     ) -> list[ContextSection]:
         """加载伏笔约束
 
-        状态为 "seeded" 且 planned_payoff_chapter > 当前章节的伏笔
-        → LLM 不得在当前章节提前揭示
+        状态为 "seeded" 且 planned_payoff_scene > 当前场景索引（或
+        planned_payoff_chapter > 当前章节）的伏笔 → LLM 不得在当前上下文提前揭示
         """
         from modules.outline.facade import get_active_foreshadowing
 
@@ -177,16 +194,19 @@ class ConstraintEngine:
         if not plans:
             return []
 
-        # Filter: only warn about foreshadowing whose payoff is after current chapter
         active = []
         for plan in plans:
+            payoff_scene = plan.get("planned_payoff_scene")
             payoff_ch = plan.get("planned_payoff_chapter")
-            if (
-                chapter_index is not None
-                and payoff_ch is not None
-                and payoff_ch <= chapter_index
-            ):
-                continue  # already due for payoff, no constraint
+
+            if scene_index is not None and payoff_scene is not None:
+                if payoff_scene <= scene_index:
+                    continue
+            elif chapter_index is not None and payoff_ch is not None:
+                if payoff_ch <= chapter_index:
+                    continue
+            # else: cannot determine ordering, include conservatively
+
             active.append(plan)
 
         if not active:
@@ -194,8 +214,14 @@ class ConstraintEngine:
 
         lines = ["## 伏笔约束\n\n以下伏笔已埋下但尚未到兑现章节，禁止提前揭示："]
         for plan in active:
+            payoff_scene = plan.get("planned_payoff_scene")
             payoff_ch = plan.get("planned_payoff_chapter")
-            payoff = f"第{payoff_ch}章" if payoff_ch else "待定"
+            if payoff_scene is not None:
+                payoff = f"场景{payoff_scene}"
+            elif payoff_ch is not None:
+                payoff = f"第{payoff_ch}章"
+            else:
+                payoff = "待定"
             surface = plan.get("surface_meaning") or plan.get("summary") or ""
             name = plan.get("name", "")
             lines.append(

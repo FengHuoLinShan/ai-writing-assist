@@ -178,10 +178,12 @@ class ContextCompiler:
         """新入口：按 Tier 编译上下文，返回 CompiledContext IR"""
         bundle = await self.compile(db, options)
         sections = self._build_sections(bundle, options)
+        scene_index = bundle.scene.get("scene_index") if bundle.scene else None
         constraint_sections = await self._constraint_engine.compile_constraints(
             db,
             options.novel_id,
-            scene_id=None,
+            scene_id=options.scene_id,
+            scene_index=scene_index,
             chapter_index=options.chapter_index,
         )
         sections.extend(constraint_sections)

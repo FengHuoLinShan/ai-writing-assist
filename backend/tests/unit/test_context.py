@@ -38,6 +38,7 @@ from modules.context.schemas import (
 )
 from modules.context.services import CompileOptions, ContextCompiler
 from modules.context.services.compiled_context import Tier
+from modules.context.services.constraint_engine import ConstraintEngine
 from modules.context.services.context_compiler import SCOPE_LOADERS
 from modules.context.services.loaders import (
     CharactersLoader,
@@ -375,6 +376,188 @@ class TestCompileWithTiers:
             assert s.content.startswith("[Snapshot 模式] "), (
                 f"Expected Snapshot prefix, got: {s.content[:20]}"
             )
+
+
+class TestConstraintEngine:
+    """测试 ConstraintEngine 场景化约束编译"""
+
+    @pytest.mark.asyncio
+    async def test_foreshadowing_with_future_payoff_scene_included(self) -> None:
+        """planned_payoff_scene 大于当前 scene_index 的伏笔应进入约束"""
+        engine = ConstraintEngine()
+        novel_id = str(uuid.uuid4())
+        plans = [
+            {
+                "name": "戒指伏笔",
+                "surface_meaning": "主角捡到戒指",
+                "planned_payoff_scene": 5,
+            }
+        ]
+        db = MagicMock()
+        with (
+            patch(
+                "modules.outline.facade.get_active_foreshadowing",
+                AsyncMock(return_value=plans),
+            ),
+            patch(
+                "modules.outline.facade.get_scene",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "modules.world.facade.get_character_knowledge_entries",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            sections = await engine.compile_constraints(
+                db, novel_id, scene_index=3, chapter_index=1
+            )
+        keys = {s.key for s in sections}
+        assert "foreshadowing_constraints" in keys
+        fore = next(s for s in sections if s.key == "foreshadowing_constraints")
+        assert "戒指伏笔" in fore.content
+        assert "场景5" in fore.content
+        assert fore.tier == Tier.P0
+
+    @pytest.mark.asyncio
+    async def test_foreshadowing_with_past_payoff_scene_excluded(self) -> None:
+        """planned_payoff_scene 小于等于当前 scene_index 的伏笔不应进入约束"""
+        engine = ConstraintEngine()
+        novel_id = str(uuid.uuid4())
+        plans = [
+            {
+                "name": "已到期伏笔",
+                "surface_meaning": "伏笔已收回",
+                "planned_payoff_scene": 2,
+            }
+        ]
+        db = MagicMock()
+        with (
+            patch(
+                "modules.outline.facade.get_active_foreshadowing",
+                AsyncMock(return_value=plans),
+            ),
+            patch(
+                "modules.outline.facade.get_scene",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "modules.world.facade.get_character_knowledge_entries",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            sections = await engine.compile_constraints(
+                db, novel_id, scene_index=3, chapter_index=1
+            )
+        keys = {s.key for s in sections}
+        assert "foreshadowing_constraints" not in keys
+
+    @pytest.mark.asyncio
+    async def test_foreshadowing_fallback_to_chapter_index(self) -> None:
+        """无 scene_index 时按 chapter_index 过滤"""
+        engine = ConstraintEngine()
+        novel_id = str(uuid.uuid4())
+        plans = [
+            {
+                "name": "章级伏笔",
+                "surface_meaning": "主角发现地图",
+                "planned_payoff_chapter": 10,
+            }
+        ]
+        db = MagicMock()
+        with (
+            patch(
+                "modules.outline.facade.get_active_foreshadowing",
+                AsyncMock(return_value=plans),
+            ),
+            patch(
+                "modules.outline.facade.get_scene",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "modules.world.facade.get_character_knowledge_entries",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            sections = await engine.compile_constraints(
+                db, novel_id, chapter_index=5
+            )
+        keys = {s.key for s in sections}
+        assert "foreshadowing_constraints" in keys
+        fore = next(s for s in sections if s.key == "foreshadowing_constraints")
+        assert "章级伏笔" in fore.content
+        assert "第10章" in fore.content
+
+    @pytest.mark.asyncio
+    async def test_scene_must_not_happen_in_hard_constraints(self) -> None:
+        """Scene 的 must_not_happen 应作为 scene_constraints 进入 P0"""
+        engine = ConstraintEngine()
+        novel_id = str(uuid.uuid4())
+        scene = {"id": "s1", "must_not_happen": "主角不能死亡"}
+        db = MagicMock()
+        with (
+            patch(
+                "modules.outline.facade.get_scene",
+                AsyncMock(return_value=scene),
+            ),
+            patch(
+                "modules.outline.facade.get_active_foreshadowing",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "modules.world.facade.get_character_knowledge_entries",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            sections = await engine.compile_constraints(
+                db, novel_id, scene_id="s1", scene_index=3
+            )
+        keys = {s.key for s in sections}
+        assert "scene_constraints" in keys
+        scene_section = next(s for s in sections if s.key == "scene_constraints")
+        assert "主角不能死亡" in scene_section.content
+        assert scene_section.tier == Tier.P0
+
+    @pytest.mark.asyncio
+    async def test_knowledge_restricted_and_misunderstood(self) -> None:
+        """knowledge_level=restricted 和 misunderstood 应出现在约束中"""
+        engine = ConstraintEngine()
+        novel_id = str(uuid.uuid4())
+        entries = [
+            {
+                "target_type": "character",
+                "target_id": "c1",
+                "knowledge_level": "restricted",
+            },
+            {
+                "target_type": "entity",
+                "target_id": "e1",
+                "knowledge_level": "misunderstood",
+                "misconception": "误以为神器是坏的",
+            },
+        ]
+        db = MagicMock()
+        with (
+            patch(
+                "modules.world.facade.get_character_knowledge_entries",
+                AsyncMock(return_value=entries),
+            ),
+            patch(
+                "modules.outline.facade.get_scene",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "modules.outline.facade.get_active_foreshadowing",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            sections = await engine.compile_constraints(db, novel_id)
+        keys = {s.key for s in sections}
+        assert "knowledge_constraints" in keys
+        knowledge = next(s for s in sections if s.key == "knowledge_constraints")
+        assert "知识受限" in knowledge.content
+        assert "hidden_truth" in knowledge.content
+        assert "误以为神器是坏的" in knowledge.content
+        assert knowledge.tier == Tier.P0
 
 
 # ============================================================
