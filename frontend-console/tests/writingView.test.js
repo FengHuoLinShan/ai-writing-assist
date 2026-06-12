@@ -187,15 +187,17 @@ describe("cursor events", () => {
   it("click updates _cursorOffset and re-renders the panel", () => {
     const editor = document.getElementById("writing-editor")
     editor.selectionStart = 5
+    editor.focus()
     editor.click()
     expect(writingView._cursorOffset).toBe(5)
     expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene A")
   })
 
-  it("select updates _cursorOffset and re-renders the panel", () => {
+  it("selectionchange updates _cursorOffset and re-renders the panel", () => {
     const editor = document.getElementById("writing-editor")
     editor.selectionStart = 3
-    editor.dispatchEvent(new Event("select"))
+    editor.focus()
+    document.dispatchEvent(new Event("selectionchange"))
     expect(writingView._cursorOffset).toBe(3)
     expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene A")
   })
@@ -203,7 +205,8 @@ describe("cursor events", () => {
   it("keyup debounces panel update and updates _cursorOffset", () => {
     const editor = document.getElementById("writing-editor")
     editor.selectionStart = 7
-    // happy-dom fires select when selectionStart changes, which updates the panel immediately
+    editor.focus()
+    document.dispatchEvent(new Event("selectionchange"))
     expect(writingView._cursorOffset).toBe(7)
     expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene A")
 

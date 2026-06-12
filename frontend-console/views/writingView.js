@@ -30,6 +30,7 @@ const writingView = {
   _scenes: [],
   _currentSceneId: null,
   _cursorOffset: 0,
+  _boundSelectionChange: null,
   _cursorDebounceTimer: null,
   _autoSaveTimer: null,
   _autoSaving: false,
@@ -1448,17 +1449,19 @@ const writingView = {
         this._scheduleAutoSave()
       }
       editorEl.onclick = null
-      editorEl.onselect = null
       editorEl.onkeyup = null
+      document.removeEventListener("selectionchange", this._boundSelectionChange)
       const updateCursorScene = () => {
+        if (document.activeElement !== editorEl) return
         this._cursorOffset = editorEl.selectionStart || 0
         this._updateCurrentScene()
         this._clearCursorDebounceTimer()
         const panelEl = document.getElementById("writing-panel-container")
         if (panelEl) panelEl.innerHTML = this._renderScenePanel()
       }
+      this._boundSelectionChange = updateCursorScene
       editorEl.onclick = updateCursorScene
-      editorEl.onselect = updateCursorScene
+      document.addEventListener("selectionchange", updateCursorScene)
       editorEl.onkeyup = () => {
         this._clearCursorDebounceTimer()
         this._cursorDebounceTimer = setTimeout(updateCursorScene, 150)
