@@ -48,13 +48,20 @@ async def test_upload_txt_success(
     assert data["imported_chapters"] == 2
     assert data["status"] == "done"
 
-    # 验证 writing_drafts 已创建
+    # 验证 writing_drafts 已创建，且状态为 draft
     chapters_resp = await async_client.get(
         f"/api/writing/chapters?novel_id={novel_id}"
     )
     assert chapters_resp.status_code == 200
     chapter_indices = chapters_resp.json()["chapter_indices"]
     assert sorted(chapter_indices) == [1, 2]
+
+    draft_resp = await async_client.get(
+        f"/api/writing/chapters/1/draft?novel_id={novel_id}"
+    )
+    assert draft_resp.status_code == 200
+    assert draft_resp.json()["status"] == "draft"
+    assert draft_resp.json()["version_number"] == 1
 
 
 @pytest.mark.asyncio
@@ -141,8 +148,7 @@ async def test_upload_non_utf8_txt_success(
     async_client: AsyncClient,
     sample_project: dict,
 ) -> None:
-    """非 UTF-8 编码的 txt 通过替换错误字符成功导入，不崩溃"""
-    # GBK 编码的中文字节，会被 chardet 检测到并解码
+    """GBK 等常见中文编码的 txt 被正确检测并导入"""
     content = "第一章\n这是第一章内容\n".encode("gbk")
     resp = await async_client.post(
         "/api/imports/upload",
@@ -153,6 +159,34 @@ async def test_upload_non_utf8_txt_success(
     data = resp.json()
     assert data["status"] == "done"
     assert data["imported_chapters"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_upload_truncated_utf8_records_failed(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """截断的 UTF-8 序列触发编码失败，记录 failed 且不创建章节"""
+    novel_id = sample_project["id"]
+    content = b"\xef\xbb\xbf" + "第一章".encode() + b"\xe4\xb8"
+    resp = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": novel_id},
+        files={"file": ("bad.txt", content, "text/plain")},
+    )
+    assert resp.status_code == 422
+    assert "编码" in resp.json()["detail"]
+
+    chapters_resp = await async_client.get(
+        f"/api/writing/chapters?novel_id={novel_id}"
+    )
+    assert chapters_resp.json()["chapter_indices"] == []
+
+    list_resp = await async_client.get(f"/api/imports?novel_id={novel_id}")
+    items = list_resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["status"] == "failed"
+    assert "编码" in items[0]["error_message"]
 
 
 @pytest.mark.asyncio

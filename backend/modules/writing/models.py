@@ -7,7 +7,7 @@ Writing ORM 模型
 
 from __future__ import annotations
 
-from sqlalchemy import Integer, Text, UniqueConstraint
+from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
@@ -48,6 +48,12 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=False,
         default=1,
         comment="版本号（从 1 递增）",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="draft",
+        comment="状态：draft / candidate / canonical / deprecated",
     )
 
     def __repr__(self) -> str:

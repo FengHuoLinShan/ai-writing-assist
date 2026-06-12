@@ -74,6 +74,7 @@ class WritingDraftResponse(BaseModel):
     title: str | None = None
     content: str | None = None
     version_number: int = 1
+    status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

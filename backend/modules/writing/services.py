@@ -224,6 +224,7 @@ class WritingDraftService:
             title=draft.title,  # type: ignore[union-attr]
             content=draft.content,  # type: ignore[union-attr]
             version_number=draft.version_number,  # type: ignore[union-attr]
+            status=draft.status,  # type: ignore[union-attr]
         )
 
     async def list_chapter_indices(

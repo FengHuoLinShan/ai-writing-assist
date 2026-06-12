@@ -92,7 +92,7 @@ class TestParseTxt:
 
     def test_whitespace_only_content(self):
         """纯空白内容不产生有效章节"""
-        chapters = parse_txt(" \n\t \n".encode())
+        chapters = parse_txt(b" \n\t \n")
         assert chapters == []
 
     def test_parse_file_unified(self, sample_txt_content: bytes):
@@ -145,13 +145,19 @@ class TestFileLimits:
         assert len(chapters) >= 1
 
     def test_non_utf8_content(self):
-        """非 UTF-8 编码的文本应以 UTF-8 解码（忽略错误）"""
-        # 构造含非法 UTF-8 字节序列的内容
-        raw = b"\xff\xfe\x00\xe4\xbd\xa0\xe5\xa5\xbd\n\xe4\xb8\x96\xe7\x95\x8c"
+        """GBK 等常见中文编码的文本应被正确检测并解码"""
+        raw = "第一章\n这是第一章的内容\n".encode("gbk")
         chapters = parse_txt(raw)
-        # 不应抛出异常
         assert len(chapters) >= 1
         assert isinstance(chapters[0]["content"], str)
+        assert "第一章" in chapters[0]["title"]
+
+    def test_unrecoverable_encoding_records_failed(self):
+        """无法正确解码的文本应视为编码失败"""
+        # chardet 识别为 UTF-8-SIG，但末尾是截断的多字节序列
+        raw = b"\xef\xbb\xbf" + "第一章".encode() + b"\xe4\xb8"
+        with pytest.raises(ValueError, match="编码"):
+            parse_txt(raw)
 
 
 # ============================================================

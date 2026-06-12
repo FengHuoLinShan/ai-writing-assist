@@ -10,7 +10,6 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 
 - 手写正文草稿的存储与管理
 - 正文版本控制（version_number 递增）
-- 章节卡关联（通过 chapter_card_id）
 - 按章节索引获取最新草稿
 - 版本历史查看
 - 创建草稿后提交 `publish_chapter` 异步索引任务
@@ -32,7 +31,6 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 | id | UUID | 主键 |
 | novel_id | UUID FK | 所属小说项目 |
 | chapter_index | INT | 章节索引 |
-| chapter_card_id | UUID nullable | 关联的章节卡 |
 | title | TEXT nullable | 草稿标题 |
 | content | TEXT nullable | 草稿正文 |
 | version_number | INT | 版本号（从 1 递增） |
@@ -48,7 +46,6 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 class WritingDraftContract:
     novel_id: str
     chapter_index: int
-    chapter_card_id: str | None
     title: str | None
     content: str | None
     version_number: int

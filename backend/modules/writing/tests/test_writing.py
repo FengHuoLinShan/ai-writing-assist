@@ -82,6 +82,7 @@ class TestWritingDraftRepository:
         assert draft.title == "第一章：开端"
         assert draft.content == "这是一个测试正文的段落。"
         assert draft.version_number == 1
+        assert draft.status == "draft"
 
     @pytest.mark.asyncio
     async def test_create_auto_increment_version(
