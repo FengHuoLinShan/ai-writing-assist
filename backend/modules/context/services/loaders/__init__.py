@@ -7,6 +7,7 @@ from modules.context.services.loaders.outline_arc_loader import OutlineArcLoader
 from modules.context.services.loaders.plot_threads_loader import PlotThreadsLoader
 from modules.context.services.loaders.project_loader import ProjectLoader
 from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
+from modules.context.services.loaders.scene_loader import SceneLoader
 from modules.context.services.loaders.world_entities_loader import WorldEntitiesLoader
 
 _AVAILABLE_LOADERS: dict[str, bool] = {
@@ -18,6 +19,7 @@ _AVAILABLE_LOADERS: dict[str, bool] = {
     "rag_chunks": True,
     "plot_threads": True,
     "outline_arc": True,
+    "scene": True,
 }
 
 
@@ -34,5 +36,6 @@ __all__ = [
     "EventsLoader",
     "RagChunksLoader",
     "MemoryRecordsLoader",
+    "SceneLoader",
     "is_loader_available",
 ]

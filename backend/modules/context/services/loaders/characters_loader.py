@@ -31,7 +31,7 @@ class CharactersLoader(Loader):
         if options.character_ids:
             limited_ids = options.character_ids[:char_limit]
         else:
-            limited_ids = await self._infer_character_ids(db, options, char_limit)
+            limited_ids = await self._infer_character_ids(db, options, bundle, char_limit)
 
         if limited_ids:
             from modules.world.facade import get_characters_context
@@ -114,7 +114,28 @@ class CharactersLoader(Loader):
         self,
         db: AsyncSession,
         options: CompileOptions,
+        bundle: StructureContextBundle,
         limit: int,
     ) -> list[str]:
-        """推断相关人物 ID — outline 模块已移除，暂时返回空"""
-        return []
+        ids: list[str] = []
+
+        # 1. Scene POV character
+        if options.scene_id:
+            from modules.outline.facade import get_scene
+
+            scene = await get_scene(db, options.scene_id)
+            pov = scene.get("pov_character_id") if scene else None
+            if pov:
+                ids.append(pov)
+
+        # 2. World entities of type character
+        if not ids and bundle.world_entities:
+            for ent in bundle.world_entities:
+                if ent.get("entity_type") == "character":
+                    eid = ent.get("entity_id") or ent.get("id")
+                    if eid and eid not in ids:
+                        ids.append(eid)
+                if len(ids) >= limit:
+                    break
+
+        return ids[:limit]

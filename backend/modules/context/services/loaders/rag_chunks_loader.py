@@ -27,7 +27,7 @@ class RagChunksLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        rag_limit = CONTEXT_BUDGET.get("rag_chunks", 8)
+        rag_limit = options.top_k or CONTEXT_BUDGET.get("rag_chunks", 8)
 
         rag_visibility: str | None = None
         if options.reveal_mode == "reader":
@@ -47,9 +47,10 @@ class RagChunksLoader(Loader):
             reference_chapter_index=options.chapter_index,
         )
         if result and result.chunks:
+            capped = result.chunks[:rag_limit]
             bundle.rag_chunks = [
                 c.model_dump() if hasattr(c, "model_dump") else asdict(c)
-                for c in result.chunks
+                for c in capped
             ]
 
         bundle.budget_used["rag_chunks"] = len(bundle.rag_chunks)

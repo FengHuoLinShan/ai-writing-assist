@@ -24,6 +24,7 @@ from modules.context.services.loaders import (
     PlotThreadsLoader,
     ProjectLoader,
     RagChunksLoader,
+    SceneLoader,
     WorldEntitiesLoader,
 )
 from modules.context.services.protocol import Loader
@@ -36,6 +37,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "world": ["project", "world_entities"],
     "world_character": ["project", "world_entities", "characters"],
     "arc": [
+        "scene",
         "project",
         "world_entities",
         "characters",
@@ -46,6 +48,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "outline_arc",
     ],
     "chapter": [
+        "scene",
         "project",
         "world_entities",
         "characters",
@@ -56,6 +59,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "outline_arc",
     ],
     "full": [
+        "scene",
         "project",
         "world_entities",
         "characters",
@@ -85,6 +89,9 @@ class ContextCompiler:
 
     @staticmethod
     def _default_loaders() -> list[Loader]:
+        # _default_loaders() only registers the available loaders.
+        # Actual execution order is determined by SCOPE_LOADERS and the
+        # prerequisite/dependent phase split inside compile().
         return [
             ProjectLoader(),
             WorldEntitiesLoader(),
@@ -94,6 +101,7 @@ class ContextCompiler:
             RagChunksLoader(),
             PlotThreadsLoader(),
             OutlineArcLoader(),
+            SceneLoader(),
         ]
 
     async def compile(
