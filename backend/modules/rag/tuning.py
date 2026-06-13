@@ -175,9 +175,9 @@ async def evaluate_weights(
 ) -> EvalResult:
     """用给定权重评估检索质量。"""
     from infrastructure.llm.client import LLMClient
-    from modules.rag.services import RetrievalService
+    from modules.rag.retrieval import RetrievalOrchestrator
 
-    retrieval = RetrievalService()
+    retrieval = RetrievalOrchestrator()
     mrr_sum = 0.0
     ndcg5_sum = 0.0
     ndcg10_sum = 0.0

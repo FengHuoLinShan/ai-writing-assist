@@ -437,13 +437,12 @@ class TestRealEmbedding:
                 assert e1 == e2, f"第{i}条文本的 embedding 两次不一致"
 
             # 计算相似度矩阵
-            from modules.rag.services import RetrievalService
+            from modules.rag.scoring import cosine_similarity
 
-            svc = RetrievalService()
             sims = []
             for i in range(len(texts)):
                 for j in range(i + 1, len(texts)):
-                    sim = svc._cosine_similarity(embeddings[i], embeddings[j])
+                    sim = cosine_similarity(embeddings[i], embeddings[j])
                     sims.append((i, j, round(sim, 4)))
 
             print("\n文本相似度矩阵:")

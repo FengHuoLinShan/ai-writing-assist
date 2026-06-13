@@ -40,7 +40,7 @@ _CONTAINER_GET_PATCHES = [
         side_effect=_mock_container_get,
     ),
     mock.patch(
-        "modules.rag.services._container_get",
+        "modules.rag.query_expansion._container_get",
         side_effect=_mock_container_get,
     ),
 ]

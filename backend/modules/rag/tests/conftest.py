@@ -43,3 +43,16 @@ async def db_with_project(
     db_session.add(project)
     await db_session.flush()
     yield db_session
+
+
+@pytest.fixture(autouse=True)
+def _mock_llm_embedding():
+    """默认 mock LLM embedding，避免测试调用真实网络服务。"""
+    from unittest.mock import AsyncMock, patch
+
+    with patch(
+        "infrastructure.llm.client.LLMClient.generate_embedding",
+        new_callable=AsyncMock,
+    ) as mock:
+        mock.return_value = [0.1] * 768
+        yield mock

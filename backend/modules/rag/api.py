@@ -16,6 +16,7 @@ from modules.rag.facade import (
     get_metrics_status,
     list_chunks,
     retrieve,
+    split_text_into_chunks,
 )
 from modules.rag.schemas import (
     RagChunkCreate,
@@ -23,11 +24,9 @@ from modules.rag.schemas import (
     RagQuery,
     RagResult,
 )
-from modules.rag.services import ChunkingService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/rag", tags=["rag"])
-_chunking = ChunkingService()
 
 
 @router.post("/chunks", response_model=RagChunkResponse, status_code=201)
@@ -142,14 +141,12 @@ async def split_text(
     overlap: int = Query(default=100, ge=0, description="重叠字符数"),
 ) -> dict:
     """分割文本为 RAG 片段（工具接口，不写入数据库）"""
-    chunks: list[str] = []
-
-    if method == "paragraph":
-        chunks = _chunking.split_by_paragraphs(text)
-    elif method == "length":
-        chunks = _chunking.split_by_length(text, chunk_size=chunk_size, overlap=overlap)
-    else:
-        chunks = [text]
+    chunks = await split_text_into_chunks(
+        text,
+        method=method,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
 
     return {
         "chunks": chunks,

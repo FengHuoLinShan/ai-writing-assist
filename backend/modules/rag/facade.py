@@ -2,7 +2,7 @@
 RAG Facade — 对外入口
 
 其他模块只能从 facade 导入。
-Facade 不写复杂业务逻辑，只做稳定的对外代理。
+Facade 不写复杂业务逻辑，只做稳定的对外代理与模块组装。
 """
 
 from __future__ import annotations
@@ -11,16 +11,25 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.rag.chunking import ChunkingService
 from modules.rag.contracts import RagChunkContract, RagIndexReport, RagResultBundle
+from modules.rag.indexing import IndexingService
 from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
+from modules.rag.query_expansion import QueryExpander
 from modules.rag.repositories import RagChunkRepository
+from modules.rag.retrieval import RetrievalOrchestrator
 from modules.rag.schemas import RagChunkCreate, RagChunkResponse
-from modules.rag.services import ChunkingService, IndexingService, RetrievalService
 
 _repo = RagChunkRepository()
 _chunking = ChunkingService()
-_retrieval = RetrievalService()
-_indexing = IndexingService()
+_query_expander = QueryExpander()
+
+
+_retrieval = RetrievalOrchestrator(
+    repo=_repo,
+    query_expander=_query_expander,
+)
+_indexing = IndexingService(repo=_repo, chunking=_chunking)
 
 
 async def create_chunk(
@@ -101,9 +110,6 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     }
 
 
-# _to_chunk_contract 实现已移至 modules.rag.mappers
-
-
 async def get_ordered_chapter_chunks(
     db: AsyncSession,
     novel_id: str,
@@ -135,7 +141,7 @@ async def retrieve(
     top_k: int = 12,
     reference_chapter_index: int | None = None,
 ) -> RagResultBundle:
-    """混合检索 RAG 片段 — 委托给 RetrievalService
+    """混合检索 RAG 片段 — 委托给 RetrievalOrchestrator
 
     Args:
         db: 数据库 session

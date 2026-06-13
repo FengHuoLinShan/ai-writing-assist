@@ -79,13 +79,24 @@ POST /api/rag/chunks/split               — 文本分割工具
 
 `retrieve` 响应包含 `warnings` 与 `degraded`；`chunks` 列表响应额外包含 `embedding_failed_count`。
 
-## 服务
+## 模块职责
 
-| 服务 | 职责 |
+| 文件 | 职责 |
 |------|------|
-| `ChunkingService` | 文本分块（按段落 / 按长度） |
-| `RetrievalService` | 混合检索与评分 |
-| `IndexingService` | `cn-novel-v1` 章节索引与 embedding 诊断 |
+| `chunking.py` | 文本分块：`ChunkingService`、中文小说分块、段落/长度分块 |
+| `scoring.py` | 纯评分函数与 `Scorer`：关键词、关系、向量、重要性、时序衰减、动态权重 |
+| `query_expansion.py` | 项目词典加载与查询扩展：`QueryExpander`（可注入 term_loader） |
+| `retrieval.py` | 检索编排：`RetrievalOrchestrator` 组装 embedding → 扩展 → 召回 → 评分 → 去重 → 重排序 |
+| `indexing.py` | 章节索引：`IndexingService` 把草稿分块、标注入库、生成 embedding |
+| `facade.py` | 对外稳定入口，组装上述模块并代理公共方法 |
+| `api.py` | FastAPI 路由，所有端点通过 facade 委托 |
+
+## 依赖注入约定
+
+- `RetrievalOrchestrator` 构造函数可注入 `repo / scorer / query_expander / reranker_fn / embedder_fn / metrics / circuit_breaker`，默认使用仓库/评分器/容器单例。
+- `IndexingService` 构造函数可注入 `repo` 与 `chunking`。
+- `QueryExpander` 构造函数可注入 `term_loader`。
+- 不引入抽象端口/protocol（ADR-0002），使用普通类与函数/构造函数注入。
 
 ## 测试
 
@@ -98,6 +109,7 @@ pytest modules/rag/tests/ -v
 
 - `core.database` — 数据库 session
 - `core.base` — ORM base class
+- `core.container` — 轻量 DI 容器
 - `shared.constants` — 评分权重常量
 - `shared.enums` — Visibility 枚举
 
