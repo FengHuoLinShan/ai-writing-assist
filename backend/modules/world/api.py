@@ -43,6 +43,8 @@ from modules.world.schemas import (
 from modules.world.services import (
     CharacterKnowledgeService,
     CharacterService,
+    EntityAliasService,
+    EntityContextService,
     EntityRelationService,
     EntityRevisionService,
     EventService,
@@ -54,6 +56,8 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 router = APIRouter(prefix="/api/world", tags=["world"])
 
 _entity_service = WorldEntityService()
+_alias_service = EntityAliasService()
+_context_service = EntityContextService()
 _relation_service = EntityRelationService()
 _dedup_service = EntityDedupService()
 _revision_service = EntityRevisionService()
@@ -522,7 +526,7 @@ async def list_entity_batches(
     每次 LLM 抽取生成一个 batch_id，同一批次的实体归为一组。
     按入库时间倒序排列。
     """
-    return await _entity_service.list_entity_batches(
+    return await _context_service.list_entity_batches(
         db,
         novel_id,
         limit=limit,
@@ -542,7 +546,7 @@ async def list_aliases(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[dict]:
     """列出项目下所有实体的别名"""
-    return await _entity_service.list_aliases(
+    return await _alias_service.list_aliases(
         db,
         novel_id,
         skip=skip,
@@ -557,7 +561,7 @@ async def create_alias(
     data: EntityAliasCreate = ...,
 ) -> dict:
     """为实体添加别名"""
-    return await _entity_service.create_alias(
+    return await _alias_service.create_alias(
         db,
         novel_id,
         data.entity_id,
@@ -574,7 +578,7 @@ async def delete_alias(
     alias: str = Query(..., description="要删除的别名文本"),
 ) -> dict:
     """删除实体的指定别名"""
-    return await _entity_service.delete_alias(
+    return await _alias_service.delete_alias(
         db,
         novel_id,
         entity_id,
