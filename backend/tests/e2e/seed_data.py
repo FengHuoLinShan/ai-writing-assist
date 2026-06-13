@@ -12,6 +12,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# 确保 EntityRelation 等模型的外键表被注册到 SQLAlchemy metadata
+import modules.imports.models  # noqa: F401
+
 # ---- 项目 ---------------------------------------------------------------
 
 LOTM_PROJECT_DATA = {
@@ -170,6 +173,168 @@ async def create_world_entities(
     return {"entity_ids": result}
 
 
+# ---- Scene 卡 -----------------------------------------------------------
+
+SCENE_DATA = [
+    {
+        "scene_index": 0,
+        "title": "第一章： valueless 的占卜",
+        "goal": "引入克莱恩的日常生活与廷根市值夜者",
+        "must_not_happen": "克莱恩不得在本幕知晓源堡真相",
+        "pov_character_name": "克莱恩·莫雷蒂",
+    },
+    {
+        "scene_index": 1,
+        "title": "第二章：黑荆棘安保公司",
+        "goal": "克莱恩加入值夜者，接触非凡世界",
+    },
+    {
+        "scene_index": 2,
+        "title": "第三章：序列途径",
+        "goal": "克莱恩了解占卜家序列，埋下成长伏笔",
+    },
+]
+
+
+async def create_scenes(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    entity_ids: dict[str, str],
+) -> dict[str, Any]:
+    """创建 3 个 Scene 卡（第 1-3 章），返回 scene_index → ID 的字典。"""
+    from modules.outline.models import Scene
+
+    result: list[str] = []
+    for data in SCENE_DATA:
+        scene = Scene(
+            id=uuid.uuid4(),
+            novel_id=project_id,
+            scene_index=data["scene_index"],
+            title=data.get("title"),
+            goal=data.get("goal"),
+            must_not_happen=data.get("must_not_happen"),
+            pov_character_id=entity_ids.get(data["pov_character_name"])
+            if data.get("pov_character_name")
+            else None,
+            narrative_tag="draft",
+            source="manual",
+            status="canonical",
+        )
+        session.add(scene)
+        result.append(str(scene.id))
+
+    await session.flush()
+    return {"scene_ids": result}
+
+
+# ---- 人物知识边界 -------------------------------------------------------
+
+CHARACTER_KNOWLEDGE_DATA = [
+    {
+        "character_name": "克莱恩·莫雷蒂",
+        "target_name": "源堡",
+        "target_type": "entity",
+        "knowledge_level": "unknown",
+    },
+    {
+        "character_name": "克莱恩·莫雷蒂",
+        "target_name": "罗塞尔日记",
+        "target_type": "entity",
+        "knowledge_level": "restricted",
+        "known_content": "罗塞尔大帝留下的神秘日记，文字古怪",
+    },
+    {
+        "character_name": "克莱恩·莫雷蒂",
+        "target_name": "秘修会",
+        "target_type": "entity",
+        "knowledge_level": "misunderstood",
+        "misconception": "秘修会是一个普通的考古学会",
+    },
+]
+
+
+async def create_character_knowledge(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    entity_ids: dict[str, str],
+) -> dict[str, Any]:
+    """创建克莱恩的人物档案与知识边界记录。"""
+    from modules.world.models import Character, CharacterKnowledge
+
+    klein_entity_id = uuid.UUID(entity_ids["克莱恩·莫雷蒂"])
+    character = Character(
+        entity_id=klein_entity_id,
+        novel_id=project_id,
+        name="克莱恩·莫雷蒂",
+        role="protagonist",
+    )
+    session.add(character)
+    await session.flush()
+
+    for data in CHARACTER_KNOWLEDGE_DATA:
+        knowledge = CharacterKnowledge(
+            id=uuid.uuid4(),
+            novel_id=project_id,
+            character_id=klein_entity_id,
+            target_type=data["target_type"],
+            target_id=uuid.UUID(entity_ids[data["target_name"]]),
+            knowledge_level=data["knowledge_level"],
+            known_content=data.get("known_content"),
+            misconception=data.get("misconception"),
+            status="canonical",
+        )
+        session.add(knowledge)
+
+    await session.flush()
+    return {"character_id": str(klein_entity_id)}
+
+
+# ---- 伏笔计划 -----------------------------------------------------------
+
+FORESHADOWING_PLAN_DATA = [
+    {
+        "name": "源堡伏笔",
+        "surface_meaning": "灰雾之上的神秘空间",
+        "planned_seed_chapter": 1,
+        "planned_payoff_scene": 5,
+        "status": "seeded",
+    },
+    {
+        "name": "罗塞尔日记伏笔",
+        "surface_meaning": "大帝留下的神秘日记",
+        "planned_seed_chapter": 1,
+        "planned_payoff_scene": 3,
+        "status": "seeded",
+    },
+]
+
+
+async def create_foreshadowing_plans(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    entity_ids: dict[str, str],
+) -> dict[str, Any]:
+    """创建 2 条 ForeshadowingPlan 记录。"""
+    from modules.outline.models import ForeshadowingPlan
+
+    result: list[str] = []
+    for data in FORESHADOWING_PLAN_DATA:
+        plan = ForeshadowingPlan(
+            id=uuid.uuid4(),
+            novel_id=project_id,
+            name=data["name"],
+            surface_meaning=data["surface_meaning"],
+            planned_seed_chapter=data["planned_seed_chapter"],
+            planned_payoff_scene=data["planned_payoff_scene"],
+            status=data["status"],
+        )
+        session.add(plan)
+        result.append(str(plan.id))
+
+    await session.flush()
+    return {"foreshadowing_plan_ids": result}
+
+
 # ---- 关系 ---------------------------------------------------------------
 
 RELATIONSHIP_DATA = [
@@ -235,7 +400,18 @@ async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
 
 async def create_full_scene(session: AsyncSession) -> dict[str, Any]:
     """
-    创建全场景数据：同 base scene。
-    outline 模块已移除，不再创建剧情线/篇章纲/章节卡。
+    创建全场景数据：项目 + 世界对象 + 关系 + Scene 卡 + 人物知识 + 伏笔计划。
     """
-    return await create_base_scene(session)
+    result = await create_base_scene(session)
+    pid = result["project_uuid"]
+    eids = result["entity_ids"]
+
+    scenes = await create_scenes(session, pid, eids)
+    await create_character_knowledge(session, pid, eids)
+    await create_foreshadowing_plans(session, pid, eids)
+    await session.flush()
+
+    return {
+        **result,
+        **scenes,
+    }
