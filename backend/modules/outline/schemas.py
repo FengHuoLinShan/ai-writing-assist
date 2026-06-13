@@ -259,10 +259,12 @@ class PlotStructureGenerateResponse(BaseModel):
 
     total_threads: int = 0
     total_arcs: int = 0
+    total_scenes: int = 0
     existing_threads_count: int = 0
     existing_arcs_count: int = 0
     threads: list[dict] = []
     arcs: list[dict] = []
+    scenes: list[dict] = []
     extra_sections: dict = {}
     warnings: list[str] = []
 

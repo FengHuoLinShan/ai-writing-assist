@@ -517,6 +517,7 @@ def _per_item_validate[P: BaseModel](
         "offscreen_progress",
         "risks",
         "questions_for_user",
+        "scenes",
     )
     for section_key in section_keys:
         items = data.get(section_key, [])
@@ -725,9 +726,22 @@ class PlotStructureGenerator:
             context: str | None = None
             suggested_options: list[str] = []
 
+        class _GeneratedScene(BaseModel):
+            title: str
+            goal: str | None = None
+            core_conflict: str | None = None
+            emotional_beat: str | None = None
+            must_happen: str | None = None
+            must_not_happen: str | None = None
+            narrative_tag: str | None = None
+            chapter_start: int | None = None
+            chapter_end: int | None = None
+            scene_chunks: list[dict] = []
+
         class _GenerationOutput(BaseModel):
             plot_threads: list[_GeneratedThread] = []
             outline_arcs: list[_GeneratedArc] = []
+            scenes: list[_GeneratedScene] = []
             foreshadowing_plans: list[_ForeshadowingPlan] = []
             reveal_plans: list[_RevealPlan] = []
             offscreen_progress: list[_OffscreenProgress] = []
@@ -745,6 +759,12 @@ class PlotStructureGenerator:
                     "role": "user",
                     "content": (
                         f"请为章节 {start_chapter}-{end_chapter} 生成剧情结构和篇章大纲。"
+                        f"\n\n请同时提取本章范围内的 Scene 卡。"
+                        f"每个 Scene 卡包含 title/goal/core_conflict/"
+                        f"emotional_beat/must_happen/must_not_happen/"
+                        f"narrative_tag，"
+                        f"并标注每个 scene_chunk 对应的 chapter_index、"
+                        f"start_pos、end_pos。"
                         f"\n\n当前上下文：\n{context_md}"
                     ),
                 },
@@ -781,6 +801,7 @@ class PlotStructureGenerator:
                         "offscreen_progress": _OffscreenProgress,
                         "risks": _Risk,
                         "questions_for_user": _Question,
+                        "scenes": _GeneratedScene,
                     }
                     parsed = _per_item_validate(
                         raw_data,
@@ -805,6 +826,7 @@ class PlotStructureGenerator:
             has_content = (
                 parsed.plot_threads
                 or parsed.outline_arcs
+                or parsed.scenes
                 or parsed.foreshadowing_plans
                 or parsed.reveal_plans
                 or parsed.offscreen_progress
@@ -828,10 +850,12 @@ class PlotStructureGenerator:
             return {
                 "total_threads": 0,
                 "total_arcs": 0,
+                "total_scenes": 0,
                 "existing_threads_count": 0,
                 "existing_arcs_count": 0,
                 "threads": [],
                 "arcs": [],
+                "scenes": [],
                 "extra_sections": {},
                 "warnings": ["LLM 多次返回空结果，请重试"],
             }
@@ -841,10 +865,12 @@ class PlotStructureGenerator:
             return {
                 "total_threads": 0,
                 "total_arcs": 0,
+                "total_scenes": 0,
                 "existing_threads_count": 0,
                 "existing_arcs_count": 0,
                 "threads": [],
                 "arcs": [],
+                "scenes": [],
                 "extra_sections": {},
                 "warnings": ["LLM 生成结果为空，请重试"],
             }
@@ -1051,15 +1077,71 @@ class PlotStructureGenerator:
         await db.flush()
 
         # ============================================================
-        # 10. 构建返回（含 extra_sections, warnings）
+        # 10. 持久化 Scene 卡
+        # ============================================================
+        existing_scenes = await SceneRepository().get_by_novel_ordered(db, nid)
+        next_scene_index = max(
+            [s.scene_index for s in existing_scenes],
+            default=-1,
+        ) + 1
+
+        created_scenes: list[dict] = []
+        for s in result.scenes:
+            if not s.title:
+                continue
+
+            cs = s.chapter_start if s.chapter_start is not None else start_chapter
+            ce = s.chapter_end if s.chapter_end is not None else end_chapter
+            chapter_ids = [str(i) for i in range(cs, ce + 1)]
+
+            chunks = s.scene_chunks
+            if not chunks:
+                chunks = [
+                    {"chapter_index": i, "start_pos": 0, "end_pos": 0}
+                    for i in range(cs, ce + 1)
+                ]
+
+            scene_data = SceneCreate(
+                scene_index=next_scene_index,
+                title=s.title,
+                goal=s.goal,
+                core_conflict=s.core_conflict,
+                emotional_beat=s.emotional_beat,
+                must_happen=s.must_happen,
+                must_not_happen=s.must_not_happen,
+                narrative_tag=s.narrative_tag or "draft",
+                source="ai",
+                scene_chunks=chunks,
+                chapter_ids=chapter_ids,
+                status="draft",
+            )
+            try:
+                scene = await SceneRepository().create(db, nid, scene_data)
+                created_scenes.append(
+                    {
+                        "id": str(scene.id),
+                        "title": scene.title,
+                        "scene_index": scene.scene_index,
+                    }
+                )
+                next_scene_index += 1
+            except Exception as exc:
+                logger.warning("Failed to create scene '%s': %s", s.title, exc)
+
+        await db.flush()
+
+        # ============================================================
+        # 11. 构建返回（含 extra_sections, warnings, scenes）
         # ============================================================
         return {
             "total_threads": len(created_threads),
             "total_arcs": len(created_arcs),
+            "total_scenes": len(created_scenes),
             "existing_threads_count": existing_threads_count,
             "existing_arcs_count": existing_arcs_count,
             "threads": created_threads,
             "arcs": created_arcs,
+            "scenes": created_scenes,
             "extra_sections": {
                 "foreshadowing_plans": created_foreshadowing,
                 "reveal_plans": created_reveals,

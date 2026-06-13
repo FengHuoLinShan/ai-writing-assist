@@ -97,9 +97,22 @@ def _mock_llm_return_value() -> BaseModel:
         context: str | None = None
         suggested_options: list[str] = []
 
+    class _GS(BaseModel):
+        title: str
+        goal: str | None = None
+        core_conflict: str | None = None
+        emotional_beat: str | None = None
+        must_happen: str | None = None
+        must_not_happen: str | None = None
+        narrative_tag: str | None = None
+        chapter_start: int | None = None
+        chapter_end: int | None = None
+        scene_chunks: list[dict] = []
+
     class _GO(BaseModel):
         plot_threads: list[_GT] = []
         outline_arcs: list[_GA] = []
+        scenes: list[_GS] = []
         foreshadowing_plans: list[_FP] = []
         reveal_plans: list[_RP] = []
         offscreen_progress: list[_OP] = []

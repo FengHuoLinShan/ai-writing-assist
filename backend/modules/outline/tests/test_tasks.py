@@ -7,7 +7,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import StructureContextBundle
-from modules.outline.repositories import OutlineArcRepository, PlotThreadRepository
+from modules.outline.repositories import (
+    OutlineArcRepository,
+    PlotThreadRepository,
+    SceneRepository,
+)
 from modules.outline.services import PlotStructureGenerator
 
 
@@ -115,9 +119,22 @@ class TestPlotStructureGenerator:
                 context: str | None = None
                 suggested_options: list[str] = []
 
+            class _GS(BaseModel):
+                title: str
+                goal: str | None = None
+                core_conflict: str | None = None
+                emotional_beat: str | None = None
+                must_happen: str | None = None
+                must_not_happen: str | None = None
+                narrative_tag: str | None = None
+                chapter_start: int | None = None
+                chapter_end: int | None = None
+                scene_chunks: list[dict] = []
+
             class _GO(BaseModel):
                 plot_threads: list[_GT] = []
                 outline_arcs: list[_GA] = []
+                scenes: list[_GS] = []
                 foreshadowing_plans: list[_FP] = []
                 reveal_plans: list[_RP] = []
                 offscreen_progress: list[_OP] = []
@@ -171,6 +188,8 @@ class TestPlotStructureGenerator:
 
         assert result["total_threads"] == 2
         assert result["total_arcs"] == 2
+        assert result["total_scenes"] == 0
+        assert "scenes" in result
         assert "extra_sections" in result
         assert isinstance(result["extra_sections"], dict)
 
@@ -272,9 +291,22 @@ class TestPlotStructureGenerator:
                 context: str | None = None
                 suggested_options: list[str] = []
 
+            class _GS(BaseModel):
+                title: str
+                goal: str | None = None
+                core_conflict: str | None = None
+                emotional_beat: str | None = None
+                must_happen: str | None = None
+                must_not_happen: str | None = None
+                narrative_tag: str | None = None
+                chapter_start: int | None = None
+                chapter_end: int | None = None
+                scene_chunks: list[dict] = []
+
             class _GO(BaseModel):
                 plot_threads: list[_GT] = []
                 outline_arcs: list[_GA] = []
+                scenes: list[_GS] = []
                 foreshadowing_plans: list[_FP] = []
                 reveal_plans: list[_RP] = []
                 offscreen_progress: list[_OP] = []
@@ -293,7 +325,158 @@ class TestPlotStructureGenerator:
 
         assert result["total_threads"] == 0
         assert result["total_arcs"] == 0
+        assert result["total_scenes"] == 0
+        assert "scenes" in result
         assert "extra_sections" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_creates_scenes(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """LLM 返回 Scene 数据时应创建 Scene 卡。"""
+        bundle = _make_bundle(sample_novel_id)
+        _mock_compile = mock.AsyncMock(return_value=bundle)
+
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+            mock.patch(
+                "modules.outline.services._container_get", return_value=_mock_compile
+            ),
+        ):
+            from pydantic import BaseModel
+
+            class _GT(BaseModel):
+                name: str
+                thread_type: str
+                summary: str | None = None
+                visible_goal: str | None = None
+                hidden_truth: str | None = None
+                start_chapter: int | None = None
+                planned_payoff_chapter: int | None = None
+                current_stage: str | None = None
+                related_character_names: list[str] = []
+                related_entity_names: list[str] = []
+
+            class _GA(BaseModel):
+                title: str
+                arc_index: int | None = None
+                start_chapter: int | None = None
+                end_chapter: int | None = None
+                arc_goal: str | None = None
+                core_conflict: str | None = None
+                main_opposition: str | None = None
+                entry_hook: str | None = None
+                midpoint_turn: str | None = None
+                climax: str | None = None
+                result: str | None = None
+                next_hook: str | None = None
+                related_character_names: list[str] = []
+                related_entity_names: list[str] = []
+                related_thread_names: list[str] = []
+
+            class _FP(BaseModel):
+                name: str = ""
+                summary: str | None = None
+                planned_seed_chapter: int | None = None
+                planned_payoff_chapter: int | None = None
+                status: str = "draft"
+
+            class _RP(BaseModel):
+                target_name: str = ""
+                target_type: str = "world_entity"
+                secret_summary: str | None = None
+                status: str = "draft"
+
+            class _OP(BaseModel):
+                thread_name: str = ""
+                offscreen_description: str | None = None
+                importance: str = "medium"
+
+            class _RK(BaseModel):
+                risk_type: str = "其他"
+                description: str | None = None
+                severity: str = "medium"
+
+            class _QN(BaseModel):
+                question: str = ""
+                context: str | None = None
+                suggested_options: list[str] = []
+
+            class _GS(BaseModel):
+                title: str
+                goal: str | None = None
+                core_conflict: str | None = None
+                emotional_beat: str | None = None
+                must_happen: str | None = None
+                must_not_happen: str | None = None
+                narrative_tag: str | None = None
+                chapter_start: int | None = None
+                chapter_end: int | None = None
+                scene_chunks: list[dict] = []
+
+            class _GO(BaseModel):
+                plot_threads: list[_GT] = []
+                outline_arcs: list[_GA] = []
+                scenes: list[_GS] = []
+                foreshadowing_plans: list[_FP] = []
+                reveal_plans: list[_RP] = []
+                offscreen_progress: list[_OP] = []
+                risks: list[_RK] = []
+                questions_for_user: list[_QN] = []
+
+            mock_llm.return_value = _GO(
+                scenes=[
+                    _GS(
+                        title="初入落星阁",
+                        goal="主角进入落星阁",
+                        core_conflict="主角与守阁人对峙",
+                        emotional_beat="紧张",
+                        must_happen="主角拿到令牌",
+                        narrative_tag="exposition",
+                        chapter_start=1,
+                        chapter_end=1,
+                        scene_chunks=[
+                            {"chapter_index": 1, "start_pos": 0, "end_pos": 100}
+                        ],
+                    ),
+                    _GS(
+                        title="霜华剑异动",
+                        goal="霜华剑出现异动",
+                        chapter_start=2,
+                        chapter_end=3,
+                    ),
+                ],
+            )
+
+            generator = PlotStructureGenerator()
+            result = await generator.generate(
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=3,
+            )
+
+        assert result["total_scenes"] == 2
+        assert len(result["scenes"]) == 2
+        assert result["scenes"][0]["title"] == "初入落星阁"
+        assert result["scenes"][0]["scene_index"] == 0
+        assert result["scenes"][1]["scene_index"] == 1
+
+        scenes, _ = await SceneRepository().get_by_novel(
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
+        )
+        assert len(scenes) == 2
+        titles = [s.title for s in scenes]
+        assert "初入落星阁" in titles
+        assert "霜华剑异动" in titles
 
     @pytest.mark.asyncio
     async def test_generate_llm_failure_graceful(

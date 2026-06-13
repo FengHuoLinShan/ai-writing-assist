@@ -22,9 +22,8 @@ import asyncio
 import logging
 import os
 import sys
-import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # 设置嵌入模型 provider，避免本地 onnx 模型加载
@@ -35,15 +34,15 @@ backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
 # app.main 导入时会注册 DI 容器服务
+from sqlalchemy import select  # noqa: E402
+
 import app.main  # noqa: F401, E402
-from core.base import Base  # noqa: E402
 from core.config import get_settings  # noqa: E402
 from core.container import reset as reset_container  # noqa: E402
 from core.database import get_manager  # noqa: E402
 from modules.outline.services import PlotStructureGenerator  # noqa: E402
 from modules.project.models import Project  # noqa: E402
 from modules.writing.models import WritingDraft  # noqa: E402
-from sqlalchemy import select  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,7 +50,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("acceptance_writing_extraction")
 
-SAMPLE_PATH = Path(__file__).resolve().parent.parent / "tests" / "e2e" / "samples" / "lotm_chapters_1_2_3.txt"
+SAMPLE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "tests"
+    / "e2e"
+    / "samples"
+    / "lotm_chapters_1_2_3.txt"
+)
 PROJECT_TITLE = "诡秘之主 第一部"
 START_CHAPTER = 1
 END_CHAPTER = 3
@@ -134,7 +139,12 @@ async def _ensure_drafts(db, novel_id: str) -> bool:
     result = await db.execute(stmt)
     drafts = result.scalars().all()
     valid = [d for d in drafts if d.content]
-    logger.info("项目已有第 %d-%d 章草稿: %d 条有效", START_CHAPTER, END_CHAPTER, len(valid))
+    logger.info(
+        "项目已有第 %d-%d 章草稿: %d 条有效",
+        START_CHAPTER,
+        END_CHAPTER,
+        len(valid),
+    )
     return len(valid) == END_CHAPTER - START_CHAPTER + 1
 
 
@@ -145,7 +155,11 @@ async def _run_generation(db, novel_id: str) -> dict:
 
     for attempt in range(MAX_RETRIES + 1):
         try:
-            logger.info("开始调用 PlotStructureGenerator (attempt %d/%d)", attempt + 1, MAX_RETRIES + 1)
+            logger.info(
+                "开始调用 PlotStructureGenerator (attempt %d/%d)",
+                attempt + 1,
+                MAX_RETRIES + 1,
+            )
             result = await generator.generate(
                 db,
                 novel_id=novel_id,
@@ -153,9 +167,10 @@ async def _run_generation(db, novel_id: str) -> dict:
                 end_chapter=END_CHAPTER,
             )
             logger.info(
-                "生成完成: %d threads, %d arcs",
+                "生成完成: %d threads, %d arcs, %d scenes",
                 result.get("total_threads", 0),
                 result.get("total_arcs", 0),
+                result.get("total_scenes", 0),
             )
             return result
         except Exception as exc:
@@ -171,7 +186,9 @@ async def _run_generation(db, novel_id: str) -> dict:
                 logger.info("等待 %.1f 秒后重试...", wait)
                 await asyncio.sleep(wait)
 
-    raise RuntimeError(f"LLM 生成在 {MAX_RETRIES + 1} 次尝试后均失败: {last_error}") from last_error
+    raise RuntimeError(
+        f"LLM 生成在 {MAX_RETRIES + 1} 次尝试后均失败: {last_error}"
+    ) from last_error
 
 
 async def _fetch_scenes(db, novel_id: str) -> list[dict]:
@@ -233,10 +250,23 @@ async def main() -> int:
         print("-" * 60)
         print(f"生成的 PlotThread 数: {gen_result.get('total_threads', 0)}")
         print(f"生成的 OutlineArc 数: {gen_result.get('total_arcs', 0)}")
+        print(f"生成的 Scene 数: {gen_result.get('total_scenes', 0)}")
         print(f"scenes 表记录数: {len(scenes)}")
         print("=" * 60)
 
+        gen_scenes = gen_result.get("scenes", [])
+        if gen_scenes:
+            print("\n生成返回的 Scene 列表:")
+            for s in gen_scenes:
+                print(
+                    f"  - [Scene {s.get('scene_index')}] "
+                    f"{s.get('title') or '(无标题)'}"
+                )
+        else:
+            print("\n生成返回的 Scene 列表为空。")
+
         if scenes:
+            print("\nscenes 表详情:")
             for s in scenes:
                 print(f"\n[Scene {s['scene_index']}] {s['title'] or '(无标题)'}")
                 print(f"  goal: {s['goal'] or '(空)'}")
@@ -255,7 +285,7 @@ async def main() -> int:
                 print(f"  - {w}")
 
         # 保存到 markdown
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         record_dir = Path(__file__).resolve().parent.parent.parent / "docs" / "acceptance"
         record_dir.mkdir(parents=True, exist_ok=True)
         record_path = record_dir / f"writing-extraction-lotm-ch1-3-{ts}.md"
@@ -267,12 +297,13 @@ async def main() -> int:
             f"- 项目 ID: `{novel_id}`",
             f"- 章节范围: 第 {START_CHAPTER}-{END_CHAPTER} 章",
             f"- LLM 模型: `{settings.llm_model}`",
-            f"- 运行时间: {datetime.now(timezone.utc).isoformat()}",
+            f"- 运行时间: {datetime.now(UTC).isoformat()}",
             "",
             "## 生成结果统计",
             "",
             f"- PlotThread 生成数: {gen_result.get('total_threads', 0)}",
             f"- OutlineArc 生成数: {gen_result.get('total_arcs', 0)}",
+            f"- 生成返回 Scene 数: {gen_result.get('total_scenes', 0)}",
             f"- scenes 表记录数: **{len(scenes)}**",
             "",
         ]
@@ -286,7 +317,9 @@ async def main() -> int:
         lines.extend(["## Scene 卡详情", ""])
         if scenes:
             for s in scenes:
-                lines.append(f"### Scene {s['scene_index']}: {s['title'] or '(无标题)'}" )
+                lines.append(
+                    f"### Scene {s['scene_index']}: {s['title'] or '(无标题)'}"
+                )
                 lines.append("")
                 lines.append(f"- **goal**: {s['goal'] or '(空)'}")
                 lines.append(f"- **core_conflict**: {s['core_conflict'] or '(空)'}")

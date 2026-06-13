@@ -26,6 +26,8 @@ backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
 # 注册 ORM 模型
+from sqlalchemy import func, select  # noqa: E402
+
 import modules.imports.models  # noqa: F401, E402
 import modules.memory.models  # noqa: F401, E402
 import modules.outline.models  # noqa: F401, E402
@@ -33,9 +35,7 @@ import modules.project.models  # noqa: F401, E402
 import modules.rag.models  # noqa: F401, E402
 import modules.world.models  # noqa: F401, E402
 import modules.writing.models  # noqa: F401, E402
-from core.base import Base  # noqa: E402
 from core.database import get_manager  # noqa: E402
-from sqlalchemy import func, select  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
