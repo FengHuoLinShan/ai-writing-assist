@@ -49,8 +49,7 @@ class RagChunksLoader(Loader):
         if result and result.chunks:
             capped = result.chunks[:rag_limit]
             bundle.rag_chunks = [
-                c.model_dump() if hasattr(c, "model_dump") else asdict(c)
-                for c in capped
+                c.model_dump() if hasattr(c, "model_dump") else asdict(c) for c in capped
             ]
 
         bundle.budget_used["rag_chunks"] = len(bundle.rag_chunks)

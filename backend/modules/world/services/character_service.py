@@ -249,9 +249,7 @@ class CharacterService(
                 filtered_item = dict(item)
                 filtered_item["knowledge_level"] = level
                 if knowledge["known_content"]:
-                    filtered_item["character_known_content"] = knowledge[
-                        "known_content"
-                    ]
+                    filtered_item["character_known_content"] = knowledge["known_content"]
                 filtered_items.append(filtered_item)
             else:
                 # full 等明确等级：按原样保留（包括 hidden_truth）

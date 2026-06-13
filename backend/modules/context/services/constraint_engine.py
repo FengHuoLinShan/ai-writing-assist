@@ -41,9 +41,7 @@ class ConstraintEngine:
     ) -> list[ContextSection]:
         sections: list[ContextSection] = []
         sections.extend(await self._static_constraints("zh"))
-        sections.extend(
-            await self._scene_constraints(db, novel_id, scene_id=scene_id)
-        )
+        sections.extend(await self._scene_constraints(db, novel_id, scene_id=scene_id))
         sections.extend(
             await self._knowledge_constraints(db, novel_id, chapter_index=chapter_index)
         )
@@ -130,9 +128,7 @@ class ConstraintEngine:
 
         for entry in entries:
             level = entry.get("knowledge_level")
-            target_ref = (
-                f"{entry.get('target_type', '')}:{entry.get('target_id', '')}"
-            )
+            target_ref = f"{entry.get('target_type', '')}:{entry.get('target_id', '')}"
             if level == "unknown":
                 unknown_count += 1
             elif level in ("restricted", "partial", "rumor"):
@@ -230,10 +226,7 @@ class ConstraintEngine:
                 payoff = "待定"
             surface = plan.get("surface_meaning") or plan.get("summary") or ""
             name = plan.get("name", "")
-            lines.append(
-                f"- **{name}**: {surface} "
-                f"(计划兑现: {payoff})"
-            )
+            lines.append(f"- **{name}**: {surface} (计划兑现: {payoff})")
 
         content = "\n".join(lines)
         return [

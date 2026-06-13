@@ -677,10 +677,10 @@ def _require_misconception_for_false_belief_or_misunderstood(
     model: BaseModel,
 ) -> BaseModel:
     """shared model_validator: false_belief/misunderstood 必须提供 misconception。"""
-    if (
-        getattr(model, "knowledge_level") in {"false_belief", "misunderstood"}
-        and not getattr(model, "misconception")
-    ):
+    if getattr(model, "knowledge_level") in {
+        "false_belief",
+        "misunderstood",
+    } and not getattr(model, "misconception"):
         raise ValueError(
             "false_belief/misunderstood knowledge must provide misconception",
         )

@@ -613,9 +613,7 @@ class TestConstraintEngine:
                 AsyncMock(return_value=[]),
             ),
         ):
-            sections = await engine.compile_constraints(
-                db, novel_id, chapter_index=5
-            )
+            sections = await engine.compile_constraints(db, novel_id, chapter_index=5)
         keys = {s.key for s in sections}
         assert "foreshadowing_constraints" in keys
         fore = next(s for s in sections if s.key == "foreshadowing_constraints")

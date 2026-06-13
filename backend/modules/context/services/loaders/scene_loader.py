@@ -34,6 +34,4 @@ class SceneLoader(Loader):
 
         bundle.scene = scene
         if scene.get("pov_character_id") and not options.viewpoint_character_id:
-            bundle.warnings.append(
-                "当前 Scene 有默认 POV 人物，但请求未指定视角人物"
-            )
+            bundle.warnings.append("当前 Scene 有默认 POV 人物，但请求未指定视角人物")

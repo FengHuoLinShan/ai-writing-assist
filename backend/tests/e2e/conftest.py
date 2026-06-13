@@ -38,9 +38,7 @@ def _pg_available() -> bool:
 
         async def _check() -> bool:
             try:
-                conn = await asyncpg.connect(
-                    DATABASE_URL, timeout=3, command_timeout=3
-                )
+                conn = await asyncpg.connect(DATABASE_URL, timeout=3, command_timeout=3)
                 await conn.close()
                 return True
             except Exception:
