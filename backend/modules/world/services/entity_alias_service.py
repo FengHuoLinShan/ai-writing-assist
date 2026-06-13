@@ -19,6 +19,12 @@ class EntityAliasService:
     def __init__(self, repo: CoreEntityRepository | None = None) -> None:
         self.repo = repo or CoreEntityRepository()
 
+    def _normalize_alias_item(self, alias_item: str | dict) -> tuple[str, str]:
+        """将别名项归一化为 (alias_text, alias_type)。"""
+        if isinstance(alias_item, str):
+            return alias_item, "name"
+        return alias_item.get("alias", ""), alias_item.get("type", "name")
+
     async def list_aliases(
         self,
         db: AsyncSession,
@@ -29,13 +35,12 @@ class EntityAliasService:
     ) -> list[dict]:
         """列出项目下所有实体的别名。"""
         nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
+        entities, _ = await self.repo.get_by_novel(db, nid, limit=10000)
         result: list[dict] = []
         for entity in entities:
             aliases = (entity.content_json or {}).get("aliases", [])
-            for a in aliases:
-                alias_text = a if isinstance(a, str) else a.get("alias", "")
-                alias_type = a.get("type", "name") if isinstance(a, dict) else "name"
+            for alias_item in aliases:
+                alias_text, alias_type = self._normalize_alias_item(alias_item)
                 result.append(
                     {
                         "entity_id": str(entity.id),
@@ -63,8 +68,8 @@ class EntityAliasService:
 
         content = entity.content_json or {}
         aliases = content.get("aliases", [])
-        for a in aliases:
-            existing = a if isinstance(a, str) else a.get("alias", "")
+        for alias_item in aliases:
+            existing, _ = self._normalize_alias_item(alias_item)
             if existing == alias:
                 raise HTTPException(
                     status_code=409, detail=f"Alias already exists: {alias}"
@@ -94,12 +99,12 @@ class EntityAliasService:
         aliases = content.get("aliases", [])
         new_aliases: list = []
         found = False
-        for a in aliases:
-            existing = a if isinstance(a, str) else a.get("alias", "")
+        for alias_item in aliases:
+            existing, _ = self._normalize_alias_item(alias_item)
             if existing == alias:
                 found = True
                 continue
-            new_aliases.append(a)
+            new_aliases.append(alias_item)
 
         if not found:
             raise HTTPException(status_code=404, detail=f"Alias not found: {alias}")
