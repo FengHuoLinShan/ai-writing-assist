@@ -3,7 +3,9 @@ Extra unit tests for modules.world — edge cases and uncovered code paths.
 
 Covers:
 - entity_types.py (pure functions)
-- entity_service.py (WorldEntityService — non-CRUD methods)
+- entity_context_service.py (EntityContextService)
+- entity_embedding_service.py (EntityEmbeddingService)
+- entity_service.py (WorldEntityService — list)
 - dedup_service.py (internal merge helpers, cascade paths, resolve)
 - contracts.py (dataclass construction defaults)
 - tasks.py (task handler)
@@ -32,7 +34,12 @@ from modules.world.contracts import (
 )
 from modules.world.services.dedup_scorer import DedupSignals
 from modules.world.services.dedup_service import EntityDedupService
-from modules.world.services.entity_service import WorldEntityService, _entity_to_context
+from modules.world.services.entity_context_service import (
+    EntityContextService,
+    _entity_to_context,
+)
+from modules.world.services.entity_embedding_service import EntityEmbeddingService
+from modules.world.services.entity_service import WorldEntityService
 from modules.world.services.entity_types import is_entity_type_valid, map_entity_type
 from modules.world.tasks import handle_world_entity_extraction
 from shared.enums import CandidateAction
@@ -120,7 +127,7 @@ class TestIsEntityTypeValid:
 
 
 # ============================================================
-# entity_service.py — WorldEntityService
+# entity_service.py — WorldEntityService.list
 # ============================================================
 
 
@@ -198,29 +205,30 @@ class TestEntityServiceList:
             assert result.items[0].name == "Test"
 
 
-class TestEntityServiceGetEntityContext:
-    """WorldEntityService.get_entity_context"""
+# ============================================================
+# entity_context_service.py — EntityContextService
+# ============================================================
+
+
+class TestEntityContextServiceGetEntityContext:
+    """EntityContextService.get_entity_context"""
 
     async def test_with_entity_ids_filters_by_ids(self) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
         eid = str(uuid.uuid4())
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_ids = AsyncMock(return_value=[_mock_entity()])
-            svc = WorldEntityService()
             result = await svc.get_entity_context(db, nid, entity_ids=[eid])
             assert result.total_count == 1
             mock_repo.get_by_ids.assert_awaited_once()
 
     async def test_without_entity_ids_falls_back_to_get_by_novel(self) -> None:
         db = MagicMock()
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
-            svc = WorldEntityService()
             result = await svc.get_entity_context(db, str(uuid.uuid4()), entity_ids=None)
             assert result.total_count == 0
             mock_repo.get_by_novel.assert_awaited_once()
@@ -229,11 +237,9 @@ class TestEntityServiceGetEntityContext:
     async def test_author_only_reveal_mode_includes_hidden_truth(self) -> None:
         db = MagicMock()
         ent = _mock_entity(hidden_truth="deep secret")
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([ent], 1))
-            svc = WorldEntityService()
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -244,11 +250,9 @@ class TestEntityServiceGetEntityContext:
     async def test_author_safe_reveal_mode_excludes_hidden_truth(self) -> None:
         db = MagicMock()
         ent = _mock_entity(hidden_truth="secret")
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([ent], 1))
-            svc = WorldEntityService()
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -263,11 +267,9 @@ class TestEntityServiceGetEntityContext:
         old_temp = _mock_entity(
             content_json={"_meta": {"temporary": True, "source_chapter_index": 1}},
         )
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([old_temp], 1))
-            svc = WorldEntityService()
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -280,11 +282,9 @@ class TestEntityServiceGetEntityContext:
         db.execute = AsyncMock()
         db.execute.return_value.scalar_one_or_none = MagicMock(return_value=None)
         normal = _mock_entity(content_json={"_meta": {}})
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([normal], 1))
-            svc = WorldEntityService()
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -293,16 +293,14 @@ class TestEntityServiceGetEntityContext:
             assert result.total_count == 1
 
 
-class TestEntityServiceListEntitySummaries:
+class TestEntityContextServiceListEntitySummaries:
     async def test_returns_id_name_type_dicts(self) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
         ent = _mock_entity(name="Sword", entity_type="item")
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
-            svc = WorldEntityService()
             result = await svc.list_entity_summaries(
                 db, nid, entity_type="item", limit=50
             )
@@ -317,19 +315,17 @@ class TestEntityServiceListEntitySummaries:
             )
 
 
-class TestEntityServiceListEntityTerms:
+class TestEntityContextServiceListEntityTerms:
     async def test_only_canonical_and_draft_included(self) -> None:
         db = MagicMock()
         canonical = _mock_entity(name="Hero", status="canonical")
         draft = _mock_entity(name="Sidekick", status="draft")
         merged = _mock_entity(name="Gone", status="merged")
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(
                 return_value=([canonical, draft, merged], 3)
             )
-            svc = WorldEntityService()
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
             assert len(result) == 2
 
@@ -345,11 +341,9 @@ class TestEntityServiceListEntityTerms:
             status="canonical",
             content_json={"aliases": []},
         )
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([ent1, ent2], 2))
-            svc = WorldEntityService()
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
 
             assert len(result) == 2
@@ -361,31 +355,32 @@ class TestEntityServiceListEntityTerms:
             assert merlin_terms["terms"] == ["Merlin"]
 
 
-class TestEntityServiceFindByName:
+class TestEntityContextServiceFindByName:
     async def test_found_returns_entity_id_str(self) -> None:
         db = MagicMock()
         eid = str(uuid.uuid4())
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.find_entity_by_name = AsyncMock(return_value=eid)
-            svc = WorldEntityService()
             result = await svc.find_by_name(db, str(uuid.uuid4()), "Arthur")
             assert result == eid
 
     async def test_not_found_returns_none(self) -> None:
         db = MagicMock()
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
             mock_repo.find_entity_by_name = AsyncMock(return_value=None)
-            svc = WorldEntityService()
             result = await svc.find_by_name(db, str(uuid.uuid4()), "Nobody")
             assert result is None
 
 
-class TestEntityServiceBackfillEmbeddings:
-    """WorldEntityService.backfill_embeddings — BGE client and batch logic"""
+# ============================================================
+# entity_embedding_service.py — EntityEmbeddingService
+# ============================================================
+
+
+class TestEntityEmbeddingServiceBackfillEmbeddings:
+    """EntityEmbeddingService.backfill_embeddings — BGE client and batch logic"""
 
     def _make_db(self, entities: list) -> MagicMock:
         """Create a db mock that returns entities via execute()->scalars().all()."""
@@ -400,17 +395,21 @@ class TestEntityServiceBackfillEmbeddings:
 
     async def test_no_entities_needing_backfill_returns_zero(self) -> None:
         db = self._make_db([])
-        result = await WorldEntityService().backfill_embeddings(db, str(uuid.uuid4()))
+        result = await EntityEmbeddingService().backfill_embeddings(
+            db, str(uuid.uuid4())
+        )
         assert result == 0
 
-    @patch("infrastructure.embedding.client.BgeEmbeddingClient.get_instance")
+    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
     async def test_bge_unavailable_returns_zero(self, mock_get_instance) -> None:
         mock_get_instance.side_effect = RuntimeError("BGE not available")
         db = self._make_db([_mock_entity(name="Arthur")])
-        result = await WorldEntityService().backfill_embeddings(db, str(uuid.uuid4()))
+        result = await EntityEmbeddingService().backfill_embeddings(
+            db, str(uuid.uuid4())
+        )
         assert result == 0
 
-    @patch("infrastructure.embedding.client.BgeEmbeddingClient.get_instance")
+    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
     async def test_happy_path_backfills_in_batches(self, mock_get_instance) -> None:
         bge = AsyncMock()
         bge.generate_embedding = AsyncMock(return_value=[[0.1], [0.2], [0.3], [0.4]])
@@ -418,7 +417,7 @@ class TestEntityServiceBackfillEmbeddings:
         ents = [_mock_entity(name=f"E{i}") for i in range(4)]
         db = self._make_db(ents)
 
-        result = await WorldEntityService().backfill_embeddings(
+        result = await EntityEmbeddingService().backfill_embeddings(
             db, str(uuid.uuid4()), batch_size=4
         )
 
@@ -427,7 +426,7 @@ class TestEntityServiceBackfillEmbeddings:
             assert e.embedding == [expected_val]
             assert e.embedding_text == e.name
 
-    @patch("infrastructure.embedding.client.BgeEmbeddingClient.get_instance")
+    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
     async def test_skips_empty_name_entities(self, mock_get_instance) -> None:
         bge = AsyncMock()
         bge.generate_embedding = AsyncMock(return_value=[[0.5]])
@@ -436,14 +435,14 @@ class TestEntityServiceBackfillEmbeddings:
         empty = _mock_entity(name="")
         db = self._make_db([valid, empty])
 
-        result = await WorldEntityService().backfill_embeddings(
+        result = await EntityEmbeddingService().backfill_embeddings(
             db, str(uuid.uuid4()), batch_size=8
         )
 
         assert result == 1
         assert valid.embedding == [0.5]
 
-    @patch("infrastructure.embedding.client.BgeEmbeddingClient.get_instance")
+    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
     async def test_batch_failure_continues_to_next_batch(self, mock_get_instance) -> None:
         bge = AsyncMock()
         bge.generate_embedding = AsyncMock(
@@ -456,7 +455,7 @@ class TestEntityServiceBackfillEmbeddings:
         ents = [_mock_entity(name=f"E{i}") for i in range(4)]
         db = self._make_db(ents)
 
-        result = await WorldEntityService().backfill_embeddings(
+        result = await EntityEmbeddingService().backfill_embeddings(
             db, str(uuid.uuid4()), batch_size=2
         )
 
