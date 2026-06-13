@@ -125,6 +125,7 @@ class ConstraintEngine:
         lines: list[str] = []
         unknown_count = 0
         restricted_count = 0
+        restricted_known: list[str] = []
         misunderstood: list[str] = []
 
         for entry in entries:
@@ -136,6 +137,9 @@ class ConstraintEngine:
                 unknown_count += 1
             elif level in ("restricted", "partial", "rumor"):
                 restricted_count += 1
+                known_content = entry.get("known_content")
+                if known_content:
+                    restricted_known.append(f"- {target_ref}: {known_content}")
             elif level in ("false_belief", "misunderstood"):
                 misconception = entry.get("misconception")
                 if misconception:
@@ -151,6 +155,8 @@ class ConstraintEngine:
                 f"角色对 {restricted_count} 个目标实体/人物的知识受限，"
                 f"只能使用已知内容(known_content)描述，不得暴露 hidden_truth"
             )
+            if restricted_known:
+                lines.append("已知内容如下:\n" + "\n".join(restricted_known))
         if misunderstood:
             lines.append(
                 "角色对以下实体存在错误认知，应按错误认知表现:\n"

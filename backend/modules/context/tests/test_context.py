@@ -17,6 +17,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import (
@@ -785,3 +786,222 @@ class TestApiSchemas:
 # ============================================================
 # GeoReachabilityFilter 测试
 # ============================================================
+
+
+# ============================================================
+# API 集成测试
+# ============================================================
+
+
+async def _setup_character_knowledge(
+    db_session: AsyncSession,
+    knowledge_level: str,
+    known_content: str | None = None,
+    misconception: str | None = None,
+) -> tuple[str, str, str, str]:
+    """创建项目、POV 人物、目标实体与知识边界记录。
+
+    返回: (novel_id_hex, character_id_hex, target_id_hex, hidden_truth)
+    """
+    from modules.project.models import Project
+    from modules.world.models import Character, CharacterKnowledge, CoreEntity
+
+    nid = uuid.uuid4()
+    novel_id_hex = nid.hex
+    db_session.add(
+        Project(
+            id=nid,
+            title="测试小说",
+            genre="奇幻",
+            language="zh",
+        )
+    )
+
+    char_id = uuid.uuid4()
+    db_session.add(
+        CoreEntity(
+            id=char_id,
+            novel_id=nid,
+            entity_type="character",
+            name="POV角色",
+            status="canonical",
+        )
+    )
+    db_session.add(
+        Character(
+            entity_id=char_id,
+            novel_id=nid,
+            name="POV角色",
+            status="canonical",
+        )
+    )
+
+    target_id = uuid.uuid4()
+    hidden_truth = "源堡是诡秘之主的唯一性"
+    db_session.add(
+        CoreEntity(
+            id=target_id,
+            novel_id=nid,
+            entity_type="location",
+            name="源堡",
+            summary="神秘的源质空间",
+            hidden_truth=hidden_truth,
+            status="canonical",
+            importance_level="core",
+            importance=0.9,
+        )
+    )
+    db_session.add(
+        CharacterKnowledge(
+            id=uuid.uuid4(),
+            novel_id=nid,
+            character_id=char_id,
+            target_type="entity",
+            target_id=target_id,
+            knowledge_level=knowledge_level,
+            known_content=known_content,
+            misconception=misconception,
+        )
+    )
+    await db_session.flush()
+    return novel_id_hex, char_id.hex, target_id.hex, hidden_truth
+
+
+def _response_text(data: dict) -> str:
+    """把 API 返回的 Tier 编译结果合并为可搜索文本。"""
+    parts = [s.get("content", "") for s in data.get("sections", [])]
+    return "\n".join(parts)
+
+
+class TestContextApiIntegration:
+    """通过 API client 验证知识边界与渲染行为"""
+
+    @pytest.mark.asyncio
+    async def test_character_mode_hides_hidden_truth(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """character 视角 unknown 知识不应暴露 hidden_truth"""
+        novel_id, char_id, target_id, hidden_truth = await _setup_character_knowledge(
+            db_session,
+            knowledge_level="unknown",
+        )
+
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成场景",
+                "scope": "world_character",
+                "reveal_mode": "character",
+                "viewpoint_character_id": char_id,
+                "character_ids": [char_id],
+                "entity_ids": [target_id],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reveal_mode"] == "character"
+        assert hidden_truth not in _response_text(data)
+
+    @pytest.mark.asyncio
+    async def test_character_mode_restricted_redacts_hidden_truth(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """character 视角 restricted 知识应显示 known_content 并隐藏 hidden_truth"""
+        known_content = "主角知道这是神秘空间"
+        novel_id, char_id, target_id, hidden_truth = await _setup_character_knowledge(
+            db_session,
+            knowledge_level="restricted",
+            known_content=known_content,
+        )
+
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成场景",
+                "scope": "world_character",
+                "reveal_mode": "character",
+                "viewpoint_character_id": char_id,
+                "character_ids": [char_id],
+                "entity_ids": [target_id],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        text = _response_text(data)
+        assert hidden_truth not in text
+        assert known_content in text
+
+    @pytest.mark.asyncio
+    async def test_character_mode_misunderstood_shows_misconception(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """character 视角 misunderstood 知识应显示 misconception 并隐藏 hidden_truth"""
+        misconception = "主角误以为这是梦境"
+        novel_id, char_id, target_id, hidden_truth = await _setup_character_knowledge(
+            db_session,
+            knowledge_level="misunderstood",
+            misconception=misconception,
+        )
+
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成场景",
+                "scope": "world_character",
+                "reveal_mode": "character",
+                "viewpoint_character_id": char_id,
+                "character_ids": [char_id],
+                "entity_ids": [target_id],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        text = _response_text(data)
+        assert hidden_truth not in text
+        assert misconception in text
+
+    @pytest.mark.asyncio
+    async def test_render_endpoint_returns_markdown(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """/api/context/render 应返回包含 Tier 标题的 markdown"""
+        from modules.project.models import Project
+
+        nid = uuid.uuid4()
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试渲染",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+        await db_session.flush()
+
+        response = await async_client.post(
+            "/api/context/render",
+            json={
+                "novel_id": nid.hex,
+                "task": "测试渲染",
+                "scope": "project",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "markdown" in data
+        assert "## 一、创作目标" in data["markdown"]
