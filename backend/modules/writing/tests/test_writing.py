@@ -11,8 +11,10 @@ import uuid
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
 from modules.outline.repositories import SceneRepository
 from modules.outline.schemas import SceneCreate
 from modules.writing.contracts import WritingDraftContract
@@ -28,6 +30,7 @@ from modules.writing.schemas import (
     WritingDraftUpdate,
 )
 from modules.writing.services import WritingDraftService
+from tests.conftest import test_project_id  # noqa: F401
 
 # ============================================================
 # Fixtures
@@ -777,6 +780,9 @@ async def test_split_chapter_at_offset_creates_new_chapter_without_publish_task(
         source_scene_id=None,
     )
 
+    tasks_result = await db_session.execute(select(AsyncTask))
+    assert len(tasks_result.scalars().all()) == 0
+
     assert result.source_chapter_index == 5
     assert result.new_chapter_index == 6
     assert result.source_draft.content == "前半段内容"
@@ -1029,3 +1035,152 @@ class TestWritingSplitApi:
         assert data["source_draft"]["content"] == "abcd"
         assert data["new_draft"]["content"] == "efghij"
         assert len(data["scenes"]) >= 2
+
+
+class TestWritingPublishApi:
+    @pytest.mark.asyncio
+    async def test_publish_draft_increments_version_and_enqueues_task(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """POST /api/writing/drafts 发布时递增版本并入队任务"""
+        novel_id = str(uuid.uuid4())
+
+        response1 = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "title": "第一章",
+                "content": "第一版内容",
+            },
+        )
+        assert response1.status_code == 201
+        data1 = response1.json()
+        assert data1["draft"]["version_number"] == 1
+        task_id_1 = data1["task_id"]
+        assert task_id_1 is not None
+
+        response2 = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "title": "第一章（修订）",
+                "content": "第二版内容",
+            },
+        )
+        assert response2.status_code == 201
+        data2 = response2.json()
+        assert data2["draft"]["version_number"] == 2
+        task_id_2 = data2["task_id"]
+        assert task_id_2 is not None
+        assert task_id_2 != task_id_1
+
+        task = await db_session.get(AsyncTask, uuid.UUID(hex=task_id_2))
+        assert task is not None
+        assert task.task_type == "publish_chapter"
+        assert task.meta.get("novel_id") == novel_id
+        assert task.meta.get("chapter_index") == 1
+
+    @pytest.mark.asyncio
+    async def test_update_draft_conflict_returns_409(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """PUT /api/writing/drafts 在 expected_version 不匹配时返回 409"""
+        novel_id = str(uuid.uuid4())
+        service = WritingDraftService()
+
+        v1 = await service.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="第一章",
+                content="第一版",
+            ),
+        )
+        await service.create_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="第一章",
+                content="第二版",
+            ),
+        )
+
+        response = await async_client.put(
+            f"/api/writing/drafts/{v1.id}?novel_id={novel_id}",
+            json={"title": "conflict", "expected_version": 1},
+        )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert "v2" in detail or "2" in detail
+
+
+@pytest.mark.asyncio
+async def test_publish_creates_rag_chunks(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+):
+    """发布章节后应创建 RAG chunk，重新发布时应替换旧 chunk。"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.repositories import RagChunkRepository
+    from modules.writing.facade import create_draft
+    from modules.writing.tasks import handle_publish_chapter
+
+    rag_repo = RagChunkRepository()
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    embed_exc = Exception("embedding down")
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
+        mock_client_cls.return_value = mock_client
+
+        draft, task_id = await create_draft(
+            db_session,
+            test_project_id,
+            1,
+            "第一章",
+            "周明瑞从梦中醒来，发现一切都变得陌生。" * 20,
+        )
+        assert task_id is not None
+
+        task = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id))
+        assert task is not None
+
+        result = await handle_publish_chapter(db_session, task)
+        assert result["rag_chunks"] > 0
+
+    first_chunks = await rag_repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert len(first_chunks) == result["rag_chunks"]
+    first_ids = {str(c.id) for c in first_chunks}
+
+    # 重新发布同一章节
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
+        mock_client_cls.return_value = mock_client
+
+        _, task_id_2 = await create_draft(
+            db_session,
+            test_project_id,
+            1,
+            "第一章（修订）",
+            "周明瑞从梦中醒来，发现世界已经完全不同。" * 20,
+        )
+        task_2 = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id_2))
+        result_2 = await handle_publish_chapter(db_session, task_2)
+        assert result_2["rag_chunks"] > 0
+
+    second_chunks = await rag_repo.find_by_chapter(db_session, nid_uuid, 1)
+    second_ids = {str(c.id) for c in second_chunks}
+    assert first_ids.isdisjoint(second_ids), "重新发布后旧 chunk 应被替换"
