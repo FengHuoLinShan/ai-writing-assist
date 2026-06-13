@@ -286,3 +286,30 @@ async def test_find_by_name_not_found_returns_none(
     result = await entity_service.find_by_name(db, novel_id, "Missing")
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_list_entity_batches_delegates_to_repo(
+    novel_id: str,
+    entity_service: EntityContextService,
+) -> None:
+    batches = [
+        {
+            "batch_id": "batch-1",
+            "ingested_at": "2026-06-13T10:00:00",
+            "entity_count": 2,
+            "entities": [
+                {"id": str(uuid.uuid4()), "name": "A", "entity_type": "character"},
+                {"id": str(uuid.uuid4()), "name": "B", "entity_type": "location"},
+            ],
+        }
+    ]
+    entity_service._repo.get_entity_batches = AsyncMock(return_value=batches)
+    db = AsyncMock()
+
+    result = await entity_service.list_entity_batches(db, novel_id, limit=5)
+
+    assert result == batches
+    entity_service._repo.get_entity_batches.assert_awaited_once_with(
+        db, uuid.UUID(novel_id), limit=5
+    )
