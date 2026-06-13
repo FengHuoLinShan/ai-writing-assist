@@ -150,6 +150,14 @@ class ForeshadowingPlanService(
     label = "ForeshadowingPlan"
     id_param = "plan_id"
 
+    async def get_foreshadowing_plan(
+        self,
+        db: AsyncSession,
+        plan_id: str,
+        novel_id: str,
+    ) -> ForeshadowingPlanResponse:
+        return await self.get(db, plan_id, novel_id=novel_id)
+
     async def create(
         self,
         db: AsyncSession,
@@ -184,6 +192,14 @@ class RevealPlanService(
     list_response = RevealPlanListResponse
     label = "RevealPlan"
     id_param = "plan_id"
+
+    async def get_reveal_plan(
+        self,
+        db: AsyncSession,
+        plan_id: str,
+        novel_id: str,
+    ) -> RevealPlanResponse:
+        return await self.get(db, plan_id, novel_id=novel_id)
 
     async def create(
         self,
@@ -769,6 +785,8 @@ class PlotStructureGenerator:
             return {
                 "total_threads": 0,
                 "total_arcs": 0,
+                "existing_threads_count": 0,
+                "existing_arcs_count": 0,
                 "threads": [],
                 "arcs": [],
                 "extra_sections": {},
@@ -780,6 +798,8 @@ class PlotStructureGenerator:
             return {
                 "total_threads": 0,
                 "total_arcs": 0,
+                "existing_threads_count": 0,
+                "existing_arcs_count": 0,
                 "threads": [],
                 "arcs": [],
                 "extra_sections": {},
@@ -789,22 +809,22 @@ class PlotStructureGenerator:
         # ============================================================
         # 6. 去重检查（Fix 6）
         # ============================================================
-        existing_threads = await PlotThreadRepository().count_by_novel_and_range(
+        existing_threads_count = await PlotThreadRepository().count_by_novel_and_range(
             db,
             nid,
             start_chapter,
             end_chapter,
         )
-        existing_arcs = await OutlineArcRepository().count_by_novel_and_range(
+        existing_arcs_count = await OutlineArcRepository().count_by_novel_and_range(
             db,
             nid,
             start_chapter,
             end_chapter,
         )
-        if existing_threads > 0 or existing_arcs > 0:
+        if existing_threads_count > 0 or existing_arcs_count > 0:
             msg = (
                 f"章节 {start_chapter}-{end_chapter} 已有 "
-                f"{existing_threads} 条剧情线、{existing_arcs} 个篇章纲"
+                f"{existing_threads_count} 条剧情线、{existing_arcs_count} 个篇章纲"
             )
             logger.warning("Duplicate generation warning: %s", msg)
             warnings_list.append(msg)
@@ -993,6 +1013,8 @@ class PlotStructureGenerator:
         return {
             "total_threads": len(created_threads),
             "total_arcs": len(created_arcs),
+            "existing_threads_count": existing_threads_count,
+            "existing_arcs_count": existing_arcs_count,
             "threads": created_threads,
             "arcs": created_arcs,
             "extra_sections": {

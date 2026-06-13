@@ -13,6 +13,7 @@ from modules.outline.schemas import (
     OutlineArcListResponse,
     OutlineArcResponse,
     OutlineArcUpdate,
+    PlotStructureGenerateResponse,
     PlotThreadCreate,
     PlotThreadListResponse,
     PlotThreadResponse,
@@ -263,7 +264,11 @@ async def api_split_chapters(
 # ============================================================
 
 
-@router.post("/generate", status_code=http_status.HTTP_201_CREATED)
+@router.post(
+    "/generate",
+    response_model=PlotStructureGenerateResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
 async def api_generate_plot_structure(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
@@ -302,6 +307,15 @@ async def api_list_foreshadowing(
     return await _foreshadowing_service.list_with_response(
         db, novel_id, skip=skip, limit=limit
     )
+
+
+@router.get("/foreshadowing/{plan_id}", response_model=ForeshadowingPlanResponse)
+async def api_get_foreshadowing(
+    plan_id: str,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _foreshadowing_service.get_foreshadowing_plan(db, plan_id, novel_id)
 
 
 @router.patch("/foreshadowing/{plan_id}", response_model=ForeshadowingPlanResponse)
@@ -354,6 +368,15 @@ async def api_list_reveals(
     return await _reveal_service.list_with_response(
         db, novel_id, skip=skip, limit=limit
     )
+
+
+@router.get("/reveals/{plan_id}", response_model=RevealPlanResponse)
+async def api_get_reveal(
+    plan_id: str,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    return await _reveal_service.get_reveal_plan(db, plan_id, novel_id)
 
 
 @router.patch("/reveals/{plan_id}", response_model=RevealPlanResponse)
