@@ -249,23 +249,28 @@ describe("render buttons", () => {
       id: "f1",
       name: "伏笔A",
       summary: "摘要",
-      status: "draft",
+      status: "planted",
+      planned_seed_chapter: 3,
     }]
     let html = await outlineView.render()
     expect(html).toContain('data-action="create-foreshadowing"')
+    expect(html).toContain('data-action="edit-foreshadowing"')
     expect(html).toContain('data-action="delete-foreshadowing"')
+    expect(html).toContain("新建伏笔")
 
     state.currentSubView = "reveals"
     outlineView._reveals = [{
       id: "r1",
       target_type: "world_entity",
       secret_summary: "秘密",
-      status: "draft",
+      status: "planned",
       reveal_stages: [{ stage_index: 0, chapter_index: 1, reveal_content: "揭示" }],
     }]
     html = await outlineView.render()
     expect(html).toContain('data-action="create-reveal"')
+    expect(html).toContain('data-action="edit-reveal"')
     expect(html).toContain('data-action="delete-reveal"')
+    expect(html).toContain("新建揭示")
   })
 })
 
@@ -307,6 +312,7 @@ describe("_showGenerateStructureForm", () => {
     document.getElementById = vi.fn((id) => {
       if (id === "generate-structure-start") return { value: "1" }
       if (id === "generate-structure-end") return { value: "5" }
+      if (id === "generate-structure-confirm") return { checked: false }
       return null
     })
     outlineView._generateStructure = vi.fn()
@@ -314,6 +320,42 @@ describe("_showGenerateStructureForm", () => {
     await capturedHandler()
 
     expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
+  })
+
+  it("counts overlapping threads and arcs for a range", () => {
+    const threads = [
+      { id: "t1", start_chapter: 1, planned_payoff_chapter: 3 },
+      { id: "t2", start_chapter: 6, planned_payoff_chapter: 10 },
+      { id: "t3", start_chapter: null, planned_payoff_chapter: 2 },
+    ]
+    const arcs = [
+      { id: "a1", start_chapter: 4, end_chapter: 8 },
+      { id: "a2", start_chapter: 20, end_chapter: 30 },
+    ]
+
+    const threadCount = outlineView._countRangeOverlap(threads, 2, 5, "start_chapter", "planned_payoff_chapter")
+    const arcCount = outlineView._countRangeOverlap(arcs, 2, 5, "start_chapter", "end_chapter")
+
+    expect(threadCount).toBe(2)
+    expect(arcCount).toBe(1)
+  })
+
+  it("blocks generate when overlap exists and not confirmed", async () => {
+    outlineView._showGenerateStructureForm()
+    outlineView._generateOverlap = { threadCount: 1, arcCount: 1, rangeKey: "1-5" }
+
+    document.getElementById = vi.fn((id) => {
+      if (id === "generate-structure-start") return { value: "1" }
+      if (id === "generate-structure-end") return { value: "5" }
+      if (id === "generate-structure-confirm") return { checked: false }
+      return null
+    })
+    outlineView._generateStructure = vi.fn()
+
+    await capturedHandler()
+
+    expect(outlineView._generateStructure).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("目标范围已存在结构，请勾选确认后继续", "warning")
   })
 })
 
@@ -330,11 +372,9 @@ describe("foreshadowing and reveal forms", () => {
       handler = buttons[0]?.handler
     })
     document.getElementById = vi.fn((id) => {
-      if (id === "create-foreshadowing-name") return { value: "伏笔名" }
-      if (id === "create-foreshadowing-summary") return { value: "摘要" }
-      if (id === "create-foreshadowing-seed") return { value: "3" }
-      if (id === "create-foreshadowing-payoff") return { value: "12" }
-      if (id === "create-foreshadowing-status") return { value: "active" }
+      if (id === "create-foreshadowing-description") return { value: "伏笔描述" }
+      if (id === "create-foreshadowing-target-chapter") return { value: "3" }
+      if (id === "create-foreshadowing-status") return { value: "planted" }
       return null
     })
     api.outline.createForeshadowing.mockResolvedValue({})
@@ -343,14 +383,46 @@ describe("foreshadowing and reveal forms", () => {
     await handler()
 
     expect(api.outline.createForeshadowing).toHaveBeenCalledWith("p1", {
-      name: "伏笔名",
-      summary: "摘要",
+      name: "伏笔描述",
+      summary: "伏笔描述",
       planned_seed_chapter: 3,
-      planned_payoff_chapter: 12,
-      status: "active",
+      status: "planted",
     })
-    expect(toast).toHaveBeenCalledWith("伏笔计划已创建", "success")
+    expect(toast).toHaveBeenCalledWith("伏笔已创建", "success")
     expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("edits foreshadowing through the API", async () => {
+    state.currentProjectId = "p1"
+    outlineView._foreshadowing = [{
+      id: "f1",
+      name: "旧描述",
+      summary: "旧描述",
+      status: "planted",
+      planned_seed_chapter: 2,
+    }]
+    let handler
+    showModal.mockImplementation((_title, _html, buttons) => {
+      handler = buttons[0]?.handler
+    })
+    document.getElementById = vi.fn((id) => {
+      if (id === "edit-foreshadowing-description") return { value: "新描述" }
+      if (id === "edit-foreshadowing-target-chapter") return { value: "5" }
+      if (id === "edit-foreshadowing-status") return { value: "triggered" }
+      return null
+    })
+    api.outline.updateForeshadowing.mockResolvedValue({})
+
+    outlineView._editForeshadowing("f1")
+    await handler()
+
+    expect(api.outline.updateForeshadowing).toHaveBeenCalledWith("f1", "p1", {
+      name: "新描述",
+      summary: "新描述",
+      planned_seed_chapter: 5,
+      status: "triggered",
+    })
+    expect(toast).toHaveBeenCalledWith("伏笔已保存", "success")
   })
 
   it("creates reveal plans through the API", async () => {
@@ -360,11 +432,10 @@ describe("foreshadowing and reveal forms", () => {
       handler = buttons[0]?.handler
     })
     document.getElementById = vi.fn((id) => {
-      if (id === "create-reveal-target-type") return { value: "world_entity" }
-      if (id === "create-reveal-target-id") return { value: "entity-1" }
-      if (id === "create-reveal-secret") return { value: "秘密" }
+      if (id === "create-reveal-description") return { value: "揭示秘密" }
       if (id === "create-reveal-chapter") return { value: "5" }
-      if (id === "create-reveal-content") return { value: "首次揭示" }
+      if (id === "create-reveal-foreshadowing-id") return { value: "" }
+      if (id === "create-reveal-status") return { value: "planned" }
       return null
     })
     api.outline.createReveal.mockResolvedValue({})
@@ -374,12 +445,47 @@ describe("foreshadowing and reveal forms", () => {
 
     expect(api.outline.createReveal).toHaveBeenCalledWith("p1", {
       target_type: "world_entity",
-      target_id: "entity-1",
-      secret_summary: "秘密",
-      reveal_stages: [{ stage_index: 0, chapter_index: 5, reveal_content: "首次揭示" }],
+      target_id: "00000000-0000-0000-0000-000000000000",
+      secret_summary: "揭示秘密",
+      reveal_stages: [{ stage_index: 0, chapter_index: 5, reveal_content: "揭示秘密" }],
+      status: "planned",
     })
-    expect(toast).toHaveBeenCalledWith("揭示计划已创建", "success")
+    expect(toast).toHaveBeenCalledWith("揭示已创建", "success")
     expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("edits reveal plans through the API", async () => {
+    state.currentProjectId = "p1"
+    outlineView._reveals = [{
+      id: "r1",
+      target_type: "world_entity",
+      target_id: "entity-1",
+      secret_summary: "旧秘密",
+      status: "planned",
+      reveal_stages: [{ stage_index: 0, chapter_index: 2, reveal_content: "旧秘密" }],
+    }]
+    let handler
+    showModal.mockImplementation((_title, _html, buttons) => {
+      handler = buttons[0]?.handler
+    })
+    document.getElementById = vi.fn((id) => {
+      if (id === "edit-reveal-description") return { value: "新秘密" }
+      if (id === "edit-reveal-chapter") return { value: "8" }
+      if (id === "edit-reveal-foreshadowing-id") return { value: "" }
+      if (id === "edit-reveal-status") return { value: "revealed" }
+      return null
+    })
+    api.outline.updateReveal.mockResolvedValue({})
+
+    outlineView._editReveal("r1")
+    await handler()
+
+    expect(api.outline.updateReveal).toHaveBeenCalledWith("r1", "p1", {
+      secret_summary: "新秘密",
+      reveal_stages: [{ stage_index: 0, chapter_index: 8, reveal_content: "新秘密" }],
+      status: "revealed",
+    })
+    expect(toast).toHaveBeenCalledWith("揭示已保存", "success")
   })
 
   it("deletes foreshadowing and reveal plans through confirmation", async () => {
@@ -391,8 +497,8 @@ describe("foreshadowing and reveal forms", () => {
     await outlineView._deleteForeshadowing("f1")
     await outlineView._deleteReveal("r1")
 
-    expect(confirmAction).toHaveBeenCalledWith("确定删除此伏笔计划？", expect.any(Function))
-    expect(confirmAction).toHaveBeenCalledWith("确定删除此揭示计划？", expect.any(Function))
+    expect(confirmAction).toHaveBeenCalledWith("确定删除此伏笔？", expect.any(Function))
+    expect(confirmAction).toHaveBeenCalledWith("确定删除此揭示？", expect.any(Function))
     expect(api.outline.deleteForeshadowing).toHaveBeenCalledWith("f1", "p1")
     expect(api.outline.deleteReveal).toHaveBeenCalledWith("r1", "p1")
     expect(router.refresh).toHaveBeenCalled()
