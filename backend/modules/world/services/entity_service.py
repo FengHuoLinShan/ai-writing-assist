@@ -17,18 +17,10 @@ from modules.world.schemas import (
     CoreEntityListResponse,
     CoreEntityResponse,
     CoreEntityUpdate,
-    WorldContextBundle,
 )
 from modules.world.services.base import CrudService
-from modules.world.services.entity_alias_service import EntityAliasService
-from modules.world.services.entity_context_service import EntityContextService
-from modules.world.services.entity_embedding_service import EntityEmbeddingService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-
-_alias_service = EntityAliasService()
-_context_service = EntityContextService()
-_embedding_service = EntityEmbeddingService()
 
 
 class WorldEntityService(
@@ -127,115 +119,4 @@ class WorldEntityService(
             total=total,
         )
 
-    # ============================================================
-    # Compatibility shims: delegate to dedicated services
-    # ============================================================
 
-    async def get_entity_context(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        entity_ids: list[str] | None = None,
-        reveal_mode: str = "author_safe",
-        limit: int = 20,
-        current_chapter: int | None = None,
-    ) -> WorldContextBundle:
-        return await _context_service.get_entity_context(
-            db,
-            novel_id,
-            entity_ids=entity_ids,
-            reveal_mode=reveal_mode,
-            limit=limit,
-            current_chapter=current_chapter,
-        )
-
-    async def list_entity_summaries(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        entity_type: str | None = None,
-        limit: int = 100,
-    ) -> list[dict]:
-        return await _context_service.list_entity_summaries(
-            db, novel_id, entity_type=entity_type, limit=limit
-        )
-
-    async def list_entity_terms(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        limit: int = 500,
-    ) -> list[dict]:
-        return await _context_service.list_entity_terms(
-            db, novel_id, limit=limit
-        )
-
-    async def find_by_name(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        name: str,
-        entity_type: str | None = None,
-    ) -> str | None:
-        return await _context_service.find_by_name(
-            db, novel_id, name, entity_type=entity_type
-        )
-
-    async def list_entity_batches(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        limit: int = 10,
-    ) -> list[dict]:
-        return await _context_service.list_entity_batches(
-            db, novel_id, limit=limit
-        )
-
-    async def list_aliases(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        skip: int = 0,
-        limit: int = 100,
-    ) -> list[dict]:
-        return await _alias_service.list_aliases(
-            db, novel_id, skip=skip, limit=limit
-        )
-
-    async def create_alias(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        entity_id: str,
-        alias: str,
-        alias_type: str = "name",
-    ) -> dict:
-        return await _alias_service.create_alias(
-            db, novel_id, entity_id, alias, alias_type=alias_type
-        )
-
-    async def delete_alias(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        entity_id: str,
-        alias: str,
-    ) -> dict:
-        return await _alias_service.delete_alias(
-            db, novel_id, entity_id, alias
-        )
-
-    async def backfill_embeddings(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        batch_size: int = 64,
-    ) -> int:
-        return await _embedding_service.backfill_embeddings(
-            db, novel_id, batch_size=batch_size
-        )
