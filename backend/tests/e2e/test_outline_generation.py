@@ -107,8 +107,8 @@ async def _generate_with_retry(
 @pytest_asyncio.fixture
 async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
     """LOTM 项目 + 世界实体 + 关系 + 人物角色表 + 第 1-3 章真实正文草稿。"""
-    from tests.e2e.seed_data import create_writing_drafts
     from modules.world.models import Character
+    from tests.e2e.seed_data import create_writing_drafts
 
     scene = await create_base_scene(db_session)
     pid = scene["project_uuid"]
@@ -274,7 +274,9 @@ class TestRealOutlineGeneration:
         assert r2.get("total_threads", 0) > 0
         assert r2.get("existing_threads_count", -1) == r1["total_threads"]
         assert r2.get("existing_arcs_count", -1) == r1["total_arcs"]
-        assert any("已有" in w for w in r2.get("warnings", [])), "第二次生成应携带重复范围警告"
+        assert any("已有" in w for w in r2.get("warnings", [])), (
+            "第二次生成应携带重复范围警告"
+        )
 
         after = await _thread_svc.list_with_response(db_session, novel_id)
         expected = r1["total_threads"] + r2["total_threads"]

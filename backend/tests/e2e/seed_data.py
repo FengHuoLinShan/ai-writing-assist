@@ -438,7 +438,8 @@ async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
 
 async def create_full_scene(session: AsyncSession) -> dict[str, Any]:
     """
-    创建全场景数据：项目 + 世界对象 + 关系 + Scene 卡 + 人物知识 + 伏笔计划 + 真实章节正文。
+    创建全场景数据：项目 + 世界对象 + 关系 + Scene 卡 + 人物知识 + 伏笔计划 +
+    真实章节正文。
     """
     result = await create_base_scene(session)
     pid = result["project_uuid"]
