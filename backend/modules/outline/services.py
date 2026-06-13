@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
@@ -546,6 +548,32 @@ class PlotStructureGenerator:
 
     MAX_EMPTY_RETRIES = 2  # 空结果重试次数
 
+    async def _load_chapter_texts(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> list[tuple[int, str]]:
+        """加载指定章节范围的最新正文草稿内容。"""
+        from modules.writing.models import WritingDraft
+
+        results: list[tuple[int, str]] = []
+        for chapter_index in range(start_chapter, end_chapter + 1):
+            stmt = (
+                select(WritingDraft.content)
+                .where(
+                    WritingDraft.novel_id == novel_id,
+                    WritingDraft.chapter_index == chapter_index,
+                )
+                .order_by(WritingDraft.version_number.desc())
+                .limit(1)
+            )
+            row = (await db.execute(stmt)).scalar_one_or_none()
+            if row:
+                results.append((chapter_index, row))
+        return results
+
     async def generate(
         self,
         db: AsyncSession,
@@ -604,6 +632,21 @@ class PlotStructureGenerator:
             for ch in (bundle.characters or [])
             if ch.get("character_id") and ch.get("name")
         }
+
+        # ============================================================
+        # 2.5 加载章节原文（若数据库中存在 writing_drafts）
+        # ============================================================
+        chapter_texts = await self._load_chapter_texts(
+            db, nid, start_chapter, end_chapter
+        )
+        if chapter_texts:
+            context_md += "\n## 章节原文\n"
+            for chapter_index, text in chapter_texts:
+                # 限制单章长度，避免超出 LLM 上下文窗口
+                truncated = text[:12000]
+                context_md += f"\n### 第{chapter_index}章\n{truncated}\n"
+                if len(text) > 12000:
+                    context_md += "\n（本章内容已截断）\n"
 
         # ============================================================
         # 3. 加载 prompt（已无用的模板变量保留以兼容现有结构）

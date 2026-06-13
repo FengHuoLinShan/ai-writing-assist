@@ -106,7 +106,8 @@ async def _generate_with_retry(
 
 @pytest_asyncio.fixture
 async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
-    """LOTM 项目 + 世界实体 + 关系 + 人物角色表。"""
+    """LOTM 项目 + 世界实体 + 关系 + 人物角色表 + 第 1-3 章真实正文草稿。"""
+    from tests.e2e.seed_data import create_writing_drafts
     from modules.world.models import Character
 
     scene = await create_base_scene(db_session)
@@ -148,6 +149,7 @@ async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
         )
         db_session.add(char)
 
+    await create_writing_drafts(db_session, pid)
     await db_session.flush()
     return {
         "project_id": scene["project_id"],
@@ -178,7 +180,7 @@ class TestRealOutlineGeneration:
             db_session,
             novel_id,
             start_chapter=1,
-            end_chapter=10,
+            end_chapter=3,
         )
 
         # Assert
@@ -187,7 +189,7 @@ class TestRealOutlineGeneration:
         threads = result.get("threads", [])
         arcs = result.get("arcs", [])
 
-        logger.info("=== Outline Generation Result ===")
+        logger.info("=== Outline Generation Result (chapters 1-3) ===")
         logger.info("Threads: %d, Arcs: %d", total_threads, total_arcs)
         for t in threads:
             logger.info("  Thread: %s (type=%s)", t.get("name"), t.get("thread_type"))
@@ -225,7 +227,7 @@ class TestRealOutlineGeneration:
         novel_id = project_with_world["project_id"]
 
         # Act
-        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
+        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=3)
         thread_list = await _thread_svc.list_with_response(db_session, novel_id)
         arc_list = await _arc_svc.list_with_response(db_session, novel_id)
 
@@ -257,15 +259,22 @@ class TestRealOutlineGeneration:
 
         # Act
         r1 = await _generate_with_retry(
-            db_session, novel_id, start_chapter=1, end_chapter=10
+            db_session, novel_id, start_chapter=1, end_chapter=3
         )
         r2 = await _generate_with_retry(
-            db_session, novel_id, start_chapter=1, end_chapter=10
+            db_session, novel_id, start_chapter=1, end_chapter=3
         )
 
         # Assert
         assert r1.get("total_threads", 0) > 0
+        assert r1.get("total_arcs", 0) > 0
+        assert r1.get("existing_threads_count", 0) == 0
+        assert r1.get("existing_arcs_count", 0) == 0
+
         assert r2.get("total_threads", 0) > 0
+        assert r2.get("existing_threads_count", -1) == r1["total_threads"]
+        assert r2.get("existing_arcs_count", -1) == r1["total_arcs"]
+        assert any("已有" in w for w in r2.get("warnings", [])), "第二次生成应携带重复范围警告"
 
         after = await _thread_svc.list_with_response(db_session, novel_id)
         expected = r1["total_threads"] + r2["total_threads"]
@@ -333,7 +342,7 @@ class TestOutputContractCoverage:
         novel_id = project_with_world["project_id"]
 
         # Act
-        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=10)
+        await _generate_with_retry(db_session, novel_id, start_chapter=1, end_chapter=3)
         thread_list = await _thread_svc.list_with_response(db_session, novel_id)
         filled = [
             (t.name, t.related_character_ids, t.related_entity_ids)

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -335,6 +336,43 @@ async def create_foreshadowing_plans(
     return {"foreshadowing_plan_ids": result}
 
 
+# ---- 正文草稿 -----------------------------------------------------------
+
+async def create_writing_drafts(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+) -> dict[str, Any]:
+    """为第 1-3 章创建真实的《诡秘之主 第一部》正文草稿。"""
+    from modules.writing.models import WritingDraft
+
+    sample_path = Path(__file__).with_name("samples") / "lotm_chapters_1_2_3.txt"
+    if not sample_path.exists():
+        raise FileNotFoundError(f"找不到章节样本: {sample_path}")
+
+    raw = sample_path.read_text(encoding="utf-8")
+    chapters = [part.strip() for part in raw.split("\n\n---\n\n") if part.strip()]
+
+    result: list[str] = []
+    for chapter_index, content in enumerate(chapters, start=1):
+        # 提取标题：第一行
+        lines = content.splitlines()
+        title = lines[0].strip() if lines else f"第{chapter_index}章"
+        draft = WritingDraft(
+            id=uuid.uuid4(),
+            novel_id=project_id,
+            chapter_index=chapter_index,
+            title=title,
+            content=content,
+            version_number=1,
+            status="canonical",
+        )
+        session.add(draft)
+        result.append(str(draft.id))
+
+    await session.flush()
+    return {"writing_draft_ids": result}
+
+
 # ---- 关系 ---------------------------------------------------------------
 
 RELATIONSHIP_DATA = [
@@ -400,7 +438,7 @@ async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
 
 async def create_full_scene(session: AsyncSession) -> dict[str, Any]:
     """
-    创建全场景数据：项目 + 世界对象 + 关系 + Scene 卡 + 人物知识 + 伏笔计划。
+    创建全场景数据：项目 + 世界对象 + 关系 + Scene 卡 + 人物知识 + 伏笔计划 + 真实章节正文。
     """
     result = await create_base_scene(session)
     pid = result["project_uuid"]
@@ -409,9 +447,11 @@ async def create_full_scene(session: AsyncSession) -> dict[str, Any]:
     scenes = await create_scenes(session, pid, eids)
     await create_character_knowledge(session, pid, eids)
     await create_foreshadowing_plans(session, pid, eids)
+    drafts = await create_writing_drafts(session, pid)
     await session.flush()
 
     return {
         **result,
         **scenes,
+        **drafts,
     }

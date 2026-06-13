@@ -55,7 +55,8 @@ function _setCache(key, data) {
 async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
+  const timeoutMs = options.timeout || API_TIMEOUT
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   const headers = {
     "Accept": "application/json",
@@ -368,22 +369,12 @@ const api = {
 
     /** 重建索引 */
     async rebuild(payload) {
-      const novelId = payload?.novel_id
-      if (!novelId) throw new Error("重建索引需要先选择项目")
-      const task = await request("/tasks", {
+      const { novel_id, start_chapter, end_chapter } = payload || {}
+      if (!novel_id) throw new Error("重建索引需要先选择项目")
+      return request("/rag/rebuild", {
         method: "POST",
-        body: JSON.stringify({
-          task_type: "rag_reindex_novel",
-          meta: { novel_id: novelId, force: true },
-        }),
+        body: JSON.stringify({ novel_id, start_chapter, end_chapter }),
       })
-      return {
-        status: task.status || "pending",
-        total: task.task_id ? 1 : 0,
-        task_id: task.task_id,
-        task_ids: task.task_id ? [task.task_id] : [],
-        warnings: task.warnings || [],
-      }
     },
 
     /** 获取索引状态 */
@@ -619,10 +610,11 @@ const api = {
       })
     },
 
-    /** 生成剧情结构 */
+    /** 生成剧情结构（LLM 调用可能较慢，使用 180s 超时） */
     async generate(novelId, startChapter, endChapter) {
       return request("/outline/generate" + buildQueryString({ novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter }), {
         method: "POST",
+        timeout: 180000,
       })
     },
 
