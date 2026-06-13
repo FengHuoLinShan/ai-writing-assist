@@ -21,7 +21,18 @@ outline 模块管理剧情计划的结构层：把事实组织成可执行的剧
 - **PlotThreadService** — 剧情线 CRUD
 - **OutlineArcService** — 篇章纲 CRUD
 - **SceneService** — Scene 卡 CRUD + 批量重排（reorder）
-- **PlotStructureGenerator** — AI 剧情结构生成（调用 LLM `structure_plot.md` prompt）
+- **PlotStructureGenerator** — AI 剧情结构生成入口；薄协调层，具体逻辑位于 `modules.outline.generation.*`
+
+## AI 生成子模块 (`modules.outline.generation`)
+
+`PlotStructureGenerator` 只负责串联三个阶段，避免成为“神类”：
+
+- **context_builder** — 组装 LLM 所需的 markdown 上下文与名称映射
+- **parser** — 调用 LLM、解析 JSON、重试与逐项降级
+- **persister** — 通过 outline service 层写入 thread/arc/scene/foreshadowing/reveal
+- **models** — 生成流程专用的 Pydantic 中间模型
+
+持久化层会对 LLM 输出做最小清洗（如 `arc_index` 归一化为 ≥1、`narrative_tag` 截断至 32 字符），以满足 schema/数据库约束。
 
 ## API
 

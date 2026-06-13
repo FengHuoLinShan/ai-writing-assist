@@ -634,7 +634,6 @@ class TestPlotStructureGenerateDuplicateRange:
         test_project_id: str,
     ) -> None:
         bundle = _make_bundle(test_project_id)
-        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
             mock.patch(
@@ -643,9 +642,6 @@ class TestPlotStructureGenerateDuplicateRange:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured"
             ) as mock_llm,
-            mock.patch(
-                "modules.outline.services._container_get", return_value=_mock_compile
-            ),
         ):
             mock_llm.return_value = _mock_llm_return_value()
             resp = await async_client.post(
@@ -670,7 +666,6 @@ class TestPlotStructureGenerateDuplicateRange:
         test_project_id: str,
     ) -> None:
         bundle = _make_bundle(test_project_id)
-        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
             mock.patch(
@@ -679,9 +674,6 @@ class TestPlotStructureGenerateDuplicateRange:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured"
             ) as mock_llm,
-            mock.patch(
-                "modules.outline.services._container_get", return_value=_mock_compile
-            ),
         ):
             mock_llm.return_value = _mock_llm_return_value()
             first = await async_client.post(

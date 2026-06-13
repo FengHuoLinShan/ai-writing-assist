@@ -178,7 +178,7 @@ class SceneCreate(BaseModel):
     emotional_beat: str | None = None
     must_happen: str | None = None
     must_not_happen: str | None = None
-    narrative_tag: str = "draft"
+    narrative_tag: Annotated[str, Field("draft", max_length=32)]
     source: str = "manual"
     scene_chunks: list[dict] = []
     chapter_ids: list[str] = []

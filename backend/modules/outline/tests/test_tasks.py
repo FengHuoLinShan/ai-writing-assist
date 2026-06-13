@@ -47,7 +47,6 @@ class TestPlotStructureGenerator:
         sample_novel_id: str,
     ) -> None:
         bundle = _make_bundle(sample_novel_id)
-        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
             mock.patch(
@@ -56,9 +55,6 @@ class TestPlotStructureGenerator:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured"
             ) as mock_llm,
-            mock.patch(
-                "modules.outline.services._container_get", return_value=_mock_compile
-            ),
         ):
             from pydantic import BaseModel
 
@@ -219,7 +215,6 @@ class TestPlotStructureGenerator:
     ) -> None:
         """LLM 返回空列表时不应崩溃"""
         bundle = _make_bundle(sample_novel_id)
-        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
             mock.patch(
@@ -228,9 +223,6 @@ class TestPlotStructureGenerator:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured"
             ) as mock_llm,
-            mock.patch(
-                "modules.outline.services._container_get", return_value=_mock_compile
-            ),
         ):
             from pydantic import BaseModel
 
@@ -337,7 +329,6 @@ class TestPlotStructureGenerator:
     ) -> None:
         """LLM 返回 Scene 数据时应创建 Scene 卡。"""
         bundle = _make_bundle(sample_novel_id)
-        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
             mock.patch(
@@ -346,9 +337,6 @@ class TestPlotStructureGenerator:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured"
             ) as mock_llm,
-            mock.patch(
-                "modules.outline.services._container_get", return_value=_mock_compile
-            ),
         ):
             from pydantic import BaseModel
 
@@ -486,7 +474,6 @@ class TestPlotStructureGenerator:
     ) -> None:
         """LLM 异常时应优雅降级"""
         bundle = _make_bundle(sample_novel_id)
-        _mock_compile = mock.AsyncMock(return_value=bundle)
 
         with (
             mock.patch(
@@ -495,9 +482,6 @@ class TestPlotStructureGenerator:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured",
                 side_effect=Exception("LLM down"),
-            ),
-            mock.patch(
-                "modules.outline.services._container_get", return_value=_mock_compile
             ),
         ):
             generator = PlotStructureGenerator()

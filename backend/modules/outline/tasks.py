@@ -3,11 +3,8 @@ from __future__ import annotations
 import logging
 
 from infrastructure.tasks.registry import task_handler
-from modules.outline.services import PlotStructureGenerator
 
 logger = logging.getLogger(__name__)
-
-_generator = PlotStructureGenerator()
 
 
 @task_handler("plot_structure_generate")
@@ -21,6 +18,11 @@ async def handle_plot_structure_generate(db, task):
     - start_chapter: 起始章节（可选，默认 1）
     - end_chapter: 结束章节（可选，默认 10）
     """
+    # 延迟导入，避免 infrastructure.tasks 初始化时形成循环依赖
+    from modules.outline.generator import PlotStructureGenerator
+
+    generator = PlotStructureGenerator()
+
     meta = task.meta or {}
     novel_id = meta.get("novel_id", "")
     start_chapter = int(meta.get("start_chapter", 1))
@@ -29,7 +31,7 @@ async def handle_plot_structure_generate(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for plot_structure_generate")
 
-    result = await _generator.generate(
+    result = await generator.generate(
         db,
         novel_id=novel_id,
         start_chapter=start_chapter,
