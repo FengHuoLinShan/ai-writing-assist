@@ -159,9 +159,7 @@ async def test_create_alias_entity_not_found_returns_404(
     alias_service: EntityAliasService,
 ) -> None:
     with pytest.raises(HTTPException) as exc_info:
-        await alias_service.create_alias(
-            db_session, novel_id, str(uuid.uuid4()), "Art"
-        )
+        await alias_service.create_alias(db_session, novel_id, str(uuid.uuid4()), "Art")
     assert exc_info.value.status_code == 404
     assert "Entity not found" in exc_info.value.detail
 
@@ -184,9 +182,7 @@ async def test_create_alias_cross_novel_returns_404(
     other_novel_id = str(uuid.uuid4())
 
     with pytest.raises(HTTPException) as exc_info:
-        await alias_service.create_alias(
-            db_session, other_novel_id, entity.id, "Art"
-        )
+        await alias_service.create_alias(db_session, other_novel_id, entity.id, "Art")
     assert exc_info.value.status_code == 404
     assert "Entity not found" in exc_info.value.detail
 
@@ -255,9 +251,7 @@ async def test_delete_alias_cross_novel_returns_404(
     other_novel_id = str(uuid.uuid4())
 
     with pytest.raises(HTTPException) as exc_info:
-        await alias_service.delete_alias(
-            db_session, other_novel_id, entity.id, "Art"
-        )
+        await alias_service.delete_alias(db_session, other_novel_id, entity.id, "Art")
     assert exc_info.value.status_code == 404
     assert "Entity not found" in exc_info.value.detail
 

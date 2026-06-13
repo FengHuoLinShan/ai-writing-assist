@@ -38,9 +38,7 @@ class EntityAliasService:
     ) -> list[dict]:
         """列出项目下所有实体的别名。"""
         nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self.repo.get_by_novel(
-            db, nid, limit=MAX_LIST_ALIAS_ENTITIES
-        )
+        entities, _ = await self.repo.get_by_novel(db, nid, limit=MAX_LIST_ALIAS_ENTITIES)
         result: list[dict] = []
         for entity in entities:
             aliases = (entity.content_json or {}).get("aliases", [])

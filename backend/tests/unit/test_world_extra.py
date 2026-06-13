@@ -395,21 +395,21 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
 
     async def test_no_entities_needing_backfill_returns_zero(self) -> None:
         db = self._make_db([])
-        result = await EntityEmbeddingService().backfill_embeddings(
-            db, str(uuid.uuid4())
-        )
+        result = await EntityEmbeddingService().backfill_embeddings(db, str(uuid.uuid4()))
         assert result == 0
 
-    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
+    @patch(
+        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+    )
     async def test_bge_unavailable_returns_zero(self, mock_get_instance) -> None:
         mock_get_instance.side_effect = RuntimeError("BGE not available")
         db = self._make_db([_mock_entity(name="Arthur")])
-        result = await EntityEmbeddingService().backfill_embeddings(
-            db, str(uuid.uuid4())
-        )
+        result = await EntityEmbeddingService().backfill_embeddings(db, str(uuid.uuid4()))
         assert result == 0
 
-    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
+    @patch(
+        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+    )
     async def test_happy_path_backfills_in_batches(self, mock_get_instance) -> None:
         bge = AsyncMock()
         bge.generate_embedding = AsyncMock(return_value=[[0.1], [0.2], [0.3], [0.4]])
@@ -426,7 +426,9 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
             assert e.embedding == [expected_val]
             assert e.embedding_text == e.name
 
-    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
+    @patch(
+        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+    )
     async def test_skips_empty_name_entities(self, mock_get_instance) -> None:
         bge = AsyncMock()
         bge.generate_embedding = AsyncMock(return_value=[[0.5]])
@@ -442,7 +444,9 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert result == 1
         assert valid.embedding == [0.5]
 
-    @patch("modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance")
+    @patch(
+        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+    )
     async def test_batch_failure_continues_to_next_batch(self, mock_get_instance) -> None:
         bge = AsyncMock()
         bge.generate_embedding = AsyncMock(

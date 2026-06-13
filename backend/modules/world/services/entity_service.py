@@ -118,5 +118,3 @@ class WorldEntityService(
             items=[CoreEntityResponse.model_validate(e) for e in items],
             total=total,
         )
-
-

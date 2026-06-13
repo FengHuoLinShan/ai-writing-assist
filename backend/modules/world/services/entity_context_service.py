@@ -44,9 +44,7 @@ class EntityContextService:
             project_ctx = await get_project_context(db, novel_id)
             expiry = 30
             if project_ctx is not None and project_ctx.settings:
-                expiry = project_ctx.settings.get(
-                    "temporary_entity_expiry_chapters", 30
-                )
+                expiry = project_ctx.settings.get("temporary_entity_expiry_chapters", 30)
 
             filtered: list[CoreEntity] = []
             for entity in entities:

@@ -139,9 +139,7 @@ async def test_expired_temp_entity_filtered_out(
             }
         },
     )
-    entity_service._repo.get_by_novel = AsyncMock(
-        return_value=([temp_entity], 1)
-    )
+    entity_service._repo.get_by_novel = AsyncMock(return_value=([temp_entity], 1))
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
         AsyncMock(
@@ -154,9 +152,7 @@ async def test_expired_temp_entity_filtered_out(
     )
     db = AsyncMock()
 
-    bundle = await entity_service.get_entity_context(
-        db, novel_id, current_chapter=50
-    )
+    bundle = await entity_service.get_entity_context(db, novel_id, current_chapter=50)
 
     assert bundle.total_count == 0
 
@@ -171,9 +167,7 @@ async def test_non_temp_entity_always_included(
         name="Hero",
         content_json={"_meta": {"temporary": False}},
     )
-    entity_service._repo.get_by_novel = AsyncMock(
-        return_value=([normal_entity], 1)
-    )
+    entity_service._repo.get_by_novel = AsyncMock(return_value=([normal_entity], 1))
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
         AsyncMock(
@@ -186,9 +180,7 @@ async def test_non_temp_entity_always_included(
     )
     db = AsyncMock()
 
-    bundle = await entity_service.get_entity_context(
-        db, novel_id, current_chapter=100
-    )
+    bundle = await entity_service.get_entity_context(db, novel_id, current_chapter=100)
 
     assert bundle.total_count == 1
     assert bundle.entities[0].entity_id == str(normal_entity.id)
@@ -200,18 +192,14 @@ async def test_list_entity_summaries_returns_id_name_type(
     entity_service: EntityContextService,
 ) -> None:
     entity = _make_entity(name="Hero", entity_type="character")
-    entity_service._repo.get_by_type_and_status = AsyncMock(
-        return_value=[entity]
-    )
+    entity_service._repo.get_by_type_and_status = AsyncMock(return_value=[entity])
     db = AsyncMock()
 
     summaries = await entity_service.list_entity_summaries(
         db, novel_id, entity_type="character"
     )
 
-    assert summaries == [
-        {"id": entity.id, "name": "Hero", "entity_type": "character"}
-    ]
+    assert summaries == [{"id": entity.id, "name": "Hero", "entity_type": "character"}]
     entity_service._repo.get_by_type_and_status.assert_awaited_once()
 
 

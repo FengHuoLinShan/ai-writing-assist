@@ -105,9 +105,7 @@ async def test_happy_path_backfills_in_batches(
         "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
     ):
-        count = await embedding_service.backfill_embeddings(
-            db, novel_id, batch_size=4
-        )
+        count = await embedding_service.backfill_embeddings(db, novel_id, batch_size=4)
 
     assert count == 4
     bge_mock.generate_embedding.assert_awaited_once_with(
@@ -171,9 +169,7 @@ async def test_batch_failure_continues_to_next_batch(
         "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
     ):
-        count = await embedding_service.backfill_embeddings(
-            db, novel_id, batch_size=2
-        )
+        count = await embedding_service.backfill_embeddings(db, novel_id, batch_size=2)
 
     assert count == 2
     assert entities[0].embedding is None
