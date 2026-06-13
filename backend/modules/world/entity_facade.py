@@ -12,12 +12,18 @@ from modules.world.schemas import (
     WorldEntityContext,
 )
 from modules.world.services import (
+    EntityAliasService,
+    EntityContextService,
+    EntityEmbeddingService,
     EntityRelationService,
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
 
 _entity_service = WorldEntityService()
+_context_service = EntityContextService()
+_alias_service = EntityAliasService()
+_embedding_service = EntityEmbeddingService()
 _relation_service = EntityRelationService()
 _dedup_service = EntityDedupService()
 
@@ -30,7 +36,7 @@ async def list_entities(
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """获取世界对象摘要列表"""
-    return await _entity_service.list_entity_summaries(
+    return await _context_service.list_entity_summaries(
         db,
         novel_id,
         entity_type=entity_type,
@@ -45,7 +51,7 @@ async def list_entity_terms(
     limit: int = 500,
 ) -> list[dict[str, Any]]:
     """获取世界对象检索词典项（名称 + 已确认别名）。"""
-    return await _entity_service.list_entity_terms(db, novel_id, limit=limit)
+    return await _context_service.list_entity_terms(db, novel_id, limit=limit)
 
 
 async def get_world_context(
@@ -57,7 +63,7 @@ async def get_world_context(
     current_chapter: int | None = None,
 ) -> WorldContextBundle:
     """获取世界上下文"""
-    return await _entity_service.get_entity_context(
+    return await _context_service.get_entity_context(
         db,
         novel_id,
         entity_ids=entity_ids,
@@ -91,7 +97,7 @@ async def find_entity_id_by_name(
     entity_type: str | None = None,
 ) -> str | None:
     """按名称查正史实体 ID。"""
-    return await _entity_service.find_by_name(
+    return await _context_service.find_by_name(
         db,
         novel_id,
         name,
@@ -304,7 +310,7 @@ async def backfill_entity_embeddings(
     batch_size: int = 64,
 ) -> int:
     """回填 novel 中缺少 embedding 的实体向量。返回回填数量。"""
-    return await _entity_service.backfill_embeddings(
+    return await _embedding_service.backfill_embeddings(
         db,
         novel_id,
         batch_size=batch_size,
