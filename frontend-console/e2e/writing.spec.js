@@ -329,6 +329,9 @@ test.describe("写作台模块", () => {
   // ============================================================
 
   test("离线恢复 — localStorage 后备内容", async ({ page }) => {
+    const backupContent = "本地暂存的离线内容"
+    const backupTitle = "离线标题"
+
     // 模拟：编辑后未保存就离开，内容被写入 localStorage
     await page.evaluate((projectId) => {
       const backupKey = `draft_backup_${projectId}_1`
@@ -340,20 +343,35 @@ test.describe("写作台模块", () => {
       }))
     }, testProjectId)
 
-    // 注入章节状态
+    // 注入章节状态（无服务端版本）
     await page.evaluate(() => {
       writingView._currentChapter = 1
       writingView._chapterList = [1]
       writingView._chapters[1] = { title: null, draftCount: 0 }
       writingView._currentContent = ""
       writingView._currentTitle = ""
+      writingView._versions = []
+      writingView._currentDraftId = null
+      writingView._currentVersionNumber = null
       return writingView._rerender()
     })
 
-    // 导航到别的章节再回来，触发 _refreshVersions 里的备份检查
-    // _refreshVersions 在调用时如果 versions 为空会检查 localStorage 备份
-    // 但由于我们是通过 evaluate 注入状态而非真实 API 创建，需要直接验证 API
-    await expect(page.locator("#writing-editor")).toBeVisible()
+    // 触发版本刷新，应检测到 localStorage 备份并弹出恢复确认
+    // 使用 fire-and-forget 方式，避免 evaluate 阻塞在 confirm 回调上
+    await page.evaluate(() => {
+      writingView._refreshVersions(1)
+    })
+
+    await expect(page.locator(SEL.modalOverlay)).toBeVisible({ timeout: 5000 })
+    await expect(page.locator(SEL.modalBody)).toContainText("检测到本地暂存")
+    await page.locator(`${SEL.modalFooter} .btn-danger`).click()
+
+    // 恢复后重新渲染，使备份内容写入 DOM
+    await page.evaluate(() => writingView._rerender())
+
+    // 断言备份内容已恢复到编辑器
+    await expect(page.locator("#writing-editor")).toHaveValue(backupContent, { timeout: 5000 })
+    await expect(page.locator("#writing-title-input")).toHaveValue(backupTitle, { timeout: 5000 })
   })
 
   // ============================================================
