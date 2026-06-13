@@ -11,6 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.markdown_renderer import (
+    render_compiled_context as _render_compiled_context,
+)
+from modules.context.markdown_renderer import (
     render_context_markdown as _render_markdown,
 )
 from modules.context.services import ContextCompiler
@@ -102,12 +105,36 @@ async def compile_with_tiers(
     task: str,
     scope: str,
     budget_tokens: int = 4000,
+    scene_id: str | None = None,
     **kwargs,
 ) -> CompiledContext:
     options = CompileOptions(
         novel_id=novel_id,
         task=task,
         scope=scope,
+        scene_id=scene_id,
+        budget_tokens=budget_tokens,
         **kwargs,
     )
     return await _compiler.compile_with_tiers(db, options, budget_tokens=budget_tokens)
+
+
+async def render_compiled_context_markdown(
+    db: AsyncSession,
+    novel_id: str,
+    task: str,
+    scope: str,
+    budget_tokens: int = 4000,
+    scene_id: str | None = None,
+    **kwargs,
+) -> str:
+    ctx = await compile_with_tiers(
+        db,
+        novel_id,
+        task,
+        scope,
+        budget_tokens=budget_tokens,
+        scene_id=scene_id,
+        **kwargs,
+    )
+    return _render_compiled_context(ctx)

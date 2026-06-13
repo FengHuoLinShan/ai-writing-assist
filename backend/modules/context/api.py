@@ -10,47 +10,103 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from core.dependencies import DbSession
-from modules.context.contracts import CONTEXT_BUDGET
-from modules.context.facade import compile_structure_context, render_context_markdown
+from modules.context.facade import compile_with_tiers
+from modules.context.markdown_renderer import render_compiled_context
 from modules.context.schemas import (
-    BudgetUsedItem,
     ContextCompileRequest,
-    ContextCompileResponse,
     ContextRenderRequest,
     ContextRenderResponse,
+    ContextSectionItem,
+    ContextTierCompileResponse,
+)
+from modules.context.services.compiled_context import CompiledContext
+
+_VALID_SCOPES: frozenset[str] = frozenset(
+    {"project", "world", "world_character", "arc", "chapter", "full"}
 )
 
 router = APIRouter(prefix="/api/context", tags=["context"])
 
 
-@router.post("/compile", response_model=ContextCompileResponse)
+def _build_tier_compile_response(
+    request: ContextCompileRequest | ContextRenderRequest,
+    ctx: CompiledContext,
+) -> ContextTierCompileResponse:
+    """从 CompiledContext IR 构建 ContextTierCompileResponse。"""
+    warnings: list[str] = []
+    for s in ctx.sections:
+        if s.key == "compiler_warnings":
+            warnings.append(s.content)
+
+    return ContextTierCompileResponse(
+        novel_id=request.novel_id,
+        task=request.task,
+        scope=request.scope,
+        reveal_mode=request.reveal_mode,
+        scene_id=request.scene_id,
+        viewpoint_character_id=request.viewpoint_character_id,
+        total_tokens=ctx.total_tokens,
+        budget_tokens=ctx.budget_tokens,
+        sections=[
+            ContextSectionItem(
+                key=s.key,
+                tier=int(s.tier),
+                content=s.content,
+                token_count=s.token_count,
+                truncated=s.key in ctx.truncated_keys,
+            )
+            for s in ctx.sections
+        ],
+        evicted=ctx.evicted_keys,
+        truncated=ctx.truncated_keys,
+        warnings=warnings,
+    )
+
+
+def _validate_scope(
+    request: ContextCompileRequest | ContextRenderRequest,
+) -> None:
+    """scope 必须是受支持的取值之一。"""
+    if request.scope not in _VALID_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"无效的 scope: {request.scope}，"
+                f"必须是 {', '.join(sorted(_VALID_SCOPES))} 之一"
+            ),
+        )
+
+
+def _validate_character_reveal_mode(
+    request: ContextCompileRequest | ContextRenderRequest,
+) -> None:
+    """character 揭示模式必须提供 viewpoint_character_id。"""
+    if request.reveal_mode == "character" and not request.viewpoint_character_id:
+        raise HTTPException(
+            status_code=400,
+            detail="character 揭示模式必须提供 viewpoint_character_id",
+        )
+
+
+@router.post("/compile", response_model=ContextTierCompileResponse)
 async def compile_context(
     db: DbSession,
     request: ContextCompileRequest,
-) -> ContextCompileResponse:
+) -> ContextTierCompileResponse:
     """编译结构化创作上下文
 
-    根据 scope 从各模块按需加载数据，返回结构化的上下文包（内存对象）。
+    根据 scope 从各模块按需加载数据，返回 Tier 化的编译 IR。
     """
-    if request.scope not in (
-        "project",
-        "world",
-        "world_character",
-        "arc",
-        "chapter",
-        "full",
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=f"不支持的 scope: {request.scope}。"
-            f"支持: project / world / world_character / arc / chapter / full",
-        )
+    _validate_scope(request)
+    _validate_character_reveal_mode(request)
 
-    bundle = await compile_structure_context(
+    ctx = await compile_with_tiers(
         db=db,
         novel_id=request.novel_id,
         task=request.task,
         scope=request.scope,
+        budget_tokens=request.budget_tokens,
+        scene_id=request.scene_id,
         chapter_index=request.chapter_index,
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
@@ -61,48 +117,7 @@ async def compile_context(
         viewpoint_character_id=request.viewpoint_character_id,
     )
 
-    # 统计非空段落
-    sections_present = []
-    if bundle.project:
-        sections_present.append("project")
-    if bundle.world_entities:
-        sections_present.append("world_entities")
-    if bundle.characters:
-        sections_present.append("characters")
-    if bundle.geo_locations:
-        sections_present.append("geo_locations")
-    if bundle.memory_records:
-        sections_present.append("memory_records")
-    if bundle.timeline_events:
-        sections_present.append("timeline_events")
-    if bundle.plot_threads:
-        sections_present.append("plot_threads")
-    if bundle.outline_arc:
-        sections_present.append("outline_arc")
-    if bundle.chapter_card:
-        sections_present.append("chapter_card")
-    if bundle.rag_chunks:
-        sections_present.append("rag_chunks")
-
-    budgets = [
-        BudgetUsedItem(
-            category=k,
-            budget=CONTEXT_BUDGET.get(k, 10),
-            used=v,
-        )
-        for k, v in bundle.budget_used.items()
-    ]
-
-    return ContextCompileResponse(
-        novel_id=bundle.novel_id,
-        task=bundle.task,
-        scope=bundle.scope,
-        reveal_mode=bundle.reveal_mode,
-        budgets=budgets,
-        warnings=bundle.warnings,
-        section_count=len(sections_present),
-        sections_present=sections_present,
-    )
+    return _build_tier_compile_response(request, ctx)
 
 
 @router.post("/render", response_model=ContextRenderResponse)
@@ -112,27 +127,19 @@ async def render_context(
 ) -> ContextRenderResponse:
     """编译 + 渲染上下文为 Markdown
 
-    一次调用完成编译和 Markdown 渲染，返回可直接放入 LLM Prompt 的文本。
+    一次调用完成 Tier IR 编译和 Markdown 渲染，返回可直接放入 LLM Prompt 的文本
+    以及编译元信息。
     """
-    if request.scope not in (
-        "project",
-        "world",
-        "world_character",
-        "arc",
-        "chapter",
-        "full",
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=f"不支持的 scope: {request.scope}。"
-            f"支持: project / world / world_character / arc / chapter / full",
-        )
+    _validate_scope(request)
+    _validate_character_reveal_mode(request)
 
-    bundle = await compile_structure_context(
+    ctx = await compile_with_tiers(
         db=db,
         novel_id=request.novel_id,
         task=request.task,
         scope=request.scope,
+        budget_tokens=request.budget_tokens,
+        scene_id=request.scene_id,
         chapter_index=request.chapter_index,
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
@@ -143,45 +150,8 @@ async def render_context(
         viewpoint_character_id=request.viewpoint_character_id,
     )
 
-    markdown = render_context_markdown(bundle)
-
-    # 统计
-    sections_present = [
-        k
-        for k, v in {
-            "project": bundle.project,
-            "world_entities": bundle.world_entities,
-            "characters": bundle.characters,
-            "geo_locations": bundle.geo_locations,
-            "memory_records": bundle.memory_records,
-            "timeline_events": bundle.timeline_events,
-            "plot_threads": bundle.plot_threads,
-            "outline_arc": bundle.outline_arc,
-            "chapter_card": bundle.chapter_card,
-            "rag_chunks": bundle.rag_chunks,
-        }.items()
-        if v
-    ]
-
-    budgets = [
-        BudgetUsedItem(
-            category=k,
-            budget=CONTEXT_BUDGET.get(k, 10),
-            used=v,
-        )
-        for k, v in bundle.budget_used.items()
-    ]
-
-    compile_info = ContextCompileResponse(
-        novel_id=bundle.novel_id,
-        task=bundle.task,
-        scope=bundle.scope,
-        reveal_mode=bundle.reveal_mode,
-        budgets=budgets,
-        warnings=bundle.warnings,
-        section_count=len(sections_present),
-        sections_present=sections_present,
-    )
+    markdown = render_compiled_context(ctx)
+    compile_info = _build_tier_compile_response(request, ctx)
 
     return ContextRenderResponse(
         markdown=markdown,

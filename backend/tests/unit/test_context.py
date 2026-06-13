@@ -26,18 +26,24 @@ from modules.context.contracts import (
     CONTEXT_BUDGET,
     StructureContextBundle,
 )
-from modules.context.facade import compile_structure_context, render_context_markdown
+from modules.context.facade import (
+    compile_structure_context,
+    render_context_markdown,
+)
 from modules.context.schemas import (
     BudgetUsedItem,
     ContextCompileRequest,
-    ContextCompileResponse,
     ContextRenderRequest,
     ContextRenderResponse,
     ContextSectionItem,
     ContextTierCompileResponse,
 )
 from modules.context.services import CompileOptions, ContextCompiler
-from modules.context.services.compiled_context import CompiledContext, ContextSection, Tier
+from modules.context.services.compiled_context import (
+    CompiledContext,
+    ContextSection,
+    Tier,
+)
 from modules.context.services.constraint_engine import ConstraintEngine
 from modules.context.services.context_compiler import SCOPE_LOADERS
 from modules.context.services.loaders import (
@@ -436,9 +442,24 @@ class TestNineTierIR:
     def test_enforce_budget_tracks_evicted_keys(self) -> None:
         """P4/P3 被整体淘汰时应记录 evicted_keys"""
         sections = [
-            ContextSection(key="writing_objective", tier=Tier.P0, content="目标", token_count=10),
-            ContextSection(key="style_assets", tier=Tier.P3, content="风格" * 100, token_count=200),
-            ContextSection(key="compiler_warnings", tier=Tier.P4, content="警告" * 100, token_count=200),
+            ContextSection(
+                key="writing_objective",
+                tier=Tier.P0,
+                content="目标",
+                token_count=10,
+            ),
+            ContextSection(
+                key="style_assets",
+                tier=Tier.P3,
+                content="风格" * 100,
+                token_count=200,
+            ),
+            ContextSection(
+                key="compiler_warnings",
+                tier=Tier.P4,
+                content="警告" * 100,
+                token_count=200,
+            ),
         ]
         ctx = CompiledContext(sections=sections, total_tokens=410, budget_tokens=20)
         result = ctx.enforce_budget()
@@ -450,7 +471,12 @@ class TestNineTierIR:
         """P2 逐条截断时应记录 truncated_keys"""
         p2_content = "\n".join(f"item-{i:02d}" for i in range(20))
         sections = [
-            ContextSection(key="writing_objective", tier=Tier.P0, content="目标", token_count=10),
+            ContextSection(
+                key="writing_objective",
+                tier=Tier.P0,
+                content="目标",
+                token_count=10,
+            ),
             ContextSection(
                 key="open_narrative_obligations",
                 tier=Tier.P2,
@@ -468,8 +494,18 @@ class TestNineTierIR:
         """P1 Delta 压缩时应记录 truncated_keys"""
         p1_content = "\n".join(f"delta-{i:02d}" for i in range(20))
         sections = [
-            ContextSection(key="writing_objective", tier=Tier.P0, content="目标", token_count=10),
-            ContextSection(key="delta_timeline", tier=Tier.P1, content=p1_content, token_count=200),
+            ContextSection(
+                key="writing_objective",
+                tier=Tier.P0,
+                content="目标",
+                token_count=10,
+            ),
+            ContextSection(
+                key="delta_timeline",
+                tier=Tier.P1,
+                content=p1_content,
+                token_count=200,
+            ),
         ]
         ctx = CompiledContext(sections=sections, total_tokens=210, budget_tokens=50)
         result = ctx.enforce_budget()
@@ -1546,19 +1582,37 @@ class TestMarkdownRendererEdgeCases:
 class TestContextApi:
     """测试 API 路由"""
 
-    @pytest.mark.asyncio
-    async def test_compile_context_success(self) -> None:
-        """POST /api/context/compile 应返回编译结果"""
-        mock_bundle = StructureContextBundle(
-            novel_id="nid",
-            task="测试",
-            scope="project",
-            budget_used={},
+    def _compiled_context(self) -> CompiledContext:
+        """构造一个用于 API 测试的 CompiledContext。"""
+        return CompiledContext(
+            sections=[
+                ContextSection(
+                    key="writing_objective",
+                    tier=Tier.P0,
+                    content="创作目标",
+                    token_count=10,
+                ),
+                ContextSection(
+                    key="compiler_warnings",
+                    tier=Tier.P4,
+                    content="测试警告",
+                    token_count=5,
+                ),
+            ],
+            total_tokens=15,
+            budget_tokens=4000,
+            evicted_keys=[],
+            truncated_keys=[],
         )
 
+    @pytest.mark.asyncio
+    async def test_compile_context_success(self) -> None:
+        """POST /api/context/compile 应返回 Tier 编译结果"""
+        mock_ctx = self._compiled_context()
+
         with patch(
-            "modules.context.api.compile_structure_context",
-            AsyncMock(return_value=mock_bundle),
+            "modules.context.api.compile_with_tiers",
+            AsyncMock(return_value=mock_ctx),
         ):
             from modules.context.api import compile_context
 
@@ -1572,13 +1626,34 @@ class TestContextApi:
                 request=request,
             )
 
-        assert isinstance(response, ContextCompileResponse)
+        assert isinstance(response, ContextTierCompileResponse)
         assert response.novel_id == "nid"
         assert response.scope == "project"
+        assert response.total_tokens == 15
+        assert response.budget_tokens == 4000
+        assert len(response.sections) == 2
+        assert response.sections[0].key == "writing_objective"
 
     @pytest.mark.asyncio
-    async def test_compile_context_invalid_scope_raises(self) -> None:
-        """无效 scope 应抛出 400"""
+    async def test_compile_context_character_reveal_requires_viewpoint(self) -> None:
+        """character 揭示模式未提供 viewpoint_character_id 应抛出 400"""
+        from modules.context.api import compile_context
+
+        request = ContextCompileRequest(
+            novel_id="nid",
+            task="测试",
+            scope="project",
+            reveal_mode="character",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await compile_context(db=MagicMock(), request=request)
+
+        assert exc_info.value.status_code == 400
+        assert "viewpoint_character_id" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_compile_context_invalid_scope_raises_400(self) -> None:
+        """无效 scope 在 /compile 中应抛出 400"""
         from modules.context.api import compile_context
 
         request = ContextCompileRequest(
@@ -1590,21 +1665,23 @@ class TestContextApi:
             await compile_context(db=MagicMock(), request=request)
 
         assert exc_info.value.status_code == 400
-        assert "不支持的 scope" in exc_info.value.detail
+        assert "invalid_scope" in exc_info.value.detail
+        assert "scope" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
     async def test_render_context_success(self) -> None:
-        """POST /api/context/render 应返回编译+渲染结果"""
-        mock_bundle = StructureContextBundle(
-            novel_id="nid",
-            task="测试",
-            scope="project",
-            budget_used={},
-        )
+        """POST /api/context/render 应返回 Markdown + Tier 编译信息"""
+        mock_ctx = self._compiled_context()
 
-        with patch(
-            "modules.context.api.compile_structure_context",
-            AsyncMock(return_value=mock_bundle),
+        with (
+            patch(
+                "modules.context.api.render_compiled_context",
+                MagicMock(return_value="# 渲染结果\n"),
+            ),
+            patch(
+                "modules.context.api.compile_with_tiers",
+                AsyncMock(return_value=mock_ctx),
+            ),
         ):
             from modules.context.api import render_context
 
@@ -1619,24 +1696,46 @@ class TestContextApi:
             )
 
         assert isinstance(response, ContextRenderResponse)
-        assert "# 结构化创作上下文" in response.markdown
+        assert "# 渲染结果" in response.markdown
+        assert isinstance(response.compile_info, ContextTierCompileResponse)
         assert response.compile_info.novel_id == "nid"
+        assert response.compile_info.total_tokens == 15
+        assert response.compile_info.budget_tokens == 4000
+        assert len(response.compile_info.sections) == 2
 
     @pytest.mark.asyncio
-    async def test_render_context_invalid_scope_raises(self) -> None:
-        """无效 scope 应抛出 400"""
+    async def test_render_context_invalid_scope_raises_400(self) -> None:
+        """无效 scope 在 /render 中应抛出 400"""
         from modules.context.api import render_context
 
         request = ContextRenderRequest(
             novel_id="nid",
             task="测试",
-            scope="bad",
+            scope="bad_scope",
         )
         with pytest.raises(HTTPException) as exc_info:
             await render_context(db=MagicMock(), request=request)
 
         assert exc_info.value.status_code == 400
-        assert "不支持的 scope" in exc_info.value.detail
+        assert "bad_scope" in exc_info.value.detail
+        assert "scope" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_render_context_character_reveal_requires_viewpoint(self) -> None:
+        """character 揭示模式未提供 viewpoint_character_id 应抛出 400"""
+        from modules.context.api import render_context
+
+        request = ContextRenderRequest(
+            novel_id="nid",
+            task="测试",
+            scope="project",
+            reveal_mode="character",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await render_context(db=MagicMock(), request=request)
+
+        assert exc_info.value.status_code == 400
+        assert "viewpoint_character_id" in exc_info.value.detail
 
 
 # ============================================================
@@ -1742,17 +1841,24 @@ class TestSchemaValidation:
 
     def test_compile_response_with_warnings(self) -> None:
         """编译响应应能包含警告"""
-        resp = ContextCompileResponse(
+        resp = ContextTierCompileResponse(
             novel_id="id",
             task="t",
             scope="full",
             reveal_mode="author_safe",
             warnings=["数据库连接失败"],
-            section_count=3,
-            sections_present=["project", "world_entities", "characters"],
+            sections=[
+                ContextSectionItem(
+                    key="project",
+                    tier=0,
+                    content="项目信息",
+                    token_count=10,
+                ),
+            ],
         )
         assert len(resp.warnings) == 1
-        assert resp.section_count == 3
+        assert resp.total_tokens == 0
+        assert len(resp.sections) == 1
 
     def test_render_request_all_fields(self) -> None:
         """渲染请求应接受所有字段"""
@@ -1783,16 +1889,23 @@ class TestSchemaValidation:
         }
 
     def test_compile_response_sections_count(self) -> None:
-        """section_count 应与 sections_present 长度一致"""
-        resp = ContextCompileResponse(
+        """sections 长度应与返回的段数一致"""
+        resp = ContextTierCompileResponse(
             novel_id="id",
             task="t",
             scope="world",
             reveal_mode="author_safe",
-            sections_present=["project"],
-            section_count=1,
+            sections=[
+                ContextSectionItem(
+                    key="project",
+                    tier=0,
+                    content="项目信息",
+                    token_count=10,
+                ),
+            ],
         )
-        assert resp.section_count == len(resp.sections_present)
+        assert len(resp.sections) == 1
+        assert resp.budget_tokens == 4000
 
     def test_compile_request_accepts_scene_id_and_budget_tokens(self) -> None:
         """编译请求应接受 scene_id 和 budget_tokens"""

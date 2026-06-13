@@ -52,15 +52,17 @@ class TestImports:
         from modules.context.schemas import (
             BudgetUsedItem,
             ContextCompileRequest,
-            ContextCompileResponse,
             ContextRenderRequest,
             ContextRenderResponse,
+            ContextSectionItem,
+            ContextTierCompileResponse,
         )
 
         assert ContextCompileRequest is not None
-        assert ContextCompileResponse is not None
         assert ContextRenderRequest is not None
         assert ContextRenderResponse is not None
+        assert ContextSectionItem is not None
+        assert ContextTierCompileResponse is not None
         assert BudgetUsedItem is not None
 
     def test_import_facade(self) -> None:

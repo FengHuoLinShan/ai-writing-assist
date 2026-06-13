@@ -154,7 +154,7 @@ class ContextRenderResponse(BaseModel):
     """上下文编译 + Markdown 渲染响应"""
 
     markdown: str = Field(..., description="渲染后的 Markdown 文本")
-    compile_info: ContextCompileResponse = Field(
+    compile_info: ContextTierCompileResponse = Field(
         ...,
         description="编译元信息",
     )
