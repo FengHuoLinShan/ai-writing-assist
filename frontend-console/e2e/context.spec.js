@@ -45,6 +45,8 @@ test.describe("上下文模块", () => {
   test("上下文编译页面加载", async ({ page }) => {
     await expect(page.locator("#ctx-task")).toBeVisible()
     await expect(page.locator("#ctx-scope")).toBeVisible()
+    await expect(page.locator("#ctx-scene")).toBeVisible()
+    await expect(page.locator("#ctx-budget")).toBeVisible()
     await expect(page.locator("#ctx-reveal")).toBeVisible()
     await expect(page.locator('[data-action="compile"]')).toBeVisible()
   })
@@ -88,7 +90,7 @@ test.describe("上下文模块", () => {
     await page.locator("#ctx-task").fill("写角色视角场景")
     await page.locator('[data-action="compile"]').click()
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("请输入视角人物 ID", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("角色视角模式必须选择或输入视角人物 ID", { timeout: 10000 })
     expect(compileCalled).toBeFalsy()
   })
 
@@ -126,5 +128,37 @@ test.describe("上下文模块", () => {
     expect(requests.at(-1).reveal_mode).toBe("character")
     expect(requests.at(-1).character_ids).toEqual(["00000000-0000-0000-0000-000000000123"])
     expect(requests.at(-1).viewpoint_character_id).toBe("00000000-0000-0000-0000-000000000123")
+  })
+
+  test("提交编译请求包含 budget_tokens 和 reveal_mode", async ({ page }) => {
+    const requests = []
+    await page.route("**/api/context/compile", async (route) => {
+      const body = route.request().postDataJSON()
+      requests.push(body)
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          novel_id: body.novel_id,
+          task: body.task,
+          scope: body.scope,
+          reveal_mode: body.reveal_mode,
+          total_tokens: 500,
+          budget_tokens: body.budget_tokens,
+          sections: [{ key: "project", tier: "core", token_count: 500, truncated: false }],
+          evicted: [],
+          truncated: [],
+          warnings: [],
+        }),
+      })
+    })
+
+    await page.locator("#ctx-budget").fill("2500")
+    await page.locator("#ctx-reveal").selectOption("author_full")
+    await page.locator("#ctx-task").fill("验证请求契约")
+    await page.locator('[data-action="compile"]').click()
+
+    await expect(page.locator("#ctx-output")).toContainText("2500", { timeout: 10000 })
+    expect(requests.at(-1).budget_tokens).toBe(2500)
+    expect(requests.at(-1).reveal_mode).toBe("author_full")
   })
 })

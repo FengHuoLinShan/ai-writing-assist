@@ -54,17 +54,21 @@ describe("context compile result", () => {
     document.body.append(output)
 
     contextView._renderCompileResult({
-      section_count: 2,
+      total_tokens: 100,
+      budget_tokens: 1000,
       scope: "<script>alert('scope')</script>",
       reveal_mode: "author_safe",
-      budgets: [{ category: "core_entities", budget: 100, used: 10 }],
-      sections_present: ["<script>alert('section')</script>"],
+      sections: [{ key: "<script>alert('section')</script>", tier: "core", token_count: 100, truncated: false }],
+      evicted: ["<script>alert('evicted')</script>"],
+      truncated: ["<script>alert('truncated')</script>"],
       warnings: ["<script>alert('warning')</script>"],
     })
 
     expect(output.querySelector("script")).toBeNull()
     expect(output.textContent).toContain("<script>alert('scope')</script>")
     expect(output.textContent).toContain("<script>alert('section')</script>")
+    expect(output.textContent).toContain("<script>alert('evicted')</script>")
+    expect(output.textContent).toContain("<script>alert('truncated')</script>")
     expect(output.textContent).toContain("<script>alert('warning')</script>")
   })
 })
