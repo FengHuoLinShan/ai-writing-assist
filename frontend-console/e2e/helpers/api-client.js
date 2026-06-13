@@ -97,6 +97,20 @@ export async function listScenesOrdered(novelId) {
   return request(`/outline/scenes/ordered?novel_id=${encodeURIComponent(novelId)}`)
 }
 
+export async function createThread(novelId, data) {
+  return request(`/outline/threads?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function createArc(novelId, data) {
+  return request(`/outline/arcs?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
 // ---- World helpers ----
 
 export async function createEntity(novelId, data) {

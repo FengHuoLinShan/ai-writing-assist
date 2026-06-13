@@ -44,8 +44,8 @@ test.describe("RAG 检索模块", () => {
 
   test("搜索空结果", async ({ page }) => {
     // Mock 搜索接口返回空结果，避免新项目无索引导致 API 报错
-    await page.route("**/api/rag/search", async (route) => {
-      await route.fulfill({ status: 200, body: JSON.stringify({ chunks: [] }) })
+    await page.route("**/api/rag/retrieve**", async (route) => {
+      await route.fulfill({ status: 200, body: JSON.stringify({ chunks: [], total: 0, query: "不存在的词", warnings: [], degraded: false }) })
     })
 
     await page.locator('.subnav-item[data-action="nav-search"]').click()
