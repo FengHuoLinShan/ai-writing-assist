@@ -339,11 +339,13 @@ async def test_merge_candidate_into_entity_service_exception_propagates(
 # ===========================================================================
 
 
-@mock.patch("modules.world.entity_facade._entity_service")
-async def test_backfill_entity_embeddings_happy_path_returns_count(mock_entity_service):
-    """Delegates to entity_service.backfill_embeddings with default batch_size."""
+@mock.patch("modules.world.entity_facade._embedding_service")
+async def test_backfill_entity_embeddings_happy_path_returns_count(
+    mock_embedding_service,
+):
+    """Delegates to _embedding_service.backfill_embeddings with default batch_size."""
     # Arrange
-    mock_entity_service.backfill_embeddings = mock.AsyncMock(return_value=7)
+    mock_embedding_service.backfill_embeddings = mock.AsyncMock(return_value=7)
     db = mock.AsyncMock()
 
     # Act
@@ -351,18 +353,18 @@ async def test_backfill_entity_embeddings_happy_path_returns_count(mock_entity_s
 
     # Assert
     assert result == 7
-    mock_entity_service.backfill_embeddings.assert_awaited_once_with(
+    mock_embedding_service.backfill_embeddings.assert_awaited_once_with(
         db, TEST_NOVEL_ID, batch_size=64
     )
 
 
-@mock.patch("modules.world.entity_facade._entity_service")
+@mock.patch("modules.world.entity_facade._embedding_service")
 async def test_backfill_entity_embeddings_custom_batch_size_forwards_value(
-    mock_entity_service,
+    mock_embedding_service,
 ):
     """Custom batch_size is passed through to the service."""
     # Arrange
-    mock_entity_service.backfill_embeddings = mock.AsyncMock(return_value=0)
+    mock_embedding_service.backfill_embeddings = mock.AsyncMock(return_value=0)
     db = mock.AsyncMock()
 
     # Act
@@ -370,18 +372,18 @@ async def test_backfill_entity_embeddings_custom_batch_size_forwards_value(
 
     # Assert
     assert result == 0
-    mock_entity_service.backfill_embeddings.assert_awaited_once_with(
+    mock_embedding_service.backfill_embeddings.assert_awaited_once_with(
         db, TEST_NOVEL_ID, batch_size=128
     )
 
 
-@mock.patch("modules.world.entity_facade._entity_service")
+@mock.patch("modules.world.entity_facade._embedding_service")
 async def test_backfill_entity_embeddings_service_exception_propagates(
-    mock_entity_service,
+    mock_embedding_service,
 ):
     """Exceptions from the underlying service bubble up unchanged."""
     # Arrange
-    mock_entity_service.backfill_embeddings = mock.AsyncMock(
+    mock_embedding_service.backfill_embeddings = mock.AsyncMock(
         side_effect=TimeoutError("embedder timeout")
     )
     db = mock.AsyncMock()
