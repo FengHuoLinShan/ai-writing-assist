@@ -200,12 +200,56 @@ test.describe("世界对象模块", () => {
     // When: 点击人物行的"知识"按钮，填写知识条目
     await page.locator('tr:has-text("主角") [data-action="knowledge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("添加知识边界")
-    await page.locator("#knowledge-target-id").fill(target.id)
+    await page.locator("#knowledge-target-id").selectOption(target.id)
     await page.locator("#knowledge-level").selectOption("partial")
     await page.locator("#knowledge-content").fill("知道组织存在，但不了解核心")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
     // Then: 提示添加成功
     await expect(page.locator(SEL.toastContainer)).toContainText("知识边界已添加", { timeout: 10000 })
+  })
+
+  test("按类型过滤对象", async ({ page }) => {
+    await createEntity(testProjectId, { name: "测试地点", entity_type: "location", status: "canonical" })
+    await createEntity(testProjectId, { name: "测试组织", entity_type: "faction", status: "canonical" })
+
+    await reloadWorkbench(page, "world", "objects")
+    await expect(page.locator(SEL.dataTable)).toContainText("测试地点")
+    await expect(page.locator(SEL.dataTable)).toContainText("测试组织")
+
+    await page.locator("#filter-entity-type").selectOption("location")
+    await page.locator('[data-action="apply-filters"]').click()
+
+    await expect(page.locator(SEL.dataTable)).toContainText("测试地点")
+    await expect(page.locator(SEL.dataTable)).not.toContainText("测试组织")
+  })
+
+  test("按名称搜索对象", async ({ page }) => {
+    await createEntity(testProjectId, { name: "搜索目标", entity_type: "item", status: "canonical" })
+    await createEntity(testProjectId, { name: "其他对象", entity_type: "item", status: "canonical" })
+
+    await reloadWorkbench(page, "world", "objects")
+    await expect(page.locator(SEL.dataTable)).toContainText("搜索目标")
+
+    await page.locator("#filter-q").fill("搜索目标")
+    await page.locator('[data-action="apply-filters"]').click()
+
+    await expect(page.locator(SEL.dataTable)).toContainText("搜索目标")
+    await expect(page.locator(SEL.dataTable)).not.toContainText("其他对象")
+  })
+
+  test("对象库分页", async ({ page }) => {
+    for (let i = 0; i < 22; i++) {
+      await createEntity(testProjectId, { name: `分页对象 ${i}`, entity_type: "item", status: "canonical" })
+    }
+
+    await reloadWorkbench(page, "world", "objects")
+    await expect(page.locator(SEL.dataTable)).toContainText("分页对象 0")
+
+    // 默认每页 20 条，应出现分页信息
+    await expect(page.locator('[data-action="next-page"]')).toBeVisible()
+    await page.locator('[data-action="next-page"]').click()
+
+    await expect(page.locator(SEL.dataTable)).toContainText("分页对象 20")
   })
 })

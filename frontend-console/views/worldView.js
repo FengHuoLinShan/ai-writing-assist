@@ -10,6 +10,37 @@ const worldView = {
   /** @type {Array} */
   _batches: [],
 
+  _total: 0,
+
+  _filters: {
+    entity_type: "",
+    status: "",
+    q: "",
+    skip: 0,
+    limit: 20,
+  },
+
+  _entityTypes: [
+    { value: "character", label: "人物" },
+    { value: "location", label: "地点" },
+    { value: "faction", label: "组织" },
+    { value: "item", label: "物品" },
+    { value: "event", label: "事件" },
+    { value: "rule", label: "规则" },
+    { value: "power_system", label: "能力体系" },
+    { value: "secret", label: "秘密" },
+    { value: "legend", label: "传说" },
+    { value: "resource", label: "资源" },
+  ],
+
+  _statuses: [
+    { value: "draft", label: "草稿" },
+    { value: "candidate", label: "候选" },
+    { value: "canonical", label: "正史" },
+    { value: "deprecated", label: "废弃" },
+    { value: "merged", label: "已合并" },
+  ],
+
   /** AI 自动识别状态 */
   _autoExtractOpen: false,
   _autoExtractTaskId: null,
@@ -19,6 +50,7 @@ const worldView = {
   async onEnter() {
     this._entities = []
     this._batches = []
+    this._total = 0
 
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
@@ -38,14 +70,7 @@ const worldView = {
       } catch {}
     }
 
-    try {
-      if (state.currentProjectId) {
-        const data = await api.world.listEntities({ novel_id: state.currentProjectId })
-        this._entities = data.items || data || []
-      }
-    } catch {
-      this._entities = []
-    }
+    await this._loadEntities()
 
     try {
       if (state.currentProjectId) {
@@ -53,6 +78,30 @@ const worldView = {
       }
     } catch {
       this._batches = []
+    }
+  },
+
+  async _loadEntities() {
+    this._entities = []
+    this._total = 0
+    if (!state.currentProjectId) return
+
+    try {
+      const params = {
+        novel_id: state.currentProjectId,
+        skip: this._filters.skip,
+        limit: this._filters.limit,
+      }
+      if (this._filters.entity_type) params.entity_type = this._filters.entity_type
+      if (this._filters.status) params.status = this._filters.status
+      if (this._filters.q) params.q = this._filters.q
+
+      const data = await api.world.listEntities(params)
+      this._entities = data.items || data || []
+      this._total = data.total || this._entities.length
+    } catch {
+      this._entities = []
+      this._total = 0
     }
   },
 
@@ -160,13 +209,12 @@ const worldView = {
         if (data.status === "done") {
           toast("识别任务已完成，对象已自动入库", "success")
           // 刷新列表
-          if (state.currentProjectId) {
-            const entitiesData = await api.world.listEntities({ novel_id: state.currentProjectId })
-            this._entities = entitiesData.items || entitiesData || []
-            try {
+          await this._loadEntities()
+          try {
+            if (state.currentProjectId) {
               this._batches = await api.world.listEntityBatches({ novel_id: state.currentProjectId })
-            } catch {}
-          }
+            }
+          } catch {}
           router.navigate("world", state.currentSubView)
         } else if (data.status === "failed") {
           toast(`识别任务失败: ${data.error_message || "未知错误"}`, "error")
@@ -210,6 +258,8 @@ const worldView = {
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
     `
+
+    html += this._renderFilters()
 
     // 判断是否有自动入库批次
     const hasBatches = this._batches && this._batches.length > 0
@@ -265,7 +315,43 @@ const worldView = {
       html += this._renderEntityTable(this._entities, { showNewBadge: false })
     }
 
+    html += this._renderPagination()
     return html
+  },
+
+  _renderFilters() {
+    const typeOptions = [
+      `<option value="">全部类型</option>`,
+      ...this._entityTypes.map((t) => `<option value="${esc(t.value)}" ${this._filters.entity_type === t.value ? "selected" : ""}>${esc(t.label)}</option>`),
+    ].join("")
+    const statusOptions = [
+      `<option value="">全部状态</option>`,
+      ...this._statuses.map((s) => `<option value="${esc(s.value)}" ${this._filters.status === s.value ? "selected" : ""}>${esc(s.label)}</option>`),
+    ].join("")
+    return `
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-alt);">
+        <select class="form-select" id="filter-entity-type" style="min-width:100px;">${typeOptions}</select>
+        <select class="form-select" id="filter-status" style="min-width:100px;">${statusOptions}</select>
+        <input class="form-input" id="filter-q" type="search" placeholder="名称/别名搜索" value="${esc(this._filters.q)}" style="min-width:140px;flex:1;" />
+        <button class="btn btn-sm btn-primary" data-action="apply-filters">应用</button>
+        <button class="btn btn-sm" data-action="reset-filters">重置</button>
+      </div>
+    `
+  },
+
+  _renderPagination() {
+    if (this._total <= this._filters.limit) return ""
+    const currentPage = Math.floor(this._filters.skip / this._filters.limit) + 1
+    const totalPages = Math.ceil(this._total / this._filters.limit)
+    const prevDisabled = this._filters.skip <= 0 ? "disabled" : ""
+    const nextDisabled = this._filters.skip + this._filters.limit >= this._total ? "disabled" : ""
+    return `
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;">
+        <button class="btn btn-sm" data-action="prev-page" ${prevDisabled}>上一页</button>
+        <span style="font-size:12px;color:var(--text-dim);">第 ${currentPage} / ${totalPages} 页，共 ${this._total} 条</span>
+        <button class="btn btn-sm" data-action="next-page" ${nextDisabled}>下一页</button>
+      </div>
+    `
   },
 
   _formatBatchTime(isoStr) {
@@ -358,10 +444,11 @@ const worldView = {
   },
 
   showRelationCreateForm() {
+    const entityOptions = this._entityOptionsHtml()
     const formHtml = `
       <div class="form-group">
-        <label>源对象 ID</label>
-        <input class="form-input" id="rel-source" placeholder="对象 ID" />
+        <label>源对象</label>
+        <select class="form-select" id="rel-source"><option value="">请选择</option>${entityOptions}</select>
       </div>
       <div class="form-group">
         <label>关系类型</label>
@@ -377,8 +464,8 @@ const worldView = {
         </select>
       </div>
       <div class="form-group">
-        <label>目标对象 ID</label>
-        <input class="form-input" id="rel-target" placeholder="对象 ID" />
+        <label>目标对象</label>
+        <select class="form-select" id="rel-target"><option value="">请选择</option>${entityOptions}</select>
       </div>
       <div class="form-group">
         <label>描述</label>
@@ -389,7 +476,7 @@ const worldView = {
       text: "创建", class: "btn-primary", handler: async () => {
         const src = document.getElementById("rel-source")?.value
         const tgt = document.getElementById("rel-target")?.value
-        if (!src || !tgt) { toast("请输入源对象和目标对象 ID", "warning"); return }
+        if (!src || !tgt) { toast("请选择源对象和目标对象", "warning"); return }
         try {
           await api.world.createRelationship({
             source_id: src, source_type: "entity",
@@ -453,10 +540,11 @@ const worldView = {
   },
 
   showAliasCreateForm() {
+    const entityOptions = this._entityOptionsHtml()
     const formHtml = `
       <div class="form-group">
-        <label>所属对象 ID</label>
-        <input class="form-input" id="alias-entity" placeholder="对象 ID" />
+        <label>所属对象</label>
+        <select class="form-select" id="alias-entity"><option value="">请选择</option>${entityOptions}</select>
       </div>
       <div class="form-group">
         <label>别名文本</label>
@@ -477,7 +565,7 @@ const worldView = {
       text: "创建", class: "btn-primary", handler: async () => {
         const eid = document.getElementById("alias-entity")?.value
         const text = document.getElementById("alias-text")?.value
-        if (!eid || !text) { toast("请输入对象 ID 和别名", "warning"); return }
+        if (!eid || !text) { toast("请选择对象并输入别名", "warning"); return }
         try {
           await api.world.createAlias({
             entity_id: eid,
@@ -517,11 +605,7 @@ const worldView = {
       <div class="form-group">
         <label>类型</label>
         <select class="form-select" id="edit-entity-type">
-          <option value="location" ${entity.entity_type === "location" ? "selected" : ""}>地点</option>
-          <option value="faction" ${entity.entity_type === "faction" ? "selected" : ""}>组织</option>
-          <option value="item" ${entity.entity_type === "item" ? "selected" : ""}>物品</option>
-          <option value="event" ${entity.entity_type === "event" ? "selected" : ""}>事件</option>
-          <option value="character_ref" ${entity.entity_type === "character_ref" ? "selected" : ""}>人物引用</option>
+          ${this._entityTypes.map((t) => `<option value="${esc(t.value)}" ${entity.entity_type === t.value ? "selected" : ""}>${esc(t.label)}</option>`).join("")}
         </select>
       </div>
       <div class="form-group">
@@ -563,6 +647,40 @@ const worldView = {
     }, "确认删除")
   },
 
+  _entityOptionsHtml() {
+    if (!this._entities || this._entities.length === 0) {
+      return `<option value="">暂无对象</option>`
+    }
+    return this._entities
+      .map((e) => {
+        const id = e.id || e.entity_id
+        const label = `${e.name} (${e.entity_type})`
+        return `<option value="${esc(id)}">${esc(label)}</option>`
+      })
+      .join("")
+  },
+
+  _applyFilters() {
+    const entityType = document.getElementById("filter-entity-type")?.value || ""
+    const status = document.getElementById("filter-status")?.value || ""
+    const q = document.getElementById("filter-q")?.value || ""
+    this._filters = { entity_type: entityType, status, q, skip: 0, limit: 20 }
+    this._loadEntities().then(() => router.refresh())
+  },
+
+  _resetFilters() {
+    this._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
+    this._loadEntities().then(() => router.refresh())
+  },
+
+  _changePage(delta) {
+    const newSkip = this._filters.skip + delta * this._filters.limit
+    if (newSkip < 0) return
+    if (newSkip >= this._total) return
+    this._filters.skip = newSkip
+    this._loadEntities().then(() => router.refresh())
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-objects": () => router.navigate("world", "objects"),
@@ -580,6 +698,10 @@ const worldView = {
       "delete-relation": (_e, _t, ctx) => ctx.id && this.deleteRelation(ctx.id),
       "create-alias": () => this.showAliasCreateForm(),
       "delete-alias": (_e, t) => { const eid = t.getAttribute("data-entity-id"); const alias = t.getAttribute("data-alias"); if (eid && alias) this.deleteAlias(eid, alias) },
+      "apply-filters": () => this._applyFilters(),
+      "reset-filters": () => this._resetFilters(),
+      "prev-page": () => this._changePage(-1),
+      "next-page": () => this._changePage(1),
     })
 
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
@@ -594,16 +716,7 @@ const worldView = {
       <div class="form-group">
         <label>类型</label>
         <select class="form-select" id="create-entity-type">
-          <option value="location">地点</option>
-          <option value="faction">组织</option>
-          <option value="item">物品</option>
-          <option value="event">事件</option>
-          <option value="rule">规则</option>
-          <option value="power_system">能力体系</option>
-          <option value="secret">秘密</option>
-          <option value="legend">传说</option>
-          <option value="resource">资源</option>
-          <option value="character_ref">人物引用</option>
+          ${this._entityTypes.map((t) => `<option value="${esc(t.value)}">${esc(t.label)}</option>`).join("")}
         </select>
       </div>
       <div class="form-group">
@@ -744,11 +857,12 @@ const worldView = {
     const character = this._entities.find((e) => (e.id || e.entity_id) === characterId)
     if (!character) return
 
+    const entityOptions = this._entityOptionsHtml()
     const formHtml = `
       <p style="margin-bottom:10px;">为 <strong>${esc(character.name)}</strong> 添加知识边界。</p>
       <div class="form-group">
-        <label>目标对象 ID *</label>
-        <input class="form-input" id="knowledge-target-id" placeholder="目标对象 ID" />
+        <label>目标对象 *</label>
+        <select class="form-select" id="knowledge-target-id"><option value="">请选择</option>${entityOptions}</select>
       </div>
       <div class="form-group">
         <label>了解程度 *</label>

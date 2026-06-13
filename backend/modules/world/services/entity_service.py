@@ -57,6 +57,10 @@ class WorldEntityService(
     ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
 
+        # 手动创建默认标记来源
+        if not data.created_by:
+            data = data.model_copy(update={"created_by": "manual"})
+
         if not data.force_create:
             similar = await self.repo.find_similar_by_search_text(
                 db,
@@ -97,6 +101,7 @@ class WorldEntityService(
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        q: str | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> CoreEntityListResponse:
@@ -108,6 +113,7 @@ class WorldEntityService(
             nid,
             entity_type=entity_type,
             status=status,
+            q=q,
             skip=skip,
             limit=limit,
         )

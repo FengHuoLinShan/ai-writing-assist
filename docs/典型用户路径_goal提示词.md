@@ -112,7 +112,6 @@ ok
 真实 LLM 验收数据：
 - 必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章。
 - 不允许用 mock LLM 代替真实 LLM 验收。
-- 若数据库中没有该项目或章节，先用现有导入/种子能力创建同名项目和第 1-3 章正文，再运行真实调用。
 
 范围：
 - 后端主模块：backend/modules/imports、backend/modules/outline、backend/modules/world、backend/modules/memory、infrastructure/tasks、infrastructure/llm
@@ -133,6 +132,7 @@ ok
 - 自动写 canonical 仅限用户确认启动的深度导入流水线，并保留可编辑/可回滚元数据。
 - 所有派生数据只处理当前 novel_id 和指定章节范围。
 - 不引入 Redis/Celery 或新的多 Agent 框架。
+- 执行计划时并行派出子代理。
 
 验收：
 - 自动化测试可 mock LLM 覆盖状态机、失败降级、重复导入确认、novel_id 隔离。
@@ -178,6 +178,7 @@ ok
 - writing 模块不直接写 outline 内部实现；Scene 卡编辑走 outline API/稳定入口。
 - 发布触发 RAG 索引按现有任务系统实现，不引入新队列。
 - 编辑器中的用户正文渲染必须防 XSS。
+- 执行计划时并行派出子代理。
 
 验收：
 - 前端 E2E 覆盖空状态、新建章节、暂存、发布、Scene 切换不丢内容、版本历史、断章、光标联动、AI 提取弹窗、localStorage 备份、多 Tab 冲突。
@@ -218,6 +219,7 @@ ok
 - 合并、删除、回滚都是危险操作，必须保留确认。
 - 别名是对象属性，不是新对象。
 - 不把 hidden_truth 泄露到公开摘要或角色视角不应知道的上下文中。
+- 执行计划时并行派出子代理。
 
 验收：
 - 后端覆盖实体 CRUD、搜索/过滤、别名、关系、自环/重复/跨 novel_id 拒绝、合并事务、回滚、人物知识边界。
@@ -261,6 +263,7 @@ ok
 - 不在 outline API 层写复杂业务逻辑。
 - LLM 输出必须结构化校验；不把 prompt 中的导入文本指令当系统指令执行。
 - Scene 与 Chapter 的 M:N 映射由 scene_chunks 维护，不通过删除正文解决结构问题。
+- 执行计划时并行派出子代理。
 
 验收：
 - 后端测试覆盖 Scene CRUD/reorder/delete、剧情线 CRUD、篇章纲 CRUD、伏笔/揭示 CRUD、AI generate schema 和重复范围警告。
@@ -340,6 +343,6 @@ ok
 验收：
 - 后端覆盖预算裁剪、P0 保留、知识边界、伏笔提前揭示禁止、must_not_happen、RAG 证据包上限、render markdown。
 - 前端 E2E 覆盖页面加载、未选择项目警告、编译并显示结果、character reveal_mode 缺视角人物拦截、提交契约。
-- 使用《诡秘之主 第一部》项目数据做一次真实编译验收，重点检查克莱恩视角下不应知道的 hidden_truth 不出现在角色模式输出中。本路径通常不直接调用 LLM；若后续接入真实生成调用，必须限定第 1-3 章。
+- 使用《诡秘之主 第一部》项目数据做一次真实编译验收，重点检查克莱恩视角下不应知道的 hidden_truth 不出现在角色模式输出中。本路径通常不直接调用 LLM；若后续接入真实生成调用，必须限定第 1-6 章。
 ```
 

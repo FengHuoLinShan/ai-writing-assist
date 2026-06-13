@@ -7,6 +7,7 @@ World 数据访问层 — v3 因果时空网
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections.abc import Sequence
@@ -140,6 +141,7 @@ class CoreEntityRepository:
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        q: str | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CoreEntity], int]:
@@ -148,6 +150,20 @@ class CoreEntityRepository:
             conditions.append(CoreEntity.entity_type == entity_type)
         if status:
             conditions.append(CoreEntity.status == status)
+        if q:
+            query = q.strip()
+            if query:
+                like_expr = f"%{query}%"
+                # SQLite 中 SQLAlchemy JSON 序列化会转义非 ASCII 字符，
+                # 因此同时用原始值和其 JSON 转义形式匹配 content_json。
+                escaped_expr = f"%{json.dumps(query)[1:-1]}%"
+                conditions.append(
+                    or_(
+                        CoreEntity.name.ilike(like_expr),
+                        CoreEntity.content_json.cast(Text).ilike(like_expr),
+                        CoreEntity.content_json.cast(Text).ilike(escaped_expr),
+                    )
+                )
 
         count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
         count_result = await db.execute(count_stmt)

@@ -26,15 +26,15 @@ from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-def _require_misconception_for_misunderstood(
+def _require_misconception_for_false_level(
     level: str,
     misconception: str | None,
 ) -> None:
-    """misunderstood 作为 false_belief 的别名，同样要求提供 misconception。"""
-    if level == "misunderstood" and not misconception:
+    """false_belief / misunderstood 必须提供 misconception。"""
+    if level in {"false_belief", "misunderstood"} and not misconception:
         raise HTTPException(
             status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="misunderstood knowledge must provide misconception",
+            detail="false_belief/misunderstood knowledge must provide misconception",
         )
 
 
@@ -77,7 +77,7 @@ class CharacterKnowledgeService(
             )
         # Schema 已做基础校验；服务层再次检查作为 defense-in-depth，
         # 确保任何绕过 schema 的情况都能返回受控的 HTTP 422 错误信息。
-        _require_misconception_for_misunderstood(
+        _require_misconception_for_false_level(
             data.knowledge_level,
             data.misconception,
         )
@@ -91,15 +91,15 @@ class CharacterKnowledgeService(
         *,
         novel_id: str,
     ) -> CharacterKnowledgeResponse:
-        """update 时校验 misunderstood 必须提供 misconception。"""
+        """update 时校验 false_belief/misunderstood 必须提供 misconception。"""
         # Schema 已校验；服务层保留 defense-in-depth 二次校验，统一返回 HTTP 422。
-        if data.knowledge_level == "misunderstood":
+        if data.knowledge_level in {"false_belief", "misunderstood"}:
             rid = parse_uuid(id, self.id_param)
             existing = await self.repo.get(db, rid)
             misconception = data.misconception
             if existing is not None and misconception is None:
                 misconception = existing.misconception
-            _require_misconception_for_misunderstood(
+            _require_misconception_for_false_level(
                 data.knowledge_level,
                 misconception,
             )

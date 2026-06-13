@@ -73,6 +73,7 @@ async def list_entities(
     novel_id: str = Query(..., description="项目 ID"),
     entity_type: str | None = Query(None, description="实体类型过滤"),
     status: str | None = Query(None, description="状态过滤"),
+    q: str | None = Query(None, description="名称/别名搜索"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -86,6 +87,7 @@ async def list_entities(
         novel_id,
         entity_type=entity_type,
         status=status,
+        q=q,
         skip=skip,
         limit=limit,
     )

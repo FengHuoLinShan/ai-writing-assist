@@ -11,6 +11,8 @@ beforeEach(() => {
   state.currentSubView = null
   worldView._entities = []
   worldView._batches = []
+  worldView._total = 0
+  worldView._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
   worldView._autoExtractOpen = false
   worldView._autoExtractTaskId = null
   worldView._autoExtractStatus = "就绪"
@@ -26,14 +28,15 @@ beforeEach(() => {
 describe("onEnter", () => {
   it("加载实体列表和批次信息", async () => {
     state.currentProjectId = "p1"
-    api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "王都" }] })
+    api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "王都" }], total: 1 })
     api.world.listEntityBatches.mockResolvedValue([{ batch_id: "b1", entities: [{ id: "e1", name: "王都", entity_type: "location" }] }])
 
     await worldView.onEnter()
 
-    expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1" })
+    expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20 })
     expect(api.world.listEntityBatches).toHaveBeenCalledWith({ novel_id: "p1" })
     expect(worldView._entities).toHaveLength(1)
+    expect(worldView._total).toBe(1)
     expect(worldView._batches).toHaveLength(1)
   })
 
@@ -87,6 +90,55 @@ describe("对象库", () => {
       worldView._autoExtractOpen = true
       const html = worldView._renderEntityList()
       expect(html).toContain("自动识别")
+    })
+
+    it("渲染过滤栏与分页", () => {
+      worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical", summary: "首都" }]
+      worldView._total = 30
+      const html = worldView._renderEntityList()
+      expect(html).toContain("filter-entity-type")
+      expect(html).toContain("filter-status")
+      expect(html).toContain("filter-q")
+      expect(html).toContain("apply-filters")
+      expect(html).toContain("reset-filters")
+      expect(html).toContain("prev-page")
+      expect(html).toContain("next-page")
+    })
+  })
+
+  describe("_applyFilters", () => {
+    it("应用过滤参数并重新加载", async () => {
+      state.currentProjectId = "p1"
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+      document.body.innerHTML = `
+        <select id="filter-entity-type"><option value="location" selected>地点</option></select>
+        <select id="filter-status"><option value="canonical" selected>正史</option></select>
+        <input id="filter-q" value="王都" />
+      `
+
+      await worldView._applyFilters()
+
+      expect(worldView._filters.entity_type).toBe("location")
+      expect(worldView._filters.status).toBe("canonical")
+      expect(worldView._filters.q).toBe("王都")
+      expect(worldView._filters.skip).toBe(0)
+      expect(api.world.listEntities).toHaveBeenCalledWith(
+        expect.objectContaining({ novel_id: "p1", entity_type: "location", status: "canonical", q: "王都" }),
+      )
+    })
+  })
+
+  describe("_changePage", () => {
+    it("翻页时更新 skip 并重新加载", async () => {
+      state.currentProjectId = "p1"
+      worldView._total = 50
+      worldView._filters.skip = 0
+      api.world.listEntities.mockResolvedValue({ items: [], total: 50 })
+
+      await worldView._changePage(1)
+
+      expect(worldView._filters.skip).toBe(20)
+      expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({ skip: 20, limit: 20 }))
     })
   })
 
@@ -209,12 +261,13 @@ describe("别名", () => {
 
     it("提交正确的别名载荷和 novel_id 查询参数", async () => {
       state.currentProjectId = "p1"
+      worldView._entities = [{ id: "e1", name: "主角", entity_type: "character" }]
       api.world.createAlias.mockResolvedValue({ id: "a1" })
       worldView.showAliasCreateForm()
 
       const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
       document.body.innerHTML = `
-        <input id="alias-entity" value="e1" />
+        <select id="alias-entity"><option value="e1" selected>主角 (character)</option></select>
         <input id="alias-text" value="小名" />
         <select id="alias-type"><option value="nickname" selected>昵称</option></select>
       `

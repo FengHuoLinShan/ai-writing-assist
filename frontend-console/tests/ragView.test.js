@@ -31,6 +31,48 @@ describe("ragView", () => {
       const html = await ragView.render()
       expect(html).toContain("搜索关键词")
     })
+
+    it("status 子视图展示最近片段列表", async () => {
+      state.currentSubView = "status"
+      ragView._apiAvailable = true
+      ragView._loading = false
+      ragView._totalChunks = 2
+      ragView._statusItems = [
+        {
+          chunk_index: 0,
+          chapter_index: 1,
+          char_count: 88,
+          embedding_status: "success",
+          entity_ids: ["e1"],
+          character_ids: ["c1", "c2"],
+          thread_ids: [],
+          scene_id: "s1",
+          text: "铜铃在雨夜响起，旧档案缺页随风翻开。",
+        },
+        {
+          chunk_index: 1,
+          chapter_index: 1,
+          char_count: 120,
+          embedding_status: "failed",
+          entity_ids: [],
+          character_ids: [],
+          thread_ids: ["t1"],
+          scene_id: null,
+          text: "a".repeat(200),
+        },
+      ]
+
+      const html = await ragView.render()
+      document.body.innerHTML = html
+
+      expect(html).toContain("最近片段")
+      expect(html).toContain("铜铃在雨夜响起")
+      expect(html).toContain("a".repeat(120) + "...")
+      const rows = document.querySelectorAll("tbody tr")
+      expect(rows.length).toBe(2)
+      expect(rows[0].textContent).toContain("铜铃在雨夜响起")
+      expect(rows[1].textContent).toContain("failed")
+    })
   })
 
   describe("_doSearch", () => {
@@ -99,6 +141,20 @@ describe("ragView", () => {
       expect(api.rag.rebuild).toHaveBeenCalledWith({ novel_id: "p1" })
       expect(toast).toHaveBeenCalledWith("索引重建任务已提交", "success")
       expect(toast).toHaveBeenCalledWith("embedding 失败", "warning")
+    })
+
+    it("按章节范围重建索引时提交起始和结束章节", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = `
+        <input id="rag-rebuild-start" value="2" />
+        <input id="rag-rebuild-end" value="5" />
+      `
+      api.rag.rebuild.mockResolvedValue({ task_id: "task-2", status: "pending" })
+
+      await ragView._rebuildIndex()
+
+      expect(api.rag.rebuild).toHaveBeenCalledWith({ novel_id: "p1", start_chapter: 2, end_chapter: 5 })
+      expect(toast).toHaveBeenCalledWith("索引重建任务已提交", "success")
     })
   })
 })

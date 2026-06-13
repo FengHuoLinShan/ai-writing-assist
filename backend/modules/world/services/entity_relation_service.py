@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import EntityRelation
@@ -41,6 +43,54 @@ class EntityRelationService(
     def __init__(self) -> None:
         # base 的 CrudService 假设单 repo, 跨表操作是例外
         self._entity_repo = CoreEntityRepository()
+
+    # ============================================================
+    # Override: create 加端点有效性与重复校验
+    # ============================================================
+
+    async def create(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: EntityRelationCreate,
+    ) -> EntityRelationResponse:
+        if data.source_id == data.target_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="source_id and target_id must be different",
+            )
+
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(data.source_id, "source_id")
+        tid = parse_uuid(data.target_id, "target_id")
+
+        source = await self._entity_repo.get(db, sid)
+        target = await self._entity_repo.get(db, tid)
+        if (
+            source is None
+            or target is None
+            or source.novel_id != nid
+            or target.novel_id != nid
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Source or target entity not found in this novel",
+            )
+
+        duplicate = await self.repo.find_duplicate_relation(
+            db,
+            nid,
+            sid,
+            tid,
+            data.relation_type,
+        )
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Relation already exists",
+            )
+
+        return await super().create(db, novel_id, data)
 
     # ============================================================
     # 特例方法

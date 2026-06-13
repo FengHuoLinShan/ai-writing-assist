@@ -10,6 +10,7 @@ const ragView = {
   _embeddingFailedCount: 0,
   _statusWarnings: [],
   _statusDegraded: false,
+  _statusItems: [],
   _loading: true,
   _apiAvailable: false,
 
@@ -27,12 +28,14 @@ const ragView = {
       this._embeddingFailedCount = data.embedding_failed_count || 0
       this._statusWarnings = data.warnings || []
       this._statusDegraded = Boolean(data.degraded)
+      this._statusItems = data.items || []
       this._apiAvailable = true
     } catch {
       this._totalChunks = null
       this._embeddingFailedCount = 0
       this._statusWarnings = []
       this._statusDegraded = false
+      this._statusItems = []
       this._apiAvailable = false
     }
     this._loading = false
@@ -100,10 +103,77 @@ const ragView = {
             <p style="color:var(--text-dim);font-size:12px;">请先导入正文草稿，然后使用剧情结构提取或深度导入创建索引。</p>
           </div>
         ` : ""}
+        ${this._renderChunkList()}
       </div>
-      <div style="margin-top:12px;display:flex;gap:8px;">
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12px;color:var(--text-dim);">起始章节</label>
+          <input class="form-input" id="rag-rebuild-start" type="number" min="1" placeholder="起始" style="width:70px;" />
+          <label style="font-size:12px;color:var(--text-dim);">结束章节</label>
+          <input class="form-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" style="width:70px;" />
+        </div>
         <button class="btn" data-action="rebuild-index">重建索引</button>
         <button class="btn" data-action="nav-search">测试搜索</button>
+      </div>
+    `
+  },
+
+  _renderChunkList() {
+    const items = this._statusItems || []
+    if (items.length === 0) {
+      return `
+        <div class="card" style="margin-top:8px;">
+          <div class="card-title">最近片段</div>
+          <p style="font-size:12px;color:var(--text-dim);">暂无片段数据</p>
+        </div>
+      `
+    }
+
+    let rows = ""
+    for (const item of items) {
+      const plainText = item.text || item.summary || ""
+      const preview = plainText.length > 120 ? esc(plainText.substring(0, 120) + "...") : esc(plainText)
+      const entityCount = (item.entity_ids || []).length
+      const characterCount = (item.character_ids || []).length
+      const threadCount = (item.thread_ids || []).length
+      const sceneCount = item.scene_id ? 1 : 0
+
+      rows += `
+        <tr>
+          <td>${esc(String(item.chunk_index ?? "-"))}</td>
+          <td>${esc(String(item.chapter_index ?? "-"))}</td>
+          <td>${esc(String(item.char_count ?? "-"))}</td>
+          <td>${esc(item.embedding_status || "-")}</td>
+          <td>${entityCount}</td>
+          <td>${characterCount}</td>
+          <td>${threadCount}</td>
+          <td>${sceneCount}</td>
+          <td style="max-width:200px;" title="${esc(plainText)}">${preview}</td>
+        </tr>
+      `
+    }
+
+    return `
+      <div class="card" style="margin-top:8px;">
+        <div class="card-title">最近片段</div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <thead>
+              <tr style="text-align:left;color:var(--text-dim);">
+                <th>片段</th>
+                <th>章节</th>
+                <th>字数</th>
+                <th>状态</th>
+                <th>实体</th>
+                <th>人物</th>
+                <th>线索</th>
+                <th>场景</th>
+                <th>预览</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>
     `
   },
@@ -180,8 +250,17 @@ const ragView = {
     }
     try {
       toast("正在重建索引...", "info")
-      const result = await api.rag.rebuild({ novel_id: state.currentProjectId })
-      if (result.total > 0) {
+      const payload = { novel_id: state.currentProjectId }
+      const startInput = document.getElementById("rag-rebuild-start")
+      const endInput = document.getElementById("rag-rebuild-end")
+      const startChapter = startInput ? Number(startInput.value) : NaN
+      const endChapter = endInput ? Number(endInput.value) : NaN
+      if (!Number.isNaN(startChapter) && !Number.isNaN(endChapter) && startChapter >= 1 && endChapter >= 1 && startChapter <= endChapter) {
+        payload.start_chapter = startChapter
+        payload.end_chapter = endChapter
+      }
+      const result = await api.rag.rebuild(payload)
+      if (result.task_id || result.total > 0 || (result.task_ids || []).length > 0) {
         toast("索引重建任务已提交", "success")
       } else {
         toast("暂无可索引草稿", "info")

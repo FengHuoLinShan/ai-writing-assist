@@ -36,7 +36,7 @@ test.describe("世界对象 — 关系与别名", () => {
     // Given: 已存在两个实体
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("源对象")
-    await page.locator("#create-entity-type").selectOption("character_ref")
+    await page.locator("#create-entity-type").selectOption("character")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
@@ -61,8 +61,8 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator('[data-action="create-relation"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建关系")
 
-    await page.locator("#rel-source").fill(sourceId)
-    await page.locator("#rel-target").fill(targetId)
+    await page.locator("#rel-source").selectOption(sourceId)
+    await page.locator("#rel-target").selectOption(targetId)
     await page.locator("#rel-type").selectOption("ally_of")
     await page.locator("#rel-desc").fill("测试关系描述")
 
@@ -84,7 +84,7 @@ test.describe("世界对象 — 关系与别名", () => {
     // Given: 已存在一个实体
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("主角")
-    await page.locator("#create-entity-type").selectOption("character_ref")
+    await page.locator("#create-entity-type").selectOption("character")
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已创建", { timeout: 10000 })
 
@@ -100,7 +100,7 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator('[data-action="create-alias"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建别名")
 
-    await page.locator("#alias-entity").fill(entityId)
+    await page.locator("#alias-entity").selectOption(entityId)
     await page.locator("#alias-text").fill("小名")
     await page.locator("#alias-type").selectOption("nickname")
 
