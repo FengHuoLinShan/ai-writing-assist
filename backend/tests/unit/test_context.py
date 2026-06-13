@@ -37,7 +37,7 @@ from modules.context.schemas import (
     ContextTierCompileResponse,
 )
 from modules.context.services import CompileOptions, ContextCompiler
-from modules.context.services.compiled_context import Tier
+from modules.context.services.compiled_context import CompiledContext, ContextSection, Tier
 from modules.context.services.constraint_engine import ConstraintEngine
 from modules.context.services.context_compiler import SCOPE_LOADERS
 from modules.context.services.loaders import (
@@ -376,6 +376,105 @@ class TestCompileWithTiers:
             assert s.content.startswith("[Snapshot 模式] "), (
                 f"Expected Snapshot prefix, got: {s.content[:20]}"
             )
+
+
+class TestNineTierIR:
+    """测试 9-tier IR 构建与预算跟踪"""
+
+    def test_build_sections_produces_eight_data_keys(self) -> None:
+        """_build_sections 在数据完整时应产出 8 个数据段
+
+        第 9 段 hard_constraints 由 ConstraintEngine 在完整 compile_with_tiers
+        流程中追加，因此不在 _build_sections 输出里。
+        """
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="创作目标",
+            scope="full",
+            scene={"id": "s1", "scene_index": 1, "pov_character_id": "c1"},
+            characters=[{"name": "主角"}],
+            memory_records=[{"event": "失忆"}],
+            plot_threads=[{"name": "主线"}],
+            rag_chunks=[{"text": "证据"}],
+            project={"title": "小说"},
+            warnings=["注意"],
+        )
+        compiler = ContextCompiler(loaders=[])
+        sections = compiler._build_sections(bundle)
+        keys = [s.key for s in sections]
+        expected_keys = [
+            "writing_objective",
+            "scene_blueprint",
+            "pov_knowledge",
+            "delta_timeline",
+            "open_narrative_obligations",
+            "retrieval_evidence_packs",
+            "style_assets",
+            "compiler_warnings",
+        ]
+        assert len(sections) == 8
+        assert keys == expected_keys
+        for s in sections:
+            assert s.token_count > 0
+
+    def test_scene_blueprint_uses_bundle_scene(self) -> None:
+        """scene_blueprint 应使用 bundle.scene 而非 chapter_card"""
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            scene={"id": "s1", "scene_index": 5},
+            chapter_card={"title": "章节卡"},
+        )
+        compiler = ContextCompiler(loaders=[])
+        sections = compiler._build_sections(bundle)
+        blueprint = next(s for s in sections if s.key == "scene_blueprint")
+        assert '"id": "s1"' in blueprint.content
+        assert '"scene_index": 5' in blueprint.content
+        assert "章节卡" not in blueprint.content
+
+    def test_enforce_budget_tracks_evicted_keys(self) -> None:
+        """P4/P3 被整体淘汰时应记录 evicted_keys"""
+        sections = [
+            ContextSection(key="writing_objective", tier=Tier.P0, content="目标", token_count=10),
+            ContextSection(key="style_assets", tier=Tier.P3, content="风格" * 100, token_count=200),
+            ContextSection(key="compiler_warnings", tier=Tier.P4, content="警告" * 100, token_count=200),
+        ]
+        ctx = CompiledContext(sections=sections, total_tokens=410, budget_tokens=20)
+        result = ctx.enforce_budget()
+        assert "style_assets" in result.evicted_keys
+        assert "compiler_warnings" in result.evicted_keys
+        assert result.total_tokens <= 20
+
+    def test_enforce_budget_tracks_p2_truncated_keys(self) -> None:
+        """P2 逐条截断时应记录 truncated_keys"""
+        p2_content = "\n".join(f"item-{i:02d}" for i in range(20))
+        sections = [
+            ContextSection(key="writing_objective", tier=Tier.P0, content="目标", token_count=10),
+            ContextSection(
+                key="open_narrative_obligations",
+                tier=Tier.P2,
+                content=p2_content,
+                token_count=200,
+                truncatable_per_item=True,
+            ),
+        ]
+        ctx = CompiledContext(sections=sections, total_tokens=210, budget_tokens=30)
+        result = ctx.enforce_budget()
+        assert "open_narrative_obligations" in result.truncated_keys
+        assert result.total_tokens <= 30
+
+    def test_enforce_budget_tracks_p1_truncated_keys(self) -> None:
+        """P1 Delta 压缩时应记录 truncated_keys"""
+        p1_content = "\n".join(f"delta-{i:02d}" for i in range(20))
+        sections = [
+            ContextSection(key="writing_objective", tier=Tier.P0, content="目标", token_count=10),
+            ContextSection(key="delta_timeline", tier=Tier.P1, content=p1_content, token_count=200),
+        ]
+        ctx = CompiledContext(sections=sections, total_tokens=210, budget_tokens=50)
+        result = ctx.enforce_budget()
+        assert "delta_timeline" in result.truncated_keys
+        assert result.total_tokens <= 50
 
 
 class TestConstraintEngine:

@@ -593,13 +593,13 @@ def _get_budget_for_category(category: str) -> int:
 _TIER_HEADERS: dict[str, str] = {
     "writing_objective": "一、创作目标",
     "scene_blueprint": "二、场景蓝图",
-    "hard_constraints": "二、必须遵守的硬约束",
     "pov_knowledge": "三、视角人物知识边界",
-    "delta_timeline": "三、世界线变化时间线",
-    "narrative_obligations": "四、叙事义务",
-    "retrieval_evidence": "四、检索证据包",
-    "style_assets": "五、风格素材",
-    "compiler_warnings": "六、编译器警告",
+    "delta_timeline": "四、世界线变化时间线",
+    "open_narrative_obligations": "五、开放叙事义务",
+    "retrieval_evidence_packs": "六、检索证据包",
+    "style_assets": "七、风格素材",
+    "hard_constraints": "八、必须遵守的硬约束",
+    "compiler_warnings": "九、编译器警告",
 }
 
 

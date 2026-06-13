@@ -46,6 +46,8 @@ class CompiledContext(BaseModel):
     total_tokens: int = 0
     budget_tokens: int = 0
     compiled_at: str = ""
+    evicted_keys: list[str] = []
+    truncated_keys: list[str] = []
 
     def enforce_budget(self) -> CompiledContext:
         """Evict sections by tier to fit within budget_tokens.
@@ -60,13 +62,19 @@ class CompiledContext(BaseModel):
             return self
 
         sections = list(self.sections)
+        evicted_keys = list(self.evicted_keys)
+        truncated_keys = list(self.truncated_keys)
 
         # Phase 2: Evict entire sections by tier P4 → P3
         for tier in (Tier.P4, Tier.P3):
             current = sum(s.token_count for s in sections)
             if current <= self.budget_tokens:
                 break
+            removed = [s for s in sections if s.tier == tier]
             sections = [s for s in sections if s.tier != tier]
+            for s in removed:
+                if s.key not in evicted_keys:
+                    evicted_keys.append(s.key)
 
         # Phase 3: P2 per-item truncation
         current = sum(s.token_count for s in sections)
@@ -100,6 +108,8 @@ class CompiledContext(BaseModel):
                                 max_items=s.max_items,
                             )
                         )
+                        if s.key not in truncated_keys:
+                            truncated_keys.append(s.key)
                 else:
                     new_sections.append(s)
             sections = new_sections
@@ -131,6 +141,8 @@ class CompiledContext(BaseModel):
                             break
                     if not compressed:
                         new_sections.append(s)
+                    if compressed and s.key not in truncated_keys:
+                        truncated_keys.append(s.key)
                 else:
                     new_sections.append(s)
             sections = new_sections
@@ -141,4 +153,6 @@ class CompiledContext(BaseModel):
             total_tokens=total,
             budget_tokens=self.budget_tokens,
             compiled_at=self.compiled_at,
+            evicted_keys=evicted_keys,
+            truncated_keys=truncated_keys,
         )

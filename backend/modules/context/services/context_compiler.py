@@ -216,8 +216,8 @@ class ContextCompiler:
                 )
             )
 
-        if bundle.chapter_card:
-            content = json.dumps(bundle.chapter_card, ensure_ascii=False, indent=2)
+        if bundle.scene:
+            content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)
             sections.append(
                 ContextSection(
                     key="scene_blueprint",
@@ -256,7 +256,7 @@ class ContextCompiler:
             content = "\n".join(str(t) for t in bundle.plot_threads)
             sections.append(
                 ContextSection(
-                    key="narrative_obligations",
+                    key="open_narrative_obligations",
                     tier=Tier.P2,
                     content=content,
                     token_count=max(1, len(content) // 4),
@@ -268,7 +268,7 @@ class ContextCompiler:
             content = "\n".join(str(c) for c in bundle.rag_chunks)
             sections.append(
                 ContextSection(
-                    key="retrieval_evidence",
+                    key="retrieval_evidence_packs",
                     tier=Tier.P2,
                     content=content,
                     token_count=max(1, len(content) // 4),
