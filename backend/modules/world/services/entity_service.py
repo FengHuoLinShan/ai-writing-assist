@@ -6,11 +6,11 @@ subclass override)。
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.models import CoreEntity
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -18,16 +18,22 @@ from modules.world.schemas import (
     CoreEntityResponse,
     CoreEntityUpdate,
     WorldContextBundle,
-    WorldEntityContext,
 )
 from modules.world.services.base import CrudService
+from modules.world.services.entity_alias_service import EntityAliasService
+from modules.world.services.entity_context_service import EntityContextService
+from modules.world.services.entity_embedding_service import EntityEmbeddingService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+
+_alias_service = EntityAliasService()
+_context_service = EntityContextService()
+_embedding_service = EntityEmbeddingService()
 
 
 class WorldEntityService(
     CrudService[
-        CoreEntity,
+        Any,
         CoreEntityCreate,
         CoreEntityUpdate,
         CoreEntityResponse,
@@ -36,8 +42,7 @@ class WorldEntityService(
     """核心实体业务服务。
 
     5 verb 继承自 base; list 加 filter (entity_type / status) + 返 ListResponse;
-    4 个特例方法 (get_entity_context / list_entity_summaries / list_entity_terms /
-    find_by_name) 留本地。
+    扩展行为（别名、embedding、上下文）已拆分到独立服务。
     """
 
     repo = CoreEntityRepository()
@@ -123,7 +128,7 @@ class WorldEntityService(
         )
 
     # ============================================================
-    # 特例方法
+    # Compatibility shims: delegate to dedicated services
     # ============================================================
 
     async def get_entity_context(
@@ -135,46 +140,13 @@ class WorldEntityService(
         limit: int = 20,
         current_chapter: int | None = None,
     ) -> WorldContextBundle:
-        nid = parse_uuid(novel_id, "novel_id")
-
-        if entity_ids:
-            eids = [parse_uuid(eid, "entity_id") for eid in entity_ids]
-            entities = await self.repo.get_by_ids(db, nid, eids)
-        else:
-            entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
-
-        # Filter expired temporary entities
-        if current_chapter is not None:
-            from modules.project.facade import get_project_context
-
-            project_ctx = await get_project_context(db, novel_id)
-            expiry = 30
-            if project_ctx is not None and project_ctx.settings:
-                expiry = project_ctx.settings.get(
-                    "temporary_entity_expiry_chapters", 30
-                )
-
-            filtered: list[CoreEntity] = []
-            for entity in entities:
-                content = entity.content_json or {}
-                meta = content.get("_meta", {})
-                if (
-                    meta.get("temporary") is True
-                    and meta.get("source_chapter_index") is not None
-                ):
-                    src_ch = int(meta["source_chapter_index"])
-                    if current_chapter - src_ch > expiry:
-                        continue
-                filtered.append(entity)
-            entities = filtered
-
-        contexts = [_entity_to_context(entity, reveal_mode) for entity in entities]
-
-        return WorldContextBundle(
-            novel_id=novel_id,
-            entities=contexts,
-            total_count=len(contexts),
+        return await _context_service.get_entity_context(
+            db,
+            novel_id,
+            entity_ids=entity_ids,
             reveal_mode=reveal_mode,
+            limit=limit,
+            current_chapter=current_chapter,
         )
 
     async def list_entity_summaries(
@@ -185,17 +157,9 @@ class WorldEntityService(
         entity_type: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
-        nid = parse_uuid(novel_id, "novel_id")
-        result = await self.repo.get_by_type_and_status(
-            db,
-            nid,
-            entity_type=entity_type,
-            limit=limit,
+        return await _context_service.list_entity_summaries(
+            db, novel_id, entity_type=entity_type, limit=limit
         )
-        return [
-            {"id": item.id, "name": item.name, "entity_type": item.entity_type}
-            for item in result
-        ]
 
     async def list_entity_terms(
         self,
@@ -204,30 +168,9 @@ class WorldEntityService(
         *,
         limit: int = 500,
     ) -> list[dict]:
-        """获取正史 + 草稿实体的检索词典项 (name + content_json.aliases)。
-
-        别名存储约定见 core_entities.content_json.aliases (per world/CLAUDE.md)。
-        """
-        nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
-        terms: list[dict] = []
-        for item in entities:
-            if item.status not in ("canonical", "draft"):
-                continue
-            item_terms = [item.name]
-            aliases = (item.content_json or {}).get("aliases", [])
-            item_terms.extend(
-                a if isinstance(a, str) else a.get("alias", "") for a in aliases
-            )
-            terms.append(
-                {
-                    "id": str(item.id),
-                    "name": item.name,
-                    "entity_type": item.entity_type,
-                    "terms": [t for t in item_terms if t],
-                }
-            )
-        return terms
+        return await _context_service.list_entity_terms(
+            db, novel_id, limit=limit
+        )
 
     async def find_by_name(
         self,
@@ -236,13 +179,8 @@ class WorldEntityService(
         name: str,
         entity_type: str | None = None,
     ) -> str | None:
-        """按名称查正史实体 ID, 返 str 或 None。"""
-        nid = parse_uuid(novel_id, "novel_id")
-        return await self.repo.find_entity_by_name(
-            db,
-            nid,
-            name,
-            entity_type=entity_type,
+        return await _context_service.find_by_name(
+            db, novel_id, name, entity_type=entity_type
         )
 
     async def list_entity_batches(
@@ -252,9 +190,9 @@ class WorldEntityService(
         *,
         limit: int = 10,
     ) -> list[dict]:
-        """获取自动入库实体的批次分组列表"""
-        nid = parse_uuid(novel_id, "novel_id")
-        return await self.repo.get_entity_batches(db, nid, limit=limit)
+        return await _context_service.list_entity_batches(
+            db, novel_id, limit=limit
+        )
 
     async def list_aliases(
         self,
@@ -264,24 +202,9 @@ class WorldEntityService(
         skip: int = 0,
         limit: int = 100,
     ) -> list[dict]:
-        """列出项目下所有实体的别名"""
-        nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self.repo.get_by_novel(db, nid, limit=limit)
-        result = []
-        for entity in entities:
-            aliases = (entity.content_json or {}).get("aliases", [])
-            for a in aliases:
-                alias_text = a if isinstance(a, str) else a.get("alias", "")
-                alias_type = a.get("type", "name") if isinstance(a, dict) else "name"
-                result.append(
-                    {
-                        "entity_id": str(entity.id),
-                        "entity_name": entity.name,
-                        "alias": alias_text,
-                        "alias_type": alias_type,
-                    }
-                )
-        return result[skip : skip + limit]
+        return await _alias_service.list_aliases(
+            db, novel_id, skip=skip, limit=limit
+        )
 
     async def create_alias(
         self,
@@ -291,26 +214,9 @@ class WorldEntityService(
         alias: str,
         alias_type: str = "name",
     ) -> dict:
-        """为实体添加别名"""
-        nid = parse_uuid(novel_id, "novel_id")
-        eid = parse_uuid(entity_id, "entity_id")
-        entity = await self.repo.get(db, eid)
-        if entity is None or entity.novel_id != nid:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        content = entity.content_json or {}
-        aliases = content.get("aliases", [])
-        # 去重检查
-        for a in aliases:
-            existing = a if isinstance(a, str) else a.get("alias", "")
-            if existing == alias:
-                raise HTTPException(
-                    status_code=409, detail=f"Alias already exists: {alias}"
-                )
-        aliases.append({"alias": alias, "type": alias_type})
-        content["aliases"] = aliases
-        entity.content_json = content
-        await db.flush()
-        return {"entity_id": str(entity.id), "alias": alias, "alias_type": alias_type}
+        return await _alias_service.create_alias(
+            db, novel_id, entity_id, alias, alias_type=alias_type
+        )
 
     async def delete_alias(
         self,
@@ -319,28 +225,9 @@ class WorldEntityService(
         entity_id: str,
         alias: str,
     ) -> dict:
-        """删除实体的指定别名"""
-        nid = parse_uuid(novel_id, "novel_id")
-        eid = parse_uuid(entity_id, "entity_id")
-        entity = await self.repo.get(db, eid)
-        if entity is None or entity.novel_id != nid:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        content = entity.content_json or {}
-        aliases = content.get("aliases", [])
-        new_aliases = []
-        found = False
-        for a in aliases:
-            existing = a if isinstance(a, str) else a.get("alias", "")
-            if existing == alias:
-                found = True
-                continue
-            new_aliases.append(a)
-        if not found:
-            raise HTTPException(status_code=404, detail=f"Alias not found: {alias}")
-        content["aliases"] = new_aliases
-        entity.content_json = content
-        await db.flush()
-        return {"entity_id": str(entity.id), "alias": alias, "deleted": True}
+        return await _alias_service.delete_alias(
+            db, novel_id, entity_id, alias
+        )
 
     async def backfill_embeddings(
         self,
@@ -349,73 +236,6 @@ class WorldEntityService(
         *,
         batch_size: int = 64,
     ) -> int:
-        """为 novel 中缺少 embedding 的实体生成向量。返回回填数量。"""
-        import logging
-
-        _logger = logging.getLogger(__name__)
-        nid = parse_uuid(novel_id, "novel_id")
-
-        stmt = select(CoreEntity).where(
-            CoreEntity.novel_id == nid,
-            CoreEntity.embedding.is_(None),
-            CoreEntity.status.in_(["canonical", "draft"]),
+        return await _embedding_service.backfill_embeddings(
+            db, novel_id, batch_size=batch_size
         )
-        result = await db.execute(stmt)
-        entities = list(result.scalars().all())
-
-        if not entities:
-            return 0
-
-        try:
-            from infrastructure.embedding.client import BgeEmbeddingClient
-
-            bge = await BgeEmbeddingClient.get_instance()
-        except Exception:
-            _logger.warning("BGE client unavailable, backfill skipped")
-            return 0
-
-        total = 0
-        # 配对过滤空名实体，避免索引错位 (Bugfix: P0 index mismatch)
-        named = [(e, e.name.strip()) for e in entities if e.name and e.name.strip()]
-
-        for i in range(0, len(named), batch_size):
-            batch = named[i : i + batch_size]
-            batch_entities = [e for e, _ in batch]
-            batch_texts = [n for _, n in batch]
-            try:
-                embeddings = await bge.generate_embedding(batch_texts, is_query=False)
-            except Exception:
-                _logger.exception("Backfill embedding batch failed at offset %d", i)
-                continue
-
-            for entity, emb in zip(batch_entities, embeddings):
-                entity.embedding = [float(v) for v in emb]
-                entity.embedding_text = entity.name
-                total += 1
-
-            await db.flush()
-
-        _logger.info("Backfilled embeddings for %d entities in novel %s", total, novel_id)
-        return total
-
-
-def _entity_to_context(
-    entity: CoreEntity,
-    reveal_mode: str,
-) -> WorldEntityContext:
-    hidden = None
-    if reveal_mode == "author_only":
-        hidden = entity.hidden_truth
-
-    return WorldEntityContext(
-        entity_id=str(entity.id),
-        entity_type=entity.entity_type,
-        name=entity.name,
-        summary=entity.summary,
-        public_info=entity.public_info,
-        hidden_truth=hidden,
-        importance=entity.importance,
-        importance_level=entity.importance_level,
-        reveal_level=entity.reveal_level,
-        status=entity.status,
-    )
