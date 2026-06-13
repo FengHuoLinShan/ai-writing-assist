@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ============================================================
 # 请求 Schema
@@ -77,6 +77,10 @@ class RagChunkCreate(BaseModel):
     thread_ids: list[str] = Field(
         default_factory=list,
         description="关联的剧情线 ID 列表",
+    )
+    scene_id: str | None = Field(
+        None,
+        description="关联的 Scene ID (UUID hex string)",
     )
     visibility: str = Field(
         default="author_only",
@@ -159,6 +163,37 @@ class RagQuery(BaseModel):
 # ============================================================
 
 
+class RagRebuildRequest(BaseModel):
+    """项目级 RAG 重建请求"""
+
+    novel_id: str = Field(
+        ...,
+        min_length=1,
+        description="小说项目 ID (UUID hex string)",
+    )
+    start_chapter: int | None = Field(
+        None,
+        ge=1,
+        description="起始章节索引（从 1 开始，包含）",
+    )
+    end_chapter: int | None = Field(
+        None,
+        ge=1,
+        description="结束章节索引（从 1 开始，包含）",
+    )
+
+    @model_validator(mode="after")
+    def check_chapter_range(self) -> RagRebuildRequest:
+        """当两者均提供时，结束章节必须不小于起始章节。"""
+        if (
+            self.start_chapter is not None
+            and self.end_chapter is not None
+            and self.end_chapter < self.start_chapter
+        ):
+            raise ValueError("end_chapter 必须大于等于 start_chapter")
+        return self
+
+
 class RagChunkResponse(BaseModel):
     """RAG 片段响应"""
 
@@ -181,6 +216,7 @@ class RagChunkResponse(BaseModel):
     entity_ids: list[str] = []
     character_ids: list[str] = []
     thread_ids: list[str] = []
+    scene_id: str | None = None
     visibility: str = "author_only"
     importance: float = 0.5
     index_version: str = "legacy"
@@ -210,6 +246,16 @@ class RagChunkResponse(BaseModel):
     @classmethod
     def coerce_source_id(cls, v: object) -> str | None:
         """将 source_id UUID 转为字符串"""
+        if isinstance(v, uuid.UUID):
+            return str(v)
+        if isinstance(v, str):
+            return v
+        return None
+
+    @field_validator("scene_id", mode="before")
+    @classmethod
+    def coerce_scene_id(cls, v: object) -> str | None:
+        """将 scene_id UUID 转为字符串"""
         if isinstance(v, uuid.UUID):
             return str(v)
         if isinstance(v, str):

@@ -25,6 +25,8 @@ logging.basicConfig(level=logging.WARNING)
 DATABASE_URL = (
     "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
 )
+# asyncpg 原生连接检查使用 postgresql:// 协议头
+_PG_CHECK_URL = "postgresql://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
 
 
 # ============================================================
@@ -38,7 +40,7 @@ def _pg_available() -> bool:
 
         async def _check() -> bool:
             try:
-                conn = await asyncpg.connect(DATABASE_URL, timeout=3, command_timeout=3)
+                conn = await asyncpg.connect(_PG_CHECK_URL, timeout=3, command_timeout=3)
                 await conn.close()
                 return True
             except Exception:

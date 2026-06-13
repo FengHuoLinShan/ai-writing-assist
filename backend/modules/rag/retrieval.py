@@ -27,6 +27,8 @@ RerankerFn = Callable[..., Awaitable[list[tuple]]]
 MetricsFn = Callable[[], object]
 CircuitBreakerFn = Callable[[], object]
 
+_MAX_TOP_K = 50
+
 
 async def _default_embedder(query: str, *, is_query: bool = False) -> list[float]:
     """默认 embedding 函数：通过 LLMClient 生成。"""
@@ -312,7 +314,7 @@ class RetrievalOrchestrator:
         import time as _time
 
         _t0 = _time.monotonic()
-        top_k = max(1, top_k)
+        top_k = max(1, min(top_k, _MAX_TOP_K))
         warnings: list[str] = []
         degraded = False
         query_embedding: list[float] | None = None

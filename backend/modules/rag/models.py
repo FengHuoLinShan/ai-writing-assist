@@ -110,6 +110,12 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         default=list,
         comment="关联的剧情线 ID 列表",
     )
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
+        comment="关联的 Scene ID（根据 scene_chunks 区间近似匹配）",
+    )
     visibility: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

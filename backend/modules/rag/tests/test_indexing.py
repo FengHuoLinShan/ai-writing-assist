@@ -531,3 +531,119 @@ async def test_index_chapter_with_report_marks_failed_embeddings(
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert any(c.embedding_status == "failed" for c in chunks)
     assert result.warnings
+
+
+@pytest.mark.asyncio
+async def test_index_chapter_annotates_scene_id(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """索引章节时应按 scene_chunks 区间把 chunk 标注上 scene_id。"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneCreate
+    from modules.rag.facade import index_chapter_with_report
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    scene_repo = SceneRepository()
+
+    content = "周明瑞从梦中醒来，脑海里残留着穿越谜团。" * 30
+    scene = await scene_repo.create(
+        db_session,
+        nid_uuid,
+        SceneCreate(
+            scene_index=0,
+            title="开场",
+            chapter_ids=["1"],
+            scene_chunks=[
+                {
+                    "chapter_id": "1",
+                    "chapter_index": 1,
+                    "start_pos": 0,
+                    "end_pos": len(content),
+                }
+            ],
+            status="draft",
+        ),
+    )
+
+    db_session.add(
+        WritingDraft(
+            id=_uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章",
+            content=content,
+            version_number=1,
+        )
+    )
+    await db_session.flush()
+
+    embed_exc = Exception("embedding down")
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
+        mock_client_cls.return_value = mock_client
+
+        report = await index_chapter_with_report(db_session, test_project_id, 1)
+
+    assert report.chunks_created > 0
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert chunks
+    assert any(str(c.scene_id) == str(scene.id) for c in chunks), (
+        f"至少有一个 chunk 应被标注 scene_id {scene.id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rebuild_novel_with_chapter_range(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+):
+    """rag_reindex_novel 任务应只重建指定章节范围。"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_reindex_novel
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    for idx in (1, 2, 3):
+        db_session.add(
+            WritingDraft(
+                id=_uuid.uuid4(),
+                novel_id=nid_uuid,
+                chapter_index=idx,
+                title=f"第{idx}章",
+                content=f"第{idx}章正文。周明瑞醒来并观察这个世界。" * 8,
+                version_number=1,
+            )
+        )
+
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_reindex_novel",
+        status="running",
+        meta={"novel_id": test_project_id, "start_chapter": 2, "end_chapter": 2},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    embed_exc = Exception("embedding down")
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_reindex_novel(db_session, task)
+
+    assert result["total_chapters"] == 1
+    assert result["chunks_created"] >= 1
+    chapter_indices = [c["chapter_index"] for c in result["chapters"]]
+    assert chapter_indices == [2]

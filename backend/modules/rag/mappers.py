@@ -24,6 +24,11 @@ def chunk_orm_to_contract(
         entity_ids=chunk.entity_ids or [],
         character_ids=chunk.character_ids or [],
         thread_ids=chunk.thread_ids or [],
+        scene_id=(
+            str(getattr(chunk, "scene_id", None))
+            if getattr(chunk, "scene_id", None)
+            else None
+        ),
         visibility=chunk.visibility,
         importance=chunk.importance,
         index_version=chunk.index_version,

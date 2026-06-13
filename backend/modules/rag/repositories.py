@@ -61,6 +61,7 @@ class RagChunkRepository:
             entity_ids=data.entity_ids or [],
             character_ids=data.character_ids or [],
             thread_ids=data.thread_ids or [],
+            scene_id=uuid.UUID(hex=data.scene_id) if data.scene_id else None,
             visibility=data.visibility or "author_only",
             importance=data.importance if data.importance is not None else 0.5,
             index_version=data.index_version or "legacy",

@@ -42,6 +42,8 @@ class RagChunkContract:
     """关联的人物 ID 列表"""
     thread_ids: list[str] = field(default_factory=list)
     """关联的剧情线 ID 列表"""
+    scene_id: str | None = None
+    """关联的 Scene ID"""
     visibility: str = "author_only"
     """信息可见性"""
     importance: float = 0.5

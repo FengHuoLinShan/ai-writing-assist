@@ -12,7 +12,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
-from modules.rag.chunking import ChunkingService
+from modules.rag.chunking import ChineseNovelChunk, ChunkingService
 from modules.rag.contracts import RagIndexReport
 from modules.rag.models import RagChunk
 from modules.rag.query_expansion import _load_project_terms, _match_project_terms
@@ -20,6 +20,19 @@ from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate
 
 RAG_INDEX_VERSION = "cn-novel-v1"
+
+
+def _scenes_for_chapter(scenes: list[dict], chapter_index: int) -> list[dict]:
+    """筛选出与指定章节关联且包含 scene_chunks 的 scenes。"""
+    return [
+        s
+        for s in scenes
+        if str(chapter_index) in (s.get("chapter_ids") or [])
+        and any(
+            sc.get("chapter_index") == chapter_index
+            for sc in (s.get("scene_chunks") or [])
+        )
+    ]
 
 
 class IndexingService:
@@ -35,6 +48,27 @@ class IndexingService:
     ) -> None:
         self._repo = repo or RagChunkRepository()
         self._chunking = chunking or ChunkingService()
+
+    @staticmethod
+    def _resolve_scene_id_for_chunk(
+        cn_chunk: ChineseNovelChunk,
+        scenes_for_chapter: list[dict],
+    ) -> uuid.UUID | None:
+        """根据 scene_chunks 区间，返回与 chunk 范围第一个重叠的 Scene ID。"""
+        chunk_start = cn_chunk.start_offset
+        chunk_end = cn_chunk.end_offset
+        for scene in scenes_for_chapter:
+            scene_id_str = scene.get("id")
+            if not scene_id_str:
+                continue
+            for sc in scene.get("scene_chunks", []):
+                sc_start = sc.get("start_pos")
+                sc_end = sc.get("end_pos")
+                if sc_start is None or sc_end is None:
+                    continue
+                if chunk_start < sc_end and chunk_end > sc_start:
+                    return uuid.UUID(hex=scene_id_str)
+        return None
 
     async def index_chapter(
         self,
@@ -62,6 +96,11 @@ class IndexingService:
         chunks = self._chunking.split_chinese_novel(draft.content)
         if not chunks:
             return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
+
+        from modules.outline.facade import get_scenes_by_novel
+
+        scenes = await get_scenes_by_novel(db, str(novel_id))
+        scenes_for_chapter = _scenes_for_chapter(scenes, chapter_index)
 
         project_terms = await _load_project_terms(db, novel_id)
         await self._repo.delete_by_chapter(db, novel_id, "chapter_text", chapter_index)
@@ -96,6 +135,7 @@ class IndexingService:
                             has_core = True
                 chunk_importance = min(1.0, max_imp + (0.2 if has_core else 0.0))
 
+            scene_id = self._resolve_scene_id_for_chunk(cn_chunk, scenes_for_chapter)
             chunk_data = RagChunkCreate(
                 source_type="chapter_text",
                 chapter_index=chapter_index,
@@ -108,6 +148,7 @@ class IndexingService:
                 entity_ids=entity_ids,
                 character_ids=character_ids,
                 thread_ids=thread_ids,
+                scene_id=str(scene_id) if scene_id else None,
                 visibility="author_only",
                 importance=chunk_importance,
                 index_version=RAG_INDEX_VERSION,
@@ -196,6 +237,12 @@ class IndexingService:
                 old_by_offset[(c.start_offset, c.end_offset)] = c
 
         project_terms = await _load_project_terms(db, novel_id)
+
+        from modules.outline.facade import get_scenes_by_novel
+
+        scenes = await get_scenes_by_novel(db, str(novel_id))
+        scenes_for_chapter = _scenes_for_chapter(scenes, chapter_index)
+
         created_chunks: list[RagChunk] = []
         embedding_failed_count = 0
 
@@ -217,18 +264,29 @@ class IndexingService:
                         cn_chunk.text,
                         project_terms,
                     )
+                    adjusted_chunk = ChineseNovelChunk(
+                        chunk_index=cn_chunk.chunk_index,
+                        text=cn_chunk.text,
+                        start_offset=j1 + cn_chunk.start_offset,
+                        end_offset=j1 + cn_chunk.end_offset,
+                        char_count=cn_chunk.char_count,
+                    )
+                    scene_id = self._resolve_scene_id_for_chunk(
+                        adjusted_chunk, scenes_for_chapter
+                    )
                     chunk_data = RagChunkCreate(
                         source_type="chapter_text",
                         chapter_index=chapter_index,
                         chunk_index=len(created_chunks),
-                        start_offset=j1 + cn_chunk.start_offset,
-                        end_offset=j1 + cn_chunk.end_offset,
+                        start_offset=adjusted_chunk.start_offset,
+                        end_offset=adjusted_chunk.end_offset,
                         char_count=cn_chunk.char_count,
                         text=cn_chunk.text,
                         summary=self._chunking.extract_summary(cn_chunk.text),
                         entity_ids=entity_ids,
                         character_ids=character_ids,
                         thread_ids=thread_ids,
+                        scene_id=str(scene_id) if scene_id else None,
                         visibility="author_only",
                         importance=0.5,
                         index_version=RAG_INDEX_VERSION,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
+from infrastructure.tasks.enqueuer import enqueue_task
 from modules.rag.facade import (
     create_chunk,
     get_index_status,
@@ -22,6 +23,7 @@ from modules.rag.schemas import (
     RagChunkCreate,
     RagChunkResponse,
     RagQuery,
+    RagRebuildRequest,
     RagResult,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -104,6 +106,7 @@ async def retrieve_chunks(
             entity_ids=c.entity_ids,
             character_ids=c.character_ids,
             thread_ids=c.thread_ids,
+            scene_id=c.scene_id,
             visibility=c.visibility,
             importance=c.importance,
             index_version=c.index_version,
@@ -128,6 +131,27 @@ async def retrieve_chunks(
 async def get_rag_metrics() -> dict:
     """获取 RAG 检索运行时指标。"""
     return await get_metrics_status()
+
+
+@router.post("/rebuild", response_model=dict)
+async def rebuild_rag_index(
+    db: DbSession,
+    request: RagRebuildRequest,
+) -> dict:
+    """按章节范围重建 RAG 索引
+
+    入队异步任务 `rag_reindex_novel`，由 worker 逐章重建。
+    """
+    task_id = enqueue_task(
+        db,
+        "rag_reindex_novel",
+        meta={
+            "novel_id": request.novel_id,
+            "start_chapter": request.start_chapter,
+            "end_chapter": request.end_chapter,
+        },
+    )
+    return {"task_id": task_id, "status": "pending"}
 
 
 @router.post("/chunks/split", response_model=dict)

@@ -1014,3 +1014,117 @@ class TestKeywordProximityScore:
             ["克莱恩"],
         )
         assert score == 1.0
+
+
+# ============================================================
+# 新增验收测试
+# ============================================================
+
+
+class TestRagRetrievalBoundaries:
+    """检索边界行为测试"""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_top_k_capped(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """top_k 超过 50 时应被截断为 50，返回结果数 ≤50。"""
+        for i in range(60):
+            await create_chunk(
+                db_with_project,
+                str(sample_novel_id),
+                RagChunkCreate(
+                    source_type="chapter_text",
+                    text=f"这是第{i:03d}个包含关键词的测试片段。",
+                    importance=0.5,
+                ),
+            )
+        await db_with_project.flush()
+
+        result = await retrieve(
+            db_with_project,
+            str(sample_novel_id),
+            "关键词",
+            top_k=100,
+        )
+        assert len(result.chunks) <= 50
+        assert result.total >= len(result.chunks)
+        assert result.total <= 60
+
+    @pytest.mark.asyncio
+    async def test_retrieve_cross_novel_isolation(
+        self,
+        db_with_project: AsyncSession,
+    ) -> None:
+        """在小说 A 创建 chunk，用小说 B 检索应返回空。"""
+        novel_a = str(uuid.uuid4())
+        novel_b = str(uuid.uuid4())
+
+        await create_chunk(
+            db_with_project,
+            novel_a,
+            RagChunkCreate(
+                source_type="chapter_text",
+                text="只属于小说 A 的内容。",
+            ),
+        )
+        await db_with_project.flush()
+
+        result = await retrieve(db_with_project, novel_b, "只属于小说 A")
+        assert result.total == 0
+        assert result.chunks == []
+
+    @pytest.mark.asyncio
+    async def test_retrieve_filter_by_chapter_index(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """按 chapter_index 过滤应只返回目标章节的 chunk。"""
+        for idx, chapter in enumerate((1, 1, 2, 2, 3), start=1):
+            await create_chunk(
+                db_with_project,
+                str(sample_novel_id),
+                RagChunkCreate(
+                    source_type="chapter_text",
+                    chapter_index=chapter,
+                    text=f"第{chapter}章第{idx}个片段。",
+                ),
+            )
+        await db_with_project.flush()
+
+        result = await retrieve(
+            db_with_project,
+            str(sample_novel_id),
+            "第2章",
+            chapter_index=2,
+        )
+        assert result.total >= 1
+        assert all(c.chapter_index == 2 for c in result.chunks)
+
+    @pytest.mark.asyncio
+    async def test_chunk_create_with_scene_id(
+        self,
+        db_with_project: AsyncSession,
+    ) -> None:
+        """创建 chunk 时携带 scene_id 应可正确读取。"""
+        novel_id = str(uuid.uuid4())
+        scene_id = str(uuid.uuid4())
+
+        resp = await create_chunk(
+            db_with_project,
+            novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                text="与 Scene 关联的片段内容。",
+                scene_id=scene_id,
+            ),
+        )
+        assert resp.scene_id == scene_id
+
+        repo = RagChunkRepository()
+        chunk = await repo.get(db_with_project, uuid.UUID(hex=resp.id))
+        assert chunk is not None
+        assert str(chunk.scene_id) == scene_id
