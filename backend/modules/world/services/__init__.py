@@ -4,6 +4,9 @@ from modules.world.services.character_knowledge_service import (
     CharacterKnowledgeService,
 )
 from modules.world.services.character_service import CharacterService
+from modules.world.services.entity_alias_service import EntityAliasService
+from modules.world.services.entity_context_service import EntityContextService
+from modules.world.services.entity_embedding_service import EntityEmbeddingService
 from modules.world.services.entity_relation_service import EntityRelationService
 from modules.world.services.entity_revision_service import EntityRevisionService
 from modules.world.services.entity_service import WorldEntityService
@@ -20,6 +23,9 @@ from modules.world.services.helpers import (
 
 __all__ = [
     "WorldEntityService",
+    "EntityAliasService",
+    "EntityContextService",
+    "EntityEmbeddingService",
     "EntityRelationService",
     "EntityRevisionService",
     "EventService",
