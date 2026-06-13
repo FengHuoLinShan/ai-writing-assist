@@ -264,6 +264,7 @@ class TestSceneEntityExtractionProgress:
         service._process_scene = AsyncMock(
             return_value={
                 "created": 1,
+                "relations": 0,
                 "deltas": 0,
                 "updated_context": "",
                 "updated_memory": [],
@@ -284,6 +285,7 @@ class TestSceneEntityExtractionProgress:
 
         assert progress_calls == [(0, 2), (1, 2), (2, 2)]
         assert result["total_scenes"] == 2
+        assert "total_relations" in result
 
 
 class TestHandleDeepImportTaskResult:
@@ -295,6 +297,7 @@ class TestHandleDeepImportTaskResult:
 
         class FakeTask:
             def __init__(self):
+                self.id = uuid.uuid4()
                 self.meta = {
                     "novel_id": str(uuid.uuid4()),
                     "start_chapter": 1,
@@ -309,25 +312,29 @@ class TestHandleDeepImportTaskResult:
         task = FakeTask()
         mock_db = AsyncMock()
 
-        with patch.object(
-            DeepImportWorkflow,
-            "_segment_scenes",
-            new_callable=AsyncMock,
-            return_value={
-                "total_scenes": 5,
-                "failed_batches": [],
-                "degraded": False,
-            },
-        ), patch.object(
-            DeepImportWorkflow,
-            "_extract_entities_by_scene",
-            new_callable=AsyncMock,
-            return_value={"total_created": 3, "total_deltas": 2},
-        ), patch.object(
-            DeepImportWorkflow,
-            "_analyze_structure",
-            new_callable=AsyncMock,
-            return_value={"total_threads": 2, "total_arcs": 4},
+        with (
+            patch.object(
+                DeepImportWorkflow,
+                "_segment_scenes",
+                new_callable=AsyncMock,
+                return_value={
+                    "total_scenes": 5,
+                    "failed_batches": [],
+                    "degraded": False,
+                },
+            ),
+            patch.object(
+                DeepImportWorkflow,
+                "_extract_entities_by_scene",
+                new_callable=AsyncMock,
+                return_value={"total_created": 3, "total_deltas": 2},
+            ),
+            patch.object(
+                DeepImportWorkflow,
+                "_analyze_structure",
+                new_callable=AsyncMock,
+                return_value={"total_threads": 2, "total_arcs": 4},
+            ),
         ):
             result = await handle_deep_import(db=mock_db, task=task)
 

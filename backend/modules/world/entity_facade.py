@@ -213,6 +213,22 @@ async def create_entity(
     return result.model_dump()
 
 
+async def update_entity(
+    db: AsyncSession,
+    novel_id: str,
+    entity_id: str,
+    data: dict[str, Any],
+) -> dict[str, Any] | None:
+    """更新单个 CoreEntity（仅允许 status 等自由字段），返回 dict 或 None。"""
+    from modules.world.schemas import CoreEntityUpdate
+    from shared.utils import parse_uuid
+
+    eid = parse_uuid(entity_id, "entity_id")
+    update_data = CoreEntityUpdate(**data)
+    result = await _entity_service.update(db, str(eid), update_data, novel_id=novel_id)
+    return result.model_dump() if result else None
+
+
 async def count_entities(
     db: AsyncSession,
     novel_id: str,
@@ -232,6 +248,53 @@ async def count_entities(
     stmt = select(func.count(CoreEntity.id)).where(*conditions)
     result = await db.execute(stmt)
     return result.scalar() or 0
+
+
+async def list_auto_ingested_entities(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    start_chapter: int | None = None,
+    end_chapter: int | None = None,
+    limit: int = 10000,
+) -> list[dict[str, Any]]:
+    """列出 novel 中由深度导入自动生成的实体，可选按来源章节范围过滤。"""
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    stmt = (
+        select(CoreEntity)
+        .where(
+            CoreEntity.novel_id == nid,
+            CoreEntity.status.in_(["canonical", "draft"]),
+        )
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    entities = result.scalars().all()
+
+    items: list[dict[str, Any]] = []
+    for entity in entities:
+        content_json = entity.content_json or {}
+        meta = content_json.get("_meta") or {}
+        if not meta.get("auto_ingested"):
+            continue
+        source = meta.get("source_chapter_index")
+        if start_chapter is not None and end_chapter is not None:
+            if source is None or not (start_chapter <= int(source) <= end_chapter):
+                continue
+        items.append(
+            {
+                "id": str(entity.id),
+                "name": entity.name,
+                "status": entity.status,
+                "content_json": content_json,
+            }
+        )
+    return items
 
 
 async def backfill_entity_embeddings(

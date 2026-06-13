@@ -24,6 +24,10 @@ class DeepImportStep(StrEnum):
 class DeepImportProgress(BaseModel):
     """深度导入进度状态"""
 
+    workflow_id: str | None = Field(
+        default=None,
+        description="业务层 workflow 标识（与 async task_id 一致）",
+    )
     phase: str = Field(
         default="pending",
         description="阶段: pending / running / done / failed",

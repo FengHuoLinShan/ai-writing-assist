@@ -145,17 +145,22 @@ async def submit_deep_import_sync(
         indices = await list_chapter_indices(db, novel_id)
         end_chapter = max(indices) if indices else 1
 
+    from uuid import uuid4
+
+    workflow_id = str(uuid4())
     workflow = DeepImportWorkflow()
-    progress = DeepImportProgress()
+    progress = DeepImportProgress(workflow_id=workflow_id)
     progress = await workflow.run_step(
         db,
         novel_id=novel_id,
         start_chapter=start_chapter,
         end_chapter=end_chapter,
         progress=progress,
+        workflow_id=workflow_id,
     )
 
     return {
+        "workflow_id": workflow_id,
         "phase": progress.phase,
         "current_step": progress.current_step.value if progress.current_step else None,
         "completed_steps": progress.completed_steps,

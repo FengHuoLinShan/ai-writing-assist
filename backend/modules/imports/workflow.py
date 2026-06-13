@@ -31,6 +31,8 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         progress: DeepImportProgress,
+        *,
+        workflow_id: str | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
@@ -77,11 +79,13 @@ class DeepImportWorkflow:
             phase2_result = await self._extract_entities_by_scene(
                 db,
                 novel_id,
+                workflow_id=workflow_id,
                 on_scene_progress=_on_scene_progress,
             )
             progress.completed_steps.append(DeepImportStep.entity_extraction.value)
             progress.message = (
                 f"实体提取完成，共创建 {phase2_result.get('total_created', 0)} 个实体，"
+                f"{phase2_result.get('total_relations', 0)} 条关系，"
                 f"记录 {phase2_result.get('total_deltas', 0)} 条变更。"
             )
 
@@ -160,6 +164,7 @@ class DeepImportWorkflow:
         self,
         db: AsyncSession,
         novel_id: str,
+        workflow_id: str | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         try:
@@ -167,12 +172,17 @@ class DeepImportWorkflow:
             result = await handler(
                 db,
                 novel_id=novel_id,
+                workflow_id=workflow_id,
                 on_scene_progress=on_scene_progress,
             )
             return result
         except Exception as exc:
             logger.warning("Phase 2 entity extraction failed: %s", exc)
-            return {"total_created": 0, "total_deltas": 0}
+            return {
+                "total_created": 0,
+                "total_relations": 0,
+                "total_deltas": 0,
+            }
 
     # ------------------------------------------------------------------
     # Phase 3: 剧情结构分析

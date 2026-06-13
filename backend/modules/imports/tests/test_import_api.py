@@ -30,8 +30,7 @@ async def test_upload_txt_success(
     """成功导入 txt 文件并写入 writing_drafts"""
     novel_id = sample_project["id"]
     content = (
-        "第一章 开始\n这是第一章的内容。\n\n"
-        "第二章 继续\n这是第二章的内容。\n"
+        "第一章 开始\n这是第一章的内容。\n\n第二章 继续\n这是第二章的内容。\n"
     ).encode()
 
     resp = await async_client.post(
@@ -49,9 +48,7 @@ async def test_upload_txt_success(
     assert data["status"] == "done"
 
     # 验证 writing_drafts 已创建，且状态为 draft
-    chapters_resp = await async_client.get(
-        f"/api/writing/chapters?novel_id={novel_id}"
-    )
+    chapters_resp = await async_client.get(f"/api/writing/chapters?novel_id={novel_id}")
     assert chapters_resp.status_code == 200
     chapter_indices = chapters_resp.json()["chapter_indices"]
     assert sorted(chapter_indices) == [1, 2]
@@ -111,9 +108,7 @@ async def test_upload_empty_file_records_failed(
     assert "文件中未检测到有效章节" in resp.json()["detail"]
 
     # 验证未创建 writing_drafts
-    chapters_resp = await async_client.get(
-        f"/api/writing/chapters?novel_id={novel_id}"
-    )
+    chapters_resp = await async_client.get(f"/api/writing/chapters?novel_id={novel_id}")
     assert chapters_resp.json()["chapter_indices"] == []
 
     # 验证导入记录状态为 failed
@@ -177,9 +172,7 @@ async def test_upload_truncated_utf8_records_failed(
     assert resp.status_code == 422
     assert "编码" in resp.json()["detail"]
 
-    chapters_resp = await async_client.get(
-        f"/api/writing/chapters?novel_id={novel_id}"
-    )
+    chapters_resp = await async_client.get(f"/api/writing/chapters?novel_id={novel_id}")
     assert chapters_resp.json()["chapter_indices"] == []
 
     list_resp = await async_client.get(f"/api/imports?novel_id={novel_id}")
@@ -210,9 +203,7 @@ async def test_list_and_get_import_records(
     assert data["total"] == 1
     assert len(data["items"]) == 1
 
-    get_resp = await async_client.get(
-        f"/api/imports/{record_id}?novel_id={novel_id}"
-    )
+    get_resp = await async_client.get(f"/api/imports/{record_id}?novel_id={novel_id}")
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == record_id
 
@@ -233,7 +224,5 @@ async def test_get_import_record_novel_id_isolation(
     record_id = upload_resp.json()["id"]
 
     other_novel_id = str(uuid.uuid4())
-    resp = await async_client.get(
-        f"/api/imports/{record_id}?novel_id={other_novel_id}"
-    )
+    resp = await async_client.get(f"/api/imports/{record_id}?novel_id={other_novel_id}")
     assert resp.status_code == 404

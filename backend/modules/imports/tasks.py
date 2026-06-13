@@ -33,7 +33,7 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
         raise ValueError("novel_id is required for deep_import")
 
     workflow = DeepImportWorkflow()
-    progress = DeepImportProgress()
+    progress = DeepImportProgress(workflow_id=str(task.id))
 
     async def _record_progress(
         updated: DeepImportProgress,
@@ -49,6 +49,7 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
         start_chapter=start_chapter,
         end_chapter=end_chapter,
         progress=progress,
+        workflow_id=str(task.id),
         on_progress=_record_progress,
     )
 

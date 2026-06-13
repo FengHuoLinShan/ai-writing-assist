@@ -109,6 +109,30 @@ async def batch_create_scenes(
     return results
 
 
+async def update_scene(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    data: dict[str, Any],
+) -> dict[str, Any] | None:
+    """更新 Scene 字段（仅允许 status 等少量字段），返回 dict 或 None。"""
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneUpdate
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    sid = parse_uuid(scene_id, "scene_id")
+    repo = SceneRepository()
+    scene = await repo.get(db, sid)
+    if scene is None or scene.novel_id != nid:
+        return None
+    update_data = SceneUpdate(**data)
+    updated = await repo.update(db, sid, update_data)
+    if updated is None:
+        return None
+    return _scene_to_dict(updated)
+
+
 async def get_next_scene_index(db: AsyncSession, novel_id: str) -> int:
     """获取该 novel 的下一个 scene_index（当前最大 + 1）。"""
     from sqlalchemy import func, select

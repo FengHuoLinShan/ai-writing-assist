@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.llm_schemas import SceneSegmentationOutput
 from shared.utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -75,9 +76,7 @@ class SceneSegmentationService:
                         batch_idx,
                     )
                     for s in fallback_scenes:
-                        scene_data = self._build_scene_data(
-                            s, next_scene_index, batch
-                        )
+                        scene_data = self._build_scene_data(s, next_scene_index, batch)
                         await create_scene(db, novel_id, scene_data)
                         next_scene_index += 1
                         added_count += 1
@@ -87,12 +86,15 @@ class SceneSegmentationService:
                         batch_idx,
                         fb_exc,
                     )
-                    failed_batches.append(batch_idx)
                     for ch in batch:
                         mech_data = {
                             "scene_index": next_scene_index,
-                            "title": ch.get("title")
-                            or f"第{ch['chapter_index']}章",
+                            "title": ch.get("title") or f"第{ch['chapter_index']}章",
+                            "goal": "",
+                            "core_conflict": "",
+                            "emotional_beat": "",
+                            "must_happen": "",
+                            "must_not_happen": "",
                             "narrative_tag": "draft",
                             "source": "deep_import",
                             "scene_chunks": [
@@ -229,7 +231,8 @@ class SceneSegmentationService:
             try:
                 raw = await llm_client.generate(request)
                 parsed = parse_llm_json(raw.content, f"Batch {batch_idx} LLM response")
-                scenes_data = parsed.get("scenes", [])
+                output = SceneSegmentationOutput.model_validate(parsed)
+                scenes_data = [s.model_dump() for s in output.scenes]
                 if not scenes_data:
                     raise ValueError("LLM returned empty scenes list")
                 return scenes_data
@@ -282,7 +285,8 @@ class SceneSegmentationService:
                         raw.content,
                         f"Single-ch {ch['chapter_index']}",
                     )
-                    scenes = parsed.get("scenes", [])
+                    output = SceneSegmentationOutput.model_validate(parsed)
+                    scenes = [s.model_dump() for s in output.scenes]
                     if scenes:
                         all_scenes.extend(scenes)
                         break

@@ -33,9 +33,11 @@ from modules.world.entity_facade import (  # noqa: F401
     find_similar_entities,
     get_entity_relations,
     get_world_context,
+    list_auto_ingested_entities,
     list_entities,
     list_entity_terms,
     merge_candidate_into_entity,
+    update_entity,
     upsert_relation,
     upsert_relationship,
 )
