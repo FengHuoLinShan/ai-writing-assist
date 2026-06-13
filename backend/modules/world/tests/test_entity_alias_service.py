@@ -31,7 +31,7 @@ def entity_service() -> WorldEntityService:
 
 
 @pytest.mark.asyncio
-async def test_list_aliases_returns_all_aliases(
+async def test_list_aliases_returns_alias_for_entity(
     db_session: AsyncSession,
     novel_id: str,
     alias_service: EntityAliasService,
@@ -54,6 +54,40 @@ async def test_list_aliases_returns_all_aliases(
     assert aliases[0]["entity_name"] == "Arthur"
     assert aliases[0]["alias"] == "Art"
     assert aliases[0]["alias_type"] == "nickname"
+
+
+@pytest.mark.asyncio
+async def test_list_aliases_pagination(
+    db_session: AsyncSession,
+    novel_id: str,
+    alias_service: EntityAliasService,
+    entity_service: WorldEntityService,
+) -> None:
+    await entity_service.create(
+        db_session,
+        novel_id,
+        CoreEntityCreate(
+            entity_type="character",
+            name="Arthur",
+            content_json={"aliases": ["Art", "Athy"]},
+        ),
+    )
+    await entity_service.create(
+        db_session,
+        novel_id,
+        CoreEntityCreate(
+            entity_type="character",
+            name="Bella",
+            content_json={"aliases": ["Bell", "Bells"]},
+        ),
+    )
+
+    all_aliases = await alias_service.list_aliases(db_session, novel_id)
+    paginated = await alias_service.list_aliases(db_session, novel_id, skip=1, limit=2)
+
+    assert len(paginated) == 2
+    for alias_item in paginated:
+        assert alias_item in all_aliases
 
 
 @pytest.mark.asyncio
