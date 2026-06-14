@@ -232,6 +232,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
+| POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史 |
 | GET | `/api/world/entities/{entity_id}/relations` | 实体关系列表 |
 | DELETE | `/api/world/entities/{entity_id}/aliases` | 删除别名 |
 | GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy，只读兼容） |

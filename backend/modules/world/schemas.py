@@ -230,6 +230,34 @@ class CoreEntityListResponse(BaseModel):
     total: int
 
 
+class EntityPromoteRequest(BaseModel):
+    """将草稿/候选实体提升为正史的请求"""
+
+    approved_by: str | None = Field(
+        default="manual",
+        max_length=64,
+        description="确认者标识",
+    )
+
+
+class EntityPromoteResponse(BaseModel):
+    """实体提升响应"""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={uuid.UUID: str},
+    )
+
+    entity_id: str
+    status: str
+    approved_by: str | None = None
+
+    @field_validator("entity_id", mode="before")
+    @classmethod
+    def coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
 # ============================================================
 # Auto-Ingest Batch Schema
 # ============================================================

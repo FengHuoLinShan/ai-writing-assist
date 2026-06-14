@@ -384,6 +384,7 @@ const worldView = {
       const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;">新</span>' : ""
       const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
       const canMerge = e.status === "draft" || e.status === "candidate"
+      const canPromote = e.status === "draft" || e.status === "candidate"
       html += `
         <tr data-id="${esc(e.id || e.entity_id)}" class="clickable">
           <td><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
@@ -393,6 +394,7 @@ const worldView = {
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
+            ${canPromote ? `<button class="btn btn-sm btn-primary" data-action="promote-entity" data-id="${esc(e.id || e.entity_id)}">提升为正史</button>` : ""}
             ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(e.id || e.entity_id)}">合并</button>` : ""}
             <button class="btn btn-sm" data-action="rollback-entity" data-id="${esc(e.id || e.entity_id)}">回滚</button>
             ${isCharacter ? `<button class="btn btn-sm" data-action="knowledge-entity" data-id="${esc(e.id || e.entity_id)}">知识</button>` : ""}
@@ -647,6 +649,25 @@ const worldView = {
     }, "确认删除")
   },
 
+  promoteEntity(id) {
+    const entity = this._entities.find((e) => (e.id || e.entity_id) === id)
+    if (!entity) return
+
+    confirmAction(
+      `确定将 "${esc(entity.name)}" 提升为正史吗？提升后将作为正式世界对象参与后续创作。`,
+      async () => {
+        try {
+          await api.world.promoteEntity(id, state.currentProjectId)
+          toast("已提升为正史", "success")
+          router.refresh()
+        } catch (err) {
+          toast(`提升失败：${err.message}`, "error")
+        }
+      },
+      "确认提升为正史",
+    )
+  },
+
   _entityOptionsHtml() {
     if (!this._entities || this._entities.length === 0) {
       return `<option value="">暂无对象</option>`
@@ -691,6 +712,7 @@ const worldView = {
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
       "delete-entity": (_e, _t, ctx) => ctx.id && this.deleteEntity(ctx.id),
+      "promote-entity": (_e, _t, ctx) => ctx.id && this.promoteEntity(ctx.id),
       "merge-entity": (_e, _t, ctx) => ctx.id && this.showMergeForm(ctx.id),
       "rollback-entity": (_e, _t, ctx) => ctx.id && this.showRollbackForm(ctx.id),
       "knowledge-entity": (_e, _t, ctx) => ctx.id && this.showKnowledgeForm(ctx.id),

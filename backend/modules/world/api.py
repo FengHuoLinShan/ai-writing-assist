@@ -26,6 +26,8 @@ from modules.world.schemas import (
     EntityAliasCreate,
     EntityMergeRequest,
     EntityMergeResponse,
+    EntityPromoteRequest,
+    EntityPromoteResponse,
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
@@ -148,6 +150,25 @@ async def merge_entity(
         data.target_entity_id,
     )
     return EntityMergeResponse(target_entity_id=result.target_entity_id)
+
+
+@router.post(
+    "/entities/{entity_id}/promote",
+    response_model=EntityPromoteResponse,
+)
+async def promote_entity(
+    db: DbSession,
+    entity_id: str,
+    data: EntityPromoteRequest = EntityPromoteRequest(),
+    novel_id: str = Query(..., description="项目 ID"),
+) -> EntityPromoteResponse:
+    """将草稿/候选实体手动提升为正史。"""
+    return await _entity_service.promote(
+        db,
+        entity_id,
+        data,
+        novel_id=novel_id,
+    )
 
 
 @router.get("/entities/{entity_id}/relations", response_model=EntityRelationListResponse)

@@ -274,6 +274,14 @@ const api = {
       })
     },
 
+    /** 将草稿/候选世界对象提升为正史 */
+    async promoteEntity(id, novelId, payload = {}) {
+      return request(`/world/entities/${id}/promote${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
     /** 删除世界对象 */
     async deleteEntity(id, novelId) {
       return request(`/world/entities/${id}${buildQueryString({ novel_id: novelId })}`, { method: "DELETE" })

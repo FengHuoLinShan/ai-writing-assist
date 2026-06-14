@@ -17,6 +17,8 @@ from modules.world.schemas import (
     CoreEntityListResponse,
     CoreEntityResponse,
     CoreEntityUpdate,
+    EntityPromoteRequest,
+    EntityPromoteResponse,
 )
 from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
@@ -117,4 +119,53 @@ class WorldEntityService(
         return CoreEntityListResponse(
             items=[CoreEntityResponse.model_validate(e) for e in items],
             total=total,
+        )
+
+    # ============================================================
+    # Promote: 将草稿/候选实体提升为正史
+    # ============================================================
+
+    async def promote(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        data: EntityPromoteRequest,
+        *,
+        novel_id: str,
+    ) -> EntityPromoteResponse:
+        """将 draft/candidate 状态实体提升为 canonical。
+
+        - 仅允许从 draft/candidate 提升；其他状态返回 400。
+        - 自动设置 approved_by 与 status=canonical。
+        """
+        from fastapi import status as http_status
+
+        rid = parse_uuid(entity_id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
+
+        entity = await self.repo.get(db, rid)
+        self._assert_found_in_novel(entity, entity_id, nid)
+        assert entity is not None
+
+        if entity.status not in {"draft", "candidate"}:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"无法提升状态为 '{entity.status}' 的实体，"
+                    "仅 draft/candidate 可被提升为正史"
+                ),
+            )
+
+        update_data = CoreEntityUpdate(
+            status="canonical",
+            approved_by=data.approved_by or "manual",
+        )
+        updated = await self.repo.update(db, rid, update_data)
+        self._assert_found_in_novel(updated, entity_id, nid)
+        assert updated is not None
+
+        return EntityPromoteResponse(
+            entity_id=str(updated.id),
+            status=updated.status,
+            approved_by=updated.approved_by,
         )

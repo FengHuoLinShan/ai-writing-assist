@@ -489,6 +489,80 @@ class TestWorldObjectManagementAPI:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_api_promote_draft_entity_to_canonical(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        entity = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="草稿角色"),
+        )
+        assert entity.status == "draft"
+
+        response = await async_client.post(
+            f"/api/world/entities/{entity.id}/promote",
+            params={"novel_id": novel_id},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["entity_id"] == entity.id
+        assert data["status"] == "canonical"
+        assert data["approved_by"] == "manual"
+
+    @pytest.mark.asyncio
+    async def test_api_promote_canonical_entity_returns_400(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        entity = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="正史角色",
+                status="canonical",
+            ),
+        )
+
+        response = await async_client.post(
+            f"/api/world/entities/{entity.id}/promote",
+            params={"novel_id": novel_id},
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_api_promote_entity_wrong_novel_returns_404(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        other_novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        await _create_project(db_session, other_novel_id)
+        service = WorldEntityService()
+        entity = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="草稿角色"),
+        )
+
+        response = await async_client.post(
+            f"/api/world/entities/{entity.id}/promote",
+            params={"novel_id": other_novel_id},
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_api_create_knowledge_false_belief_without_misconception_returns_422(
         self,
         async_client: AsyncClient,
