@@ -811,11 +811,27 @@ describe("mapView 批量绑定保存", () => {
     })
   })
 
-  it("_undo 优先清空 binding pending", () => {
-    stageBindingChange("loc1", 1, 2, false)
-    stageBindingChange("loc1", 1, 3, true)
+})
+
+describe("mapView 撤销", () => {
+  it("_undo 清空 pending 地形变更", () => {
+    stageTerrainChange(1, 1, "water")
+    stageTerrainChange(2, 2, "forest")
+    mapView._undo()
+    expect(mapState.pendingTerrainChanges).toEqual({})
+    expect(toast).toHaveBeenCalledWith("已撤销 2 个地形变更", "info")
+  })
+
+  it("_undo 优先清空 pending 绑定变更", () => {
+    stageTerrainChange(1, 1, "water")
+    stageBindingChange("loc1", 2, 2, false)
     mapView._undo()
     expect(mapState.pendingBindings).toEqual({})
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining("2 个待绑定变更"), "info")
+    expect(mapState.pendingTerrainChanges["1,1"]).toBeDefined()
+  })
+
+  it("_undo 无 pending 时提示", () => {
+    mapView._undo()
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("无可撤销的操作"), "info")
   })
 })

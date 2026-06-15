@@ -475,12 +475,6 @@ const mapView = {
     updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
   },
 
-  /** 临时绘制 pending 变更（叠加在已有地形上） */
-  _redrawPending() {
-    // P0 简化：pending 期间不重绘 canvas，点"应用"时统一提交。
-    // 用户体验上 pending 格用半透明高亮提示即可，此处保持轻量。
-  },
-
   _handleCanvasMouseMove(e) {
     if (!this._canvas || !this._state || !this._leaflet) return
     const [q, r] = this._eventToHex(e)
@@ -610,30 +604,6 @@ const mapView = {
     return ""
   },
 
-  async _toggleBinding(entityId, q, r) {
-    // 检查是否已绑定
-    const existing = (this._state.location_bindings || []).find(
-      (b) => b.location_entity_id === entityId && b.hex_q === q && b.hex_r === r
-    )
-    try {
-      if (existing) {
-        await api.world.deleteLocationBinding(existing.id, this._state.map.id, state.currentProjectId)
-        toast("已解除绑定", "success")
-      } else {
-        await api.world.createLocationBindings(
-          this._state.map.id,
-          { location_entity_id: entityId, hexes: [{ hex_q: q, hex_r: r, is_center: false }] },
-          state.currentProjectId
-        )
-        toast("已绑定", "success")
-      }
-      await this._loadMapState(this._state.map.id)
-      this._redraw()
-    } catch (err) {
-      toast(`绑定失败：${err.message}`, "error")
-    }
-  },
-
   // ============================================================
   // 事件绑定
   // ============================================================
@@ -746,14 +716,17 @@ const mapView = {
   },
 
   async _enterEdit() {
-    mapState.mode = "edit"
     await this._loadLocations()
+    this.unmount()
+    mapState.mode = "edit"
     this._render("map-root")
   },
 
   _exitEdit() {
-    // 丢弃未应用变更
     mapState.pendingTerrainChanges = {}
+    mapState.pendingBindings = {}
+    updatePendingCount(0)
+    updateBindingPendingCount(0)
     mapState.mode = "browse"
     this._render("map-root")
   },
@@ -764,7 +737,7 @@ const mapView = {
   },
 
   _undo() {
-    // 优先撤销尚未应用的 binding pending
+    // P0：Ctrl+Z 只撤销未应用的 pending 变更（地形 + 绑定）
     const bindingCount = Object.keys(mapState.pendingBindings).length
     if (bindingCount > 0) {
       mapState.pendingBindings = {}
@@ -773,13 +746,15 @@ const mapView = {
       this._redraw()
       return
     }
-    const last = popUndo()
-    if (!last) {
-      toast("无可撤销的操作", "info")
+    const terrainCount = Object.keys(mapState.pendingTerrainChanges).length
+    if (terrainCount > 0) {
+      mapState.pendingTerrainChanges = {}
+      updatePendingCount(0)
+      toast(`已撤销 ${terrainCount} 个地形变更`, "info")
+      this._redraw()
       return
     }
-    toast(`已撤销 ${last.length} 个变更`, "info")
-    this._loadMapState(this._state.map.id).then(() => this._redraw())
+    toast("无可撤销的操作（已应用的变更不可撤销）", "info")
   },
 
   async _applyAllChanges() {
@@ -978,8 +953,9 @@ const mapView = {
           closeModal()
           toast("地图信息已更新", "success")
           await this._loadMapState(cfg.id)
-          mapState.mode = previousMode
           await this._loadMaps()
+          this.unmount()
+          mapState.mode = previousMode
           this._render("map-root")
         } catch (err) {
           toast(`更新失败：${err.message}`, "error")
