@@ -280,3 +280,37 @@ export function drawHoverHighlight(ctx, q, r, size, offsetX, offsetY) {
   ctx.lineWidth = 3
   ctx.stroke()
 }
+
+const MARKER_STYLES = {
+  character: { fill: "#FF9800", stroke: "#E65100", radius: 8 },
+  event: { fill: "#2196F3", stroke: "#0D47A1", radius: 8 },
+  item: { fill: "#9C27B0", stroke: "#4A148C", radius: 7 },
+}
+
+export function drawMarkers(ctx, markers, size, offsetX, offsetY, sceneId) {
+  if (!markers || markers.length === 0) return
+  for (const marker of markers) {
+    if (!marker.visible) continue
+    const style = MARKER_STYLES[marker.marker_type] || MARKER_STYLES.character
+    const [hx, hy] = hexToPixel(marker.hex_q, marker.hex_r, size)
+    const x = hx + offsetX + (marker.offset_x || 0) * size
+    const y = hy + offsetY + (marker.offset_y || 0) * size
+
+    ctx.beginPath()
+    ctx.arc(x, y, style.radius, 0, Math.PI * 2)
+    ctx.fillStyle = style.fill
+    ctx.fill()
+    ctx.strokeStyle = style.stroke
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+
+    if (marker.label) {
+      ctx.fillStyle = "#fff"
+      ctx.font = "10px sans-serif"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "bottom"
+      const displayLabel = marker.label.length > 4 ? marker.label.slice(0, 4) : marker.label
+      ctx.fillText(displayLabel, x, y - style.radius - 2)
+    }
+  }
+}

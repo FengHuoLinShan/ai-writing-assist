@@ -17,6 +17,7 @@ import {
   drawPendingTerrain,
   drawPendingBindings,
   drawHoverHighlight,
+  drawMarkers,
   hexToPixel,
   pixelToHex,
   floodFillTerrain,

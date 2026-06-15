@@ -33,6 +33,12 @@ export const mapState = {
   selectedHex: null,
   /** 地点绑定是否为中心格模式 */
   bindCenterMode: false,
+  /** 当前选中 scene id */
+  currentSceneId: null,
+  /** 所有可用 scene 列表 */
+  sceneList: [],
+  /** 当前 scene 信息 */
+  currentScene: null,
 }
 
 /** 重置会话状态（切换地图时调用） */
@@ -50,6 +56,9 @@ export function resetMapState() {
   mapState.hoveredHex = null
   mapState.selectedHex = null
   mapState.bindCenterMode = false
+  mapState.currentSceneId = null
+  mapState.sceneList = []
+  mapState.currentScene = null
 }
 
 /**
@@ -163,6 +172,10 @@ export function recordDragHex(q, r) {
   if (mapState.lastDragHex === key) return false
   mapState.lastDragHex = key
   return true
+}
+
+export function setCurrentScene(sceneId) {
+  mapState.currentSceneId = sceneId
 }
 
 export default mapState

@@ -427,6 +427,28 @@ const api = {
         method: "DELETE",
       })
     },
+    async listMapMarkers(mapId, novelId, sceneId = null) {
+      const params = { novel_id: novelId }
+      if (sceneId) params.scene_id = sceneId
+      return request(`/world/maps/${mapId}/markers${buildQueryString(params)}`)
+    },
+    async createMapMarker(mapId, data, novelId) {
+      return request(`/world/maps/${mapId}/markers${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+    },
+    async updateMapMarker(mapId, markerId, data, novelId) {
+      return request(`/world/maps/${mapId}/markers/${markerId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      })
+    },
+    async deleteMapMarker(mapId, markerId, novelId) {
+      return request(`/world/maps/${mapId}/markers/${markerId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
+    },
   },
 
   // ============================================================
