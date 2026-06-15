@@ -16,6 +16,9 @@ import {
   TERRAIN_COLORS,
   TERRAIN_OPTIONS,
   hexCorners,
+  drawPendingTerrain,
+  drawPendingBindings,
+  drawHoverHighlight,
 } from "../views/mapHexRenderer.js"
 import {
   mapState,
@@ -173,6 +176,56 @@ describe("mapHexRenderer 几何", () => {
         const dist = Math.sqrt(x * x + y * y)
         expect(dist).toBeCloseTo(30, 5)
       }
+    })
+  })
+
+  describe("mapHexRenderer 绘制辅助", () => {
+    it("drawPendingTerrain 绘制 pending 格", () => {
+      const ctx = {
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        set globalAlpha(value) {},
+      }
+      drawPendingTerrain(ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "water" }], 30, 0, 0)
+      expect(ctx.beginPath).toHaveBeenCalled()
+      expect(ctx.fill).toHaveBeenCalled()
+    })
+
+    it("drawPendingBindings 绘制 pending 地点绑定", () => {
+      const ctx = {
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        stroke: vi.fn(),
+        fill: vi.fn(),
+        fillText: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        setLineDash: vi.fn(),
+        set globalAlpha(value) {},
+      }
+      drawPendingBindings(ctx, [{ hex_q: 0, hex_r: 0, is_center: true }], 30, 0, 0)
+      expect(ctx.beginPath).toHaveBeenCalled()
+      expect(ctx.stroke).toHaveBeenCalled()
+    })
+
+    it("drawHoverHighlight 绘制悬停描边", () => {
+      const ctx = {
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        stroke: vi.fn(),
+      }
+      drawHoverHighlight(ctx, 1, 1, 30, 0, 0)
+      expect(ctx.stroke).toHaveBeenCalled()
     })
   })
 })
