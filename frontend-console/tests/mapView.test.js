@@ -37,6 +37,7 @@ import {
   recordDragHex,
 } from "../views/mapState.js"
 import mapView from "../views/mapView.js"
+import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
 
 beforeEach(() => {
   // 防御：单文件运行时 setup.js 可能未在同一 worker 执行，兜底初始化全局
@@ -458,5 +459,13 @@ describe("mapView 列表渲染", () => {
     const html = mapView._renderMapShell()
     expect(html).not.toContain("<b>恶意</b>")
     expect(html).toContain("&lt;b&gt;")
+  })
+})
+
+describe("mapEditPanel 绑定计数", () => {
+  it("updateBindingPendingCount 更新 DOM", () => {
+    document.body.innerHTML = `<span id="map-binding-pending-count">0 个待绑定</span>`
+    updateBindingPendingCount(3)
+    expect(document.getElementById("map-binding-pending-count").textContent).toBe("3 个待绑定")
   })
 })
