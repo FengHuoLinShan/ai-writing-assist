@@ -267,8 +267,9 @@ class MapConfigService(
         map_id: str,
         *,
         filter_types: str = "all",
+        scene_id: str | None = None,
     ) -> MapStateResponse:
-        """聚合 map + 面包屑 + tiles + bindings（PRD §6.2）。
+        """聚合 map + 面包屑 + tiles + bindings + markers（P1）+ scene（P1）。
 
         filter_types（PRD §路径4）：
         - "all"：地点中心标签
@@ -287,6 +288,27 @@ class MapConfigService(
         tiles = await self._tile_repo.get_by_map(db, nid, mid)
         bindings = await self._binding_repo.get_by_map(db, nid, mid)
 
+        marker_repo = MapMarkerRepository()
+        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+        markers = await marker_repo.get_by_map(db, nid, mid, scene_id=sid)
+        markers_list = [MapMarkerResponse.model_validate(m) for m in markers]
+
+        scene_info = None
+        if scene_id:
+            from modules.outline.services import SceneService
+
+            scene_svc = SceneService()
+            try:
+                scene = await scene_svc.get(db, scene_id, novel_id=novel_id)
+                scene_info = {
+                    "id": str(scene.id),
+                    "index": scene.scene_index,
+                    "title": scene.title,
+                    "chapter_title": None,
+                }
+            except HTTPException:
+                scene_info = None
+
         return MapStateResponse(
             map=MapConfigResponse.model_validate(config),
             breadcrumbs=[MapConfigResponse.model_validate(b) for b in breadcrumbs],
@@ -294,7 +316,8 @@ class MapConfigService(
             location_bindings=[
                 MapLocationBindingResponse.model_validate(b) for b in bindings
             ],
-            scene=None,  # P1
+            markers=markers_list,
+            scene=scene_info,
         )
 
     # 新增: 快速生成详图地形（PRD §路径 3）

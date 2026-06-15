@@ -311,7 +311,7 @@ class MapMarkerUpdate(BaseModel):
 
 
 class MapMarkerResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
 
     id: str
     novel_id: str
@@ -331,3 +331,13 @@ class MapMarkerResponse(BaseModel):
     visible: bool
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("id", "novel_id", "map_id", "entity_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+    @field_validator("start_scene_id", "end_scene_id", mode="before")
+    @classmethod
+    def _coerce_optional_uuid(cls, v: object) -> str | None:
+        return _optional_uuid_validator(v)
