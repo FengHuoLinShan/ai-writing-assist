@@ -401,6 +401,7 @@ class MapMarkerRepository:
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
         scene_id: uuid.UUID | None = None,
+        scene_index: int | None = None,
     ) -> list[MapMarker]:
         conditions: list[Any] = [
             MapMarker.novel_id == novel_id,
@@ -409,13 +410,37 @@ class MapMarkerRepository:
         if scene_id is not None:
             conditions.append(
                 or_(
-                    MapMarker.start_scene_id == scene_id,
                     and_(
                         MapMarker.start_scene_id.is_(None),
                         MapMarker.end_scene_id.is_(None),
                     ),
+                    MapMarker.start_scene_id == scene_id,
+                    MapMarker.end_scene_id == scene_id,
                 )
             )
+            if scene_index is not None:
+                idx = scene_index
+                conditions[-1] = or_(
+                    and_(
+                        MapMarker.start_scene_id.is_(None),
+                        MapMarker.end_scene_id.is_(None),
+                    ),
+                    and_(
+                        MapMarker.start_scene_index.isnot(None),
+                        MapMarker.start_scene_index <= idx,
+                        or_(
+                            MapMarker.end_scene_id == scene_id,
+                            and_(
+                                MapMarker.end_scene_index.isnot(None),
+                                MapMarker.end_scene_index >= idx,
+                            ),
+                            and_(
+                                MapMarker.end_scene_id.is_(None),
+                                MapMarker.end_scene_index.is_(None),
+                            ),
+                        ),
+                    ),
+                )
         stmt = (
             select(MapMarker)
             .where(*conditions)

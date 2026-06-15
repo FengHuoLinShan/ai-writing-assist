@@ -287,7 +287,7 @@ const MARKER_STYLES = {
   item: { fill: "#9C27B0", stroke: "#4A148C", radius: 7 },
 }
 
-export function drawMarkers(ctx, markers, size, offsetX, offsetY, sceneId) {
+export function drawMarkers(ctx, markers, size, offsetX, offsetY) {
   if (!markers || markers.length === 0) return
   for (const marker of markers) {
     if (!marker.visible) continue

@@ -290,16 +290,16 @@ class MapConfigService(
 
         marker_repo = MapMarkerRepository()
         sid = parse_uuid(scene_id, "scene_id") if scene_id else None
-        markers = await marker_repo.get_by_map(db, nid, mid, scene_id=sid)
-        markers_list = [MapMarkerResponse.model_validate(m) for m in markers]
 
         scene_info = None
+        scene_index = None
         if scene_id:
             from modules.outline.services import SceneService
 
             scene_svc = SceneService()
             try:
                 scene = await scene_svc.get(db, scene_id, novel_id=novel_id)
+                scene_index = scene.scene_index
                 scene_info = {
                     "id": str(scene.id),
                     "index": scene.scene_index,
@@ -308,6 +308,11 @@ class MapConfigService(
                 }
             except HTTPException:
                 scene_info = None
+
+        markers = await marker_repo.get_by_map(
+            db, nid, mid, scene_id=sid, scene_index=scene_index
+        )
+        markers_list = [MapMarkerResponse.model_validate(m) for m in markers]
 
         return MapStateResponse(
             map=MapConfigResponse.model_validate(config),

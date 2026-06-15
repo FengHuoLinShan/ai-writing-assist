@@ -22,6 +22,11 @@ export function renderEditPanel(ctx) {
     ? allEntities.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")
     : `<option value="">（无可用实体）</option>`
 
+  const scenes = ctx.scenes || []
+  const sceneOptions = scenes.length
+    ? scenes.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join("")
+    : ""
+
   return `
     <div class="map-edit-tools">
       <div class="map-edit-section">
@@ -64,7 +69,15 @@ export function renderEditPanel(ctx) {
           ${entityOptions}
         </select>
         <input class="form-input" id="map-marker-label" placeholder="标记名称（可选）" />
-        <p class="map-hint">选择类型和实体后，点击六边形放置标记。</p>
+        <select class="form-select" id="map-marker-scene-start">
+          <option value="">不限定起始 Scene</option>
+          ${sceneOptions}
+        </select>
+        <select class="form-select" id="map-marker-scene-end">
+          <option value="">不限定结束 Scene</option>
+          ${sceneOptions}
+        </select>
+        <p class="map-hint">选择类型和实体后，点击六边形放置标记。可选择 Scene 范围限定标记可见时段。</p>
       </div>
 
       <div class="map-edit-section">

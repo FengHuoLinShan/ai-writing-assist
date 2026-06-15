@@ -397,8 +397,10 @@ const api = {
       })
     },
     /** 获取地图聚合状态（map + 面包屑 + 地形 + 地点绑定） */
-    async getMapState(mapId, novelId) {
-      return request(`/world/maps/${mapId}/state${buildQueryString({ novel_id: novelId })}`)
+    async getMapState(mapId, novelId, sceneId = null) {
+      const params = { novel_id: novelId }
+      if (sceneId) params.scene_id = sceneId
+      return request(`/world/maps/${mapId}/state${buildQueryString(params)}`)
     },
     /** 批量更新地形 */
     async batchUpdateTiles(mapId, payload, novelId) {
