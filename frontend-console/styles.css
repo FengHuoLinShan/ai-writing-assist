@@ -2071,3 +2071,39 @@ kbd {
   color: var(--text-dim);
   font-size: 13px;
 }
+
+/* pending 高亮已随 renderer 绘制，无需额外样式 */
+
+.map-hex-tooltip .leaflet-popup-content-wrapper {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.map-hex-tooltip .leaflet-popup-tip {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.map-tooltip-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.map-tooltip-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.map-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.map-detail-panel .btn-danger {
+  margin-left: 8px;
+}
