@@ -19,6 +19,7 @@ import {
   drawPendingTerrain,
   drawPendingBindings,
   drawHoverHighlight,
+  drawMarkers,
 } from "../views/mapHexRenderer.js"
 import {
   mapState,
@@ -35,6 +36,7 @@ import {
   startDragDraw,
   endDragDraw,
   recordDragHex,
+  setCurrentScene,
 } from "../views/mapState.js"
 import mapView from "../views/mapView.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
@@ -833,5 +835,138 @@ describe("mapView 撤销", () => {
   it("_undo 无 pending 时提示", () => {
     mapView._undo()
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("无可撤销的操作"), "info")
+  })
+})
+
+describe("mapHexRenderer 标记绘制", () => {
+  it("drawMarkers 绘制可见标记", () => {
+    const ctx = {
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+      fillText: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    }
+    const markers = [
+      { hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true, offset_x: 0, offset_y: 0 },
+    ]
+    drawMarkers(ctx, markers, 30, 0, 0, null)
+    expect(ctx.arc).toHaveBeenCalled()
+    expect(ctx.fill).toHaveBeenCalled()
+  })
+
+  it("drawMarkers 过滤不可见标记", () => {
+    const ctx = {
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+    }
+    const markers = [
+      { hex_q: 1, hex_r: 1, marker_type: "character", visible: false, offset_x: 0, offset_y: 0 },
+    ]
+    drawMarkers(ctx, markers, 30, 0, 0, null)
+    expect(ctx.arc).not.toHaveBeenCalled()
+  })
+
+  it("drawMarkers 空数组不绘制", () => {
+    const ctx = { beginPath: vi.fn() }
+    drawMarkers(ctx, [], 30, 0, 0, null)
+    expect(ctx.beginPath).not.toHaveBeenCalled()
+  })
+
+  it("drawMarkers 不同类型使用不同颜色", () => {
+    const ctx = {
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+      fillText: vi.fn(),
+    }
+    const markers = [
+      { hex_q: 1, hex_r: 1, marker_type: "event", visible: true, offset_x: 0, offset_y: 0 },
+      { hex_q: 2, hex_r: 2, marker_type: "item", visible: true, offset_x: 0, offset_y: 0 },
+    ]
+    drawMarkers(ctx, markers, 30, 0, 0, null)
+    expect(ctx.arc).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("mapState P1 状态", () => {
+  beforeEach(() => {
+    resetMapState()
+  })
+
+  it("setCurrentScene 设置 scene id", () => {
+    setCurrentScene("scene-123")
+    expect(mapState.currentSceneId).toBe("scene-123")
+  })
+
+  it("setCurrentScene null 清除", () => {
+    setCurrentScene("scene-123")
+    setCurrentScene(null)
+    expect(mapState.currentSceneId).toBeNull()
+  })
+
+  it("sceneList 和 currentScene 初始为空", () => {
+    expect(mapState.sceneList).toEqual([])
+    expect(mapState.currentScene).toBeNull()
+  })
+
+  it("marker 相关状态初始值", () => {
+    expect(mapState.selectedMarkerType).toBe("character")
+    expect(mapState.selectedMarkerEntityId).toBeNull()
+    expect(mapState.selectedMarkerLabel).toBe("")
+  })
+})
+
+describe("mapView Scene 时间轴", () => {
+  it("_renderSceneBar 无 scene 数据时显示提示", () => {
+    mapState.sceneList = []
+    const html = mapView._renderSceneBar()
+    expect(html).toContain("暂无 Scene 数据")
+  })
+
+  it("_renderSceneBar 有 scene 列表时显示导航", () => {
+    mapState.sceneList = [
+      { id: "s1", index: 1, title: "开端" },
+      { id: "s2", index: 2, title: "发展" },
+    ]
+    mapState.currentSceneId = "s1"
+    const html = mapView._renderSceneBar()
+    expect(html).toContain("开端")
+    expect(html).toContain("map-scene-prev")
+    expect(html).toContain("map-scene-next")
+    expect(html).toContain("map-scene-clear")
+  })
+})
+
+describe("mapView marker 提示", () => {
+  it("_buildTooltipContent 对 marker 返回标记信息", () => {
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+      location_bindings: [],
+      markers: [{ hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true }],
+    }
+    mapView._locations = []
+    const html = mapView._buildTooltipContent(1, 1)
+    expect(html).toContain("张三")
+    expect(html).toContain("人物")
+  })
+
+  it("_buildTooltipContent marker 优先级高于纯地形", () => {
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 2, hex_r: 2, terrain_type: "mountain" }],
+      location_bindings: [],
+      markers: [{ hex_q: 2, hex_r: 2, marker_type: "event", label: "决战", visible: true }],
+    }
+    mapView._locations = []
+    const html = mapView._buildTooltipContent(2, 2)
+    expect(html).toContain("决战")
+    expect(html).toContain("事件")
   })
 })
