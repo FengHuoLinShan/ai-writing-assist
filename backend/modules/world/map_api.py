@@ -18,6 +18,9 @@ from modules.world.map_schemas import (
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
+    MapMarkerCreate,
+    MapMarkerResponse,
+    MapMarkerUpdate,
     MapStateResponse,
     MapTileBatchUpdate,
     MapTileResponse,
@@ -25,6 +28,7 @@ from modules.world.map_schemas import (
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
+    MapMarkerService,
     MapTileService,
 )
 
@@ -33,6 +37,7 @@ router = APIRouter(prefix="/api/world/maps", tags=["world-map"])
 _map_config_service = MapConfigService()
 _map_tile_service = MapTileService()
 _map_binding_service = MapLocationBindingService()
+_marker_service = MapMarkerService()
 
 
 # ============================================================
@@ -172,3 +177,52 @@ async def delete_location_binding(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> None:
     await _map_binding_service.delete(db, novel_id, binding_id)
+
+
+# ============================================================
+# 动态标记（P1）
+# ============================================================
+
+
+@router.get("/{map_id}/markers")
+async def list_markers(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    scene_id: str | None = Query(None, description="Scene ID"),
+):
+    markers = await _marker_service.list(db, novel_id, map_id, scene_id)
+    return [MapMarkerResponse.model_validate(m) for m in markers]
+
+
+@router.post("/{map_id}/markers", status_code=201)
+async def create_marker(
+    db: DbSession,
+    map_id: str,
+    data: MapMarkerCreate,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    marker = await _marker_service.create(db, novel_id, map_id, data)
+    return MapMarkerResponse.model_validate(marker)
+
+
+@router.patch("/{map_id}/markers/{marker_id}")
+async def update_marker(
+    db: DbSession,
+    map_id: str,
+    marker_id: str,
+    data: MapMarkerUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    marker = await _marker_service.update(db, novel_id, marker_id, data)
+    return MapMarkerResponse.model_validate(marker)
+
+
+@router.delete("/{map_id}/markers/{marker_id}", status_code=204)
+async def delete_marker(
+    db: DbSession,
+    map_id: str,
+    marker_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    await _marker_service.delete(db, novel_id, marker_id)

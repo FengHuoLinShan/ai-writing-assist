@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +28,8 @@ from modules.world.map_schemas import (
     MapConfigCreate,
     MapConfigUpdate,
     MapLocationBindingUpdate,
+    MapMarkerCreate,
+    MapMarkerUpdate,
     MapTileChange,
 )
 
@@ -382,12 +383,17 @@ class MapLocationBindingRepository:
 
 
 # ============================================================
-# MapMarkerRepository（P1 预留，P0 不写 service/API）
+# MapMarkerRepository（P1）
 # ============================================================
 
 
 class MapMarkerRepository:
-    """动态标记数据访问（P1 预留）。"""
+    """动态标记数据访问（P1）。"""
+
+    async def get(self, db: AsyncSession, marker_id: uuid.UUID) -> MapMarker | None:
+        stmt = select(MapMarker).where(MapMarker.id == marker_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_by_map(
         self,
@@ -396,20 +402,93 @@ class MapMarkerRepository:
         map_id: uuid.UUID,
         scene_id: uuid.UUID | None = None,
     ) -> list[MapMarker]:
-        """按 Scene 过滤可见 marker（P1）。P0 不调用。"""
         conditions: list[Any] = [
             MapMarker.novel_id == novel_id,
             MapMarker.map_id == map_id,
         ]
-        stmt = select(MapMarker).where(*conditions)
+        if scene_id is not None:
+            conditions.append(
+                or_(
+                    MapMarker.start_scene_id == scene_id,
+                    and_(
+                        MapMarker.start_scene_id.is_(None),
+                        MapMarker.end_scene_id.is_(None),
+                    ),
+                )
+            )
+        stmt = (
+            select(MapMarker)
+            .where(*conditions)
+            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+        )
         result = await db.execute(stmt)
-        items: Sequence[MapMarker] = result.scalars().all()
-        if scene_id is None:
-            return list(items)
-        # P1: 按 scene_id 过滤可见性
-        return [
-            m
-            for m in items
-            if (m.start_scene_id is None or m.start_scene_id <= scene_id)
-            and (m.end_scene_id is None or m.end_scene_id >= scene_id)
-        ]
+        return list(result.scalars().all())
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        data: MapMarkerCreate,
+    ) -> MapMarker:
+        marker = MapMarker(
+            novel_id=novel_id,
+            map_id=map_id,
+            entity_id=uuid.UUID(data.entity_id),
+            marker_type=data.marker_type,
+            hex_q=data.hex_q,
+            hex_r=data.hex_r,
+            offset_x=data.offset_x,
+            offset_y=data.offset_y,
+            label=data.label,
+            style_json=data.style_json or {},
+            start_scene_id=(
+                uuid.UUID(data.start_scene_id) if data.start_scene_id else None
+            ),
+            start_scene_index=data.start_scene_index,
+            end_scene_id=(
+                uuid.UUID(data.end_scene_id) if data.end_scene_id else None
+            ),
+            end_scene_index=data.end_scene_index,
+            visible=data.visible,
+        )
+        db.add(marker)
+        await db.flush()
+        return marker
+
+    async def update(
+        self,
+        db: AsyncSession,
+        marker_id: uuid.UUID,
+        data: MapMarkerUpdate,
+    ) -> MapMarker | None:
+        values: dict[str, Any] = {}
+        for field in (
+            "hex_q",
+            "hex_r",
+            "offset_x",
+            "offset_y",
+            "label",
+            "style_json",
+            "start_scene_index",
+            "end_scene_index",
+            "visible",
+        ):
+            value = getattr(data, field, None)
+            if value is not None:
+                values[field] = value
+        if data.start_scene_id is not None:
+            values["start_scene_id"] = uuid.UUID(data.start_scene_id)
+        if data.end_scene_id is not None:
+            values["end_scene_id"] = uuid.UUID(data.end_scene_id)
+        if values:
+            stmt = update(MapMarker).where(MapMarker.id == marker_id).values(**values)
+            await db.execute(stmt)
+            await db.flush()
+        return await self.get(db, marker_id)
+
+    async def delete(self, db: AsyncSession, marker_id: uuid.UUID) -> bool:
+        stmt = delete(MapMarker).where(MapMarker.id == marker_id)
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0

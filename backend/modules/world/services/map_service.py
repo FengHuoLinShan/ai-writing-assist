@@ -26,6 +26,7 @@ from modules.world.map_models import MapConfig
 from modules.world.map_repositories import (
     MapConfigRepository,
     MapLocationBindingRepository,
+    MapMarkerRepository,
     MapTileRepository,
 )
 from modules.world.map_schemas import (
@@ -36,6 +37,9 @@ from modules.world.map_schemas import (
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
+    MapMarkerCreate,
+    MapMarkerResponse,
+    MapMarkerUpdate,
     MapStateResponse,
     MapTileBatchUpdate,
     MapTileChange,
@@ -505,3 +509,120 @@ class MapLocationBindingService:
                 detail=f"MapLocationBinding {binding_id} not found",
             )
         await self._binding_repo.delete(db, bid)
+
+
+# ============================================================
+# MapMarkerService（P1）
+# ============================================================
+
+
+class MapMarkerService:
+    """动态标记服务（P1）。"""
+
+    def __init__(self) -> None:
+        self.repo = MapMarkerRepository()
+        self._map_repo = MapConfigRepository()
+
+    async def list(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        scene_id: str | None = None,
+    ) -> list[MapMarkerResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+
+        config = await self._map_repo.get(db, mid)
+        if config is None or config.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapConfig {map_id} not found",
+            )
+
+        markers = await self.repo.get_by_map(db, nid, mid, scene_id=sid)
+        return [MapMarkerResponse.model_validate(m) for m in markers]
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        data: MapMarkerCreate,
+    ) -> MapMarkerResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+
+        config = await self._map_repo.get(db, mid)
+        if config is None or config.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapConfig {map_id} not found",
+            )
+
+        if data.hex_q < 0 or data.hex_q >= config.grid_width:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"hex_q {data.hex_q} 超出网格宽度 {config.grid_width}",
+            )
+        if data.hex_r < 0 or data.hex_r >= config.grid_height:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"hex_r {data.hex_r} 超出网格高度 {config.grid_height}",
+            )
+
+        from modules.world.models import CoreEntity
+
+        eid = parse_uuid(data.entity_id, "entity_id")
+        from sqlalchemy import select as sa_select
+
+        entity = (
+            await db.execute(sa_select(CoreEntity).where(CoreEntity.id == eid))
+        ).scalar_one_or_none()
+        if entity is None or entity.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"CoreEntity {data.entity_id} not found",
+            )
+
+        marker = await self.repo.create(db, nid, mid, data)
+        return MapMarkerResponse.model_validate(marker)
+
+    async def update(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        marker_id: str,
+        data: MapMarkerUpdate,
+    ) -> MapMarkerResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        mkid = parse_uuid(marker_id, "marker_id")
+
+        marker = await self.repo.get(db, mkid)
+        if marker is None or marker.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapMarker {marker_id} not found",
+            )
+
+        updated = await self.repo.update(db, mkid, data)
+        assert updated is not None
+        return MapMarkerResponse.model_validate(updated)
+
+    async def delete(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        marker_id: str,
+    ) -> None:
+        nid = parse_uuid(novel_id, "novel_id")
+        mkid = parse_uuid(marker_id, "marker_id")
+
+        marker = await self.repo.get(db, mkid)
+        if marker is None or marker.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapMarker {marker_id} not found",
+            )
+        await self.repo.delete(db, mkid)

@@ -248,3 +248,86 @@ class MapStateResponse(BaseModel):
         default_factory=list, description="P2: MapTerritoryTile[]，P0 恒为空"
     )
     scene: dict | None = None  # P1
+
+
+# ============================================================
+# MapMarker — 动态标记（P1）
+# ============================================================
+
+MARKER_TYPES: tuple[str, ...] = ("character", "event", "item")
+
+
+class MapMarkerCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    entity_id: str
+    marker_type: str
+    hex_q: int = Field(..., ge=0)
+    hex_r: int = Field(..., ge=0)
+    offset_x: float = Field(0, ge=-1, le=1)
+    offset_y: float = Field(0, ge=-1, le=1)
+    label: str | None = None
+    style_json: dict | None = None
+    start_scene_id: str | None = None
+    start_scene_index: int | None = Field(None, ge=0)
+    end_scene_id: str | None = None
+    end_scene_index: int | None = Field(None, ge=0)
+    visible: bool = True
+
+    @field_validator("marker_type")
+    @classmethod
+    def _valid_marker_type(cls, v):
+        if v not in MARKER_TYPES:
+            raise ValueError(f"marker_type must be one of {MARKER_TYPES}")
+        return v
+
+    @field_validator("entity_id", "start_scene_id", "end_scene_id")
+    @classmethod
+    def _coerce_uuid(cls, v):
+        return str(uuid.UUID(v))
+
+
+class MapMarkerUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    hex_q: int | None = Field(None, ge=0)
+    hex_r: int | None = Field(None, ge=0)
+    offset_x: float | None = Field(None, ge=-1, le=1)
+    offset_y: float | None = Field(None, ge=-1, le=1)
+    label: str | None = None
+    style_json: dict | None = None
+    start_scene_id: str | None = None
+    start_scene_index: int | None = Field(None, ge=0)
+    end_scene_id: str | None = None
+    end_scene_index: int | None = Field(None, ge=0)
+    visible: bool | None = None
+
+    @field_validator("start_scene_id", "end_scene_id")
+    @classmethod
+    def _coerce_uuid(cls, v):
+        if v is not None:
+            return str(uuid.UUID(v))
+        return v
+
+
+class MapMarkerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    map_id: str
+    entity_id: str
+    marker_type: str
+    hex_q: int
+    hex_r: int
+    offset_x: float
+    offset_y: float
+    label: str | None
+    style_json: dict | None
+    start_scene_id: str | None
+    start_scene_index: int | None
+    end_scene_id: str | None
+    end_scene_index: int | None
+    visible: bool
+    created_at: datetime
+    updated_at: datetime
