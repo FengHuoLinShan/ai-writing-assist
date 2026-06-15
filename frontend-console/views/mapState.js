@@ -39,6 +39,12 @@ export const mapState = {
   sceneList: [],
   /** 当前 scene 信息 */
   currentScene: null,
+  /** 标记工具：选中的标记类型 */
+  selectedMarkerType: "character",
+  /** 标记工具：选中的实体 ID */
+  selectedMarkerEntityId: null,
+  /** 标记工具：自定义标签 */
+  selectedMarkerLabel: "",
 }
 
 /** 重置会话状态（切换地图时调用） */
@@ -59,6 +65,9 @@ export function resetMapState() {
   mapState.currentSceneId = null
   mapState.sceneList = []
   mapState.currentScene = null
+  mapState.selectedMarkerType = "character"
+  mapState.selectedMarkerEntityId = null
+  mapState.selectedMarkerLabel = ""
 }
 
 /**

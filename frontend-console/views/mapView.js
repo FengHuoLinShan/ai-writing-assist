@@ -31,6 +31,7 @@ import {
   stageTerrainChange,
   stageBindingChange,
   consumePendingChanges,
+  setCurrentScene,
   
   setHoveredHex,
   clearHoveredHex,
@@ -52,6 +53,8 @@ const mapView = {
   _maps: [],
   /** 可绑定的 location 实体列表 */
   _locations: [],
+  /** 所有实体列表（用于标记下拉） */
+  _allEntities: [],
   /** canvas 偏移（地图坐标原点到画布原点），用于平移 */
   _offset: { x: 0, y: 0 },
   /** 浏览模式 tooltip 防抖 timer */
@@ -78,6 +81,7 @@ const mapView = {
       return
     }
     await this._loadMaps()
+    await this._loadScenes()
     this._render(rootId)
   },
 
@@ -146,6 +150,33 @@ const mapView = {
     }
   },
 
+  async _loadScenes() {
+    if (!state.currentProjectId) return
+    try {
+      const data = await api.outline.listScenes(state.currentProjectId, 0, 500)
+      mapState.sceneList = (data.items || data || []).map((s) => ({
+        id: s.id,
+        index: s.scene_index,
+        title: s.title || `Scene ${s.scene_index}`,
+      }))
+    } catch {
+      mapState.sceneList = []
+    }
+  },
+
+  async _loadAllEntities() {
+    if (!state.currentProjectId) return
+    try {
+      const types = ["character", "event", "item", "location"]
+      const results = await Promise.all(
+        types.map((t) => api.world.listEntities({ novel_id: state.currentProjectId, entity_type: t, limit: 100 }).catch(() => ({ items: [] })))
+      )
+      this._allEntities = results.flatMap((r) => r.items || r || [])
+    } catch {
+      this._allEntities = []
+    }
+  },
+
   // ============================================================
   // 渲染
   // ============================================================
@@ -210,6 +241,26 @@ const mapView = {
     `
   },
 
+  _renderSceneBar() {
+    const scenes = mapState.sceneList
+    if (!scenes || scenes.length === 0) {
+      return `<div class="map-scene-bar"><span class="map-scene-hint">暂无 Scene 数据（需先创建大纲 Scene）</span></div>`
+    }
+    const currentIdx = scenes.findIndex((s) => s.id === mapState.currentSceneId)
+    const sceneLabel = currentIdx >= 0
+      ? `Scene ${scenes[currentIdx].index}: ${esc(scenes[currentIdx].title || "")}`
+      : "选择 Scene"
+
+    return `
+      <div class="map-scene-bar">
+        <button class="btn btn-sm" data-action="map-scene-prev" ${currentIdx <= 0 ? "disabled" : ""}>←</button>
+        <span class="map-scene-label" data-action="map-scene-pick">${sceneLabel}</span>
+        <button class="btn btn-sm" data-action="map-scene-next" ${currentIdx >= scenes.length - 1 ? "disabled" : ""}>→</button>
+        <button class="btn btn-sm" data-action="map-scene-clear" ${!mapState.currentSceneId ? "disabled" : ""}>清除</button>
+      </div>
+    `
+  },
+
   _renderMapShell() {
     const breadcrumbs = (this._state.breadcrumbs || [])
       .map((b, i) => {
@@ -223,7 +274,7 @@ const mapView = {
       : `<button class="btn btn-sm" data-action="map-enter-edit">编辑</button>`
 
     const editPanelHtml = mapState.mode === "edit"
-      ? renderEditPanel({ locations: this._locations })
+      ? renderEditPanel({ locations: this._locations, allEntities: this._allEntities })
       : ""
 
     return `
@@ -240,6 +291,7 @@ const mapView = {
         ${editPanelHtml ? `<div class="map-edit-panel">${editPanelHtml}</div>` : ""}
         <div id="map-detail-panel" class="map-detail-panel"></div>
       </div>
+      ${this._renderSceneBar()}
       <div class="map-filter-bar">
         <span class="badge badge-canonical map-filter active" data-action="map-filter" data-filter="all">全部</span>
         <span class="badge map-filter" data-action="map-filter" data-filter="location">地点</span>
@@ -368,6 +420,7 @@ const mapView = {
     const showBoundary = this._currentFilter === "location"
     drawTerrain(this._ctx, this._state.tiles, size, 0, 0)
     drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary)
+    drawMarkers(this._ctx, this._state.markers, size, 0, 0, mapState.currentSceneId)
 
     // 待应用变更叠加在基础地形之上
     drawPendingTerrain(this._ctx, mapState.pendingTerrainChanges, size, 0, 0)
@@ -441,6 +494,8 @@ const mapView = {
     if (mapState.mode === "edit") {
       if (mapState.activeTool === "bucket") {
         this._handleBucketClick(q, r)
+      } else if (mapState.activeTool === "marker") {
+        this._handleMarkerClick(q, r)
       } else if (!this._dragMoved) {
         this._handleDragDraw(q, r)
       }
@@ -453,8 +508,17 @@ const mapView = {
   _handleBrowseClick(q, r) {
     setSelectedHex(q, r)
     this._updateDetailPanel(q, r)
-    // 点击地点中心已在 _renderCenterLabels 的 data-action 处理
-    // 这里处理点击无地点格 → 显示地形信息
+    const markers = this._state.markers || []
+    const eventMarker = markers.find(
+      (m) => m.hex_q === q && m.hex_r === r && m.marker_type === "event" && m.visible
+    )
+    if (eventMarker && eventMarker.start_scene_id) {
+      setCurrentScene(eventMarker.start_scene_id)
+      this._updateSceneBar()
+      this._redraw()
+      toast(`跳转到 Scene: ${esc(eventMarker.label || "")}`, "info")
+      return
+    }
     const tile = (this._state.tiles || []).find((t) => t.hex_q === q && t.hex_r === r)
     const binding = (this._state.location_bindings || []).find((b) => b.hex_q === q && b.hex_r === r)
     if (binding) {
@@ -476,6 +540,81 @@ const mapView = {
     const changes = floodFillTerrain(q, r, target, terrain, getTerrain)
     for (const c of changes) stageTerrainChange(c.hex_q, c.hex_r, c.terrain_type)
     updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
+  },
+
+  _sceneNav(direction) {
+    const scenes = mapState.sceneList
+    if (!scenes.length) return
+    const currentIdx = scenes.findIndex((s) => s.id === mapState.currentSceneId)
+    const newIdx = Math.max(0, Math.min(scenes.length - 1, currentIdx + direction))
+    const scene = scenes[newIdx]
+    if (scene) {
+      setCurrentScene(scene.id)
+      this._updateSceneBar()
+      this._redraw()
+    }
+  },
+
+  _showScenePicker() {
+    const scenes = mapState.sceneList
+    if (!scenes.length) return
+    const options = scenes.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join("")
+    const formHtml = `<div class="form-group"><label>选择 Scene</label><select class="form-select" id="map-scene-pick-select">${options}</select></div>`
+    showModal("Scene 时间轴", formHtml, [{
+      text: "跳转", class: "btn-primary", handler: () => {
+        const sel = document.getElementById("map-scene-pick-select")
+        if (sel && sel.value) {
+          setCurrentScene(sel.value)
+          closeModal()
+          this._updateSceneBar()
+          this._redraw()
+        }
+      },
+    }])
+  },
+
+  _clearScene() {
+    setCurrentScene(null)
+    this._updateSceneBar()
+    this._redraw()
+  },
+
+  _updateSceneBar() {
+    const bar = document.querySelector(".map-scene-bar")
+    if (bar) bar.outerHTML = this._renderSceneBar()
+    setTimeout(() => this._bindSceneEvents(), 0)
+  },
+
+  _bindSceneEvents() {
+  },
+
+  async _handleMarkerClick(q, r) {
+    const entityId = mapState.selectedMarkerEntityId
+    const markerType = mapState.selectedMarkerType || "character"
+    const label = mapState.selectedMarkerLabel || null
+    if (!entityId) {
+      toast("请先选择一个实体", "warning")
+      return
+    }
+    try {
+      await api.world.createMapMarker(
+        this._state.map.id,
+        {
+          entity_id: entityId,
+          marker_type: markerType,
+          hex_q: q,
+          hex_r: r,
+          label: label,
+          visible: true,
+        },
+        state.currentProjectId
+      )
+      toast("标记已添加", "success")
+      await this._loadMapState(this._state.map.id)
+      this._redraw()
+    } catch (err) {
+      toast(`标记创建失败：${err.message}`, "error")
+    }
   },
 
   _handleCanvasMouseMove(e) {
@@ -601,6 +740,15 @@ const mapView = {
       const centerTag = binding.is_center ? "（中心）" : ""
       return `<div class="map-tooltip-title">${esc(name)}${centerTag}</div><div class="map-tooltip-sub">${esc(tile ? tile.terrain_type : "")}</div>`
     }
+    const markers = this._state.markers || []
+    const hitMarker = markers.find((m) => m.hex_q === q && m.hex_r === r && m.visible)
+    if (hitMarker) {
+      const typeLabels = { character: "人物", event: "事件", item: "物品" }
+      const typeLabel = typeLabels[hitMarker.marker_type] || hitMarker.marker_type
+      let html = `<div class="map-tooltip-title">${esc(hitMarker.label || typeLabel)}</div>`
+      html += `<div class="map-tooltip-sub">${esc(typeLabel)}</div>`
+      return html
+    }
     if (tile) {
       return `<div class="map-tooltip-title">${esc(tile.terrain_type)}</div><div class="map-tooltip-sub">q:${q}, r:${r}</div>`
     }
@@ -652,9 +800,14 @@ const mapView = {
       "map-tool-brush": () => this._switchTool("brush"),
       "map-tool-bucket": () => this._switchTool("bucket"),
       "map-tool-bind": () => this._switchTool("bind"),
+      "map-tool-marker": () => this._switchTool("marker"),
       "map-undo": () => this._undo(),
       "map-apply": () => this._applyAllChanges(),
       "map-save": () => this._saveAndExit(),
+      "map-scene-prev": () => this._sceneNav(-1),
+      "map-scene-next": () => this._sceneNav(1),
+      "map-scene-pick": () => this._showScenePicker(),
+      "map-scene-clear": () => this._clearScene(),
     })
 
     // 地形选择
@@ -671,6 +824,19 @@ const mapView = {
     const bindCenterCheck = document.getElementById("map-bind-center")
     bindCenterCheck?.addEventListener("change", () => {
       mapState.bindCenterMode = bindCenterCheck.checked
+    })
+
+    const markerTypeSelect = document.getElementById("map-marker-type")
+    markerTypeSelect?.addEventListener("change", () => {
+      mapState.selectedMarkerType = markerTypeSelect.value
+    })
+    const markerEntitySelect = document.getElementById("map-marker-entity")
+    markerEntitySelect?.addEventListener("change", () => {
+      mapState.selectedMarkerEntityId = markerEntitySelect.value || null
+    })
+    const markerLabelInput = document.getElementById("map-marker-label")
+    markerLabelInput?.addEventListener("input", () => {
+      mapState.selectedMarkerLabel = markerLabelInput.value
     })
 
     // Ctrl+Z 撤销
@@ -691,6 +857,7 @@ const mapView = {
     this.unmount()
     await this._loadMapState(mapId)
     await this._loadLocations()
+    await this._loadScenes()
     this._render("map-root")
   },
 
@@ -720,6 +887,7 @@ const mapView = {
 
   async _enterEdit() {
     await this._loadLocations()
+    await this._loadAllEntities()
     this.unmount()
     mapState.mode = "edit"
     this._render("map-root")

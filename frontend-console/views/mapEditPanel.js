@@ -17,6 +17,11 @@ export function renderEditPanel(ctx) {
     ? locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")
     : `<option value="">（无可用地点）</option>`
 
+  const allEntities = ctx.allEntities || []
+  const entityOptions = allEntities.length
+    ? allEntities.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")
+    : `<option value="">（无可用实体）</option>`
+
   return `
     <div class="map-edit-tools">
       <div class="map-edit-section">
@@ -25,6 +30,7 @@ export function renderEditPanel(ctx) {
           <button class="btn btn-sm map-tool-btn active" data-action="map-tool-brush">画笔</button>
           <button class="btn btn-sm map-tool-btn" data-action="map-tool-bucket">油漆桶</button>
           <button class="btn btn-sm map-tool-btn" data-action="map-tool-bind">地点绑定</button>
+          <button class="btn btn-sm map-tool-btn" data-action="map-tool-marker">标记</button>
         </div>
       </div>
 
@@ -45,6 +51,20 @@ export function renderEditPanel(ctx) {
         </label>
         <p class="map-hint">选择地点后，点击或拖拽六边形绑定。</p>
         <span class="map-pending-count" id="map-binding-pending-count">0 个待绑定</span>
+      </div>
+
+      <div class="map-edit-section" id="map-marker-section" style="display:none;">
+        <h4>动态标记</h4>
+        <select class="form-select" id="map-marker-type">
+          <option value="character">人物</option>
+          <option value="event">事件</option>
+          <option value="item">物品</option>
+        </select>
+        <select class="form-select" id="map-marker-entity">
+          ${entityOptions}
+        </select>
+        <input class="form-input" id="map-marker-label" placeholder="标记名称（可选）" />
+        <p class="map-hint">选择类型和实体后，点击六边形放置标记。</p>
       </div>
 
       <div class="map-edit-section">
@@ -85,10 +105,11 @@ export function updateBindingPendingCount(count) {
 export function toggleToolSections(tool) {
   const terrainSection = document.getElementById("map-terrain-section")
   const bindSection = document.getElementById("map-bind-section")
-  if (terrainSection) terrainSection.style.display = (tool === "bind") ? "none" : ""
+  const markerSection = document.getElementById("map-marker-section")
+  if (terrainSection) terrainSection.style.display = (tool === "bind" || tool === "marker") ? "none" : ""
   if (bindSection) bindSection.style.display = (tool === "bind") ? "" : "none"
+  if (markerSection) markerSection.style.display = (tool === "marker") ? "" : "none"
 
-  // 高亮当前工具按钮
   document.querySelectorAll(".map-tool-btn").forEach((btn) => btn.classList.remove("active"))
   const active = document.querySelector(`[data-action="map-tool-${tool}"]`)
   if (active) active.classList.add("active")
