@@ -462,6 +462,108 @@ describe("mapView 列表渲染", () => {
   })
 })
 
+describe("mapView 地图设置", () => {
+  it("_renderMapShell 显示设置按钮", () => {
+    mapView._state = {
+      map: { id: "m1", name: "九州", hex_size: 30, grid_width: 5, grid_height: 5 },
+      breadcrumbs: [],
+      tiles: [],
+      location_bindings: [],
+    }
+    mapView._maps = []
+    const html = mapView._renderMapShell()
+    expect(html).toContain("data-action=\"map-settings\"")
+    expect(html).toContain("地图设置")
+  })
+
+  it("_showSettingsModal 字段预填充当前名称和描述", () => {
+    mapView._state = {
+      map: { id: "m1", name: "九州", description: "古都世界", hex_size: 30, grid_width: 5, grid_height: 5 },
+      breadcrumbs: [],
+      tiles: [],
+      location_bindings: [],
+    }
+    mapView._showSettingsModal()
+    expect(showModal).toHaveBeenCalled()
+    const formHtml = showModal.mock.calls[0][1]
+    expect(formHtml).toContain('value="九州"')
+    expect(formHtml).toContain("古都世界")
+  })
+
+  it("_showSettingsModal 保存时空名称给出警告", async () => {
+    mapView._state = { map: { id: "m1", name: "九州" } }
+    document.body.innerHTML = `
+      <input id="map-settings-name" value="" />
+      <textarea id="map-settings-desc"></textarea>
+    `
+    mapView._showSettingsModal()
+    const handler = showModal.mock.calls[0][2][0].handler
+    await handler()
+    expect(toast).toHaveBeenCalledWith("请输入地图名称", "warning")
+    expect(api.world.updateMap).not.toHaveBeenCalled()
+  })
+
+  it("_showSettingsModal 保存成功调用 updateMap 并重载", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1", name: "九州", description: "古都" } }
+    api.world.updateMap.mockResolvedValue({})
+    api.world.getMapState.mockResolvedValue({
+      map: { id: "m1", name: "新九州", description: "新描述", hex_size: 30, grid_width: 5, grid_height: 5 },
+      breadcrumbs: [],
+      tiles: [],
+      location_bindings: [],
+    })
+    api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
+    document.body.innerHTML = `
+      <input id="map-settings-name" value="新九州" />
+      <textarea id="map-settings-desc">新描述</textarea>
+      <div id="map-root"></div>
+    `
+    mapView._showSettingsModal()
+    const handler = showModal.mock.calls[0][2][0].handler
+    await handler()
+    expect(api.world.updateMap).toHaveBeenCalledWith("m1", { name: "新九州", description: "新描述" }, "p1")
+    expect(closeModal).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("地图信息已更新", "success")
+  })
+
+  it("_showSettingsModal 保存失败 toast 错误", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1", name: "九州" } }
+    api.world.updateMap.mockRejectedValue(new Error("网络失败"))
+    document.body.innerHTML = `
+      <input id="map-settings-name" value="新九州" />
+      <textarea id="map-settings-desc"></textarea>
+    `
+    mapView._showSettingsModal()
+    const handler = showModal.mock.calls[0][2][0].handler
+    await handler()
+    expect(toast).toHaveBeenCalledWith("更新失败：网络失败", "error")
+  })
+
+  it("保存设置后保留当前 mode（编辑模式）", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapState.mode = "edit"
+    mapView._state = { map: { id: "m1", name: "九州", description: "古都" } }
+    api.world.updateMap.mockResolvedValue({})
+    api.world.getMapState.mockResolvedValue({
+      map: { id: "m1", name: "新九州", description: "新描述", hex_size: 30, grid_width: 5, grid_height: 5 },
+      breadcrumbs: [],
+      tiles: [],
+      location_bindings: [],
+    })
+    api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
+    document.body.innerHTML = `
+      <input id="map-settings-name" value="新九州" />
+      <textarea id="map-settings-desc">新描述</textarea>
+      <div id="map-root"></div>
+    `
+    mapView._showSettingsModal()
+    await showModal.mock.calls[0][2][0].handler()
+    expect(mapState.mode).toBe("edit")
+  })
+})
+
 describe("mapView 删除地图", () => {
   it("_renderList 显示删除按钮", () => {
     mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]

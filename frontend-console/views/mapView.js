@@ -23,6 +23,7 @@ import {
   TERRAIN_COLORS,
 } from "./mapHexRenderer.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import {
   mapState,
   resetMapState,
@@ -227,6 +228,7 @@ const mapView = {
         <div class="map-breadcrumb">${breadcrumbs}</div>
         <div class="map-toolbar-right">
           <button class="btn btn-sm" data-action="map-back-list">地图列表</button>
+          <button class="btn btn-sm" data-action="map-settings">地图设置</button>
           ${editBtn}
         </div>
       </div>
@@ -293,7 +295,7 @@ const mapView = {
 
   _initLeaflet() {
     const container = document.getElementById("map-leaflet")
-    if (!container || !this._state) return
+    if (!container || !this._state || typeof window.L === "undefined") return
 
     const cfg = this._state.map
     // 用一个 CRS.Simple 投影，把 hex 像素坐标当世界坐标
@@ -653,6 +655,7 @@ const mapView = {
   _bindMapEvents() {
     bindWorkspaceClick(this, {
       "map-back-list": () => this._backToList(),
+      "map-settings": () => this._showSettingsModal(),
       "map-enter-edit": () => this._enterEdit(),
       "map-exit-edit": () => this._exitEdit(),
       "map-breadcrumb": (_e, t) => {
@@ -943,6 +946,43 @@ const mapView = {
           await this._openMap(created.id)
         } catch (err) {
           toast(`创建失败：${err.message}`, "error")
+        }
+      },
+    }])
+  },
+
+  _showSettingsModal() {
+    const cfg = this._state.map
+    const previousMode = mapState.mode
+    const formHtml = `
+      <div class="form-group">
+        <label>名称</label>
+        <input class="form-input" id="map-settings-name" value="${esc(cfg.name)}" />
+      </div>
+      <div class="form-group">
+        <label>描述</label>
+        <textarea class="form-input" id="map-settings-desc" rows="3">${esc(cfg.description || "")}</textarea>
+      </div>
+    `
+    showModal("地图设置", formHtml, [{
+      text: "保存", class: "btn-primary", handler: async () => {
+        const name = document.getElementById("map-settings-name")?.value.trim()
+        if (!name) { toast("请输入地图名称", "warning"); return }
+        const description = document.getElementById("map-settings-desc")?.value.trim()
+        try {
+          await api.world.updateMap(
+            cfg.id,
+            { name, description },
+            state.currentProjectId
+          )
+          closeModal()
+          toast("地图信息已更新", "success")
+          await this._loadMapState(cfg.id)
+          mapState.mode = previousMode
+          await this._loadMaps()
+          this._render("map-root")
+        } catch (err) {
+          toast(`更新失败：${err.message}`, "error")
         }
       },
     }])
