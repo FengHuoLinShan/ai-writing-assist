@@ -21,9 +21,14 @@ async def test_generate_returns_persist_result() -> None:
         character_name_to_id={},
     )
     parsed = ParsedPlotStructure(
-        threads=[], arcs=[], scenes=[],
-        foreshadowing_plans=[], reveal_plans=[],
-        offscreen_progress=[], risks=[], questions_for_user=[],
+        threads=[],
+        arcs=[],
+        scenes=[],
+        foreshadowing_plans=[],
+        reveal_plans=[],
+        offscreen_progress=[],
+        risks=[],
+        questions_for_user=[],
     )
     persist_result = PersistResult(
         total_threads=1,

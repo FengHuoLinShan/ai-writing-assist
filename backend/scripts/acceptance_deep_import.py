@@ -66,9 +66,7 @@ async def _find_or_prepare_project(db, title_candidates: list[str]) -> str:
     from modules.project.models import Project
 
     for title in title_candidates:
-        result = await db.execute(
-            select(Project).where(Project.title == title)
-        )
+        result = await db.execute(select(Project).where(Project.title == title))
         project = result.scalar_one_or_none()
         if project is not None:
             logger.info("找到项目: %s (id=%s)", project.title, project.id)
@@ -103,13 +101,10 @@ async def _ensure_drafts_exist(db, novel_id: str) -> bool:
     """确认第 1-3 章有 draft 内容。"""
     from modules.writing.models import WritingDraft
 
-    stmt = (
-        select(func.count(WritingDraft.id))
-        .where(
-            WritingDraft.novel_id == novel_id,
-            WritingDraft.chapter_index.between(START_CHAPTER, END_CHAPTER),
-            WritingDraft.content.isnot(None),
-        )
+    stmt = select(func.count(WritingDraft.id)).where(
+        WritingDraft.novel_id == novel_id,
+        WritingDraft.chapter_index.between(START_CHAPTER, END_CHAPTER),
+        WritingDraft.content.isnot(None),
     )
     result = await db.execute(stmt)
     count = result.scalar() or 0

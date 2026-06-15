@@ -28,6 +28,7 @@ import modules.outline.models  # noqa: E402, F401
 # 显式导入所有模块的模型，确保 alembic autogenerate 能检测到所有表
 import modules.project.models  # noqa: E402, F401
 import modules.rag.models  # noqa: E402, F401
+import modules.world.map_models  # noqa: E402, F401
 import modules.world.models  # noqa: E402, F401
 import modules.writing.models  # noqa: E402, F401
 from core.base import Base  # noqa: E402

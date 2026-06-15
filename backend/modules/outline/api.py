@@ -365,9 +365,7 @@ async def api_list_reveals(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await _reveal_service.list_with_response(
-        db, novel_id, skip=skip, limit=limit
-    )
+    return await _reveal_service.list_with_response(db, novel_id, skip=skip, limit=limit)
 
 
 @router.get("/reveals/{plan_id}", response_model=RevealPlanResponse)

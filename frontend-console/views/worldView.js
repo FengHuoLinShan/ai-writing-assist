@@ -2,6 +2,7 @@
  * 世界对象视图
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import mapView from "./mapView.js"
 
 const worldView = {
   /** @type {Array} */
@@ -122,6 +123,7 @@ const worldView = {
         <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
         <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
         <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
+        <span class="subnav-item ${subView === "map" ? "active" : ""}" data-subview="map" data-action="nav-map">地图</span>
       </div>
     `
 
@@ -131,10 +133,20 @@ const worldView = {
       html += await this._renderRelations()
     } else if (subView === "aliases") {
       html += await this._renderAliases()
+    } else if (subView === "map") {
+      html += this._renderMap()
     }
 
     setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  /** 渲染地图子视图容器（mapView 命令式挂载到 #map-root） */
+  _renderMap() {
+    // 退出旧地图实例（切换离开时清理）
+    mapView.unmount()
+    setTimeout(() => mapView.mount("map-root"), 0)
+    return `<div id="map-root" class="map-root"></div>`
   },
 
   // ============================================================
@@ -707,6 +719,7 @@ const worldView = {
       "nav-objects": () => router.navigate("world", "objects"),
       "nav-relations": () => router.navigate("world", "relations"),
       "nav-aliases": () => router.navigate("world", "aliases"),
+      "nav-map": () => router.navigate("world", "map"),
       "nav-generate": () => router.navigate("generate"),
       "toggle-extract": () => this._toggleAutoExtract(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),

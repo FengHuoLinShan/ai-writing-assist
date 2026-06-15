@@ -50,7 +50,7 @@
 5. 点击"应用"批量写入地形变更。
 6. 点击"保存"退出编辑模式。
 
-**快捷键**：编辑模式下 `Ctrl+Z` 撤销最近一批未保存或已应用的本地操作。撤销栈只要求覆盖当前前端会话，不要求跨刷新持久化。
+**快捷键**：编辑模式下 `Ctrl+Z` 撤销当前未应用的待确认变更（清空 pending 队列）；已应用的变更不可撤销。撤销只覆盖当前前端会话，不要求跨刷新持久化。（实现简化说明见文末"实现记录"。）
 
 ### 路径 2：绑定地点（P0）
 
@@ -416,7 +416,7 @@ DELETE /api/world/maps/{map_id}?novel_id=xxx
 POST   /api/world/maps/{map_id}/generate?novel_id=xxx
 ```
 
-删除地图属于危险操作，前端必须二次确认；后端按 `novel_id` 校验后硬删除地图及其子数据。项目处于 demo 阶段，地图删除不要求 status 软删除。
+删除地图属于危险操作，前端必须二次确认；后端按 `novel_id` 校验后硬删除地图及其 tiles / location_bindings / markers（FK CASCADE）。子地图（`parent_map_id` 指向被删地图者）不级联删除，而是置为顶层（`parent_map_id = NULL`，FK `ON DELETE SET NULL`）。项目处于 demo 阶段，地图删除不要求 status 软删除。（删除语义澄清见文末"实现记录"。）
 
 ### 6.2 地图状态聚合（P0 起）
 
@@ -610,5 +610,37 @@ function floodFillTerrain(startQ, startR, targetTerrain, nextTerrain, mapId) {
 
 ---
 
-**文档状态**：待实现
-**下次更新**：P0 实现后根据实际 API、数据模型和交互细节同步调整。
+**文档状态**：P0 已实现（2026-06-14）
+**下次更新**：P1 实现后根据实际 API、数据模型和交互细节同步调整。
+
+## 实现记录（P0 偏差说明）
+
+P0 已实现，以下为实现与 PRD 原文的偏差，均已在 ADR-0003 或代码注释中记录决策理由：
+
+1. **Leaflet 1.9.4 引入**：通过 CDN 加载（`unpkg.com/leaflet@1.9.4`），决策见 `docs/adr/0003-leaflet-for-map-viewport.md`。Leaflet 仅作视口引擎（平移/缩放/坐标换算），六边形业务图层仍自研 Canvas 叠加。
+2. **`map_tiles.hex_s` 列未建**：PRD §4.2 要求 `hex_s GENERATED ALWAYS AS (-hex_q-hex_r) STORED`。项目无 `sqlalchemy.Computed` ORM 先例且 SQLite 测试不支持 PG 生成列。决策：ORM 不声明 `hex_s`，第三坐标由前端 `s = -q - r` 计算，后端只存 `(q, r)`。如未来需后端按 s 查询，再补 Alembic 原始 SQL（参照 `search_text` 的 `d967c0547255` 迁移模式）。
+3. **地点中心点部分唯一索引**：PRD §4.3 要求 `UNIQUE(map_id, location_entity_id) WHERE is_center`。SQLAlchemy 的 `Index(unique=True, postgresql_where=...)` 在非 PG dialect 仍生成无 WHERE 的 unique index，破坏 SQLite 测试。决策：ORM 不声明该索引，由业务层 `MapLocationBindingService.clear_center` 保证唯一性；PG 部分唯一索引待 Alembic 迁移补 `op.execute` 原始 SQL。
+4. **编辑面板**：项目无现成抽屉/侧边栏组件。决策：mapView 容器内绝对定位 `.map-edit-panel`（CSS `position: absolute; right: 0`），不引入抽屉框架。
+5. **后端文件组织**：按 PRD §7.1 新建独立 `map_models.py` / `map_schemas.py` / `map_repositories.py` / `services/map_service.py` / `map_api.py`，均在 `modules/world/` 下。`map_api.py` 用独立 router（`prefix=/api/world/maps`）由 `app.main` 单独 include，满足 PRD 的 `/api/world` 命名空间要求。
+6. **P1 数据层预留**：`map_markers` 表已建（P1 用），但 P0 不实现其 service/API。`map_territory_tiles`（P2）和 `map_position_suggestions`（P3）表未建。
+
+### 偏差修复轮（PRD 审计后）
+
+7. **撤销模型简化**：PRD §路径1 原文要求撤销覆盖"未保存或已应用"两类。决策：简化为只撤销未应用的 pending 变更（清空 `pendingTerrainChanges`），已应用的变更不可撤销。理由：已应用回滚需在 stage 时记录原值并 batchUpdateTiles 回写，脏数据风险高且收益低；P0 用户路径中"应用"本身就是显式确认动作。PRD §路径1 已同步修改文字。
+8. **删除语义澄清**：PRD §6.1 原文"硬删除地图及其子数据"与 §4.1 `ON DELETE SET NULL` 自相矛盾。决策：采纳 SET NULL 语义——删除地图时 tiles/bindings/markers 随之 CASCADE 删除，子地图置为顶层（`parent_map_id=NULL`）而非级联删除。理由：级联删除子地图可能误删大量作者工作，demo 阶段孤儿顶层地图成本更低。PRD §6.1 已同步修改文字。
+9. **地图更新方法 PATCH**：PRD §6.1 要求 `PATCH /api/world/maps/{map_id}`，首轮实现误用 `PUT`。已修正为 `@router.patch`（后端 `map_api.py`）+ `method: "PATCH"`（前端 `api.js`），消除 405 风险。
+10. **`parent_entity_id` 校验**：PRD §4.1 要求 parent_entity_id 属同 novel 且 §4.3 要求 entity_type=location。首轮实现 create 中该校验是空 `pass`。已补真实校验（查 CoreEntity + novel 归属 + entity_type=location），不符抛 400/404。
+11. **地形/地图类型白名单**：PRD §5.5 固定 10 种地形、§6.1 固定 4 种 map_type。首轮实现只有 `max_length` 约束，任意字符串可入库。已在 `map_schemas.py` 用 `Literal[...]` 强校验，非法值返回 422。
+12. **generate 限制详图**：PRD §路径3 的"快速生成"是详图（city/region/dungeon）功能。首轮实现对 world 地图也可调用。已加校验：对 `map_type=world` 调 generate 返回 400。
+13. **MapStateResponse 契约预留位**：PRD §6.2 是渐进式扩展契约（P1 加 markers、P2 加 territories）。首轮实现未声明这两个字段。已补 `markers: list = []` / `territories: list = []` 默认空 list，保证前端解构安全。
+
+### 已知前端偏差（P0 未处理，后续迭代）
+
+以下 PRD 明确要求但 P0 前端未实现，记为已知偏差待后续补全：
+- **Layer 6 气泡/提示（tooltip）**（PRD §5.4）：悬停六边形无 DOM tooltip 提示。
+- **右侧详情面板**（PRD §路径4）：点击地点中心仅 toast，无名称/摘要/绑定格数/下钻按钮的面板。
+- **pending 格视觉反馈**（PRD §路径1）：`_redrawPending` 为空实现，画笔点击后无半透明高亮。
+- **画笔拖拽绘制**（PRD §路径1）：仅支持点击，不支持拖拽连线绘制。
+- **地点绑定批量保存**（PRD §路径2）：当前逐格即时调 API，非"应用"批量保存。
+- **删除地图前端入口**（PRD §6.1）：列表无删除按钮 + 二次确认。
+- **地图元信息编辑 UI**（PRD §6.1）：无改名/改描述入口（API 已就绪）。

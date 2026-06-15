@@ -357,6 +357,76 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+
+    // ============================================================
+    // 动态地图（PRD §6，/api/world/maps）
+    // ============================================================
+
+    /** 列出地图 */
+    async listMaps(params = {}) {
+      return request("/world/maps" + buildQueryString(params))
+    },
+    /** 获取单个地图 */
+    async getMap(mapId, novelId) {
+      return request(`/world/maps/${mapId}${buildQueryString({ novel_id: novelId })}`)
+    },
+    /** 创建地图 */
+    async createMap(payload, novelId) {
+      return request(`/world/maps${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 更新地图 */
+    async updateMap(mapId, payload, novelId) {
+      return request(`/world/maps/${mapId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 删除地图（危险操作，前端二次确认） */
+    async deleteMap(mapId, novelId) {
+      return request(`/world/maps/${mapId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
+    },
+    /** 快速生成详图地形 */
+    async generateMap(mapId, novelId) {
+      return request(`/world/maps/${mapId}/generate${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+      })
+    },
+    /** 获取地图聚合状态（map + 面包屑 + 地形 + 地点绑定） */
+    async getMapState(mapId, novelId) {
+      return request(`/world/maps/${mapId}/state${buildQueryString({ novel_id: novelId })}`)
+    },
+    /** 批量更新地形 */
+    async batchUpdateTiles(mapId, payload, novelId) {
+      return request(`/world/maps/${mapId}/tiles${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 批量创建地点绑定 */
+    async createLocationBindings(mapId, payload, novelId) {
+      return request(`/world/maps/${mapId}/location-bindings${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 更新单个地点绑定 */
+    async updateLocationBinding(mapId, bindingId, payload, novelId) {
+      return request(`/world/maps/${mapId}/location-bindings/${bindingId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 删除地点绑定 */
+    async deleteLocationBinding(bindingId, mapId, novelId) {
+      return request(`/world/maps/${mapId}/location-bindings/${bindingId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "DELETE",
+      })
+    },
   },
 
   // ============================================================

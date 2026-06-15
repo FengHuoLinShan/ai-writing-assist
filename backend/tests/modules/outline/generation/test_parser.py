@@ -95,9 +95,7 @@ async def test_parse_falls_back_to_per_item_validation(
         mock.patch.object(
             fake_client,
             "generate_structured",
-            side_effect=ValidationError.from_exception_data(
-                "GeneratedOutput", []
-            ),
+            side_effect=ValidationError.from_exception_data("GeneratedOutput", []),
         ) as mock_structured,
         mock.patch.object(
             fake_client,

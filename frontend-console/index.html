@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小说结构化创作控制台</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Leaflet 1.9.4 (ADR-0003) — 动态地图视口引擎，仅 map 子视图使用 -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="" />
 </head>
 <body>
   <div id="app">
@@ -160,6 +164,10 @@
   <script src="ui/modal.js"></script>
   <script src="state.js"></script>
   <script src="api.js"></script>
+  <!-- Leaflet 1.9.4 (ADR-0003) — 动态地图视口引擎，挂在 window.L -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
   <script src="router.js"></script>
   <script src="commands.js"></script>
   <script type="module" src="app.js"></script>

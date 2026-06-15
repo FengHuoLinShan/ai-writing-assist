@@ -182,7 +182,7 @@ async def _run_generation(db, novel_id: str) -> dict:
                 exc,
             )
             if attempt < MAX_RETRIES:
-                wait = BACKOFF_BASE * (2 ** attempt)
+                wait = BACKOFF_BASE * (2**attempt)
                 logger.info("等待 %.1f 秒后重试...", wait)
                 await asyncio.sleep(wait)
 
@@ -259,8 +259,7 @@ async def main() -> int:
             print("\n生成返回的 Scene 列表:")
             for s in gen_scenes:
                 print(
-                    f"  - [Scene {s.get('scene_index')}] "
-                    f"{s.get('title') or '(无标题)'}"
+                    f"  - [Scene {s.get('scene_index')}] {s.get('title') or '(无标题)'}"
                 )
         else:
             print("\n生成返回的 Scene 列表为空。")
@@ -317,9 +316,7 @@ async def main() -> int:
         lines.extend(["## Scene 卡详情", ""])
         if scenes:
             for s in scenes:
-                lines.append(
-                    f"### Scene {s['scene_index']}: {s['title'] or '(无标题)'}"
-                )
+                lines.append(f"### Scene {s['scene_index']}: {s['title'] or '(无标题)'}")
                 lines.append("")
                 lines.append(f"- **goal**: {s['goal'] or '(空)'}")
                 lines.append(f"- **core_conflict**: {s['core_conflict'] or '(空)'}")

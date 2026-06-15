@@ -1016,8 +1016,8 @@ class TestWritingSplitApi:
                 title="Scene 1",
                 chapter_ids=["1"],
                 scene_chunks=[
-                {"chapter_id": "1", "chapter_index": 1, "start_pos": 0, "end_pos": 10}
-            ],
+                    {"chapter_id": "1", "chapter_index": 1, "start_pos": 0, "end_pos": 10}
+                ],
                 status="draft",
             ),
         )

@@ -12,7 +12,7 @@
  */
 const routes = {
   project: { title: "项目", subViews: [] },
-  world: { title: "世界对象", subViews: ["objects", "relations", "aliases"] },
+  world: { title: "世界对象", subViews: ["objects", "relations", "aliases", "map"] },
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
   outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"] },

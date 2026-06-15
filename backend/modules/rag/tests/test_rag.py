@@ -961,9 +961,7 @@ class TestSmartTokenizeChinese:
         assert terms == []
 
     def test_mixed_separators(self) -> None:
-        terms = smart_tokenize_chinese(
-            "克莱恩·莫雷蒂 渴望，目标。动机！"
-        )
+        terms = smart_tokenize_chinese("克莱恩·莫雷蒂 渴望，目标。动机！")
         assert "克莱恩" in terms
         assert "莫雷蒂" in terms
         assert "渴望" in terms

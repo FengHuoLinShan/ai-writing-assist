@@ -463,8 +463,7 @@ class EntityDedupService:
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"Merge candidate must be draft or candidate, "
-                    f"got {candidate.status}"
+                    f"Merge candidate must be draft or candidate, got {candidate.status}"
                 ),
             )
 

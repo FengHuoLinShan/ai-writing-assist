@@ -80,10 +80,7 @@ class TestKeywordProximityScore:
         assert score_close >= score_far
 
     def test_single_term(self) -> None:
-        assert (
-            compute_keyword_score_with_proximity("克莱恩在森林中", ["克莱恩"])
-            == 1.0
-        )
+        assert compute_keyword_score_with_proximity("克莱恩在森林中", ["克莱恩"]) == 1.0
 
 
 class TestRelationScore:

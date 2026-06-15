@@ -47,6 +47,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | `characters` | 人物档案（entity_id PK+FK → core_entities） |
 | `character_knowledge` | 人物知识边界 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
+| `map_configs` | 动态地图配置（世界/城市/区域/地下城，自引用树，PRD §4.1） |
+| `map_tiles` | 六边形地形网格（轴向坐标 q,r，PRD §4.2） |
+| `map_location_bindings` | 地点绑定（core_entities.entity_type=location → hex，PRD §4.3） |
+| `map_markers` | 动态标记（P1 预留：character/event/item，按 Scene 时间层显隐，PRD §4.5） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃，AI 抽取直接入正史 |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
@@ -259,6 +263,17 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | POST | `/api/world/characters/{character_id}/knowledge` | 添加人物知识 |
 | PUT | `/api/world/knowledge/{knowledge_id}` | 更新人物知识 |
 | DELETE | `/api/world/knowledge/{knowledge_id}` | 删除人物知识 |
+| GET | `/api/world/maps` | 地图列表（?parent_map_id，PRD §6.1） |
+| POST | `/api/world/maps` | 创建地图（含初始地形生成） |
+| GET | `/api/world/maps/{map_id}` | 地图详情 |
+| PUT | `/api/world/maps/{map_id}` | 更新地图配置 |
+| DELETE | `/api/world/maps/{map_id}` | 删除地图（硬删，前端二次确认） |
+| POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
+| GET | `/api/world/maps/{map_id}/state` | 地图聚合状态（map+面包屑+地形+绑定，PRD §6.2） |
+| PATCH | `/api/world/maps/{map_id}/tiles` | 批量编辑地形（PRD §6.3） |
+| POST | `/api/world/maps/{map_id}/location-bindings` | 批量创建地点绑定（PRD §6.4） |
+| PATCH | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 更新地点绑定 |
+| DELETE | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 删除地点绑定 |
 
 ## 依赖
 

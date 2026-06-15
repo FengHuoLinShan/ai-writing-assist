@@ -30,6 +30,7 @@ import modules.memory.models  # noqa: F401
 import modules.outline.models  # noqa: F401
 import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
+import modules.world.map_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 from app.main import _register_container_services, app

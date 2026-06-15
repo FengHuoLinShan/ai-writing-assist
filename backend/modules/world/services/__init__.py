@@ -17,6 +17,11 @@ from modules.world.services.helpers import (
     parse_uuid,
     world_entity_types_compatible,
 )
+from modules.world.services.map_service import (
+    MapConfigService,
+    MapLocationBindingService,
+    MapTileService,
+)
 
 # 去重服务: 仍可通过 modules.world.services.dedup_service 直接导入
 # (本文件不重导出以保持 facade 简洁 — 调用方按需 import)
@@ -31,6 +36,9 @@ __all__ = [
     "EventService",
     "CharacterService",
     "CharacterKnowledgeService",
+    "MapConfigService",
+    "MapTileService",
+    "MapLocationBindingService",
     "parse_uuid",
     "normalize_name",
     "merge_text_field",

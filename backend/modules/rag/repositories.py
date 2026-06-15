@@ -392,9 +392,7 @@ class RagChunkRepository:
             return await self._vector_search_python(db, novel_id, embedding, top_k=top_k)
 
         # PostgreSQL: 使用 pgvector <#> 内积操作符 + HNSW 索引
-        await db.execute(
-            text("SET LOCAL hnsw.ef_search = :ef"), {"ef": ef_search}
-        )
+        await db.execute(text("SET LOCAL hnsw.ef_search = :ef"), {"ef": ef_search})
 
         stmt = (
             select(

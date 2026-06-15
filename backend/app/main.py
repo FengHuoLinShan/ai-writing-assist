@@ -54,6 +54,7 @@ from modules.world.facade import (
 
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
 import modules.project.models  # noqa: F401, I001
+import modules.world.map_models  # noqa: F401, I001
 import modules.world.models  # noqa: F401, I001
 
 
@@ -362,11 +363,13 @@ from modules.outline import api as outline_api  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
 from modules.rag import api as rag_api  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
+from modules.world import map_api as world_map_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(project_router)
 app.include_router(imports_api.router)
 app.include_router(world_api.router)
+app.include_router(world_map_api.router)
 app.include_router(memory_api.router)
 app.include_router(outline_api.router)
 app.include_router(rag_api.router)

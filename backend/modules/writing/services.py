@@ -81,10 +81,7 @@ class WritingDraftService:
             db, draft.novel_id, draft.chapter_index
         )
         latest_version = latest.version_number if latest else draft.version_number
-        if (
-            data.expected_version is not None
-            and latest_version != data.expected_version
-        ):
+        if data.expected_version is not None and latest_version != data.expected_version:
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT,
                 detail=(

@@ -163,6 +163,18 @@ globalThis.api = {
     rollbackEntity: vi.fn(),
     listKnowledge: vi.fn(),
     createKnowledge: vi.fn(),
+    // 动态地图
+    listMaps: vi.fn(),
+    getMap: vi.fn(),
+    createMap: vi.fn(),
+    updateMap: vi.fn(),
+    deleteMap: vi.fn(),
+    generateMap: vi.fn(),
+    getMapState: vi.fn(),
+    batchUpdateTiles: vi.fn(),
+    createLocationBindings: vi.fn(),
+    updateLocationBinding: vi.fn(),
+    deleteLocationBinding: vi.fn(),
   },
   tasks: {
     submit: vi.fn(),

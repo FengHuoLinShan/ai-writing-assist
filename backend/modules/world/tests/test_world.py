@@ -657,7 +657,10 @@ async def test_merge_entity_api_service_marks_candidate_merged(
         db_session,
         sample_novel_id,
         WorldEntityCreate(
-            entity_type="character", name="张老三", status="draft", force_create=True,
+            entity_type="character",
+            name="张老三",
+            status="draft",
+            force_create=True,
         ),
     )
 
