@@ -30,7 +30,7 @@ import {
   stageTerrainChange,
   stageBindingChange,
   consumePendingChanges,
-  popUndo,
+  
   setHoveredHex,
   clearHoveredHex,
   startDragDraw,
@@ -59,6 +59,8 @@ const mapView = {
   _tooltipPopup: null,
   /** 拖拽绘制中是否已移动到新格（用于区分单击和拖拽） */
   _dragMoved: false,
+  /** 当前侧边栏筛选模式 ("all" | "location") */
+  _currentFilter: "all",
 
   // ============================================================
   // 生命周期：由 worldView 调用
