@@ -470,6 +470,22 @@ describe("mapEditPanel 绑定计数", () => {
   })
 })
 
+describe("mapView 详情面板", () => {
+  it("_renderDetailPanel 对中心绑定返回地点信息", () => {
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
+    }
+    mapView._maps = []
+    mapView._locations = [{ id: "loc1", name: "洛阳", summary: "古都" }]
+    const html = mapView._renderDetailPanel(1, 1)
+    expect(html).toContain("洛阳")
+    expect(html).toContain("古都")
+    expect(html).toContain("创建详图")
+  })
+})
+
 describe("mapView tooltip", () => {
   it("_buildTooltipContent 对中心绑定返回地点名", () => {
     mapView._state = {

@@ -227,12 +227,58 @@ const mapView = {
       <div class="map-container">
         <div id="map-leaflet" class="map-leaflet"></div>
         ${editPanelHtml ? `<div class="map-edit-panel">${editPanelHtml}</div>` : ""}
+        <div id="map-detail-panel" class="map-detail-panel"></div>
       </div>
       <div class="map-filter-bar">
         <span class="badge badge-canonical map-filter active" data-action="map-filter" data-filter="all">全部</span>
         <span class="badge map-filter" data-action="map-filter" data-filter="location">地点</span>
       </div>
     `
+  },
+
+  _renderDetailPanel(q, r) {
+    const binding = (this._state.location_bindings || []).find((b) => b.hex_q === q && b.hex_r === r && b.is_center)
+    if (binding) {
+      const loc = this._locations.find((l) => l.id === binding.location_entity_id)
+      const name = loc ? loc.name : "未命名地点"
+      const summary = loc && loc.summary ? loc.summary : "暂无摘要"
+      const bindingCount = (this._state.location_bindings || []).filter(
+        (b) => b.location_entity_id === binding.location_entity_id
+      ).length
+      const hasDetail = this._hasDetailMap(binding.location_entity_id)
+      const actionText = hasDetail ? "进入详图" : "创建详图"
+      return `
+        <div class="map-detail-header">${esc(name)}</div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">摘要</div>
+          <div class="map-detail-value">${esc(summary)}</div>
+        </div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">绑定格数</div>
+          <div class="map-detail-value">${bindingCount}</div>
+        </div>
+        <div class="map-detail-actions">
+          <button class="btn btn-sm btn-primary" data-action="map-detail-drill" data-id="${esc(binding.location_entity_id)}">${esc(actionText)}</button>
+        </div>
+      `
+    }
+    const tile = (this._state.tiles || []).find((t) => t.hex_q === q && t.hex_r === r)
+    if (tile) {
+      return `
+        <div class="map-detail-header">地形：${esc(tile.terrain_type)}</div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">坐标</div>
+          <div class="map-detail-value">q:${q}, r:${r}</div>
+        </div>
+      `
+    }
+    return `<div class="map-detail-empty">点击地图查看详情</div>`
+  },
+
+  _updateDetailPanel(q, r) {
+    const panel = document.getElementById("map-detail-panel")
+    if (!panel) return
+    panel.innerHTML = this._renderDetailPanel(q, r)
   },
 
   // ============================================================
@@ -398,6 +444,8 @@ const mapView = {
   },
 
   _handleBrowseClick(q, r) {
+    setSelectedHex(q, r)
+    this._updateDetailPanel(q, r)
     // 点击地点中心已在 _renderCenterLabels 的 data-action 处理
     // 这里处理点击无地点格 → 显示地形信息
     const tile = (this._state.tiles || []).find((t) => t.hex_q === q && t.hex_r === r)
@@ -573,6 +621,10 @@ const mapView = {
         if (id) this._openMap(id)
       },
       "map-click-center": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        if (id) this._onCenterClick(id)
+      },
+      "map-detail-drill": (_e, t) => {
         const id = t.getAttribute("data-id")
         if (id) this._onCenterClick(id)
       },
