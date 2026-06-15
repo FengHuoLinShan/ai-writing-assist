@@ -613,3 +613,65 @@ describe("mapView 拖拽绘制", () => {
     expect(mapState.pendingTerrainChanges["0,0"]).toBeDefined()
   })
 })
+
+describe("mapView 批量绑定保存", () => {
+  it("_applyBindings 批量提交 pending 绑定", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    api.world.createLocationBindings.mockResolvedValue({})
+    mapState.pendingBindings = {
+      "1,2": { location_entity_id: "loc1", hex_q: 1, hex_r: 2, is_center: false },
+      "1,3": { location_entity_id: "loc1", hex_q: 1, hex_r: 3, is_center: true },
+    }
+    await mapView._applyBindings()
+    expect(api.world.createLocationBindings).toHaveBeenCalledWith(
+      "m1",
+      {
+        location_entity_id: "loc1",
+        hexes: expect.arrayContaining([
+          { hex_q: 1, hex_r: 2, is_center: false },
+          { hex_q: 1, hex_r: 3, is_center: true },
+        ]),
+      },
+      "p1"
+    )
+    expect(mapState.pendingBindings).toEqual({})
+  })
+
+  it("_applyBindings 空 pending 直接返回", async () => {
+    mapState.pendingBindings = {}
+    await mapView._applyBindings()
+    expect(api.world.createLocationBindings).not.toHaveBeenCalled()
+  })
+
+  it("_applyAllChanges 应用失败时保留 pending", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    api.world.batchUpdateTiles.mockRejectedValue(new Error("网络失败"))
+    stageTerrainChange(1, 1, "water")
+    stageBindingChange("loc1", 2, 2, false)
+    await mapView._applyAllChanges()
+    expect(mapState.pendingTerrainChanges["1,1"]).toBeDefined()
+    expect(mapState.pendingBindings["2,2"]).toBeDefined()
+  })
+
+  it("_applyTerrainChanges 失败时恢复 pending 和 undoStack", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    api.world.batchUpdateTiles.mockRejectedValue(new Error("保存失败"))
+    stageTerrainChange(1, 1, "water", 3)
+    await expect(mapView._applyTerrainChanges()).rejects.toThrow("保存失败")
+    expect(mapState.undoStack).toHaveLength(0)
+    expect(mapState.pendingTerrainChanges["1,1"]).toMatchObject({
+      hex_q: 1, hex_r: 1, terrain_type: "water", elevation: 3,
+    })
+  })
+
+  it("_undo 优先清空 binding pending", () => {
+    stageBindingChange("loc1", 1, 2, false)
+    stageBindingChange("loc1", 1, 3, true)
+    mapView._undo()
+    expect(mapState.pendingBindings).toEqual({})
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("2 个待绑定变更"), "info")
+  })
+})

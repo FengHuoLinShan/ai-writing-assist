@@ -547,7 +547,8 @@ const mapView = {
     } else if (mapState.activeTool === "bind") {
       const entityId = mapState.selectedLocationEntityId
       if (!entityId) return
-      stageBindingChange(entityId, q, r, !!mapState.bindCenterMode)
+      const isCenter = !!mapState.bindCenterMode
+      stageBindingChange(entityId, q, r, isCenter)
       updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
     }
   },
@@ -669,7 +670,7 @@ const mapView = {
       "map-tool-bucket": () => this._switchTool("bucket"),
       "map-tool-bind": () => this._switchTool("bind"),
       "map-undo": () => this._undo(),
-      "map-apply": () => this._applyChanges(),
+      "map-apply": () => this._applyAllChanges(),
       "map-save": () => this._saveAndExit(),
     })
 
@@ -682,6 +683,11 @@ const mapView = {
     const bindSelect = document.getElementById("map-bind-select")
     bindSelect?.addEventListener("change", () => {
       mapState.selectedLocationEntityId = bindSelect.value || null
+    })
+    // 中心点绑定模式
+    const bindCenterCheck = document.getElementById("map-bind-center")
+    bindCenterCheck?.addEventListener("change", () => {
+      mapState.bindCenterMode = bindCenterCheck.checked
     })
 
     // Ctrl+Z 撤销
@@ -729,41 +735,84 @@ const mapView = {
   },
 
   _undo() {
+    // 优先撤销尚未应用的 binding pending
+    const bindingCount = Object.keys(mapState.pendingBindings).length
+    if (bindingCount > 0) {
+      mapState.pendingBindings = {}
+      updateBindingPendingCount(0)
+      toast(`已撤销 ${bindingCount} 个待绑定变更`, "info")
+      this._redraw()
+      return
+    }
     const last = popUndo()
     if (!last) {
       toast("无可撤销的操作", "info")
       return
     }
-    // 撤销：把 last 的格子恢复原地形（简化：重新加载 state）
     toast(`已撤销 ${last.length} 个变更`, "info")
     this._loadMapState(this._state.map.id).then(() => this._redraw())
   },
 
-  async _applyChanges() {
-    const changes = consumePendingChanges()
-    if (changes.length === 0) {
+  async _applyAllChanges() {
+    const terrainChanges = Object.keys(mapState.pendingTerrainChanges).length
+    const bindingChanges = Object.keys(mapState.pendingBindings).length
+    if (terrainChanges === 0 && bindingChanges === 0) {
       toast("没有待应用的变更", "info")
       return
     }
     try {
-      await api.world.batchUpdateTiles(this._state.map.id, { changes }, state.currentProjectId)
-      toast(`已应用 ${changes.length} 个地形变更`, "success")
+      if (terrainChanges > 0) await this._applyTerrainChanges()
+      if (bindingChanges > 0) await this._applyBindings()
+      toast(`已应用 ${terrainChanges + bindingChanges} 个变更`, "success")
       await this._loadMapState(this._state.map.id)
-      updatePendingCount(0)
       this._redraw()
     } catch (err) {
-      // 应用失败：变更放回 pending
-      mapState.undoStack.pop()
-      for (const c of changes) stageTerrainChange(c.hex_q, c.hex_r, c.terrain_type)
       toast(`应用失败：${err.message}`, "error")
+      // pending retained, no reload
+    }
+  },
+
+  async _applyTerrainChanges() {
+    const changes = consumePendingChanges()
+    if (changes.length === 0) return
+    try {
+      await api.world.batchUpdateTiles(this._state.map.id, { changes }, state.currentProjectId)
+      updatePendingCount(0)
+    } catch (err) {
+      mapState.undoStack.pop()
+      for (const c of changes) stageTerrainChange(c.hex_q, c.hex_r, c.terrain_type, c.elevation)
+      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
+      throw err
+    }
+  },
+
+  async _applyBindings() {
+    const bindings = Object.values(mapState.pendingBindings)
+    if (bindings.length === 0) return
+    const byEntity = {}
+    for (const b of bindings) {
+      if (!byEntity[b.location_entity_id]) byEntity[b.location_entity_id] = []
+      byEntity[b.location_entity_id].push({ hex_q: b.hex_q, hex_r: b.hex_r, is_center: b.is_center })
+    }
+    try {
+      for (const [entityId, hexes] of Object.entries(byEntity)) {
+        await api.world.createLocationBindings(
+          this._state.map.id,
+          { location_entity_id: entityId, hexes },
+          state.currentProjectId
+        )
+      }
+      mapState.pendingBindings = {}
+      updateBindingPendingCount(0)
+    } catch (err) {
+      toast(`绑定保存失败：${err.message}`, "error")
+      throw err
     }
   },
 
   async _saveAndExit() {
     // 先应用未保存变更，再退出编辑
-    if (Object.keys(mapState.pendingTerrainChanges).length > 0) {
-      await this._applyChanges()
-    }
+    await this._applyAllChanges()
     mapState.mode = "browse"
     this._render("map-root")
     toast("已保存", "success")

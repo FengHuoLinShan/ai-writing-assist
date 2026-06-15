@@ -40,7 +40,10 @@ export function renderEditPanel(ctx) {
         <select class="form-select" id="map-bind-select">
           ${locOptions}
         </select>
-        <p class="map-hint">选择地点后，点击或拖拽六边形绑定。点击中心格切换中心点。</p>
+        <label class="map-checkbox">
+          <input type="checkbox" id="map-bind-center" /> 设为中心点
+        </label>
+        <p class="map-hint">选择地点后，点击或拖拽六边形绑定。</p>
         <span class="map-pending-count" id="map-binding-pending-count">0 个待绑定</span>
       </div>
 
