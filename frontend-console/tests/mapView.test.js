@@ -462,6 +462,48 @@ describe("mapView 列表渲染", () => {
   })
 })
 
+describe("mapView 删除地图", () => {
+  it("_renderList 显示删除按钮", () => {
+    mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
+    const html = mapView._renderList()
+    expect(html).toContain("data-action=\"map-delete\"")
+    expect(html).toContain("删除")
+  })
+
+  it("_deleteMap 显示确认信息并包含地图名", () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
+    mapView._deleteMap("m1")
+    expect(confirmAction).toHaveBeenCalled()
+    const message = confirmAction.mock.calls[0][0]
+    expect(message).toContain("九州")
+    expect(message).not.toContain("<img")
+  })
+
+  it("_deleteMap 确认后调用 API 并刷新列表", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
+    api.world.deleteMap.mockResolvedValue({})
+    api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
+    mapView._deleteMap("m1")
+    const callback = confirmAction.mock.calls[0][1]
+    await callback()
+    expect(api.world.deleteMap).toHaveBeenCalledWith("m1", "p1")
+    expect(api.world.listMaps).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("地图已删除", "success")
+  })
+
+  it("_deleteMap 失败时 toast 错误", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
+    api.world.deleteMap.mockRejectedValue(new Error("网络失败"))
+    mapView._deleteMap("m1")
+    const callback = confirmAction.mock.calls[0][1]
+    await callback()
+    expect(toast).toHaveBeenCalledWith("删除失败：网络失败", "error")
+  })
+})
+
 describe("mapEditPanel 绑定计数", () => {
   it("updateBindingPendingCount 更新 DOM", () => {
     document.body.innerHTML = `<span id="map-binding-pending-count">0 个待绑定</span>`

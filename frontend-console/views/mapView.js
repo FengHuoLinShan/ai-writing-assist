@@ -189,7 +189,10 @@ const mapView = {
         <td>${esc(m.name)}</td>
         <td>${esc(m.map_type)}</td>
         <td>${m.grid_width}×${m.grid_height}</td>
-        <td><button class="btn btn-sm" data-action="map-open" data-id="${esc(m.id)}">打开</button></td>
+        <td>
+          <button class="btn btn-sm" data-action="map-open" data-id="${esc(m.id)}">打开</button>
+          <button class="btn btn-sm btn-danger" data-action="map-delete" data-id="${esc(m.id)}">删除</button>
+        </td>
       </tr>
     `).join("")
     return `
@@ -640,6 +643,10 @@ const mapView = {
         const id = t.getAttribute("data-id")
         if (id) this._openMap(id)
       },
+      "map-delete": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        if (id) this._deleteMap(id)
+      },
     })
   },
 
@@ -714,6 +721,25 @@ const mapView = {
   _backToList() {
     this.unmount()
     this._render("map-root")
+  },
+
+  _deleteMap(mapId) {
+    const map = this._maps.find((m) => m.id === mapId)
+    const name = map ? map.name : "该地图"
+    confirmAction(
+      `确定删除地图「${esc(name)}」？该操作不可恢复，子地图将变为顶层地图。`,
+      async () => {
+        try {
+          await api.world.deleteMap(mapId, state.currentProjectId)
+          toast("地图已删除", "success")
+          await this._loadMaps()
+          this._render("map-root")
+        } catch (err) {
+          toast(`删除失败：${err.message}`, "error")
+        }
+      },
+      "删除"
+    )
   },
 
   async _enterEdit() {
