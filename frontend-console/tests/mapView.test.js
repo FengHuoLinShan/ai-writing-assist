@@ -469,3 +469,53 @@ describe("mapEditPanel 绑定计数", () => {
     expect(document.getElementById("map-binding-pending-count").textContent).toBe("3 个待绑定")
   })
 })
+
+describe("mapView tooltip", () => {
+  it("_buildTooltipContent 对中心绑定返回地点名", () => {
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
+    }
+    mapView._locations = [{ id: "loc1", name: "洛阳" }]
+    const html = mapView._buildTooltipContent(1, 1)
+    expect(html).toContain("洛阳")
+    expect(html).toContain("中心")
+  })
+
+  it("_buildTooltipContent 对恶意地点名进行 XSS 转义", () => {
+    const evil = `<img src=x onerror=alert(1)>`
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
+    }
+    mapView._locations = [{ id: "loc1", name: evil }]
+    const html = mapView._buildTooltipContent(1, 1)
+    expect(html).not.toContain("<img")
+    expect(html).toContain("&lt;img")
+  })
+
+  it("_buildTooltipContent 对非中心绑定不含中心标签", () => {
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "forest" }],
+      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: false }],
+    }
+    mapView._locations = [{ id: "loc1", name: "洛阳" }]
+    const html = mapView._buildTooltipContent(1, 1)
+    expect(html).toContain("洛阳")
+    expect(html).not.toContain("中心")
+  })
+
+  it("_buildTooltipContent 对无绑定格返回地形", () => {
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 2, hex_r: 2, terrain_type: "water" }],
+      location_bindings: [],
+    }
+    mapView._locations = []
+    const html = mapView._buildTooltipContent(2, 2)
+    expect(html).toContain("water")
+  })
+})
