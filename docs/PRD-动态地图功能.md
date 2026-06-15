@@ -610,8 +610,8 @@ function floodFillTerrain(startQ, startR, targetTerrain, nextTerrain, mapId) {
 
 ---
 
-**文档状态**：P0 已实现（2026-06-14）
-**下次更新**：P1 实现后根据实际 API、数据模型和交互细节同步调整。
+**文档状态**：P0 + P1 已实现（2026-06-15）
+**下次更新**：P2 实现后根据实际 API、数据模型和交互细节同步调整。
 
 ## 实现记录（P0 偏差说明）
 
@@ -644,3 +644,21 @@ P0 已实现，以下为实现与 PRD 原文的偏差，均已在 ADR-0003 或�
 - **地点绑定批量保存**（PRD §路径2）：当前逐格即时调 API，非"应用"批量保存。
 - **删除地图前端入口**（PRD §6.1）：列表无删除按钮 + 二次确认。
 - **地图元信息编辑 UI**（PRD §6.1）：无改名/改描述入口（API 已就绪）。
+
+以上 7 项 P0 前端偏差已于 2026-06-15 前全部实现修复：
+- Layer 6 气泡/提示：`_showTooltip` / `_buildTooltipContent` 已实现 Leaflet popup
+- 右侧详情面板：`_renderDetailPanel` / `_updateDetailPanel` 已实现
+- pending 格视觉反馈：`drawPendingTerrain` / `drawPendingBindings` 已实现
+- 画笔拖拽绘制：`_handleCanvasMouseDown` / `_handleDragDraw` 已实现
+- 地点绑定批量保存：`_applyBindings` 已实现
+- 删除地图前端入口：`_deleteMap` + `confirmAction` 已实现
+- 地图元信息编辑 UI：`_showSettingsModal` 已实现
+
+### P1 实现记录
+
+P1（Scene 时间层）于 2026-06-15 实现，以下为与 PRD 原文的偏差说明：
+
+14. **Marker 前端即时创建**：PRD 未明确定义标记的前端创建交互。P1 实现在编辑模式下新增"标记"工具，点击六边形即时调 API 创建标记（非 stage→apply 模式），理由：标记是单次操作（与地形/绑定的批量编辑性质不同），即时创建更符合直觉。
+15. **Scene 列表来源**：PRD §7.2 要求通过 outline facade/DI port 获取 Scene 信息。P1 实现通过 `SceneService.get()` 懒加载场景查询（`map_service.py` 中方法内 import，避免循环依赖），布局与 outline contracts 一致。
+16. **Scene 时间轴 UI**：PRD §5.6 描述完整时间轴（`← Scene 12: 洛阳夜雨 →` 滑块）。P1 实现为简化的前后导航按钮 + 下拉选择器，无连续滑块。理由：时间轴滑块需 outline 模块提供 chapter 分组信息且交互复杂度高，P1 MVP 先用离散导航。
+17. **P2/P3 数据表**：`map_territory_tiles`（P2）和 `map_position_suggestions`（P3）表未建，待对应迭代创建。
