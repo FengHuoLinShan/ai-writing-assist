@@ -22,11 +22,12 @@ import {
   floodFillTerrain,
   TERRAIN_COLORS,
 } from "./mapHexRenderer.js"
-import renderEditPanel, { updatePendingCount, toggleToolSections } from "./mapEditPanel.js"
+import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
 import {
   mapState,
   resetMapState,
   stageTerrainChange,
+  stageBindingChange,
   consumePendingChanges,
   popUndo,
   setHoveredHex,
@@ -55,6 +56,8 @@ const mapView = {
   _tooltipDebounceTimer: null,
   /** Leaflet popup 实例 */
   _tooltipPopup: null,
+  /** 拖拽绘制中是否已移动到新格（用于区分单击和拖拽） */
+  _dragMoved: false,
 
   // ============================================================
   // 生命周期：由 worldView 调用
@@ -333,6 +336,10 @@ const mapView = {
     // 鼠标移动 / 离开：hover 高亮 + tooltip
     this._canvas.addEventListener("mousemove", (e) => this._handleCanvasMouseMove(e))
     this._canvas.addEventListener("mouseout", () => this._handleCanvasMouseOut())
+    // 拖拽绘制
+    this._canvas.addEventListener("mousedown", (e) => this._handleCanvasMouseDown(e))
+    this._canvas.addEventListener("mouseup", () => this._handleCanvasMouseUp())
+    this._canvas.addEventListener("mouseleave", () => this._handleCanvasMouseUp())
   },
 
   /** Leaflet 视口变换 → 计算 canvas 偏移/缩放，重绘 */
@@ -419,25 +426,17 @@ const mapView = {
 
   _handleCanvasClick(e) {
     if (!this._canvas || !this._state) return
-    const rect = this._canvas.getBoundingClientRect()
-    const px = e.clientX - rect.left
-    const py = e.clientY - rect.top
-
-    const origin = this._leaflet.latLngToContainerPoint([0, 0])
-    const zoom = this._leaflet.getZoom()
-    const scale = Math.pow(2, zoom)
-    const worldX = (px - origin.x) / scale
-    const worldY = (py - origin.y) / scale
-
+    const [q, r] = this._eventToHex(e)
+    if (q == null) return
     const cfg = this._state.map
-    const size = cfg.hex_size || 30
-    const [q, r] = pixelToHex(worldX, worldY, size)
-
-    // 范围校验
     if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) return
-
     if (mapState.mode === "edit") {
-      this._handleEditClick(q, r)
+      if (mapState.activeTool === "bucket") {
+        this._handleBucketClick(q, r)
+      } else if (!this._dragMoved) {
+        this._handleDragDraw(q, r)
+      }
+      this._redraw()
     } else {
       this._handleBrowseClick(q, r)
     }
@@ -458,34 +457,17 @@ const mapView = {
     }
   },
 
-  _handleEditClick(q, r) {
-    const tool = mapState.activeTool
+  _handleBucketClick(q, r) {
     const terrain = mapState.selectedTerrain
-
-    if (tool === "brush") {
-      stageTerrainChange(q, r, terrain)
-      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
-      this._redrawPending()
-    } else if (tool === "bucket") {
-      const getTerrain = (qq, rr) => {
-        const t = (this._state.tiles || []).find((x) => x.hex_q === qq && x.hex_r === rr)
-        return t ? t.terrain_type : null
-      }
-      const target = getTerrain(q, r)
-      if (!target) return
-      const changes = floodFillTerrain(q, r, target, terrain, getTerrain)
-      for (const c of changes) stageTerrainChange(c.hex_q, c.hex_r, c.terrain_type)
-      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
-      this._redrawPending()
-    } else if (tool === "bind") {
-      const entityId = mapState.selectedLocationEntityId
-      if (!entityId) {
-        toast("请先在侧边栏选择要绑定的地点", "warning")
-        return
-      }
-      // 立即提交绑定（地点绑定不进 pending，直接调 API）
-      this._toggleBinding(entityId, q, r)
+    const getTerrain = (qq, rr) => {
+      const t = (this._state.tiles || []).find((x) => x.hex_q === qq && x.hex_r === rr)
+      return t ? t.terrain_type : null
     }
+    const target = getTerrain(q, r)
+    if (!target) return
+    const changes = floodFillTerrain(q, r, target, terrain, getTerrain)
+    for (const c of changes) stageTerrainChange(c.hex_q, c.hex_r, c.terrain_type)
+    updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
   },
 
   /** 临时绘制 pending 变更（叠加在已有地形上） */
@@ -496,30 +478,29 @@ const mapView = {
 
   _handleCanvasMouseMove(e) {
     if (!this._canvas || !this._state || !this._leaflet) return
-    const rect = this._canvas.getBoundingClientRect()
-    const px = e.clientX - rect.left
-    const py = e.clientY - rect.top
-    const origin = this._leaflet.latLngToContainerPoint([0, 0])
-    const zoom = this._leaflet.getZoom()
-    const scale = Math.pow(2, zoom)
-    const worldX = (px - origin.x) / scale
-    const worldY = (py - origin.y) / scale
+    const [q, r] = this._eventToHex(e)
+    if (q == null) {
+      clearHoveredHex()
+      this._redraw()
+      return
+    }
     const cfg = this._state.map
-    const size = cfg.hex_size || 30
-    const [q, r] = pixelToHex(worldX, worldY, size)
     if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) {
       clearHoveredHex()
       this._redraw()
       return
     }
     setHoveredHex(q, r)
-    if (mapState.mode === "browse") {
-      // 浏览模式：debounce 300ms 后显示 tooltip
-      if (this._tooltipDebounceTimer) clearTimeout(this._tooltipDebounceTimer)
-      this._tooltipDebounceTimer = setTimeout(() => {
-        this._showTooltip(q, r)
-      }, 300)
+    if (mapState.mode === "edit") {
+      if (mapState.dragDrawing) this._handleDragDraw(q, r)
+      this._redraw()
+      return
     }
+    // 浏览模式：debounce 300ms 后显示 tooltip
+    if (this._tooltipDebounceTimer) clearTimeout(this._tooltipDebounceTimer)
+    this._tooltipDebounceTimer = setTimeout(() => {
+      this._showTooltip(q, r)
+    }, 300)
     this._redraw()
   },
 
@@ -534,6 +515,56 @@ const mapView = {
       this._tooltipPopup = null
     }
     this._redraw()
+  },
+
+  _handleCanvasMouseDown(e) {
+    if (!this._canvas || !this._state || mapState.mode !== "edit") return
+    const [q, r] = this._eventToHex(e)
+    if (q == null) return
+    if (mapState.activeTool === "bucket") return // bucket is click-only
+    this._dragMoved = false
+    startDragDraw()
+    this._handleDragDraw(q, r)
+    this._redraw()
+  },
+
+  _handleCanvasMouseUp() {
+    if (!mapState.dragDrawing) return
+    endDragDraw()
+    // click 事件会在 mouseup 后触发，保留 _dragMoved 到 click 判断完成
+    setTimeout(() => { this._dragMoved = false }, 0)
+  },
+
+  _handleDragDraw(q, r) {
+    if (!this._state) return
+    const cfg = this._state.map
+    if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) return
+    if (!recordDragHex(q, r)) return
+    this._dragMoved = true
+    if (mapState.activeTool === "brush") {
+      stageTerrainChange(q, r, mapState.selectedTerrain)
+      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
+    } else if (mapState.activeTool === "bind") {
+      const entityId = mapState.selectedLocationEntityId
+      if (!entityId) return
+      stageBindingChange(entityId, q, r, !!mapState.bindCenterMode)
+      updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
+    }
+  },
+
+  _eventToHex(e) {
+    if (!this._canvas || !this._leaflet) return [null, null]
+    const rect = this._canvas.getBoundingClientRect()
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    const origin = this._leaflet.latLngToContainerPoint([0, 0])
+    const zoom = this._leaflet.getZoom()
+    const scale = Math.pow(2, zoom)
+    const worldX = (px - origin.x) / scale
+    const worldY = (py - origin.y) / scale
+    const cfg = this._state.map
+    const size = cfg.hex_size || 30
+    return pixelToHex(worldX, worldY, size)
   },
 
   _showTooltip(q, r) {

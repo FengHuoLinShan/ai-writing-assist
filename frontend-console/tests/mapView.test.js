@@ -535,3 +535,81 @@ describe("mapView tooltip", () => {
     expect(html).toContain("water")
   })
 })
+
+describe("mapView 拖拽绘制", () => {
+  it("_handleDragDraw brush 把新格加入 pending", () => {
+    resetMapState()
+    mapState.mode = "edit"
+    mapState.activeTool = "brush"
+    mapState.selectedTerrain = "water"
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+    }
+    startDragDraw()
+    mapView._handleDragDraw(1, 1)
+    mapView._handleDragDraw(1, 2)
+    expect(Object.keys(mapState.pendingTerrainChanges)).toHaveLength(2)
+  })
+
+  it("bucket 单击正常填充", () => {
+    resetMapState()
+    mapState.mode = "edit"
+    mapState.activeTool = "bucket"
+    mapState.selectedTerrain = "water"
+    const tiles = []
+    for (let q = 0; q < 3; q++) {
+      for (let r = 0; r < 3; r++) {
+        tiles.push({ hex_q: q, hex_r: r, terrain_type: "grassland" })
+      }
+    }
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 3, grid_height: 3 },
+      tiles,
+      location_bindings: [],
+    }
+    mapView._handleBucketClick(0, 0)
+    expect(Object.keys(mapState.pendingTerrainChanges)).toHaveLength(9)
+    expect(mapState.pendingTerrainChanges["0,0"].terrain_type).toBe("water")
+    expect(mapState.pendingTerrainChanges["2,2"].terrain_type).toBe("water")
+  })
+
+  it("bind 拖拽加入 pending", () => {
+    resetMapState()
+    mapState.mode = "edit"
+    mapState.activeTool = "bind"
+    mapState.selectedLocationEntityId = "loc1"
+    mapState.bindCenterMode = true
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+    }
+    startDragDraw()
+    mapView._handleDragDraw(1, 1)
+    mapView._handleDragDraw(1, 2)
+    expect(Object.keys(mapState.pendingBindings)).toHaveLength(2)
+    expect(mapState.pendingBindings["1,1"]).toMatchObject({
+      location_entity_id: "loc1", hex_q: 1, hex_r: 1, is_center: true,
+    })
+  })
+
+  it("out-of-grid 不加入 pending", () => {
+    resetMapState()
+    mapState.mode = "edit"
+    mapState.activeTool = "brush"
+    mapState.selectedTerrain = "water"
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 3, grid_height: 3 },
+      tiles: [],
+      location_bindings: [],
+    }
+    startDragDraw()
+    mapView._handleDragDraw(-1, 0)
+    mapView._handleDragDraw(0, 0)
+    mapView._handleDragDraw(3, 3)
+    expect(Object.keys(mapState.pendingTerrainChanges)).toHaveLength(1)
+    expect(mapState.pendingTerrainChanges["0,0"]).toBeDefined()
+  })
+})
