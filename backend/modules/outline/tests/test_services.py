@@ -53,12 +53,18 @@ class TestPlotThreadService:
         assert len(items) >= 3
         assert all(isinstance(item.id, str) for item in items)
 
+    @pytest.mark.parametrize(
+        "operation",
+        ["get", "delete"],
+        ids=["get", "delete"],
+    )
     @pytest.mark.asyncio
-    async def test_get_raises_on_wrong_novel(
+    async def test_plot_thread_wrong_novel_raises_404(
         self,
         db_session: AsyncSession,
         sample_novel_id: str,
         other_novel_id: str,
+        operation: str,
     ) -> None:
         svc = PlotThreadService()
         created = await svc.create(
@@ -70,7 +76,10 @@ class TestPlotThreadService:
             ),
         )
         with pytest.raises(HTTPException) as exc:
-            await svc.get(db_session, created.id, novel_id=other_novel_id)
+            if operation == "get":
+                await svc.get(db_session, created.id, novel_id=other_novel_id)
+            else:
+                await svc.delete(db_session, created.id, novel_id=other_novel_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -117,26 +126,6 @@ class TestPlotThreadService:
         assert updated is not None
         assert updated.name == "新名称"
         assert updated.current_stage == "初期"
-
-    @pytest.mark.asyncio
-    async def test_delete_raises_on_wrong_novel(
-        self,
-        db_session: AsyncSession,
-        sample_novel_id: str,
-        other_novel_id: str,
-    ) -> None:
-        svc = PlotThreadService()
-        created = await svc.create(
-            db_session,
-            sample_novel_id,
-            PlotThreadCreate(
-                name="隔离删除",
-                thread_type="main",
-            ),
-        )
-        with pytest.raises(HTTPException) as exc:
-            await svc.delete(db_session, created.id, novel_id=other_novel_id)
-        assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_delete_on_correct_novel(

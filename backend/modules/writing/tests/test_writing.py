@@ -153,14 +153,27 @@ class TestWritingDraftRepository:
         assert fetched is not None
         assert fetched.id == created.id
 
+    @pytest.mark.parametrize(
+        "operation",
+        ["get", "update", "delete"],
+        ids=["get", "update", "delete"],
+    )
     @pytest.mark.asyncio
-    async def test_get_not_found(
+    async def test_not_found(
         self,
         repo: WritingDraftRepository,
         db_session: AsyncSession,
+        update_data: WritingDraftUpdate,
+        operation: str,
     ) -> None:
-        fetched = await repo.get(db_session, uuid.uuid4())
-        assert fetched is None
+        fake_id = uuid.uuid4()
+        if operation == "get":
+            result = await repo.get(db_session, fake_id)
+        elif operation == "update":
+            result = await repo.update(db_session, fake_id, update_data)
+        else:
+            result = await repo.delete(db_session, fake_id)
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_get_latest_by_chapter(
@@ -245,16 +258,6 @@ class TestWritingDraftRepository:
         assert updated.content == "这是一个测试正文的段落。"
 
     @pytest.mark.asyncio
-    async def test_update_not_found(
-        self,
-        repo: WritingDraftRepository,
-        db_session: AsyncSession,
-        update_data: WritingDraftUpdate,
-    ) -> None:
-        updated = await repo.update(db_session, uuid.uuid4(), update_data)
-        assert updated is None
-
-    @pytest.mark.asyncio
     async def test_delete(
         self,
         repo: WritingDraftRepository,
@@ -327,15 +330,6 @@ class TestWritingDraftRepository:
         assert len(versions) == 2
         version_numbers = sorted([v.version_number for v in versions])
         assert version_numbers == [1, 2]
-
-    @pytest.mark.asyncio
-    async def test_delete_not_found(
-        self,
-        repo: WritingDraftRepository,
-        db_session: AsyncSession,
-    ) -> None:
-        deleted = await repo.delete(db_session, uuid.uuid4())
-        assert deleted is None
 
     @pytest.mark.asyncio
     async def test_delete_all_versions(
@@ -420,17 +414,31 @@ class TestWritingDraftService:
         )
         assert fetched.id == created.id
 
+    @pytest.mark.parametrize(
+        "operation",
+        ["get_draft", "update_draft", "delete_draft", "get_latest_draft"],
+        ids=["get", "update", "delete", "get_latest"],
+    )
     @pytest.mark.asyncio
-    async def test_get_draft_not_found(
+    async def test_service_not_found(
         self,
         service: WritingDraftService,
         db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
+        update_data: WritingDraftUpdate,
+        operation: str,
     ) -> None:
+        fake_id = str(uuid.uuid4())
+        novel_id = sample_draft_data.novel_id
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_draft(
-                db_session, str(uuid.uuid4()), sample_draft_data.novel_id
-            )
+            if operation == "get_draft":
+                await service.get_draft(db_session, fake_id, novel_id)
+            elif operation == "update_draft":
+                await service.update_draft(db_session, fake_id, update_data, novel_id)
+            elif operation == "delete_draft":
+                await service.delete_draft(db_session, fake_id, novel_id)
+            else:
+                await service.get_latest_draft(db_session, fake_id, 1)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -449,20 +457,6 @@ class TestWritingDraftService:
             sample_draft_data.novel_id,
         )
         assert updated.title == "更新后的标题"
-
-    @pytest.mark.asyncio
-    async def test_update_draft_not_found(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-        update_data: WritingDraftUpdate,
-        sample_draft_data: WritingDraftCreate,
-    ) -> None:
-        with pytest.raises(HTTPException) as exc_info:
-            await service.update_draft(
-                db_session, str(uuid.uuid4()), update_data, sample_draft_data.novel_id
-            )
-        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_update_draft_conflict_detection(
@@ -571,19 +565,6 @@ class TestWritingDraftService:
         assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_delete_draft_not_found(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-        sample_draft_data: WritingDraftCreate,
-    ) -> None:
-        with pytest.raises(HTTPException) as exc_info:
-            await service.delete_draft(
-                db_session, str(uuid.uuid4()), sample_draft_data.novel_id
-            )
-        assert exc_info.value.status_code == 404
-
-    @pytest.mark.asyncio
     async def test_get_latest_draft(
         self,
         service: WritingDraftService,
@@ -600,16 +581,6 @@ class TestWritingDraftService:
         await service.create_draft(db_session, v2)
         latest = await service.get_latest_draft(db_session, sample_draft_data.novel_id, 1)
         assert latest.version_number == 2
-
-    @pytest.mark.asyncio
-    async def test_get_latest_draft_not_found(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-    ) -> None:
-        with pytest.raises(HTTPException) as exc_info:
-            await service.get_latest_draft(db_session, str(uuid.uuid4()), 1)
-        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_version_history(

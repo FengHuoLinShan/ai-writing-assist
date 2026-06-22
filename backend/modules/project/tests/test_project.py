@@ -114,15 +114,38 @@ class TestProjectCrud:
         assert fetched.id == created.id
         assert fetched.title == "测试小说"
 
+    @pytest.mark.parametrize(
+        "operation,expected",
+        [
+            ("get", None),
+            ("update", None),
+            ("soft_delete", False),
+            ("restore", False),
+            ("permanent_delete", False),
+        ],
+        ids=["get", "update", "soft_delete", "restore", "permanent_delete"],
+    )
     @pytest.mark.asyncio
-    async def test_get_not_found(
+    async def test_not_found(
         self,
         db_session: AsyncSession,
+        update_data: ProjectUpdate,
+        operation: str,
+        expected: None | bool,
     ) -> None:
-        """测试获取不存在的项目"""
+        """测试对不存在的项目执行各类操作"""
         fake_id = uuid.uuid4()
-        fetched = await _repo.get(db_session, fake_id)
-        assert fetched is None
+        if operation == "get":
+            result = await _repo.get(db_session, fake_id)
+        elif operation == "update":
+            result = await _repo.update(db_session, fake_id, update_data)
+        elif operation == "soft_delete":
+            result = await _repo.soft_delete(db_session, fake_id)
+        elif operation == "restore":
+            result = await _repo.restore(db_session, fake_id)
+        else:
+            result = await _repo.permanent_delete(db_session, fake_id)
+        assert result is expected
 
     @pytest.mark.asyncio
     async def test_list(
@@ -176,17 +199,6 @@ class TestProjectCrud:
         assert updated.genre == "玄幻"
 
     @pytest.mark.asyncio
-    async def test_update_not_found(
-        self,
-        db_session: AsyncSession,
-        update_data: ProjectUpdate,
-    ) -> None:
-        """测试更新不存在的项目"""
-        fake_id = uuid.uuid4()
-        updated = await _repo.update(db_session, fake_id, update_data)
-        assert updated is None
-
-    @pytest.mark.asyncio
     async def test_update_empty(
         self,
         db_session: AsyncSession,
@@ -236,16 +248,6 @@ class TestProjectCrud:
         second = await _repo.soft_delete(db_session, created.id)
         assert second is False
 
-    @pytest.mark.asyncio
-    async def test_soft_delete_not_found(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试对不存在的项目软删除返回 False"""
-        fake_id = uuid.uuid4()
-        deleted = await _repo.soft_delete(db_session, fake_id)
-        assert deleted is False
-
     # --------------------------------------------------------
     # 恢复
     # --------------------------------------------------------
@@ -276,16 +278,6 @@ class TestProjectCrud:
         """测试对未删除的项目恢复返回 False"""
         created = await _repo.create(db_session, sample_create_data)
         restored = await _repo.restore(db_session, created.id)
-        assert restored is False
-
-    @pytest.mark.asyncio
-    async def test_restore_not_found(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试对不存在的项目恢复返回 False"""
-        fake_id = uuid.uuid4()
-        restored = await _repo.restore(db_session, fake_id)
         assert restored is False
 
     # --------------------------------------------------------
@@ -366,16 +358,6 @@ class TestProjectCrud:
         result = await _repo.permanent_delete(db_session, created.id)
         assert result is False
 
-    @pytest.mark.asyncio
-    async def test_permanent_delete_not_found(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试对不存在的项目永久删除返回 False"""
-        fake_id = uuid.uuid4()
-        result = await _repo.permanent_delete(db_session, fake_id)
-        assert result is False
-
 
 # ============================================================
 # Service 测试
@@ -399,16 +381,34 @@ class TestProjectService:
         assert resp.created_at is not None
         assert resp.updated_at is not None
 
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "get_project",
+            "delete_project",
+            "restore_project",
+            "permanent_delete_project",
+        ],
+        ids=["get", "delete", "restore", "permanent_delete"],
+    )
     @pytest.mark.asyncio
-    async def test_get_project_not_found(
+    async def test_service_not_found(
         self,
         service: ProjectService,
         db_session: AsyncSession,
+        operation: str,
     ) -> None:
-        """测试服务层获取不存在的项目"""
+        """测试服务层对不存在的项目执行各类操作"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_project(db_session, fake_id)
+            if operation == "get_project":
+                await service.get_project(db_session, fake_id)
+            elif operation == "delete_project":
+                await service.delete_project(db_session, fake_id)
+            elif operation == "restore_project":
+                await service.restore_project(db_session, fake_id)
+            else:
+                await service.permanent_delete_project(db_session, fake_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -426,18 +426,6 @@ class TestProjectService:
         # 成功时不抛异常，返回 None
         result = await service.delete_project(db_session, created.id)
         assert result is None
-
-    @pytest.mark.asyncio
-    async def test_delete_project_not_found(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试服务层删除不存在的项目"""
-        fake_id = str(uuid.uuid4())
-        with pytest.raises(HTTPException) as exc_info:
-            await service.delete_project(db_session, fake_id)
-        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_restore_project_returns_restored_row(
@@ -471,18 +459,6 @@ class TestProjectService:
         resp = await service.restore_project(db_session, created.id)
         assert resp.id == created.id
         assert resp.deleted_at is None
-
-    @pytest.mark.asyncio
-    async def test_restore_project_not_found(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试服务层恢复不存在的项目返回 404"""
-        fake_id = str(uuid.uuid4())
-        with pytest.raises(HTTPException) as exc_info:
-            await service.restore_project(db_session, fake_id)
-        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_list_deleted_projects(
@@ -521,18 +497,6 @@ class TestProjectService:
             created.id,
         )
         assert result is None
-
-    @pytest.mark.asyncio
-    async def test_permanent_delete_project_not_found(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试服务层永久删除不存在的项目返回 404"""
-        fake_id = str(uuid.uuid4())
-        with pytest.raises(HTTPException) as exc_info:
-            await service.permanent_delete_project(db_session, fake_id)
-        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_project_context(

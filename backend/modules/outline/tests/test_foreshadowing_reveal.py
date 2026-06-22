@@ -259,28 +259,6 @@ class TestApiForeshadowingPlans:
         )
         assert resp.status_code == 422
 
-    async def test_api_foreshadowing_update_cross_novel_returns_404(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-        test_project_id: str,
-        other_novel_id: str,
-    ) -> None:
-        repo = ForeshadowingPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {"name": "只属于项目1的伏笔", "status": "draft"},
-        )
-        await db_session.flush()
-
-        resp = await async_client.patch(
-            f"/api/outline/foreshadowing/{plan.id}",
-            params={"novel_id": other_novel_id},
-            json={"name": "篡改"},
-        )
-        assert resp.status_code == 404
-
     async def test_api_foreshadowing_delete_returns_204(
         self,
         async_client: AsyncClient,
@@ -301,25 +279,65 @@ class TestApiForeshadowingPlans:
         )
         assert resp.status_code == 204
 
-    async def test_api_foreshadowing_delete_cross_novel_returns_404(
+    @pytest.mark.parametrize(
+        "endpoint,payload,method",
+        [
+            ("foreshadowing", {"name": "篡改"}, "patch"),
+            ("foreshadowing", None, "delete"),
+            ("reveals", {"secret_summary": "篡改"}, "patch"),
+            ("reveals", None, "delete"),
+        ],
+        ids=[
+            "foreshadowing_update",
+            "foreshadowing_delete",
+            "reveal_update",
+            "reveal_delete",
+        ],
+    )
+    async def test_api_cross_novel_returns_404(
         self,
         async_client: AsyncClient,
         db_session: AsyncSession,
         test_project_id: str,
         other_novel_id: str,
+        test_entity_id: str,
+        endpoint: str,
+        payload: dict | None,
+        method: str,
     ) -> None:
-        repo = ForeshadowingPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {"name": "只属于项目1的伏笔", "status": "draft"},
-        )
+        if endpoint == "foreshadowing":
+            repo = ForeshadowingPlanRepository()
+            plan = await repo.create(
+                db_session,
+                uuid.UUID(hex=test_project_id),
+                {"name": "只属于项目1的伏笔", "status": "draft"},
+            )
+        else:
+            repo = RevealPlanRepository()
+            plan = await repo.create(
+                db_session,
+                uuid.UUID(hex=test_project_id),
+                {
+                    "target_type": "world_entity",
+                    "target_id": uuid.UUID(hex=test_entity_id),
+                    "secret_summary": "只属于项目1的秘密",
+                    "status": "draft",
+                },
+            )
         await db_session.flush()
 
-        resp = await async_client.delete(
-            f"/api/outline/foreshadowing/{plan.id}",
-            params={"novel_id": other_novel_id},
-        )
+        url = f"/api/outline/{endpoint}/{plan.id}"
+        if method == "patch":
+            resp = await async_client.patch(
+                url,
+                params={"novel_id": other_novel_id},
+                json=payload,
+            )
+        else:
+            resp = await async_client.delete(
+                url,
+                params={"novel_id": other_novel_id},
+            )
         assert resp.status_code == 404
 
     async def test_get_foreshadowing_plan(
@@ -543,34 +561,6 @@ class TestApiRevealPlans:
         )
         assert resp.status_code == 422
 
-    async def test_api_reveal_update_cross_novel_returns_404(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-        test_project_id: str,
-        other_novel_id: str,
-        test_entity_id: str,
-    ) -> None:
-        repo = RevealPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {
-                "target_type": "world_entity",
-                "target_id": uuid.UUID(hex=test_entity_id),
-                "secret_summary": "只属于项目1的秘密",
-                "status": "draft",
-            },
-        )
-        await db_session.flush()
-
-        resp = await async_client.patch(
-            f"/api/outline/reveals/{plan.id}",
-            params={"novel_id": other_novel_id},
-            json={"secret_summary": "篡改"},
-        )
-        assert resp.status_code == 404
-
     async def test_api_reveal_delete_returns_204(
         self,
         async_client: AsyncClient,
@@ -596,33 +586,6 @@ class TestApiRevealPlans:
             params={"novel_id": test_project_id},
         )
         assert resp.status_code == 204
-
-    async def test_api_reveal_delete_cross_novel_returns_404(
-        self,
-        async_client: AsyncClient,
-        db_session: AsyncSession,
-        test_project_id: str,
-        other_novel_id: str,
-        test_entity_id: str,
-    ) -> None:
-        repo = RevealPlanRepository()
-        plan = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            {
-                "target_type": "world_entity",
-                "target_id": uuid.UUID(hex=test_entity_id),
-                "secret_summary": "只属于项目1的秘密",
-                "status": "draft",
-            },
-        )
-        await db_session.flush()
-
-        resp = await async_client.delete(
-            f"/api/outline/reveals/{plan.id}",
-            params={"novel_id": other_novel_id},
-        )
-        assert resp.status_code == 404
 
 
 class TestPlotStructureGenerateDuplicateRange:

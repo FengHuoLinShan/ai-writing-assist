@@ -517,11 +517,23 @@ class TestSceneSplitChunk:
         assert new_orm.scene_chunks[0]["end_pos"] == 60
         assert later_orm.scene_index == 3
 
+    @pytest.mark.parametrize(
+        "source_chapter_id,source_chapter_index,split_pos,match",
+        [
+            ("999", 999, 40, "Chapter 999 not found"),
+            ("5", 5, 0, "split_pos 0 must be inside chunk range"),
+        ],
+        ids=["not_found", "pos_out_of_range"],
+    )
     @pytest.mark.asyncio
-    async def test_split_scene_chunk_not_found(
+    async def test_split_scene_chunk_boundary_errors(
         self,
         db_session: AsyncSession,
         sample_novel_id: str,
+        source_chapter_id: str,
+        source_chapter_index: int,
+        split_pos: int,
+        match: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
         from modules.outline.services import SceneService
@@ -549,61 +561,16 @@ class TestSceneSplitChunk:
         await db_session.flush()
 
         svc = SceneService()
-        with pytest.raises(ValueError, match="Chapter 999 not found"):
+        with pytest.raises(ValueError, match=match):
             await svc.split_scene_chunk_to_new_chapter(
                 db_session,
                 sample_novel_id,
                 source_scene_id=str(source.id),
-                source_chapter_id="999",
-                source_chapter_index=999,
+                source_chapter_id=source_chapter_id,
+                source_chapter_index=source_chapter_index,
                 new_chapter_id="6",
                 new_chapter_index=6,
-                split_pos=40,
-                new_chapter_length=60,
-            )
-
-    @pytest.mark.asyncio
-    async def test_split_scene_chunk_pos_out_of_range(
-        self,
-        db_session: AsyncSession,
-        sample_novel_id: str,
-    ) -> None:
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.services import SceneService
-
-        nid = uuid.UUID(hex=sample_novel_id)
-        repo = SceneRepository()
-        source = await repo.create(
-            db_session,
-            nid,
-            SceneCreate(
-                scene_index=1,
-                title="Source",
-                chapter_ids=["5"],
-                scene_chunks=[
-                    {
-                        "chapter_id": "5",
-                        "chapter_index": 5,
-                        "start_pos": 0,
-                        "end_pos": 100,
-                    }
-                ],
-                status="draft",
-            ),
-        )
-        await db_session.flush()
-
-        svc = SceneService()
-        with pytest.raises(ValueError, match="split_pos 0 must be inside chunk range"):
-            await svc.split_scene_chunk_to_new_chapter(
-                db_session,
-                sample_novel_id,
-                source_scene_id=str(source.id),
-                source_chapter_id="5",
-                source_chapter_index=5,
-                new_chapter_id="6",
-                new_chapter_index=6,
-                split_pos=0,
+                split_pos=split_pos,
                 new_chapter_length=60,
             )
 

@@ -63,13 +63,32 @@ class TestPlotThreadRepository:
         assert fetched.id == created.id
         assert fetched.name == "主角成长之路"
 
+    @pytest.mark.parametrize(
+        "operation,expected",
+        [
+            ("get", None),
+            ("update", None),
+            ("delete", False),
+        ],
+        ids=["get", "update", "delete"],
+    )
     @pytest.mark.asyncio
-    async def test_get_not_found(
+    async def test_not_found(
         self,
         db_session: AsyncSession,
+        operation: str,
+        expected: None | bool,
     ) -> None:
-        result = await PlotThreadRepository().get(db_session, uuid.uuid4())
-        assert result is None
+        repo = PlotThreadRepository()
+        fake_id = uuid.uuid4()
+        if operation == "get":
+            result = await repo.get(db_session, fake_id)
+        elif operation == "update":
+            update = PlotThreadUpdate(name="不存在")
+            result = await repo.update(db_session, fake_id, update)
+        else:
+            result = await repo.delete(db_session, fake_id)
+        assert result is expected
 
     @pytest.mark.asyncio
     async def test_get_by_novel(
@@ -144,15 +163,6 @@ class TestPlotThreadRepository:
         assert updated.summary == "原有概要"
 
     @pytest.mark.asyncio
-    async def test_update_not_found(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        update = PlotThreadUpdate(name="不存在")
-        result = await PlotThreadRepository().update(db_session, uuid.uuid4(), update)
-        assert result is None
-
-    @pytest.mark.asyncio
     async def test_delete(
         self,
         db_session: AsyncSession,
@@ -164,14 +174,6 @@ class TestPlotThreadRepository:
         deleted = await repo.delete(db_session, created.id)
         assert deleted is True
         assert await repo.get(db_session, created.id) is None
-
-    @pytest.mark.asyncio
-    async def test_delete_not_found(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        result = await PlotThreadRepository().delete(db_session, uuid.uuid4())
-        assert result is False
 
     @pytest.mark.asyncio
     async def test_get_active_filters_by_chapter(
