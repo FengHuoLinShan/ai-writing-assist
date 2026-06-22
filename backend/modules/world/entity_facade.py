@@ -16,6 +16,7 @@ from modules.world.services import (
     EntityContextService,
     EntityEmbeddingService,
     EntityRelationService,
+    EntityStatsService,
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
@@ -24,6 +25,7 @@ _entity_service = WorldEntityService()
 _context_service = EntityContextService()
 _alias_service = EntityAliasService()
 _embedding_service = EntityEmbeddingService()
+_stats_service = EntityStatsService()
 _relation_service = EntityRelationService()
 _dedup_service = EntityDedupService()
 
@@ -242,18 +244,11 @@ async def count_entities(
     status_filter: list[str] | None = None,
 ) -> int:
     """统计 novel 的 CoreEntity 数量。"""
-    from sqlalchemy import func, select
-
-    from modules.world.models import CoreEntity
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    conditions = [CoreEntity.novel_id == nid]
-    if status_filter:
-        conditions.append(CoreEntity.status.in_(status_filter))
-    stmt = select(func.count(CoreEntity.id)).where(*conditions)
-    result = await db.execute(stmt)
-    return result.scalar() or 0
+    return await _stats_service.count_entities(
+        db,
+        novel_id,
+        status_filter=status_filter,
+    )
 
 
 async def list_auto_ingested_entities(
@@ -264,43 +259,14 @@ async def list_auto_ingested_entities(
     end_chapter: int | None = None,
     limit: int = 10000,
 ) -> list[dict[str, Any]]:
-    """列出 novel 中由深度导入自动生成的实体，可选按来源章节范围过滤。"""
-    from sqlalchemy import select
-
-    from modules.world.models import CoreEntity
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    stmt = (
-        select(CoreEntity)
-        .where(
-            CoreEntity.novel_id == nid,
-            CoreEntity.status.in_(["canonical", "draft"]),
-        )
-        .limit(limit)
+    """列出 novel 中由深度导入自动生成的实体。"""
+    return await _stats_service.list_auto_ingested_entities(
+        db,
+        novel_id,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+        limit=limit,
     )
-    result = await db.execute(stmt)
-    entities = result.scalars().all()
-
-    items: list[dict[str, Any]] = []
-    for entity in entities:
-        content_json = entity.content_json or {}
-        meta = content_json.get("_meta") or {}
-        if not meta.get("auto_ingested"):
-            continue
-        source = meta.get("source_chapter_index")
-        if start_chapter is not None and end_chapter is not None:
-            if source is None or not (start_chapter <= int(source) <= end_chapter):
-                continue
-        items.append(
-            {
-                "id": str(entity.id),
-                "name": entity.name,
-                "status": entity.status,
-                "content_json": content_json,
-            }
-        )
-    return items
 
 
 async def backfill_entity_embeddings(

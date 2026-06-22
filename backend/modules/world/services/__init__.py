@@ -10,6 +10,7 @@ from modules.world.services.entity_embedding_service import EntityEmbeddingServi
 from modules.world.services.entity_relation_service import EntityRelationService
 from modules.world.services.entity_revision_service import EntityRevisionService
 from modules.world.services.entity_service import WorldEntityService
+from modules.world.services.entity_stats_service import EntityStatsService
 from modules.world.services.event_service import EventService
 from modules.world.services.helpers import (
     merge_text_field,
@@ -33,6 +34,7 @@ __all__ = [
     "EntityEmbeddingService",
     "EntityRelationService",
     "EntityRevisionService",
+    "EntityStatsService",
     "EventService",
     "CharacterService",
     "CharacterKnowledgeService",

@@ -271,6 +271,21 @@ class CoreEntityRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def count_entities(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        status_filter: list[str] | None = None,
+    ) -> int:
+        """统计指定 novel 的 CoreEntity 数量。"""
+        conditions = [CoreEntity.novel_id == novel_id]
+        if status_filter:
+            conditions.append(CoreEntity.status.in_(status_filter))
+        stmt = select(func.count(CoreEntity.id)).where(*conditions)
+        result = await db.execute(stmt)
+        return result.scalar() or 0
+
     async def find_entity_by_name(
         self,
         db: AsyncSession,

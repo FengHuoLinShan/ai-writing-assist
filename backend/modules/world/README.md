@@ -22,6 +22,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB）
 - 对象去重（EntityDedupService）
 - 世界上下文/检索词典/批次（`EntityContextService`）
+- 实体统计与自动入库查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）
 - 向其他模块提供世界上下文（`get_world_context`）
 - 人物档案与知识边界（Character / CharacterKnowledge）
