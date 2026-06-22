@@ -662,3 +662,22 @@ P1（Scene 时间层）于 2026-06-15 实现，以下为与 PRD 原文的偏差�
 15. **Scene 列表来源**：PRD §7.2 要求通过 outline facade/DI port 获取 Scene 信息。P1 实现通过 `SceneService.get()` 懒加载场景查询（`map_service.py` 中方法内 import，避免循环依赖），布局与 outline contracts 一致。
 16. **Scene 时间轴 UI**：PRD §5.6 描述完整时间轴（`← Scene 12: 洛阳夜雨 →` 滑块）。P1 实现为简化的前后导航按钮 + 下拉选择器，无连续滑块。理由：时间轴滑块需 outline 模块提供 chapter 分组信息且交互复杂度高，P1 MVP 先用离散导航。
 17. **P2/P3 数据表**：`map_territory_tiles`（P2）和 `map_position_suggestions`（P3）表未建，待对应迭代创建。
+
+### P2 实现记录
+
+P2（组织与聚焦层）于 2026-06-22 实现，以下为与 PRD 原文的偏差说明：
+
+18. **势力范围数据表**：`map_territory_tiles` 表已建，与 PRD §4.4 设计一致。Alembic 迁移 `20260622_add_territory_tables` 创建表，含 `novel_id`, `map_id`, `faction_entity_id`, `hex_q`, `hex_r`, `style_override` 字段，唯一约束 `(map_id, faction_entity_id, hex_q, hex_r)`。
+
+19. **势力范围后端 CRUD**：`MapTerritoryService` 提供 `list`, `create`, `update`, `delete`, `delete_by_faction` 方法。`create` 校验 `faction_entity_id` 必须是 `organization` 类型，且 hex 在网格范围内。`delete_by_faction` 用于一键清除某组织的全部势力范围。
+
+20. **聚焦模式 API**：`GET /api/world/maps/{map_id}/focus?entity_id=xxx` 返回与该实体关联的所有 hex 坐标（通过 markers 和 territories 查询）。前端据此将不相关 hex 透明度降为 0.3。
+
+21. **组织调色盘**：前端 `mapState.factionColors` 存储用户自定义颜色，默认使用 `hashColor(factionId)` 生成确定性颜色。势力范围渲染使用 `color + "66"`（40% 透明度）填充。
+
+22. **势力编辑工具**：编辑模式侧边栏新增"势力范围"工具组，支持选择组织、选择颜色、绘制/清除势力范围。绘制模式为即时 API 调用（非 stage→apply 模式），与 P1 Marker 一致。
+
+23. **P3 数据表**：`map_position_suggestions` 表未建，待 P3 迭代创建。
+
+**文档状态**：P0 + P1 + P2 已实现（2026-06-22）
+**下次更新**：P3 实现后根据实际 API、数据模型和交互细节同步调整。
