@@ -11,7 +11,7 @@ export const mapState = {
   currentMapId: null,
   /** 当前模式：browse（浏览）/ edit（编辑） */
   mode: "browse",
-  /** 编辑工具：brush（地形画笔）/ bucket（油漆桶）/ bind（地点绑定） */
+  /** 编辑工具：brush（地形画笔）/ bucket（油漆桶）/ bind（地点绑定）/ territory（势力范围） */
   activeTool: "brush",
   /** 画笔选中的地形（brush/bucket 工具用） */
   selectedTerrain: "grassland",
@@ -45,6 +45,19 @@ export const mapState = {
   selectedMarkerEntityId: null,
   /** 标记工具：自定义标签 */
   selectedMarkerLabel: "",
+  // === P2: 势力范围与聚焦模式 ===
+  /** 当前地图的势力范围列表 */
+  territories: [],
+  /** 是否处于聚焦模式 */
+  focusMode: false,
+  /** 聚焦模式关联的实体 ID */
+  focusEntityId: null,
+  /** 聚焦模式下关联的六边形坐标集合（key=`q,r`） */
+  focusRelatedHexes: new Set(),
+  /** 当前选中的 faction ID（势力范围编辑用） */
+  selectedFactionId: null,
+  /** faction ID → 自定义颜色的映射 */
+  factionColors: {},
 }
 
 /** 重置会话状态（切换地图时调用） */
@@ -68,6 +81,13 @@ export function resetMapState() {
   mapState.selectedMarkerType = "character"
   mapState.selectedMarkerEntityId = null
   mapState.selectedMarkerLabel = ""
+  // P2 reset
+  mapState.territories = []
+  mapState.focusMode = false
+  mapState.focusEntityId = null
+  mapState.focusRelatedHexes = new Set()
+  mapState.selectedFactionId = null
+  mapState.factionColors = {}
 }
 
 /**
@@ -185,6 +205,53 @@ export function recordDragHex(q, r) {
 
 export function setCurrentScene(sceneId) {
   mapState.currentSceneId = sceneId
+}
+
+// === P2: 聚焦模式与势力范围辅助函数 ===
+
+/**
+ * 设置或清除聚焦模式。
+ * @param {boolean} enabled
+ * @param {string|null} [entityId]
+ */
+export function setFocusMode(enabled, entityId) {
+  mapState.focusMode = enabled
+  mapState.focusEntityId = enabled ? entityId : null
+  if (!enabled) {
+    mapState.focusRelatedHexes = new Set()
+  }
+}
+
+/**
+ * 设置聚焦模式下关联的六边形集合。
+ * @param {Array<{hex_q:number,hex_r:number}>} hexes
+ */
+export function setFocusRelatedHexes(hexes) {
+  mapState.focusRelatedHexes = new Set((hexes || []).map((h) => `${h.hex_q},${h.hex_r}`))
+}
+
+/** 清除聚焦状态 */
+export function clearFocus() {
+  mapState.focusMode = false
+  mapState.focusEntityId = null
+  mapState.focusRelatedHexes = new Set()
+}
+
+/**
+ * 设置当前选中的 faction ID。
+ * @param {string|null} factionId
+ */
+export function setSelectedFaction(factionId) {
+  mapState.selectedFactionId = factionId
+}
+
+/**
+ * 设置 faction 的自定义颜色。
+ * @param {string} factionId
+ * @param {string} color 十六进制颜色字符串（如 "#FF0000"）
+ */
+export function setFactionColor(factionId, color) {
+  mapState.factionColors[factionId] = color
 }
 
 export default mapState

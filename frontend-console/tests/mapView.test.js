@@ -16,10 +16,15 @@ import {
   TERRAIN_COLORS,
   TERRAIN_OPTIONS,
   hexCorners,
+  drawHexCell,
+  drawTerrain,
+  drawBindings,
   drawPendingTerrain,
   drawPendingBindings,
   drawHoverHighlight,
   drawMarkers,
+  drawTerritories,
+  hashColor,
 } from "../views/mapHexRenderer.js"
 import {
   mapState,
@@ -40,6 +45,28 @@ import {
 } from "../views/mapState.js"
 import mapView from "../views/mapView.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
+
+/** 带 globalAlpha 追踪的 mock CanvasRenderingContext2D */
+function createRenderTestCtx() {
+  const alphaLog = []
+  return {
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    setLineDash: vi.fn(),
+    set fillStyle(_v) {},
+    set strokeStyle(_v) {},
+    set lineWidth(_v) {},
+    set globalAlpha(v) { alphaLog.push(v) },
+    get globalAlpha() { return alphaLog[alphaLog.length - 1] },
+    alphaLog,
+  }
+}
 
 beforeEach(() => {
   // 防御：单文件运行时 setup.js 可能未在同一 worker 执行，兜底初始化全局
@@ -182,6 +209,130 @@ describe("mapHexRenderer 几何", () => {
     })
   })
 
+  describe("drawHexCell", () => {
+    function createMockCtx() {
+      const calls = {
+        beginPath: 0,
+        moveTo: [],
+        lineTo: [],
+        closePath: 0,
+        fill: 0,
+        stroke: 0,
+        save: 0,
+        restore: 0,
+        setLineDash: [],
+        alphaLog: [],
+        fillStyle: "",
+        strokeStyle: "",
+        lineWidth: 0,
+      }
+      return {
+        beginPath: () => { calls.beginPath++ },
+        moveTo: (x, y) => { calls.moveTo.push([x, y]) },
+        lineTo: (x, y) => { calls.lineTo.push([x, y]) },
+        closePath: () => { calls.closePath++ },
+        fill: () => { calls.fill++ },
+        stroke: () => { calls.stroke++ },
+        save: () => { calls.save++ },
+        restore: () => { calls.restore++ },
+        setLineDash: (dash) => { calls.setLineDash.push(dash) },
+        get fillStyle() { return calls.fillStyle },
+        set fillStyle(v) { calls.fillStyle = v },
+        get strokeStyle() { return calls.strokeStyle },
+        set strokeStyle(v) { calls.strokeStyle = v },
+        get lineWidth() { return calls.lineWidth },
+        set lineWidth(v) { calls.lineWidth = v },
+        get globalAlpha() { return calls.globalAlpha },
+        set globalAlpha(v) { calls.alphaLog.push(v); calls.globalAlpha = v },
+        _calls: calls,
+      }
+    }
+
+    it("绘制 6 顶点路径并应用样式", () => {
+      const ctx = createMockCtx()
+      drawHexCell(ctx, 1, 2, 30, { fill: "#7CB342", stroke: "#558B2F", lineWidth: 2 }, 10, 20, 1)
+      expect(ctx._calls.beginPath).toBe(1)
+      expect(ctx._calls.moveTo).toHaveLength(1)
+      expect(ctx._calls.lineTo).toHaveLength(5)
+      expect(ctx._calls.closePath).toBe(1)
+      expect(ctx._calls.fill).toBe(1)
+      expect(ctx._calls.stroke).toBe(1)
+      expect(ctx._calls.fillStyle).toBe("#7CB342")
+      expect(ctx._calls.strokeStyle).toBe("#558B2F")
+      expect(ctx._calls.lineWidth).toBe(2)
+
+      const [cx, cy] = hexToPixel(1, 2, 30)
+      const [vx, vy] = hexCorners(30)[0]
+      const [mx, my] = ctx._calls.moveTo[0]
+      expect(mx).toBeCloseTo(cx + 10 + vx, 5)
+      expect(my).toBeCloseTo(cy + 20 + vy, 5)
+    })
+
+    it("应用 lineDash 并在绘制后重置", () => {
+      const ctx = createMockCtx()
+      drawHexCell(ctx, 0, 0, 30, { stroke: "#000", lineDash: [4, 3] }, 0, 0, 1)
+      expect(ctx._calls.setLineDash).toContainEqual([4, 3])
+      expect(ctx._calls.setLineDash).toContainEqual([])
+    })
+
+    it("应用 opacity 并通过 save/restore 隔离", () => {
+      const ctx = createMockCtx()
+      drawHexCell(ctx, 0, 0, 30, { fill: "#f00" }, 0, 0, 0.5)
+      expect(ctx._calls.save).toBeGreaterThanOrEqual(1)
+      expect(ctx._calls.restore).toBeGreaterThanOrEqual(1)
+      expect(ctx._calls.alphaLog).toContain(0.5)
+      expect(ctx._calls.alphaLog).toContain(1)
+    })
+  })
+
+  describe("mapHexRenderer 聚焦透明度", () => {
+    it("drawTerrain 接受 getOpacity 回调并应用不同透明度", () => {
+      const ctx = createRenderTestCtx()
+      const tiles = [
+        { hex_q: 0, hex_r: 0, terrain_type: "grassland" },
+        { hex_q: 1, hex_r: 0, terrain_type: "water" },
+      ]
+      drawTerrain(ctx, tiles, 30, 0, 0, (q, r) => (q === 0 && r === 0 ? 0.3 : 1))
+      expect(ctx.alphaLog).toContain(0.3)
+      expect(ctx.alphaLog).toContain(1)
+    })
+
+    it("drawBindings 接受 getOpacity 回调", () => {
+      const ctx = createRenderTestCtx()
+      const bindings = [
+        { hex_q: 0, hex_r: 0, is_center: true },
+        { hex_q: 1, hex_r: 0, is_center: false },
+      ]
+      drawBindings(ctx, bindings, 30, 0, 0, true, (q, r) => (q === 0 && r === 0 ? 0.4 : 1))
+      expect(ctx.alphaLog).toContain(0.4)
+      expect(ctx.alphaLog).toContain(1)
+    })
+
+    it("drawPendingTerrain 把 getOpacity 与 pending 半透明相乘", () => {
+      const ctx = createRenderTestCtx()
+      drawPendingTerrain(ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "water" }], 30, 0, 0, () => 0.5)
+      expect(ctx.alphaLog).toContain(0.5 * 0.4)
+    })
+
+    it("drawPendingBindings 接受 getOpacity 回调", () => {
+      const ctx = createRenderTestCtx()
+      drawPendingBindings(ctx, [{ hex_q: 0, hex_r: 0, is_center: false }], 30, 0, 0, () => 0.6)
+      expect(ctx.alphaLog).toContain(0.6)
+    })
+
+    it("drawHoverHighlight 接受 opacity 参数", () => {
+      const ctx = createRenderTestCtx()
+      drawHoverHighlight(ctx, 0, 0, 30, 0, 0, 0.5)
+      expect(ctx.alphaLog).toContain(0.5)
+    })
+
+    it("drawTerritories 接受 getOpacity 回调", () => {
+      const ctx = createRenderTestCtx()
+      drawTerritories(ctx, [{ faction_id: "f1", hexes: [{ hex_q: 0, hex_r: 0 }] }], 30, 0, 0, {}, () => 0.6)
+      expect(ctx.alphaLog).toContain(0.6)
+    })
+  })
+
   describe("mapHexRenderer 绘制辅助", () => {
     it("drawPendingTerrain 绘制 pending 格", () => {
       const ctx = {
@@ -226,6 +377,9 @@ describe("mapHexRenderer 几何", () => {
         lineTo: vi.fn(),
         closePath: vi.fn(),
         stroke: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        setLineDash: vi.fn(),
       }
       drawHoverHighlight(ctx, 1, 1, 30, 0, 0)
       expect(ctx.stroke).toHaveBeenCalled()
@@ -968,5 +1122,92 @@ describe("mapView marker 提示", () => {
     const html = mapView._buildTooltipContent(2, 2)
     expect(html).toContain("决战")
     expect(html).toContain("事件")
+  })
+})
+
+
+describe("mapView P2 势力范围", () => {
+  beforeEach(() => {
+    resetMapState()
+  })
+
+  it("_renderTerritoryTools 无组织时显示提示", () => {
+    mapView._allEntities = []
+    const html = mapView._renderTerritoryTools()
+    expect(html).toContain("暂无组织实体")
+  })
+
+  it("_renderTerritoryTools 有组织时显示选择器", () => {
+    mapView._allEntities = [
+      { id: "o1", entity_type: "organization", name: "青龙会" },
+    ]
+    const html = mapView._renderTerritoryTools()
+    expect(html).toContain("青龙会")
+    expect(html).toContain("map-territory-faction")
+  })
+
+  it("_renderFactionList 无组织时返回空", () => {
+    mapView._allEntities = []
+    const html = mapView._renderFactionList()
+    expect(html).toBe("")
+  })
+
+  it("_renderFactionList 有组织时显示标签", () => {
+    mapView._allEntities = [
+      { id: "o1", entity_type: "organization", name: "青龙会" },
+    ]
+    const html = mapView._renderFactionList()
+    expect(html).toContain("青龙会")
+    expect(html).toContain("map-focus-toggle")
+  })
+
+  it("聚焦模式切换", () => {
+    mapView._toggleFocusMode("o1")
+    expect(mapState.focusMode).toBe(true)
+    expect(mapState.focusEntityId).toBe("o1")
+    mapView._toggleFocusMode("o1")
+    expect(mapState.focusMode).toBe(false)
+  })
+
+  it("_getHexOpacity 非聚焦模式返回 1.0", () => {
+    mapState.focusMode = false
+    expect(mapView._getHexOpacity(1, 1)).toBe(1.0)
+  })
+
+  it("_getHexOpacity 聚焦模式关联格返回 1.0", () => {
+    mapState.focusMode = true
+    mapState.focusRelatedHexes = new Set(["1,1"])
+    expect(mapView._getHexOpacity(1, 1)).toBe(1.0)
+  })
+
+  it("_getHexOpacity 聚焦模式非关联格返回 0.3", () => {
+    mapState.focusMode = true
+    mapState.focusRelatedHexes = new Set(["1,1"])
+    expect(mapView._getHexOpacity(2, 2)).toBe(0.3)
+  })
+})
+
+describe("mapHexRenderer P2 drawTerritories", () => {
+  it("drawTerritories 空数组不绘制", () => {
+    const ctx = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn() }
+    drawTerritories(ctx, [], 30, 0, 0, {})
+    expect(ctx.beginPath).not.toHaveBeenCalled()
+  })
+
+  it("drawTerritories 绘制势力范围", () => {
+    const ctx = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn(), save: vi.fn(), restore: vi.fn(), setLineDash: vi.fn(), fillStyle: "", strokeStyle: "", lineWidth: 0 }
+    const territories = [
+      { faction_id: "f1", hexes: [{ hex_q: 1, hex_r: 1 }] },
+    ]
+    drawTerritories(ctx, territories, 30, 0, 0, { f1: "#FF0000" })
+    expect(ctx.beginPath).toHaveBeenCalled()
+    expect(ctx.fillStyle).toContain("FF0000")
+  })
+
+  it("hashColor 生成确定性颜色", () => {
+    const c1 = hashColor("org-1")
+    const c2 = hashColor("org-1")
+    expect(c1).toBe(c2)
+    expect(c1).toMatch(/^#[0-9A-Fa-f]{6}$/)
   })
 })

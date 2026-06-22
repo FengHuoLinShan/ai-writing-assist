@@ -451,6 +451,23 @@ const api = {
         method: "DELETE",
       })
     },
+    /** 获取聚焦模式地图状态（仅含指定组织势力范围） */
+    async getFocusState(mapId, factionEntityId, novelId) {
+      return request(`/world/maps/${mapId}/focus${buildQueryString({ novel_id: novelId, faction_entity_id: factionEntityId })}`)
+    },
+    /** 批量创建势力范围地块 */
+    async createTerritories(mapId, payload, novelId) {
+      return request(`/world/maps/${mapId}/territories${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 按组织删除全部势力范围 */
+    async deleteTerritoriesByFaction(mapId, factionEntityId, novelId) {
+      return request(`/world/maps/${mapId}/territories${buildQueryString({ novel_id: novelId, faction_entity_id: factionEntityId })}`, {
+        method: "DELETE",
+      })
+    },
   },
 
   // ============================================================

@@ -129,6 +129,66 @@ export function hexCorners(size) {
   return corners
 }
 
+/** 按 size 缓存六边形顶点 */
+const hexCornersCache = new Map()
+
+function getHexCorners(size) {
+  if (!hexCornersCache.has(size)) {
+    hexCornersCache.set(size, hexCorners(size))
+  }
+  return hexCornersCache.get(size)
+}
+
+/**
+ * 六边形绘制的深度原语。
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} q
+ * @param {number} r
+ * @param {number} size
+ * @param {Object} style
+ * @param {string} [style.fill]
+ * @param {string} [style.stroke]
+ * @param {number} [style.lineWidth]
+ * @param {number[]} [style.lineDash]
+ * @param {number} [offsetX]
+ * @param {number} [offsetY]
+ * @param {number} [opacity]
+ */
+export function drawHexCell(ctx, q, r, size, style, offsetX = 0, offsetY = 0, opacity = 1) {
+  const corners = getHexCorners(size)
+  const [cx, cy] = hexToPixel(q, r, size)
+  const x = cx + offsetX
+  const y = cy + offsetY
+
+  ctx.save()
+  ctx.globalAlpha = 1
+  if (opacity !== 1) {
+    ctx.globalAlpha = opacity
+  }
+
+  ctx.beginPath()
+  for (let i = 0; i < 6; i++) {
+    const [vx, vy] = corners[i]
+    if (i === 0) ctx.moveTo(x + vx, y + vy)
+    else ctx.lineTo(x + vx, y + vy)
+  }
+  ctx.closePath()
+
+  if (style.fill) {
+    ctx.fillStyle = style.fill
+    ctx.fill()
+  }
+  if (style.stroke) {
+    ctx.strokeStyle = style.stroke
+    ctx.lineWidth = style.lineWidth ?? 1
+    ctx.setLineDash(style.lineDash || [])
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  ctx.restore()
+}
+
 /**
  * 在 canvas 上绘制整个地形网格。
  * @param {CanvasRenderingContext2D} ctx
@@ -137,25 +197,15 @@ export function hexCorners(size) {
  * @param {number} offsetX 画布偏移 x（地图坐标原点到画布原点）
  * @param {number} offsetY 画布偏移 y
  */
-export function drawTerrain(ctx, tiles, size, offsetX, offsetY) {
-  const corners = hexCorners(size)
+export function drawTerrain(ctx, tiles, size, offsetX, offsetY, getOpacity = null) {
   for (const tile of tiles) {
-    const [cx, cy] = hexToPixel(tile.hex_q, tile.hex_r, size)
-    const x = cx + offsetX
-    const y = cy + offsetY
+    const opacity = getOpacity ? getOpacity(tile.hex_q, tile.hex_r) : 1
     const color = TERRAIN_COLORS[tile.terrain_type] || TERRAIN_COLORS.grassland
-    ctx.beginPath()
-    for (let i = 0; i < 6; i++) {
-      const [vx, vy] = corners[i]
-      if (i === 0) ctx.moveTo(x + vx, y + vy)
-      else ctx.lineTo(x + vx, y + vy)
-    }
-    ctx.closePath()
-    ctx.fillStyle = color.fill
-    ctx.fill()
-    ctx.strokeStyle = color.stroke
-    ctx.lineWidth = 1
-    ctx.stroke()
+    drawHexCell(ctx, tile.hex_q, tile.hex_r, size, {
+      fill: color.fill,
+      stroke: color.stroke,
+      lineWidth: 1,
+    }, offsetX, offsetY, opacity)
   }
 }
 
@@ -168,38 +218,20 @@ export function drawTerrain(ctx, tiles, size, offsetX, offsetY) {
  * @param {number} offsetY
  * @param {boolean} showBoundary 是否绘制非中心格的区域边界
  */
-export function drawBindings(ctx, bindings, size, offsetX, offsetY, showBoundary) {
-  const corners = hexCorners(size)
+export function drawBindings(ctx, bindings, size, offsetX, offsetY, showBoundary, getOpacity = null) {
   for (const b of bindings) {
-    const [cx, cy] = hexToPixel(b.hex_q, b.hex_r, size)
-    const x = cx + offsetX
-    const y = cy + offsetY
+    const opacity = getOpacity ? getOpacity(b.hex_q, b.hex_r) : 1
     if (b.is_center) {
-      // 中心格：粗描边
-      ctx.beginPath()
-      for (let i = 0; i < 6; i++) {
-        const [vx, vy] = corners[i]
-        if (i === 0) ctx.moveTo(x + vx, y + vy)
-        else ctx.lineTo(x + vx, y + vy)
-      }
-      ctx.closePath()
-      ctx.strokeStyle = "#FFD600"
-      ctx.lineWidth = 3
-      ctx.stroke()
+      drawHexCell(ctx, b.hex_q, b.hex_r, size, {
+        stroke: "#FFD600",
+        lineWidth: 3,
+      }, offsetX, offsetY, opacity)
     } else if (showBoundary) {
-      // 非中心格：虚线描边表示区域
-      ctx.beginPath()
-      for (let i = 0; i < 6; i++) {
-        const [vx, vy] = corners[i]
-        if (i === 0) ctx.moveTo(x + vx, y + vy)
-        else ctx.lineTo(x + vx, y + vy)
-      }
-      ctx.closePath()
-      ctx.strokeStyle = "rgba(255, 214, 0, 0.5)"
-      ctx.lineWidth = 1.5
-      ctx.setLineDash([4, 3])
-      ctx.stroke()
-      ctx.setLineDash([])
+      drawHexCell(ctx, b.hex_q, b.hex_r, size, {
+        stroke: "rgba(255, 214, 0, 0.5)",
+        lineWidth: 1.5,
+        lineDash: [4, 3],
+      }, offsetX, offsetY, opacity)
     }
   }
 }
@@ -207,50 +239,31 @@ export function drawBindings(ctx, bindings, size, offsetX, offsetY, showBoundary
 /**
  * 在已有地形上叠加半透明 pending 地形提示。
  */
-export function drawPendingTerrain(ctx, pendingChanges, size, offsetX, offsetY) {
-  const corners = hexCorners(size)
-  ctx.save()
-  ctx.globalAlpha = PENDING_TERRAIN_ALPHA
+export function drawPendingTerrain(ctx, pendingChanges, size, offsetX, offsetY, getOpacity = null) {
   for (const change of Object.values(pendingChanges)) {
-    const [cx, cy] = hexToPixel(change.hex_q, change.hex_r, size)
-    const x = cx + offsetX
-    const y = cy + offsetY
+    const opacity = getOpacity ? getOpacity(change.hex_q, change.hex_r) * PENDING_TERRAIN_ALPHA : PENDING_TERRAIN_ALPHA
     const color = TERRAIN_COLORS[change.terrain_type] || TERRAIN_COLORS.grassland
-    ctx.beginPath()
-    for (let i = 0; i < 6; i++) {
-      const [vx, vy] = corners[i]
-      if (i === 0) ctx.moveTo(x + vx, y + vy)
-      else ctx.lineTo(x + vx, y + vy)
-    }
-    ctx.closePath()
-    ctx.fillStyle = color.fill
-    ctx.fill()
+    drawHexCell(ctx, change.hex_q, change.hex_r, size, {
+      fill: color.fill,
+    }, offsetX, offsetY, opacity)
   }
-  ctx.restore()
 }
 
 /**
  * 绘制 pending 地点绑定（虚线框 + 中心星标）。
  */
-export function drawPendingBindings(ctx, pendingBindings, size, offsetX, offsetY) {
-  const corners = hexCorners(size)
-  ctx.save()
-  ctx.setLineDash([4, 3])
+export function drawPendingBindings(ctx, pendingBindings, size, offsetX, offsetY, getOpacity = null) {
   for (const binding of Object.values(pendingBindings)) {
-    const [cx, cy] = hexToPixel(binding.hex_q, binding.hex_r, size)
-    const x = cx + offsetX
-    const y = cy + offsetY
-    ctx.beginPath()
-    for (let i = 0; i < 6; i++) {
-      const [vx, vy] = corners[i]
-      if (i === 0) ctx.moveTo(x + vx, y + vy)
-      else ctx.lineTo(x + vx, y + vy)
-    }
-    ctx.closePath()
-    ctx.strokeStyle = binding.is_center ? "#FFD600" : "rgba(255, 214, 0, 0.7)"
-    ctx.lineWidth = binding.is_center ? 3 : 1.5
-    ctx.stroke()
+    const opacity = getOpacity ? getOpacity(binding.hex_q, binding.hex_r) : 1
+    drawHexCell(ctx, binding.hex_q, binding.hex_r, size, {
+      stroke: binding.is_center ? "#FFD600" : "rgba(255, 214, 0, 0.7)",
+      lineWidth: binding.is_center ? 3 : 1.5,
+      lineDash: [4, 3],
+    }, offsetX, offsetY, opacity)
     if (binding.is_center) {
+      const [cx, cy] = hexToPixel(binding.hex_q, binding.hex_r, size)
+      const x = cx + offsetX
+      const y = cy + offsetY
       ctx.fillStyle = "#FFD600"
       ctx.font = "14px sans-serif"
       ctx.textAlign = "center"
@@ -258,27 +271,16 @@ export function drawPendingBindings(ctx, pendingBindings, size, offsetX, offsetY
       ctx.fillText("★", x, y)
     }
   }
-  ctx.restore()
 }
 
 /**
  * 悬停 hex 白色描边高亮。
  */
-export function drawHoverHighlight(ctx, q, r, size, offsetX, offsetY) {
-  const corners = hexCorners(size)
-  const [cx, cy] = hexToPixel(q, r, size)
-  const x = cx + offsetX
-  const y = cy + offsetY
-  ctx.beginPath()
-  for (let i = 0; i < 6; i++) {
-    const [vx, vy] = corners[i]
-    if (i === 0) ctx.moveTo(x + vx, y + vy)
-    else ctx.lineTo(x + vx, y + vy)
-  }
-  ctx.closePath()
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)"
-  ctx.lineWidth = 3
-  ctx.stroke()
+export function drawHoverHighlight(ctx, q, r, size, offsetX, offsetY, opacity = 1) {
+  drawHexCell(ctx, q, r, size, {
+    stroke: "rgba(255, 255, 255, 0.9)",
+    lineWidth: 3,
+  }, offsetX, offsetY, opacity)
 }
 
 const MARKER_STYLES = {
@@ -311,6 +313,51 @@ export function drawMarkers(ctx, markers, size, offsetX, offsetY) {
       ctx.textBaseline = "bottom"
       const displayLabel = marker.label.length > 4 ? marker.label.slice(0, 4) : marker.label
       ctx.fillText(displayLabel, x, y - style.radius - 2)
+    }
+  }
+}
+
+// === P2: 势力范围渲染 ===
+
+/**
+ * 从 faction ID 生成确定性颜色（哈希算法）。
+ * @param {string} factionId
+ * @returns {string} 十六进制颜色字符串（如 "#7B1FA2"）
+ */
+export function hashColor(factionId) {
+  let hash = 0
+  for (let i = 0; i < factionId.length; i++) {
+    hash = ((hash << 5) - hash) + factionId.charCodeAt(i)
+    hash |= 0
+  }
+  const r = (Math.abs(hash) >> 16) & 0xFF
+  const g = (Math.abs(hash) >> 8) & 0xFF
+  const b = Math.abs(hash) & 0xFF
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`
+}
+
+/**
+ * 在 canvas 上绘制势力范围半透明叠加层。
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Array<{faction_id:string,hexes:Array<{hex_q:number,hex_r:number}>}>} territories
+ * @param {number} size 六边形半径
+ * @param {number} offsetX 画布偏移 x
+ * @param {number} offsetY 画布偏移 y
+ * @param {Object<string,string>} factionColors faction ID → 自定义颜色的映射（可选）
+ */
+export function drawTerritories(ctx, territories, size, offsetX, offsetY, factionColors, getOpacity = null) {
+  if (!territories || territories.length === 0) return
+  const colors = factionColors || {}
+  for (const t of territories) {
+    const color = colors[t.faction_id] || hashColor(t.faction_id)
+    const fillColor = color + "66" // 40% alpha
+    for (const h of t.hexes || []) {
+      const opacity = getOpacity ? getOpacity(h.hex_q, h.hex_r) : 1
+      drawHexCell(ctx, h.hex_q, h.hex_r, size, {
+        fill: fillColor,
+        stroke: color + "AA",
+        lineWidth: 1,
+      }, offsetX, offsetY, opacity)
     }
   }
 }

@@ -18,6 +18,8 @@ import {
   drawPendingBindings,
   drawHoverHighlight,
   drawMarkers,
+  drawTerritories,
+  hashColor,
   hexToPixel,
   pixelToHex,
   floodFillTerrain,
@@ -32,6 +34,11 @@ import {
   stageBindingChange,
   consumePendingChanges,
   setCurrentScene,
+  setFocusMode,
+  setFocusRelatedHexes,
+  clearFocus,
+  setSelectedFaction,
+  setFactionColor,
   
   setHoveredHex,
   clearHoveredHex,
@@ -274,7 +281,7 @@ const mapView = {
       : `<button class="btn btn-sm" data-action="map-enter-edit">编辑</button>`
 
     const editPanelHtml = mapState.mode === "edit"
-      ? renderEditPanel({ locations: this._locations, allEntities: this._allEntities, scenes: mapState.sceneList })
+      ? renderEditPanel({ locations: this._locations, allEntities: this._allEntities, scenes: mapState.sceneList }) + this._renderTerritoryTools()
       : ""
 
     return `
@@ -292,6 +299,7 @@ const mapView = {
         <div id="map-detail-panel" class="map-detail-panel"></div>
       </div>
       ${this._renderSceneBar()}
+      ${this._renderFactionList()}
       <div class="map-filter-bar">
         <span class="badge badge-canonical map-filter active" data-action="map-filter" data-filter="all">全部</span>
         <span class="badge map-filter" data-action="map-filter" data-filter="location">地点</span>
@@ -418,17 +426,27 @@ const mapView = {
     this._ctx.scale(scale, scale)
 
     const showBoundary = this._currentFilter === "location"
-    drawTerrain(this._ctx, this._state.tiles, size, 0, 0)
-    drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary)
+    const getHexOpacity = this._getHexOpacity.bind(this)
+    drawTerrain(this._ctx, this._state.tiles, size, 0, 0, getHexOpacity)
+    drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary, getHexOpacity)
     drawMarkers(this._ctx, this._state.markers, size, 0, 0)
+    drawTerritories(this._ctx, this._state.territories, size, 0, 0, mapState.factionColors, getHexOpacity)
 
     // 待应用变更叠加在基础地形之上
-    drawPendingTerrain(this._ctx, mapState.pendingTerrainChanges, size, 0, 0)
-    drawPendingBindings(this._ctx, mapState.pendingBindings, size, 0, 0)
+    drawPendingTerrain(this._ctx, mapState.pendingTerrainChanges, size, 0, 0, getHexOpacity)
+    drawPendingBindings(this._ctx, mapState.pendingBindings, size, 0, 0, getHexOpacity)
 
     // 悬停高亮
     if (mapState.hoveredHex) {
-      drawHoverHighlight(this._ctx, mapState.hoveredHex.hex_q, mapState.hoveredHex.hex_r, size, 0, 0)
+      drawHoverHighlight(
+        this._ctx,
+        mapState.hoveredHex.hex_q,
+        mapState.hoveredHex.hex_r,
+        size,
+        0,
+        0,
+        getHexOpacity(mapState.hoveredHex.hex_q, mapState.hoveredHex.hex_r)
+      )
     }
 
     // 浏览模式：绘制中心点标签（DOM marker）
@@ -847,6 +865,16 @@ const mapView = {
       "map-scene-next": () => this._sceneNav(1),
       "map-scene-pick": () => this._showScenePicker(),
       "map-scene-clear": () => this._clearScene(),
+      "map-focus-toggle": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        if (id) this._toggleFocusMode(id)
+      },
+      "map-focus-clear": () => {
+        clearFocus()
+        this._redraw()
+      },
+      "map-territory-paint": () => this._switchTool("territory"),
+      "map-territory-clear": () => this._clearFactionTerritory(),
     })
 
     // 地形选择
@@ -876,6 +904,18 @@ const mapView = {
     const markerLabelInput = document.getElementById("map-marker-label")
     markerLabelInput?.addEventListener("input", () => {
       mapState.selectedMarkerLabel = markerLabelInput.value
+    })
+
+    // 势力范围选择
+    const territoryFactionSelect = document.getElementById("map-territory-faction")
+    territoryFactionSelect?.addEventListener("change", () => {
+      mapState.selectedFactionId = territoryFactionSelect.value || null
+    })
+    const territoryColorInput = document.getElementById("map-territory-color")
+    territoryColorInput?.addEventListener("change", () => {
+      if (mapState.selectedFactionId) {
+        setFactionColor(mapState.selectedFactionId, territoryColorInput.value)
+      }
     })
 
     // Ctrl+Z 撤销
@@ -1172,6 +1212,133 @@ const mapView = {
         }
       },
     }])
+  },
+
+  // === P2: 势力范围与聚焦模式 ===
+
+  _renderTerritoryTools() {
+    const orgs = this._allEntities.filter((e) => e.entity_type === "organization")
+    if (orgs.length === 0) {
+      return `<div class="map-tool-group"><h4>势力范围</h4><p style="color:var(--text-dim);font-size:12px;">暂无组织实体（需在 world 对象中创建 organization 类型实体）</p></div>`
+    }
+    const orgOptions = orgs.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")
+    const selectedOrg = mapState.selectedFactionId
+    const currentColor = mapState.factionColors[selectedOrg] || "#FF6B6B"
+    return `
+      <div class="map-tool-group">
+        <h4>势力范围</h4>
+        <select id="map-territory-faction" class="form-select">
+          <option value="">选择组织...</option>
+          ${orgOptions}
+        </select>
+        <div class="map-faction-color-row" style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+          <input type="color" id="map-territory-color" value="${esc(currentColor)}" style="width:40px;height:28px;padding:0;border:none;" />
+          <span style="font-size:12px;color:var(--text-dim);">颜色</span>
+        </div>
+        <div class="map-tool-actions" style="margin-top:8px;">
+          <button class="btn btn-sm btn-primary" data-action="map-territory-paint">绘制</button>
+          <button class="btn btn-sm btn-danger" data-action="map-territory-clear">清除</button>
+        </div>
+      </div>
+    `
+  },
+
+  _renderFactionList() {
+    const orgs = this._allEntities.filter((e) => e.entity_type === "organization")
+    if (orgs.length === 0) return ""
+    const focused = mapState.focusMode && mapState.focusEntityId
+    return `
+      <div class="map-faction-bar">
+        <span class="map-faction-label">组织：</span>
+        ${orgs.map((o) => {
+          const isFocused = focused === o.id
+          const color = mapState.factionColors[o.id] || "#999"
+          return `<span class="map-faction-tag ${isFocused ? "focused" : ""}" data-action="map-focus-toggle" data-id="${esc(o.id)}" style="background:${esc(color)}22;border-color:${esc(color)};">${esc(o.name)}</span>`
+        }).join("")}
+        ${focused ? `<button class="btn btn-sm" data-action="map-focus-clear">清除聚焦</button>` : ""}
+      </div>
+    `
+  },
+
+  _toggleFocusMode(entityId) {
+    if (mapState.focusMode && mapState.focusEntityId === entityId) {
+      clearFocus()
+    } else {
+      setFocusMode(true, entityId)
+      this._loadFocusState(entityId)
+    }
+    this._redraw()
+  },
+
+  async _loadFocusState(entityId) {
+    if (!this._state) return
+    try {
+      const resp = await api.world.getFocusState(this._state.map.id, entityId, state.currentProjectId)
+      setFocusRelatedHexes(resp.related_hexes || [])
+      this._redraw()
+    } catch (err) {
+      toast(`加载聚焦状态失败：${err.message}`, "error")
+    }
+  },
+
+  _getHexOpacity(q, r) {
+    if (!mapState.focusMode) return 1.0
+    const key = `${q},${r}`
+    return mapState.focusRelatedHexes.has(key) ? 1.0 : 0.3
+  },
+
+  _handleTerritoryPaint(q, r) {
+    const factionId = mapState.selectedFactionId
+    if (!factionId) {
+      toast("请先选择组织", "warning")
+      return
+    }
+    this._createTerritoryTile(factionId, q, r)
+  },
+
+  async _createTerritoryTile(factionId, q, r) {
+    if (!this._state) return
+    try {
+      await api.world.createTerritories(
+        this._state.map.id,
+        {
+          faction_entity_id: factionId,
+          hexes: [{ hex_q: q, hex_r: r }],
+        },
+        state.currentProjectId
+      )
+      toast("势力范围已更新", "success")
+      await this._loadMapState(this._state.map.id)
+      this._redraw()
+    } catch (err) {
+      toast(`势力范围更新失败：${err.message}`, "error")
+    }
+  },
+
+  async _clearFactionTerritory() {
+    const factionId = mapState.selectedFactionId
+    if (!factionId) {
+      toast("请先选择组织", "warning")
+      return
+    }
+    confirmAction(
+      `确定清除该组织的全部势力范围？`,
+      async () => {
+        try {
+          await api.world.deleteTerritoriesByFaction(
+            this._state.map.id,
+            factionId,
+            state.currentProjectId
+          )
+          toast("势力范围已清除", "success")
+          await this._loadMapState(this._state.map.id)
+          this._redraw()
+        } catch (err) {
+          toast(`清除失败：${err.message}`, "error")
+        }
+      },
+      "清除"
+    )
   },
 }
 
