@@ -23,8 +23,8 @@ from shared.utils import parse_uuid
 class ProjectService:
     """业务服务层 — project 为根聚合，只做 response 转换与 404 抛错"""
 
-    def __init__(self) -> None:
-        self._repo = ProjectRepository()
+    def __init__(self, repo: ProjectRepository | None = None) -> None:
+        self._repo = repo or ProjectRepository()
 
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate

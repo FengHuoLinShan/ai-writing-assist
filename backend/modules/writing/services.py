@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 class WritingDraftService:
     """正文草稿业务服务"""
 
-    def __init__(self) -> None:
-        self._repo = WritingDraftRepository()
+    def __init__(self, repo: WritingDraftRepository | None = None) -> None:
+        self._repo = repo or WritingDraftRepository()
 
     async def create_draft(
         self,

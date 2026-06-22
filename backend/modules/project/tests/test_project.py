@@ -8,6 +8,8 @@ Project 模块测试
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -364,22 +366,47 @@ class TestProjectCrud:
 # ============================================================
 
 
+def _make_project(**overrides: object) -> MagicMock:
+    project = MagicMock()
+    defaults: dict[str, object] = {
+        "id": uuid.uuid4(),
+        "title": "测试小说",
+        "genre": "玄幻",
+        "tone": "严肃",
+        "language": "zh",
+        "target_length": "novel",
+        "current_stage": "world_building",
+        "default_reveal_policy": "author_safe",
+        "settings": {},
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "deleted_at": None,
+    }
+    defaults.update(overrides)
+    for key, value in defaults.items():
+        setattr(project, key, value)
+    return project
+
+
 class TestProjectService:
-    """测试业务逻辑层"""
+    """测试业务逻辑层 — repo 用 AsyncMock 替换"""
 
     @pytest.mark.asyncio
     async def test_create_project(
         self,
-        service: ProjectService,
-        db_session: AsyncSession,
         sample_create_data: ProjectCreate,
     ) -> None:
-        """测试服务层创建"""
-        resp = await service.create_project(db_session, sample_create_data)
-        assert resp.id is not None
+        project = _make_project()
+        repo = MagicMock()
+        repo.create = AsyncMock(return_value=project)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
+        resp = await service.create_project(db, sample_create_data)
+
+        assert resp.id == str(project.id)
         assert resp.title == "测试小说"
-        assert resp.created_at is not None
-        assert resp.updated_at is not None
+        repo.create.assert_awaited_once_with(db, sample_create_data)
 
     @pytest.mark.parametrize(
         "operation",
@@ -394,122 +421,104 @@ class TestProjectService:
     @pytest.mark.asyncio
     async def test_service_not_found(
         self,
-        service: ProjectService,
-        db_session: AsyncSession,
         operation: str,
     ) -> None:
         """测试服务层对不存在的项目执行各类操作"""
         fake_id = str(uuid.uuid4())
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=None)
+        repo.soft_delete = AsyncMock(return_value=False)
+        repo.restore = AsyncMock(return_value=False)
+        repo.permanent_delete = AsyncMock(return_value=False)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
         with pytest.raises(HTTPException) as exc_info:
             if operation == "get_project":
-                await service.get_project(db_session, fake_id)
+                await service.get_project(db, fake_id)
             elif operation == "delete_project":
-                await service.delete_project(db_session, fake_id)
+                await service.delete_project(db, fake_id)
             elif operation == "restore_project":
-                await service.restore_project(db_session, fake_id)
+                await service.restore_project(db, fake_id)
             else:
-                await service.permanent_delete_project(db_session, fake_id)
+                await service.permanent_delete_project(db, fake_id)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_project(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
+    async def test_delete_project(self) -> None:
         """测试服务层软删除项目成功"""
-        created = await service.create_project(
-            db_session,
-            sample_create_data,
-        )
-        # 成功时不抛异常，返回 None
-        result = await service.delete_project(db_session, created.id)
+        project_id = str(uuid.uuid4())
+        project = _make_project(id=uuid.UUID(project_id))
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=project)
+        repo.soft_delete = AsyncMock(return_value=True)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
+        result = await service.delete_project(db, project_id)
+
         assert result is None
+        repo.soft_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
 
     @pytest.mark.asyncio
-    async def test_restore_project_returns_restored_row(
-        self,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
-        service = ProjectService()
-        created = await service.create_project(db_session, sample_create_data)
-        await service.delete_project(db_session, created.id)
-
-        restored = await service.restore_project(db_session, created.id)
-
-        assert restored.id == created.id
-        assert restored.deleted_at is None
-
-    @pytest.mark.asyncio
-    async def test_restore_project(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
+    async def test_restore_project(self) -> None:
         """测试服务层恢复项目成功"""
-        created = await service.create_project(
-            db_session,
-            sample_create_data,
-        )
-        await service.delete_project(db_session, created.id)
+        project_id = str(uuid.uuid4())
+        project = _make_project(id=uuid.UUID(project_id))
+        repo = MagicMock()
+        repo.restore = AsyncMock(return_value=True)
+        repo.get = AsyncMock(return_value=project)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
 
-        resp = await service.restore_project(db_session, created.id)
-        assert resp.id == created.id
+        resp = await service.restore_project(db, project_id)
+
+        assert resp.id == project_id
         assert resp.deleted_at is None
+        repo.restore.assert_awaited_once_with(db, uuid.UUID(project_id))
 
     @pytest.mark.asyncio
-    async def test_list_deleted_projects(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
+    async def test_list_deleted_projects(self) -> None:
         """测试服务层回收站列表"""
-        created = await service.create_project(
-            db_session,
-            sample_create_data,
-        )
-        await service.delete_project(db_session, created.id)
+        project = _make_project(deleted_at=datetime.now(UTC))
+        repo = MagicMock()
+        repo.list_deleted = AsyncMock(return_value=([project], 1))
+        service = ProjectService(repo=repo)
+        db = MagicMock()
 
-        resp = await service.list_deleted_projects(db_session, skip=0, limit=10)
-        assert resp.total >= 1
-        assert any(item.id == created.id for item in resp.items)
+        resp = await service.list_deleted_projects(db, skip=0, limit=10)
+
+        assert resp.total == 1
+        assert resp.items[0].id == str(project.id)
 
     @pytest.mark.asyncio
-    async def test_permanent_delete_project(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
+    async def test_permanent_delete_project(self) -> None:
         """测试服务层永久删除项目成功"""
-        created = await service.create_project(
-            db_session,
-            sample_create_data,
-        )
-        await service.delete_project(db_session, created.id)
+        project_id = str(uuid.uuid4())
+        repo = MagicMock()
+        repo.permanent_delete = AsyncMock(return_value=True)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
 
-        result = await service.permanent_delete_project(
-            db_session,
-            created.id,
-        )
+        result = await service.permanent_delete_project(db, project_id)
+
         assert result is None
+        repo.permanent_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
 
     @pytest.mark.asyncio
-    async def test_get_project_context(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
+    async def test_get_project_context(self) -> None:
         """测试获取项目上下文"""
-        created = await service.create_project(db_session, sample_create_data)
-        ctx = await service.get_project_context(db_session, created.id)
+        project_id = str(uuid.uuid4())
+        project = _make_project(id=uuid.UUID(project_id))
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=project)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
+        ctx = await service.get_project_context(db, project_id)
+
         assert ctx is not None
-        assert ctx.novel_id == created.id
+        assert ctx.novel_id == project_id
         assert ctx.title == "测试小说"
         assert ctx.genre == "玄幻"
         assert ctx.tone == "严肃"
@@ -519,54 +528,44 @@ class TestProjectService:
         assert ctx.default_reveal_policy == "author_safe"
 
     @pytest.mark.asyncio
-    async def test_get_project_context_not_found(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-    ) -> None:
+    async def test_get_project_context_not_found(self) -> None:
         """测试获取不存在的项目上下文"""
         fake_id = str(uuid.uuid4())
-        ctx = await service.get_project_context(db_session, fake_id)
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=None)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
+        ctx = await service.get_project_context(db, fake_id)
+
         assert ctx is None
 
     @pytest.mark.asyncio
-    async def test_invalid_uuid(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-    ) -> None:
+    async def test_invalid_uuid(self) -> None:
         """测试无效 UUID 格式"""
+        service = ProjectService()
+        db = MagicMock()
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_project(db_session, "not-a-uuid")
+            await service.get_project(db, "not-a-uuid")
         assert exc_info.value.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_create_project_empty_title(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-    ) -> None:
+    async def test_create_project_empty_title(self) -> None:
         """测试空字符串标题创建时返回 422"""
         with pytest.raises(ValidationError):
             ProjectCreate(title="")
 
     @pytest.mark.asyncio
-    async def test_get_project_novel_id_isolation(
-        self,
-        service: ProjectService,
-        db_session: AsyncSession,
-        sample_create_data: ProjectCreate,
-    ) -> None:
-        """测试 novel_id 隔离：用另一个 ID 获取应返回 404"""
-        created = await service.create_project(
-            db_session,
-            sample_create_data,
-        )
-        # 使用另一个不存在的 UUID 去获取
-        other_id = str(uuid.uuid4())
-        assert other_id != created.id
+    async def test_get_project_not_found(self) -> None:
+        """测试获取不存在的项目返回 404"""
+        project_id = str(uuid.uuid4())
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=None)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_project(db_session, other_id)
+            await service.get_project(db, project_id)
         assert exc_info.value.status_code == 404
 
 

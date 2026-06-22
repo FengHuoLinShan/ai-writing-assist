@@ -7,6 +7,8 @@ Writing 模块测试
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -386,33 +388,62 @@ class TestWritingDraftRepository:
 # ============================================================
 
 
+def _make_draft(**overrides: object) -> MagicMock:
+    draft = MagicMock()
+    defaults: dict[str, object] = {
+        "id": uuid.uuid4(),
+        "novel_id": uuid.uuid4(),
+        "chapter_index": 1,
+        "title": "第一章：开端",
+        "content": "这是一个测试正文的段落。",
+        "version_number": 1,
+        "status": "draft",
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+    }
+    defaults.update(overrides)
+    for key, value in defaults.items():
+        setattr(draft, key, value)
+    return draft
+
+
 class TestWritingDraftService:
+    """测试业务逻辑层 — repo 用 AsyncMock 替换"""
+
     @pytest.mark.asyncio
     async def test_create_draft(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        resp = await service.create_draft(db_session, sample_draft_data)
-        assert resp.id is not None
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+        repo = MagicMock()
+        repo.create = AsyncMock(return_value=draft)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        resp = await service.create_draft(db, sample_draft_data)
+
+        assert resp.id == str(draft.id)
         assert resp.novel_id == sample_draft_data.novel_id
         assert resp.chapter_index == 1
         assert resp.title == "第一章：开端"
         assert resp.version_number == 1
+        repo.create.assert_awaited_once_with(db, sample_draft_data)
 
     @pytest.mark.asyncio
     async def test_get_draft(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        created = await service.create_draft(db_session, sample_draft_data)
-        fetched = await service.get_draft(
-            db_session, created.id, sample_draft_data.novel_id
-        )
-        assert fetched.id == created.id
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=draft)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        fetched = await service.get_draft(db, str(draft.id), sample_draft_data.novel_id)
+
+        assert fetched.id == str(draft.id)
 
     @pytest.mark.parametrize(
         "operation",
@@ -422,68 +453,82 @@ class TestWritingDraftService:
     @pytest.mark.asyncio
     async def test_service_not_found(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
         update_data: WritingDraftUpdate,
         operation: str,
     ) -> None:
         fake_id = str(uuid.uuid4())
         novel_id = sample_draft_data.novel_id
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=None)
+        repo.get_latest_by_chapter = AsyncMock(return_value=None)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         with pytest.raises(HTTPException) as exc_info:
             if operation == "get_draft":
-                await service.get_draft(db_session, fake_id, novel_id)
+                await service.get_draft(db, fake_id, novel_id)
             elif operation == "update_draft":
-                await service.update_draft(db_session, fake_id, update_data, novel_id)
+                await service.update_draft(db, fake_id, update_data, novel_id)
             elif operation == "delete_draft":
-                await service.delete_draft(db_session, fake_id, novel_id)
+                await service.delete_draft(db, fake_id, novel_id)
             else:
-                await service.get_latest_draft(db_session, fake_id, 1)
+                await service.get_latest_draft(db, novel_id, 1)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_update_draft(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
         update_data: WritingDraftUpdate,
     ) -> None:
-        created = await service.create_draft(db_session, sample_draft_data)
-        updated = await service.update_draft(
-            db_session,
-            created.id,
-            update_data,
-            sample_draft_data.novel_id,
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+        updated = _make_draft(
+            id=draft.id,
+            novel_id=draft.novel_id,
+            title="更新后的标题",
+            content="更新后的正文内容。",
         )
-        assert updated.title == "更新后的标题"
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=draft)
+        repo.get_latest_by_chapter = AsyncMock(return_value=draft)
+        repo.update = AsyncMock(return_value=updated)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        resp = await service.update_draft(
+            db, str(draft.id), update_data, sample_draft_data.novel_id
+        )
+
+        assert resp.title == "更新后的标题"
+        repo.update.assert_awaited_once_with(db, draft.id, update_data)
 
     @pytest.mark.asyncio
     async def test_update_draft_conflict_detection(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        v1 = await service.create_draft(db_session, sample_draft_data)
-        v2_data = WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id,
-            chapter_index=sample_draft_data.chapter_index,
-            title="v2",
-            content="v2 content",
+        v1 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=1,
         )
-        await service.create_draft(db_session, v2_data)
-        # 期望版本落后于章节最新版本时触发 409
+        v2 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=2,
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=v1)
+        repo.get_latest_by_chapter = AsyncMock(return_value=v2)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         conflict_update = WritingDraftUpdate(
             title="conflict",
             expected_version=1,
         )
         with pytest.raises(HTTPException) as exc_info:
             await service.update_draft(
-                db_session,
-                v1.id,
-                conflict_update,
-                sample_draft_data.novel_id,
+                db, str(v1.id), conflict_update, sample_draft_data.novel_id
             )
         assert exc_info.value.status_code == 409
         assert "v2" in exc_info.value.detail or "2" in exc_info.value.detail
@@ -491,156 +536,198 @@ class TestWritingDraftService:
     @pytest.mark.asyncio
     async def test_update_draft_no_conflict_when_expected_version_matches(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        v1 = await service.create_draft(db_session, sample_draft_data)
+        v1 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=1,
+        )
+        updated = _make_draft(
+            id=v1.id,
+            novel_id=v1.novel_id,
+            version_number=1,
+            title="matched",
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=v1)
+        repo.get_latest_by_chapter = AsyncMock(return_value=v1)
+        repo.update = AsyncMock(return_value=updated)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         matched_update = WritingDraftUpdate(
             title="matched",
             expected_version=1,
         )
-        updated = await service.update_draft(
-            db_session,
-            v1.id,
-            matched_update,
-            sample_draft_data.novel_id,
+        resp = await service.update_draft(
+            db, str(v1.id), matched_update, sample_draft_data.novel_id
         )
-        assert updated.title == "matched"
-        assert updated.version_number == 1
+
+        assert resp.title == "matched"
+        assert resp.version_number == 1
 
     @pytest.mark.asyncio
     async def test_update_draft_no_conflict_when_no_expected_version(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        v1 = await service.create_draft(db_session, sample_draft_data)
-        v2_data = WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id,
-            chapter_index=sample_draft_data.chapter_index,
-            title="v2",
-            content="v2 content",
+        v1 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=1,
         )
-        await service.create_draft(db_session, v2_data)
+        v2 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=2,
+        )
+        updated = _make_draft(
+            id=v1.id,
+            novel_id=v1.novel_id,
+            title="no check",
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=v1)
+        repo.get_latest_by_chapter = AsyncMock(return_value=v2)
+        repo.update = AsyncMock(return_value=updated)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         no_check_update = WritingDraftUpdate(title="no check")
-        updated = await service.update_draft(
-            db_session,
-            v1.id,
-            no_check_update,
-            sample_draft_data.novel_id,
+        resp = await service.update_draft(
+            db, str(v1.id), no_check_update, sample_draft_data.novel_id
         )
-        assert updated.title == "no check"
+
+        assert resp.title == "no check"
 
     @pytest.mark.asyncio
     async def test_delete_draft(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await service.create_draft(db_session, sample_draft_data)
-        v2 = await service.create_draft(
-            db_session,
-            WritingDraftCreate(
-                novel_id=sample_draft_data.novel_id,
-                chapter_index=1,
-                title="v2",
-                content="v2",
-            ),
+        v2 = _make_draft(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=2,
         )
-        await service.delete_draft(db_session, v2.id, sample_draft_data.novel_id)
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=v2)
+        repo.count_versions = AsyncMock(return_value=2)
+        repo.delete = AsyncMock(return_value=v2)
+        repo.renumber_versions_after_delete = AsyncMock()
+        service = WritingDraftService(repo=repo)
+        db = AsyncMock()
+
+        await service.delete_draft(db, str(v2.id), sample_draft_data.novel_id)
+
+        repo.delete.assert_awaited_once_with(db, v2.id)
+        repo.renumber_versions_after_delete.assert_awaited_once_with(
+            db, v2.novel_id, v2.chapter_index, v2.version_number
+        )
 
     @pytest.mark.asyncio
     async def test_delete_draft_last_version_rejected(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        created = await service.create_draft(db_session, sample_draft_data)
+        v1 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=1,
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=v1)
+        repo.count_versions = AsyncMock(return_value=1)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         with pytest.raises(HTTPException) as exc_info:
-            await service.delete_draft(db_session, created.id, sample_draft_data.novel_id)
+            await service.delete_draft(db, str(v1.id), sample_draft_data.novel_id)
         assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_get_latest_draft(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await service.create_draft(db_session, sample_draft_data)
-        v2 = WritingDraftCreate(
-            novel_id=sample_draft_data.novel_id,
-            chapter_index=1,
-            title="最新版本",
-            content="最新正文",
+        v2 = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=2,
         )
-        await service.create_draft(db_session, v2)
-        latest = await service.get_latest_draft(db_session, sample_draft_data.novel_id, 1)
+        repo = MagicMock()
+        repo.get_latest_by_chapter = AsyncMock(return_value=v2)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        latest = await service.get_latest_draft(
+            db, sample_draft_data.novel_id, 1
+        )
+
         assert latest.version_number == 2
 
     @pytest.mark.asyncio
     async def test_get_version_history(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await service.create_draft(db_session, sample_draft_data)
-        await service.create_draft(
-            db_session,
-            WritingDraftCreate(
-                novel_id=sample_draft_data.novel_id,
-                chapter_index=1,
-                title="第二版",
+        versions = [
+            _make_draft(
+                novel_id=uuid.UUID(sample_draft_data.novel_id),
+                version_number=3,
             ),
-        )
-        await service.create_draft(
-            db_session,
-            WritingDraftCreate(
-                novel_id=sample_draft_data.novel_id,
-                chapter_index=1,
-                title="第三版",
+            _make_draft(
+                novel_id=uuid.UUID(sample_draft_data.novel_id),
+                version_number=2,
             ),
-        )
+            _make_draft(
+                novel_id=uuid.UUID(sample_draft_data.novel_id),
+                version_number=1,
+            ),
+        ]
+        repo = MagicMock()
+        repo.get_version_history = AsyncMock(return_value=versions)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         history = await service.get_version_history(
-            db_session, sample_draft_data.novel_id, 1
+            db, sample_draft_data.novel_id, 1
         )
+
         assert history.total == 3
         assert history.versions[0].version_number == 3
 
     @pytest.mark.asyncio
-    async def test_get_version_history_empty(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-    ) -> None:
-        history = await service.get_version_history(db_session, str(uuid.uuid4()), 1)
+    async def test_get_version_history_empty(self) -> None:
+        repo = MagicMock()
+        repo.get_version_history = AsyncMock(return_value=[])
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        history = await service.get_version_history(db, str(uuid.uuid4()), 1)
+
         assert history.total == 0
 
     @pytest.mark.asyncio
     async def test_invalid_uuid(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
+        service = WritingDraftService()
+        db = MagicMock()
         with pytest.raises(HTTPException) as exc_info:
-            await service.get_draft(db_session, "not-a-uuid", sample_draft_data.novel_id)
+            await service.get_draft(db, "not-a-uuid", sample_draft_data.novel_id)
         assert exc_info.value.status_code == 422
 
     @pytest.mark.asyncio
     async def test_get_draft_contract(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        created = await service.create_draft(db_session, sample_draft_data)
-        contract = await service.get_draft_contract(db_session, created.id)
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=draft)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        contract = await service.get_draft_contract(db, str(draft.id))
+
         assert contract is not None
         assert isinstance(contract, WritingDraftContract)
         assert contract.novel_id == sample_draft_data.novel_id
@@ -648,83 +735,84 @@ class TestWritingDraftService:
         assert contract.title == "第一章：开端"
 
     @pytest.mark.asyncio
-    async def test_get_draft_contract_not_found(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-    ) -> None:
-        contract = await service.get_draft_contract(db_session, str(uuid.uuid4()))
+    async def test_get_draft_contract_not_found(self) -> None:
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=None)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        contract = await service.get_draft_contract(db, str(uuid.uuid4()))
+
         assert contract is None
 
     @pytest.mark.asyncio
     async def test_get_latest_draft_contract(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await service.create_draft(db_session, sample_draft_data)
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+        repo = MagicMock()
+        repo.get_latest_by_chapter = AsyncMock(return_value=draft)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         contract = await service.get_latest_draft_contract(
-            db_session,
-            sample_draft_data.novel_id,
-            1,
+            db, sample_draft_data.novel_id, 1
         )
+
         assert contract is not None
 
     @pytest.mark.asyncio
-    async def test_get_latest_draft_contract_not_found(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-    ) -> None:
+    async def test_get_latest_draft_contract_not_found(self) -> None:
+        repo = MagicMock()
+        repo.get_latest_by_chapter = AsyncMock(return_value=None)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         contract = await service.get_latest_draft_contract(
-            db_session, str(uuid.uuid4()), 1
+            db, str(uuid.uuid4()), 1
         )
+
         assert contract is None
 
     @pytest.mark.asyncio
-    async def test_list_chapter_indices(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-    ) -> None:
+    async def test_list_chapter_indices(self) -> None:
         novel_id = str(uuid.uuid4())
-        for ch in (1, 1, 3, 5):
-            await service.create_draft(
-                db_session,
-                WritingDraftCreate(
-                    novel_id=novel_id,
-                    chapter_index=ch,
-                    title=f"第{ch}章",
-                    content="内容",
-                ),
-            )
-        indices = await service.list_chapter_indices(db_session, novel_id)
+        repo = MagicMock()
+        repo.list_chapter_indices = AsyncMock(return_value=[1, 3, 5])
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        indices = await service.list_chapter_indices(db, novel_id)
+
         assert indices == [1, 3, 5]
 
     @pytest.mark.asyncio
-    async def test_list_chapter_indices_empty(
-        self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
-    ) -> None:
-        indices = await service.list_chapter_indices(db_session, str(uuid.uuid4()))
+    async def test_list_chapter_indices_empty(self) -> None:
+        repo = MagicMock()
+        repo.list_chapter_indices = AsyncMock(return_value=[])
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        indices = await service.list_chapter_indices(db, str(uuid.uuid4()))
+
         assert indices == []
 
     @pytest.mark.asyncio
     async def test_delete_chapter(
         self,
-        service: WritingDraftService,
-        db_session: AsyncSession,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
-        await service.create_draft(db_session, sample_draft_data)
+        repo = MagicMock()
+        repo.delete_all_versions = AsyncMock(return_value=1)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
         count = await service.delete_chapter(
-            db_session,
-            sample_draft_data.novel_id,
-            1,
+            db, sample_draft_data.novel_id, 1
         )
-        assert count >= 1
+
+        assert count == 1
 
 
 @pytest.mark.asyncio

@@ -169,9 +169,22 @@ class SqlAlchemyStateSource:
         return rows
 
 
+def _same_novel_id(value: object, novel_id: uuid.UUID) -> bool:
+    """兼容 UUID / str 的 novel_id 比对。"""
+    if isinstance(value, uuid.UUID):
+        return value == novel_id
+    return str(value) == str(novel_id)
+
+
 class InMemoryStateSource:
     """测试用 source — 直接喂预制 ORM 行, 不走 DB。
-    证明 StateSource seam 是真的 (2 个 adapter)。"""
+    证明 StateSource seam 是真的 (2 个 adapter)。
+
+    行为与 SqlAlchemyStateSource 一致:
+    - list_canonical_entities 仅返回 status='canonical' 且 novel_id 匹配的行
+    - list_canonical_relations 仅返回 status='canonical' 且 novel_id 匹配的行
+    - list_characters / list_character_knowledge 仅过滤 novel_id
+    """
 
     def __init__(
         self,
@@ -187,6 +200,20 @@ class InMemoryStateSource:
         self._characters = list(characters) if characters is not None else []
         self._knowledge = list(knowledge) if knowledge is not None else []
 
+    def _filter(
+        self,
+        rows: list,
+        novel_id: uuid.UUID,
+        *,
+        status: str | None = None,
+    ) -> list:
+        result = [
+            r for r in rows if _same_novel_id(getattr(r, "novel_id", None), novel_id)
+        ]
+        if status is not None:
+            result = [r for r in result if getattr(r, "status", None) == status]
+        return result
+
     async def list_canonical_entities(
         self,
         db: AsyncSession,
@@ -195,7 +222,8 @@ class InMemoryStateSource:
         skip: int,
         limit: int,
     ) -> list:
-        return self._entities[skip : skip + limit]
+        rows = self._filter(self._entities, novel_id, status="canonical")
+        return rows[skip : skip + limit]
 
     async def list_canonical_relations(
         self,
@@ -205,7 +233,8 @@ class InMemoryStateSource:
         skip: int,
         limit: int,
     ) -> list:
-        return self._relations[skip : skip + limit]
+        rows = self._filter(self._relations, novel_id, status="canonical")
+        return rows[skip : skip + limit]
 
     async def list_characters(
         self,
@@ -215,7 +244,8 @@ class InMemoryStateSource:
         skip: int,
         limit: int,
     ) -> list:
-        return self._characters[skip : skip + limit]
+        rows = self._filter(self._characters, novel_id)
+        return rows[skip : skip + limit]
 
     async def list_character_knowledge(
         self,
@@ -225,7 +255,8 @@ class InMemoryStateSource:
         skip: int,
         limit: int,
     ) -> list:
-        return self._knowledge[skip : skip + limit]
+        rows = self._filter(self._knowledge, novel_id)
+        return rows[skip : skip + limit]
 
 
 # ============================================================

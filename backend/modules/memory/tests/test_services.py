@@ -1,9 +1,10 @@
 """Memory Service 业务逻辑测试 — Round 3"""
 
 import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.schemas import EventType
 from modules.memory.services import MemoryService
@@ -22,6 +23,49 @@ def _event(**kwargs) -> object:
     }
     defaults.update(kwargs)
     return type("MockEvent", (), defaults)()
+
+
+def _make_memory_event(**overrides: object) -> MagicMock:
+    event = MagicMock()
+    defaults: dict[str, object] = {
+        "id": uuid.uuid4(),
+        "novel_id": uuid.uuid4(),
+        "chapter_index": 1,
+        "sequence": 1,
+        "event_type": "entity_created",
+        "entity_id": uuid.uuid4(),
+        "entity_type": "character",
+        "snapshot_before": None,
+        "snapshot_after": {"name": "test"},
+        "source": "ai_extraction",
+        "created_at": datetime.now(UTC),
+    }
+    defaults.update(overrides)
+    for key, value in defaults.items():
+        setattr(event, key, value)
+    return event
+
+
+def _make_snapshot(**overrides: object) -> MagicMock:
+    snapshot = MagicMock()
+    defaults: dict[str, object] = {
+        "id": uuid.uuid4(),
+        "novel_id": uuid.uuid4(),
+        "chapter_index": 1,
+        "status": "current",
+        "full_state": {
+            "entities": {},
+            "relations": [],
+            "character_locations": {},
+            "character_knowledge": [],
+        },
+        "events_until": None,
+        "created_at": datetime.now(UTC),
+    }
+    defaults.update(overrides)
+    for key, value in defaults.items():
+        setattr(snapshot, key, value)
+    return snapshot
 
 
 class TestApplyEvents:
@@ -299,17 +343,12 @@ class TestDiffStates:
 
 
 class TestRecordEvents:
-    """record_events 方法测试（DB 依赖）"""
+    """record_events 方法测试 — repo 用 AsyncMock 替换"""
 
     @pytest.mark.asyncio
-    async def test_record_batch(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_record_batch(self) -> None:
         """记录 3 条事件，验证数量和 sequence"""
-        nid = str(sample_novel_id)
+        novel_id = str(uuid.uuid4())
         events_data = [
             {
                 "event_type": "entity_created",
@@ -330,29 +369,27 @@ class TestRecordEvents:
                 "snapshot_after": {"location_id": "loc-1"},
             },
         ]
-        result = await memory_service.record_events(db_with_project, nid, 3, events_data)
+        created = [_make_memory_event(sequence=i + 1) for i in range(3)]
+        event_repo = MagicMock()
+        event_repo.delete_by_chapter = AsyncMock()
+        event_repo.create = AsyncMock(side_effect=created)
+        snapshot_repo = MagicMock()
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = AsyncMock()
+
+        result = await service.record_events(db, novel_id, 3, events_data)
+
         assert len(result) == 3
         assert result[0].sequence == 1
         assert result[2].sequence == 3
+        event_repo.delete_by_chapter.assert_awaited_once_with(
+            db, uuid.UUID(novel_id), 3
+        )
 
     @pytest.mark.asyncio
-    async def test_record_overwrites_existing(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_record_overwrites_existing(self) -> None:
         """重新记录同一章事件，旧事件被清除"""
-        nid = str(sample_novel_id)
-        old_events = [
-            {
-                "event_type": "entity_created",
-                "entity_id": str(uuid.uuid4()),
-                "snapshot_after": {"name": "old"},
-            }
-        ]
-        await memory_service.record_events(db_with_project, nid, 3, old_events)
-
+        novel_id = str(uuid.uuid4())
         new_events = [
             {
                 "event_type": "entity_created",
@@ -364,241 +401,155 @@ class TestRecordEvents:
                 "entity_id": str(uuid.uuid4()),
                 "snapshot_after": {"name": "new2"},
             },
-            {
-                "event_type": "entity_created",
-                "entity_id": str(uuid.uuid4()),
-                "snapshot_after": {"name": "new3"},
-            },
         ]
-        result = await memory_service.record_events(db_with_project, nid, 3, new_events)
-        assert len(result) == 3
+        created = [_make_memory_event(sequence=i + 1) for i in range(2)]
+        event_repo = MagicMock()
+        event_repo.delete_by_chapter = AsyncMock()
+        event_repo.create = AsyncMock(side_effect=created)
+        snapshot_repo = MagicMock()
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = AsyncMock()
+
+        result = await service.record_events(db, novel_id, 3, new_events)
+
+        assert len(result) == 2
+        event_repo.delete_by_chapter.assert_awaited_once_with(
+            db, uuid.UUID(novel_id), 3
+        )
 
 
 class TestReplayState:
-    """replay_state 方法测试（DB 依赖）"""
+    """replay_state 方法测试 — repo 用 AsyncMock 替换"""
 
     @pytest.mark.asyncio
-    async def _seed_events(
-        self,
-        memory_service: MemoryService,
-        db: AsyncSession,
-        nid: str,
-        chapter_index: int,
-        count: int,
-    ) -> None:
-        for i in range(count):
-            await memory_service.record_events(
-                db,
-                nid,
-                chapter_index,
-                [
-                    {
-                        "event_type": "entity_created",
-                        "entity_id": str(uuid.uuid4()),
-                        "entity_type": "character",
-                        "snapshot_after": {
-                            "name": f"entity_c{chapter_index}_s{i}",
-                            "id": str(uuid.uuid4()),
-                        },
-                    }
-                ],
-            )
-
-    @pytest.mark.asyncio
-    async def test_replay_empty(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_replay_empty(self) -> None:
         """无快照无事件 → 返回空状态"""
-        result = await memory_service.replay_state(
-            db_with_project, str(sample_novel_id), 1
-        )
+        novel_id = str(uuid.uuid4())
+        snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
+        event_repo = MagicMock()
+        event_repo.get_by_chapter_range = AsyncMock(return_value=[])
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.replay_state(db, novel_id, 1)
+
         assert result["entities"] == []
         assert result["relations"] == []
 
     @pytest.mark.asyncio
-    async def test_replay_events_only(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_replay_events_only(self) -> None:
         """无快照，只有事件 → 重放出正确状态"""
-        nid = str(sample_novel_id)
+        novel_id = str(uuid.uuid4())
         eid = uuid.uuid4()
-        events_data = [
-            {
-                "event_type": "entity_created",
-                "entity_id": str(eid),
-                "entity_type": "character",
-                "snapshot_after": {
+        events = [
+            _make_memory_event(
+                event_type="entity_created",
+                entity_id=eid,
+                snapshot_after={
                     "id": str(eid),
                     "name": "张三",
                     "entity_type": "character",
                 },
-            },
+            ),
         ]
-        await memory_service.record_events(db_with_project, nid, 1, events_data)
+        snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
+        event_repo = MagicMock()
+        event_repo.get_by_chapter_range = AsyncMock(return_value=events)
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
 
-        result = await memory_service.replay_state(db_with_project, nid, 1)
+        result = await service.replay_state(db, novel_id, 1)
+
         assert len(result["entities"]) == 1
+        assert result["entities"][0]["name"] == "张三"
 
 
 class TestMarkStale:
-    """mark_stale 方法测试"""
+    """mark_stale 方法测试 — repo 用 AsyncMock 替换"""
 
     @pytest.mark.asyncio
-    async def test_mark_single_snapshot(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_mark_single_snapshot(self) -> None:
         """单个快照被标记为 stale"""
-        nid = str(sample_novel_id)
-        empty_state = {
-            "entities": [],
-            "relations": [],
-            "character_locations": {},
-            "character_knowledge": [],
-        }
-        from modules.memory.repositories import SnapshotRepository
+        novel_id = str(uuid.uuid4())
+        snapshot_repo = MagicMock()
+        snapshot_repo.mark_stale_from = AsyncMock(return_value=1)
+        service = MemoryService(snapshot_repo=snapshot_repo)
+        db = MagicMock()
 
-        repo = SnapshotRepository()
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=5,
-            full_state=empty_state,
-        )
+        result = await service.mark_stale(db, novel_id, 5)
 
-        result = await memory_service.mark_stale(db_with_project, nid, 5)
         assert result["stale_count"] == 1
         assert result["from_chapter"] == 5
+        snapshot_repo.mark_stale_from.assert_awaited_once_with(
+            db, uuid.UUID(novel_id), 5
+        )
 
     @pytest.mark.asyncio
-    async def test_mark_partial(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_mark_partial(self) -> None:
         """只标记 >= from_chapter 的快照"""
-        empty_state = {
-            "entities": [],
-            "relations": [],
-            "character_locations": {},
-            "character_knowledge": [],
-        }
-        from modules.memory.repositories import SnapshotRepository
+        novel_id = str(uuid.uuid4())
+        snapshot_repo = MagicMock()
+        snapshot_repo.mark_stale_from = AsyncMock(return_value=2)
+        service = MemoryService(snapshot_repo=snapshot_repo)
+        db = MagicMock()
 
-        repo = SnapshotRepository()
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=5,
-            full_state=empty_state,
-        )
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=10,
-            full_state=empty_state,
-        )
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=15,
-            full_state=empty_state,
-        )
+        result = await service.mark_stale(db, novel_id, 8)
 
-        result = await memory_service.mark_stale(db_with_project, str(sample_novel_id), 8)
         assert result["stale_count"] == 2  # Ch10, Ch15
 
 
 class TestGetStatus:
-    """get_status 方法测试"""
+    """get_status 方法测试 — repo 用 AsyncMock 替换"""
 
     @pytest.mark.asyncio
-    async def test_empty(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_empty(self) -> None:
         """无快照 → 返回空状态"""
-        result = await memory_service.get_status(db_with_project, str(sample_novel_id))
+        novel_id = str(uuid.uuid4())
+        snapshot_repo = MagicMock()
+        snapshot_repo.list_for_novel = AsyncMock(return_value=[])
+        service = MemoryService(snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.get_status(db, novel_id)
+
         assert result.latest_chapter is None
         assert result.has_stale is False
 
     @pytest.mark.asyncio
-    async def test_all_current(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_all_current(self) -> None:
         """全部 current 快照"""
-        empty_state = {
-            "entities": [],
-            "relations": [],
-            "character_locations": {},
-            "character_knowledge": [],
-        }
-        from modules.memory.repositories import SnapshotRepository
+        novel_id = str(uuid.uuid4())
+        snapshots = [
+            _make_snapshot(novel_id=novel_id, chapter_index=5, status="current"),
+            _make_snapshot(novel_id=novel_id, chapter_index=10, status="current"),
+        ]
+        snapshot_repo = MagicMock()
+        snapshot_repo.list_for_novel = AsyncMock(return_value=snapshots)
+        service = MemoryService(snapshot_repo=snapshot_repo)
+        db = MagicMock()
 
-        repo = SnapshotRepository()
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=5,
-            full_state=empty_state,
-        )
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=10,
-            full_state=empty_state,
-        )
+        result = await service.get_status(db, novel_id)
 
-        result = await memory_service.get_status(db_with_project, str(sample_novel_id))
         assert result.latest_chapter == 10
         assert result.latest_snapshot_chapter == 10
         assert result.has_stale is False
 
     @pytest.mark.asyncio
-    async def test_with_stale(
-        self,
-        memory_service: MemoryService,
-        db_with_project: AsyncSession,
-        sample_novel_id: uuid.UUID,
-    ) -> None:
+    async def test_with_stale(self) -> None:
         """有 stale 快照 → has_stale=True"""
-        empty_state = {
-            "entities": [],
-            "relations": [],
-            "character_locations": {},
-            "character_knowledge": [],
-        }
-        from modules.memory.repositories import SnapshotRepository
+        novel_id = str(uuid.uuid4())
+        snapshots = [
+            _make_snapshot(novel_id=novel_id, chapter_index=5, status="current"),
+            _make_snapshot(novel_id=novel_id, chapter_index=10, status="stale"),
+        ]
+        snapshot_repo = MagicMock()
+        snapshot_repo.list_for_novel = AsyncMock(return_value=snapshots)
+        service = MemoryService(snapshot_repo=snapshot_repo)
+        db = MagicMock()
 
-        repo = SnapshotRepository()
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=5,
-            full_state=empty_state,
-        )
-        await repo.create(
-            db_with_project,
-            novel_id=sample_novel_id,
-            chapter_index=10,
-            full_state=empty_state,
-        )
+        result = await service.get_status(db, novel_id)
 
-        await memory_service.mark_stale(db_with_project, str(sample_novel_id), 10)
-        result = await memory_service.get_status(db_with_project, str(sample_novel_id))
         assert result.has_stale is True
         assert result.stale_from_chapter == 10

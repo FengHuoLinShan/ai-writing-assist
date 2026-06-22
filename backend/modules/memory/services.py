@@ -35,9 +35,13 @@ _SNAPSHOT_INTERVAL = 10  # K=10
 class MemoryService:
     """记忆业务服务 — 事件溯源引擎"""
 
-    def __init__(self) -> None:
-        self._event_repo = EventRepository()
-        self._snapshot_repo = SnapshotRepository()
+    def __init__(
+        self,
+        event_repo: EventRepository | None = None,
+        snapshot_repo: SnapshotRepository | None = None,
+    ) -> None:
+        self._event_repo = event_repo or EventRepository()
+        self._snapshot_repo = snapshot_repo or SnapshotRepository()
 
     # ============================================================
     # 事件记录
