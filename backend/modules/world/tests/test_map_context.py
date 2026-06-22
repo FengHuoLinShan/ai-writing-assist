@@ -14,134 +14,78 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.models import Project
 from modules.world.map_models import MapConfig
 from modules.world.models import CoreEntity
 from modules.world.services.map_context import MapContext
-
-
-async def _create_project(db_session: AsyncSession, novel_id: str) -> None:
-    project = Project(
-        id=uuid.UUID(hex=novel_id),
-        title="测试项目",
-        genre="fantasy",
-        language="zh",
-        target_length="novel",
-        current_stage="worldbuilding",
-    )
-    db_session.add(project)
-    await db_session.flush()
-
-
-async def _create_map(
-    db_session: AsyncSession,
-    novel_id: str,
-    *,
-    grid_width: int = 10,
-    grid_height: int = 10,
-) -> MapConfig:
-    config = MapConfig(
-        id=uuid.uuid4(),
-        novel_id=uuid.UUID(hex=novel_id),
-        name="测试地图",
-        map_type="world",
-        grid_width=grid_width,
-        grid_height=grid_height,
-        hex_size=30,
-        default_center_x=0.5,
-        default_center_y=0.5,
-        default_zoom=1.0,
-        sort_order=0,
-    )
-    db_session.add(config)
-    await db_session.flush()
-    return config
-
-
-async def _create_entity(
-    db_session: AsyncSession,
-    novel_id: str,
-    entity_type: str,
-    name: str = "测试实体",
-) -> CoreEntity:
-    entity = CoreEntity(
-        id=uuid.uuid4(),
-        novel_id=uuid.UUID(hex=novel_id),
-        entity_type=entity_type,
-        name=name,
-        status="canonical",
-    )
-    db_session.add(entity)
-    await db_session.flush()
-    return entity
+from modules.world.tests.helpers import _create_entity, _create_map_config
 
 
 @pytest.mark.asyncio
-async def test_require_map_returns_config(db_session: AsyncSession) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
-    config = await _create_map(db_session, nid)
-
+async def test_require_map_returns_config(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    world_map_config: MapConfig,
+) -> None:
     ctx = MapContext()
-    result = await ctx.require_map(db_session, nid, str(config.id))
+    result = await ctx.require_map(db_session, project_novel_id, str(world_map_config.id))
 
-    assert result.id == config.id
-    assert result.novel_id == uuid.UUID(hex=nid)
+    assert result.id == world_map_config.id
+    assert result.novel_id == uuid.UUID(hex=project_novel_id)
 
 
 @pytest.mark.asyncio
-async def test_require_map_missing_returns_404(db_session: AsyncSession) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
+async def test_require_map_missing_returns_404(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
     ctx = MapContext()
 
     with pytest.raises(HTTPException) as exc:
-        await ctx.require_map(db_session, nid, uuid.uuid4().hex)
+        await ctx.require_map(db_session, project_novel_id, uuid.uuid4().hex)
     assert exc.value.status_code == 404
     assert "不存在" in exc.value.detail
 
 
 @pytest.mark.asyncio
-async def test_require_map_cross_novel_returns_404(db_session: AsyncSession) -> None:
-    nid1 = uuid.uuid4().hex
-    nid2 = uuid.uuid4().hex
-    await _create_project(db_session, nid1)
-    await _create_project(db_session, nid2)
-    config = await _create_map(db_session, nid1)
-
+async def test_require_map_cross_novel_returns_404(
+    db_session: AsyncSession,
+    two_projects: tuple[str, str],
+    world_map_config: MapConfig,
+) -> None:
+    nid1, nid2 = two_projects
     ctx = MapContext()
     with pytest.raises(HTTPException) as exc:
-        await ctx.require_map(db_session, nid2, str(config.id))
+        await ctx.require_map(db_session, nid2, str(world_map_config.id))
     assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_require_entity_returns_entity(db_session: AsyncSession) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
-    entity = await _create_entity(db_session, nid, "location", name="洛阳")
-
+async def test_require_entity_returns_entity(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    location_entity_id: str,
+) -> None:
     ctx = MapContext()
-    result = await ctx.require_entity(db_session, nid, str(entity.id))
+    result = await ctx.require_entity(db_session, project_novel_id, location_entity_id)
 
-    assert result.id == entity.id
+    assert result.id == uuid.UUID(hex=location_entity_id)
 
 
 @pytest.mark.asyncio
-async def test_require_entity_with_allowed_types(db_session: AsyncSession) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
-    entity = await _create_entity(db_session, nid, "organization", name="天机阁")
-
+async def test_require_entity_with_allowed_types(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    organization_entity_id: str,
+) -> None:
     ctx = MapContext()
     result = await ctx.require_entity(
-        db_session, nid, str(entity.id), allowed_types={"organization"}
+        db_session, project_novel_id, organization_entity_id, allowed_types={"organization"}
     )
-    assert result.id == entity.id
+    assert result.id == uuid.UUID(hex=organization_entity_id)
 
     with pytest.raises(HTTPException) as exc:
         await ctx.require_entity(
-            db_session, nid, str(entity.id), allowed_types={"location"}
+            db_session, project_novel_id, organization_entity_id, allowed_types={"location"}
         )
     assert exc.value.status_code == 400
     assert "organization" in exc.value.detail
@@ -149,22 +93,24 @@ async def test_require_entity_with_allowed_types(db_session: AsyncSession) -> No
 
 
 @pytest.mark.asyncio
-async def test_require_entity_missing_returns_404(db_session: AsyncSession) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
+async def test_require_entity_missing_returns_404(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
     ctx = MapContext()
 
     with pytest.raises(HTTPException) as exc:
-        await ctx.require_entity(db_session, nid, uuid.uuid4().hex)
+        await ctx.require_entity(db_session, project_novel_id, uuid.uuid4().hex)
     assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_require_entity_cross_novel_returns_404(db_session: AsyncSession) -> None:
-    nid1 = uuid.uuid4().hex
-    nid2 = uuid.uuid4().hex
-    await _create_project(db_session, nid1)
-    await _create_project(db_session, nid2)
+async def test_require_entity_cross_novel_returns_404(
+    db_session: AsyncSession,
+    two_projects: tuple[str, str],
+) -> None:
+    nid1, nid2 = two_projects
+
     entity = await _create_entity(db_session, nid1, "location")
 
     ctx = MapContext()
@@ -174,10 +120,11 @@ async def test_require_entity_cross_novel_returns_404(db_session: AsyncSession) 
 
 
 @pytest.mark.asyncio
-async def test_assert_hex_in_bounds_passes(db_session: AsyncSession) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
-    config = await _create_map(db_session, nid, grid_width=5, grid_height=5)
+async def test_assert_hex_in_bounds_passes(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    config = await _create_map_config(db_session, project_novel_id, grid_width=5, grid_height=5)
 
     ctx = MapContext()
     ctx.assert_hex_in_bounds(config, 0, 0)
@@ -187,10 +134,9 @@ async def test_assert_hex_in_bounds_passes(db_session: AsyncSession) -> None:
 @pytest.mark.asyncio
 async def test_assert_hex_in_bounds_out_of_range_returns_400(
     db_session: AsyncSession,
+    project_novel_id: str,
 ) -> None:
-    nid = uuid.uuid4().hex
-    await _create_project(db_session, nid)
-    config = await _create_map(db_session, nid, grid_width=5, grid_height=5)
+    config = await _create_map_config(db_session, project_novel_id, grid_width=5, grid_height=5)
 
     ctx = MapContext()
 

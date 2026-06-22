@@ -36,67 +36,11 @@ from modules.world.services.map_service import (
     MapTerritoryService,
     MapTileService,
 )
-
-# ============================================================
-# Helpers
-# ============================================================
-
-
-async def _create_project(db_session: AsyncSession, novel_id: str) -> None:
-    """创建测试项目（外键约束需要）。"""
-    from modules.project.models import Project
-
-    project = Project(
-        id=uuid.UUID(hex=novel_id),
-        title="测试项目",
-        genre="fantasy",
-        language="zh",
-        target_length="novel",
-        current_stage="worldbuilding",
-    )
-    db_session.add(project)
-    await db_session.flush()
-
-
-async def _create_location_entity(
-    db_session: AsyncSession,
-    novel_id: str,
-    name: str = "洛阳",
-) -> str:
-    """创建一个 location 类型的 CoreEntity，返回 id。"""
-    eid = uuid.uuid4()
-    entity = CoreEntity(
-        id=eid,
-        novel_id=uuid.UUID(hex=novel_id),
-        entity_type="location",
-        name=name,
-        summary=f"{name}地点",
-        status="canonical",
-    )
-    db_session.add(entity)
-    await db_session.flush()
-    return str(eid)
-
-
-async def _create_organization(
-    db_session: AsyncSession,
-    novel_id: str,
-    name: str = "天机阁",
-) -> str:
-    """创建一个 organization 类型的 CoreEntity，返回 id。"""
-    eid = uuid.uuid4()
-    entity = CoreEntity(
-        id=eid,
-        novel_id=uuid.UUID(hex=novel_id),
-        entity_type="organization",
-        name=name,
-        summary=f"{name}组织",
-        status="canonical",
-    )
-    db_session.add(entity)
-    await db_session.flush()
-    return str(eid)
-
+from modules.world.tests.helpers import (
+    _create_location_entity,
+    _create_organization,
+    _create_project,
+)
 
 # ============================================================
 # 地图配置管理

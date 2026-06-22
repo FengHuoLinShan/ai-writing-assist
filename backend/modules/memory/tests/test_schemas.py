@@ -16,6 +16,32 @@ from modules.memory.schemas import (
 )
 
 
+# Shared mock ORM objects for from_attributes validation tests.
+
+
+class _MockEventORM:
+    id = uuid.uuid4()
+    novel_id = uuid.uuid4()
+    chapter_index = 3
+    sequence = 2
+    event_type = "entity_created"
+    entity_id = id
+    entity_type = "character"
+    snapshot_before = None
+    snapshot_after = {"name": "test"}
+    source = "ai_extraction"
+    created_at = None
+
+
+class _MockSnapshotORM:
+    id = uuid.uuid4()
+    novel_id = uuid.uuid4()
+    chapter_index = 10
+    status = "current"
+    events_until = 42
+    created_at = None
+
+
 class TestEntityInPanorama:
     """EntityInPanorama schema 校验"""
 
@@ -124,21 +150,12 @@ class TestMemoryEventResponse:
         eid = uuid.uuid4()
         nid = uuid.uuid4()
 
-        # 模拟 ORM 对象属性
-        class MockORM:
-            id = eid
-            novel_id = nid
-            chapter_index = 3
-            sequence = 2
-            event_type = "entity_created"
-            entity_id = eid
-            entity_type = "character"
-            snapshot_before = None
-            snapshot_after = {"name": "test"}
-            source = "ai_extraction"
-            created_at = None
+        # 使用共享 mock ORM 对象
+        _MockEventORM.id = eid
+        _MockEventORM.novel_id = nid
+        _MockEventORM.entity_id = eid
 
-        resp = MemoryEventResponse.model_validate(MockORM())
+        resp = MemoryEventResponse.model_validate(_MockEventORM())
         assert resp.id == str(eid)
         assert resp.novel_id == str(nid)
         assert resp.chapter_index == 3
@@ -166,15 +183,10 @@ class TestSnapshotResponse:
         sid = uuid.uuid4()
         nid = uuid.uuid4()
 
-        class MockORM:
-            id = sid
-            novel_id = nid
-            chapter_index = 10
-            status = "current"
-            events_until = 42
-            created_at = None
+        _MockSnapshotORM.id = sid
+        _MockSnapshotORM.novel_id = nid
 
-        resp = SnapshotResponse.model_validate(MockORM())
+        resp = SnapshotResponse.model_validate(_MockSnapshotORM())
         assert resp.id == str(sid)
         assert resp.novel_id == str(nid)
         assert resp.chapter_index == 10

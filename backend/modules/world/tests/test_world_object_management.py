@@ -22,28 +22,7 @@ from modules.world.services import (
     EntityRelationService,
     WorldEntityService,
 )
-
-# ============================================================
-# Helpers
-# ============================================================
-
-
-async def _create_project(db_session: AsyncSession, novel_id: str) -> None:
-    """在内存数据库中创建一个测试项目，用于外键约束。"""
-    import modules.project.models  # noqa: F401
-    from modules.project.models import Project
-
-    project = Project(
-        id=uuid.UUID(hex=novel_id),
-        title="测试项目",
-        genre="fantasy",
-        language="zh",
-        target_length="novel",
-        current_stage="worldbuilding",
-    )
-    db_session.add(project)
-    await db_session.flush()
-
+from modules.world.tests.helpers import _create_project
 
 # ============================================================
 # 实体搜索/过滤
