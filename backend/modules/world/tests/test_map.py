@@ -141,11 +141,10 @@ class TestMapConfigManagement:
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_get_map_cross_novel_returns_404(self, db_session: AsyncSession):
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+    async def test_get_map_cross_novel_returns_404(
+        self, db_session: AsyncSession, two_projects: tuple[str, str]
+    ):
+        nid1, nid2 = two_projects
         svc = MapConfigService()
         created = await svc.create(
             db_session,
@@ -259,24 +258,19 @@ class TestMapTileEditing:
 
 class TestLocationBinding:
     @pytest.mark.asyncio
-    async def test_batch_create_binding(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        loc_id = await _create_location_entity(db_session, nid, "洛阳")
-
+    async def test_batch_create_binding(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        location_entity_id: str,
+    ):
         bind_svc = MapLocationBindingService()
         result = await bind_svc.batch_create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapLocationBindingCreate(
-                location_entity_id=loc_id,
+                location_entity_id=location_entity_id,
                 hexes=[
                     {"hex_q": 5, "hex_r": 5, "is_center": True},
                     {"hex_q": 5, "hex_r": 6, "is_center": False},
@@ -289,63 +283,54 @@ class TestLocationBinding:
         assert centers[0].hex_q == 5 and centers[0].hex_r == 5
 
     @pytest.mark.asyncio
-    async def test_center_uniqueness_switching_clears_old(self, db_session: AsyncSession):
+    async def test_center_uniqueness_switching_clears_old(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        location_entity_id: str,
+    ):
         """二次设中心点应清除旧中心（同 location 同 map 最多一个中心）。"""
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        loc_id = await _create_location_entity(db_session, nid, "洛阳")
-
         bind_svc = MapLocationBindingService()
         # 第一次中心在 (5,5)
         await bind_svc.batch_create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapLocationBindingCreate(
-                location_entity_id=loc_id,
+                location_entity_id=location_entity_id,
                 hexes=[{"hex_q": 5, "hex_r": 5, "is_center": True}],
             ),
         )
         # 第二次新增 (6,6) 为中心 → 应清除 (5,5) 的中心
         await bind_svc.batch_create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapLocationBindingCreate(
-                location_entity_id=loc_id,
+                location_entity_id=location_entity_id,
                 hexes=[{"hex_q": 6, "hex_r": 6, "is_center": True}],
             ),
         )
         from modules.world.map_repositories import MapLocationBindingRepository
 
         centers = await MapLocationBindingRepository().get_centers(
-            db_session, uuid.UUID(hex=nid), uuid.UUID(hex=created.id)
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
         )
         assert len(centers) == 1
         assert centers[0].hex_q == 6 and centers[0].hex_r == 6
 
     @pytest.mark.asyncio
-    async def test_bind_non_location_entity_returns_400(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_bind_non_location_entity_returns_400(
+        self, db_session: AsyncSession, world_map
+    ):
         # 创建 character 类型实体（非 location）
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="主角",
                 status="canonical",
@@ -359,8 +344,8 @@ class TestLocationBinding:
         with pytest.raises(HTTPException) as exc:
             await bind_svc.batch_create(
                 db_session,
-                nid,
-                created.id,
+                world_map.novel_id,
+                world_map.id,
                 MapLocationBindingCreate(
                     location_entity_id=str(char_id),
                     hexes=[{"hex_q": 5, "hex_r": 5, "is_center": True}],
@@ -370,11 +355,10 @@ class TestLocationBinding:
         assert "location" in exc.value.detail
 
     @pytest.mark.asyncio
-    async def test_bind_cross_novel_entity_returns_404(self, db_session: AsyncSession):
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+    async def test_bind_cross_novel_entity_returns_404(
+        self, db_session: AsyncSession, two_projects: tuple[str, str]
+    ):
+        nid1, nid2 = two_projects
         # 地图在 novel1，地点实体在 novel2
         cfg_svc = MapConfigService()
         created = await cfg_svc.create(
@@ -771,14 +755,13 @@ class TestMapConfigValidation:
         assert "location" in exc.value.detail
 
     @pytest.mark.asyncio
-    async def test_create_with_cross_novel_parent_entity_returns_404(self, db_session):
+    async def test_create_with_cross_novel_parent_entity_returns_404(
+        self, db_session, two_projects: tuple[str, str]
+    ):
         """B2：parent_entity_id 跨 novel 返回 404。"""
         from fastapi import HTTPException
 
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+        nid1, nid2 = two_projects
         # location 实体在 novel2
         loc_id = await _create_location_entity(db_session, nid2, "异界")
 
@@ -835,26 +818,21 @@ class TestLocationBindingCRUD:
     """B1 PATCH 端点 + binding 单条 CRUD（D-03 测试补全）。"""
 
     @pytest.mark.asyncio
-    async def test_update_binding_set_center(self, db_session):
+    async def test_update_binding_set_center(
+        self,
+        db_session,
+        world_map,
+        location_entity_id: str,
+    ):
         """PATCH 单个 binding 设为中心点，清除旧中心。"""
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        loc_id = await _create_location_entity(db_session, nid, "洛阳")
-
         bind_svc = MapLocationBindingService()
         # 建两个绑定，第一个为中心
         result = await bind_svc.batch_create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapLocationBindingCreate(
-                location_entity_id=loc_id,
+                location_entity_id=location_entity_id,
                 hexes=[
                     {"hex_q": 5, "hex_r": 5, "is_center": True},
                     {"hex_q": 6, "hex_r": 6, "is_center": False},
@@ -868,7 +846,7 @@ class TestLocationBindingCRUD:
 
         updated = await bind_svc.update(
             db_session,
-            nid,
+            world_map.novel_id,
             non_center.id,
             MapLocationBindingUpdate(is_center=True),
         )
@@ -878,22 +856,23 @@ class TestLocationBindingCRUD:
         from modules.world.map_repositories import MapLocationBindingRepository
 
         centers = await MapLocationBindingRepository().get_centers(
-            db_session, uuid.UUID(hex=nid), uuid.UUID(hex=created.id)
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
         )
         assert len(centers) == 1
         assert centers[0].id == uuid.UUID(hex=non_center.id)
 
     @pytest.mark.asyncio
-    async def test_update_binding_cross_novel_returns_404(self, db_session):
+    async def test_update_binding_cross_novel_returns_404(
+        self, db_session, two_projects: tuple[str, str]
+    ):
         """PATCH binding 跨 novel 返回 404。"""
         from fastapi import HTTPException
 
         from modules.world.map_schemas import MapLocationBindingUpdate
 
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+        nid1, nid2 = two_projects
         cfg_svc = MapConfigService()
         created = await cfg_svc.create(
             db_session,
@@ -924,46 +903,41 @@ class TestLocationBindingCRUD:
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_binding(self, db_session):
+    async def test_delete_binding(
+        self,
+        db_session,
+        world_map,
+        location_entity_id: str,
+    ):
         """DELETE binding 成功。"""
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        loc_id = await _create_location_entity(db_session, nid)
         bind_svc = MapLocationBindingService()
         result = await bind_svc.batch_create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapLocationBindingCreate(
-                location_entity_id=loc_id,
+                location_entity_id=location_entity_id,
                 hexes=[{"hex_q": 1, "hex_r": 1, "is_center": False}],
             ),
         )
         binding_id = result[0].id
-        await bind_svc.delete(db_session, nid, binding_id)
+        await bind_svc.delete(db_session, world_map.novel_id, binding_id)
 
         # 再删应 404
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
-            await bind_svc.delete(db_session, nid, binding_id)
+            await bind_svc.delete(db_session, world_map.novel_id, binding_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_binding_cross_novel_returns_404(self, db_session):
+    async def test_delete_binding_cross_novel_returns_404(
+        self, db_session, two_projects: tuple[str, str]
+    ):
         """DELETE binding 跨 novel 返回 404。"""
         from fastapi import HTTPException
 
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+        nid1, nid2 = two_projects
         cfg_svc = MapConfigService()
         created = await cfg_svc.create(
             db_session,
@@ -1087,20 +1061,12 @@ class TestMapAPIRegression:
 
 class TestMapMarkerCRUD:
     @pytest.mark.asyncio
-    async def test_create_marker(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_create_marker(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="张三",
                 status="canonical",
@@ -1111,8 +1077,8 @@ class TestMapMarkerCRUD:
         marker_svc = MapMarkerService()
         marker = await marker_svc.create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapMarkerCreate(
                 entity_id=str(char_id),
                 marker_type="character",
@@ -1128,20 +1094,12 @@ class TestMapMarkerCRUD:
         assert marker.visible is True
 
     @pytest.mark.asyncio
-    async def test_list_markers(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_list_markers(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="李四",
                 status="canonical",
@@ -1152,8 +1110,8 @@ class TestMapMarkerCRUD:
         marker_svc = MapMarkerService()
         await marker_svc.create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapMarkerCreate(
                 entity_id=str(char_id),
                 marker_type="character",
@@ -1161,24 +1119,16 @@ class TestMapMarkerCRUD:
                 hex_r=2,
             ),
         )
-        markers = await marker_svc.list(db_session, nid, created.id)
+        markers = await marker_svc.list(db_session, world_map.novel_id, world_map.id)
         assert len(markers) >= 1
 
     @pytest.mark.asyncio
-    async def test_update_marker(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_update_marker(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="王五",
                 status="canonical",
@@ -1189,8 +1139,8 @@ class TestMapMarkerCRUD:
         marker_svc = MapMarkerService()
         created_marker = await marker_svc.create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapMarkerCreate(
                 entity_id=str(char_id),
                 marker_type="character",
@@ -1200,7 +1150,7 @@ class TestMapMarkerCRUD:
         )
         updated = await marker_svc.update(
             db_session,
-            nid,
+            world_map.novel_id,
             created_marker.id,
             MapMarkerUpdate(hex_q=5, hex_r=6, label="更新标签"),
         )
@@ -1209,20 +1159,12 @@ class TestMapMarkerCRUD:
         assert updated.label == "更新标签"
 
     @pytest.mark.asyncio
-    async def test_delete_marker(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_delete_marker(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="赵六",
                 status="canonical",
@@ -1233,8 +1175,8 @@ class TestMapMarkerCRUD:
         marker_svc = MapMarkerService()
         created_marker = await marker_svc.create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapMarkerCreate(
                 entity_id=str(char_id),
                 marker_type="character",
@@ -1242,24 +1184,23 @@ class TestMapMarkerCRUD:
                 hex_r=3,
             ),
         )
-        await marker_svc.delete(db_session, nid, created_marker.id)
+        await marker_svc.delete(db_session, world_map.novel_id, created_marker.id)
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await marker_svc.update(
                 db_session,
-                nid,
+                world_map.novel_id,
                 created_marker.id,
                 MapMarkerUpdate(label="应该404"),
             )
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_cross_novel_marker_404(self, db_session: AsyncSession):
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+    async def test_cross_novel_marker_404(
+        self, db_session: AsyncSession, two_projects: tuple[str, str]
+    ):
+        nid1, nid2 = two_projects
         cfg_svc = MapConfigService()
         created = await cfg_svc.create(
             db_session,
@@ -1309,20 +1250,12 @@ class TestMapMarkerCRUD:
             )
 
     @pytest.mark.asyncio
-    async def test_state_includes_markers(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_state_includes_markers(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="周八",
                 status="canonical",
@@ -1333,8 +1266,8 @@ class TestMapMarkerCRUD:
         marker_svc = MapMarkerService()
         await marker_svc.create(
             db_session,
-            nid,
-            created.id,
+            world_map.novel_id,
+            world_map.id,
             MapMarkerCreate(
                 entity_id=str(char_id),
                 marker_type="character",
@@ -1343,7 +1276,8 @@ class TestMapMarkerCRUD:
             ),
         )
 
-        state = await cfg_svc.get_state(db_session, nid, created.id)
+        cfg_svc = MapConfigService()
+        state = await cfg_svc.get_state(db_session, world_map.novel_id, world_map.id)
         assert len(state.markers) >= 1
 
 
@@ -1361,48 +1295,25 @@ class TestMapTerritory:
     """势力范围测试（P2）。"""
 
     @pytest.mark.asyncio
-    async def test_list_territories_empty(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_list_territories_empty(self, db_session: AsyncSession, world_map):
         svc = MapTerritoryService()
-        territories = await svc.list(db_session, nid, str(created.id))
+        territories = await svc.list(db_session, world_map.novel_id, str(world_map.id))
         assert territories == []
 
     @pytest.mark.asyncio
-    async def test_create_territory(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        org_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=org_id,
-                novel_id=uuid.UUID(hex=nid),
-                entity_type="organization",
-                name="青龙会",
-                status="canonical",
-            )
-        )
-        await db_session.flush()
-
+    async def test_create_territory(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
         svc = MapTerritoryService()
         territories = await svc.create(
             db_session,
-            nid,
-            str(created.id),
+            world_map.novel_id,
+            str(world_map.id),
             MapTerritoryCreate(
-                faction_entity_id=str(org_id),
+                faction_entity_id=organization_entity_id,
                 hexes=[
                     {"hex_q": 1, "hex_r": 1, "style_override": {"color": "#FF0000"}},
                     {"hex_q": 1, "hex_r": 2},
@@ -1410,24 +1321,16 @@ class TestMapTerritory:
             ),
         )
         assert len(territories) == 2
-        assert territories[0].faction_entity_id == str(org_id)
+        assert territories[0].faction_entity_id == organization_entity_id
         assert territories[0].hex_q == 1
 
     @pytest.mark.asyncio
-    async def test_create_territory_non_org(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
+    async def test_create_territory_non_org(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
             CoreEntity(
                 id=char_id,
-                novel_id=uuid.UUID(hex=nid),
+                novel_id=uuid.UUID(hex=world_map.novel_id),
                 entity_type="character",
                 name="张三",
                 status="canonical",
@@ -1439,8 +1342,8 @@ class TestMapTerritory:
         with pytest.raises(HTTPException) as exc:
             await svc.create(
                 db_session,
-                nid,
-                str(created.id),
+                world_map.novel_id,
+                str(world_map.id),
                 MapTerritoryCreate(
                     faction_entity_id=str(char_id),
                     hexes=[{"hex_q": 1, "hex_r": 1}],
@@ -1484,34 +1387,19 @@ class TestMapTerritory:
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_update_territory(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        org_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=org_id,
-                novel_id=uuid.UUID(hex=nid),
-                entity_type="organization",
-                name="玄武宗",
-                status="canonical",
-            )
-        )
-        await db_session.flush()
-
+    async def test_update_territory(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
         svc = MapTerritoryService()
         territories = await svc.create(
             db_session,
-            nid,
-            str(created.id),
+            world_map.novel_id,
+            str(world_map.id),
             MapTerritoryCreate(
-                faction_entity_id=str(org_id),
+                faction_entity_id=organization_entity_id,
                 hexes=[{"hex_q": 1, "hex_r": 1}],
             ),
         )
@@ -1519,79 +1407,49 @@ class TestMapTerritory:
 
         updated = await svc.update(
             db_session,
-            nid,
+            world_map.novel_id,
             tid,
             MapTerritoryUpdate(style_override={"color": "#00FF00"}),
         )
         assert updated.style_override == {"color": "#00FF00"}
 
     @pytest.mark.asyncio
-    async def test_delete_territory(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        org_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=org_id,
-                novel_id=uuid.UUID(hex=nid),
-                entity_type="organization",
-                name="朱雀门",
-                status="canonical",
-            )
-        )
-        await db_session.flush()
-
+    async def test_delete_territory(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
         svc = MapTerritoryService()
         territories = await svc.create(
             db_session,
-            nid,
-            str(created.id),
+            world_map.novel_id,
+            str(world_map.id),
             MapTerritoryCreate(
-                faction_entity_id=str(org_id),
+                faction_entity_id=organization_entity_id,
                 hexes=[{"hex_q": 1, "hex_r": 1}],
             ),
         )
         tid = territories[0].id
 
-        await svc.delete(db_session, nid, tid)
-        remaining = await svc.list(db_session, nid, str(created.id))
+        await svc.delete(db_session, world_map.novel_id, tid)
+        remaining = await svc.list(db_session, world_map.novel_id, str(world_map.id))
         assert len(remaining) == 0
 
     @pytest.mark.asyncio
-    async def test_delete_by_faction(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        org_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=org_id,
-                novel_id=uuid.UUID(hex=nid),
-                entity_type="organization",
-                name="天机阁",
-                status="canonical",
-            )
-        )
-        await db_session.flush()
-
+    async def test_delete_by_faction(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
         svc = MapTerritoryService()
         await svc.create(
             db_session,
-            nid,
-            str(created.id),
+            world_map.novel_id,
+            str(world_map.id),
             MapTerritoryCreate(
-                faction_entity_id=str(org_id),
+                faction_entity_id=organization_entity_id,
                 hexes=[
                     {"hex_q": 1, "hex_r": 1},
                     {"hex_q": 1, "hex_r": 2},
@@ -1601,18 +1459,17 @@ class TestMapTerritory:
         )
 
         deleted = await svc.delete_by_faction(
-            db_session, nid, str(created.id), str(org_id)
+            db_session, world_map.novel_id, str(world_map.id), organization_entity_id
         )
         assert deleted == 3
-        remaining = await svc.list(db_session, nid, str(created.id))
+        remaining = await svc.list(db_session, world_map.novel_id, str(world_map.id))
         assert len(remaining) == 0
 
     @pytest.mark.asyncio
-    async def test_cross_novel_delete(self, db_session: AsyncSession):
-        nid1 = uuid.uuid4().hex
-        nid2 = uuid.uuid4().hex
-        await _create_project(db_session, nid1)
-        await _create_project(db_session, nid2)
+    async def test_cross_novel_delete(
+        self, db_session: AsyncSession, two_projects: tuple[str, str]
+    ):
+        nid1, nid2 = two_projects
         cfg_svc = MapConfigService()
         created = await cfg_svc.create(
             db_session,
@@ -1652,75 +1509,48 @@ class TestMapStateTerritories:
     """地图聚合状态包含势力范围测试。"""
 
     @pytest.mark.asyncio
-    async def test_state_includes_territories(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        org_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=org_id,
-                novel_id=uuid.UUID(hex=nid),
-                entity_type="organization",
-                name="逍遥派",
-                status="canonical",
-            )
-        )
-        await db_session.flush()
-
+    async def test_state_includes_territories(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
         svc = MapTerritoryService()
         await svc.create(
             db_session,
-            nid,
-            str(created.id),
+            world_map.novel_id,
+            str(world_map.id),
             MapTerritoryCreate(
-                faction_entity_id=str(org_id),
+                faction_entity_id=organization_entity_id,
                 hexes=[{"hex_q": 3, "hex_r": 3}],
             ),
         )
 
-        state = await cfg_svc.get_state(db_session, nid, str(created.id))
+        cfg_svc = MapConfigService()
+        state = await cfg_svc.get_state(
+            db_session, world_map.novel_id, str(world_map.id)
+        )
         assert len(state.territories) >= 1
-        assert state.territories[0].faction_entity_id == str(org_id)
+        assert state.territories[0].faction_entity_id == organization_entity_id
 
 
 class TestMapFocusMode:
     """聚焦模式测试。"""
 
     @pytest.mark.asyncio
-    async def test_focus_mode(self, db_session: AsyncSession):
-        nid = uuid.uuid4().hex
-        await _create_project(db_session, nid)
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        org_id = uuid.uuid4()
-        db_session.add(
-            CoreEntity(
-                id=org_id,
-                novel_id=uuid.UUID(hex=nid),
-                entity_type="organization",
-                name="铁血盟",
-                status="canonical",
-            )
-        )
-        await db_session.flush()
-
+    async def test_focus_mode(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
         svc = MapTerritoryService()
         await svc.create(
             db_session,
-            nid,
-            str(created.id),
+            world_map.novel_id,
+            str(world_map.id),
             MapTerritoryCreate(
-                faction_entity_id=str(org_id),
+                faction_entity_id=organization_entity_id,
                 hexes=[
                     {"hex_q": 1, "hex_r": 1},
                     {"hex_q": 1, "hex_r": 2},
@@ -1730,9 +1560,13 @@ class TestMapFocusMode:
 
         # Focus mode via service
         from modules.world.map_repositories import MapTerritoryRepository
+
         repo = MapTerritoryRepository()
         territories = await repo.get_by_map_and_faction(
-            db_session, uuid.UUID(hex=nid), uuid.UUID(hex=created.id), org_id
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
+            uuid.UUID(hex=organization_entity_id),
         )
         assert len(territories) == 2
         related = [(t.hex_q, t.hex_r) for t in territories]
