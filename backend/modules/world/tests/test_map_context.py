@@ -75,7 +75,7 @@ async def test_require_cross_novel_returns_404(
         if target == "map":
             await ctx.require_map(db_session, nid2, str(world_map_config.id))
         else:
-            entity = await _create_entity(db_session, nid1, "location")
+            entity = await _create_entity(db_session, nid1, "location", "测试地点")
             await ctx.require_entity(db_session, nid2, str(entity.id))
     assert exc.value.status_code == 404
 

@@ -9,25 +9,11 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.project.models import Project
 from modules.world.map_models import MapConfig
 from modules.world.map_schemas import MapConfigCreate
-from modules.world.models import CoreEntity
 from modules.world.services.map_service import MapConfigService
-
-
-async def _create_project(db_session: AsyncSession, novel_id: str) -> None:
-    """创建测试项目（外键约束需要）。"""
-    project = Project(
-        id=uuid.UUID(hex=novel_id),
-        title="测试项目",
-        genre="fantasy",
-        language="zh",
-        target_length="novel",
-        current_stage="worldbuilding",
-    )
-    db_session.add(project)
-    await db_session.flush()
+from tests.utils import _create_entity as _create_entity
+from tests.utils import _create_project as _create_project
 
 
 async def _create_location_entity(
@@ -36,18 +22,14 @@ async def _create_location_entity(
     name: str = "洛阳",
 ) -> str:
     """创建一个 location 类型的 CoreEntity，返回 id。"""
-    eid = uuid.uuid4()
-    entity = CoreEntity(
-        id=eid,
-        novel_id=uuid.UUID(hex=novel_id),
+    entity = await _create_entity(
+        db_session,
+        novel_id,
         entity_type="location",
         name=name,
         summary=f"{name}地点",
-        status="canonical",
     )
-    db_session.add(entity)
-    await db_session.flush()
-    return str(eid)
+    return str(entity.id)
 
 
 async def _create_organization(
@@ -56,37 +38,14 @@ async def _create_organization(
     name: str = "天机阁",
 ) -> str:
     """创建一个 organization 类型的 CoreEntity，返回 id。"""
-    eid = uuid.uuid4()
-    entity = CoreEntity(
-        id=eid,
-        novel_id=uuid.UUID(hex=novel_id),
+    entity = await _create_entity(
+        db_session,
+        novel_id,
         entity_type="organization",
         name=name,
         summary=f"{name}组织",
-        status="canonical",
     )
-    db_session.add(entity)
-    await db_session.flush()
-    return str(eid)
-
-
-async def _create_entity(
-    db_session: AsyncSession,
-    novel_id: str,
-    entity_type: str,
-    name: str = "测试实体",
-) -> CoreEntity:
-    """创建一个任意类型的 CoreEntity，返回对象。"""
-    entity = CoreEntity(
-        id=uuid.uuid4(),
-        novel_id=uuid.UUID(hex=novel_id),
-        entity_type=entity_type,
-        name=name,
-        status="canonical",
-    )
-    db_session.add(entity)
-    await db_session.flush()
-    return entity
+    return str(entity.id)
 
 
 async def _create_map_config(

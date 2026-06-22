@@ -22,6 +22,7 @@ from modules.world.services.extraction_service import EntityExtractionService
 from modules.writing.facade import get_latest_draft_for_chapter
 from modules.writing.models import WritingDraft
 from shared.protocols import DraftProvider
+from tests.utils import _mock_analyze, _mock_extract, _mock_segment
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
 FIRST_10_CHAPTER_COUNT = 10
@@ -346,21 +347,6 @@ class TestRealWorkflowStep1:
 
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
-
-        async def _mock_segment(db, novel_id, start_chapter, end_chapter):
-            return {"total_scenes": 3, "failed_batches": [], "degraded": False}
-
-        async def _mock_extract(db, novel_id):
-            return {"total_created": 5, "total_deltas": 3}
-
-        async def _mock_analyze(db, novel_id, start_chapter, end_chapter):
-            return {
-                "total_threads": 2,
-                "total_arcs": 1,
-                "threads": [],
-                "arcs": [],
-                "extra_sections": {},
-            }
 
         with (
             mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),

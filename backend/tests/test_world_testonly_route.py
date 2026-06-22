@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from modules.world.models import CoreEntity
+from tests.utils import _create_entity
 
 pytestmark = pytest.mark.asyncio
 
@@ -23,19 +23,6 @@ def _clear_settings_cache():
     get_settings.cache_clear()
 
 
-async def _create_entity(db, novel_id, name="seed-target"):
-    entity = CoreEntity(
-        novel_id=novel_id,
-        name=name,
-        entity_type="item",
-        status="canonical",
-        summary="original",
-    )
-    db.add(entity)
-    await db.flush()
-    return entity
-
-
 async def test_seed_text_archive_available_only_in_test_env(
     async_client,
     db_session,
@@ -43,7 +30,7 @@ async def test_seed_text_archive_available_only_in_test_env(
 ):
     monkeypatch.setenv("APP_ENV", "development")
     nid = uuid4()
-    entity = await _create_entity(db_session, nid)
+    entity = await _create_entity(db_session, nid, "item", "seed-target")
     resp = await async_client.post(
         f"/api/world/_test/entities/{entity.id.hex}/text-archive",
         json={
@@ -62,7 +49,7 @@ async def test_seed_text_archive_requires_matching_novel_id(
 ):
     monkeypatch.setenv("APP_ENV", "test")
     nid = uuid4()
-    entity = await _create_entity(db_session, nid)
+    entity = await _create_entity(db_session, nid, "item", "seed-target")
     wrong_novel_id = uuid4().hex
     resp = await async_client.post(
         f"/api/world/_test/entities/{entity.id.hex}/text-archive",
@@ -81,7 +68,7 @@ async def test_seed_text_archive_creates_row(
 ):
     monkeypatch.setenv("APP_ENV", "test")
     nid = uuid4()
-    entity = await _create_entity(db_session, nid)
+    entity = await _create_entity(db_session, nid, "item", "seed-target")
     resp = await async_client.post(
         f"/api/world/_test/entities/{entity.id.hex}/text-archive",
         json={

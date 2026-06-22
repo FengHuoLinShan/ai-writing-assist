@@ -13,6 +13,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from tests.utils import (
+    _mock_analyze,
+    _mock_extract,
+    _mock_extract_fail,
+    _mock_segment,
+)
 
 
 class TestSceneSegmentationIntegration:
@@ -51,21 +57,6 @@ class TestDeepImportWorkflowNewPipeline:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        async def _mock_segment(db, novel_id, start_chapter, end_chapter, **kwargs):
-            return {"total_scenes": 5, "failed_batches": [], "degraded": False}
-
-        async def _mock_extract(db, novel_id, **kwargs):
-            return {"total_created": 3, "total_deltas": 2}
-
-        async def _mock_analyze(db, novel_id, start_chapter, end_chapter):
-            return {
-                "total_threads": 2,
-                "total_arcs": 1,
-                "threads": [],
-                "arcs": [],
-                "extra_sections": {},
-            }
-
         with (
             mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),
             mock.patch.object(
@@ -97,22 +88,6 @@ class TestDeepImportWorkflowNewPipeline:
 
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
-
-        async def _mock_segment(db, novel_id, start_chapter, end_chapter, **kwargs):
-            return {"total_scenes": 3, "failed_batches": [], "degraded": False}
-
-        async def _mock_extract_fail(db, novel_id, **kwargs):
-            # 模拟 Phase 2 内部异常被捕获后返回空结果，不阻塞 Phase 3
-            return {"total_created": 0, "total_deltas": 0}
-
-        async def _mock_analyze(db, novel_id, start_chapter, end_chapter):
-            return {
-                "total_threads": 1,
-                "total_arcs": 1,
-                "threads": [],
-                "arcs": [],
-                "extra_sections": {},
-            }
 
         with (
             mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),

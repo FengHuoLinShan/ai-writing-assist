@@ -7,36 +7,13 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
 from modules.outline.repositories import (
     OutlineArcRepository,
     PlotThreadRepository,
     SceneRepository,
 )
 from modules.outline.services import PlotStructureGenerator
-
-
-def _make_bundle(novel_id: str) -> StructureContextBundle:
-    return StructureContextBundle(
-        novel_id=novel_id,
-        task="测试生成",
-        scope="full",
-        project={
-            "id": novel_id,
-            "title": "测试小说",
-            "genre": "仙侠",
-            "tone": "正剧",
-        },
-        world_entities=[
-            {"name": "霜华剑", "entity_type": "item", "summary": "上古神剑"},
-            {"name": "落星阁", "entity_type": "location", "summary": "故事起点"},
-        ],
-        characters=[
-            {"name": "白砚", "role": "protagonist", "desire": "寻找真相"},
-            {"name": "苏荇", "role": "mentor", "desire": "守护秘密"},
-        ],
-    )
-
+from tests.utils import _make_bundle
 
 # Shared Pydantic response models used by LLM mocks in TestPlotStructureGenerator.
 # These were previously defined inside each test method, causing duplication.

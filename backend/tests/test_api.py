@@ -16,26 +16,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
 
 # ============================================================
-# Scaffold helpers
-# ============================================================
-
-
-async def _create_project(client: AsyncClient) -> str:
-    resp = await client.post(
-        "/api/projects",
-        json={
-            "title": "API 测试小说",
-            "genre": "奇幻",
-            "tone": "dark",
-            "language": "zh",
-        },
-    )
-    assert resp.status_code in (200, 201)
-    data = resp.json()
-    return data.get("id") or data["project_id"]
-
-
-# ============================================================
 # System
 # ============================================================
 
@@ -312,9 +292,17 @@ class TestApiWorld:
     ):
         """使用有效数据创建关系返回 201"""
         # Arrange
+        target_resp = await async_client.post(
+            "/api/world/entities",
+            params={"novel_id": test_project_id},
+            json={"name": "目标势力", "entity_type": "faction"},
+        )
+        assert target_resp.status_code in (200, 201)
+        target_id = target_resp.json().get("id") or target_resp.json()["entity_id"]
+
         payload = {
             "source_id": test_entity_id,
-            "target_id": "00000000-0000-0000-0000-000000000001",
+            "target_id": target_id,
             "relation_type": "ally_of",
         }
 

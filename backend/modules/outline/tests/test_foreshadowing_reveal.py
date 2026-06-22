@@ -10,31 +10,11 @@ from httpx import AsyncClient
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
 from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
 from modules.outline.reveal_repository import RevealPlanRepository
+from tests.utils import _make_bundle
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
-
-
-def _make_bundle(novel_id: str) -> StructureContextBundle:
-    return StructureContextBundle(
-        novel_id=novel_id,
-        task="测试生成",
-        scope="full",
-        project={
-            "id": novel_id,
-            "title": "测试小说",
-            "genre": "仙侠",
-            "tone": "正剧",
-        },
-        world_entities=[
-            {"name": "霜华剑", "entity_type": "item", "summary": "上古神剑"},
-        ],
-        characters=[
-            {"name": "白砚", "role": "protagonist", "desire": "寻找真相"},
-        ],
-    )
 
 
 def _mock_llm_return_value() -> BaseModel:
