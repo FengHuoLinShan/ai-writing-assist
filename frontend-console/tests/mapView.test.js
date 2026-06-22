@@ -7,6 +7,7 @@
  * - mapView 列表渲染（空列表、有地图列表、XSS 转义）
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { resetState, clearDocument, createCanvasMock } from "./helpers.js"
 import {
   hexToPixel,
   pixelToHex,
@@ -46,37 +47,15 @@ import {
 import mapView from "../views/mapView.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
 
-/** 带 globalAlpha 追踪的 mock CanvasRenderingContext2D */
-function createRenderTestCtx() {
-  const alphaLog = []
-  return {
-    beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    closePath: vi.fn(),
-    fill: vi.fn(),
-    stroke: vi.fn(),
-    save: vi.fn(),
-    restore: vi.fn(),
-    setLineDash: vi.fn(),
-    set fillStyle(_v) {},
-    set strokeStyle(_v) {},
-    set lineWidth(_v) {},
-    set globalAlpha(v) { alphaLog.push(v) },
-    get globalAlpha() { return alphaLog[alphaLog.length - 1] },
-    alphaLog,
-  }
-}
-
 beforeEach(() => {
   // 防御：单文件运行时 setup.js 可能未在同一 worker 执行，兜底初始化全局
   if (!globalThis.state) {
     globalThis.state = { currentProjectId: null, currentSubView: null }
   }
-  globalThis.state.currentProjectId = null
+  resetState()
+  clearDocument()
   if (globalThis.api) vi.clearAllMocks()
   resetMapState()
-  if (typeof document !== "undefined") document.body.innerHTML = ""
 })
 
 // ============================================================
@@ -286,103 +265,78 @@ describe("mapHexRenderer 几何", () => {
   })
 
   describe("mapHexRenderer 聚焦透明度", () => {
-    it("drawTerrain 接受 getOpacity 回调并应用不同透明度", () => {
-      const ctx = createRenderTestCtx()
-      const tiles = [
-        { hex_q: 0, hex_r: 0, terrain_type: "grassland" },
-        { hex_q: 1, hex_r: 0, terrain_type: "water" },
-      ]
-      drawTerrain(ctx, tiles, 30, 0, 0, (q, r) => (q === 0 && r === 0 ? 0.3 : 1))
-      expect(ctx.alphaLog).toContain(0.3)
-      expect(ctx.alphaLog).toContain(1)
-    })
-
-    it("drawBindings 接受 getOpacity 回调", () => {
-      const ctx = createRenderTestCtx()
-      const bindings = [
-        { hex_q: 0, hex_r: 0, is_center: true },
-        { hex_q: 1, hex_r: 0, is_center: false },
-      ]
-      drawBindings(ctx, bindings, 30, 0, 0, true, (q, r) => (q === 0 && r === 0 ? 0.4 : 1))
-      expect(ctx.alphaLog).toContain(0.4)
-      expect(ctx.alphaLog).toContain(1)
-    })
-
-    it("drawPendingTerrain 把 getOpacity 与 pending 半透明相乘", () => {
-      const ctx = createRenderTestCtx()
-      drawPendingTerrain(ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "water" }], 30, 0, 0, () => 0.5)
-      expect(ctx.alphaLog).toContain(0.5 * 0.4)
-    })
-
-    it("drawPendingBindings 接受 getOpacity 回调", () => {
-      const ctx = createRenderTestCtx()
-      drawPendingBindings(ctx, [{ hex_q: 0, hex_r: 0, is_center: false }], 30, 0, 0, () => 0.6)
-      expect(ctx.alphaLog).toContain(0.6)
-    })
-
-    it("drawHoverHighlight 接受 opacity 参数", () => {
-      const ctx = createRenderTestCtx()
-      drawHoverHighlight(ctx, 0, 0, 30, 0, 0, 0.5)
-      expect(ctx.alphaLog).toContain(0.5)
-    })
-
-    it("drawTerritories 接受 getOpacity 回调", () => {
-      const ctx = createRenderTestCtx()
-      drawTerritories(ctx, [{ faction_id: "f1", hexes: [{ hex_q: 0, hex_r: 0 }] }], 30, 0, 0, {}, () => 0.6)
-      expect(ctx.alphaLog).toContain(0.6)
+    it.each([
+      {
+        name: "drawTerrain",
+        fn: drawTerrain,
+        args: (ctx) => [ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "grassland" }, { hex_q: 1, hex_r: 0, terrain_type: "water" }], 30, 0, 0, (q, r) => (q === 0 && r === 0 ? 0.3 : 1)],
+        expected: [0.3, 1],
+      },
+      {
+        name: "drawBindings",
+        fn: drawBindings,
+        args: (ctx) => [ctx, [{ hex_q: 0, hex_r: 0, is_center: true }, { hex_q: 1, hex_r: 0, is_center: false }], 30, 0, 0, true, (q, r) => (q === 0 && r === 0 ? 0.4 : 1)],
+        expected: [0.4, 1],
+      },
+      {
+        name: "drawPendingTerrain",
+        fn: drawPendingTerrain,
+        args: (ctx) => [ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "water" }], 30, 0, 0, () => 0.5],
+        expected: [0.5 * 0.4],
+      },
+      {
+        name: "drawPendingBindings",
+        fn: drawPendingBindings,
+        args: (ctx) => [ctx, [{ hex_q: 0, hex_r: 0, is_center: false }], 30, 0, 0, () => 0.6],
+        expected: [0.6],
+      },
+      {
+        name: "drawHoverHighlight",
+        fn: drawHoverHighlight,
+        args: (ctx) => [ctx, 0, 0, 30, 0, 0, 0.5],
+        expected: [0.5],
+      },
+      {
+        name: "drawTerritories",
+        fn: drawTerritories,
+        args: (ctx) => [ctx, [{ faction_id: "f1", hexes: [{ hex_q: 0, hex_r: 0 }] }], 30, 0, 0, {}, () => 0.6],
+        expected: [0.6],
+      },
+    ])("$name 接受 getOpacity 回调并应用不同透明度", ({ fn, args, expected }) => {
+      const ctx = createCanvasMock()
+      fn(...args(ctx))
+      for (const alpha of expected) {
+        expect(ctx.alphaLog).toContain(alpha)
+      }
     })
   })
 
   describe("mapHexRenderer 绘制辅助", () => {
-    it("drawPendingTerrain 绘制 pending 格", () => {
-      const ctx = {
-        beginPath: vi.fn(),
-        moveTo: vi.fn(),
-        lineTo: vi.fn(),
-        closePath: vi.fn(),
-        fill: vi.fn(),
-        stroke: vi.fn(),
-        save: vi.fn(),
-        restore: vi.fn(),
-        set globalAlpha(value) {},
+    it.each([
+      {
+        name: "drawPendingTerrain",
+        fn: drawPendingTerrain,
+        args: (ctx) => [ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "water" }], 30, 0, 0],
+        expected: ["beginPath", "fill"],
+      },
+      {
+        name: "drawPendingBindings",
+        fn: drawPendingBindings,
+        args: (ctx) => [ctx, [{ hex_q: 0, hex_r: 0, is_center: true }], 30, 0, 0],
+        expected: ["beginPath", "stroke"],
+      },
+      {
+        name: "drawHoverHighlight",
+        fn: drawHoverHighlight,
+        args: (ctx) => [ctx, 1, 1, 30, 0, 0],
+        expected: ["stroke"],
+      },
+    ])("$name 绘制对应图形", ({ fn, args, expected }) => {
+      const ctx = createCanvasMock()
+      fn(...args(ctx))
+      for (const method of expected) {
+        expect(ctx[method]).toHaveBeenCalled()
       }
-      drawPendingTerrain(ctx, [{ hex_q: 0, hex_r: 0, terrain_type: "water" }], 30, 0, 0)
-      expect(ctx.beginPath).toHaveBeenCalled()
-      expect(ctx.fill).toHaveBeenCalled()
-    })
-
-    it("drawPendingBindings 绘制 pending 地点绑定", () => {
-      const ctx = {
-        beginPath: vi.fn(),
-        moveTo: vi.fn(),
-        lineTo: vi.fn(),
-        closePath: vi.fn(),
-        stroke: vi.fn(),
-        fill: vi.fn(),
-        fillText: vi.fn(),
-        save: vi.fn(),
-        restore: vi.fn(),
-        setLineDash: vi.fn(),
-        set globalAlpha(value) {},
-      }
-      drawPendingBindings(ctx, [{ hex_q: 0, hex_r: 0, is_center: true }], 30, 0, 0)
-      expect(ctx.beginPath).toHaveBeenCalled()
-      expect(ctx.stroke).toHaveBeenCalled()
-    })
-
-    it("drawHoverHighlight 绘制悬停描边", () => {
-      const ctx = {
-        beginPath: vi.fn(),
-        moveTo: vi.fn(),
-        lineTo: vi.fn(),
-        closePath: vi.fn(),
-        stroke: vi.fn(),
-        save: vi.fn(),
-        restore: vi.fn(),
-        setLineDash: vi.fn(),
-      }
-      drawHoverHighlight(ctx, 1, 1, 30, 0, 0)
-      expect(ctx.stroke).toHaveBeenCalled()
     })
   })
 })
@@ -787,58 +741,78 @@ describe("mapView 详情面板", () => {
 })
 
 describe("mapView tooltip", () => {
-  it("_buildTooltipContent 对中心绑定返回地点名", () => {
-    mapView._state = {
-      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
-      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
-      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
-    }
-    mapView._locations = [{ id: "loc1", name: "洛阳" }]
-    const html = mapView._buildTooltipContent(1, 1)
-    expect(html).toContain("洛阳")
-    expect(html).toContain("中心")
-  })
+  const evil = `<img src=x onerror=alert(1)>`
 
-  it("_buildTooltipContent 对恶意地点名进行 XSS 转义", () => {
-    const evil = `<img src=x onerror=alert(1)>`
-    mapView._state = {
-      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
-      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
-      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
+  it.each([
+    {
+      name: "对中心绑定返回地点名",
+      state: {
+        map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+        tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+        location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
+      },
+      locations: [{ id: "loc1", name: "洛阳" }],
+      q: 1,
+      r: 1,
+      contain: ["洛阳", "中心"],
+    },
+    {
+      name: "对恶意地点名进行 XSS 转义",
+      state: {
+        map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+        tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+        location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true }],
+      },
+      locations: [{ id: "loc1", name: evil }],
+      q: 1,
+      r: 1,
+      contain: ["&lt;img"],
+      notContain: ["<img"],
+    },
+    {
+      name: "对非中心绑定不含中心标签",
+      state: {
+        map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+        tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "forest" }],
+        location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: false }],
+      },
+      locations: [{ id: "loc1", name: "洛阳" }],
+      q: 1,
+      r: 1,
+      contain: ["洛阳"],
+      notContain: ["中心"],
+    },
+    {
+      name: "对无绑定格返回地形",
+      state: {
+        map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+        tiles: [{ hex_q: 2, hex_r: 2, terrain_type: "water" }],
+        location_bindings: [],
+      },
+      locations: [],
+      q: 2,
+      r: 2,
+      contain: ["water"],
+    },
+  ])("_buildTooltipContent $name", ({ state, locations, q, r, contain, notContain }) => {
+    mapView._state = state
+    mapView._locations = locations
+    const html = mapView._buildTooltipContent(q, r)
+    for (const text of contain) {
+      expect(html).toContain(text)
     }
-    mapView._locations = [{ id: "loc1", name: evil }]
-    const html = mapView._buildTooltipContent(1, 1)
-    expect(html).not.toContain("<img")
-    expect(html).toContain("&lt;img")
-  })
-
-  it("_buildTooltipContent 对非中心绑定不含中心标签", () => {
-    mapView._state = {
-      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
-      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "forest" }],
-      location_bindings: [{ hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: false }],
+    for (const text of notContain || []) {
+      expect(html).not.toContain(text)
     }
-    mapView._locations = [{ id: "loc1", name: "洛阳" }]
-    const html = mapView._buildTooltipContent(1, 1)
-    expect(html).toContain("洛阳")
-    expect(html).not.toContain("中心")
-  })
-
-  it("_buildTooltipContent 对无绑定格返回地形", () => {
-    mapView._state = {
-      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
-      tiles: [{ hex_q: 2, hex_r: 2, terrain_type: "water" }],
-      location_bindings: [],
-    }
-    mapView._locations = []
-    const html = mapView._buildTooltipContent(2, 2)
-    expect(html).toContain("water")
   })
 })
 
 describe("mapView 拖拽绘制", () => {
-  it("_handleDragDraw brush 把新格加入 pending", () => {
+  beforeEach(() => {
     resetMapState()
+  })
+
+  it("_handleDragDraw brush 把新格加入 pending", () => {
     mapState.mode = "edit"
     mapState.activeTool = "brush"
     mapState.selectedTerrain = "water"
@@ -854,7 +828,6 @@ describe("mapView 拖拽绘制", () => {
   })
 
   it("bucket 单击正常填充", () => {
-    resetMapState()
     mapState.mode = "edit"
     mapState.activeTool = "bucket"
     mapState.selectedTerrain = "water"
@@ -876,7 +849,6 @@ describe("mapView 拖拽绘制", () => {
   })
 
   it("bind 拖拽加入 pending", () => {
-    resetMapState()
     mapState.mode = "edit"
     mapState.activeTool = "bind"
     mapState.selectedLocationEntityId = "loc1"
@@ -896,7 +868,6 @@ describe("mapView 拖拽绘制", () => {
   })
 
   it("out-of-grid 不加入 pending", () => {
-    resetMapState()
     mapState.mode = "edit"
     mapState.activeTool = "brush"
     mapState.selectedTerrain = "water"
@@ -993,66 +964,43 @@ describe("mapView 撤销", () => {
 })
 
 describe("mapHexRenderer 标记绘制", () => {
-  it("drawMarkers 绘制可见标记", () => {
-    const ctx = {
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      stroke: vi.fn(),
-      fillText: vi.fn(),
-      save: vi.fn(),
-      restore: vi.fn(),
-    }
-    const markers = [
-      { hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true, offset_x: 0, offset_y: 0 },
-    ]
+  it.each([
+    {
+      name: "绘制可见标记",
+      markers: [{ hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true, offset_x: 0, offset_y: 0 }],
+      expectArc: true,
+      expectFill: true,
+    },
+    {
+      name: "过滤不可见标记",
+      markers: [{ hex_q: 1, hex_r: 1, marker_type: "character", visible: false, offset_x: 0, offset_y: 0 }],
+      expectArc: false,
+    },
+    {
+      name: "空数组不绘制",
+      markers: [],
+      expectBeginPath: false,
+    },
+    {
+      name: "不同类型使用不同颜色",
+      markers: [
+        { hex_q: 1, hex_r: 1, marker_type: "event", visible: true, offset_x: 0, offset_y: 0 },
+        { hex_q: 2, hex_r: 2, marker_type: "item", visible: true, offset_x: 0, offset_y: 0 },
+      ],
+      expectArcTimes: 2,
+    },
+  ])("drawMarkers $name", ({ markers, expectArc, expectFill, expectBeginPath, expectArcTimes }) => {
+    const ctx = createCanvasMock()
     drawMarkers(ctx, markers, 30, 0, 0, null)
-    expect(ctx.arc).toHaveBeenCalled()
-    expect(ctx.fill).toHaveBeenCalled()
-  })
-
-  it("drawMarkers 过滤不可见标记", () => {
-    const ctx = {
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      stroke: vi.fn(),
-    }
-    const markers = [
-      { hex_q: 1, hex_r: 1, marker_type: "character", visible: false, offset_x: 0, offset_y: 0 },
-    ]
-    drawMarkers(ctx, markers, 30, 0, 0, null)
-    expect(ctx.arc).not.toHaveBeenCalled()
-  })
-
-  it("drawMarkers 空数组不绘制", () => {
-    const ctx = { beginPath: vi.fn() }
-    drawMarkers(ctx, [], 30, 0, 0, null)
-    expect(ctx.beginPath).not.toHaveBeenCalled()
-  })
-
-  it("drawMarkers 不同类型使用不同颜色", () => {
-    const ctx = {
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      stroke: vi.fn(),
-      fillText: vi.fn(),
-    }
-    const markers = [
-      { hex_q: 1, hex_r: 1, marker_type: "event", visible: true, offset_x: 0, offset_y: 0 },
-      { hex_q: 2, hex_r: 2, marker_type: "item", visible: true, offset_x: 0, offset_y: 0 },
-    ]
-    drawMarkers(ctx, markers, 30, 0, 0, null)
-    expect(ctx.arc).toHaveBeenCalledTimes(2)
+    if (expectArcTimes !== undefined) expect(ctx.arc).toHaveBeenCalledTimes(expectArcTimes)
+    if (expectArc === true) expect(ctx.arc).toHaveBeenCalled()
+    if (expectArc === false) expect(ctx.arc).not.toHaveBeenCalled()
+    if (expectFill === true) expect(ctx.fill).toHaveBeenCalled()
+    if (expectBeginPath === false) expect(ctx.beginPath).not.toHaveBeenCalled()
   })
 })
 
 describe("mapState P1 状态", () => {
-  beforeEach(() => {
-    resetMapState()
-  })
-
   it("setCurrentScene 设置 scene id", () => {
     setCurrentScene("scene-123")
     expect(mapState.currentSceneId).toBe("scene-123")
@@ -1098,67 +1046,68 @@ describe("mapView Scene 时间轴", () => {
 })
 
 describe("mapView marker 提示", () => {
-  it("_buildTooltipContent 对 marker 返回标记信息", () => {
-    mapView._state = {
-      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
-      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
-      location_bindings: [],
-      markers: [{ hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true }],
-    }
+  it.each([
+    {
+      name: "对 marker 返回标记信息",
+      state: {
+        map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+        tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+        location_bindings: [],
+        markers: [{ hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true }],
+      },
+      q: 1,
+      r: 1,
+      contain: ["张三", "人物"],
+    },
+    {
+      name: "marker 优先级高于纯地形",
+      state: {
+        map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+        tiles: [{ hex_q: 2, hex_r: 2, terrain_type: "mountain" }],
+        location_bindings: [],
+        markers: [{ hex_q: 2, hex_r: 2, marker_type: "event", label: "决战", visible: true }],
+      },
+      q: 2,
+      r: 2,
+      contain: ["决战", "事件"],
+    },
+  ])("_buildTooltipContent $name", ({ state, q, r, contain }) => {
+    mapView._state = state
     mapView._locations = []
-    const html = mapView._buildTooltipContent(1, 1)
-    expect(html).toContain("张三")
-    expect(html).toContain("人物")
-  })
-
-  it("_buildTooltipContent marker 优先级高于纯地形", () => {
-    mapView._state = {
-      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
-      tiles: [{ hex_q: 2, hex_r: 2, terrain_type: "mountain" }],
-      location_bindings: [],
-      markers: [{ hex_q: 2, hex_r: 2, marker_type: "event", label: "决战", visible: true }],
+    const html = mapView._buildTooltipContent(q, r)
+    for (const text of contain) {
+      expect(html).toContain(text)
     }
-    mapView._locations = []
-    const html = mapView._buildTooltipContent(2, 2)
-    expect(html).toContain("决战")
-    expect(html).toContain("事件")
   })
 })
 
 
 describe("mapView P2 势力范围", () => {
-  beforeEach(() => {
-    resetMapState()
-  })
+  const orgEntities = [{ id: "o1", entity_type: "organization", name: "青龙会" }]
 
-  it("_renderTerritoryTools 无组织时显示提示", () => {
-    mapView._allEntities = []
+  it.each([
+    { name: "无组织时显示提示", entities: [], contain: ["暂无组织实体"] },
+    { name: "有组织时显示选择器", entities: orgEntities, contain: ["青龙会", "map-territory-faction"] },
+  ])("_renderTerritoryTools $name", ({ entities, contain }) => {
+    mapView._allEntities = entities
     const html = mapView._renderTerritoryTools()
-    expect(html).toContain("暂无组织实体")
+    for (const text of contain) {
+      expect(html).toContain(text)
+    }
   })
 
-  it("_renderTerritoryTools 有组织时显示选择器", () => {
-    mapView._allEntities = [
-      { id: "o1", entity_type: "organization", name: "青龙会" },
-    ]
-    const html = mapView._renderTerritoryTools()
-    expect(html).toContain("青龙会")
-    expect(html).toContain("map-territory-faction")
-  })
-
-  it("_renderFactionList 无组织时返回空", () => {
-    mapView._allEntities = []
+  it.each([
+    { name: "无组织时返回空", entities: [], expected: "" },
+    { name: "有组织时显示标签", entities: orgEntities, contain: ["青龙会", "map-focus-toggle"] },
+  ])("_renderFactionList $name", ({ entities, expected, contain }) => {
+    mapView._allEntities = entities
     const html = mapView._renderFactionList()
-    expect(html).toBe("")
-  })
-
-  it("_renderFactionList 有组织时显示标签", () => {
-    mapView._allEntities = [
-      { id: "o1", entity_type: "organization", name: "青龙会" },
-    ]
-    const html = mapView._renderFactionList()
-    expect(html).toContain("青龙会")
-    expect(html).toContain("map-focus-toggle")
+    if (expected !== undefined) {
+      expect(html).toBe(expected)
+    }
+    for (const text of contain || []) {
+      expect(html).toContain(text)
+    }
   })
 
   it("聚焦模式切换", () => {
@@ -1169,39 +1118,33 @@ describe("mapView P2 势力范围", () => {
     expect(mapState.focusMode).toBe(false)
   })
 
-  it("_getHexOpacity 非聚焦模式返回 1.0", () => {
-    mapState.focusMode = false
-    expect(mapView._getHexOpacity(1, 1)).toBe(1.0)
-  })
-
-  it("_getHexOpacity 聚焦模式关联格返回 1.0", () => {
-    mapState.focusMode = true
-    mapState.focusRelatedHexes = new Set(["1,1"])
-    expect(mapView._getHexOpacity(1, 1)).toBe(1.0)
-  })
-
-  it("_getHexOpacity 聚焦模式非关联格返回 0.3", () => {
-    mapState.focusMode = true
-    mapState.focusRelatedHexes = new Set(["1,1"])
-    expect(mapView._getHexOpacity(2, 2)).toBe(0.3)
+  it.each([
+    { name: "非聚焦模式返回 1.0", focusMode: false, related: [], q: 1, r: 1, expected: 1.0 },
+    { name: "聚焦模式关联格返回 1.0", focusMode: true, related: ["1,1"], q: 1, r: 1, expected: 1.0 },
+    { name: "聚焦模式非关联格返回 0.3", focusMode: true, related: ["1,1"], q: 2, r: 2, expected: 0.3 },
+  ])("_getHexOpacity $name", ({ focusMode, related, q, r, expected }) => {
+    mapState.focusMode = focusMode
+    mapState.focusRelatedHexes = new Set(related)
+    expect(mapView._getHexOpacity(q, r)).toBe(expected)
   })
 })
 
 describe("mapHexRenderer P2 drawTerritories", () => {
-  it("drawTerritories 空数组不绘制", () => {
-    const ctx = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn() }
-    drawTerritories(ctx, [], 30, 0, 0, {})
-    expect(ctx.beginPath).not.toHaveBeenCalled()
-  })
-
-  it("drawTerritories 绘制势力范围", () => {
-    const ctx = { beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn(), save: vi.fn(), restore: vi.fn(), setLineDash: vi.fn(), fillStyle: "", strokeStyle: "", lineWidth: 0 }
-    const territories = [
-      { faction_id: "f1", hexes: [{ hex_q: 1, hex_r: 1 }] },
-    ]
-    drawTerritories(ctx, territories, 30, 0, 0, { f1: "#FF0000" })
-    expect(ctx.beginPath).toHaveBeenCalled()
-    expect(ctx.fillStyle).toContain("FF0000")
+  it.each([
+    { name: "空数组不绘制", territories: [], colorMap: {}, expectBeginPath: false },
+    { name: "绘制势力范围", territories: [{ faction_id: "f1", hexes: [{ hex_q: 1, hex_r: 1 }] }], colorMap: { f1: "#FF0000" }, expectBeginPath: true, fillStyleContains: "FF0000" },
+  ])("drawTerritories $name", ({ territories, colorMap, expectBeginPath, fillStyleContains }) => {
+    const ctx = createCanvasMock()
+    drawTerritories(ctx, territories, 30, 0, 0, colorMap)
+    if (expectBeginPath) {
+      expect(ctx.beginPath).toHaveBeenCalled()
+    } else {
+      expect(ctx.beginPath).not.toHaveBeenCalled()
+    }
+    if (fillStyleContains) {
+      // createCanvasMock 默认不记录 fillStyle，用 recordCalls 记录
+      expect(ctx.fillStyle).toContain(fillStyleContains)
+    }
   })
 
   it("hashColor 生成确定性颜色", () => {

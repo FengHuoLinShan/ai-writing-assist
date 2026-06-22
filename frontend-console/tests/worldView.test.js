@@ -5,10 +5,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import worldView from "../views/worldView.js"
+import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
 
 beforeEach(() => {
-  state.currentProjectId = null
-  state.currentSubView = null
+  resetState()
   worldView._entities = []
   worldView._batches = []
   worldView._total = 0
@@ -54,7 +54,7 @@ describe("onEnter", () => {
 // render
 // ============================================================
 
-describe("render", () => {
+describe("worldView render", () => {
   it("渲染子标签导航（无候选清洗）", async () => {
     const html = await worldView.render()
     expect(html).toContain("对象库")
@@ -156,7 +156,7 @@ describe("对象库", () => {
   })
 
   describe("deleteEntity", () => {
-    it("调用 confirmAction", () => {
+    it("deleteEntity 调用 confirmAction", () => {
       worldView._entities = [{ id: "e1", name: "王都" }]
       worldView.deleteEntity("e1")
       expect(confirmAction).toHaveBeenCalled()
@@ -164,7 +164,7 @@ describe("对象库", () => {
   })
 
   describe("_showCreateForm", () => {
-    it("调用 showModal 显示表单", () => {
+    it("_showCreateForm 调用 showModal 显示表单", () => {
       worldView._showCreateForm()
       expect(showModal).toHaveBeenCalled()
       const html = vi.mocked(showModal).mock.calls[0][1]
@@ -176,10 +176,10 @@ describe("对象库", () => {
       api.world.createEntity
         .mockRejectedValueOnce({ status: 409, message: "Conflict", detail: { requires_confirmation: true, similar_entities: [{ id: "e1", name: "张三" }] } })
         .mockResolvedValueOnce({ id: "e2", name: "张三" })
-      confirmAction.mockImplementation((_msg, onConfirm) => onConfirm())
+      autoConfirm()
 
       worldView._showCreateForm()
-      const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
+      const handler = captureModalHandler()
 
       document.body.innerHTML = `
         <input id="create-entity-name" value="张三" />
@@ -203,7 +203,7 @@ describe("对象库", () => {
 
 describe("关系", () => {
   describe("_renderRelations", () => {
-    it("无项目显示空提示", async () => {
+    it("_renderRelations 无项目显示空提示", async () => {
       const html = await worldView._renderRelations()
       expect(html).toContain("请先选择项目")
     })
@@ -217,14 +217,14 @@ describe("关系", () => {
   })
 
   describe("showRelationCreateForm", () => {
-    it("调用 showModal", () => {
+    it("showRelationCreateForm 调用 showModal", () => {
       worldView.showRelationCreateForm()
       expect(showModal).toHaveBeenCalled()
     })
   })
 
   describe("deleteRelation", () => {
-    it("调用 confirmAction", () => {
+    it("deleteRelation 调用 confirmAction", () => {
       worldView.deleteRelation("r1")
       expect(confirmAction).toHaveBeenCalled()
     })
@@ -237,7 +237,7 @@ describe("关系", () => {
 
 describe("别名", () => {
   describe("_renderAliases", () => {
-    it("无项目显示空提示", async () => {
+    it("_renderAliases 无项目显示空提示", async () => {
       const html = await worldView._renderAliases()
       expect(html).toContain("请先选择项目")
     })
@@ -265,7 +265,7 @@ describe("别名", () => {
       api.world.createAlias.mockResolvedValue({ id: "a1" })
       worldView.showAliasCreateForm()
 
-      const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
+      const handler = captureModalHandler()
       document.body.innerHTML = `
         <select id="alias-entity"><option value="e1" selected>主角 (character)</option></select>
         <input id="alias-text" value="小名" />
@@ -351,86 +351,95 @@ describe("合并、回滚与知识边界", () => {
     state.currentProjectId = "p1"
   })
 
-  it("_mergeEntity 调用 API 并刷新", async () => {
-    api.world.mergeEntity.mockResolvedValue({ target_entity_id: "target-1" })
-
+  it.each([
+    {
+      name: "调用 API 并刷新",
+      mock: () => api.world.mergeEntity.mockResolvedValue({ target_entity_id: "target-1" }),
+      expectedCall: ["candidate-1", "target-1", "p1"],
+      expectedToast: ["实体已合并", "success"],
+      refresh: true,
+    },
+    {
+      name: "API 错误时显示错误提示",
+      mock: () => api.world.mergeEntity.mockRejectedValue(new Error("合并失败")),
+      expectedToast: ["合并失败", "error"],
+    },
+  ])("_mergeEntity $name", async ({ mock, expectedCall, expectedToast, refresh }) => {
+    mock()
     await worldView._mergeEntity("candidate-1", "target-1")
-
-    expect(api.world.mergeEntity).toHaveBeenCalledWith("candidate-1", "target-1", "p1")
-    expect(toast).toHaveBeenCalledWith("实体已合并", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    if (expectedCall) {
+      expect(api.world.mergeEntity).toHaveBeenCalledWith(...expectedCall)
+    }
+    expect(toast).toHaveBeenCalledWith(...expectedToast)
+    if (refresh) {
+      expect(router.refresh).toHaveBeenCalled()
+    }
   })
 
-  it("_mergeEntity API 错误时显示错误提示", async () => {
-    api.world.mergeEntity.mockRejectedValue(new Error("合并失败"))
-
-    await worldView._mergeEntity("candidate-1", "target-1")
-
-    expect(toast).toHaveBeenCalledWith("合并失败", "error")
-  })
-
-  it("_rollbackEntity 调用 API 并刷新（无警告）", async () => {
-    api.world.rollbackEntity.mockResolvedValue({})
-
+  it.each([
+    {
+      name: "调用 API 并刷新（无警告）",
+      mock: () => api.world.rollbackEntity.mockResolvedValue({}),
+      expectedCall: ["entity-1", 12, "p1"],
+      expectedToast: ["回滚完成", "success"],
+      refresh: true,
+    },
+    {
+      name: "显示警告当结果含 warnings",
+      mock: () => api.world.rollbackEntity.mockResolvedValue({ warnings: ["某字段缺失"] }),
+      expectedToast: ["回滚完成，存在警告", "warning"],
+    },
+    {
+      name: "API 错误时显示错误提示",
+      mock: () => api.world.rollbackEntity.mockRejectedValue(new Error("回滚失败")),
+      expectedToast: ["回滚失败", "error"],
+    },
+  ])("_rollbackEntity $name", async ({ mock, expectedCall, expectedToast, refresh }) => {
+    mock()
     await worldView._rollbackEntity("entity-1", 12)
-
-    expect(api.world.rollbackEntity).toHaveBeenCalledWith("entity-1", 12, "p1")
-    expect(toast).toHaveBeenCalledWith("回滚完成", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    if (expectedCall) {
+      expect(api.world.rollbackEntity).toHaveBeenCalledWith(...expectedCall)
+    }
+    expect(toast).toHaveBeenCalledWith(...expectedToast)
+    if (refresh) {
+      expect(router.refresh).toHaveBeenCalled()
+    }
   })
 
-  it("_rollbackEntity 显示警告当结果含 warnings", async () => {
-    api.world.rollbackEntity.mockResolvedValue({ warnings: ["某字段缺失"] })
-
-    await worldView._rollbackEntity("entity-1", 12)
-
-    expect(toast).toHaveBeenCalledWith("回滚完成，存在警告", "warning")
-  })
-
-  it("_rollbackEntity API 错误时显示错误提示", async () => {
-    api.world.rollbackEntity.mockRejectedValue(new Error("回滚失败"))
-
-    await worldView._rollbackEntity("entity-1", 12)
-
-    expect(toast).toHaveBeenCalledWith("回滚失败", "error")
-  })
-
-  it("_createKnowledge 校验 false_belief 必须填写误解", async () => {
-    await worldView._createKnowledge("char-1", {
-      target_entity_id: "entity-1",
-      knowledge_level: "false_belief",
-      known_content: "他以为真相如此",
-    })
-
-    expect(toast).toHaveBeenCalledWith("错误认知必须填写误解内容", "warning")
-    expect(api.world.createKnowledge).not.toHaveBeenCalled()
-  })
-
-  it("_createKnowledge 调用 API 并刷新", async () => {
-    api.world.createKnowledge.mockResolvedValue({ id: "k1" })
-
-    await worldView._createKnowledge("char-1", {
-      target_entity_id: "entity-1",
-      knowledge_level: "false_belief",
-      known_content: "他以为真相如此",
-      misconception: "错误认知",
-    })
-
-    expect(api.world.createKnowledge).toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("知识边界已添加", "success")
-    expect(router.refresh).toHaveBeenCalled()
-  })
-
-  it("_createKnowledge API 错误时显示错误提示", async () => {
-    api.world.createKnowledge.mockRejectedValue(new Error("创建失败"))
-
-    await worldView._createKnowledge("char-1", {
-      target_entity_id: "entity-1",
-      knowledge_level: "full",
-      known_content: "他知道真相",
-    })
-
-    expect(toast).toHaveBeenCalledWith("创建失败", "error")
+  it.each([
+    {
+      name: "校验 false_belief 必须填写误解",
+      payload: { target_entity_id: "entity-1", knowledge_level: "false_belief", known_content: "他以为真相如此" },
+      expectedToast: ["错误认知必须填写误解内容", "warning"],
+      apiCalled: false,
+    },
+    {
+      name: "调用 API 并刷新",
+      mock: () => api.world.createKnowledge.mockResolvedValue({ id: "k1" }),
+      payload: { target_entity_id: "entity-1", knowledge_level: "false_belief", known_content: "他以为真相如此", misconception: "错误认知" },
+      expectedToast: ["知识边界已添加", "success"],
+      apiCalled: true,
+      refresh: true,
+    },
+    {
+      name: "API 错误时显示错误提示",
+      mock: () => api.world.createKnowledge.mockRejectedValue(new Error("创建失败")),
+      payload: { target_entity_id: "entity-1", knowledge_level: "full", known_content: "他知道真相" },
+      expectedToast: ["创建失败", "error"],
+      apiCalled: true,
+    },
+  ])("_createKnowledge $name", async ({ mock, payload, expectedToast, apiCalled, refresh }) => {
+    if (mock) mock()
+    await worldView._createKnowledge("char-1", payload)
+    if (apiCalled) {
+      expect(api.world.createKnowledge).toHaveBeenCalled()
+    } else {
+      expect(api.world.createKnowledge).not.toHaveBeenCalled()
+    }
+    expect(toast).toHaveBeenCalledWith(...expectedToast)
+    if (refresh) {
+      expect(router.refresh).toHaveBeenCalled()
+    }
   })
 })
 

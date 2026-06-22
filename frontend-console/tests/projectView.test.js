@@ -7,12 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import projectView from "../views/projectView.js"
+import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
 
 // 清理全局状态，确保各测试隔离
 beforeEach(() => {
-  state.currentProjectId = null
-  state.currentProject = null
-  state.projects = []
+  resetState()
   vi.clearAllMocks()
 })
 
@@ -115,15 +114,14 @@ describe("projectView", () => {
       api.projects.create.mockResolvedValue({ id: "p-new", title: "新项目" })
       projectView.showCreateForm()
 
-      const showModalMock = vi.mocked(globalThis.showModal)
-      const buttons = showModalMock.mock.calls[0][2]
+      const handler = captureModalHandler()
       // 模拟用户输入
       const titleInput = document.createElement("input")
       titleInput.id = "create-title"
       titleInput.value = "新项目"
       document.body.appendChild(titleInput)
 
-      await buttons[0].handler()
+      await handler()
 
       expect(api.projects.create).toHaveBeenCalledWith({
         title: "新项目",
@@ -141,14 +139,13 @@ describe("projectView", () => {
       api.projects.create.mockResolvedValue({ id: "p-new", title: "新项目" })
       projectView.showCreateForm()
 
-      const showModalMock = vi.mocked(globalThis.showModal)
-      const buttons = showModalMock.mock.calls[0][2]
+      const handler = captureModalHandler()
       const titleInput = document.createElement("input")
       titleInput.id = "create-title"
       titleInput.value = ""
       document.body.appendChild(titleInput)
 
-      await buttons[0].handler()
+      await handler()
 
       expect(api.projects.create).not.toHaveBeenCalled()
       expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
@@ -191,8 +188,7 @@ describe("projectView", () => {
       api.projects.update.mockResolvedValue(updated)
 
       projectView.editProject("p1")
-      const showModalMock = vi.mocked(globalThis.showModal)
-      const buttons = showModalMock.mock.calls[0][2]
+      const handler = captureModalHandler()
 
       const titleInput = document.createElement("input")
       titleInput.id = "edit-title"
@@ -214,7 +210,7 @@ describe("projectView", () => {
       targetSelect.innerHTML = `<option value="">未设置</option><option value="epic" selected>史诗</option>`
       document.body.appendChild(targetSelect)
 
-      await buttons[0].handler()
+      await handler()
 
       expect(api.projects.update).toHaveBeenCalledWith("p1", {
         title: "项目A-改",
@@ -252,10 +248,7 @@ describe("projectView", () => {
     it("确认后删除并调用 router.refresh 刷新列表", async () => {
       state.projects = [{ id: "p1", title: "项目A" }]
       api.projects.remove.mockResolvedValue({})
-      // 让 confirmAction 立即执行确认回调
-      vi.mocked(globalThis.confirmAction).mockImplementation(async (_msg, onConfirm) => {
-        await onConfirm()
-      })
+      autoConfirm()
 
       projectView.deleteProject("p1")
       // 等待 confirmAction 内的异步回调结算

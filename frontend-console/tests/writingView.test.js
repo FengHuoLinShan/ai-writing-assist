@@ -3,12 +3,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import writingView from "../views/writingView.js"
+import { resetState, clearDocument, autoConfirm, stubMethod } from "./helpers.js"
 
 beforeEach(() => {
-  state.currentProjectId = null
-  state.currentProject = null
-  state.viewStates = {}
-  document.body.innerHTML = ""
+  resetState()
+  clearDocument()
   writingView._chapters = {}
   writingView._chapterList = []
   writingView._currentChapter = null
@@ -23,7 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe("render", () => {
+describe("writingView render", () => {
   it("loading 状态显示加载中", async () => {
     writingView._loading = true
     const html = await writingView.render()
@@ -50,7 +49,7 @@ describe("render", () => {
   })
 })
 
-describe("onEnter", () => {
+describe("writingView onEnter", () => {
   it("无项目时 loading=false", async () => {
     await writingView.onEnter()
     expect(writingView._loading).toBe(false)
@@ -225,7 +224,7 @@ describe("cursor events", () => {
 
 describe("_bindEvents", () => {
   it("autosave 按钮触发 _autosave", () => {
-    const spy = vi.spyOn(writingView, "_autosave").mockImplementation(() => {})
+    const spy = stubMethod(writingView, "_autosave")
     document.body.innerHTML = '<div id="workspace-content"><button data-action="autosave">x</button></div>'
     writingView._bindEvents()
     document.querySelector("#workspace-content button").click()
@@ -248,7 +247,7 @@ describe("_submitDeepImport", () => {
         status: "pending",
         requires_confirmation: false,
       })
-    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    autoConfirm()
     const pollingSpy = vi
       .spyOn(writingView, "_startDeepImportPolling")
       .mockImplementation(() => {})
@@ -281,55 +280,63 @@ describe("_recoverDeepImportTask", () => {
     expect(api.tasks.get).not.toHaveBeenCalled()
   })
 
-  it("已完成的 task 显示进度后清理 localStorage", async () => {
-    localStorage.setItem("novel_deepImportTaskId", "task-done")
-    api.tasks.get.mockResolvedValue({
-      status: "done",
-      result: { message: "导入完成: 5 个 Scene" },
-    })
+  it.each([
+    {
+      name: "已完成",
+      taskId: "task-done",
+      response: { status: "done", result: { message: "导入完成: 5 个 Scene" } },
+      expectedTaskId: "task-done",
+      expectedPhase: "done",
+      clearStorage: true,
+    },
+    {
+      name: "运行中",
+      taskId: "task-running",
+      response: { status: "running", result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" } },
+      expectedTaskId: "task-running",
+      expectedPhase: "running",
+      polling: true,
+      clearStorage: false,
+    },
+    {
+      name: "失败",
+      taskId: "task-failed",
+      response: { status: "failed", result: { message: "解析失败" } },
+      expectedPhase: "done",
+      expectedPercent: 100,
+      clearStorage: true,
+    },
+    {
+      name: "API 异常",
+      taskId: "task-err",
+      reject: true,
+      clearStorage: true,
+    },
+  ])("$name task 恢复行为正确", async ({ taskId, response, reject, expectedTaskId, expectedPhase, expectedPercent, polling, clearStorage }) => {
+    localStorage.setItem("novel_deepImportTaskId", taskId)
+    if (reject) {
+      api.tasks.get.mockRejectedValue(new Error("network error"))
+    } else {
+      api.tasks.get.mockResolvedValue(response)
+    }
 
     await writingView._recoverDeepImportTask()
 
-    expect(writingView._deepImportTaskId).toBe("task-done")
-    expect(writingView._deepImportProgress.phase).toBe("done")
-    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
-  })
-
-  it("运行中的 task 恢复轮询", async () => {
-    localStorage.setItem("novel_deepImportTaskId", "task-running")
-    api.tasks.get.mockResolvedValue({
-      status: "running",
-      result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" },
-    })
-
-    await writingView._recoverDeepImportTask()
-
-    expect(writingView._deepImportTaskId).toBe("task-running")
-    expect(writingView._deepImportProgress.phase).toBe("running")
-    expect(writingView._startDeepImportPolling).toHaveBeenCalled()
-  })
-
-  it("失败的 task 显示失败消息后清理 localStorage", async () => {
-    localStorage.setItem("novel_deepImportTaskId", "task-failed")
-    api.tasks.get.mockResolvedValue({
-      status: "failed",
-      result: { message: "解析失败" },
-    })
-
-    await writingView._recoverDeepImportTask()
-
-    expect(writingView._deepImportProgress.phase).toBe("done")
-    expect(writingView._deepImportProgress.percent).toBe(100)
-    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
-  })
-
-  it("API 异常时清理 localStorage", async () => {
-    localStorage.setItem("novel_deepImportTaskId", "task-err")
-    api.tasks.get.mockRejectedValue(new Error("network error"))
-
-    await writingView._recoverDeepImportTask()
-
-    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+    if (expectedTaskId !== undefined) {
+      expect(writingView._deepImportTaskId).toBe(expectedTaskId)
+    }
+    if (expectedPhase !== undefined) {
+      expect(writingView._deepImportProgress.phase).toBe(expectedPhase)
+    }
+    if (expectedPercent !== undefined) {
+      expect(writingView._deepImportProgress.percent).toBe(expectedPercent)
+    }
+    if (polling) {
+      expect(writingView._startDeepImportPolling).toHaveBeenCalled()
+    }
+    if (clearStorage) {
+      expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+    }
   })
 
   it("onActivate 也会触发恢复", async () => {
@@ -349,17 +356,41 @@ describe("_recoverDeepImportTask", () => {
 })
 
 describe("_showSplitSceneForm", () => {
-  it("无当前章节时提示", async () => {
-    writingView._currentChapter = null
+  it.each([
+    {
+      name: "无当前章节时提示",
+      setup: () => { writingView._currentChapter = null; writingView._scenes = [] },
+      body: "",
+      expectedToast: "请先选择章节",
+    },
+    {
+      name: "无当前 Scene 时提示",
+      setup: () => { writingView._currentChapter = 1; writingView._scenes = [] },
+      body: "",
+      expectedToast: "当前章节未关联 Scene",
+    },
+    {
+      name: "无编辑器或内容过短时提示无法断章",
+      setup: () => { writingView._currentChapter = 3; writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }] },
+      body: "",
+      expectedToast: "当前章节内容太短，无法断章",
+      expectModal: false,
+    },
+    {
+      name: "编辑器内容少于 2 个字符时提示无法断章",
+      setup: () => { writingView._currentChapter = 3; writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }] },
+      body: '<textarea id="writing-editor">a</textarea>',
+      expectedToast: "当前章节内容太短，无法断章",
+      expectModal: false,
+    },
+  ])("$name", async ({ setup, body, expectedToast, expectModal }) => {
+    setup()
+    document.body.innerHTML = body
     await writingView._showSplitSceneForm()
-    expect(toast).toHaveBeenCalledWith("请先选择章节", "warning")
-  })
-
-  it("无当前 Scene 时提示", async () => {
-    writingView._currentChapter = 1
-    writingView._scenes = []
-    await writingView._showSplitSceneForm()
-    expect(toast).toHaveBeenCalledWith("当前章节未关联 Scene", "warning")
+    expect(toast).toHaveBeenCalledWith(expectedToast, "warning")
+    if (expectModal === false) {
+      expect(showModal).not.toHaveBeenCalled()
+    }
   })
 
   it("展示断章弹窗并使用编辑器光标位置", async () => {
@@ -375,28 +406,6 @@ describe("_showSplitSceneForm", () => {
     const [, html] = showModal.mock.calls[0]
     expect(html).toContain("split-pos")
     expect(html).toContain('value="5"')
-  })
-
-  it("无编辑器或内容过短时提示无法断章", async () => {
-    writingView._currentChapter = 3
-    writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }]
-    document.body.innerHTML = ""
-
-    await writingView._showSplitSceneForm()
-
-    expect(showModal).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("当前章节内容太短，无法断章", "warning")
-  })
-
-  it("编辑器内容少于 2 个字符时提示无法断章", async () => {
-    writingView._currentChapter = 3
-    writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }]
-    document.body.innerHTML = '<textarea id="writing-editor">a</textarea>'
-
-    await writingView._showSplitSceneForm()
-
-    expect(showModal).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("当前章节内容太短，无法断章", "warning")
   })
 })
 

@@ -4,7 +4,7 @@ import contextView from "../views/contextView.js"
 beforeEach(() => { vi.clearAllMocks(); contextView._lastBundle = null })
 
 describe("contextView", () => {
-  describe("render", () => {
+  describe("contextView render", () => {
     it("包含编译和渲染按钮", async () => {
       const html = await contextView.render()
       expect(html).toContain("data-action")

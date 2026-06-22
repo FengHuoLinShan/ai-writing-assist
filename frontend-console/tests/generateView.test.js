@@ -4,7 +4,7 @@ import generateView from "../views/generateView.js"
 beforeEach(() => { vi.clearAllMocks(); generateView._currentType = null })
 
 describe("generateView", () => {
-  describe("render", () => {
+  describe("generateView render", () => {
     it("包含生成类型卡片", async () => {
       const html = await generateView.render()
       expect(html).toContain("世界与人物结构")
