@@ -341,3 +341,50 @@ class MapMarkerResponse(BaseModel):
     @classmethod
     def _coerce_optional_uuid(cls, v: object) -> str | None:
         return _optional_uuid_validator(v)
+
+
+# ============================================================
+# MapTerritoryTile — 势力范围（P2）
+# ============================================================
+
+
+class TerritoryHex(BaseModel):
+    """单格势力范围。"""
+
+    hex_q: int = Field(..., ge=0)
+    hex_r: int = Field(..., ge=0)
+    style_override: dict | None = Field(None)
+
+
+class MapTerritoryCreate(BaseModel):
+    """批量创建势力范围请求体。"""
+
+    faction_entity_id: str = Field(
+        ..., description="组织实体 ID（entity_type=organization）"
+    )
+    hexes: list[TerritoryHex] = Field(..., min_length=1, max_length=5000)
+
+
+class MapTerritoryUpdate(BaseModel):
+    """更新单格势力范围样式。"""
+
+    style_override: dict | None = Field(None)
+
+
+class MapTerritoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    faction_entity_id: str
+    hex_q: int
+    hex_r: int
+    style_override: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("id", "novel_id", "map_id", "faction_entity_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)

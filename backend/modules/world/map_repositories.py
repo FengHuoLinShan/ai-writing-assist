@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -21,19 +21,77 @@ from modules.world.map_models import (
     MapConfig,
     MapLocationBinding,
     MapMarker,
+    MapTerritoryTile,
     MapTile,
-)
-from modules.world.map_schemas import (
-    BindingHex,
-    MapConfigCreate,
-    MapConfigUpdate,
-    MapLocationBindingUpdate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTileChange,
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# MapEntityRepository — 放置型地图实体泛型基类
+# ============================================================
+
+
+class MapEntityRepository[ModelT]:
+    """放置型地图实体（Binding / Marker / Territory）的通用 CRUD 基类。
+
+    Invariants:
+      - 所有查询强制 novel_id 隔离。
+      - 方法只接受离散参数或 plain dict，不依赖 Pydantic schema。
+      - 子类通过 ClassVar ``model_class`` 绑定具体 ORM 模型。
+      - 特殊查询（scene 过滤、中心点、批量创建等）在子类中扩展。
+    """
+
+    model_class: ClassVar[type[ModelT]]
+
+    async def get(
+        self,
+        db: AsyncSession,
+        entity_id: uuid.UUID,
+    ) -> ModelT | None:
+        stmt = select(self.model_class).where(self.model_class.id == entity_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> list[ModelT]:
+        stmt = select(self.model_class).where(
+            self.model_class.novel_id == novel_id,
+            self.model_class.map_id == map_id,
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update(
+        self,
+        db: AsyncSession,
+        entity_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> ModelT | None:
+        if values:
+            stmt = (
+                update(self.model_class)
+                .where(self.model_class.id == entity_id)
+                .values(**values)
+            )
+            await db.execute(stmt)
+            await db.flush()
+        return await self.get(db, entity_id)
+
+    async def delete(
+        self,
+        db: AsyncSession,
+        entity_id: uuid.UUID,
+    ) -> bool:
+        stmt = delete(self.model_class).where(self.model_class.id == entity_id)
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0
+
 
 # ============================================================
 # MapConfigRepository
@@ -79,21 +137,10 @@ class MapConfigRepository:
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
-        data: MapConfigCreate,
+        values: dict[str, Any],
     ) -> MapConfig:
-        config = MapConfig(
-            novel_id=novel_id,
-            name=data.name,
-            map_type=data.map_type,
-            description=data.description,
-            grid_width=data.grid_width,
-            grid_height=data.grid_height,
-            hex_size=data.hex_size,
-            parent_map_id=uuid.UUID(data.parent_map_id) if data.parent_map_id else None,
-            parent_entity_id=(
-                uuid.UUID(data.parent_entity_id) if data.parent_entity_id else None
-            ),
-        )
+        """使用已构造的 plain dict 创建地图配置。"""
+        config = MapConfig(novel_id=novel_id, **values)
         db.add(config)
         await db.flush()
         return config
@@ -102,20 +149,8 @@ class MapConfigRepository:
         self,
         db: AsyncSession,
         map_id: uuid.UUID,
-        data: MapConfigUpdate,
+        values: dict[str, Any],
     ) -> MapConfig | None:
-        values: dict[str, Any] = {}
-        for field in (
-            "name",
-            "description",
-            "default_center_x",
-            "default_center_y",
-            "default_zoom",
-            "sort_order",
-        ):
-            value = getattr(data, field, None)
-            if value is not None:
-                values[field] = value
         if values:
             stmt = update(MapConfig).where(MapConfig.id == map_id).values(**values)
             await db.execute(stmt)
@@ -173,17 +208,21 @@ class MapTileRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
-        tiles: list[MapTileChange],
+        tiles: list[dict[str, Any]],
     ) -> int:
-        """批量创建 tile（用于初始化地图）。"""
+        """批量创建 tile（用于初始化地图）。
+
+        ``tiles`` 为 service 层构造的 plain dict 列表，
+        已含 hex_q / hex_r / terrain_type / elevation。
+        """
         objs = [
             MapTile(
                 novel_id=novel_id,
                 map_id=map_id,
-                hex_q=t.hex_q,
-                hex_r=t.hex_r,
-                terrain_type=t.terrain_type,
-                elevation=t.elevation or 0,
+                hex_q=t["hex_q"],
+                hex_r=t["hex_r"],
+                terrain_type=t["terrain_type"],
+                elevation=t.get("elevation") or 0,
             )
             for t in tiles
         ]
@@ -196,7 +235,7 @@ class MapTileRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
-        changes: list[MapTileChange],
+        changes: list[dict[str, Any]],
     ) -> int:
         """批量 upsert 地形（编辑模式"应用"）。
 
@@ -217,16 +256,16 @@ class MapTileRepository:
                 .values(
                     novel_id=novel_id,
                     map_id=map_id,
-                    hex_q=change.hex_q,
-                    hex_r=change.hex_r,
-                    terrain_type=change.terrain_type,
-                    elevation=change.elevation or 0,
+                    hex_q=change["hex_q"],
+                    hex_r=change["hex_r"],
+                    terrain_type=change["terrain_type"],
+                    elevation=change.get("elevation") or 0,
                 )
                 .on_conflict_do_update(
                     index_elements=["map_id", "hex_q", "hex_r"],
                     set_={
-                        "terrain_type": change.terrain_type,
-                        "elevation": change.elevation or 0,
+                        "terrain_type": change["terrain_type"],
+                        "elevation": change.get("elevation") or 0,
                     },
                 )
             )
@@ -255,30 +294,10 @@ class MapTileRepository:
 # ============================================================
 
 
-class MapLocationBindingRepository:
+class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
     """地点绑定数据访问。"""
 
-    async def get(
-        self,
-        db: AsyncSession,
-        binding_id: uuid.UUID,
-    ) -> MapLocationBinding | None:
-        stmt = select(MapLocationBinding).where(MapLocationBinding.id == binding_id)
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_by_map(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        map_id: uuid.UUID,
-    ) -> list[MapLocationBinding]:
-        stmt = select(MapLocationBinding).where(
-            MapLocationBinding.novel_id == novel_id,
-            MapLocationBinding.map_id == map_id,
-        )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
+    model_class = MapLocationBinding
 
     async def get_centers(
         self,
@@ -335,18 +354,15 @@ class MapLocationBindingRepository:
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
         location_entity_id: uuid.UUID,
-        hexes: list[BindingHex],
+        hexes: list[dict[str, Any]],
     ) -> list[MapLocationBinding]:
+        """使用已构造的 plain dict 列表批量创建地点绑定。"""
         objs = [
             MapLocationBinding(
                 novel_id=novel_id,
                 map_id=map_id,
                 location_entity_id=location_entity_id,
-                hex_q=h.hex_q,
-                hex_r=h.hex_r,
-                is_center=h.is_center,
-                label_override=h.label_override,
-                style_override=h.style_override or {},
+                **h,
             )
             for h in hexes
         ]
@@ -354,55 +370,27 @@ class MapLocationBindingRepository:
         await db.flush()
         return objs
 
-    async def update(
-        self,
-        db: AsyncSession,
-        binding_id: uuid.UUID,
-        data: MapLocationBindingUpdate,
-    ) -> MapLocationBinding | None:
-        values: dict[str, Any] = {}
-        for field in ("is_center", "label_override", "style_override"):
-            value = getattr(data, field, None)
-            if value is not None:
-                values[field] = value
-        if values:
-            stmt = (
-                update(MapLocationBinding)
-                .where(MapLocationBinding.id == binding_id)
-                .values(**values)
-            )
-            await db.execute(stmt)
-            await db.flush()
-        return await self.get(db, binding_id)
-
-    async def delete(self, db: AsyncSession, binding_id: uuid.UUID) -> bool:
-        stmt = delete(MapLocationBinding).where(MapLocationBinding.id == binding_id)
-        result = await db.execute(stmt)
-        await db.flush()
-        return result.rowcount > 0
-
 
 # ============================================================
 # MapMarkerRepository（P1）
 # ============================================================
 
 
-class MapMarkerRepository:
+class MapMarkerRepository(MapEntityRepository[MapMarker]):
     """动态标记数据访问（P1）。"""
 
-    async def get(self, db: AsyncSession, marker_id: uuid.UUID) -> MapMarker | None:
-        stmt = select(MapMarker).where(MapMarker.id == marker_id)
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
+    model_class = MapMarker
 
-    async def get_by_map(
+    async def get_by_map_and_scene(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
+        *,
         scene_id: uuid.UUID | None = None,
         scene_index: int | None = None,
     ) -> list[MapMarker]:
+        """按地图 + Scene 时间范围查询标记。"""
         conditions: list[Any] = [
             MapMarker.novel_id == novel_id,
             MapMarker.map_id == map_id,
@@ -454,66 +442,93 @@ class MapMarkerRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
-        data: MapMarkerCreate,
+        values: dict[str, Any],
     ) -> MapMarker:
-        marker = MapMarker(
-            novel_id=novel_id,
-            map_id=map_id,
-            entity_id=uuid.UUID(data.entity_id),
-            marker_type=data.marker_type,
-            hex_q=data.hex_q,
-            hex_r=data.hex_r,
-            offset_x=data.offset_x,
-            offset_y=data.offset_y,
-            label=data.label,
-            style_json=data.style_json or {},
-            start_scene_id=(
-                uuid.UUID(data.start_scene_id) if data.start_scene_id else None
-            ),
-            start_scene_index=data.start_scene_index,
-            end_scene_id=(
-                uuid.UUID(data.end_scene_id) if data.end_scene_id else None
-            ),
-            end_scene_index=data.end_scene_index,
-            visible=data.visible,
-        )
+        """使用已构造的 plain dict 创建标记。"""
+        marker = MapMarker(novel_id=novel_id, map_id=map_id, **values)
         db.add(marker)
         await db.flush()
         return marker
 
-    async def update(
+
+# ============================================================
+# MapTerritoryRepository（P2）
+# ============================================================
+
+
+class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
+    """势力范围数据访问（P2）。"""
+
+    model_class = MapTerritoryTile
+
+    async def get_by_map_and_faction(
         self,
         db: AsyncSession,
-        marker_id: uuid.UUID,
-        data: MapMarkerUpdate,
-    ) -> MapMarker | None:
-        values: dict[str, Any] = {}
-        for field in (
-            "hex_q",
-            "hex_r",
-            "offset_x",
-            "offset_y",
-            "label",
-            "style_json",
-            "start_scene_index",
-            "end_scene_index",
-            "visible",
-        ):
-            value = getattr(data, field, None)
-            if value is not None:
-                values[field] = value
-        if data.start_scene_id is not None:
-            values["start_scene_id"] = uuid.UUID(data.start_scene_id)
-        if data.end_scene_id is not None:
-            values["end_scene_id"] = uuid.UUID(data.end_scene_id)
-        if values:
-            stmt = update(MapMarker).where(MapMarker.id == marker_id).values(**values)
-            await db.execute(stmt)
-            await db.flush()
-        return await self.get(db, marker_id)
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        faction_entity_id: uuid.UUID,
+    ) -> list[MapTerritoryTile]:
+        """按地图 + 组织过滤势力范围。"""
+        stmt = select(MapTerritoryTile).where(
+            MapTerritoryTile.novel_id == novel_id,
+            MapTerritoryTile.map_id == map_id,
+            MapTerritoryTile.faction_entity_id == faction_entity_id,
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
-    async def delete(self, db: AsyncSession, marker_id: uuid.UUID) -> bool:
-        stmt = delete(MapMarker).where(MapMarker.id == marker_id)
+    async def get_by_hex(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        hex_q: int,
+        hex_r: int,
+    ) -> list[MapTerritoryTile]:
+        stmt = select(MapTerritoryTile).where(
+            MapTerritoryTile.novel_id == novel_id,
+            MapTerritoryTile.map_id == map_id,
+            MapTerritoryTile.hex_q == hex_q,
+            MapTerritoryTile.hex_r == hex_r,
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create_batch(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        faction_entity_id: uuid.UUID,
+        hexes: list[dict[str, Any]],
+    ) -> list[MapTerritoryTile]:
+        """使用已构造的 plain dict 列表批量创建势力范围。"""
+        tiles: list[MapTerritoryTile] = []
+        for h in hexes:
+            tile = MapTerritoryTile(
+                novel_id=novel_id,
+                map_id=map_id,
+                faction_entity_id=faction_entity_id,
+                **h,
+            )
+            db.add(tile)
+            tiles.append(tile)
+        await db.flush()
+        return tiles
+
+    async def delete_by_faction(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        faction_entity_id: uuid.UUID,
+    ) -> int:
+        """删除某组织在某地图上的全部势力范围，返回删除行数。"""
+        stmt = delete(MapTerritoryTile).where(
+            MapTerritoryTile.novel_id == novel_id,
+            MapTerritoryTile.map_id == map_id,
+            MapTerritoryTile.faction_entity_id == faction_entity_id,
+        )
         result = await db.execute(stmt)
         await db.flush()
-        return result.rowcount > 0
+        return result.rowcount

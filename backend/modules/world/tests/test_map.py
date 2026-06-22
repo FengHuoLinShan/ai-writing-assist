@@ -14,6 +14,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +24,8 @@ from modules.world.map_schemas import (
     MapLocationBindingCreate,
     MapMarkerCreate,
     MapMarkerUpdate,
+    MapTerritoryCreate,
+    MapTerritoryUpdate,
     MapTileBatchUpdate,
 )
 from modules.world.models import CoreEntity
@@ -30,6 +33,7 @@ from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
     MapMarkerService,
+    MapTerritoryService,
     MapTileService,
 )
 
@@ -67,6 +71,26 @@ async def _create_location_entity(
         entity_type="location",
         name=name,
         summary=f"{name}地点",
+        status="canonical",
+    )
+    db_session.add(entity)
+    await db_session.flush()
+    return str(eid)
+
+
+async def _create_organization(
+    db_session: AsyncSession,
+    novel_id: str,
+    name: str = "天机阁",
+) -> str:
+    """创建一个 organization 类型的 CoreEntity，返回 id。"""
+    eid = uuid.uuid4()
+    entity = CoreEntity(
+        id=eid,
+        novel_id=uuid.UUID(hex=novel_id),
+        entity_type="organization",
+        name=name,
+        summary=f"{name}组织",
         status="canonical",
     )
     db_session.add(entity)
@@ -1377,3 +1401,396 @@ class TestMapMarkerCRUD:
 
         state = await cfg_svc.get_state(db_session, nid, created.id)
         assert len(state.markers) >= 1
+
+
+# ============================================================
+# 势力范围（P2）
+# ============================================================
+
+
+# ============================================================
+# P2 势力范围测试
+# ============================================================
+
+
+class TestMapTerritory:
+    """势力范围测试（P2）。"""
+
+    @pytest.mark.asyncio
+    async def test_list_territories_empty(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        svc = MapTerritoryService()
+        territories = await svc.list(db_session, nid, str(created.id))
+        assert territories == []
+
+    @pytest.mark.asyncio
+    async def test_create_territory(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="青龙会",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        territories = await svc.create(
+            db_session,
+            nid,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[
+                    {"hex_q": 1, "hex_r": 1, "style_override": {"color": "#FF0000"}},
+                    {"hex_q": 1, "hex_r": 2},
+                ],
+            ),
+        )
+        assert len(territories) == 2
+        assert territories[0].faction_entity_id == str(org_id)
+        assert territories[0].hex_q == 1
+
+    @pytest.mark.asyncio
+    async def test_create_territory_non_org(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="character",
+                name="张三",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        with pytest.raises(HTTPException) as exc:
+            await svc.create(
+                db_session,
+                nid,
+                str(created.id),
+                MapTerritoryCreate(
+                    faction_entity_id=str(char_id),
+                    hexes=[{"hex_q": 1, "hex_r": 1}],
+                ),
+            )
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_create_territory_out_of_bounds(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=5, grid_height=5),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="白虎堂",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        with pytest.raises(HTTPException) as exc:
+            await svc.create(
+                db_session,
+                nid,
+                str(created.id),
+                MapTerritoryCreate(
+                    faction_entity_id=str(org_id),
+                    hexes=[{"hex_q": 10, "hex_r": 10}],
+                ),
+            )
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_update_territory(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="玄武宗",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        territories = await svc.create(
+            db_session,
+            nid,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[{"hex_q": 1, "hex_r": 1}],
+            ),
+        )
+        tid = territories[0].id
+
+        updated = await svc.update(
+            db_session,
+            nid,
+            tid,
+            MapTerritoryUpdate(style_override={"color": "#00FF00"}),
+        )
+        assert updated.style_override == {"color": "#00FF00"}
+
+    @pytest.mark.asyncio
+    async def test_delete_territory(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="朱雀门",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        territories = await svc.create(
+            db_session,
+            nid,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[{"hex_q": 1, "hex_r": 1}],
+            ),
+        )
+        tid = territories[0].id
+
+        await svc.delete(db_session, nid, tid)
+        remaining = await svc.list(db_session, nid, str(created.id))
+        assert len(remaining) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_by_faction(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="天机阁",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        await svc.create(
+            db_session,
+            nid,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[
+                    {"hex_q": 1, "hex_r": 1},
+                    {"hex_q": 1, "hex_r": 2},
+                    {"hex_q": 2, "hex_r": 1},
+                ],
+            ),
+        )
+
+        deleted = await svc.delete_by_faction(
+            db_session, nid, str(created.id), str(org_id)
+        )
+        assert deleted == 3
+        remaining = await svc.list(db_session, nid, str(created.id))
+        assert len(remaining) == 0
+
+    @pytest.mark.asyncio
+    async def test_cross_novel_delete(self, db_session: AsyncSession):
+        nid1 = uuid.uuid4().hex
+        nid2 = uuid.uuid4().hex
+        await _create_project(db_session, nid1)
+        await _create_project(db_session, nid2)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid1,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid1),
+                entity_type="organization",
+                name="暗影盟",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        territories = await svc.create(
+            db_session,
+            nid1,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[{"hex_q": 1, "hex_r": 1}],
+            ),
+        )
+        tid = territories[0].id
+
+        with pytest.raises(HTTPException) as exc:
+            await svc.delete(db_session, nid2, tid)
+        assert exc.value.status_code == 404
+
+
+class TestMapStateTerritories:
+    """地图聚合状态包含势力范围测试。"""
+
+    @pytest.mark.asyncio
+    async def test_state_includes_territories(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="逍遥派",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        await svc.create(
+            db_session,
+            nid,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[{"hex_q": 3, "hex_r": 3}],
+            ),
+        )
+
+        state = await cfg_svc.get_state(db_session, nid, str(created.id))
+        assert len(state.territories) >= 1
+        assert state.territories[0].faction_entity_id == str(org_id)
+
+
+class TestMapFocusMode:
+    """聚焦模式测试。"""
+
+    @pytest.mark.asyncio
+    async def test_focus_mode(self, db_session: AsyncSession):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        created = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
+        )
+        org_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=org_id,
+                novel_id=uuid.UUID(hex=nid),
+                entity_type="organization",
+                name="铁血盟",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        svc = MapTerritoryService()
+        await svc.create(
+            db_session,
+            nid,
+            str(created.id),
+            MapTerritoryCreate(
+                faction_entity_id=str(org_id),
+                hexes=[
+                    {"hex_q": 1, "hex_r": 1},
+                    {"hex_q": 1, "hex_r": 2},
+                ],
+            ),
+        )
+
+        # Focus mode via service
+        from modules.world.map_repositories import MapTerritoryRepository
+        repo = MapTerritoryRepository()
+        territories = await repo.get_by_map_and_faction(
+            db_session, uuid.UUID(hex=nid), uuid.UUID(hex=created.id), org_id
+        )
+        assert len(territories) == 2
+        related = [(t.hex_q, t.hex_r) for t in territories]
+        assert (1, 1) in related
+        assert (1, 2) in related

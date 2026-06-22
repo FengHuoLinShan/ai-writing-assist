@@ -317,3 +317,55 @@ class MapMarker(Base, UUIDMixin, TimestampMixin, NovelMixin):
             f"<MapMarker map={self.map_id} type={self.marker_type} "
             f"q={self.hex_q} r={self.hex_r}>"
         )
+
+
+# ============================================================
+# MapTerritoryTile — 势力范围（P2）
+# ============================================================
+
+
+class MapTerritoryTile(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """势力范围格 — 组织控制区域
+
+    与地点绑定、标记可叠加；地点颜色和标签优先于势力半透明覆盖。
+    faction_entity_id 对应 core_entities.entity_type = "organization"。
+    """
+
+    __tablename__ = "map_territory_tiles"
+    __table_args__ = (
+        Index(
+            "uq_map_territory_map_faction_qr",
+            "map_id",
+            "faction_entity_id",
+            "hex_q",
+            "hex_r",
+            unique=True,
+        ),
+        {"comment": "势力范围（P2）"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="所属地图",
+    )
+    faction_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="组织实体（entity_type=organization）",
+    )
+    hex_q: Mapped[int] = mapped_column(Integer, nullable=False, comment="范围格 q")
+    hex_r: Mapped[int] = mapped_column(Integer, nullable=False, comment="范围格 r")
+    style_override: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=dict, comment="样式覆盖（颜色/透明度）"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<MapTerritoryTile map={self.map_id} "
+            f"faction={self.faction_entity_id} q={self.hex_q} r={self.hex_r}>"
+        )

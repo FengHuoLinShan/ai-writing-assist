@@ -16,17 +16,18 @@ World 动态地图业务服务 — PRD docs/PRD-动态地图功能.md
 from __future__ import annotations
 
 import random
+import uuid
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_models import MapConfig
 from modules.world.map_repositories import (
     MapConfigRepository,
     MapLocationBindingRepository,
     MapMarkerRepository,
+    MapTerritoryRepository,
     MapTileRepository,
 )
 from modules.world.map_schemas import (
@@ -41,13 +42,16 @@ from modules.world.map_schemas import (
     MapMarkerResponse,
     MapMarkerUpdate,
     MapStateResponse,
+    MapTerritoryCreate,
+    MapTerritoryResponse,
+    MapTerritoryUpdate,
     MapTileBatchUpdate,
-    MapTileChange,
     MapTileResponse,
 )
 from modules.world.repositories import CoreEntityRepository
 from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
+from modules.world.services.map_context import MapContext
 
 # ============================================================
 # 地形模板生成器（初始化世界地图用）
@@ -57,16 +61,16 @@ from modules.world.services.helpers import parse_uuid
 _BLANK_TERRAIN = "grassland"
 
 
-def _generate_blank_tiles(width: int, height: int) -> list[MapTileChange]:
+def _generate_blank_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """空白模板：全 grassland。"""
     return [
-        MapTileChange(hex_q=q, hex_r=r, terrain_type=_BLANK_TERRAIN)
+        {"hex_q": q, "hex_r": r, "terrain_type": _BLANK_TERRAIN, "elevation": 0}
         for q in range(width)
         for r in range(height)
     ]
 
 
-def _generate_continent_tiles(width: int, height: int) -> list[MapTileChange]:
+def _generate_continent_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """大陆模板：中心陆地 + 边缘水。
 
     简化算法：用到中心的距离判断，内部随机 grassland/forest，边缘 water。
@@ -75,7 +79,7 @@ def _generate_continent_tiles(width: int, height: int) -> list[MapTileChange]:
     rng = random.Random(42)
     cx, cy = width / 2, height / 2
     max_dist = (width**2 + height**2) ** 0.5 / 2
-    tiles: list[MapTileChange] = []
+    tiles: list[dict[str, Any]] = []
     for q in range(width):
         for r in range(height):
             dist = ((q - cx) ** 2 + (r - cy) ** 2) ** 0.5 / max_dist
@@ -87,14 +91,16 @@ def _generate_continent_tiles(width: int, height: int) -> list[MapTileChange]:
                 terrain = rng.choice(["mountain", "forest"])
             else:
                 terrain = rng.choice(["grassland", "forest", "grassland"])
-            tiles.append(MapTileChange(hex_q=q, hex_r=r, terrain_type=terrain))
+            tiles.append(
+                {"hex_q": q, "hex_r": r, "terrain_type": terrain, "elevation": 0}
+            )
     return tiles
 
 
-def _generate_islands_tiles(width: int, height: int) -> list[MapTileChange]:
+def _generate_islands_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """群岛模板：散布小岛 + 大量水。"""
     rng = random.Random(7)
-    tiles: list[MapTileChange] = []
+    tiles: list[dict[str, Any]] = []
     for q in range(width):
         for r in range(height):
             # 约 25% 陆地，散布成岛
@@ -102,7 +108,9 @@ def _generate_islands_tiles(width: int, height: int) -> list[MapTileChange]:
                 terrain = rng.choice(["grassland", "forest", "mountain"])
             else:
                 terrain = "water"
-            tiles.append(MapTileChange(hex_q=q, hex_r=r, terrain_type=terrain))
+            tiles.append(
+                {"hex_q": q, "hex_r": r, "terrain_type": terrain, "elevation": 0}
+            )
     return tiles
 
 
@@ -117,7 +125,7 @@ def generate_template_tiles(
     width: int,
     height: int,
     template: str | None,
-) -> list[MapTileChange]:
+) -> list[dict[str, Any]]:
     """按模板生成初始 tile。未知模板回退 blank。"""
     if template and template in _TEMPLATES:
         return _TEMPLATES[template](width, height)
@@ -129,7 +137,7 @@ def generate_template_tiles(
 # ============================================================
 
 
-def generate_detail_tiles(width: int, height: int) -> list[MapTileChange]:
+def generate_detail_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """详图快速生成：中心 3 圈 city + 外 1 圈 road + 其余随机 grassland/forest。
 
     以网格中心为圆心，用六边形距离（近似欧氏距离足够 P0）。
@@ -138,7 +146,7 @@ def generate_detail_tiles(width: int, height: int) -> list[MapTileChange]:
     cx, cy = width / 2, height / 2
     city_radius = min(width, height) * 0.18  # 约 3 圈
     road_radius = city_radius * 1.4
-    tiles: list[MapTileChange] = []
+    tiles: list[dict[str, Any]] = []
     for q in range(width):
         for r in range(height):
             dist = ((q - cx) ** 2 + (r - cy) ** 2) ** 0.5
@@ -148,7 +156,9 @@ def generate_detail_tiles(width: int, height: int) -> list[MapTileChange]:
                 terrain = "road"
             else:
                 terrain = rng.choice(["grassland", "forest"])
-            tiles.append(MapTileChange(hex_q=q, hex_r=r, terrain_type=terrain))
+            tiles.append(
+                {"hex_q": q, "hex_r": r, "terrain_type": terrain, "elevation": 0}
+            )
     return tiles
 
 
@@ -175,7 +185,9 @@ class MapConfigService(
     def __init__(self) -> None:
         self._tile_repo = MapTileRepository()
         self._binding_repo = MapLocationBindingRepository()
+        self._territory_repo = MapTerritoryRepository()
         self._entity_repo = CoreEntityRepository()
+        self._ctx = MapContext()
 
     # Override: list 加 parent_map_id 过滤 + 返 ListResponse 包装
     async def list(  # type: ignore[override]
@@ -225,7 +237,7 @@ class MapConfigService(
             if entity is None or entity.novel_id != nid:
                 raise HTTPException(
                     status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"CoreEntity {data.parent_entity_id} not found",
+                    detail=f"实体 {data.parent_entity_id} 不存在",
                 )
             if entity.entity_type != "location":
                 raise HTTPException(
@@ -247,7 +259,21 @@ class MapConfigService(
                 detail=f"同层级已存在名为 {data.name!r} 的地图",
             )
 
-        config = await self.repo.create(db, nid, data)
+        values: dict[str, Any] = {
+            "name": data.name,
+            "map_type": data.map_type,
+            "description": data.description,
+            "grid_width": data.grid_width,
+            "grid_height": data.grid_height,
+            "hex_size": data.hex_size,
+            "parent_map_id": parent_map_id_uuid,
+            "parent_entity_id": (
+                parse_uuid(data.parent_entity_id, "parent_entity_id")
+                if data.parent_entity_id
+                else None
+            ),
+        }
+        config = await self.repo.create(db, nid, values)
 
         # 生成初始 tile
         template = data.template if data.map_type == "world" else "blank"
@@ -258,6 +284,37 @@ class MapConfigService(
         fresh = await self.repo.get(db, config.id)
         assert fresh is not None
         return MapConfigResponse.model_validate(fresh)
+
+    # Override: update 构造 plain dict 后交给 repo
+    async def update(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        map_id: str,
+        data: MapConfigUpdate,
+        *,
+        novel_id: str,
+    ) -> MapConfigResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, self.id_param)
+        existing = await self.repo.get(db, mid)
+        self._assert_found_in_novel(existing, map_id, nid)
+
+        values: dict[str, Any] = {}
+        for field in (
+            "name",
+            "description",
+            "default_center_x",
+            "default_center_y",
+            "default_zoom",
+            "sort_order",
+        ):
+            value = getattr(data, field, None)
+            if value is not None:
+                values[field] = value
+
+        obj = await self.repo.update(db, mid, values)
+        self._assert_found_in_novel(obj, map_id, nid)
+        return self._to_response(obj)
 
     # 新增: 聚合状态
     async def get_state(
@@ -278,15 +335,14 @@ class MapConfigService(
         （showBoundary 标志，mapView._redraw）。参数被消费但不触发后端过滤，
         避免 P1/P2 接入 markers/territories 时改动此契约。
         """
+        config = await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
-        config = await self.repo.get(db, mid)
-        self._assert_found_in_novel(config, map_id, nid)
-        assert config is not None
 
         breadcrumbs = await self.repo.get_breadcrumbs(db, mid)
         tiles = await self._tile_repo.get_by_map(db, nid, mid)
         bindings = await self._binding_repo.get_by_map(db, nid, mid)
+        territories = await self._territory_repo.get_by_map(db, nid, mid)
 
         marker_repo = MapMarkerRepository()
         sid = parse_uuid(scene_id, "scene_id") if scene_id else None
@@ -309,7 +365,7 @@ class MapConfigService(
             except HTTPException:
                 scene_info = None
 
-        markers = await marker_repo.get_by_map(
+        markers = await marker_repo.get_by_map_and_scene(
             db, nid, mid, scene_id=sid, scene_index=scene_index
         )
         markers_list = [MapMarkerResponse.model_validate(m) for m in markers]
@@ -322,6 +378,7 @@ class MapConfigService(
                 MapLocationBindingResponse.model_validate(b) for b in bindings
             ],
             markers=markers_list,
+            territories=[MapTerritoryResponse.model_validate(t) for t in territories],
             scene=scene_info,
         )
 
@@ -333,11 +390,9 @@ class MapConfigService(
         map_id: str,
     ) -> MapStateResponse:
         """清空并重新生成详图地形（中心 city + 外 road + 随机 grassland/forest）。"""
+        config = await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
-        config = await self.repo.get(db, mid)
-        self._assert_found_in_novel(config, map_id, nid)
-        assert config is not None
 
         # PRD §路径3：快速生成是详图（city/region/dungeon）功能，禁止对 world 地图调用
         if config.map_type == "world":
@@ -361,8 +416,13 @@ class MapConfigService(
 class MapTileService:
     """地形批量编辑服务。"""
 
-    def __init__(self, tile_repo: MapTileRepository | None = None) -> None:
+    def __init__(
+        self,
+        tile_repo: MapTileRepository | None = None,
+        context: MapContext | None = None,
+    ) -> None:
         self._tile_repo = tile_repo or MapTileRepository()
+        self._ctx = context or MapContext()
 
     async def batch_update(
         self,
@@ -371,33 +431,22 @@ class MapTileService:
         map_id: str,
         data: MapTileBatchUpdate,
     ) -> list[MapTileResponse]:
+        config = await self._ctx.require_map(db, novel_id, map_id)
+        for change in data.changes:
+            self._ctx.assert_hex_in_bounds(config, change.hex_q, change.hex_r)
+
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
-
-        # 校验 map 属 novel + 取 grid 尺寸
-        from modules.world.map_repositories import MapConfigRepository
-
-        config = await MapConfigRepository().get(db, mid)
-        if config is None or config.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapConfig {map_id} not found",
-            )
-
-        # 校验 hex 在范围内
-        for change in data.changes:
-            if change.hex_q < 0 or change.hex_q >= config.grid_width:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"hex_q {change.hex_q} 超出网格宽度 {config.grid_width}",
-                )
-            if change.hex_r < 0 or change.hex_r >= config.grid_height:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"hex_r {change.hex_r} 超出网格高度 {config.grid_height}",
-                )
-
-        await self._tile_repo.bulk_upsert(db, nid, mid, data.changes)
+        changes = [
+            {
+                "hex_q": c.hex_q,
+                "hex_r": c.hex_r,
+                "terrain_type": c.terrain_type,
+                "elevation": c.elevation,
+            }
+            for c in data.changes
+        ]
+        await self._tile_repo.bulk_upsert(db, nid, mid, changes)
         tiles = await self._tile_repo.get_by_map(db, nid, mid)
         return [MapTileResponse.model_validate(t) for t in tiles]
 
@@ -414,49 +463,11 @@ class MapLocationBindingService:
         self,
         binding_repo: MapLocationBindingRepository | None = None,
         entity_repo: CoreEntityRepository | None = None,
-        config_repo: MapConfigRepository | None = None,
+        context: MapContext | None = None,
     ) -> None:
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
-        self._config_repo = config_repo or MapConfigRepository()
-
-    async def _validate_map_and_entity(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        map_id: str,
-        location_entity_id: str,
-    ) -> tuple[MapConfig, Any]:
-        """校验 map 属 novel + entity 属同 novel 且 type=location。
-
-        返回 (config, entity)。
-        """
-        nid = parse_uuid(novel_id, "novel_id")
-        mid = parse_uuid(map_id, "map_id")
-        eid = parse_uuid(location_entity_id, "location_entity_id")
-
-        config = await self._config_repo.get(db, mid)
-        if config is None or config.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapConfig {map_id} not found",
-            )
-
-        entity = await self._entity_repo.get(db, eid)
-        if entity is None or entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {location_entity_id} not found",
-            )
-        if entity.entity_type != "location":
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"实体 {entity.name} 类型为 {entity.entity_type}，"
-                    "只能绑定 location 类型实体"
-                ),
-            )
-        return config, entity
+        self._ctx = context or MapContext()
 
     async def batch_create(
         self,
@@ -465,22 +476,12 @@ class MapLocationBindingService:
         map_id: str,
         data: MapLocationBindingCreate,
     ) -> list[MapLocationBindingResponse]:
-        config, _entity = await self._validate_map_and_entity(
-            db, novel_id, map_id, data.location_entity_id
+        config = await self._ctx.require_map(db, novel_id, map_id)
+        await self._ctx.require_entity(
+            db, novel_id, data.location_entity_id, allowed_types={"location"}
         )
-
-        # 校验 hex 范围
         for h in data.hexes:
-            if not (0 <= h.hex_q < config.grid_width):
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"hex_q {h.hex_q} 超出网格宽度 {config.grid_width}",
-                )
-            if not (0 <= h.hex_r < config.grid_height):
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"hex_r {h.hex_r} 超出网格高度 {config.grid_height}",
-                )
+            self._ctx.assert_hex_in_bounds(config, h.hex_q, h.hex_r)
 
         eid = parse_uuid(data.location_entity_id, "location_entity_id")
         mid = parse_uuid(map_id, "map_id")
@@ -491,7 +492,17 @@ class MapLocationBindingService:
         if has_new_center:
             await self._binding_repo.clear_center(db, mid, eid)
 
-        objs = await self._binding_repo.bulk_create(db, nid, mid, eid, data.hexes)
+        hexes = [
+            {
+                "hex_q": h.hex_q,
+                "hex_r": h.hex_r,
+                "is_center": h.is_center,
+                "label_override": h.label_override,
+                "style_override": h.style_override or {},
+            }
+            for h in data.hexes
+        ]
+        objs = await self._binding_repo.bulk_create(db, nid, mid, eid, hexes)
         return [MapLocationBindingResponse.model_validate(o) for o in objs]
 
     async def update(
@@ -517,7 +528,13 @@ class MapLocationBindingService:
                 db, binding.map_id, binding.location_entity_id
             )
 
-        updated = await self._binding_repo.update(db, bid, data)
+        values: dict[str, Any] = {}
+        for field in ("is_center", "label_override", "style_override"):
+            value = getattr(data, field, None)
+            if value is not None:
+                values[field] = value
+
+        updated = await self._binding_repo.update(db, bid, values)
         assert updated is not None
         return MapLocationBindingResponse.model_validate(updated)
 
@@ -547,9 +564,13 @@ class MapLocationBindingService:
 class MapMarkerService:
     """动态标记服务（P1）。"""
 
-    def __init__(self) -> None:
-        self.repo = MapMarkerRepository()
-        self._map_repo = MapConfigRepository()
+    def __init__(
+        self,
+        marker_repo: MapMarkerRepository | None = None,
+        context: MapContext | None = None,
+    ) -> None:
+        self.repo = marker_repo or MapMarkerRepository()
+        self._ctx = context or MapContext()
 
     async def list(
         self,
@@ -558,18 +579,14 @@ class MapMarkerService:
         map_id: str,
         scene_id: str | None = None,
     ) -> list[MapMarkerResponse]:
+        await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
         sid = parse_uuid(scene_id, "scene_id") if scene_id else None
 
-        config = await self._map_repo.get(db, mid)
-        if config is None or config.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapConfig {map_id} not found",
-            )
-
-        markers = await self.repo.get_by_map(db, nid, mid, scene_id=sid)
+        markers = await self.repo.get_by_map_and_scene(
+            db, nid, mid, scene_id=sid, scene_index=None
+        )
         return [MapMarkerResponse.model_validate(m) for m in markers]
 
     async def create(
@@ -579,42 +596,32 @@ class MapMarkerService:
         map_id: str,
         data: MapMarkerCreate,
     ) -> MapMarkerResponse:
+        config = await self._ctx.require_map(db, novel_id, map_id)
+        self._ctx.assert_hex_in_bounds(config, data.hex_q, data.hex_r)
+        await self._ctx.require_entity(db, novel_id, data.entity_id)
+
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
-
-        config = await self._map_repo.get(db, mid)
-        if config is None or config.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapConfig {map_id} not found",
-            )
-
-        if data.hex_q < 0 or data.hex_q >= config.grid_width:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"hex_q {data.hex_q} 超出网格宽度 {config.grid_width}",
-            )
-        if data.hex_r < 0 or data.hex_r >= config.grid_height:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"hex_r {data.hex_r} 超出网格高度 {config.grid_height}",
-            )
-
-        from modules.world.models import CoreEntity
-
-        eid = parse_uuid(data.entity_id, "entity_id")
-        from sqlalchemy import select as sa_select
-
-        entity = (
-            await db.execute(sa_select(CoreEntity).where(CoreEntity.id == eid))
-        ).scalar_one_or_none()
-        if entity is None or entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {data.entity_id} not found",
-            )
-
-        marker = await self.repo.create(db, nid, mid, data)
+        values: dict[str, Any] = {
+            "entity_id": uuid.UUID(data.entity_id),
+            "marker_type": data.marker_type,
+            "hex_q": data.hex_q,
+            "hex_r": data.hex_r,
+            "offset_x": data.offset_x,
+            "offset_y": data.offset_y,
+            "label": data.label,
+            "style_json": data.style_json or {},
+            "start_scene_id": (
+                uuid.UUID(data.start_scene_id) if data.start_scene_id else None
+            ),
+            "start_scene_index": data.start_scene_index,
+            "end_scene_id": (
+                uuid.UUID(data.end_scene_id) if data.end_scene_id else None
+            ),
+            "end_scene_index": data.end_scene_index,
+            "visible": data.visible,
+        }
+        marker = await self.repo.create(db, nid, mid, values)
         return MapMarkerResponse.model_validate(marker)
 
     async def update(
@@ -634,7 +641,27 @@ class MapMarkerService:
                 detail=f"MapMarker {marker_id} not found",
             )
 
-        updated = await self.repo.update(db, mkid, data)
+        values: dict[str, Any] = {}
+        for field in (
+            "hex_q",
+            "hex_r",
+            "offset_x",
+            "offset_y",
+            "label",
+            "style_json",
+            "start_scene_index",
+            "end_scene_index",
+            "visible",
+        ):
+            value = getattr(data, field, None)
+            if value is not None:
+                values[field] = value
+        if data.start_scene_id is not None:
+            values["start_scene_id"] = uuid.UUID(data.start_scene_id)
+        if data.end_scene_id is not None:
+            values["end_scene_id"] = uuid.UUID(data.end_scene_id)
+
+        updated = await self.repo.update(db, mkid, values)
         assert updated is not None
         return MapMarkerResponse.model_validate(updated)
 
@@ -654,3 +681,117 @@ class MapMarkerService:
                 detail=f"MapMarker {marker_id} not found",
             )
         await self.repo.delete(db, mkid)
+
+
+# ============================================================
+# MapTerritoryService（P2）
+# ============================================================
+
+
+class MapTerritoryService:
+    """势力范围服务（P2）。"""
+
+    def __init__(
+        self,
+        territory_repo: MapTerritoryRepository | None = None,
+        context: MapContext | None = None,
+    ) -> None:
+        self.repo = territory_repo or MapTerritoryRepository()
+        self._ctx = context or MapContext()
+
+    async def list(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+    ) -> list[MapTerritoryResponse]:
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+
+        territories = await self.repo.get_by_map(db, nid, mid)
+        return [MapTerritoryResponse.model_validate(t) for t in territories]
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        data: MapTerritoryCreate,
+    ) -> list[MapTerritoryResponse]:
+        config = await self._ctx.require_map(db, novel_id, map_id)
+        await self._ctx.require_entity(
+            db, novel_id, data.faction_entity_id, allowed_types={"organization"}
+        )
+        for h in data.hexes:
+            self._ctx.assert_hex_in_bounds(config, h.hex_q, h.hex_r)
+
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        fid = parse_uuid(data.faction_entity_id, "faction_entity_id")
+        hexes = [
+            {
+                "hex_q": h.hex_q,
+                "hex_r": h.hex_r,
+                "style_override": h.style_override or {},
+            }
+            for h in data.hexes
+        ]
+        tiles = await self.repo.create_batch(db, nid, mid, fid, hexes)
+        return [MapTerritoryResponse.model_validate(t) for t in tiles]
+
+    async def update(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        territory_id: str,
+        data: MapTerritoryUpdate,
+    ) -> MapTerritoryResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        tid = parse_uuid(territory_id, "territory_id")
+
+        territory = await self.repo.get(db, tid)
+        if territory is None or territory.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapTerritoryTile {territory_id} not found",
+            )
+
+        values: dict[str, Any] = {}
+        if data.style_override is not None:
+            values["style_override"] = data.style_override
+
+        updated = await self.repo.update(db, tid, values)
+        assert updated is not None
+        return MapTerritoryResponse.model_validate(updated)
+
+    async def delete(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        territory_id: str,
+    ) -> None:
+        nid = parse_uuid(novel_id, "novel_id")
+        tid = parse_uuid(territory_id, "territory_id")
+
+        territory = await self.repo.get(db, tid)
+        if territory is None or territory.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapTerritoryTile {territory_id} not found",
+            )
+        await self.repo.delete(db, tid)
+
+    async def delete_by_faction(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        faction_entity_id: str,
+    ) -> int:
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        fid = parse_uuid(faction_entity_id, "faction_entity_id")
+
+        return await self.repo.delete_by_faction(db, nid, mid, fid)

@@ -22,6 +22,9 @@ from modules.world.map_schemas import (
     MapMarkerResponse,
     MapMarkerUpdate,
     MapStateResponse,
+    MapTerritoryCreate,
+    MapTerritoryResponse,
+    MapTerritoryUpdate,
     MapTileBatchUpdate,
     MapTileResponse,
 )
@@ -29,6 +32,7 @@ from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
     MapMarkerService,
+    MapTerritoryService,
     MapTileService,
 )
 
@@ -38,6 +42,7 @@ _map_config_service = MapConfigService()
 _map_tile_service = MapTileService()
 _map_binding_service = MapLocationBindingService()
 _marker_service = MapMarkerService()
+_territory_service = MapTerritoryService()
 
 
 # ============================================================
@@ -227,3 +232,86 @@ async def delete_marker(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     await _marker_service.delete(db, novel_id, marker_id)
+
+
+# ============================================================
+# 势力范围（P2）
+# ============================================================
+
+
+@router.get("/{map_id}/territories")
+async def list_territories(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    territories = await _territory_service.list(db, novel_id, map_id)
+    return [MapTerritoryResponse.model_validate(t) for t in territories]
+
+
+@router.post("/{map_id}/territories", status_code=201)
+async def create_territories(
+    db: DbSession,
+    map_id: str,
+    data: MapTerritoryCreate,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    territories = await _territory_service.create(db, novel_id, map_id, data)
+    return [MapTerritoryResponse.model_validate(t) for t in territories]
+
+
+@router.patch("/{map_id}/territories/{territory_id}")
+async def update_territory(
+    db: DbSession,
+    map_id: str,
+    territory_id: str,
+    data: MapTerritoryUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    territory = await _territory_service.update(db, novel_id, territory_id, data)
+    return MapTerritoryResponse.model_validate(territory)
+
+
+@router.delete("/{map_id}/territories/{territory_id}", status_code=204)
+async def delete_territory(
+    db: DbSession,
+    map_id: str,
+    territory_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> None:
+    await _territory_service.delete(db, novel_id, territory_id)
+
+
+@router.delete("/{map_id}/territories", status_code=204)
+async def delete_territories_by_faction(
+    db: DbSession,
+    map_id: str,
+    faction_entity_id: str = Query(..., description="组织实体 ID"),
+    novel_id: str = Query(..., description="项目 ID"),
+) -> None:
+    await _territory_service.delete_by_faction(db, novel_id, map_id, faction_entity_id)
+
+
+# ============================================================
+# 聚焦模式（P2）
+# ============================================================
+
+
+@router.get("/{map_id}/focus", response_model=MapStateResponse)
+async def get_focus_mode(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    faction_entity_id: str = Query(..., description="组织实体 ID"),
+) -> MapStateResponse:
+    """聚焦模式：返回完整地图状态，但只包含指定组织的势力范围。"""
+    state = await _map_config_service.get_state(db, novel_id, map_id)
+    # Filter territories to only the requested faction
+    from modules.world.services.helpers import parse_uuid
+
+    fid = parse_uuid(faction_entity_id, "faction_entity_id")
+    state.territories = [
+        t for t in state.territories
+        if t.faction_entity_id == str(fid)
+    ]
+    return state
