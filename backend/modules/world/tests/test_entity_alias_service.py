@@ -152,37 +152,32 @@ async def test_delete_alias_removes_from_content_json(
     assert not any(alias_item.get("alias") == "Art" for alias_item in aliases)
 
 
+@pytest.mark.parametrize("scenario", ["not_found", "cross_novel"])
 @pytest.mark.asyncio
-async def test_create_alias_entity_not_found_returns_404(
-    db_session: AsyncSession,
-    novel_id: str,
-    alias_service: EntityAliasService,
-) -> None:
-    with pytest.raises(HTTPException) as exc_info:
-        await alias_service.create_alias(db_session, novel_id, str(uuid.uuid4()), "Art")
-    assert exc_info.value.status_code == 404
-    assert "Entity not found" in exc_info.value.detail
-
-
-@pytest.mark.asyncio
-async def test_create_alias_cross_novel_returns_404(
+async def test_create_alias_not_found_variants(
     db_session: AsyncSession,
     novel_id: str,
     alias_service: EntityAliasService,
     entity_service: WorldEntityService,
+    scenario: str,
 ) -> None:
-    entity = await entity_service.create(
-        db_session,
-        novel_id,
-        CoreEntityCreate(
-            entity_type="character",
-            name="Arthur",
-        ),
-    )
-    other_novel_id = str(uuid.uuid4())
+    if scenario == "cross_novel":
+        entity = await entity_service.create(
+            db_session,
+            novel_id,
+            CoreEntityCreate(
+                entity_type="character",
+                name="Arthur",
+            ),
+        )
+        entity_id = entity.id
+        lookup_novel_id = str(uuid.uuid4())
+    else:
+        entity_id = str(uuid.uuid4())
+        lookup_novel_id = novel_id
 
     with pytest.raises(HTTPException) as exc_info:
-        await alias_service.create_alias(db_session, other_novel_id, entity.id, "Art")
+        await alias_service.create_alias(db_session, lookup_novel_id, entity_id, "Art")
     assert exc_info.value.status_code == 404
     assert "Entity not found" in exc_info.value.detail
 
@@ -210,50 +205,42 @@ async def test_create_alias_duplicate_returns_409(
     assert "Alias already exists: Art" in exc_info.value.detail
 
 
+@pytest.mark.parametrize(
+    "scenario,expected_detail",
+    [
+        ("not_found", "Alias not found: Art"),
+        ("cross_novel", "Entity not found"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_delete_alias_not_found_returns_404(
+async def test_delete_alias_not_found_variants(
     db_session: AsyncSession,
     novel_id: str,
     alias_service: EntityAliasService,
     entity_service: WorldEntityService,
+    scenario: str,
+    expected_detail: str,
 ) -> None:
+    content_json = (
+        {"aliases": [{"alias": "Art", "type": "nickname"}]}
+        if scenario == "cross_novel"
+        else {}
+    )
     entity = await entity_service.create(
         db_session,
         novel_id,
         CoreEntityCreate(
             entity_type="character",
             name="Arthur",
+            content_json=content_json,
         ),
     )
+    lookup_novel_id = str(uuid.uuid4()) if scenario == "cross_novel" else novel_id
 
     with pytest.raises(HTTPException) as exc_info:
-        await alias_service.delete_alias(db_session, novel_id, entity.id, "Art")
+        await alias_service.delete_alias(db_session, lookup_novel_id, entity.id, "Art")
     assert exc_info.value.status_code == 404
-    assert "Alias not found: Art" in exc_info.value.detail
-
-
-@pytest.mark.asyncio
-async def test_delete_alias_cross_novel_returns_404(
-    db_session: AsyncSession,
-    novel_id: str,
-    alias_service: EntityAliasService,
-    entity_service: WorldEntityService,
-) -> None:
-    entity = await entity_service.create(
-        db_session,
-        novel_id,
-        CoreEntityCreate(
-            entity_type="character",
-            name="Arthur",
-            content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
-        ),
-    )
-    other_novel_id = str(uuid.uuid4())
-
-    with pytest.raises(HTTPException) as exc_info:
-        await alias_service.delete_alias(db_session, other_novel_id, entity.id, "Art")
-    assert exc_info.value.status_code == 404
-    assert "Entity not found" in exc_info.value.detail
+    assert expected_detail in exc_info.value.detail
 
 
 @pytest.mark.asyncio

@@ -38,7 +38,6 @@ from modules.world.services.map_service import (
 )
 from modules.world.tests.helpers import (
     _create_location_entity,
-    _create_organization,
     _create_project,
 )
 
@@ -863,11 +862,12 @@ class TestLocationBindingCRUD:
         assert len(centers) == 1
         assert centers[0].id == uuid.UUID(hex=non_center.id)
 
+    @pytest.mark.parametrize("operation", ["update", "delete"])
     @pytest.mark.asyncio
-    async def test_update_binding_cross_novel_returns_404(
-        self, db_session, two_projects: tuple[str, str]
+    async def test_binding_cross_novel_returns_404(
+        self, db_session, two_projects: tuple[str, str], operation: str
     ):
-        """PATCH binding 跨 novel 返回 404。"""
+        """binding update/delete 跨 novel 返回 404。"""
         from fastapi import HTTPException
 
         from modules.world.map_schemas import MapLocationBindingUpdate
@@ -892,14 +892,16 @@ class TestLocationBindingCRUD:
         )
         binding_id = result[0].id
 
-        # 用 novel2 访问 novel1 的 binding
         with pytest.raises(HTTPException) as exc:
-            await bind_svc.update(
-                db_session,
-                nid2,
-                binding_id,
-                MapLocationBindingUpdate(label_override="x"),
-            )
+            if operation == "update":
+                await bind_svc.update(
+                    db_session,
+                    nid2,
+                    binding_id,
+                    MapLocationBindingUpdate(label_override="x"),
+                )
+            else:
+                await bind_svc.delete(db_session, nid2, binding_id)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -928,35 +930,6 @@ class TestLocationBindingCRUD:
 
         with pytest.raises(HTTPException) as exc:
             await bind_svc.delete(db_session, world_map.novel_id, binding_id)
-        assert exc.value.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_delete_binding_cross_novel_returns_404(
-        self, db_session, two_projects: tuple[str, str]
-    ):
-        """DELETE binding 跨 novel 返回 404。"""
-        from fastapi import HTTPException
-
-        nid1, nid2 = two_projects
-        cfg_svc = MapConfigService()
-        created = await cfg_svc.create(
-            db_session,
-            nid1,
-            MapConfigCreate(name="m", map_type="world", grid_width=10, grid_height=10),
-        )
-        loc_id = await _create_location_entity(db_session, nid1)
-        bind_svc = MapLocationBindingService()
-        result = await bind_svc.batch_create(
-            db_session,
-            nid1,
-            created.id,
-            MapLocationBindingCreate(
-                location_entity_id=loc_id,
-                hexes=[{"hex_q": 1, "hex_r": 1, "is_center": True}],
-            ),
-        )
-        with pytest.raises(HTTPException) as exc:
-            await bind_svc.delete(db_session, nid2, result[0].id)
         assert exc.value.status_code == 404
 
 

@@ -228,29 +228,24 @@ async def test_delete_requires_novel_id(
 # --- novel_id 隔离 (UUID-UUID 比对) ---
 
 
-async def test_get_cross_novel_raises_404(
+@pytest.mark.parametrize("scenario", ["cross_novel", "missing"])
+async def test_get_not_found_variants(
     db_session: AsyncSession,
     novel_id: str,
     other_novel_id: str,
+    scenario: str,
 ) -> None:
     svc = FakeService()
-    created = await svc.create(db_session, novel_id, FakeCreate(name="mine"))
-    with pytest.raises(HTTPException) as exc:
-        await svc.get(db_session, str(created.id), novel_id=other_novel_id)
-    assert exc.value.status_code == 404
+    if scenario == "cross_novel":
+        created = await svc.create(db_session, novel_id, FakeCreate(name="mine"))
+        target_id = str(created.id)
+        lookup_novel_id = other_novel_id
+    else:
+        target_id = str(uuid.uuid4())
+        lookup_novel_id = novel_id
 
-
-async def test_get_missing_raises_404(
-    db_session: AsyncSession,
-    novel_id: str,
-) -> None:
-    svc = FakeService()
     with pytest.raises(HTTPException) as exc:
-        await svc.get(
-            db_session,
-            str(uuid.uuid4()),
-            novel_id=novel_id,
-        )
+        await svc.get(db_session, target_id, novel_id=lookup_novel_id)
     assert exc.value.status_code == 404
 
 
