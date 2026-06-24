@@ -7,7 +7,7 @@ Writing Pydantic Schema 定义
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -51,7 +51,11 @@ class WritingDraftUpdate(BaseModel):
     expected_version: int | None = Field(
         None,
         ge=1,
-        description="期望的版本号，用于多 Tab 冲突检测",
+        description="期望的版本号，用于发布后的多 Tab 冲突检测",
+    )
+    expected_updated_at: datetime | None = Field(
+        None,
+        description="期望的更新时间戳，用于暂存时的多 Tab 冲突检测",
     )
 
 
@@ -77,6 +81,22 @@ class WritingDraftResponse(BaseModel):
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _coerce_datetime_to_utc(cls, v: object) -> datetime | None:
+        if v is None:
+            return v
+        if isinstance(v, datetime):
+            if v.tzinfo is None:
+                return v.replace(tzinfo=UTC)
+            return v
+        if isinstance(v, str):
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            return dt
+        return v
 
     @field_validator("id", "novel_id", mode="before")
     @classmethod

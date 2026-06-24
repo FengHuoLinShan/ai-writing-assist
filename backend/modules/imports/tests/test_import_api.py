@@ -226,3 +226,59 @@ async def test_get_import_record_novel_id_isolation(
     other_novel_id = str(uuid.uuid4())
     resp = await async_client.get(f"/api/imports/{record_id}?novel_id={other_novel_id}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deep_import_empty_project_returns_clear_error(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """空项目调用深度导入（end_chapter=0）应返回明确的业务错误，而非 500"""
+    novel_id = sample_project["id"]
+    resp = await async_client.post(
+        "/api/imports/deep",
+        json={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 0},
+    )
+    assert resp.status_code == 400
+    assert "章节" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_deep_import_explicit_range_valid(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """显式指定 end_chapter < start_chapter 仍返回参数错误"""
+    novel_id = sample_project["id"]
+    resp = await async_client.post(
+        "/api/imports/deep",
+        json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
+    )
+    assert resp.status_code == 400
+    assert "end_chapter must be >= start_chapter" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_upload_duplicate_done_file_returns_400(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """同一项目重复上传已导入完成的同名文件应返回 400"""
+    novel_id = sample_project["id"]
+    content = "第一章\n内容\n".encode()
+
+    first = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": novel_id},
+        files={"file": ("duplicate.txt", content, "text/plain")},
+    )
+    assert first.status_code == 201
+    assert first.json()["status"] == "done"
+
+    second = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": novel_id},
+        files={"file": ("duplicate.txt", content, "text/plain")},
+    )
+    assert second.status_code == 400
+    assert "已导入" in second.json()["detail"]

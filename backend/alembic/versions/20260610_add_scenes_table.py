@@ -19,10 +19,10 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "scenes",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column(
             "novel_id",
-            sa.String(36),
+            sa.UUID(),
             sa.ForeignKey("projects.id", ondelete="CASCADE"),
             nullable=False,
             index=True,

@@ -126,6 +126,37 @@ function getLastSubView(viewName) {
   return _lastSubViewMap[viewName] || null
 }
 
+/**
+ * 同步当前项目状态：当 projectId 变化时，清空缓存并加载项目元数据。
+ * 避免面包屑/标题显示旧项目名或为空。
+ */
+async function _syncCurrentProject(projectId) {
+  // 无 projectId 时保留当前选择（例如项目列表视图），不要清空 localStorage 恢复的状态
+  if (!projectId) {
+    return
+  }
+
+  const changed = state.currentProjectId !== projectId
+  if (changed) {
+    Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
+    state.currentProjectId = projectId
+    state.currentProject = null
+  }
+
+  // 当前项目对象已存在且 ID 一致时避免重复请求
+  if (state.currentProject && state.currentProject.id === projectId) {
+    return
+  }
+
+  try {
+    const project = await api.projects.get(projectId)
+    state.currentProject = project
+  } catch (err) {
+    console.warn("加载项目信息失败:", err)
+    state.currentProject = null
+  }
+}
+
 /** @type {boolean} 下一次渲染强制重新执行 onEnter（用于增删改后刷新当前视图） */
 let _forceRefresh = false
 
@@ -260,16 +291,11 @@ async function refresh() {
 /**
  * 根据当前 hash 初始化路由
  */
-function initRouter() {
+async function initRouter() {
   const hash = window.location.hash.slice(1) || "project"
   const parsed = _parseHash(hash)
 
-  if (parsed.projectId) {
-    if (parsed.projectId !== state.currentProjectId) {
-      Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
-    }
-    state.currentProjectId = parsed.projectId
-  }
+  await _syncCurrentProject(parsed.projectId)
 
   if (routes[parsed.viewName]) {
     state.currentView = parsed.viewName
@@ -279,17 +305,12 @@ function initRouter() {
   }
 
   // 监听浏览器前进/后退
-  window.addEventListener("popstate", (e) => {
+  window.addEventListener("popstate", async (e) => {
     const hash = window.location.hash.slice(1) || "project"
     const parsed = _parseHash(hash)
 
     const projectId = parsed.projectId || (e.state && e.state.projectId) || null
-    if (projectId) {
-      if (projectId !== state.currentProjectId) {
-        Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
-      }
-      state.currentProjectId = projectId
-    }
+    await _syncCurrentProject(projectId)
 
     const targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
     const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : parsed.subView

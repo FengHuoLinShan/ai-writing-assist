@@ -6,6 +6,7 @@ subclass override)。
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import HTTPException
@@ -23,6 +24,8 @@ from modules.world.schemas import (
 from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+
+logger = logging.getLogger(__name__)
 
 
 class WorldEntityService(
@@ -120,6 +123,37 @@ class WorldEntityService(
             items=[CoreEntityResponse.model_validate(e) for e in items],
             total=total,
         )
+
+    # ============================================================
+    # Override: update 前打快照，支持手动编辑后回滚
+    # ============================================================
+
+    async def update(
+        self,
+        db: AsyncSession,
+        id: str,
+        data: CoreEntityUpdate,
+        *,
+        novel_id: str,
+    ) -> CoreEntityResponse:
+        """更新实体前为当前状态打快照；snapshot 失败不阻断主流程。"""
+        from modules.world.services.entity_revision_service import (
+            EntityRevisionService,
+        )
+
+        try:
+            revision_service = EntityRevisionService()
+            await revision_service.create_snapshot(
+                db,
+                entity_id=id,
+                novel_id=novel_id,
+                revision_reason="manual_update",
+            )
+        except Exception:
+            # snapshot 创建失败不应阻断编辑主流程，但需要记录日志便于排障
+            logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
+
+        return await super().update(db, id, data, novel_id=novel_id)
 
     # ============================================================
     # Promote: 将草稿/候选实体提升为正史

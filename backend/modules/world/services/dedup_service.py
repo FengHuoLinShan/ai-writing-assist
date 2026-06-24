@@ -453,12 +453,8 @@ class EntityDedupService:
                 detail="Cannot merge entities across novels",
             )
 
-        # 校验 target 必须是 canonical，candidate 必须是 draft/candidate
-        if target.status != "canonical":
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"Merge target must be canonical, got {target.status}",
-            )
+        # 校验 candidate 必须是 draft/candidate
+        # target 非 canonical 时由后置逻辑自动提升，不再前置拦截
         if candidate.status not in ("draft", "candidate"):
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,

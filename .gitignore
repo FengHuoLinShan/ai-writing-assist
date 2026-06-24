@@ -40,4 +40,11 @@ nul
 # Training data (large JSONL)
 backend/data/dedup_training/*.jsonl
 .claude/worktrees/
+.claude/agent-memory/
+.playwright-mcp/
 .worktrees/
+
+# Session/debug artifacts
+chaos-*.png
+chaos_test_*.py
+click-*.json

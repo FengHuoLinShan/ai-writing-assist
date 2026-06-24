@@ -14,6 +14,7 @@ const writingView = {
   _currentContent: null,
   _currentTitle: null,
   _currentVersionNumber: null,
+  _currentUpdatedAt: null,
   _versions: [],
   _isReadonly: false,
   _restoreSourceVersion: null,
@@ -49,6 +50,7 @@ const writingView = {
       this._currentTitle = saved.currentTitle
       this._currentDraftId = saved.currentDraftId
       this._currentVersionNumber = saved.currentVersionNumber
+      this._currentUpdatedAt = saved.currentUpdatedAt || null
       this._isReadonly = saved.isReadonly || false
       this._restoreSourceVersion = saved.restoreSourceVersion
     } else {
@@ -57,6 +59,7 @@ const writingView = {
       this._currentTitle = null
       this._currentDraftId = null
       this._currentVersionNumber = null
+      this._currentUpdatedAt = null
       this._isReadonly = false
       this._restoreSourceVersion = null
     }
@@ -216,6 +219,7 @@ const writingView = {
       currentTitle: this._currentTitle,
       currentDraftId: this._currentDraftId,
       currentVersionNumber: this._currentVersionNumber,
+      currentUpdatedAt: this._currentUpdatedAt,
       isReadonly: this._isReadonly,
       restoreSourceVersion: this._restoreSourceVersion,
     }
@@ -276,12 +280,18 @@ const writingView = {
       try {
         const result = await api.writing.autosave(
           this._currentDraftId,
-          { title, content, expected_version: this._currentVersionNumber },
+          {
+            title,
+            content,
+            expected_version: this._currentVersionNumber,
+            expected_updated_at: this._currentUpdatedAt,
+          },
           state.currentProjectId,
         )
         this._currentContent = content
         this._currentTitle = title
         this._currentVersionNumber = result.version_number
+        this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
         this._lastSavedContent = content
         this._saveBackup(null, null) // 清除 localStorage 后备
       } catch (err) {
@@ -701,6 +711,7 @@ const writingView = {
     this._currentContent = null
     this._currentTitle = null
     this._currentVersionNumber = null
+    this._currentUpdatedAt = null
     this._versions = []
     this._isReadonly = false
     this._restoreSourceVersion = null
@@ -729,6 +740,7 @@ const writingView = {
         this._currentContent = draftData.content || ""
         this._currentTitle = draftData.title || ""
         this._currentVersionNumber = latest.version_number
+        this._currentUpdatedAt = draftData.updated_at || null
         this._lastSavedContent = draftData.content || ""
         this._isReadonly = false
       } else {
@@ -736,6 +748,7 @@ const writingView = {
         this._currentContent = ""
         this._currentTitle = ""
         this._currentVersionNumber = null
+        this._currentUpdatedAt = null
         this._lastSavedContent = null
         this._isReadonly = false
 
@@ -779,6 +792,7 @@ const writingView = {
     this._currentContent = ''
     this._currentTitle = `第 ${idx} 章`
     this._currentVersionNumber = null
+    this._currentUpdatedAt = null
     this._versions = []
     this._isReadonly = false
     this._restoreSourceVersion = null
@@ -803,6 +817,7 @@ const writingView = {
       this._currentDraftId = draftData.id
       this._currentTitle = draftData.title || ''
       this._currentVersionNumber = versionNumber
+      this._currentUpdatedAt = draftData.updated_at || null
       this._cursorOffset = 0
 
       if (isLatest) {
@@ -916,12 +931,18 @@ const writingView = {
     try {
       const result = await api.writing.autosave(
         this._currentDraftId,
-        { title, content, expected_version: this._currentVersionNumber },
+        {
+          title,
+          content,
+          expected_version: this._currentVersionNumber,
+          expected_updated_at: this._currentUpdatedAt,
+        },
         state.currentProjectId,
       )
       this._currentContent = content
       this._currentTitle = title
       this._currentVersionNumber = result.version_number
+      this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
       this._lastSavedContent = content
       this._saveBackup(null, null)
 
@@ -984,6 +1005,7 @@ const writingView = {
       if (!this._currentDraftId && createdDraftId) {
         this._currentDraftId = createdDraftId
         this._currentVersionNumber = result.draft?.version_number || 1
+        this._currentUpdatedAt = result.draft?.updated_at || null
       }
       await this._rerender()
       toast("已发布", "success")
@@ -1264,6 +1286,7 @@ const writingView = {
       this._currentContent = result.new_draft.content || ""
       this._currentTitle = result.new_draft.title || ""
       this._currentVersionNumber = result.new_draft.version_number
+      this._currentUpdatedAt = result.new_draft.updated_at || null
       toast("断章完成", "success")
       await this._rerender()
     } catch (err) {

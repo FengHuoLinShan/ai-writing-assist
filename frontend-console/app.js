@@ -35,8 +35,8 @@ const App = {
     // 从 localStorage 恢复项目选择
     this._restoreProjectState()
 
-    // 初始化路由
-    router.initRouter()
+    // 初始化路由（async，等待项目元数据同步完成后再渲染首屏）
+    await router.initRouter()
 
     // 检查后端连接
     this._checkBackendHealth()

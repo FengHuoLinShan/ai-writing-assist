@@ -47,8 +47,20 @@ def upgrade() -> None:
     op.create_index(
         op.f("ix_import_records_novel_id"), "import_records", ["novel_id"], unique=False
     )
+    op.create_index(
+        "uq_import_records_done_file_name",
+        "import_records",
+        ["novel_id", "file_name"],
+        unique=True,
+        postgresql_where=sa.text("status = 'done'"),
+        sqlite_where=sa.text("status = 'done'"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "uq_import_records_done_file_name",
+        table_name="import_records",
+    )
     op.drop_index(op.f("ix_import_records_novel_id"), table_name="import_records")
     op.drop_table("import_records")

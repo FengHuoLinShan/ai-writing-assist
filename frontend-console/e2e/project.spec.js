@@ -167,4 +167,50 @@ test.describe("项目模块", () => {
     await expect(page).toHaveURL(/#workbench\/[^/]+\/writing/)
     await expect(page.locator(SEL.topbarProject)).toContainText("点击切换项目")
   })
+
+  test("跨项目切换后面包屑显示正确项目名", async ({ page }) => {
+    const projectA = await createProject({
+      title: "项目A-面包屑",
+      genre: "fantasy",
+      language: "zh",
+    })
+    const projectB = await createProject({
+      title: "项目B-面包屑",
+      genre: "scifi",
+      language: "zh",
+    })
+    testProjectId = projectB.id
+
+    await page.goto("/")
+    await page.evaluate(() => localStorage.clear())
+    await page.reload()
+
+    await page.locator(SEL.projectCard(projectA.id)).click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.topbarProject)).toHaveText("项目A-面包屑")
+
+    await page.locator(SEL.navItem("project")).click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("项目", { timeout: 10000 })
+
+    await page.locator(SEL.projectCard(projectB.id)).click()
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.topbarProject)).toHaveText("项目B-面包屑", { timeout: 10000 })
+  })
+
+  test("从 URL 直接进入工作台加载项目信息", async ({ page }) => {
+    const project = await createProject({
+      title: "URL 进入项目",
+      genre: "mystery",
+      language: "zh",
+    })
+    testProjectId = project.id
+
+    await page.goto("/")
+    await page.evaluate(() => localStorage.clear())
+
+    await page.goto(`/#workbench/${project.id}/writing`)
+    await expect(page.locator(SEL.workspace)).not.toContainText("加载中", { timeout: 10000 })
+    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台", { timeout: 10000 })
+    await expect(page.locator(SEL.topbarProject)).toHaveText("URL 进入项目", { timeout: 10000 })
+  })
 })

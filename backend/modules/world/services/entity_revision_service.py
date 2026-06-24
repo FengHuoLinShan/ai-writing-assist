@@ -234,10 +234,13 @@ class EntityRevisionService:
                 limit=1,
             )
             if not revisions:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"No revision or archive found for entity {entity_id}",
-                )
+                warnings.append("no rollback data available")
+                return {
+                    "entity_id": str(eid),
+                    "target_scene_index": target_scene_index,
+                    "restored_fields": restored_fields,
+                    "warnings": warnings,
+                }
             revision = revisions[0]
             snapshot = revision.snapshot
             update_data = CoreEntityUpdate(

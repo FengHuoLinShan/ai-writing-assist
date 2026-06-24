@@ -37,6 +37,28 @@ async def test_create_project_empty_title_returns_422(async_client: AsyncClient)
 
 
 @pytest.mark.asyncio
+async def test_create_project_null_byte_title_returns_422(
+    async_client: AsyncClient,
+) -> None:
+    resp = await async_client.post(
+        "/api/projects",
+        json={"title": "test\x00xyz", "language": "zh"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_project_whitespace_only_title_returns_422(
+    async_client: AsyncClient,
+) -> None:
+    resp = await async_client.post(
+        "/api/projects",
+        json={"title": "   ", "language": "zh"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_list_projects_paginated(
     async_client: AsyncClient,
     sample_project: dict,

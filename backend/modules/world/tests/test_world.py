@@ -1277,11 +1277,11 @@ class TestWorldErrorPaths:
     """World 模块 API 错误路径测试"""
 
     @pytest.mark.asyncio
-    async def test_merge_target_not_canonical_returns_400_or_422(
+    async def test_merge_target_not_canonical_gets_promoted(
         self,
         async_client: AsyncClient,
     ) -> None:
-        """合并目标不是 canonical 时返回 400/422"""
+        """合并目标不是 canonical 时自动提升为正史"""
         project_resp = await async_client.post(
             "/api/projects",
             json={
@@ -1321,7 +1321,12 @@ class TestWorldErrorPaths:
             f"/api/world/entities/{candidate_id}/merge?novel_id={novel_id}",
             json={"target_entity_id": target_id},
         )
-        assert merge_resp.status_code in (400, 422)
+        assert merge_resp.status_code == 200
+
+        target_get = await async_client.get(
+            f"/api/world/entities/{target_id}?novel_id={novel_id}"
+        )
+        assert target_get.json()["status"] == "canonical"
 
     @pytest.mark.asyncio
     async def test_merge_candidate_not_draft_returns_400_or_422(

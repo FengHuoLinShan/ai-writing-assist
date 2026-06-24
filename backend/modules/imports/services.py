@@ -7,8 +7,11 @@ Import 业务逻辑层
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import HTTPException
 from fastapi import status as http_status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.enqueuer import enqueue_task
@@ -19,7 +22,13 @@ from modules.imports.schemas import ImportListResponse, ImportResponse
 from modules.writing.facade import create_draft_only
 from shared.utils import parse_uuid
 
+logger = logging.getLogger(__name__)
+
 NO_EFFECTIVE_CHAPTERS_MESSAGE = "文件中未检测到有效章节"
+
+
+class _NoEffectiveChaptersError(Exception):
+    """文件解析后无有效章节的内部标记异常"""
 
 
 class ImportService:
@@ -47,80 +56,62 @@ class ImportService:
         nid = parse_uuid(novel_id, "novel_id")
         file_type = self._validate_file(file_name, len(file_content))
 
+        # 检查重复导入：同项目 + 同文件名 + 已成功
+        existing = await self._repo.get_done_by_file_name(db, nid, file_name)
+        if existing is not None:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"文件已导入: {file_name}",
+            )
+
         # 创建导入记录
         record = await self._repo.create(db, nid, file_name, file_type, len(file_content))
 
         try:
-            # 解析文件
-            chapters = parse_file(file_content, file_type)
-            total = len(chapters)
+            # 使用 savepoint 隔离解析/写入过程，失败时只回滚内部操作，
+            # 保留外层导入记录，便于更新为 failed 状态。
+            async with db.begin_nested():
+                chapters = parse_file(file_content, file_type)
+                total = len(chapters)
 
-            if total == 0:
-                await self._repo.update_status(
-                    db,
-                    record.id,
-                    status="failed",
-                    error_message=NO_EFFECTIVE_CHAPTERS_MESSAGE,
-                )
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=NO_EFFECTIVE_CHAPTERS_MESSAGE,
-                )
+                if total == 0:
+                    raise _NoEffectiveChaptersError()
 
-            # 逐章创建 WritingDraft + 排 RAG 索引任务
-            imported = 0
-            for idx, ch in enumerate(chapters, start=1):
-                _draft = await create_draft_only(
-                    db,
-                    novel_id=novel_id,
-                    chapter_index=idx,
-                    title=ch.get("title"),
-                    content=ch.get("content", ""),
-                )
-                imported += 1
+                # 逐章创建 WritingDraft + 排 RAG 索引任务
+                imported = 0
+                for idx, ch in enumerate(chapters, start=1):
+                    _draft = await create_draft_only(
+                        db,
+                        novel_id=novel_id,
+                        chapter_index=idx,
+                        title=ch.get("title"),
+                        content=ch.get("content", ""),
+                    )
+                    imported += 1
 
-                enqueue_task(
-                    db,
-                    "publish_chapter",
-                    meta={"novel_id": novel_id, "chapter_index": idx},
-                )
-                enqueue_task(
-                    db,
-                    "rag_index_chapter",
-                    meta={"novel_id": novel_id, "chapter_index": idx},
-                )
+                    enqueue_task(
+                        db,
+                        "publish_chapter",
+                        meta={"novel_id": novel_id, "chapter_index": idx},
+                    )
+                    enqueue_task(
+                        db,
+                        "rag_index_chapter",
+                        meta={"novel_id": novel_id, "chapter_index": idx},
+                    )
 
-            # 更新记录为完成
-            record = await self._repo.update_status(
+        except _NoEffectiveChaptersError:
+            await self._repo.update_status(
                 db,
                 record.id,
-                status="done",
-                total_chapters=total,
-                imported_chapters=imported,
+                status="failed",
+                error_message=NO_EFFECTIVE_CHAPTERS_MESSAGE,
             )
-            if record is None:
-                raise HTTPException(
-                    status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-            return ImportResponse(
-                id=str(record.id),
-                novel_id=str(record.novel_id),
-                file_name=record.file_name,
-                file_type=record.file_type,
-                file_size=record.file_size,
-                total_chapters=record.total_chapters,
-                imported_chapters=record.imported_chapters,
-                status=record.status,
-                error_message=record.error_message,
-                created_at=record.created_at,
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=NO_EFFECTIVE_CHAPTERS_MESSAGE,
             )
-
-        except HTTPException:
-            raise
         except ValueError as exc:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.warning("导入参数错误: %s", exc)
             error_message = str(exc)[:1000]
             await self._repo.update_status(
@@ -134,9 +125,7 @@ class ImportService:
                 detail=error_message,
             ) from exc
         except Exception as exc:
-            import logging
-
-            logging.getLogger(__name__).error("导入失败: %s", exc, exc_info=True)
+            logger.error("导入失败: %s", exc, exc_info=True)
             await self._repo.update_status(
                 db,
                 record.id,
@@ -147,6 +136,45 @@ class ImportService:
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="导入过程中发生服务器错误，请查看日志",
             ) from exc
+
+        # 更新记录为完成（带并发去重保护：若同项目同名文件已有成功记录，
+        # 数据库 partial unique index 会抛出 IntegrityError，此时将当前记录标记为失败）
+        try:
+            record = await self._repo.update_status(
+                db,
+                record.id,
+                status="done",
+                total_chapters=total,
+                imported_chapters=imported,
+            )
+        except IntegrityError as exc:
+            logger.warning("并发重复导入被数据库约束拦截: %s", exc)
+            await self._repo.update_status(
+                db,
+                record.id,
+                status="failed",
+                error_message=f"文件已导入: {file_name}",
+            )
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"文件已导入: {file_name}",
+            ) from exc
+        if record is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        return ImportResponse(
+            id=str(record.id),
+            novel_id=str(record.novel_id),
+            file_name=record.file_name,
+            file_type=record.file_type,
+            file_size=record.file_size,
+            total_chapters=record.total_chapters,
+            imported_chapters=record.imported_chapters,
+            status=record.status,
+            error_message=record.error_message,
+            created_at=record.created_at,
+        )
 
     async def get_import_record(
         self,

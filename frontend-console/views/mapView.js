@@ -145,22 +145,13 @@ const mapView = {
   },
 
   async _loadLocations() {
-    try {
-      const data = await api.world.listEntities({
-        novel_id: state.currentProjectId,
-        entity_type: "location",
-        limit: 100,
-      })
-      this._locations = data.items || data || []
-    } catch {
-      this._locations = []
-    }
+    this._locations = await this._listAllEntities({ entity_type: "location" }).catch(() => [])
   },
 
   async _loadScenes() {
     if (!state.currentProjectId) return
     try {
-      const data = await api.outline.listScenes(state.currentProjectId, 0, 500)
+      const data = await api.outline.listScenesOrdered(state.currentProjectId)
       mapState.sceneList = (data.items || data || []).map((s) => ({
         id: s.id,
         index: s.scene_index,
@@ -173,15 +164,34 @@ const mapView = {
 
   async _loadAllEntities() {
     if (!state.currentProjectId) return
-    try {
-      const types = ["character", "event", "item", "location"]
-      const results = await Promise.all(
-        types.map((t) => api.world.listEntities({ novel_id: state.currentProjectId, entity_type: t, limit: 100 }).catch(() => ({ items: [] })))
-      )
-      this._allEntities = results.flatMap((r) => r.items || r || [])
-    } catch {
-      this._allEntities = []
+    const types = ["character", "event", "item", "location"]
+    const results = await Promise.all(
+      types.map((t) => this._listAllEntities({ entity_type: t }).catch(() => []))
+    )
+    this._allEntities = results.flat()
+  },
+
+  /**
+   * 分页拉取世界对象，避免 limit 超过后端 MAX_PAGE_SIZE 导致 422。
+   */
+  async _listAllEntities(baseParams) {
+    if (!state.currentProjectId) return []
+    const all = []
+    const limit = 50
+    let skip = 0
+    while (true) {
+      const data = await api.world.listEntities({
+        ...baseParams,
+        novel_id: state.currentProjectId,
+        skip,
+        limit,
+      })
+      const items = data.items || data || []
+      all.push(...items)
+      if (items.length < limit) break
+      skip += limit
     }
+    return all
   },
 
   // ============================================================

@@ -35,8 +35,8 @@ async def upload_file(
             content,
         )
     except HTTPException as exc:
-        if exc.status_code == 400 and exc.detail == NO_EFFECTIVE_CHAPTERS_MESSAGE:
-            await db.commit()
+        # service 已创建/更新 import_records 状态，需要提交才能持久化
+        await db.commit()
         raise
 
 
@@ -93,17 +93,25 @@ async def submit_deep_import(
         from fastapi import HTTPException
 
         raise HTTPException(400, detail="novel_id is required")
-    if end_chapter < start_chapter:
-        from fastapi import HTTPException
 
-        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
-
-    # 自动检测最后章节
+    # 自动检测最后章节（end_chapter=0 表示自动）
     if end_chapter == 0:
         from modules.writing.facade import list_chapter_indices
 
         indices = await list_chapter_indices(db, novel_id)
-        end_chapter = max(indices) if indices else 1
+        if not indices:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                400,
+                detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
+            )
+        end_chapter = max(indices)
+
+    if end_chapter < start_chapter:
+        from fastapi import HTTPException
+
+        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
 
     result = await _start(db, novel_id, start_chapter, end_chapter, force=force)
     return result
@@ -134,16 +142,25 @@ async def submit_deep_import_sync(
         from fastapi import HTTPException
 
         raise HTTPException(400, detail="novel_id is required")
-    if end_chapter < start_chapter:
-        from fastapi import HTTPException
 
-        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
-
+    # 自动检测最后章节（end_chapter=0 表示自动）
     if end_chapter == 0:
         from modules.writing.facade import list_chapter_indices
 
         indices = await list_chapter_indices(db, novel_id)
-        end_chapter = max(indices) if indices else 1
+        if not indices:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                400,
+                detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
+            )
+        end_chapter = max(indices)
+
+    if end_chapter < start_chapter:
+        from fastapi import HTTPException
+
+        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
 
     from uuid import uuid4
 

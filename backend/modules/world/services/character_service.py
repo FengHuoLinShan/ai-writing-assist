@@ -8,12 +8,16 @@
 
 from __future__ import annotations
 
+from fastapi import HTTPException
+from fastapi import status as http_status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import Character
 from modules.world.repositories import (
     CharacterKnowledgeRepository,
     CharacterRepository,
+    CoreEntityRepository,
 )
 from modules.world.schemas import (
     CharacterContextBundle,
@@ -46,8 +50,33 @@ class CharacterService(
 
     # ============================================================
     # 5 verb 继承自 base
-    # (list 加 clamp, 其它 4 verb 透传)
+    # (list 加 clamp, create 校验 entity_id, 其它 3 verb 透传)
     # ============================================================
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: CharacterCreate,
+    ) -> CharacterResponse:
+        """创建人物前校验关联 CoreEntity 存在且属于当前项目。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(data.entity_id, "entity_id")
+        entity_repo = CoreEntityRepository()
+        entity = await entity_repo.get(db, eid)
+        if entity is None or entity.novel_id != nid:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"CoreEntity {data.entity_id} not found",
+            )
+        try:
+            obj = await self.repo.create(db, nid, data)
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"CoreEntity {data.entity_id} not found or conflict",
+            ) from exc
+        return self._to_response(obj)
 
     async def list(  # type: ignore[override]
         self,

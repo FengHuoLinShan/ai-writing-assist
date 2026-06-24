@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,7 +19,6 @@ class ImportRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """导入记录 — 记录每次文件导入的结果"""
 
     __tablename__ = "import_records"
-    __table_args__ = {"comment": "小说文件导入记录"}
 
     file_name: Mapped[str] = mapped_column(
         String(255),
@@ -59,6 +58,18 @@ class ImportRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
         Text,
         nullable=True,
         comment="错误信息（status=failed 时填充）",
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_import_records_done_file_name",
+            "novel_id",
+            "file_name",
+            unique=True,
+            postgresql_where=(status == "done"),
+            sqlite_where=(status == "done"),
+        ),
+        {"comment": "小说文件导入记录"},
     )
 
     def __repr__(self) -> str:

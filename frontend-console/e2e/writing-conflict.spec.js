@@ -31,7 +31,7 @@ test.describe("写作工作台 — 版本冲突", () => {
     }
   })
 
-  test("409 冲突 — 其他会话已更新草稿版本", async ({ page }) => {
+  test("409 冲突 — 其他会话已发布新版本", async ({ page }) => {
     // Step 1: 通过 API 创建 v1 草稿
     const d1 = await createDraft(testProjectId, 1, "v1 标题", "v1 内容")
 
@@ -53,5 +53,36 @@ test.describe("写作工作台 — 版本冲突", () => {
 
     // Step 5: 应收到 409 冲突 toast
     await expect(page.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
+  })
+
+  test("409 冲突 — 其他 Tab 已暂存同一草稿", async ({ browser }) => {
+    // Step 1: 通过 API 创建 v1 草稿
+    const d1 = await createDraft(testProjectId, 1, "v1 标题", "v1 内容")
+
+    // Step 2: 打开两个 Tab
+    const context = await browser.newContext()
+    const pageA = await context.newPage()
+    const pageB = await context.newPage()
+
+    try {
+      for (const page of [pageA, pageB]) {
+        await openWorkbench(page, { id: testProjectId, title: "冲突测试项目" }, "writing")
+        await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+        await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+        await expect(page.locator("#writing-editor")).toHaveValue("v1 内容", { timeout: 5000 })
+      }
+
+      // Step 3: Tab A 编辑并暂存
+      await pageA.locator("#writing-editor").fill("Tab A 内容")
+      await pageA.locator('[data-action="autosave"]').click()
+      await expect(pageA.locator(SEL.toastContainer)).toContainText("已暂存", { timeout: 10000 })
+
+      // Step 4: Tab B 再暂存应收到 409
+      await pageB.locator("#writing-editor").fill("Tab B 内容")
+      await pageB.locator('[data-action="autosave"]').click()
+      await expect(pageB.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
+    } finally {
+      await context.close()
+    }
   })
 })

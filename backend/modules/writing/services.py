@@ -7,6 +7,7 @@ Writing 业务逻辑层
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -81,6 +82,20 @@ class WritingDraftService:
             db, draft.novel_id, draft.chapter_index
         )
         latest_version = latest.version_number if latest else draft.version_number
+        latest_updated_at = latest.updated_at if latest else draft.updated_at
+
+        if data.expected_updated_at is not None and latest_updated_at is not None:
+            db_updated_at = _as_utc_aware(latest_updated_at)
+            expected_updated_at = _as_utc_aware(data.expected_updated_at)
+            if db_updated_at > expected_updated_at:
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail=(
+                        "该章节已被其他会话更新（当前修改时间晚于期望时间，"
+                        "请刷新后重新编辑。"
+                    ),
+                )
+
         if data.expected_version is not None and latest_version != data.expected_version:
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT,
@@ -299,3 +314,10 @@ class WritingDraftService:
             new_draft=WritingDraftResponse.model_validate(new_draft),
             scenes=scenes,
         )
+
+
+def _as_utc_aware(dt: datetime) -> datetime:
+    """将可能为 naive 的 datetime 统一转为 UTC aware，便于比较。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)

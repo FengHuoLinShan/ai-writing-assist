@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Computed, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -111,8 +111,9 @@ class CoreEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     embedding = _vector_column()
     search_text: Mapped[str | None] = mapped_column(
         Text,
+        Computed("name || ' ' || COALESCE(content_json->>'aliases', '')", persisted=True),
         nullable=True,
-        comment="用于 pg_trgm 模糊搜索的文本列（由业务层维护）",
+        comment="用于 pg_trgm 模糊搜索的生成列",
     )
     pinyin_string: Mapped[str | None] = mapped_column(
         String(1024),

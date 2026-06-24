@@ -11,6 +11,16 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def _sanitize_title(v: str) -> str:
+    """去除首尾空白，并拒绝空字节与纯空白"""
+    if "\x00" in v:
+        raise ValueError("title must not contain null bytes")
+    v = v.strip()
+    if not v:
+        raise ValueError("title must not be empty")
+    return v
+
+
 class ProjectCreate(BaseModel):
     """创建项目请求"""
 
@@ -24,6 +34,11 @@ class ProjectCreate(BaseModel):
         default="author_safe", max_length=32, description="默认揭示策略"
     )
     settings: dict = Field(default={}, description="小说配置（JSON）")
+
+    @field_validator("title")
+    @classmethod
+    def _sanitize_title_field(cls, v: str) -> str:
+        return _sanitize_title(v)
 
     @field_validator("default_reveal_policy")
     @classmethod
@@ -45,6 +60,11 @@ class ProjectUpdate(BaseModel):
     current_stage: Annotated[str | None, Field(None, max_length=32)]
     default_reveal_policy: Annotated[str | None, Field(None, max_length=32)]
     settings: Annotated[dict | None, Field(None, description="小说配置（JSON）")]
+
+    @field_validator("title")
+    @classmethod
+    def _sanitize_title_field(cls, v: str | None) -> str | None:
+        return _sanitize_title(v) if v else v
 
     @field_validator("default_reveal_policy")
     @classmethod
