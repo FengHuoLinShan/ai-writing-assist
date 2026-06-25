@@ -275,6 +275,16 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | POST | `/api/world/maps/{map_id}/location-bindings` | 批量创建地点绑定（PRD §6.4） |
 | PATCH | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 更新地点绑定 |
 | DELETE | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 删除地点绑定 |
+| GET | `/api/world/maps/{map_id}/markers` | 动态标记列表（P1，可带 scene_id） |
+| POST | `/api/world/maps/{map_id}/markers` | 创建动态标记（P1） |
+| PATCH | `/api/world/maps/{map_id}/markers/{marker_id}` | 更新动态标记（P1） |
+| DELETE | `/api/world/maps/{map_id}/markers/{marker_id}` | 删除动态标记（P1） |
+| GET | `/api/world/maps/{map_id}/territories` | 势力范围列表（P2） |
+| POST | `/api/world/maps/{map_id}/territories` | 批量创建势力范围（P2） |
+| PATCH | `/api/world/maps/{map_id}/territories/{territory_id}` | 更新单格势力范围样式（P2） |
+| DELETE | `/api/world/maps/{map_id}/territories/{territory_id}` | 删除单格势力范围（P2） |
+| DELETE | `/api/world/maps/{map_id}/territories` | 按组织删除全部势力范围（P2） |
+| GET | `/api/world/maps/{map_id}/focus` | 聚焦模式：仅返回指定组织势力范围（P2） |
 
 ## 依赖
 

@@ -126,15 +126,23 @@ class ImportService:
             ) from exc
         except Exception as exc:
             logger.error("导入失败: %s", exc, exc_info=True)
-            await self._repo.update_status(
-                db,
-                record.id,
-                status="failed",
-                error_message=str(exc)[:1000],
-            )
+            error_message = "导入过程中发生服务器错误，请查看日志"
+            try:
+                await self._repo.update_status(
+                    db,
+                    record.id,
+                    status="failed",
+                    error_message=str(exc)[:1000],
+                )
+            except Exception as update_exc:
+                # 事务可能已被底层数据库错误污染，标记失败状态也可能失败。
+                # 记录日志，避免二次异常掩盖原始业务错误。
+                logger.error(
+                    "标记导入记录失败状态时出错: %s", update_exc, exc_info=True
+                )
             raise HTTPException(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="导入过程中发生服务器错误，请查看日志",
+                detail=error_message,
             ) from exc
 
         # 更新记录为完成（带并发去重保护：若同项目同名文件已有成功记录，
@@ -149,12 +157,17 @@ class ImportService:
             )
         except IntegrityError as exc:
             logger.warning("并发重复导入被数据库约束拦截: %s", exc)
-            await self._repo.update_status(
-                db,
-                record.id,
-                status="failed",
-                error_message=f"文件已导入: {file_name}",
-            )
+            try:
+                await self._repo.update_status(
+                    db,
+                    record.id,
+                    status="failed",
+                    error_message=f"文件已导入: {file_name}",
+                )
+            except Exception as update_exc:
+                logger.error(
+                    "标记导入记录失败状态时出错: %s", update_exc, exc_info=True
+                )
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail=f"文件已导入: {file_name}",

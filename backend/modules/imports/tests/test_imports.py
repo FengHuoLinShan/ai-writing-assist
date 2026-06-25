@@ -498,3 +498,34 @@ class TestImportService:
         )
         assert page2.total == 3
         assert len(page2.items) == 1
+
+    @pytest.mark.asyncio
+    async def test_upload_failure_does_not_mask_error_when_update_status_fails(
+        self,
+        service: ImportService,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+        monkeypatch,
+    ):
+        """底层数据库错误导致 update_status 也失败时，仍应抛出业务 HTTPException 而非二次异常。"""
+        async def _broken_update_status(*args, **kwargs):
+            raise RuntimeError("transaction aborted")
+
+        monkeypatch.setattr(
+            service._repo, "update_status", _broken_update_status
+        )
+
+        with patch(
+            "modules.imports.services.create_draft_only",
+            side_effect=RuntimeError("draft write failed"),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await service.upload_and_import(
+                    db_session,
+                    test_project_id,
+                    "fail.txt",
+                    sample_txt_content,
+                )
+        assert exc.value.status_code == 500
+        assert "导入过程中发生服务器错误" in exc.value.detail

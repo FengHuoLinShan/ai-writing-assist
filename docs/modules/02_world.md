@@ -20,6 +20,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
+- `map_configs` / `map_tiles` / `map_location_bindings` / `map_markers` / `map_territory_tiles` — 动态地图子系统表，详见 `docs/modules/15_map.md`
 - `entity_candidates` — 候选对象池（已废弃，AI 抽取直接入正史）
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB
@@ -40,6 +41,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **EntityExtractionService** — RAG 有序 chunk → LLM 抽取 → 实体入库
 - **CharacterService** — 人物 CRUD + 知识边界（从 character 模块迁入）
 - **CharacterKnowledgeService** — 人物知识边界管理
+- 动态地图服务 — 详见 `docs/modules/15_map.md`
 
 ## Facade
 

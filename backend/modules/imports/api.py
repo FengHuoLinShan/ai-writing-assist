@@ -6,9 +6,12 @@ Import API 路由
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+
+logger = logging.getLogger(__name__)
 
 from core.dependencies import DbSession
 from modules.imports.schemas import ImportListResponse, ImportResponse
@@ -35,8 +38,17 @@ async def upload_file(
             content,
         )
     except HTTPException as exc:
-        # service 已创建/更新 import_records 状态，需要提交才能持久化
-        await db.commit()
+        # service 已创建/更新 import_records 状态，需要提交才能持久化失败记录。
+        # 但事务可能已被底层数据库错误污染，提交失败时不应抛新的 500，
+        # 回滚后仍然抛出原始业务异常。
+        try:
+            await db.commit()
+        except Exception as commit_exc:
+            logger.warning("导入异常后提交记录状态失败: %s", commit_exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         raise
 
 
