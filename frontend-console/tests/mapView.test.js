@@ -1127,6 +1127,19 @@ describe("mapView P2 势力范围", () => {
     mapState.focusRelatedHexes = new Set(related)
     expect(mapView._getHexOpacity(q, r)).toBe(expected)
   })
+
+  it("按一级地图工作台图层上下文过滤 marker", () => {
+    mapView._mountContext = { layers: { markers: true, events: false, items: false } }
+    mapView._state = {
+      markers: [
+        { id: "mk1", marker_type: "character", visible: true },
+        { id: "mk2", marker_type: "event", visible: true },
+        { id: "mk3", marker_type: "item", visible: true },
+      ],
+    }
+
+    expect(mapView._filteredMarkers().map((m) => m.id)).toEqual(["mk1"])
+  })
 })
 
 describe("mapHexRenderer P2 drawTerritories", () => {

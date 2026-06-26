@@ -8,6 +8,7 @@ DraftProvider 直读 writing_drafts（绕过不可用的 pgvector RAG）。
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -26,6 +27,10 @@ from tests.utils import _mock_analyze, _mock_extract, _mock_segment
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
 FIRST_10_CHAPTER_COUNT = 10
+real_llm_required = pytest.mark.skipif(
+    os.getenv("RUN_REAL_LLM_TESTS") != "1",
+    reason="真实 LLM 抽取测试默认跳过；设置 RUN_REAL_LLM_TESTS=1 才运行",
+)
 
 
 # ============================================================
@@ -146,6 +151,8 @@ class TestImportFirst10Chapters:
 # ============================================================
 
 
+@pytest.mark.real_llm
+@real_llm_required
 class TestRealEntityExtraction:
     """Cycle 2: 用真实 LLM 从前10章中抽取世界对象（自动入库）"""
 
@@ -381,6 +388,8 @@ class TestRealWorkflowStep1:
 # ============================================================
 
 
+@pytest.mark.real_llm
+@real_llm_required
 class TestAutoIngestContextLoading:
     """Cycle 4: 验证上下文加载使第二次抽取不重复创建已有实体"""
 

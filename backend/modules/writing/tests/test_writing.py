@@ -656,9 +656,7 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        latest = await service.get_latest_draft(
-            db, sample_draft_data.novel_id, 1
-        )
+        latest = await service.get_latest_draft(db, sample_draft_data.novel_id, 1)
 
         assert latest.version_number == 2
 
@@ -686,9 +684,7 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        history = await service.get_version_history(
-            db, sample_draft_data.novel_id, 1
-        )
+        history = await service.get_version_history(db, sample_draft_data.novel_id, 1)
 
         assert history.total == 3
         assert history.versions[0].version_number == 3
@@ -769,9 +765,7 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        contract = await service.get_latest_draft_contract(
-            db, str(uuid.uuid4()), 1
-        )
+        contract = await service.get_latest_draft_contract(db, str(uuid.uuid4()), 1)
 
         assert contract is None
 
@@ -808,9 +802,7 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        count = await service.delete_chapter(
-            db, sample_draft_data.novel_id, 1
-        )
+        count = await service.delete_chapter(db, sample_draft_data.novel_id, 1)
 
         assert count == 1
 

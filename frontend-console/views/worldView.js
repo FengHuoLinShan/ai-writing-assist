@@ -2,7 +2,6 @@
  * 世界对象视图
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
-import mapView from "./mapView.js"
 
 const worldView = {
   /** @type {Array} */
@@ -143,10 +142,14 @@ const worldView = {
 
   /** 渲染地图子视图容器（mapView 命令式挂载到 #map-root） */
   _renderMap() {
-    // 退出旧地图实例（切换离开时清理）
-    mapView.unmount()
-    setTimeout(() => mapView.mount("map-root"), 0)
-    return `<div id="map-root" class="map-root"></div>`
+    router.navigate("map", null)
+    return `
+      <div class="empty-state">
+        <div class="empty-icon">&#128506;</div>
+        <p>正在打开地图</p>
+        <p style="color:var(--text-dim);font-size:12px;">地图已升级为侧边栏一级功能。</p>
+      </div>
+    `
   },
 
   // ============================================================

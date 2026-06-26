@@ -19,6 +19,11 @@ beforeEach(() => {
   writingView._scenes = []
   writingView._currentSceneId = null
   writingView._cursorOffset = 0
+  writingView._sceneMapSummary = null
+  writingView._sceneMapSummaryError = null
+  writingView._sceneMapSummarySceneId = null
+  writingView._sceneMapSummaryLoading = false
+  api.world.getMapSceneSummary = vi.fn()
   vi.clearAllMocks()
 })
 
@@ -46,6 +51,19 @@ describe("writingView render", () => {
     const html = await writingView.render()
     expect(html).toContain("章节（1）")
     expect(html).toContain("writing-editor")
+  })
+
+  it("编辑器工具栏显示打开地图按钮", async () => {
+    state.currentProjectId = "p1"
+    writingView._loading = false
+    writingView._chapterList = [1]
+    writingView._currentChapter = 1
+    writingView._chapters = { 1: { draftCount: 0 } }
+
+    const html = await writingView.render()
+
+    expect(html).toContain('data-action="open-map"')
+    expect(html).toContain("打开地图")
   })
 })
 
@@ -140,6 +158,57 @@ describe("_findCurrentScene", () => {
     ]
 
     expect(writingView._findCurrentScene()?.id).toBe("s1")
+  })
+})
+
+describe("writingView map integration", () => {
+  it("opens current Scene map target in a new browser tab", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
+    state.currentProjectId = "p1"
+    writingView._sceneMapSummary = {
+      open_target: { mode: "map", map_id: "m1", scene_id: "s1" },
+    }
+
+    writingView._openMapForCurrentScene()
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "#workbench/p1/map?map_id=m1&scene_id=s1&mode=map",
+      "_blank",
+      "noopener"
+    )
+    openSpy.mockRestore()
+  })
+
+  it("renders compact Scene map summary", () => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 1
+    writingView._scenes = [{ id: "s1", scene_index: 1, title: "东门", chapter_ids: ["1"] }]
+    writingView._sceneMapSummary = {
+      primary_location: { name: "洛阳外城" },
+      characters: [{ name: "沈砚" }],
+      events: [{ name: "东门封锁" }],
+      factions: [{ name: "北府" }],
+      warnings: [{ message: "陆青上一场在江陵，需确认移动合理性" }],
+    }
+
+    const html = writingView._renderScenePanel()
+
+    expect(html).toContain("地图摘要")
+    expect(html).toContain("洛阳外城")
+    expect(html).toContain("沈砚")
+    expect(html).toContain("东门封锁")
+    expect(html).toContain("北府")
+    expect(html).toContain("陆青上一场")
+  })
+
+  it("shows summary fallback text when scene-summary fails", async () => {
+    state.currentProjectId = "p1"
+    api.world.getMapSceneSummary.mockRejectedValue(new Error("fail"))
+
+    await writingView._loadCurrentSceneMapSummary({ id: "s1" })
+
+    expect(writingView._sceneMapSummary).toBeNull()
+    expect(writingView._sceneMapSummaryError).toBe("地图摘要暂不可用")
   })
 })
 

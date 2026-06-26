@@ -140,3 +140,36 @@ export async function seedEntityArchive(novelId, entityId, textContent, opts = {
     }),
   })
 }
+
+// ---- Map helpers ----
+
+export async function listMaps(novelId) {
+  return request(`/world/maps?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function createMap(novelId, data) {
+  return request(`/world/maps?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getMapState(novelId, mapId, sceneId = null) {
+  const params = new URLSearchParams({ novel_id: novelId })
+  if (sceneId) params.set("scene_id", sceneId)
+  return request(`/world/maps/${mapId}/state?${params.toString()}`)
+}
+
+export async function createLocationBindings(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/location-bindings?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function createMapMarker(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/markers?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}

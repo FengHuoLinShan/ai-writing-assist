@@ -6,42 +6,31 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
-    MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
     MapTerritoryCreate,
     MapTerritoryUpdate,
-    MapTileBatchUpdate,
 )
 from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
-    MapLocationBindingService,
-    MapMarkerService,
     MapTerritoryService,
-    MapTileService,
 )
 from modules.world.tests.helpers import (
-    _create_location_entity,
     _create_project,
 )
 
 
-
 class TestMapTerritoryService:
     """TestMapTerritoryService 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_list_territories_empty(self, db_session: AsyncSession, world_map):
         svc = MapTerritoryService()
         territories = await svc.list(db_session, world_map.novel_id, str(world_map.id))
         assert territories == []
-
 
     @pytest.mark.asyncio
     async def test_create_territory(
@@ -66,7 +55,6 @@ class TestMapTerritoryService:
         assert len(territories) == 2
         assert territories[0].faction_entity_id == organization_entity_id
         assert territories[0].hex_q == 1
-
 
     @pytest.mark.asyncio
     async def test_create_territory_non_org(self, db_session: AsyncSession, world_map):
@@ -94,7 +82,6 @@ class TestMapTerritoryService:
                 ),
             )
         assert exc.value.status_code == 400
-
 
     @pytest.mark.asyncio
     async def test_create_territory_out_of_bounds(self, db_session: AsyncSession):
@@ -131,7 +118,6 @@ class TestMapTerritoryService:
             )
         assert exc.value.status_code == 400
 
-
     @pytest.mark.asyncio
     async def test_update_territory(
         self,
@@ -159,7 +145,6 @@ class TestMapTerritoryService:
         )
         assert updated.style_override == {"color": "#00FF00"}
 
-
     @pytest.mark.asyncio
     async def test_delete_territory(
         self,
@@ -182,7 +167,6 @@ class TestMapTerritoryService:
         await svc.delete(db_session, world_map.novel_id, tid)
         remaining = await svc.list(db_session, world_map.novel_id, str(world_map.id))
         assert len(remaining) == 0
-
 
     @pytest.mark.asyncio
     async def test_delete_by_faction(
@@ -212,7 +196,6 @@ class TestMapTerritoryService:
         assert deleted == 3
         remaining = await svc.list(db_session, world_map.novel_id, str(world_map.id))
         assert len(remaining) == 0
-
 
     @pytest.mark.asyncio
     async def test_cross_novel_delete(
@@ -253,7 +236,6 @@ class TestMapTerritoryService:
             await svc.delete(db_session, nid2, tid)
         assert exc.value.status_code == 404
 
-
     @pytest.mark.asyncio
     async def test_state_includes_territories(
         self,
@@ -273,12 +255,9 @@ class TestMapTerritoryService:
         )
 
         cfg_svc = MapConfigService()
-        state = await cfg_svc.get_state(
-            db_session, world_map.novel_id, str(world_map.id)
-        )
+        state = await cfg_svc.get_state(db_session, world_map.novel_id, str(world_map.id))
         assert len(state.territories) >= 1
         assert state.territories[0].faction_entity_id == organization_entity_id
-
 
     @pytest.mark.asyncio
     async def test_focus_mode(

@@ -135,9 +135,7 @@ async def test_create_alias_not_found_variants(
 
     db = MagicMock()
     with pytest.raises(HTTPException) as exc_info:
-        await alias_service.create_alias(
-            db, novel_id, str(uuid.uuid4()), "Art"
-        )
+        await alias_service.create_alias(db, novel_id, str(uuid.uuid4()), "Art")
     assert exc_info.value.status_code == 404
     assert "Entity not found" in exc_info.value.detail
 

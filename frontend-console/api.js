@@ -402,6 +402,13 @@ const api = {
       if (sceneId) params.scene_id = sceneId
       return request(`/world/maps/${mapId}/state${buildQueryString(params)}`)
     },
+    /** 获取写作页 Scene 地图摘要 */
+    async getMapSceneSummary(novelId, sceneId) {
+      return request("/world/maps/scene-summary" + buildQueryString({
+        novel_id: novelId,
+        scene_id: sceneId,
+      }))
+    },
     /** 批量更新地形 */
     async batchUpdateTiles(mapId, payload, novelId) {
       return request(`/world/maps/${mapId}/tiles${buildQueryString({ novel_id: novelId })}`, {

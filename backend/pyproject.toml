@@ -78,6 +78,7 @@ include = ["app*", "core*", "shared*", "infrastructure*", "modules*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = [
     "modules",
     "infrastructure",
@@ -91,6 +92,8 @@ filterwarnings = [
 markers = [
     "api: API layer tests",
     "integration: Integration/flow tests",
+    "e2e: end-to-end tests requiring PostgreSQL/pgvector",
+    "real_llm: tests that call a real LLM provider; disabled by default",
 ]
 
 [tool.ruff]

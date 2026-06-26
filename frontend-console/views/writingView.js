@@ -5,6 +5,7 @@
  * 支持暂存、发布、版本切换、整章删除。
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { buildMapUrl } from "./mapRouteContext.js"
 
 const writingView = {
   _chapters: {},
@@ -37,6 +38,10 @@ const writingView = {
   _autoSaving: false,
   _lastSavedContent: null,
   _beforeUnloadHandler: null,
+  _sceneMapSummary: null,
+  _sceneMapSummaryError: null,
+  _sceneMapSummarySceneId: null,
+  _sceneMapSummaryLoading: false,
 
   // ============================================================
   // 生命周期
@@ -76,6 +81,10 @@ const writingView = {
     this._autoSaveTimer = null
     this._autoSaving = false
     this._lastSavedContent = null
+    this._sceneMapSummary = null
+    this._sceneMapSummaryError = null
+    this._sceneMapSummarySceneId = null
+    this._sceneMapSummaryLoading = false
 
     // beforeunload 处理：有未保存内容时弹出确认
     this._beforeUnloadHandler = (e) => {
@@ -511,6 +520,7 @@ const writingView = {
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
+            ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map" style="font-size:11px;">打开地图</button>` : ''}
             ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import" style="font-size:11px;color:var(--accent);">深度导入</button>` : ''}
           </div>
         </div>
@@ -594,11 +604,19 @@ const writingView = {
 
   _updateCurrentScene() {
     const scene = this._findCurrentScene()
-    this._currentSceneId = scene?.id || null
+    const nextSceneId = scene?.id || null
+    if (nextSceneId !== this._currentSceneId) {
+      this._sceneMapSummary = null
+      this._sceneMapSummaryError = null
+      this._sceneMapSummarySceneId = null
+      this._sceneMapSummaryLoading = false
+    }
+    this._currentSceneId = nextSceneId
   },
 
   _renderScenePanel() {
     const currentScene = this._findCurrentScene()
+    this._scheduleSceneMapSummaryLoad(currentScene)
 
     let html = `
       <div class="card" style="max-height:600px;overflow-y:auto;font-size:12px;">
@@ -637,6 +655,8 @@ const writingView = {
       `
     }
 
+    html += this._renderMapSummary(currentScene)
+
     html += `
       <hr style="border:none;border-top:1px solid var(--border);margin:8px 0;">
       ${currentScene && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene" style="font-size:11px;width:100%;margin-bottom:4px;">断章至此</button>` : ''}
@@ -646,6 +666,124 @@ const writingView = {
 
     html += '</div>'
     return html
+  },
+
+  _renderMapSummary(currentScene) {
+    if (!state.currentProjectId) return ""
+    const emptyText = currentScene ? "当前 Scene 暂无地图位置" : "当前章节未关联地图 Scene"
+    if (this._sceneMapSummaryError) {
+      return `
+        <div class="writing-map-summary">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
+          <div style="color:var(--warning);font-size:11px;">${esc(this._sceneMapSummaryError)}</div>
+        </div>
+      `
+    }
+    if (this._sceneMapSummaryLoading && !this._sceneMapSummary) {
+      return `
+        <div class="writing-map-summary">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
+          <div style="color:var(--text-dim);font-size:11px;">地图摘要加载中...</div>
+        </div>
+      `
+    }
+    const summary = this._sceneMapSummary
+    if (!summary) {
+      return `
+        <div class="writing-map-summary">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
+          <div style="color:var(--text-dim);font-size:11px;">${esc(emptyText)}</div>
+        </div>
+      `
+    }
+    const location = summary.primary_location?.name || "未绑定地点"
+    const row = (label, items) => {
+      const names = (items || []).map((item) => item.name).filter(Boolean)
+      if (!names.length) return ""
+      return `
+        <div style="margin-top:4px;">
+          <span style="color:var(--text-dim);">${esc(label)}：</span>${esc(names.slice(0, 3).join("、"))}
+        </div>
+      `
+    }
+    const warnings = (summary.warnings || []).map((warning) => `
+      <div style="margin-top:4px;color:var(--warning);">${esc(warning.message || warning)}</div>
+    `).join("")
+    return `
+      <div class="writing-map-summary">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
+        <div><span style="color:var(--text-dim);">地点：</span>${esc(location)}</div>
+        ${row("人物", summary.characters)}
+        ${row("事件", summary.events)}
+        ${row("势力", summary.factions)}
+        ${warnings}
+      </div>
+    `
+  },
+
+  _scheduleSceneMapSummaryLoad(currentScene) {
+    if (!state.currentProjectId || !currentScene?.id) return
+    if (this._sceneMapSummarySceneId === currentScene.id &&
+        (this._sceneMapSummary || this._sceneMapSummaryError || this._sceneMapSummaryLoading)) {
+      return
+    }
+    this._sceneMapSummarySceneId = currentScene.id
+    this._sceneMapSummaryLoading = true
+    setTimeout(async () => {
+      await this._loadCurrentSceneMapSummary(currentScene)
+      const panelEl = document.getElementById("writing-panel-container")
+      if (panelEl) {
+        panelEl.innerHTML = this._renderScenePanel()
+        this._bindEvents()
+      }
+    }, 0)
+  },
+
+  async _loadCurrentSceneMapSummary(scene) {
+    if (!state.currentProjectId || !scene?.id) {
+      this._sceneMapSummary = null
+      this._sceneMapSummaryError = null
+      this._sceneMapSummarySceneId = null
+      this._sceneMapSummaryLoading = false
+      return null
+    }
+    this._sceneMapSummarySceneId = scene.id
+    this._sceneMapSummaryError = null
+    this._sceneMapSummaryLoading = true
+    try {
+      const summary = await api.world.getMapSceneSummary(state.currentProjectId, scene.id)
+      this._sceneMapSummary = summary
+      this._sceneMapSummaryError = null
+      return summary
+    } catch {
+      this._sceneMapSummary = null
+      this._sceneMapSummaryError = "地图摘要暂不可用"
+      toast("地图摘要暂不可用", "warning")
+      return null
+    } finally {
+      this._sceneMapSummaryLoading = false
+    }
+  },
+
+  _openMapForCurrentScene() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    const currentScene = this._findCurrentScene()
+    const target = this._sceneMapSummary?.open_target || {}
+    const mode = target.mode || (target.map_id ? "map" : "recent")
+    const url = buildMapUrl({
+      projectId: state.currentProjectId,
+      mapId: target.map_id,
+      sceneId: target.scene_id || currentScene?.id,
+      focusEntityId: target.focus_entity_id,
+      mode,
+    })
+    if (target.fallback_message) {
+      toast(target.fallback_message, "warning")
+    }
+    window.open(url, "_blank", "noopener")
   },
 
   _renderPublishBar() {
@@ -1514,6 +1652,7 @@ const writingView = {
       "delete-version": () => this._deleteVersion(),
       "dismiss-publish-error": () => this._dismissPublishError(),
       "deep-import": () => this._showDeepImportForm(),
+      "open-map": () => this._openMapForCurrentScene(),
       "dismiss-deep-import": () => { this._deepImportProgress = null; this._rerender() },
       "open-outline": () => router.navigate("outline", null),
       "split-scene": () => this._showSplitSceneForm(),

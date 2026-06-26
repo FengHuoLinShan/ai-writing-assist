@@ -13,7 +13,6 @@ from core.dependencies import get_db
 from modules.world.map_models import MapConfig
 from modules.world.tests.helpers import (
     _create_default_map,
-    _create_entity,
     _create_location_entity,
     _create_map_config,
     _create_organization,

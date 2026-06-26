@@ -584,9 +584,7 @@ class MapMarkerService:
                 uuid.UUID(data.start_scene_id) if data.start_scene_id else None
             ),
             "start_scene_index": data.start_scene_index,
-            "end_scene_id": (
-                uuid.UUID(data.end_scene_id) if data.end_scene_id else None
-            ),
+            "end_scene_id": (uuid.UUID(data.end_scene_id) if data.end_scene_id else None),
             "end_scene_index": data.end_scene_index,
             "visible": data.visible,
         }

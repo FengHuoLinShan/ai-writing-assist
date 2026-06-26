@@ -19,7 +19,7 @@ test.describe("首页与导航", () => {
   test("侧边栏导航项可见", async ({ page }) => {
     await page.goto("/")
 
-    const navItems = ["project", "world", "writing", "rag", "context", "generate"]
+    const navItems = ["project", "world", "map", "writing", "rag", "context", "generate"]
     for (const item of navItems) {
       await expect(page.locator(SEL.navItem(item))).toBeVisible()
     }
@@ -42,10 +42,9 @@ test.describe("首页与导航", () => {
 
   test("后端连接状态显示", async ({ page }) => {
     await page.goto("/")
-    await page.waitForTimeout(2000)
 
     const status = page.locator(SEL.topbarStatus)
-    await expect(status).toContainText("已连接")
+    await expect(status).toContainText("已连接", { timeout: 10000 })
   })
 
   test("快捷键帮助弹窗", async ({ page }) => {

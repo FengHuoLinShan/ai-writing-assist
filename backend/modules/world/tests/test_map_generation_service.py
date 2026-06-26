@@ -5,37 +5,22 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
-    MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
-    MapTileBatchUpdate,
 )
-from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
-    MapLocationBindingService,
-    MapMarkerService,
-    MapTerritoryService,
-    MapTileService,
 )
 from modules.world.tests.helpers import (
-    _create_location_entity,
     _create_project,
 )
 
 
-
 class TestMapGenerationService:
     """TestMapGenerationService 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_generate_detail_terrain(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -52,7 +37,6 @@ class TestMapGenerationService:
         # 应包含 city（中心）和 road/forest/grassland
         assert "city" in terrains
         assert len(state.tiles) == 600  # 20x30
-
 
     @pytest.mark.asyncio
     async def test_generate_overwrites_existing(self, db_session: AsyncSession):

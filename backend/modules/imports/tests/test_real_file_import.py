@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -239,38 +240,42 @@ class TestRealFileImportService:
         assert record.file_size == len(real_file_bytes)
 
     @pytest.mark.asyncio
-    async def test_import_twice_creates_two_records(
+    async def test_import_twice_same_file_returns_400_and_preserves_first_record(
         self,
         service: ImportService,
         db_session: AsyncSession,
         real_project: str,
         real_file_bytes: bytes,
     ):
-        """两次导入同一文件应创建两条独立记录"""
+        """同一项目同名文件已成功导入后，再次导入应被拒绝。"""
         resp1 = await service.upload_and_import(
             db_session,
             real_project,
             "novel.txt",
             real_file_bytes,
         )
-        resp2 = await service.upload_and_import(
-            db_session,
-            real_project,
-            "novel.txt",
-            real_file_bytes,
-        )
 
-        assert resp1.id != resp2.id, "两次导入的 ID 应不同"
+        with pytest.raises(HTTPException) as exc_info:
+            await service.upload_and_import(
+                db_session,
+                real_project,
+                "novel.txt",
+                real_file_bytes,
+            )
 
-        # 两条记录都在数据库里
+        assert resp1.status == "done"
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail == "文件已导入: novel.txt"
+
         result = await db_session.execute(
-            select(ImportRecord)
-            .where(ImportRecord.novel_id == uuid.UUID(hex=real_project))
-            .order_by(ImportRecord.created_at)
+            select(ImportRecord).where(
+                ImportRecord.novel_id == uuid.UUID(hex=real_project),
+                ImportRecord.file_name == "novel.txt",
+            )
         )
         records = list(result.scalars().all())
-        assert len(records) == 2
-        assert all(r.status == "done" for r in records)
+        assert len(records) == 1
+        assert records[0].status == "done"
 
 
 # ============================================================

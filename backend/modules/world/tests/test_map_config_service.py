@@ -6,26 +6,16 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
-    MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
     MapTileBatchUpdate,
 )
 from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
-    MapLocationBindingService,
-    MapMarkerService,
-    MapTerritoryService,
-    MapTileService,
 )
 from modules.world.tests.helpers import (
     _create_location_entity,
@@ -33,9 +23,9 @@ from modules.world.tests.helpers import (
 )
 
 
-
 class TestMapConfigService:
     """TestMapConfigService 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_create_world_map_generates_initial_tiles(
         self, db_session: AsyncSession
@@ -66,7 +56,6 @@ class TestMapConfigService:
         # blank 模板全 grassland
         assert all(t.terrain_type == "grassland" for t in tiles)
 
-
     @pytest.mark.asyncio
     async def test_list_maps_filter_by_parent(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -82,7 +71,6 @@ class TestMapConfigService:
         top = await svc.list(db_session, nid)
         assert top.total == 1
         assert top.items[0].name == "世界"
-
 
     @pytest.mark.asyncio
     async def test_update_map(self, db_session: AsyncSession):
@@ -105,7 +93,6 @@ class TestMapConfigService:
         assert updated.name == "新名"
         assert updated.sort_order == 3
 
-
     @pytest.mark.asyncio
     async def test_delete_map_cascades_tiles(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -125,12 +112,10 @@ class TestMapConfigService:
         await svc.delete(db_session, created.id, novel_id=nid)
 
         # map 已删（404）
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await svc.get(db_session, created.id, novel_id=nid)
         assert exc.value.status_code == 404
-
 
     @pytest.mark.asyncio
     async def test_get_map_cross_novel_returns_404(
@@ -145,16 +130,15 @@ class TestMapConfigService:
                 name="小说1地图", map_type="world", grid_width=3, grid_height=3
             ),
         )
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await svc.get(db_session, created.id, novel_id=nid2)
         assert exc.value.status_code == 404
 
 
-
 class TestMapConfigValidation:
     """TestMapConfigValidation 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_create_invalid_map_type_returns_422(self, db_session):
         """B3：非法 map_type 被 Literal 拒绝（422）。"""
@@ -178,17 +162,13 @@ class TestMapConfigValidation:
         with pytest.raises(ValidationError):
             MapConfigCreate(name="x", map_type="galaxy", grid_width=3, grid_height=3)
 
-
     @pytest.mark.asyncio
     async def test_batch_update_invalid_terrain_returns_422(self, db_session):
         """B3：非法 terrain_type 被 Literal 拒绝。"""
         from pydantic import ValidationError
 
-        from modules.world.map_schemas import MapTileBatchUpdate
-
         with pytest.raises(ValidationError):
             MapTileBatchUpdate(changes=[{"hex_q": 0, "hex_r": 0, "terrain_type": "lava"}])
-
 
     @pytest.mark.asyncio
     async def test_create_continent_template_generates_varied_terrain(self, db_session):
@@ -212,7 +192,6 @@ class TestMapConfigValidation:
         # continent 模板应至少含 water（边缘）和陆地
         assert len(terrains) >= 2
 
-
     @pytest.mark.asyncio
     async def test_create_islands_template(self, db_session):
         """islands 模板生成含 water。"""
@@ -234,11 +213,9 @@ class TestMapConfigValidation:
         terrains = {t.terrain_type for t in state.tiles}
         assert "water" in terrains
 
-
     @pytest.mark.asyncio
     async def test_create_toplevel_duplicate_name_returns_409(self, db_session):
         """B7：顶层地图同名返回 409（PG NULL unique 漏洞由业务层补）。"""
-        from fastapi import HTTPException
 
         nid = uuid.uuid4().hex
         await _create_project(db_session, nid)
@@ -258,11 +235,9 @@ class TestMapConfigValidation:
             )
         assert exc.value.status_code == 409
 
-
     @pytest.mark.asyncio
     async def test_create_with_parent_entity_not_location_returns_400(self, db_session):
         """B2：parent_entity_id 非 location 类型返回 400。"""
-        from fastapi import HTTPException
 
         nid = uuid.uuid4().hex
         await _create_project(db_session, nid)
@@ -295,13 +270,11 @@ class TestMapConfigValidation:
         assert exc.value.status_code == 400
         assert "location" in exc.value.detail
 
-
     @pytest.mark.asyncio
     async def test_create_with_cross_novel_parent_entity_returns_404(
         self, db_session, two_projects: tuple[str, str]
     ):
         """B2：parent_entity_id 跨 novel 返回 404。"""
-        from fastapi import HTTPException
 
         nid1, nid2 = two_projects
         # location 实体在 novel2
@@ -322,11 +295,9 @@ class TestMapConfigValidation:
             )
         assert exc.value.status_code == 404
 
-
     @pytest.mark.asyncio
     async def test_generate_on_world_map_returns_400(self, db_session):
         """B4：对 world 地图调用 generate 返回 400。"""
-        from fastapi import HTTPException
 
         nid = uuid.uuid4().hex
         await _create_project(db_session, nid)
@@ -339,7 +310,6 @@ class TestMapConfigValidation:
         with pytest.raises(HTTPException) as exc:
             await svc.generate(db_session, nid, created.id)
         assert exc.value.status_code == 400
-
 
     @pytest.mark.asyncio
     async def test_generate_detail_contains_road(self, db_session):
@@ -358,9 +328,9 @@ class TestMapConfigValidation:
         assert "road" in terrains
 
 
-
 class TestMapStateContract:
     """TestMapStateContract 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_state_response_has_markers_and_territories_fields(self, db_session):
         """B6：state 响应含 markers/territories 字段（空 list）。"""

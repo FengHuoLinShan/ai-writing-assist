@@ -39,7 +39,7 @@ import {
   clearFocus,
   setSelectedFaction,
   setFactionColor,
-  
+  setSelectedHex,
   setHoveredHex,
   clearHoveredHex,
   startDragDraw,
@@ -72,6 +72,10 @@ const mapView = {
   _dragMoved: false,
   /** 当前侧边栏筛选模式 ("all" | "location") */
   _currentFilter: "all",
+  /** 当前挂载容器 ID */
+  _mountRootId: "map-root",
+  /** 一级地图工作台传入的打开上下文 */
+  _mountContext: {},
 
   // ============================================================
   // 生命周期：由 worldView 调用
@@ -80,15 +84,29 @@ const mapView = {
   /**
    * 挂载到容器。worldView._renderMap 提供 #map-root 后调用。
    * @param {string} rootId
+   * @param {object} context
    */
-  async mount(rootId) {
+  async mount(rootId, context = {}) {
+    this._mountRootId = rootId
+    this._mountContext = context || {}
     if (!window.L) {
       const root = document.getElementById(rootId)
       if (root) root.innerHTML = `<div class="empty-state"><div class="empty-icon" style="color:var(--danger);">&#9888;</div><p>地图引擎加载失败</p><p style="color:var(--text-dim);font-size:12px;">Leaflet 未加载，请检查网络连接（ADR-0003）</p></div>`
       return
     }
     await this._loadMaps()
-    await this._loadScenes()
+    if (context.mapId) {
+      await this._loadMapState(context.mapId, context.sceneId || null)
+      await Promise.all([
+        this._loadLocations(),
+        this._loadAllEntities(),
+        this._loadScenes(),
+      ])
+      if (context.sceneId) setCurrentScene(context.sceneId)
+      if (context.focusEntityId) await this._loadFocusState(context.focusEntityId)
+    } else {
+      await this._loadScenes()
+    }
     this._render(rootId)
   },
 
@@ -133,11 +151,13 @@ const mapView = {
     }
   },
 
-  async _loadMapState(mapId) {
+  async _loadMapState(mapId, sceneId = mapState.currentSceneId) {
     try {
-      this._state = await api.world.getMapState(mapId, state.currentProjectId, mapState.currentSceneId)
+      this._state = await api.world.getMapState(mapId, state.currentProjectId, sceneId)
       resetMapState()
       mapState.currentMapId = mapId
+      if (sceneId) setCurrentScene(sceneId)
+      this._notifyMapOpened()
     } catch (err) {
       toast(`加载地图失败：${err.message}`, "error")
       this._state = null
@@ -164,7 +184,7 @@ const mapView = {
 
   async _loadAllEntities() {
     if (!state.currentProjectId) return
-    const types = ["character", "event", "item", "location"]
+    const types = ["character", "event", "item", "location", "organization"]
     const results = await Promise.all(
       types.map((t) => this._listAllEntities({ entity_type: t }).catch(() => []))
     )
@@ -437,14 +457,24 @@ const mapView = {
 
     const showBoundary = this._currentFilter === "location"
     const getHexOpacity = this._getHexOpacity.bind(this)
-    drawTerrain(this._ctx, this._state.tiles, size, 0, 0, getHexOpacity)
-    drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary, getHexOpacity)
-    drawMarkers(this._ctx, this._state.markers, size, 0, 0)
-    drawTerritories(this._ctx, this._state.territories, size, 0, 0, mapState.factionColors, getHexOpacity)
+    if (this._isLayerEnabled("terrain")) {
+      drawTerrain(this._ctx, this._state.tiles, size, 0, 0, getHexOpacity)
+    }
+    if (this._isLayerEnabled("locations")) {
+      drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary, getHexOpacity)
+    }
+    drawMarkers(this._ctx, this._filteredMarkers(), size, 0, 0)
+    if (this._isLayerEnabled("territories")) {
+      drawTerritories(this._ctx, this._state.territories, size, 0, 0, mapState.factionColors, getHexOpacity)
+    }
 
     // 待应用变更叠加在基础地形之上
-    drawPendingTerrain(this._ctx, mapState.pendingTerrainChanges, size, 0, 0, getHexOpacity)
-    drawPendingBindings(this._ctx, mapState.pendingBindings, size, 0, 0, getHexOpacity)
+    if (this._isLayerEnabled("terrain")) {
+      drawPendingTerrain(this._ctx, mapState.pendingTerrainChanges, size, 0, 0, getHexOpacity)
+    }
+    if (this._isLayerEnabled("locations")) {
+      drawPendingBindings(this._ctx, mapState.pendingBindings, size, 0, 0, getHexOpacity)
+    }
 
     // 悬停高亮
     if (mapState.hoveredHex) {
@@ -472,7 +502,7 @@ const mapView = {
     this._leaflet.eachLayer((layer) => {
       if (layer._isMapLabel) this._leaflet.removeLayer(layer)
     })
-    if (mapState.mode === "edit") return // 编辑模式不显示标签
+    if (mapState.mode === "edit" || !this._isLayerEnabled("locations")) return // 编辑模式不显示标签
 
     const cfg = this._state.map
     const size = cfg.hex_size || 30
@@ -788,7 +818,7 @@ const mapView = {
       return `<div class="map-tooltip-title">${esc(name)}${centerTag}</div><div class="map-tooltip-sub">${esc(tile ? tile.terrain_type : "")}</div>`
     }
     const markers = this._state.markers || []
-    const hitMarker = markers.find((m) => m.hex_q === q && m.hex_r === r && m.visible)
+    const hitMarker = this._filteredMarkers().find((m) => m.hex_q === q && m.hex_r === r && m.visible)
     if (hitMarker) {
       const typeLabels = { character: "人物", event: "事件", item: "物品" }
       const typeLabel = typeLabels[hitMarker.marker_type] || hitMarker.marker_type
@@ -943,11 +973,15 @@ const mapView = {
   // ============================================================
 
   async _openMap(mapId) {
+    const rootId = this._mountRootId || "map-root"
+    const context = this._mountContext || {}
     this.unmount()
+    this._mountRootId = rootId
+    this._mountContext = context
     await this._loadMapState(mapId)
     await this._loadLocations()
     await this._loadScenes()
-    this._render("map-root")
+    this._render(rootId)
   },
 
   _backToList() {
@@ -1295,6 +1329,26 @@ const mapView = {
     if (!mapState.focusMode) return 1.0
     const key = `${q},${r}`
     return mapState.focusRelatedHexes.has(key) ? 1.0 : 0.3
+  },
+
+  _isLayerEnabled(layer) {
+    const layers = this._mountContext?.layers || {}
+    return layers[layer] !== false
+  },
+
+  _filteredMarkers() {
+    return (this._state?.markers || []).filter((marker) => {
+      if (marker.marker_type === "event") return this._isLayerEnabled("events")
+      if (marker.marker_type === "item") return this._isLayerEnabled("items")
+      return this._isLayerEnabled("markers")
+    })
+  },
+
+  _notifyMapOpened() {
+    const callback = this._mountContext?.onMapOpened
+    if (typeof callback === "function" && this._state?.map) {
+      callback(this._state.map)
+    }
   },
 
   _handleTerritoryPaint(q, r) {

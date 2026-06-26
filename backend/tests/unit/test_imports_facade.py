@@ -45,46 +45,61 @@ async def _create_prev_task(
 # ------------------------------------------------------------------
 
 
-@mock.patch("modules.imports.facade._check_duplicate_import")
-@mock.patch("infrastructure.tasks.enqueuer.enqueue_task")
+@mock.patch("modules.imports.facade._orchestrator")
 async def test_start_deep_import_duplicate_requires_confirmation_without_enqueue(
-    mock_enqueue,
-    mock_check_duplicate,
+    mock_orchestrator,
     db_session,
 ):
     """重复导入默认只返回确认要求，不应提前把 deep_import 任务入队。"""
-    mock_check_duplicate.return_value = (
-        "第 1-5 章已有数据。重新导入将覆盖现有数据。是否继续？"
-    )
+    warning = "第 1-5 章已有数据。重新导入将覆盖现有数据。是否继续？"
+    expected = {
+        "workflow_id": None,
+        "task_id": None,
+        "status": "requires_confirmation",
+        "requires_confirmation": True,
+        "warning": warning,
+        "message": warning,
+    }
+    mock_orchestrator.start = mock.AsyncMock(return_value=expected)
+    novel_id = str(uuid.uuid4())
 
     result = await start_deep_import(
         db_session,
-        novel_id=str(uuid.uuid4()),
+        novel_id=novel_id,
         start_chapter=1,
         end_chapter=5,
     )
 
+    assert result == expected
     assert result["status"] == "requires_confirmation"
     assert result["requires_confirmation"] is True
     assert "覆盖现有数据" in result["warning"]
-    assert "task_id" not in result
-    mock_enqueue.assert_not_called()
+    assert result["task_id"] is None
+    mock_orchestrator.start.assert_awaited_once_with(
+        db_session,
+        novel_id,
+        1,
+        5,
+        force=False,
+    )
 
 
-@mock.patch("modules.imports.facade._check_duplicate_import")
-@mock.patch("infrastructure.tasks.enqueuer.enqueue_task")
+@mock.patch("modules.imports.facade._orchestrator")
 async def test_start_deep_import_force_enqueues_after_duplicate_confirmation(
-    mock_enqueue,
-    mock_check_duplicate,
+    mock_orchestrator,
     db_session,
 ):
     """用户确认覆盖后，force=True 才允许创建 deep_import 任务。"""
     task_id = str(uuid.uuid4())
-    mock_enqueue.return_value = task_id
-    mock_check_duplicate.return_value = (
-        "第 1-5 章已有数据。重新导入将覆盖现有数据。是否继续？"
-    )
     novel_id = str(uuid.uuid4())
+    expected = {
+        "workflow_id": task_id,
+        "task_id": task_id,
+        "status": "pending",
+        "requires_confirmation": False,
+        "message": "深度导入任务已提交（第1-5章）",
+    }
+    mock_orchestrator.start = mock.AsyncMock(return_value=expected)
 
     result = await start_deep_import(
         db_session,
@@ -94,20 +109,19 @@ async def test_start_deep_import_force_enqueues_after_duplicate_confirmation(
         force=True,
     )
 
+    assert result == expected
     assert result["task_id"] == task_id
     assert result["status"] == "pending"
     assert result["requires_confirmation"] is False
     assert "warning" not in result
 
-    mock_enqueue.assert_called_once()
-    call_args, call_kwargs = mock_enqueue.call_args
-    assert call_args[0] is db_session
-    assert call_args[1] == "deep_import"
-    assert call_kwargs["meta"] == {
-        "novel_id": novel_id,
-        "start_chapter": 1,
-        "end_chapter": 5,
-    }
+    mock_orchestrator.start.assert_awaited_once_with(
+        db_session,
+        novel_id,
+        1,
+        5,
+        force=True,
+    )
 
 
 # ------------------------------------------------------------------

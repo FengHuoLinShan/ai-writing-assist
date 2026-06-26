@@ -253,9 +253,7 @@ class TestDeepImportOrchestrator:
             force=True,
         )
 
-        orchestrator._deprecate_derived_data.assert_awaited_once_with(
-            db, "novel-1", 1, 3
-        )
+        orchestrator._deprecate_derived_data.assert_awaited_once_with(db, "novel-1", 1, 3)
         orchestrator._enqueue_deep_import.assert_called_once_with(db, "novel-1", 1, 3)
         db.flush.assert_awaited_once()
         assert result == {
@@ -303,13 +301,34 @@ class TestDeepImportOrchestrator:
             "degraded_batches": [2],
         }
 
+    @pytest.mark.asyncio
+    async def test_run_task_defaults_missing_chapter_range(self):
+        """任务 meta 未带章节范围时，orchestrator 使用 1-5 章默认范围。"""
+        orchestrator = DeepImportOrchestrator()
+        progress = DeepImportProgress(phase="done", message="完成")
+        orchestrator.workflow.run_step = AsyncMock(return_value=progress)
+        task = Mock(id=uuid.uuid4(), meta={"novel_id": "n1"})
+        task.update_progress = Mock()
+        db = AsyncMock()
+
+        await orchestrator.run_task(db, task)
+
+        _, kwargs = orchestrator.workflow.run_step.await_args
+        assert kwargs["start_chapter"] == 1
+        assert kwargs["end_chapter"] == 5
+
 
 class TestSceneSegmentationProgress:
     """测试 Scene 切分服务的细粒度进度回调"""
 
     @pytest.mark.asyncio
+    @patch("modules.outline.facade.create_scene", new_callable=AsyncMock)
     @patch("modules.outline.facade.get_next_scene_index", return_value=0)
-    async def test_segment_chapters_reports_batch_progress(self, mock_get_next):
+    async def test_segment_chapters_reports_batch_progress(
+        self,
+        mock_get_next,
+        mock_create_scene,
+    ):
         service = SceneSegmentationService()
         service._load_chapters = AsyncMock(
             return_value=[
@@ -341,6 +360,7 @@ class TestSceneSegmentationProgress:
         assert progress_calls[1] == (1, 2)
         assert progress_calls[2] == (2, 2)
         assert result["total_scenes"] == 2
+        assert mock_create_scene.await_count == 2
 
 
 class TestSceneEntityExtractionProgress:

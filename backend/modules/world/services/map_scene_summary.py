@@ -1,0 +1,281 @@
+"""Map Scene summary assembly for the writing view."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Awaitable, Callable
+
+from fastapi import HTTPException
+from fastapi import status as http_status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.world.map_models import MapLocationBinding, MapMarker
+from modules.world.map_repositories import (
+    MapLocationBindingRepository,
+    MapMarkerRepository,
+    MapTerritoryRepository,
+)
+from modules.world.map_schemas import (
+    MapOpenTarget,
+    MapSceneSummaryItem,
+    MapSceneSummaryResponse,
+    MapSceneSummaryWarning,
+)
+from modules.world.repositories import CoreEntityRepository
+from modules.world.services.helpers import parse_uuid
+
+SceneLookup = Callable[[AsyncSession, str, str], Awaitable[object | None]]
+
+
+async def _default_scene_lookup(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+) -> object | None:
+    from modules.outline.facade import get_scene_contract
+
+    return await get_scene_contract(db, novel_id, scene_id)
+
+
+class MapSceneSummaryService:
+    """Build a compact map summary for one Scene."""
+
+    def __init__(
+        self,
+        *,
+        marker_repo: MapMarkerRepository | None = None,
+        binding_repo: MapLocationBindingRepository | None = None,
+        territory_repo: MapTerritoryRepository | None = None,
+        entity_repo: CoreEntityRepository | None = None,
+        scene_lookup: SceneLookup | None = None,
+    ) -> None:
+        self._marker_repo = marker_repo or MapMarkerRepository()
+        self._binding_repo = binding_repo or MapLocationBindingRepository()
+        self._territory_repo = territory_repo or MapTerritoryRepository()
+        self._entity_repo = entity_repo or CoreEntityRepository()
+        self._scene_lookup = scene_lookup or _default_scene_lookup
+
+    async def summarize(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+    ) -> MapSceneSummaryResponse:
+        scene = await self._scene_lookup(db, novel_id, scene_id)
+        if scene is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Scene {scene_id} not found",
+            )
+
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(scene_id, "scene_id")
+        scene_index = getattr(scene, "scene_index", None)
+        markers = await self._marker_repo.get_by_scene(
+            db, nid, scene_id=sid, scene_index=scene_index
+        )
+        selected_map_id = self._select_map_id(markers, sid)
+        entity_names = await self._load_entity_names(db, nid, markers)
+        warnings: list[MapSceneSummaryWarning] = []
+
+        if selected_map_id is None:
+            warnings.append(
+                MapSceneSummaryWarning(
+                    code="scene_without_location",
+                    message="当前 Scene 暂无地图位置",
+                )
+            )
+            return MapSceneSummaryResponse(
+                scene_id=str(sid),
+                primary_location=None,
+                characters=[],
+                events=[],
+                factions=[],
+                warnings=warnings[:2],
+                open_target=MapOpenTarget(
+                    mode="recent",
+                    scene_id=str(sid),
+                    fallback_reason="scene_without_map",
+                    fallback_message="当前 Scene 暂无地图位置，已回退到最近地图",
+                ),
+            )
+
+        map_markers = [m for m in markers if m.map_id == selected_map_id]
+        primary_location = await self._primary_location(
+            db, nid, selected_map_id, map_markers
+        )
+        if primary_location is None:
+            warnings.append(
+                MapSceneSummaryWarning(
+                    code="scene_without_location",
+                    message="当前 Scene 暂无地图位置",
+                )
+            )
+
+        characters = self._marker_items(map_markers, entity_names, "character", limit=5)
+        events = self._marker_items(map_markers, entity_names, "event", limit=3)
+        factions = await self._faction_items(db, nid, selected_map_id, map_markers)
+        warnings.extend(
+            await self._cross_map_warnings(
+                db, nid, map_markers, scene_index, entity_names
+            )
+        )
+
+        return MapSceneSummaryResponse(
+            scene_id=str(sid),
+            primary_location=primary_location,
+            characters=characters,
+            events=events,
+            factions=factions[:3],
+            warnings=warnings[:2],
+            open_target=MapOpenTarget(
+                mode="map",
+                map_id=str(selected_map_id),
+                scene_id=str(sid),
+            ),
+        )
+
+    def _select_map_id(
+        self,
+        markers: list[MapMarker],
+        scene_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        explicit = [
+            m
+            for m in markers
+            if m.start_scene_id == scene_id or m.end_scene_id == scene_id
+        ]
+        source = explicit or markers
+        return source[0].map_id if source else None
+
+    async def _load_entity_names(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        markers: list[MapMarker],
+    ) -> dict[uuid.UUID, str]:
+        ids = list({m.entity_id for m in markers})
+        entities = await self._entity_repo.get_by_ids(db, novel_id, ids)
+        return {e.id: e.name for e in entities}
+
+    def _marker_items(
+        self,
+        markers: list[MapMarker],
+        entity_names: dict[uuid.UUID, str],
+        marker_type: str,
+        *,
+        limit: int,
+    ) -> list[MapSceneSummaryItem]:
+        items: list[MapSceneSummaryItem] = []
+        seen: set[uuid.UUID] = set()
+        for marker in markers:
+            if marker.marker_type != marker_type or marker.entity_id in seen:
+                continue
+            seen.add(marker.entity_id)
+            items.append(
+                MapSceneSummaryItem(
+                    entity_id=str(marker.entity_id),
+                    name=entity_names.get(marker.entity_id) or marker.label or "未命名",
+                    map_id=str(marker.map_id),
+                    hex_q=marker.hex_q,
+                    hex_r=marker.hex_r,
+                )
+            )
+            if len(items) >= limit:
+                break
+        return items
+
+    async def _primary_location(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        markers: list[MapMarker],
+    ) -> MapSceneSummaryItem | None:
+        bindings = await self._binding_repo.get_by_map(db, novel_id, map_id)
+        by_hex: dict[tuple[int, int], list[MapLocationBinding]] = {}
+        for binding in bindings:
+            by_hex.setdefault((binding.hex_q, binding.hex_r), []).append(binding)
+        location_ids: list[uuid.UUID] = [b.location_entity_id for b in bindings]
+        entities = await self._entity_repo.get_by_ids(db, novel_id, location_ids)
+        names = {e.id: e.name for e in entities}
+
+        for marker in markers:
+            candidates = by_hex.get((marker.hex_q, marker.hex_r), [])
+            if not candidates:
+                continue
+            candidates.sort(key=lambda b: not b.is_center)
+            binding = candidates[0]
+            return MapSceneSummaryItem(
+                entity_id=str(binding.location_entity_id),
+                name=names.get(binding.location_entity_id) or "未命名地点",
+                map_id=str(binding.map_id),
+                hex_q=binding.hex_q,
+                hex_r=binding.hex_r,
+            )
+        return None
+
+    async def _faction_items(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        markers: list[MapMarker],
+    ) -> list[MapSceneSummaryItem]:
+        seen: set[uuid.UUID] = set()
+        territory_rows = []
+        for marker in markers:
+            rows = await self._territory_repo.get_by_hex(
+                db, novel_id, map_id, marker.hex_q, marker.hex_r
+            )
+            territory_rows.extend(rows)
+        entity_ids = [t.faction_entity_id for t in territory_rows]
+        entities = await self._entity_repo.get_by_ids(db, novel_id, entity_ids)
+        names = {e.id: e.name for e in entities}
+
+        items: list[MapSceneSummaryItem] = []
+        for territory in territory_rows:
+            if territory.faction_entity_id in seen:
+                continue
+            seen.add(territory.faction_entity_id)
+            items.append(
+                MapSceneSummaryItem(
+                    entity_id=str(territory.faction_entity_id),
+                    name=names.get(territory.faction_entity_id) or "未命名势力",
+                    map_id=str(territory.map_id),
+                    hex_q=territory.hex_q,
+                    hex_r=territory.hex_r,
+                )
+            )
+        return items
+
+    async def _cross_map_warnings(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        markers: list[MapMarker],
+        scene_index: int | None,
+        entity_names: dict[uuid.UUID, str],
+    ) -> list[MapSceneSummaryWarning]:
+        if scene_index is None:
+            return []
+        character_markers = [m for m in markers if m.marker_type == "character"]
+        previous = await self._marker_repo.get_latest_before_scene_for_entities(
+            db,
+            novel_id,
+            entity_ids=[m.entity_id for m in character_markers],
+            scene_index=scene_index,
+        )
+        warnings: list[MapSceneSummaryWarning] = []
+        for marker in character_markers:
+            prev = previous.get(marker.entity_id)
+            if prev is None or prev.map_id == marker.map_id:
+                continue
+            name = entity_names.get(marker.entity_id) or marker.label or "角色"
+            warnings.append(
+                MapSceneSummaryWarning(
+                    code="character_cross_map",
+                    message=f"{name}上一场在其他地图，需确认移动合理性",
+                )
+            )
+        return warnings

@@ -9,12 +9,13 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: "http://localhost:8080",
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   webServer: [
     {
-      command: "cd ../backend && APP_ENV=test uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      command: "cd ../backend && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
       url: "http://localhost:8000/api/health",
       timeout: 60000,
       reuseExistingServer: !process.env.CI,
@@ -22,7 +23,7 @@ export default defineConfig({
     {
       command: "python3 -m http.server 8080",
       url: "http://localhost:8080",
-      timeout: 15000,
+      timeout: 60000,
       reuseExistingServer: !process.env.CI,
     },
   ],

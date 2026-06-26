@@ -45,18 +45,17 @@ def upgrade() -> None:
             server_default=sa.text("timezone('utc', now())"),
             nullable=True,
         ),
-        sa.ForeignKeyConstraint(
-            ["novel_id"], ["projects.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(
-            ["map_id"], ["map_configs.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["map_id"], ["map_configs.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["faction_entity_id"], ["core_entities.id"], ondelete="CASCADE"
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "map_id", "faction_entity_id", "hex_q", "hex_r",
+            "map_id",
+            "faction_entity_id",
+            "hex_q",
+            "hex_r",
             name="uq_map_territory_map_faction_qr",
         ),
         comment="势力范围（P2）",

@@ -4,7 +4,8 @@
 测试范围：
 - 动态标记: marker creation, validation, scene filtering, update/delete, defaults
 - 势力范围: territory creation, validation, batch, update/delete, focus mode
-- 聚合状态: get_state edge cases, markers/territories presence, scene filtering, breadcrumbs
+- 聚合状态: get_state edge cases, markers/territories presence,
+  scene filtering, breadcrumbs
 
 运行: 从 backend/ 目录执行
     python -m tests.chaos.map_chaos
@@ -100,13 +101,19 @@ class TestFixture:
 
         # 创建主项目
         proj_name = f"map-chaos-{int(time.time())}"
-        r = self._req("POST", "/api/projects", json={"title": proj_name, "genre": "fantasy"})
+        r = self._req(
+            "POST", "/api/projects", json={"title": proj_name, "genre": "fantasy"}
+        )
         assert r.status_code == 201, f"Failed to create project: {r.text}"
         self.novel_id = r.json()["id"]
         print(f"  项目 novel_id: {self.novel_id}")
 
         # 创建另一个项目（用于跨 novel 隔离测试）
-        r = self._req("POST", "/api/projects", json={"title": f"{proj_name}-alt", "genre": "fantasy"})
+        r = self._req(
+            "POST",
+            "/api/projects",
+            json={"title": f"{proj_name}-alt", "genre": "fantasy"},
+        )
         assert r.status_code == 201, f"Failed to create alt project: {r.text}"
         self.alt_novel_id = r.json()["id"]
         print(f"  备用 novel_id: {self.alt_novel_id}")
@@ -242,8 +249,16 @@ def test_marker_create_character(f: TestFixture) -> None:
             "创建 character 标记",
             False,
             bug=report_bug(
-                "P0", f"POST /api/world/maps/{f.map_id}/markers",
-                json.dumps({"entity_id": f.character_entity_id, "marker_type": "character", "hex_q": 5, "hex_r": 5}),
+                "P0",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                json.dumps(
+                    {
+                        "entity_id": f.character_entity_id,
+                        "marker_type": "character",
+                        "hex_q": 5,
+                        "hex_r": 5,
+                    }
+                ),
                 "201 Created",
                 f"{r.status_code} {r.text}",
                 r.status_code,
@@ -274,10 +289,19 @@ def test_marker_create_event(f: TestFixture) -> None:
         },
     )
     if r.status_code != 201:
-        record(2, "创建 event 标记", False,
-               bug=report_bug("P0", f"POST /api/world/maps/{f.map_id}/markers",
-                              f"entity_id={f.event_entity_id}, marker_type=event",
-                              "201 Created", f"{r.status_code} {r.text}", r.status_code))
+        record(
+            2,
+            "创建 event 标记",
+            False,
+            bug=report_bug(
+                "P0",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                f"entity_id={f.event_entity_id}, marker_type=event",
+                "201 Created",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
     data = r.json()
     passed = data["marker_type"] == "event" and data["entity_id"] == f.event_entity_id
@@ -298,10 +322,19 @@ def test_marker_create_item(f: TestFixture) -> None:
         },
     )
     if r.status_code != 201:
-        record(3, "创建 item 标记", False,
-               bug=report_bug("P0", f"POST /api/world/maps/{f.map_id}/markers",
-                              f"entity_id={f.item_entity_id}, marker_type=item",
-                              "201 Created", f"{r.status_code} {r.text}", r.status_code))
+        record(
+            3,
+            "创建 item 标记",
+            False,
+            bug=report_bug(
+                "P0",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                f"entity_id={f.item_entity_id}, marker_type=item",
+                "201 Created",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
     data = r.json()
     passed = data["marker_type"] == "item" and data["entity_id"] == f.item_entity_id
@@ -323,12 +356,20 @@ def test_marker_invalid_type(f: TestFixture) -> None:
     )
     passed = r.status_code == 422
     if not passed:
-        record(4, "无效 marker_type 返回 422", False,
-               bug=report_bug("P0", f"POST /api/world/maps/{f.map_id}/markers",
-                              'marker_type="invalid_type"',
-                              "422 Validation Error",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "marker_type 白名单校验未生效"))
+        record(
+            4,
+            "无效 marker_type 返回 422",
+            False,
+            bug=report_bug(
+                "P0",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                'marker_type="invalid_type"',
+                "422 Validation Error",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "marker_type 白名单校验未生效",
+            ),
+        )
     else:
         record(4, "无效 marker_type 返回 422", True)
 
@@ -348,12 +389,20 @@ def test_marker_nonexistent_entity(f: TestFixture) -> None:
     )
     passed = r.status_code in (404, 400)
     if not passed:
-        record(5, "不存在的 entity_id 返回 404/400", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/markers",
-                              f"entity_id={fake_id} (不存在)",
-                              "404 或 400",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "不存在实体的标记创建应被拒绝"))
+        record(
+            5,
+            "不存在的 entity_id 返回 404/400",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                f"entity_id={fake_id} (不存在)",
+                "404 或 400",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "不存在实体的标记创建应被拒绝",
+            ),
+        )
     else:
         record(5, "不存在的 entity_id 返回 404/400", True)
 
@@ -372,12 +421,20 @@ def test_marker_entity_wrong_novel(f: TestFixture) -> None:
     )
     passed = r.status_code == 404
     if not passed:
-        record(6, "跨 novel entity_id 返回 404", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/markers",
-                              f"entity_id={f.alt_entity_id} (不同 novel)",
-                              "404",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "novel_id 隔离校验可能缺失"))
+        record(
+            6,
+            "跨 novel entity_id 返回 404",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                f"entity_id={f.alt_entity_id} (不同 novel)",
+                "404",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "novel_id 隔离校验可能缺失",
+            ),
+        )
     else:
         record(6, "跨 novel entity_id 返回 404", True)
 
@@ -396,8 +453,7 @@ def test_marker_cross_novel_delete(f: TestFixture) -> None:
         },
     )
     if r.status_code != 201:
-        record(7, "跨 novel 删除标记返回 404", False,
-               detail="前置创建标记失败")
+        record(7, "跨 novel 删除标记返回 404", False, detail="前置创建标记失败")
         return
     mid = r.json()["id"]
 
@@ -408,12 +464,20 @@ def test_marker_cross_novel_delete(f: TestFixture) -> None:
     )
     passed = r.status_code == 404
     if not passed:
-        record(7, "跨 novel 删除标记返回 404", False,
-               bug=report_bug("P1", f"DELETE /api/world/maps/{f.map_id}/markers/{mid}",
-                              f"novel_id={f.alt_novel_id} (不同 novel)",
-                              "404",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "novel_id 隔离校验可能缺失"))
+        record(
+            7,
+            "跨 novel 删除标记返回 404",
+            False,
+            bug=report_bug(
+                "P1",
+                f"DELETE /api/world/maps/{f.map_id}/markers/{mid}",
+                f"novel_id={f.alt_novel_id} (不同 novel)",
+                "404",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "novel_id 隔离校验可能缺失",
+            ),
+        )
     else:
         record(7, "跨 novel 删除标记返回 404", True)
 
@@ -445,26 +509,44 @@ def test_marker_scene_id_filter(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/markers?novel_id={f.novel_id}&scene_id={f.scene_id}",
     )
     if r.status_code != 200:
-        record(8, "start_scene_id 场景过滤", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/markers",
-                              f"scene_id={f.scene_id}",
-                              "200",
-                              f"{r.status_code} {r.text}", r.status_code))
+        record(
+            8,
+            "start_scene_id 场景过滤",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/markers",
+                f"scene_id={f.scene_id}",
+                "200",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
 
     ids = [m["id"] for m in r.json()]
     passed = marker_id in ids
     if not passed:
-        record(8, "start_scene_id 场景过滤", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/markers",
-                              f"scene_id={f.scene_id}",
-                              f"标记 {marker_id} 应出现在结果中",
-                              f"未命中，结果IDs={ids}", 200,
-                              "start_scene_id 场景过滤逻辑可能有误"))
+        record(
+            8,
+            "start_scene_id 场景过滤",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/markers",
+                f"scene_id={f.scene_id}",
+                f"标记 {marker_id} 应出现在结果中",
+                f"未命中，结果IDs={ids}",
+                200,
+                "start_scene_id 场景过滤逻辑可能有误",
+            ),
+        )
     else:
         record(8, "start_scene_id 场景过滤", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}"
+    )
 
 
 def test_marker_scene_index_filter(f: TestFixture) -> None:
@@ -493,26 +575,44 @@ def test_marker_scene_index_filter(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/markers?novel_id={f.novel_id}&scene_id={f.scene_id}",
     )
     if r.status_code != 200:
-        record(9, "scene_index 范围过滤", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/markers",
-                              f"scene_id={f.scene_id} (index=1)",
-                              "200",
-                              f"{r.status_code} {r.text}", r.status_code))
+        record(
+            9,
+            "scene_index 范围过滤",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/markers",
+                f"scene_id={f.scene_id} (index=1)",
+                "200",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
 
     ids = [m["id"] for m in r.json()]
     passed = marker_id in ids
     if not passed:
-        record(9, "scene_index 范围过滤", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/markers",
-                              f"scene_id={f.scene_id} (index=1, 应在 1..2 范围内)",
-                              f"标记 {marker_id} 应出现",
-                              f"未命中, ids={ids}", 200,
-                              "start_scene_index/end_scene_index 范围查询异常"))
+        record(
+            9,
+            "scene_index 范围过滤",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/markers",
+                f"scene_id={f.scene_id} (index=1, 应在 1..2 范围内)",
+                f"标记 {marker_id} 应出现",
+                f"未命中, ids={ids}",
+                200,
+                "start_scene_index/end_scene_index 范围查询异常",
+            ),
+        )
     else:
         record(9, "scene_index 范围过滤", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}"
+    )
 
 
 def test_marker_no_scene_limit(f: TestFixture) -> None:
@@ -539,16 +639,26 @@ def test_marker_no_scene_limit(f: TestFixture) -> None:
     )
     passed = r.status_code == 200 and marker_id in [m["id"] for m in r.json()]
     if not passed:
-        record(10, "无 scene 范围标记可查询", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/markers",
-                              f"scene_id={f.scene_id}",
-                              f"无范围标记 {marker_id} 应始终命中",
-                              f"未命中或 {r.status_code}", r.status_code,
-                              "无 scene 范围标记未在全部查询中返回"))
+        record(
+            10,
+            "无 scene 范围标记可查询",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/markers",
+                f"scene_id={f.scene_id}",
+                f"无范围标记 {marker_id} 应始终命中",
+                f"未命中或 {r.status_code}",
+                r.status_code,
+                "无 scene 范围标记未在全部查询中返回",
+            ),
+        )
     else:
         record(10, "无 scene 范围标记可查询", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}"
+    )
 
 
 def test_marker_update(f: TestFixture) -> None:
@@ -590,16 +700,26 @@ def test_marker_update(f: TestFixture) -> None:
         and r.json()["visible"] is False
     )
     if not passed:
-        record(11, "PATCH 更新标记", False,
-               bug=report_bug("P0", f"PATCH /api/world/maps/{f.map_id}/markers/{marker_id}",
-                              '{"label":"新标签","offset_x":0.5,"offset_y":-0.3,"visible":false}',
-                              "200 + 字段值更新",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "标记更新字段未正确传递"))
+        record(
+            11,
+            "PATCH 更新标记",
+            False,
+            bug=report_bug(
+                "P0",
+                f"PATCH /api/world/maps/{f.map_id}/markers/{marker_id}",
+                '{"label":"新标签","offset_x":0.5,"offset_y":-0.3,"visible":false}',
+                "200 + 字段值更新",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "标记更新字段未正确传递",
+            ),
+        )
     else:
         record(11, "PATCH 更新标记", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}"
+    )
 
 
 def test_marker_delete(f: TestFixture) -> None:
@@ -625,12 +745,20 @@ def test_marker_delete(f: TestFixture) -> None:
     )
     passed = r.status_code == 204
     if not passed:
-        record(12, "DELETE 删除标记", False,
-               bug=report_bug("P0", f"DELETE /api/world/maps/{f.map_id}/markers/{marker_id}",
-                              "",
-                              "204 No Content",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "删除标记未返回 204"))
+        record(
+            12,
+            "DELETE 删除标记",
+            False,
+            bug=report_bug(
+                "P0",
+                f"DELETE /api/world/maps/{f.map_id}/markers/{marker_id}",
+                "",
+                "204 No Content",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "删除标记未返回 204",
+            ),
+        )
     else:
         record(12, "DELETE 删除标记", True)
 
@@ -640,12 +768,20 @@ def test_marker_delete(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/markers/{marker_id}?novel_id={f.novel_id}",
     )
     if r.status_code != 404:
-        record(12, "DELETE 删除标记（再次删除应 404）", False,
-               bug=report_bug("P1", f"DELETE /api/world/maps/{f.map_id}/markers/{marker_id} (再次删除)",
-                              "",
-                              "404",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "已删除标记再次删除应返回 404"))
+        record(
+            12,
+            "DELETE 删除标记（再次删除应 404）",
+            False,
+            bug=report_bug(
+                "P1",
+                f"DELETE /api/world/maps/{f.map_id}/markers/{marker_id} (再次删除)",
+                "",
+                "404",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "已删除标记再次删除应返回 404",
+            ),
+        )
     else:
         record(12, "DELETE 删除标记（再次删除应 404）", True)
 
@@ -663,25 +799,43 @@ def test_marker_default_offsets(f: TestFixture) -> None:
         },
     )
     if r.status_code != 201:
-        record(13, "offset 默认值 0", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/markers",
-                              "无 offset_x/offset_y",
-                              "201 Created",
-                              f"{r.status_code} {r.text}", r.status_code))
+        record(
+            13,
+            "offset 默认值 0",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                "无 offset_x/offset_y",
+                "201 Created",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
     data = r.json()
     passed = data["offset_x"] == 0 and data["offset_y"] == 0
     if not passed:
-        record(13, "offset 默认值 0", False,
-               bug=report_bug("P2", f"POST /api/world/maps/{f.map_id}/markers",
-                              "无 offset_x/offset_y",
-                              "offset_x=0, offset_y=0",
-                              f"offset_x={data['offset_x']}, offset_y={data['offset_y']}", 201,
-                              "offset 默认值未正确设置"))
+        record(
+            13,
+            "offset 默认值 0",
+            False,
+            bug=report_bug(
+                "P2",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                "无 offset_x/offset_y",
+                "offset_x=0, offset_y=0",
+                f"offset_x={data['offset_x']}, offset_y={data['offset_y']}",
+                201,
+                "offset 默认值未正确设置",
+            ),
+        )
     else:
         record(13, "offset 默认值 0", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/markers/{data['id']}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/markers/{data['id']}?novel_id={f.novel_id}"
+    )
 
 
 def test_marker_default_visible(f: TestFixture) -> None:
@@ -697,25 +851,43 @@ def test_marker_default_visible(f: TestFixture) -> None:
         },
     )
     if r.status_code != 201:
-        record(14, "visible 默认值 true", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/markers",
-                              "无 visible 字段",
-                              "201 Created",
-                              f"{r.status_code} {r.text}", r.status_code))
+        record(
+            14,
+            "visible 默认值 true",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                "无 visible 字段",
+                "201 Created",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
     data = r.json()
     passed = data["visible"] is True
     if not passed:
-        record(14, "visible 默认值 true", False,
-               bug=report_bug("P2", f"POST /api/world/maps/{f.map_id}/markers",
-                              "无 visible",
-                              "visible=true",
-                              f"visible={data['visible']}", 201,
-                              "visible 默认值未正确设置"))
+        record(
+            14,
+            "visible 默认值 true",
+            False,
+            bug=report_bug(
+                "P2",
+                f"POST /api/world/maps/{f.map_id}/markers",
+                "无 visible",
+                "visible=true",
+                f"visible={data['visible']}",
+                201,
+                "visible 默认值未正确设置",
+            ),
+        )
     else:
         record(14, "visible 默认值 true", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/markers/{data['id']}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/markers/{data['id']}?novel_id={f.novel_id}"
+    )
 
 
 # ============================================================
@@ -738,12 +910,20 @@ def test_territory_create_organization(f: TestFixture) -> None:
         },
     )
     if r.status_code != 201:
-        record(15, "创建组织势力范围", False,
-               bug=report_bug("P0", f"POST /api/world/maps/{f.map_id}/territories",
-                              f"faction_entity_id={f.org_entity_id}",
-                              "201 Created",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "组织势力范围创建失败"))
+        record(
+            15,
+            "创建组织势力范围",
+            False,
+            bug=report_bug(
+                "P0",
+                f"POST /api/world/maps/{f.map_id}/territories",
+                f"faction_entity_id={f.org_entity_id}",
+                "201 Created",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "组织势力范围创建失败",
+            ),
+        )
         return
 
     data = r.json()
@@ -753,13 +933,20 @@ def test_territory_create_organization(f: TestFixture) -> None:
         and all(t["faction_entity_id"] == f.org_entity_id for t in data)
     )
     if not passed:
-        record(15, "创建组织势力范围", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/territories",
-                              f"3 个 hex",
-                              "list of 3 territories",
-                              f"count={len(data) if isinstance(data, list) else type(data)}",
-                              r.status_code,
-                              "势力范围返回格式/数量异常"))
+        record(
+            15,
+            "创建组织势力范围",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/territories",
+                "3 个 hex",
+                "list of 3 territories",
+                f"count={len(data) if isinstance(data, list) else type(data)}",
+                r.status_code,
+                "势力范围返回格式/数量异常",
+            ),
+        )
     else:
         record(15, "创建组织势力范围", True)
 
@@ -779,12 +966,20 @@ def test_territory_non_organization(f: TestFixture) -> None:
     )
     passed = r.status_code == 400
     if not passed:
-        record(16, "非组织实体创建势力范围拒接", False,
-               bug=report_bug("P0", f"POST /api/world/maps/{f.map_id}/territories",
-                              f"entity_type=character",
-                              "400 Bad Request",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "非组织实体创建势力范围应返回 400"))
+        record(
+            16,
+            "非组织实体创建势力范围拒接",
+            False,
+            bug=report_bug(
+                "P0",
+                f"POST /api/world/maps/{f.map_id}/territories",
+                "entity_type=character",
+                "400 Bad Request",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "非组织实体创建势力范围应返回 400",
+            ),
+        )
     else:
         record(16, "非组织实体创建势力范围拒接", True)
 
@@ -801,12 +996,20 @@ def test_territory_hex_out_of_bounds(f: TestFixture) -> None:
     )
     passed = r.status_code == 400
     if not passed:
-        record(17, "hex 越界返回 400", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/territories",
-                              "hex_q=100, hex_r=100 (grid 20x20)",
-                              "400 Bad Request",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "hex 越界校验未生效"))
+        record(
+            17,
+            "hex 越界返回 400",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/territories",
+                "hex_q=100, hex_r=100 (grid 20x20)",
+                "400 Bad Request",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "hex 越界校验未生效",
+            ),
+        )
     else:
         record(17, "hex 越界返回 400", True)
 
@@ -828,12 +1031,20 @@ def test_territory_batch_create(f: TestFixture) -> None:
     )
     passed = r.status_code == 201 and len(r.json()) == 4
     if not passed:
-        record(18, "批量创建势力范围", False,
-               bug=report_bug("P1", f"POST /api/world/maps/{f.map_id}/territories",
-                              "4 hexes",
-                              "201 + 4 territories",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "批量创建势力范围异常"))
+        record(
+            18,
+            "批量创建势力范围",
+            False,
+            bug=report_bug(
+                "P1",
+                f"POST /api/world/maps/{f.map_id}/territories",
+                "4 hexes",
+                "201 + 4 territories",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "批量创建势力范围异常",
+            ),
+        )
     else:
         record(18, "批量创建势力范围", True)
 
@@ -861,18 +1072,31 @@ def test_territory_update_style(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/territories/{tid}?novel_id={f.novel_id}",
         json={"style_override": {"fill": "#ff0000", "opacity": 0.8}},
     )
-    passed = r.status_code == 200 and r.json()["style_override"] == {"fill": "#ff0000", "opacity": 0.8}
+    passed = r.status_code == 200 and r.json()["style_override"] == {
+        "fill": "#ff0000",
+        "opacity": 0.8,
+    }
     if not passed:
-        record(19, "PATCH 更新势力范围 style", False,
-               bug=report_bug("P1", f"PATCH /api/world/maps/{f.map_id}/territories/{tid}",
-                              '{"style_override": {"fill":"#ff0000","opacity":0.8}}',
-                              "200 + style_override 更新",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "势力范围 style_override 更新失败"))
+        record(
+            19,
+            "PATCH 更新势力范围 style",
+            False,
+            bug=report_bug(
+                "P1",
+                f"PATCH /api/world/maps/{f.map_id}/territories/{tid}",
+                '{"style_override": {"fill":"#ff0000","opacity":0.8}}',
+                "200 + style_override 更新",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "势力范围 style_override 更新失败",
+            ),
+        )
     else:
         record(19, "PATCH 更新势力范围 style", True)
 
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/territories/{tid}?novel_id={f.novel_id}")
+    f._req(
+        "DELETE", f"/api/world/maps/{f.map_id}/territories/{tid}?novel_id={f.novel_id}"
+    )
 
 
 def test_territory_delete_single(f: TestFixture) -> None:
@@ -896,11 +1120,19 @@ def test_territory_delete_single(f: TestFixture) -> None:
     )
     passed = r.status_code == 204
     if not passed:
-        record(20, "DELETE 单格势力范围", False,
-               bug=report_bug("P0", f"DELETE /api/world/maps/{f.map_id}/territories/{tid}",
-                              "",
-                              "204 No Content",
-                              f"{r.status_code} {r.text}", r.status_code))
+        record(
+            20,
+            "DELETE 单格势力范围",
+            False,
+            bug=report_bug(
+                "P0",
+                f"DELETE /api/world/maps/{f.map_id}/territories/{tid}",
+                "",
+                "204 No Content",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
     else:
         record(20, "DELETE 单格势力范围", True)
 
@@ -910,11 +1142,19 @@ def test_territory_delete_single(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/territories/{tid}?novel_id={f.novel_id}",
     )
     if r.status_code != 404:
-        record(20, "DELETE 势力范围（再次删除 404）", False,
-               bug=report_bug("P1", f"DELETE /api/world/maps/{f.map_id}/territories/{tid} (again)",
-                              "",
-                              "404",
-                              f"{r.status_code}", r.status_code))
+        record(
+            20,
+            "DELETE 势力范围（再次删除 404）",
+            False,
+            bug=report_bug(
+                "P1",
+                f"DELETE /api/world/maps/{f.map_id}/territories/{tid} (again)",
+                "",
+                "404",
+                f"{r.status_code}",
+                r.status_code,
+            ),
+        )
     else:
         record(20, "DELETE 势力范围（再次删除 404）", True)
 
@@ -945,12 +1185,23 @@ def test_territory_delete_by_faction(f: TestFixture) -> None:
     # 注意：API 返回 204，不返回行数。我们验证返回码和删除后列表为空。
     passed = r.status_code == 204
     if not passed:
-        record(21, "delete_by_faction 删除行数", False,
-               bug=report_bug("P0", f"DELETE /api/world/maps/{f.map_id}/territories?faction_entity_id={f.org_entity_id}",
-                              "",
-                              "204 No Content",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "delete_by_faction 失败"))
+        record(
+            21,
+            "delete_by_faction 删除行数",
+            False,
+            bug=report_bug(
+                "P0",
+                (
+                    f"DELETE /api/world/maps/{f.map_id}/territories"
+                    f"?faction_entity_id={f.org_entity_id}"
+                ),
+                "",
+                "204 No Content",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "delete_by_faction 失败",
+            ),
+        )
     else:
         record(21, "delete_by_faction 删除行数", True)
 
@@ -960,14 +1211,24 @@ def test_territory_delete_by_faction(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}",
     )
     if r.status_code == 200:
-        org_territories = [t for t in r.json() if t.get("faction_entity_id") == f.org_entity_id]
+        org_territories = [
+            t for t in r.json() if t.get("faction_entity_id") == f.org_entity_id
+        ]
         if len(org_territories) > 0:
-            record(21, "delete_by_faction 验证删除", False,
-                   bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/territories",
-                                  "验证删除后 organization 势力范围应为空",
-                                  "0",
-                                  f"{len(org_territories)}", 200,
-                                  "delete_by_faction 未实际删除"))
+            record(
+                21,
+                "delete_by_faction 验证删除",
+                False,
+                bug=report_bug(
+                    "P1",
+                    f"GET /api/world/maps/{f.map_id}/territories",
+                    "验证删除后 organization 势力范围应为空",
+                    "0",
+                    f"{len(org_territories)}",
+                    200,
+                    "delete_by_faction 未实际删除",
+                ),
+            )
         else:
             record(21, "delete_by_faction 验证删除", True)
 
@@ -975,7 +1236,10 @@ def test_territory_delete_by_faction(f: TestFixture) -> None:
 def test_territory_focus_mode(f: TestFixture) -> None:
     """22. 聚焦模式只返回指定组织的势力范围"""
     # 清理之前的势力范围
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}&faction_entity_id={f.org_entity_id}")
+    f._req(
+        "DELETE",
+        f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}&faction_entity_id={f.org_entity_id}",
+    )
 
     # 为组织创建势力范围
     r = f._req(
@@ -990,7 +1254,7 @@ def test_territory_focus_mode(f: TestFixture) -> None:
         record(22, "聚焦模式势力范围过滤", False, detail="前置创建失败")
         return
 
-    # 为某个 character 也创建一些势力范围（虽然 character 不应是 organization，但测试过滤）
+    # 为某个 character 也创建势力范围（虽不应是 organization，但测试过滤）
     # 创建另一个组织
     r = f._req(
         "POST",
@@ -1020,11 +1284,19 @@ def test_territory_focus_mode(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/focus?novel_id={f.novel_id}&faction_entity_id={f.org_entity_id}",
     )
     if r.status_code != 200:
-        record(22, "聚焦模式势力范围过滤", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/focus",
-                              f"faction_entity_id={f.org_entity_id}",
-                              "200",
-                              f"{r.status_code} {r.text}", r.status_code))
+        record(
+            22,
+            "聚焦模式势力范围过滤",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/focus",
+                f"faction_entity_id={f.org_entity_id}",
+                "200",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+            ),
+        )
         return
 
     data = r.json()
@@ -1033,18 +1305,32 @@ def test_territory_focus_mode(f: TestFixture) -> None:
     faction_ids = set(t["faction_entity_id"] for t in territories)
     passed = len(faction_ids) == 1 and f.org_entity_id in faction_ids
     if not passed:
-        record(22, "聚焦模式势力范围过滤", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/focus",
-                              f"faction_entity_id={f.org_entity_id}",
-                              f"只含组织 {f.org_entity_id} 的势力范围",
-                              f"faction_ids={faction_ids}", 200,
-                              "聚焦模式未正确过滤势力范围"))
+        record(
+            22,
+            "聚焦模式势力范围过滤",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/focus",
+                f"faction_entity_id={f.org_entity_id}",
+                f"只含组织 {f.org_entity_id} 的势力范围",
+                f"faction_ids={faction_ids}",
+                200,
+                "聚焦模式未正确过滤势力范围",
+            ),
+        )
     else:
         record(22, "聚焦模式势力范围过滤", True)
 
     # 清理
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}&faction_entity_id={f.org_entity_id}")
-    f._req("DELETE", f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}&faction_entity_id={org2_id}")
+    f._req(
+        "DELETE",
+        f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}&faction_entity_id={f.org_entity_id}",
+    )
+    f._req(
+        "DELETE",
+        f"/api/world/maps/{f.map_id}/territories?novel_id={f.novel_id}&faction_entity_id={org2_id}",
+    )
 
 
 def test_focus_mode_other_fields(f: TestFixture) -> None:
@@ -1058,16 +1344,31 @@ def test_focus_mode_other_fields(f: TestFixture) -> None:
         return
 
     data = r.json()
-    required_keys = ["map", "breadcrumbs", "tiles", "location_bindings", "markers", "territories"]
+    required_keys = [
+        "map",
+        "breadcrumbs",
+        "tiles",
+        "location_bindings",
+        "markers",
+        "territories",
+    ]
     missing = [k for k in required_keys if k not in data]
     passed = len(missing) == 0
     if not passed:
-        record(23, "聚焦模式字段完整性", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/focus",
-                              "verify all fields present",
-                              f"{required_keys}",
-                              f"missing: {missing}", 200,
-                              "聚焦模式缺少字段"))
+        record(
+            23,
+            "聚焦模式字段完整性",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/focus",
+                "verify all fields present",
+                f"{required_keys}",
+                f"missing: {missing}",
+                200,
+                "聚焦模式缺少字段",
+            ),
+        )
     else:
         record(23, "聚焦模式字段完整性", True)
 
@@ -1085,12 +1386,20 @@ def test_get_state_nonexistent_map(f: TestFixture) -> None:
     )
     passed = r.status_code == 404
     if not passed:
-        record(24, "不存在地图 get_state 返回 404", False,
-               bug=report_bug("P0", f"GET /api/world/maps/<fake>/state",
-                              "不存在的地图 ID",
-                              "404",
-                              f"{r.status_code} {r.text}", r.status_code,
-                              "不存在地图的 get_state 未正确返回 404"))
+        record(
+            24,
+            "不存在地图 get_state 返回 404",
+            False,
+            bug=report_bug(
+                "P0",
+                "GET /api/world/maps/<fake>/state",
+                "不存在的地图 ID",
+                "404",
+                f"{r.status_code} {r.text}",
+                r.status_code,
+                "不存在地图的 get_state 未正确返回 404",
+            ),
+        )
     else:
         record(24, "不存在地图 get_state 返回 404", True)
 
@@ -1102,7 +1411,12 @@ def test_state_markers_and_territories_always_list(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/state?novel_id={f.novel_id}",
     )
     if r.status_code != 200:
-        record(25, "state markers/territories 始终为 list", False, detail=f"get_state 失败 {r.status_code}")
+        record(
+            25,
+            "state markers/territories 始终为 list",
+            False,
+            detail=f"get_state 失败 {r.status_code}",
+        )
         return
 
     data = r.json()
@@ -1115,12 +1429,20 @@ def test_state_markers_and_territories_always_list(f: TestFixture) -> None:
             detail_parts.append(f"markers type={type(data.get('markers'))}")
         if not territories_ok:
             detail_parts.append(f"territories type={type(data.get('territories'))}")
-        record(25, "state markers/territories 始终为 list", False,
-               bug=report_bug("P0", f"GET /api/world/maps/{f.map_id}/state",
-                              "期望 markers/territories 为 list",
-                              "list",
-                              "; ".join(detail_parts), 200,
-                              "聚合状态中 markers 或 territories 可能为 null"))
+        record(
+            25,
+            "state markers/territories 始终为 list",
+            False,
+            bug=report_bug(
+                "P0",
+                f"GET /api/world/maps/{f.map_id}/state",
+                "期望 markers/territories 为 list",
+                "list",
+                "; ".join(detail_parts),
+                200,
+                "聚合状态中 markers 或 territories 可能为 null",
+            ),
+        )
     else:
         record(25, "state markers/territories 始终为 list", True)
 
@@ -1132,28 +1454,46 @@ def test_state_with_scene_id(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/state?novel_id={f.novel_id}&scene_id={f.scene_id}",
     )
     if r.status_code != 200:
-        record(26, "state 带 scene_id 查询", False, detail=f"get_state 失败 {r.status_code}")
+        record(
+            26, "state 带 scene_id 查询", False, detail=f"get_state 失败 {r.status_code}"
+        )
         return
 
     data = r.json()
     scene = data.get("scene")
     if scene is None:
-        record(26, "state 带 scene_id 查询", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/state?scene_id={f.scene_id}",
-                              f"scene_id={f.scene_id}",
-                              "scene 字段包含场景信息",
-                              f"scene is None", 200,
-                              "带 scene_id 查询时 scene 字段未填充"))
+        record(
+            26,
+            "state 带 scene_id 查询",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/state?scene_id={f.scene_id}",
+                f"scene_id={f.scene_id}",
+                "scene 字段包含场景信息",
+                "scene is None",
+                200,
+                "带 scene_id 查询时 scene 字段未填充",
+            ),
+        )
         return
 
     passed = scene.get("id") == f.scene_id and scene.get("index") is not None
     if not passed:
-        record(26, "state 带 scene_id 查询", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/state?scene_id={f.scene_id}",
-                              f"scene_id={f.scene_id}",
-                              "scene.id 匹配且 scene.index 存在",
-                              f"scene={scene}", 200,
-                              "scene 字段内容异常"))
+        record(
+            26,
+            "state 带 scene_id 查询",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{f.map_id}/state?scene_id={f.scene_id}",
+                f"scene_id={f.scene_id}",
+                "scene.id 匹配且 scene.index 存在",
+                f"scene={scene}",
+                200,
+                "scene 字段内容异常",
+            ),
+        )
     else:
         record(26, "state 带 scene_id 查询", True)
 
@@ -1165,17 +1505,30 @@ def test_state_without_scene_id(f: TestFixture) -> None:
         f"/api/world/maps/{f.map_id}/state?novel_id={f.novel_id}",
     )
     if r.status_code != 200:
-        record(27, "state 无 scene_id scene 为 null", False, detail=f"get_state 失败 {r.status_code}")
+        record(
+            27,
+            "state 无 scene_id scene 为 null",
+            False,
+            detail=f"get_state 失败 {r.status_code}",
+        )
         return
 
     passed = r.json().get("scene") is None
     if not passed:
-        record(27, "state 无 scene_id scene 为 null", False,
-               bug=report_bug("P2", f"GET /api/world/maps/{f.map_id}/state",
-                              "无 scene_id",
-                              "scene is None",
-                              f"scene={r.json().get('scene')}", 200,
-                              "无 scene_id 时 scene 字段不为 null"))
+        record(
+            27,
+            "state 无 scene_id scene 为 null",
+            False,
+            bug=report_bug(
+                "P2",
+                f"GET /api/world/maps/{f.map_id}/state",
+                "无 scene_id",
+                "scene is None",
+                f"scene={r.json().get('scene')}",
+                200,
+                "无 scene_id 时 scene 字段不为 null",
+            ),
+        )
     else:
         record(27, "state 无 scene_id scene 为 null", True)
 
@@ -1188,12 +1541,20 @@ def test_state_filter_types(f: TestFixture) -> None:
             f"/api/world/maps/{f.map_id}/state?novel_id={f.novel_id}&filter_types={ft}",
         )
         if r.status_code != 200:
-            record(28, f"filter_types={ft} 不报错", False,
-                   bug=report_bug("P1", f"GET /api/world/maps/{f.map_id}/state?filter_types={ft}",
-                                  f"filter_types={ft}",
-                                  "200",
-                                  f"{r.status_code} {r.text}", r.status_code,
-                                  "filter_types 传未知值导致后端错误"))
+            record(
+                28,
+                f"filter_types={ft} 不报错",
+                False,
+                bug=report_bug(
+                    "P1",
+                    f"GET /api/world/maps/{f.map_id}/state?filter_types={ft}",
+                    f"filter_types={ft}",
+                    "200",
+                    f"{r.status_code} {r.text}",
+                    r.status_code,
+                    "filter_types 传未知值导致后端错误",
+                ),
+            )
             return
     record(28, "filter_types 任意值不报错", True)
 
@@ -1223,24 +1584,42 @@ def test_state_breadcrumbs(f: TestFixture) -> None:
         f"/api/world/maps/{child_map_id}/state?novel_id={f.novel_id}",
     )
     if r.status_code != 200:
-        record(29, "breadcrumbs 层级路径", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{child_map_id}/state",
-                              "",
-                              "200",
-                              f"{r.status_code}", r.status_code))
+        record(
+            29,
+            "breadcrumbs 层级路径",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{child_map_id}/state",
+                "",
+                "200",
+                f"{r.status_code}",
+                r.status_code,
+            ),
+        )
         return
 
     data = r.json()
     crumbs = data.get("breadcrumbs", [])
     crumb_ids = [c["id"] for c in crumbs]
-    passed = len(crumbs) >= 2 and crumb_ids[0] == f.map_id and crumb_ids[-1] == child_map_id
+    passed = (
+        len(crumbs) >= 2 and crumb_ids[0] == f.map_id and crumb_ids[-1] == child_map_id
+    )
     if not passed:
-        record(29, "breadcrumbs 层级路径", False,
-               bug=report_bug("P1", f"GET /api/world/maps/{child_map_id}/state",
-                              f"父 {f.map_id} -> 子 {child_map_id}",
-                              f"crumbs=[{f.map_id}, ..., {child_map_id}]",
-                              f"crumbs={crumb_ids}", 200,
-                              "breadcrumbs 路径不正确"))
+        record(
+            29,
+            "breadcrumbs 层级路径",
+            False,
+            bug=report_bug(
+                "P1",
+                f"GET /api/world/maps/{child_map_id}/state",
+                f"父 {f.map_id} -> 子 {child_map_id}",
+                f"crumbs=[{f.map_id}, ..., {child_map_id}]",
+                f"crumbs={crumb_ids}",
+                200,
+                "breadcrumbs 路径不正确",
+            ),
+        )
     else:
         record(29, "breadcrumbs 层级路径", True)
 
@@ -1306,7 +1685,14 @@ def main() -> int:
                 test_fn(fixture)
             except Exception as e:
                 tid = all_tests.index(test_fn) + 1
-                results.append({"id": tid, "name": test_fn.__name__, "passed": False, "detail": str(e)})
+                results.append(
+                    {
+                        "id": tid,
+                        "name": test_fn.__name__,
+                        "passed": False,
+                        "detail": str(e),
+                    }
+                )
                 print(f"  [FAIL] #{tid:02d} {test_fn.__name__}")
                 print(f"         EXCEPTION: {traceback.format_exc()}")
 
@@ -1330,7 +1716,7 @@ def main() -> int:
                 bp = b["priority"]
                 by_priority.setdefault(bp, []).append(b)
 
-            print(f"\n发现 Bug 列表:")
+            print("\n发现 Bug 列表:")
             for pri in ("P0", "P1", "P2"):
                 if pri in by_priority:
                     print(f"\n  [{pri}] ({len(by_priority[pri])} 个)")
@@ -1344,7 +1730,7 @@ def main() -> int:
                             print(f"    根因: {b['root_cause']}")
                         print()
         else:
-            print(f"\n未发现 Bug。")
+            print("\n未发现 Bug。")
 
         return 0 if passed_count == total else 1
 

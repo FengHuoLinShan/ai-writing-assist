@@ -62,6 +62,16 @@ describe("worldView render", () => {
     expect(html).toContain("关系")
     expect(html).toContain("别名")
   })
+
+  it("world/map 作为兼容入口跳转到一级地图页", async () => {
+    state.currentSubView = "map"
+
+    const html = await worldView.render()
+
+    expect(html).toContain("正在打开地图")
+    expect(html).not.toContain("map-root")
+    expect(router.navigate).toHaveBeenCalledWith("map", null)
+  })
 })
 
 // ============================================================

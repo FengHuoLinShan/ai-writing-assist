@@ -11,12 +11,12 @@ import os
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
 
-logger = logging.getLogger(__name__)
-
 from core.dependencies import DbSession
 from modules.imports.schemas import ImportListResponse, ImportResponse
-from modules.imports.services import NO_EFFECTIVE_CHAPTERS_MESSAGE, ImportService
+from modules.imports.services import ImportService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 _service = ImportService()
@@ -37,7 +37,7 @@ async def upload_file(
             os.path.basename(file.filename or "unknown"),
             content,
         )
-    except HTTPException as exc:
+    except HTTPException:
         # service 已创建/更新 import_records 状态，需要提交才能持久化失败记录。
         # 但事务可能已被底层数据库错误污染，提交失败时不应抛新的 500，
         # 回滚后仍然抛出原始业务异常。

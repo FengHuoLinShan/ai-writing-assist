@@ -245,11 +245,22 @@ test.describe("世界对象模块", () => {
 
     await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("分页对象 0")
+    await expect(page.locator(SEL.workspaceContent)).toContainText("第 1 / 2 页，共 22 条")
+
+    const firstPageRows = await page.locator(`${SEL.dataTable} tbody tr`).allTextContents()
+    expect(firstPageRows).toHaveLength(20)
 
     // 默认每页 20 条，应出现分页信息
     await expect(page.locator('[data-action="next-page"]')).toBeVisible()
     await page.locator('[data-action="next-page"]').click()
 
-    await expect(page.locator(SEL.dataTable)).toContainText("分页对象 20")
+    await expect(page.locator(SEL.workspaceContent)).toContainText("第 2 / 2 页，共 22 条")
+    await expect(page.locator('[data-action="next-page"]')).toBeDisabled()
+    await expect(page.locator('[data-action="prev-page"]')).toBeEnabled()
+
+    const secondPageRows = await page.locator(`${SEL.dataTable} tbody tr`).allTextContents()
+    expect(secondPageRows).toHaveLength(2)
+    expect(secondPageRows).not.toEqual(firstPageRows.slice(0, 2))
+    expect(secondPageRows.join("\n")).toContain("分页对象")
   })
 })

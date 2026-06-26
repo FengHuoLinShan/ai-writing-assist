@@ -6,36 +6,23 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
-    MapLocationBindingCreate,
     MapMarkerCreate,
     MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
-    MapTileBatchUpdate,
 )
 from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
-    MapLocationBindingService,
     MapMarkerService,
-    MapTerritoryService,
-    MapTileService,
 )
-from modules.world.tests.helpers import (
-    _create_location_entity,
-    _create_project,
-)
-
 
 
 class TestMapMarkerCRUD:
     """TestMapMarkerCRUD 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_create_marker(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
@@ -69,7 +56,6 @@ class TestMapMarkerCRUD:
         assert marker.label == "张三"
         assert marker.visible is True
 
-
     @pytest.mark.asyncio
     async def test_list_markers(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
@@ -98,7 +84,6 @@ class TestMapMarkerCRUD:
         )
         markers = await marker_svc.list(db_session, world_map.novel_id, world_map.id)
         assert len(markers) >= 1
-
 
     @pytest.mark.asyncio
     async def test_update_marker(self, db_session: AsyncSession, world_map):
@@ -136,7 +121,6 @@ class TestMapMarkerCRUD:
         assert updated.hex_r == 6
         assert updated.label == "更新标签"
 
-
     @pytest.mark.asyncio
     async def test_delete_marker(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
@@ -164,7 +148,6 @@ class TestMapMarkerCRUD:
             ),
         )
         await marker_svc.delete(db_session, world_map.novel_id, created_marker.id)
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await marker_svc.update(
@@ -174,7 +157,6 @@ class TestMapMarkerCRUD:
                 MapMarkerUpdate(label="应该404"),
             )
         assert exc.value.status_code == 404
-
 
     @pytest.mark.asyncio
     async def test_cross_novel_marker_404(
@@ -211,12 +193,10 @@ class TestMapMarkerCRUD:
                 hex_r=1,
             ),
         )
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await marker_svc.delete(db_session, nid2, created_marker.id)
         assert exc.value.status_code == 404
-
 
     @pytest.mark.asyncio
     async def test_invalid_marker_type_422(self, db_session: AsyncSession):
@@ -229,7 +209,6 @@ class TestMapMarkerCRUD:
                 hex_q=0,
                 hex_r=0,
             )
-
 
     @pytest.mark.asyncio
     async def test_state_includes_markers(self, db_session: AsyncSession, world_map):

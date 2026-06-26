@@ -251,6 +251,52 @@ class MapStateResponse(BaseModel):
 
 
 # ============================================================
+# MapSceneSummary — 写作页轻量地图摘要
+# ============================================================
+
+
+class MapOpenTarget(BaseModel):
+    """前端打开地图时使用的稳定目标。"""
+
+    mode: Literal["overview", "recent", "map"]
+    map_id: str | None = None
+    scene_id: str | None = None
+    focus_entity_id: str | None = None
+    fallback_reason: str | None = None
+    fallback_message: str | None = None
+
+
+class MapSceneSummaryItem(BaseModel):
+    """Scene 摘要里的地点/人物/事件/势力项。"""
+
+    entity_id: str
+    name: str
+    map_id: str
+    hex_q: int | None = None
+    hex_r: int | None = None
+
+
+class MapSceneSummaryWarning(BaseModel):
+    """保守的一致性提示。"""
+
+    level: Literal["info", "warning"] = "info"
+    code: str
+    message: str
+
+
+class MapSceneSummaryResponse(BaseModel):
+    """写作页 Scene 面板消费的轻量地图摘要。"""
+
+    scene_id: str
+    primary_location: MapSceneSummaryItem | None = None
+    characters: list[MapSceneSummaryItem] = Field(default_factory=list)
+    events: list[MapSceneSummaryItem] = Field(default_factory=list)
+    factions: list[MapSceneSummaryItem] = Field(default_factory=list)
+    warnings: list[MapSceneSummaryWarning] = Field(default_factory=list)
+    open_target: MapOpenTarget
+
+
+# ============================================================
 # MapMarker — 动态标记（P1）
 # ============================================================
 

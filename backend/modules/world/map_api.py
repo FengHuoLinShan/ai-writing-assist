@@ -21,6 +21,7 @@ from modules.world.map_schemas import (
     MapMarkerCreate,
     MapMarkerResponse,
     MapMarkerUpdate,
+    MapSceneSummaryResponse,
     MapStateResponse,
     MapTerritoryCreate,
     MapTerritoryResponse,
@@ -28,6 +29,7 @@ from modules.world.map_schemas import (
     MapTileBatchUpdate,
     MapTileResponse,
 )
+from modules.world.services.map_scene_summary import MapSceneSummaryService
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
@@ -43,6 +45,7 @@ _map_tile_service = MapTileService()
 _map_binding_service = MapLocationBindingService()
 _marker_service = MapMarkerService()
 _territory_service = MapTerritoryService()
+_scene_summary_service = MapSceneSummaryService()
 
 
 # ============================================================
@@ -66,6 +69,16 @@ async def create_map(
     data: MapConfigCreate = ...,
 ) -> MapConfigResponse:
     return await _map_config_service.create(db, novel_id, data)
+
+
+@router.get("/scene-summary", response_model=MapSceneSummaryResponse)
+async def get_scene_summary(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    scene_id: str = Query(..., description="Scene ID"),
+) -> MapSceneSummaryResponse:
+    """写作页 Scene 地图摘要。"""
+    return await _scene_summary_service.summarize(db, novel_id, scene_id)
 
 
 @router.get("/{map_id}", response_model=MapConfigResponse)
@@ -310,8 +323,5 @@ async def get_focus_mode(
     from modules.world.services.helpers import parse_uuid
 
     fid = parse_uuid(faction_entity_id, "faction_entity_id")
-    state.territories = [
-        t for t in state.territories
-        if t.faction_entity_id == str(fid)
-    ]
+    state.territories = [t for t in state.territories if t.faction_entity_id == str(fid)]
     return state

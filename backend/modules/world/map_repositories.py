@@ -246,9 +246,7 @@ class MapTileRepository:
         from sqlalchemy.dialects import postgresql as pg_dialect
 
         dialect_name = db.bind.dialect.name if db.bind else "sqlite"
-        insert_fn = (
-            pg_dialect.insert if dialect_name == "postgresql" else sqlite_insert
-        )
+        insert_fn = pg_dialect.insert if dialect_name == "postgresql" else sqlite_insert
         count = 0
         for change in changes:
             stmt = (
@@ -436,6 +434,94 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_by_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        scene_id: uuid.UUID,
+        scene_index: int | None = None,
+    ) -> list[MapMarker]:
+        """按 Scene 时间范围跨地图查询可见标记。"""
+        conditions: list[Any] = [
+            MapMarker.novel_id == novel_id,
+            MapMarker.visible.is_(True),
+        ]
+        if scene_index is None:
+            conditions.append(
+                or_(
+                    and_(
+                        MapMarker.start_scene_id.is_(None),
+                        MapMarker.end_scene_id.is_(None),
+                    ),
+                    MapMarker.start_scene_id == scene_id,
+                    MapMarker.end_scene_id == scene_id,
+                )
+            )
+        else:
+            idx = scene_index
+            conditions.append(
+                or_(
+                    and_(
+                        MapMarker.start_scene_id.is_(None),
+                        MapMarker.end_scene_id.is_(None),
+                    ),
+                    MapMarker.start_scene_id == scene_id,
+                    MapMarker.end_scene_id == scene_id,
+                    and_(
+                        MapMarker.start_scene_index.isnot(None),
+                        MapMarker.start_scene_index <= idx,
+                        or_(
+                            MapMarker.end_scene_id == scene_id,
+                            and_(
+                                MapMarker.end_scene_index.isnot(None),
+                                MapMarker.end_scene_index >= idx,
+                            ),
+                            and_(
+                                MapMarker.end_scene_id.is_(None),
+                                MapMarker.end_scene_index.is_(None),
+                            ),
+                        ),
+                    ),
+                )
+            )
+        stmt = (
+            select(MapMarker)
+            .where(*conditions)
+            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_latest_before_scene_for_entities(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        entity_ids: list[uuid.UUID],
+        scene_index: int,
+    ) -> dict[uuid.UUID, MapMarker]:
+        """返回每个角色在当前 Scene 前最近一次地图标记。"""
+        if not entity_ids:
+            return {}
+        stmt = (
+            select(MapMarker)
+            .where(
+                MapMarker.novel_id == novel_id,
+                MapMarker.visible.is_(True),
+                MapMarker.marker_type == "character",
+                MapMarker.entity_id.in_(entity_ids),
+                MapMarker.start_scene_index.isnot(None),
+                MapMarker.start_scene_index < scene_index,
+            )
+            .order_by(MapMarker.start_scene_index.desc(), MapMarker.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        latest: dict[uuid.UUID, MapMarker] = {}
+        for marker in result.scalars().all():
+            latest.setdefault(marker.entity_id, marker)
+        return latest
 
     async def create(
         self,

@@ -17,6 +17,7 @@ const routes = {
   context: { title: "上下文", subViews: [] },
   outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"] },
   writing: { title: "写作台", subViews: [] },
+  map: { title: "地图", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
 }
 
@@ -102,7 +103,8 @@ function _buildHash(viewName, subView) {
  * - :view[/:subView]
  */
 function _parseHash(hash) {
-  const parts = hash.split("/")
+  const [path] = hash.split("?")
+  const parts = path.split("/")
   if (parts[0] === "workbench" && parts.length >= 3) {
     return {
       projectId: parts[1],

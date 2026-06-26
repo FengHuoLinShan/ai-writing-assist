@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -52,16 +53,19 @@ def _pg_available() -> bool:
 
 
 _PG_IS_AVAILABLE: bool = _pg_available()
+_E2E_DIR = Path(__file__).resolve().parent
 
 
 def pytest_collection_modifyitems(config, items):
-    """如果 PostgreSQL 不可用，跳过全部 e2e 测试。"""
+    """如果 PostgreSQL 不可用，只跳过 backend/tests/e2e 下的测试。"""
     if not _PG_IS_AVAILABLE:
         skip_marker = pytest.mark.skip(
             reason="PostgreSQL 不可用（需要 Docker 运行 postgresql+pgvector）"
         )
         for item in items:
-            item.add_marker(skip_marker)
+            item_path = Path(str(item.fspath)).resolve()
+            if item_path.is_relative_to(_E2E_DIR):
+                item.add_marker(skip_marker)
 
 
 # ============================================================

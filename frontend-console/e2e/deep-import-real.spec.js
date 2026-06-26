@@ -4,6 +4,9 @@
  * 此测试不覆盖浏览器关闭恢复、后台任务轮询等异步场景。
  * 异步深度导入的浏览器恢复/轮询覆盖在 deep-import.spec.js 中。
  *
+ * 默认跳过，避免本地/CI 默认 E2E 调用真实 LLM：
+ *   ENABLE_REAL_LLM=1 npx playwright test deep-import-real.spec.js
+ *
  * 流程：创建项目 → 上传 6 章 → 深度导入 1-6 章（同步模式 sync）→
  *       大纲界面验证 Scene 卡 → 写作工作台验证 Scene 树
  */
@@ -23,11 +26,15 @@ const API_BASE = "http://localhost:8000/api"
 // 深度导入同步执行需要时间（LLM 调用），给充足的超时
 const SYNC_DEEP_TIMEOUT = 240_000
 const IMPORT_TIMEOUT = 30_000
+const ENABLED = process.env.ENABLE_REAL_LLM === "1"
 
 test.describe("深度导入真实流水线 (无 Mock)", () => {
   let testProjectId = null
 
   test.beforeAll(async () => {
+    if (!ENABLED) {
+      test.skip(true, "未设置 ENABLE_REAL_LLM=1，跳过真实 LLM 深度导入验收")
+    }
     await waitForBackend(60000)
   })
 

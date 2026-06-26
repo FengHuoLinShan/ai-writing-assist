@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -738,13 +738,20 @@ class TestCharacterServiceInheritedVerbs:
         # Arrange
         svc = CharacterService()
         nid = str(uuid.uuid4())
-        char = _make_character(novel_id=uuid.UUID(nid))
+        entity_id = uuid.uuid4()
+        char = _make_character(entity_id=entity_id, novel_id=uuid.UUID(nid))
         svc.repo = AsyncMock()
         svc.repo.create.return_value = char
-        data = CharacterCreate(entity_id=str(uuid.uuid4()), name="New")
+        data = CharacterCreate(entity_id=str(entity_id), name="New")
 
         # Act
-        result = await svc.create(db_session, nid, data)
+        with patch(
+            "modules.world.services.character_service.CoreEntityRepository"
+        ) as repo_cls:
+            entity_repo = AsyncMock()
+            entity_repo.get.return_value = SimpleNamespace(novel_id=uuid.UUID(nid))
+            repo_cls.return_value = entity_repo
+            result = await svc.create(db_session, nid, data)
 
         # Assert
         assert isinstance(result, CharacterResponse)
@@ -1135,12 +1142,25 @@ class TestEntityRelationServiceInheritedVerbs:
         # Arrange
         svc = EntityRelationService()
         nid = str(uuid.uuid4())
-        rel = _make_relation(novel_id=uuid.UUID(nid))
+        source_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+        rel = _make_relation(
+            novel_id=uuid.UUID(nid),
+            source_id=source_id,
+            target_id=target_id,
+            relation_type="enemy",
+        )
         svc.repo = AsyncMock()
         svc.repo.create.return_value = rel
+        svc.repo.find_duplicate_relation.return_value = None
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.side_effect = [
+            SimpleNamespace(novel_id=uuid.UUID(nid)),
+            SimpleNamespace(novel_id=uuid.UUID(nid)),
+        ]
         data = EntityRelationCreate(
-            source_id=str(uuid.uuid4()),
-            target_id=str(uuid.uuid4()),
+            source_id=str(source_id),
+            target_id=str(target_id),
             relation_type="enemy",
         )
 

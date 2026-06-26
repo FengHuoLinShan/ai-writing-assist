@@ -5,27 +5,15 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
-    MapTileBatchUpdate,
 )
-from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
-    MapMarkerService,
-    MapTerritoryService,
-    MapTileService,
 )
 from modules.world.tests.helpers import (
     _create_location_entity,
@@ -33,9 +21,9 @@ from modules.world.tests.helpers import (
 )
 
 
-
 class TestMapHierarchyService:
     """TestMapHierarchyService 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_create_detail_map_with_parent(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -66,7 +54,6 @@ class TestMapHierarchyService:
         assert detail.parent_map_id == world.id
         assert detail.parent_entity_id == loc_id
 
-
     @pytest.mark.asyncio
     async def test_breadcrumbs(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -95,7 +82,6 @@ class TestMapHierarchyService:
         names = [b.name for b in state.breadcrumbs]
         # 顶层在前，当前在尾
         assert names == ["世界", "洛阳"]
-
 
     @pytest.mark.asyncio
     async def test_get_state_returns_tiles_and_bindings(self, db_session: AsyncSession):

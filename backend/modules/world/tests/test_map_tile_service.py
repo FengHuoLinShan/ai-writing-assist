@@ -6,36 +6,24 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
-    MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
     MapTileBatchUpdate,
 )
-from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
-    MapLocationBindingService,
-    MapMarkerService,
-    MapTerritoryService,
     MapTileService,
 )
 from modules.world.tests.helpers import (
-    _create_location_entity,
     _create_project,
 )
 
 
-
 class TestMapTileService:
     """TestMapTileService 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_batch_update_terrain(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -63,7 +51,6 @@ class TestMapTileService:
         assert by_pos[(0, 0)] == "water"
         assert by_pos[(1, 1)] == "mountain"
 
-
     @pytest.mark.asyncio
     async def test_batch_update_out_of_range_returns_400(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
@@ -75,7 +62,6 @@ class TestMapTileService:
             MapConfigCreate(name="m", map_type="world", grid_width=3, grid_height=3),
         )
         tile_svc = MapTileService()
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await tile_svc.batch_update(
@@ -87,7 +73,6 @@ class TestMapTileService:
                 ),
             )
         assert exc.value.status_code == 400
-
 
     @pytest.mark.asyncio
     async def test_batch_update_idempotent_upsert(self, db_session: AsyncSession):

@@ -382,9 +382,7 @@ class TestRecordEvents:
         assert len(result) == 3
         assert result[0].sequence == 1
         assert result[2].sequence == 3
-        event_repo.delete_by_chapter.assert_awaited_once_with(
-            db, uuid.UUID(novel_id), 3
-        )
+        event_repo.delete_by_chapter.assert_awaited_once_with(db, uuid.UUID(novel_id), 3)
 
     @pytest.mark.asyncio
     async def test_record_overwrites_existing(self) -> None:
@@ -413,9 +411,7 @@ class TestRecordEvents:
         result = await service.record_events(db, novel_id, 3, new_events)
 
         assert len(result) == 2
-        event_repo.delete_by_chapter.assert_awaited_once_with(
-            db, uuid.UUID(novel_id), 3
-        )
+        event_repo.delete_by_chapter.assert_awaited_once_with(db, uuid.UUID(novel_id), 3)
 
 
 class TestReplayState:
@@ -482,9 +478,7 @@ class TestMarkStale:
 
         assert result["stale_count"] == 1
         assert result["from_chapter"] == 5
-        snapshot_repo.mark_stale_from.assert_awaited_once_with(
-            db, uuid.UUID(novel_id), 5
-        )
+        snapshot_repo.mark_stale_from.assert_awaited_once_with(db, uuid.UUID(novel_id), 5)
 
     @pytest.mark.asyncio
     async def test_mark_partial(self) -> None:

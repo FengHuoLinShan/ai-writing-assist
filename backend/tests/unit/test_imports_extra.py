@@ -892,28 +892,31 @@ class TestImportTaskHandlers:
             "end_chapter": 5,
         }
 
-        mock_progress = MagicMock()
-        mock_progress.phase = "done"
-        mock_progress.current_step = None
-        mock_progress.completed_steps = [
-            "extract_world",
-            "sync_characters",
-            "generate_plot",
-        ]
-        mock_progress.message = (
-            "深度导入完成！同步 3 个人物，创建 2 条剧情线、4 个篇章纲。"
-        )
+        expected = {
+            "phase": "done",
+            "current_step": None,
+            "completed_steps": [
+                "scene_segmentation",
+                "entity_extraction",
+                "structure_analysis",
+            ],
+            "message": "深度导入完成",
+            "degraded": False,
+            "degraded_batches": [],
+        }
 
-        with patch("modules.imports.tasks.DeepImportWorkflow") as mock_wf_cls:
-            mock_wf = MagicMock()
-            mock_wf.run_step = AsyncMock(return_value=mock_progress)
-            mock_wf_cls.return_value = mock_wf
+        with patch("modules.imports.tasks.DeepImportOrchestrator") as mock_cls:
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run_task = AsyncMock(return_value=expected)
+            mock_cls.return_value = mock_orchestrator
 
             db = MagicMock()
             result = await handle_deep_import(db, task)
 
+        assert result == expected
         assert result["phase"] == "done"
         assert len(result["completed_steps"]) == 3
+        mock_orchestrator.run_task.assert_awaited_once_with(db, task)
 
     @pytest.mark.asyncio
     async def test_handle_deep_import_missing_novel_id_raises(self):
@@ -952,31 +955,34 @@ class TestImportTaskHandlers:
             await handle_deep_import(db, task)
 
     @pytest.mark.asyncio
-    async def test_handle_deep_import_uses_default_chapter_range(self):
-        """start_chapter 和 end_chapter 应使用默认值 (1, 5)"""
+    async def test_handle_deep_import_delegates_missing_chapter_range_to_orchestrator(
+        self,
+    ):
+        """章节范围缺省时，任务处理器仍应委托 orchestrator 统一处理。"""
         from modules.imports.tasks import handle_deep_import
 
         task = MagicMock()
         task.meta = {"novel_id": str(uuid.uuid4())}
 
-        mock_progress = MagicMock()
-        mock_progress.phase = "done"
-        mock_progress.current_step = None
-        mock_progress.completed_steps = []
-        mock_progress.message = ""
+        expected = {
+            "phase": "done",
+            "current_step": None,
+            "completed_steps": [],
+            "message": "",
+            "degraded": False,
+            "degraded_batches": [],
+        }
 
-        with patch("modules.imports.tasks.DeepImportWorkflow") as mock_wf_cls:
-            mock_wf = MagicMock()
-            mock_wf.run_step = AsyncMock(return_value=mock_progress)
-            mock_wf_cls.return_value = mock_wf
+        with patch("modules.imports.tasks.DeepImportOrchestrator") as mock_cls:
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run_task = AsyncMock(return_value=expected)
+            mock_cls.return_value = mock_orchestrator
 
             db = MagicMock()
-            await handle_deep_import(db, task)
+            result = await handle_deep_import(db, task)
 
-        # 验证默认值 1, 5 被传入 workflow
-        _, kwargs = mock_wf.run_step.call_args
-        assert kwargs["start_chapter"] == 1
-        assert kwargs["end_chapter"] == 5
+        assert result == expected
+        mock_orchestrator.run_task.assert_awaited_once_with(db, task)
 
     @pytest.mark.asyncio
     async def test_handle_deep_import_resume_deprecated(self):

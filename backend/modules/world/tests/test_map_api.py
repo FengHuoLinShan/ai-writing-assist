@@ -5,37 +5,17 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
-from modules.world.map_schemas import (
-    MapConfigCreate,
-    MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
-    MapTileBatchUpdate,
-)
-from modules.world.models import CoreEntity
-from modules.world.services.map_service import (
-    MapConfigService,
-    MapLocationBindingService,
-    MapMarkerService,
-    MapTerritoryService,
-    MapTileService,
-)
 from modules.world.tests.helpers import (
-    _create_location_entity,
     _create_project,
 )
 
 
-
 class TestMapHTTPAPI:
     """TestMapHTTPAPI 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_api_create_and_get_map(self, async_client: AsyncClient):
         # 先建 project（API 需要 novel_id 存在于 DB）
@@ -50,7 +30,6 @@ class TestMapHTTPAPI:
         assert data["total"] == 0
         assert data["items"] == []
 
-
     @pytest.mark.asyncio
     async def test_api_map_state_404_for_unknown(self, async_client: AsyncClient):
         nid = uuid.uuid4().hex
@@ -59,7 +38,6 @@ class TestMapHTTPAPI:
             f"/api/world/maps/{fake_map}/state", params={"novel_id": nid}
         )
         assert resp.status_code == 404
-
 
     @pytest.mark.asyncio
     async def test_api_create_map_via_http(
@@ -93,7 +71,6 @@ class TestMapHTTPAPI:
         assert len(state["tiles"]) == 600
         assert state["scene"] is None
 
-
     @pytest.mark.asyncio
     async def test_api_batch_update_tiles_via_http(
         self, async_client: AsyncClient, db_session: AsyncSession
@@ -123,7 +100,6 @@ class TestMapHTTPAPI:
         assert by_pos[(0, 0)] == "water"
         assert by_pos[(1, 1)] == "mountain"
 
-
     @pytest.mark.asyncio
     async def test_api_update_map_uses_patch(
         self, async_client: AsyncClient, db_session: AsyncSession
@@ -145,7 +121,6 @@ class TestMapHTTPAPI:
         )
         assert patch_resp.status_code == 200, patch_resp.text
         assert patch_resp.json()["name"] == "新名"
-
 
     @pytest.mark.asyncio
     async def test_api_delete_map_cascades_bindings(

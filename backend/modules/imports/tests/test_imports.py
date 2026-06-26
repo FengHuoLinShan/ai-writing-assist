@@ -22,6 +22,7 @@ from modules.imports.parsers import (
     split_chapters,
 )
 from modules.imports.repositories import ImportRecordRepository
+from modules.imports.services import ImportService
 
 # ============================================================
 # Parser 测试
@@ -508,13 +509,12 @@ class TestImportService:
         sample_txt_content: bytes,
         monkeypatch,
     ):
-        """底层数据库错误导致 update_status 也失败时，仍应抛出业务 HTTPException 而非二次异常。"""
+        """update_status 也失败时，仍应抛业务 HTTPException 而非二次异常。"""
+
         async def _broken_update_status(*args, **kwargs):
             raise RuntimeError("transaction aborted")
 
-        monkeypatch.setattr(
-            service._repo, "update_status", _broken_update_status
-        )
+        monkeypatch.setattr(service._repo, "update_status", _broken_update_status)
 
         with patch(
             "modules.imports.services.create_draft_only",

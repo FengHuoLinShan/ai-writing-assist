@@ -137,9 +137,7 @@ class ImportService:
             except Exception as update_exc:
                 # 事务可能已被底层数据库错误污染，标记失败状态也可能失败。
                 # 记录日志，避免二次异常掩盖原始业务错误。
-                logger.error(
-                    "标记导入记录失败状态时出错: %s", update_exc, exc_info=True
-                )
+                logger.error("标记导入记录失败状态时出错: %s", update_exc, exc_info=True)
             raise HTTPException(
                 status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=error_message,
@@ -165,17 +163,13 @@ class ImportService:
                     error_message=f"文件已导入: {file_name}",
                 )
             except Exception as update_exc:
-                logger.error(
-                    "标记导入记录失败状态时出错: %s", update_exc, exc_info=True
-                )
+                logger.error("标记导入记录失败状态时出错: %s", update_exc, exc_info=True)
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail=f"文件已导入: {file_name}",
             ) from exc
         if record is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
         return ImportResponse(
             id=str(record.id),
             novel_id=str(record.novel_id),

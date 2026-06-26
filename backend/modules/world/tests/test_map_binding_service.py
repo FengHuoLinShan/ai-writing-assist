@@ -6,36 +6,25 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapLocationBindingCreate,
-    MapMarkerCreate,
-    MapMarkerUpdate,
-    MapTerritoryCreate,
-    MapTerritoryUpdate,
-    MapTileBatchUpdate,
 )
 from modules.world.models import CoreEntity
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
-    MapMarkerService,
-    MapTerritoryService,
-    MapTileService,
 )
 from modules.world.tests.helpers import (
     _create_location_entity,
-    _create_project,
 )
-
 
 
 class TestMapLocationBindingService:
     """TestMapLocationBindingService 测试集合。"""
+
     @pytest.mark.asyncio
     async def test_batch_create_binding(
         self,
@@ -60,7 +49,6 @@ class TestMapLocationBindingService:
         centers = [b for b in result if b.is_center]
         assert len(centers) == 1
         assert centers[0].hex_q == 5 and centers[0].hex_r == 5
-
 
     @pytest.mark.asyncio
     async def test_center_uniqueness_switching_clears_old(
@@ -101,7 +89,6 @@ class TestMapLocationBindingService:
         assert len(centers) == 1
         assert centers[0].hex_q == 6 and centers[0].hex_r == 6
 
-
     @pytest.mark.asyncio
     async def test_bind_non_location_entity_returns_400(
         self, db_session: AsyncSession, world_map
@@ -120,7 +107,6 @@ class TestMapLocationBindingService:
         await db_session.flush()
 
         bind_svc = MapLocationBindingService()
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await bind_svc.batch_create(
@@ -134,7 +120,6 @@ class TestMapLocationBindingService:
             )
         assert exc.value.status_code == 400
         assert "location" in exc.value.detail
-
 
     @pytest.mark.asyncio
     async def test_bind_cross_novel_entity_returns_404(
@@ -151,7 +136,6 @@ class TestMapLocationBindingService:
         loc_id = await _create_location_entity(db_session, nid2, "异界地点")
 
         bind_svc = MapLocationBindingService()
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await bind_svc.batch_create(
@@ -164,7 +148,6 @@ class TestMapLocationBindingService:
                 ),
             )
         assert exc.value.status_code == 404
-
 
     @pytest.mark.asyncio
     async def test_update_binding_set_center(
@@ -212,14 +195,12 @@ class TestMapLocationBindingService:
         assert len(centers) == 1
         assert centers[0].id == uuid.UUID(hex=non_center.id)
 
-
     @pytest.mark.parametrize("operation", ["update", "delete"])
     @pytest.mark.asyncio
     async def test_binding_cross_novel_returns_404(
         self, db_session, two_projects: tuple[str, str], operation: str
     ):
         """binding update/delete 跨 novel 返回 404。"""
-        from fastapi import HTTPException
 
         from modules.world.map_schemas import MapLocationBindingUpdate
 
@@ -255,7 +236,6 @@ class TestMapLocationBindingService:
                 await bind_svc.delete(db_session, nid2, binding_id)
         assert exc.value.status_code == 404
 
-
     @pytest.mark.asyncio
     async def test_delete_binding(
         self,
@@ -278,7 +258,6 @@ class TestMapLocationBindingService:
         await bind_svc.delete(db_session, world_map.novel_id, binding_id)
 
         # 再删应 404
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc:
             await bind_svc.delete(db_session, world_map.novel_id, binding_id)
