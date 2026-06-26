@@ -192,7 +192,7 @@ async def test_process_scene_captures_memory_snapshot(
             ),
         ),
         patch(
-            "modules.memory.services.MemoryService.capture_snapshot",
+            "modules.memory.facade.capture_snapshot",
             new_callable=AsyncMock,
         ) as mock_snapshot,
         patch(

@@ -25,6 +25,15 @@ async def get_memory_panorama(
     return await _memory.get_panorama(db, novel_id, chapter_index)
 
 
+async def capture_snapshot(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+):
+    """捕获指定章节的记忆快照。"""
+    return await _memory.capture_snapshot(db, novel_id, chapter_index)
+
+
 async def create_delta_log(
     db: AsyncSession,
     novel_id: str,

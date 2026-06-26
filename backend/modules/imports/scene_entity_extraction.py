@@ -198,9 +198,9 @@ class SceneEntityExtractionService:
 
         # 每个 Scene 完成后更新记忆快照
         try:
-            from modules.memory.services import MemoryService
+            from modules.memory.facade import capture_snapshot
 
-            await MemoryService().capture_snapshot(
+            await capture_snapshot(
                 db,
                 str(nid),
                 chapter_index=source_chapter_index,

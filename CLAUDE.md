@@ -34,7 +34,7 @@
 - [ ] Lint 通过
 - [ ] 跨模块依赖仅通过稳定接口（contracts/facade/DI port）
 - [ ] novel_id 隔离未破坏
-- [ ] 无 AI 输出直接写入正史
+- [ ] AI 输出默认走 candidate/proposal；用户确认启动的自动流水线如直接写 canonical，已保留来源、可编辑/可回滚标记并有测试覆盖
 - [ ] 无未转义动态 HTML / eval / exec 风险
 - [ ] 危险操作（合并/删除/废弃）保留二次确认
 - [ ] 不违反 `AGENTS.md` 的硬约束
@@ -43,7 +43,7 @@
 
 ## 高优先级原则
 
-硬约束以 `AGENTS.md` 第 2 节为准；本文件不复制禁令清单，避免漂移。
+硬约束以 `AGENTS.md` 第 2 节为准；本文件只保留开发入口和架构导航，不复制完整禁令清单，避免漂移。
 
 开发时重点检查：
 - `novel_id` 隔离、API Key 安全、LLM 输出 schema 校验
@@ -116,8 +116,18 @@ modules/<name>/
 
 - 允许：`modules/A` → `modules/B/contracts.py`、`facade.py` 或已注册的 DI port
 - 允许：`modules/*` → `core/`, `shared/`, `infrastructure/llm/`, `infrastructure/tasks/`
-- 禁止：直接 import 其他模块的 `models.py` / `repositories.py` / `services.py`
-- 禁止：API 层或 facade 层写复杂业务逻辑
+- 禁止：生产业务代码直接 import 其他模块的 `models.py` / `repositories.py` / `services.py`
+- 例外：测试 fixture / Alembic / ORM metadata 注册可 import 模型；应用组合根可为路由、任务和 DI 注册导入实现，但不得写业务判断
+- 禁止：API 层或 facade 层写复杂业务逻辑；facade 只做参数适配、稳定返回形状和委托
+
+---
+
+## 架构质量检查
+
+- 新增 `facade.py` / `contracts.py` / DI port 前做 deletion test：删除它以后复杂度是否会回到多个调用方？如果不会，可能只是 pass-through。
+- 一个 adapter 只是 hypothetical seam；只有已有第二种实现、明确测试替身收益或稳定跨模块接口收益时，才引入新的 seam。
+- 重复逻辑分散在多个 API/facade/前端调用方时，优先提炼为拥有领域概念的 deep module，而不是抽出只搬运参数的 helper。
+- 测试优先穿过模块稳定接口；需要验证本模块内部复杂查询、状态机或错误路径时，可以测试本模块内部实现。
 
 ---
 
@@ -138,7 +148,7 @@ modules/<name>/
 | Unit/Integration | SQLite 内存 (`aiosqlite`) | 每测试会话新建表 |
 | E2E | 真实 PostgreSQL | Docker PG via `docker compose` |
 
-- 优先通过模块稳定接口测试（facade、DI port 或 API/service 公共方法）
+- 优先通过模块稳定接口测试（facade、DI port 或 API/service 公共方法）；本模块 repository/service 的复杂行为可直接测试内部实现
 - 每个测试 `conftest.py` 必须 import 所有 FK 依赖的模型（至少 `modules.project.models`）
 - `pytest-asyncio` 模式：`asyncio_mode = "auto"`
 - 业务 E2E 默认使用 mock/fixture 隔离外部 LLM；真实 LLM 仅放在 provider 集成测试或手动验收
@@ -148,7 +158,7 @@ modules/<name>/
 ## 工具链
 
 - **Ruff**: line-length=90, target py312, rules E/F/W/I/N/UP, 双引号
-- **无 mypy/pyright** — 仅 ruff 做静态分析
+- **当前合并门禁无 mypy/pyright** — 仅 ruff 做静态分析；若要把类型检查器变成强制门禁，需用户确认或 ADR
 - **Alembic**: demo 阶段用于初始化/重建 schema；重构时不要求编写保数据迁移
 - **不提交 `.env`**：复制 `backend/.env.example`
 - **pgvector**: SQLite 测试模式下向量以 JSON 文本存储

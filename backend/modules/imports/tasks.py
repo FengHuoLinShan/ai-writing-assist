@@ -9,8 +9,8 @@ import logging
 from typing import Any
 
 from infrastructure.tasks.registry import task_handler
-from modules.imports.workflow import DeepImportWorkflow
-from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from modules.imports.orchestrator import DeepImportOrchestrator
+from modules.imports.workflow_schemas import DeepImportStep
 
 logger = logging.getLogger(__name__)
 
@@ -24,49 +24,15 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
     - start_chapter: 起始章节
     - end_chapter: 结束章节
     """
-    meta = task.meta or {}
-    novel_id = meta.get("novel_id", "")
-    start_chapter = int(meta.get("start_chapter", 1))
-    end_chapter = int(meta.get("end_chapter", 5))
-
-    if not novel_id:
-        raise ValueError("novel_id is required for deep_import")
-
-    workflow = DeepImportWorkflow()
-    progress = DeepImportProgress(workflow_id=str(task.id))
-
-    async def _record_progress(
-        updated: DeepImportProgress,
-        progress_value: float,
-    ) -> None:
-        task.result = updated.model_dump(mode="json")
-        task.update_progress(progress_value)
-        await db.commit()
-
-    progress = await workflow.run_step(
-        db,
-        novel_id=novel_id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        progress=progress,
-        workflow_id=str(task.id),
-        on_progress=_record_progress,
-    )
+    result = await DeepImportOrchestrator().run_task(db, task)
 
     logger.info(
         "Deep import complete — phase=%s, completed=%s",
-        progress.phase,
-        progress.completed_steps,
+        result["phase"],
+        result["completed_steps"],
     )
 
-    return {
-        "phase": progress.phase,
-        "current_step": progress.current_step.value if progress.current_step else None,
-        "completed_steps": progress.completed_steps,
-        "message": progress.message,
-        "degraded": progress.degraded,
-        "degraded_batches": progress.degraded_batches,
-    }
+    return result
 
 
 @task_handler("deep_import_resume")

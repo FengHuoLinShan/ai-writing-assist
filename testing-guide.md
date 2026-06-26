@@ -4,7 +4,7 @@
 
 ### P0 — Blocking (must fix before merge)
 
-- AI output directly writes to canonical, bypassing candidate/review
+- AI output writes canonical without a user-confirmed automated pipeline, provenance, editable/rollback metadata, or tests
 - API allows cross-novel_id data read/write
 - SQL injection, XSS, API key leakage, arbitrary file read/write
 - Prompt injection triggers dangerous backend operations
@@ -15,7 +15,7 @@
 
 ### P1 — Must fix before release
 
-- Module directly imports another module's models/repositories/services
+- Production module directly imports another module's models/repositories/services
 - Context output too long, no budget control, unclear focus
 - Candidates lack importance_score or suggested_action
 - Memory proposals lack source, confidence, confirmation entry point
@@ -59,18 +59,19 @@ async def db_session() -> AsyncGenerator[AsyncSession, ...]:
 
 ### Test import convention
 
-测试应优先通过 public 接口（facade + contracts）进行，而非直接 import 内部模块：
+跨模块行为测试应优先通过 public 接口（facade + contracts / API / DI port）进行，而非直接 import 其他模块内部实现：
 
 ```
 ✅ 推荐: from modules.xxx.facade import some_function
-❌ 避免: from modules.xxx.repositories import SomeRepository
-❌ 避免: from modules.xxx.services import SomeService
+❌ 避免: from modules.other.repositories import SomeRepository
+❌ 避免: from modules.other.services import SomeService
 ```
 
 理由：
 - **测试验证的是行为而非实现** — facade 是稳定的公共接口，内部重构不影响测试
-- **facade 层本身就是薄层** — 测 facade 等价于测 service
-- 当 facade 未暴露某个特定行为、或需要测试 repository 的复杂查询逻辑时，直接 import 内部是可以接受的，但应作为例外备注说明
+- **跨模块测试穿过稳定接口** — 调用方不应知道另一个模块的 repository/service 形状
+- **本模块内部行为可以直接测** — repository 的复杂查询、service 状态机、错误路径和事务边界属于本模块实现，直接 import 本模块内部是可接受的
+- **metadata import 是例外** — fixture / conftest 为注册 FK 模型导入 `modules.project.models` 等模型，不代表业务代码可跨模块依赖内部实现
 
 Key points:
 - All ORM models with FK dependencies must be imported to register in `Base.metadata`
@@ -80,7 +81,7 @@ Key points:
 
 ## Key Integration Tests (in `tests/integration/`)
 
-1. **Candidate cleaning**: input text → generate candidates → dedup → confirm alias
+1. **Candidate/proposal review**: input text → generate candidates/proposals → dedup → confirm alias or preserve canonical auto-ingest provenance
 2. **Character knowledge boundary**: character's unknown info not in compiled context
 3. **Chapter card generation**: schema validation passes, contains goal/conflict/must_not_happen/hook
 4. **Structure review**: detects early reveal of hidden_truth

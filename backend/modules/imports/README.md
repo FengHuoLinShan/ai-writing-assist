@@ -29,14 +29,18 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 ## 跨模块依赖
 
 - writing.facade.create_draft — 写入解析后的章节正文
-- outline Scene/结构生成服务 — 深度导入 Phase 1/3
-- world facade / 场景实体抽取服务 — 深度导入 Phase 2
+- outline facade / DI handler — 深度导入 Phase 1/3
+- world facade / DI handler — 深度导入 Phase 2
+- memory.facade.capture_snapshot — Phase 2 后记录记忆快照
 
 ## Facade
 
 ```python
 async def import_file(db, novel_id, file_name, file_content) -> ImportResponse:
     """导入小说文件"""
+
+async def start_deep_import(db, novel_id, start_chapter, end_chapter, force=False) -> dict:
+    """提交深度导入任务；重复导入时先返回 requires_confirmation"""
 ```
 
 ## API

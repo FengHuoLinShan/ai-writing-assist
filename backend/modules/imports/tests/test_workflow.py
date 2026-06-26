@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 from modules.imports.scene_segmentation import SceneSegmentationService
 from modules.imports.workflow import DeepImportWorkflow
@@ -202,6 +203,105 @@ class TestDeepImportWorkflowAutoRun:
                 end_chapter=3,
                 progress=progress,
             )
+
+
+class TestDeepImportOrchestrator:
+    """测试深度导入入口编排器保持 facade/task 返回契约。"""
+
+    @pytest.mark.asyncio
+    async def test_start_returns_confirmation_without_enqueue_when_duplicates_exist(self):
+        orchestrator = DeepImportOrchestrator()
+        orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
+        orchestrator._deprecate_derived_data = AsyncMock()
+        orchestrator._enqueue_deep_import = AsyncMock()
+
+        result = await orchestrator.start(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            force=False,
+        )
+
+        assert result == {
+            "workflow_id": None,
+            "task_id": None,
+            "status": "requires_confirmation",
+            "requires_confirmation": True,
+            "warning": "已有派生数据",
+            "message": "已有派生数据",
+        }
+        orchestrator._deprecate_derived_data.assert_not_awaited()
+        orchestrator._enqueue_deep_import.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_start_force_deprecates_then_enqueues(self):
+        orchestrator = DeepImportOrchestrator()
+        task_id = uuid.uuid4()
+        db = AsyncMock()
+        orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
+        orchestrator._deprecate_derived_data = AsyncMock(
+            return_value={"deprecated_scenes": 1, "deprecated_entities": 2}
+        )
+        orchestrator._enqueue_deep_import = Mock(return_value=task_id)
+
+        result = await orchestrator.start(
+            db=db,
+            novel_id="novel-1",
+            start_chapter=1,
+            end_chapter=3,
+            force=True,
+        )
+
+        orchestrator._deprecate_derived_data.assert_awaited_once_with(
+            db, "novel-1", 1, 3
+        )
+        orchestrator._enqueue_deep_import.assert_called_once_with(db, "novel-1", 1, 3)
+        db.flush.assert_awaited_once()
+        assert result == {
+            "workflow_id": str(task_id),
+            "task_id": str(task_id),
+            "status": "pending",
+            "requires_confirmation": False,
+            "message": "深度导入任务已提交（第1-3章）",
+        }
+
+    @pytest.mark.asyncio
+    async def test_run_task_returns_task_result_contract(self):
+        orchestrator = DeepImportOrchestrator()
+        progress = DeepImportProgress(
+            phase="done",
+            completed_steps=[
+                DeepImportStep.scene_segmentation.value,
+                DeepImportStep.entity_extraction.value,
+                DeepImportStep.structure_analysis.value,
+            ],
+            message="完成",
+            degraded=True,
+            degraded_batches=[2],
+        )
+        orchestrator.workflow.run_step = AsyncMock(return_value=progress)
+        task = Mock(
+            id=uuid.uuid4(),
+            meta={"novel_id": "n1", "start_chapter": 2, "end_chapter": 4},
+        )
+        task.update_progress = Mock()
+        db = AsyncMock()
+
+        result = await orchestrator.run_task(db, task)
+
+        assert result == {
+            "phase": "done",
+            "current_step": None,
+            "completed_steps": [
+                "scene_segmentation",
+                "entity_extraction",
+                "structure_analysis",
+            ],
+            "message": "完成",
+            "degraded": True,
+            "degraded_batches": [2],
+        }
 
 
 class TestSceneSegmentationProgress:

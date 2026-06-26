@@ -11,6 +11,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.contracts import SceneContract
+
 # ============================================================
 # Scene
 # ============================================================
@@ -26,6 +28,23 @@ async def get_scene(db: AsyncSession, scene_id: str) -> dict[str, Any] | None:
     if scene is None:
         return None
     return _scene_to_dict(scene)
+
+
+async def get_scene_contract(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+) -> SceneContract | None:
+    """按 novel + ID 获取 SceneContract，供其他模块跨 seam 使用。"""
+    from fastapi import HTTPException
+
+    from modules.outline.services import SceneService
+
+    try:
+        scene = await SceneService().get(db, scene_id, novel_id=novel_id)
+    except HTTPException:
+        return None
+    return _scene_to_contract(scene)
 
 
 async def get_scenes_by_novel(
@@ -244,3 +263,24 @@ def _scene_to_dict(scene) -> dict[str, Any]:
         "pov_character_id": scene.pov_character_id,
         "status": scene.status,
     }
+
+
+def _scene_to_contract(scene) -> SceneContract:
+    """将 Scene ORM/response 对象转为稳定跨模块 contract。"""
+    return SceneContract(
+        id=str(scene.id),
+        novel_id=str(scene.novel_id),
+        scene_index=scene.scene_index,
+        title=scene.title,
+        goal=scene.goal,
+        core_conflict=scene.core_conflict,
+        emotional_beat=scene.emotional_beat,
+        must_happen=scene.must_happen,
+        must_not_happen=scene.must_not_happen,
+        narrative_tag=scene.narrative_tag,
+        source=scene.source,
+        scene_chunks=scene.scene_chunks or [],
+        chapter_ids=scene.chapter_ids or [],
+        pov_character_id=scene.pov_character_id,
+        status=scene.status,
+    )

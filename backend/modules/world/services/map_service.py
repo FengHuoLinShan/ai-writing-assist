@@ -52,6 +52,7 @@ from modules.world.repositories import CoreEntityRepository
 from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from modules.world.services.map_context import MapContext
+from modules.world.services.map_state_assembler import MapStateAssembler
 
 # ============================================================
 # 地形模板生成器（初始化世界地图用）
@@ -188,6 +189,13 @@ class MapConfigService(
         self._territory_repo = MapTerritoryRepository()
         self._entity_repo = CoreEntityRepository()
         self._ctx = MapContext()
+        self._state_assembler = MapStateAssembler(
+            config_repo=self.repo,
+            tile_repo=self._tile_repo,
+            binding_repo=self._binding_repo,
+            territory_repo=self._territory_repo,
+            ctx=self._ctx,
+        )
 
     # Override: list 加 parent_map_id 过滤 + 返 ListResponse 包装
     async def list(  # type: ignore[override]
@@ -335,51 +343,12 @@ class MapConfigService(
         （showBoundary 标志，mapView._redraw）。参数被消费但不触发后端过滤，
         避免 P1/P2 接入 markers/territories 时改动此契约。
         """
-        config = await self._ctx.require_map(db, novel_id, map_id)
-        nid = parse_uuid(novel_id, "novel_id")
-        mid = parse_uuid(map_id, "map_id")
-
-        breadcrumbs = await self.repo.get_breadcrumbs(db, mid)
-        tiles = await self._tile_repo.get_by_map(db, nid, mid)
-        bindings = await self._binding_repo.get_by_map(db, nid, mid)
-        territories = await self._territory_repo.get_by_map(db, nid, mid)
-
-        marker_repo = MapMarkerRepository()
-        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
-
-        scene_info = None
-        scene_index = None
-        if scene_id:
-            from modules.outline.services import SceneService
-
-            scene_svc = SceneService()
-            try:
-                scene = await scene_svc.get(db, scene_id, novel_id=novel_id)
-                scene_index = scene.scene_index
-                scene_info = {
-                    "id": str(scene.id),
-                    "index": scene.scene_index,
-                    "title": scene.title,
-                    "chapter_title": None,
-                }
-            except HTTPException:
-                scene_info = None
-
-        markers = await marker_repo.get_by_map_and_scene(
-            db, nid, mid, scene_id=sid, scene_index=scene_index
-        )
-        markers_list = [MapMarkerResponse.model_validate(m) for m in markers]
-
-        return MapStateResponse(
-            map=MapConfigResponse.model_validate(config),
-            breadcrumbs=[MapConfigResponse.model_validate(b) for b in breadcrumbs],
-            tiles=[MapTileResponse.model_validate(t) for t in tiles],
-            location_bindings=[
-                MapLocationBindingResponse.model_validate(b) for b in bindings
-            ],
-            markers=markers_list,
-            territories=[MapTerritoryResponse.model_validate(t) for t in territories],
-            scene=scene_info,
+        return await self._state_assembler.assemble(
+            db,
+            novel_id,
+            map_id,
+            filter_types=filter_types,
+            scene_id=scene_id,
         )
 
     # 新增: 快速生成详图地形（PRD §路径 3）

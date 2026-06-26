@@ -74,7 +74,20 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - `modules/A` → `modules/B/facade.py`
 - `modules/A` → DI container port registered by `app.main` / worker startup
 
-**Forbidden imports:** cross-module imports of another module's `models.py`, `repositories.py`, or `services.py`.
+**Forbidden in production business code:** cross-module imports of another module's `models.py`, `repositories.py`, or `services.py`.
+
+**Explicit exceptions:**
+- A module may test its own `repositories.py` / `services.py` directly when the behavior is internal to that module.
+- Test fixtures, Alembic migrations, and ORM metadata registration may import models to build schemas or FK metadata.
+- Application composition roots (`app.main`, worker startup) may import implementations for route/task/DI registration only; they must not contain business decisions.
+
+## Architecture Quality Bar
+
+- Prefer deep modules: a small interface should hide meaningful behavior and concentrate change in one place.
+- Do not add empty `contracts.py`, pass-through `facade.py`, or DI ports just to satisfy a template.
+- Before adding a seam, run the deletion test: if deleting it does not push complexity back into multiple callers, it probably is not earning its keep.
+- One adapter is a hypothetical seam; two adapters, a stable cross-module interface, or a clear test substitute make it real.
+- Public contract, user-visible behavior, data model, or cross-module call changes require authoritative docs and affected tests to move together.
 
 ## Core Infrastructure
 
@@ -95,7 +108,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 ## Key Design Decisions
 
 - **Candidate → Canonical pipeline**: AI output enters candidate by default; user-confirmed automated pipelines may write canonical records with editable/rollback metadata.
-- **Stable interface gate**: Cross-module access goes through contracts/facade or DI ports. Services/repos/models are never imported across modules.
+- **Stable interface gate**: Cross-module production access goes through contracts/facade or DI ports. Services/repos/models are not imported across business modules; testing/metadata/composition-root exceptions are documented in Module Boundary Rules.
 - **Context Budget**: Context Compiler enforces per-category item limits to stay within token budgets.
 - **Reveal Levels**: Every entity has visibility/reveal metadata to prevent premature spoilers in LLM prompts.
 - **Enums centralized**: All shared enums in `shared/enums.py` to avoid circular imports.

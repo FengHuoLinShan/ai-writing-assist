@@ -1,0 +1,107 @@
+"""MapStateAssembler tests."""
+
+from __future__ import annotations
+
+import uuid
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.outline.contracts import SceneContract
+from modules.world.map_schemas import MapConfigCreate
+from modules.world.services.map_service import MapConfigService
+from modules.world.services.map_state_assembler import MapStateAssembler
+from modules.world.tests.helpers import _create_project
+
+
+@pytest.mark.asyncio
+async def test_assemble_without_scene_id_does_not_lookup_scene(
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    created = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="世界", map_type="world", grid_width=3, grid_height=3),
+    )
+    scene_lookup = AsyncMock()
+
+    state = await MapStateAssembler(scene_lookup=scene_lookup).assemble(
+        db_session,
+        nid,
+        created.id,
+    )
+
+    scene_lookup.assert_not_awaited()
+    assert state.scene is None
+    assert len(state.tiles) == 9
+
+
+@pytest.mark.asyncio
+async def test_assemble_uses_scene_contract_index_for_marker_lookup(
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    created = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="世界", map_type="world", grid_width=3, grid_height=3),
+    )
+    scene_id = uuid.uuid4().hex
+    scene_lookup = AsyncMock(
+        return_value=SceneContract(
+            id=scene_id,
+            novel_id=nid,
+            scene_index=7,
+            title="初遇",
+        )
+    )
+    marker_repo = Mock()
+    marker_repo.get_by_map_and_scene = AsyncMock(return_value=[])
+
+    state = await MapStateAssembler(
+        marker_repo=marker_repo,
+        scene_lookup=scene_lookup,
+    ).assemble(db_session, nid, created.id, scene_id=scene_id)
+
+    scene_lookup.assert_awaited_once_with(db_session, nid, scene_id)
+    marker_repo.get_by_map_and_scene.assert_awaited_once()
+    _, args, kwargs = marker_repo.get_by_map_and_scene.mock_calls[0]
+    assert args[1] == uuid.UUID(hex=nid)
+    assert args[2] == uuid.UUID(hex=created.id)
+    assert kwargs == {"scene_id": uuid.UUID(hex=scene_id), "scene_index": 7}
+    assert state.scene == {
+        "id": scene_id,
+        "index": 7,
+        "title": "初遇",
+        "chapter_title": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_assemble_missing_scene_keeps_scene_none(
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    created = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="世界", map_type="world", grid_width=3, grid_height=3),
+    )
+    scene_id = uuid.uuid4().hex
+    marker_repo = Mock()
+    marker_repo.get_by_map_and_scene = AsyncMock(return_value=[])
+
+    state = await MapStateAssembler(
+        marker_repo=marker_repo,
+        scene_lookup=AsyncMock(return_value=None),
+    ).assemble(db_session, nid, created.id, scene_id=scene_id)
+
+    marker_repo.get_by_map_and_scene.assert_awaited_once()
+    _, _, kwargs = marker_repo.get_by_map_and_scene.mock_calls[0]
+    assert kwargs == {"scene_id": uuid.UUID(hex=scene_id), "scene_index": None}
+    assert state.scene is None
