@@ -11,12 +11,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from shared.types import ChapterIndex
-
-
 # ============================================================
 # 请求 Schema
 # ============================================================
+
 
 class WritingDraftCreate(BaseModel):
     """创建/保存草稿请求
@@ -61,6 +59,7 @@ class WritingDraftUpdate(BaseModel):
 # ============================================================
 # 响应 Schema
 # ============================================================
+
 
 class WritingDraftResponse(BaseModel):
     """草稿响应 — 从 ORM 转换时自动处理 UUID→str"""

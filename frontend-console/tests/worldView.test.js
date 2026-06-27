@@ -139,6 +139,33 @@ describe("候选处理", () => {
       expect(html).toContain("data-action=\"accept-candidate\"")
       expect(html).toContain("data-action=\"ignore-candidate\"")
     })
+
+    it("别名和合并候选显示目标对象名称", () => {
+      worldView._candidates = [{
+        id: "c1",
+        name: "岚姐",
+        entity_type: "character_ref",
+        suggested_action: "alias_of_existing",
+        suggested_existing_entity_id: "e1",
+        suggested_existing_entity_name: "林岚",
+      }]
+      const html = worldView._renderCandidatesList()
+      expect(html).toContain("作为林岚别名")
+      expect(html).toContain("data-entity-name=\"林岚\"")
+    })
+
+    it("temporary_only 候选不显示晋升正史按钮", () => {
+      worldView._candidates = [{
+        id: "c1",
+        name: "临时钥匙",
+        entity_type: "item",
+        suggested_action: "temporary_only",
+      }]
+      const html = worldView._renderCandidatesList()
+      expect(html).not.toContain("data-action=\"accept-candidate\"")
+      expect(html).toContain("设为临时")
+      expect(html).toContain("data-action=\"ignore-candidate\"")
+    })
   })
 
   describe("acceptCandidate", () => {
@@ -152,6 +179,26 @@ describe("候选处理", () => {
       await fn()
 
       expect(api.world.acceptCandidate).toHaveBeenCalledWith("c1", "p1")
+    })
+
+    it("别名候选确认文案包含目标对象名，成功后刷新候选", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidates = [{
+        id: "c1",
+        name: "岚姐",
+        suggested_action: "alias_of_existing",
+        suggested_existing_entity_name: "林岚",
+      }]
+      api.world.acceptCandidate.mockResolvedValue({})
+      api.world.listEntities.mockResolvedValue({ items: [] })
+      api.world.listCandidates.mockResolvedValue({ items: [] })
+
+      worldView.acceptCandidate("c1")
+      expect(vi.mocked(confirmAction).mock.calls[0][0]).toContain("林岚")
+      const fn = vi.mocked(confirmAction).mock.calls[0][1]
+      await fn()
+
+      expect(api.world.listCandidates).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
     })
   })
 
@@ -167,18 +214,37 @@ describe("候选处理", () => {
 
       expect(api.world.confirmCandidate).toHaveBeenCalledWith("c1", { suggested_action: "ignore", status: "ignored" }, "p1")
     })
+
+    it("temporary_only 通过忽略更新清理，成功后刷新候选", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidates = [{ id: "c1", name: "临时钥匙", suggested_action: "temporary_only" }]
+      api.world.confirmCandidate.mockResolvedValue({})
+      api.world.listEntities.mockResolvedValue({ items: [] })
+      api.world.listCandidates.mockResolvedValue({ items: [] })
+
+      worldView.ignoreCandidate("c1")
+      expect(vi.mocked(confirmAction).mock.calls[0][0]).toContain("标记为临时")
+      const fn = vi.mocked(confirmAction).mock.calls[0][1]
+      await fn()
+
+      expect(api.world.confirmCandidate).toHaveBeenCalledWith("c1", { suggested_action: "ignore", status: "ignored" }, "p1")
+      expect(api.world.listCandidates).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
+    })
   })
 
   describe("mergeCandidate", () => {
     it("调用 confirmAction 后调用 API", async () => {
       state.currentProjectId = "p1"
       api.world.mergeCandidate.mockResolvedValue({ name: "旧王都" })
+      api.world.listEntities.mockResolvedValue({ items: [] })
+      api.world.listCandidates.mockResolvedValue({ items: [] })
 
       worldView.mergeCandidate("c1", "e1", "旧王都")
       const fn = vi.mocked(confirmAction).mock.calls[0][1]
       await fn()
 
       expect(api.world.mergeCandidate).toHaveBeenCalledWith("e1", "c1", { novel_id: "p1" })
+      expect(api.world.listCandidates).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
     })
   })
 })
@@ -243,6 +309,25 @@ describe("别名", () => {
     it("调用 showModal", () => {
       worldView.showAliasCreateForm()
       expect(showModal).toHaveBeenCalled()
+    })
+
+    it("创建别名时把 novel_id 作为 API 参数传入", async () => {
+      state.currentProjectId = "p1"
+      api.world.createAlias.mockResolvedValue({})
+      worldView.showAliasCreateForm()
+      const html = vi.mocked(showModal).mock.calls[0][1]
+      document.body.innerHTML = html
+      document.getElementById("alias-entity").value = "e1"
+      document.getElementById("alias-text").value = "岚姐"
+
+      const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
+      await handler()
+
+      expect(api.world.createAlias).toHaveBeenCalledWith({
+        entity_id: "e1",
+        alias: "岚姐",
+        alias_type: "name",
+      }, "p1")
     })
   })
 

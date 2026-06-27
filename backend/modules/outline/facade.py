@@ -11,10 +11,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from modules.outline.schemas import (
     ChapterCardCandidateItem,
     ChapterCardContext,
@@ -117,7 +113,9 @@ async def get_chapter_card(
         ChapterCardContext | None — 章节卡上下文，不存在返回 None
     """
     return await _chapter_service.get_chapter_card_context(
-        db, novel_id, chapter_index,
+        db,
+        novel_id,
+        chapter_index,
     )
 
 
@@ -142,7 +140,8 @@ async def get_active_threads(
         list[PlotThreadContext] — 活跃剧情线列表
     """
     return await _thread_service.get_active_threads(
-        db, novel_id,
+        db,
+        novel_id,
         chapter_index=chapter_index,
         limit=limit,
     )
@@ -194,7 +193,9 @@ async def create_chapter_cards_from_candidate(
     raw_cards = candidate_payload.get("cards", [])
     items = [ChapterCardCandidateItem(**card) for card in raw_cards]
     return await _chapter_service.create_from_candidate(
-        db, novel_id, items,
+        db,
+        novel_id,
+        items,
     )
 
 
@@ -229,7 +230,9 @@ async def merge_chapter_involved_ids(
     entity_ids: list[str],
 ) -> None:
     from shared.utils import parse_uuid
+
     nid = parse_uuid(novel_id, "novel_id")
     from modules.outline.repositories import ChapterCardRepository
+
     repo = ChapterCardRepository()
     await repo.merge_involved_ids(db, nid, chapter_index, character_ids, entity_ids)

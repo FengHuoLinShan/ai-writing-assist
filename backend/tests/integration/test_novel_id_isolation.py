@@ -8,11 +8,8 @@
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -21,13 +18,18 @@ class TestNovelIdIsolation:
     """AI长篇小说结构化创作引擎_REVIEW_RULES_v1.0 §19.2 流程5"""
 
     async def _create_project_and_entity(
-        self, client: AsyncClient, title_suffix: str,
+        self,
+        client: AsyncClient,
+        title_suffix: str,
     ) -> tuple[str, str]:
         """辅助：创建项目 + 世界对象，返回 (novel_id, entity_id)"""
-        resp = await client.post("/api/projects", json={
-            "title": f"隔离测试{title_suffix}",
-            "genre": "测试",
-        })
+        resp = await client.post(
+            "/api/projects",
+            json={
+                "title": f"隔离测试{title_suffix}",
+                "genre": "测试",
+            },
+        )
         nid = resp.json().get("id") or resp.json()["project_id"]
 
         resp = await client.post(
@@ -39,7 +41,8 @@ class TestNovelIdIsolation:
         return nid, eid
 
     async def test_cross_novel_entity_access_returns_404(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """小说 B 不能读取小说 A 的世界对象"""
         nid_a, eid_a = await self._create_project_and_entity(async_client, "A")
@@ -50,11 +53,13 @@ class TestNovelIdIsolation:
             f"/api/world/entities/{eid_a}",
             params={"novel_id": nid_b},
         )
-        assert resp.status_code == 404, \
+        assert resp.status_code == 404, (
             f"跨 novel 读取应返回 404，实际: {resp.status_code}"
+        )
 
     async def test_cross_novel_entity_update_returns_404(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """小说 B 不能修改小说 A 的世界对象"""
         nid_a, eid_a = await self._create_project_and_entity(async_client, "A")
@@ -65,11 +70,13 @@ class TestNovelIdIsolation:
             params={"novel_id": nid_b},
             json={"name": "被篡改"},
         )
-        assert resp.status_code == 404, \
+        assert resp.status_code == 404, (
             f"跨 novel 更新应返回 404，实际: {resp.status_code}"
+        )
 
     async def test_cross_novel_entity_delete_returns_404(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """小说 B 不能删除小说 A 的世界对象"""
         nid_a, eid_a = await self._create_project_and_entity(async_client, "A")
@@ -79,11 +86,13 @@ class TestNovelIdIsolation:
             f"/api/world/entities/{eid_a}",
             params={"novel_id": nid_b},
         )
-        assert resp.status_code == 404, \
+        assert resp.status_code == 404, (
             f"跨 novel 删除应返回 404，实际: {resp.status_code}"
+        )
 
     async def test_list_entities_filtered_by_novel(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """列表接口应按 novel_id 过滤"""
         nid_a, _ = await self._create_project_and_entity(async_client, "A")
@@ -95,7 +104,11 @@ class TestNovelIdIsolation:
         )
         assert resp.status_code == 200
         data = resp.json()
-        items = data.get("items") or data.get("data") or (data if isinstance(data, list) else [])
+        items = (
+            data.get("items")
+            or data.get("data")
+            or (data if isinstance(data, list) else [])
+        )
         for item in items:
             item_nid = item.get("novel_id") or item.get("novel_id") or ""
             # 确保列表只包含小说 B 的对象
@@ -103,7 +116,8 @@ class TestNovelIdIsolation:
                 assert item_nid == nid_b
 
     async def test_cross_novel_character_access(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """小说 B 不能读取小说 A 的人物"""
         nid_a, _ = await self._create_project_and_entity(async_client, "A")
@@ -125,7 +139,8 @@ class TestNovelIdIsolation:
             assert resp.status_code in (200, 404, 422), f"读取角色: {resp.status_code}"
 
     async def test_cross_novel_rag_retrieve(
-        self, async_client: AsyncClient,
+        self,
+        async_client: AsyncClient,
     ):
         """RAG 检索按 novel_id 过滤"""
         nid_a, _ = await self._create_project_and_entity(async_client, "A")

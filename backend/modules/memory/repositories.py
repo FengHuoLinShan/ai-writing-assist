@@ -7,8 +7,9 @@ Memory 数据访问层
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,9 +80,7 @@ class MemoryRecordRepository:
         if status:
             conditions.append(MemoryRecord.status == status)
         if before_chapter_index is not None:
-            conditions.append(
-                MemoryRecord.chapter_index <= before_chapter_index
-            )
+            conditions.append(MemoryRecord.chapter_index <= before_chapter_index)
 
         # 计数
         count_stmt = select(func.count(MemoryRecord.id)).where(*conditions)
@@ -138,8 +137,10 @@ class MemoryRecordRepository:
             all_records: Sequence[MemoryRecord] = result.scalars().all()
             # Python 端过滤
             items = [
-                r for r in all_records
-                if r.related_entity_ids and eid_str in [str(x) for x in r.related_entity_ids]
+                r
+                for r in all_records
+                if r.related_entity_ids
+                and eid_str in [str(x) for x in r.related_entity_ids]
             ]
             return list(items)
         else:
@@ -235,9 +236,7 @@ class MemoryProposalRepository:
         proposal_id: uuid.UUID,
     ) -> MemoryUpdateProposal | None:
         """根据 ID 获取提案"""
-        stmt = select(MemoryUpdateProposal).where(
-            MemoryUpdateProposal.id == proposal_id
-        )
+        stmt = select(MemoryUpdateProposal).where(MemoryUpdateProposal.id == proposal_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -288,7 +287,7 @@ class MemoryProposalRepository:
             .values(
                 decision=decision,
                 decided_by=decided_by,
-                decided_at=datetime.now(timezone.utc),
+                decided_at=datetime.now(UTC),
             )
         )
         await db.execute(stmt)

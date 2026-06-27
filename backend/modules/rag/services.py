@@ -41,6 +41,7 @@ class ChineseNovelChunk:
 # ChunkingService
 # ============================================================
 
+
 class ChunkingService:
     """文本分块服务
 
@@ -256,6 +257,7 @@ class ChunkingService:
 # RetrievalService
 # ============================================================
 
+
 class RetrievalService:
     """混合检索服务
 
@@ -267,7 +269,7 @@ class RetrievalService:
         self._repo = RagChunkRepository()
         self._chunking = ChunkingService()
 
-    _CHINESE_SEP_RE = re.compile(r'[\s,，.。!！?？、·]+')
+    _CHINESE_SEP_RE = re.compile(r"[\s,，.。!！?？、·]+")
 
     @staticmethod
     def _smart_tokenize_chinese(query: str) -> list[str]:
@@ -365,14 +367,8 @@ class RetrievalService:
             thread_ids=thread_ids,
         )
 
-        relation_only = (
-            mode == "extraction"
-            and bool(
-                entity_ids
-                or character_ids
-                or thread_ids
-                or chapter_index is not None
-            )
+        relation_only = mode == "extraction" and bool(
+            entity_ids or character_ids or thread_ids or chapter_index is not None
         )
         repo_query = "" if relation_only else expanded_query
 
@@ -410,7 +406,8 @@ class RetrievalService:
             if use_chinese_match and chinese_terms:
                 if len(chinese_terms) > 1:
                     keyword_score = self._compute_keyword_score_with_proximity(
-                        chunk.text, chinese_terms,
+                        chunk.text,
+                        chinese_terms,
                     )
                 else:
                     keyword_score = (
@@ -462,7 +459,8 @@ class RetrievalService:
             if use_chinese_match:
                 if chinese_terms and len(chinese_terms) > 1:
                     kw = self._compute_keyword_score_with_proximity(
-                        chunk.text, chinese_terms,
+                        chunk.text,
+                        chinese_terms,
                     )
                 else:
                     kw = (
@@ -483,7 +481,8 @@ class RetrievalService:
                     entity_ids=entity_ids,
                     character_ids=character_ids,
                     thread_ids=thread_ids,
-                ) > 0
+                )
+                > 0
                 or (chapter_index is not None and chunk.chapter_index == chapter_index)
                 for chunk, _ in scored_chunks[:top_k]
             )
@@ -602,7 +601,7 @@ async def _load_project_terms(
     chars_list, _ = await _list_chars(db, novel_id_str, limit=999)
     for char in chars_list:
         _add_term(terms, term=char.name, target_id=str(char.id), target_type="character")
-        for alias_entry in (char.aliases or []):
+        for alias_entry in char.aliases or []:
             if isinstance(alias_entry, dict):
                 _add_term(
                     terms,
@@ -679,7 +678,7 @@ def _cn_ngrams(term: str, min_n: int = 2, max_n: int = 4) -> list[str]:
     grams: list[str] = []
     for n in range(min_n, min(max_n, len(compact)) + 1):
         for i in range(0, len(compact) - n + 1):
-            gram = compact[i:i + n]
+            gram = compact[i : i + n]
             if gram not in grams:
                 grams.append(gram)
     return grams
@@ -734,6 +733,7 @@ async def _expand_query_with_project_terms(
 # IndexingService
 # ============================================================
 
+
 class IndexingService:
     """章节索引服务
 
@@ -784,7 +784,8 @@ class IndexingService:
 
         for cn_chunk in chunks:
             character_ids, entity_ids, thread_ids = _match_project_terms(
-                cn_chunk.text, project_terms,
+                cn_chunk.text,
+                project_terms,
             )
             chunk_data = RagChunkCreate(
                 source_type="chapter_text",
@@ -820,9 +821,8 @@ class IndexingService:
                 llm = LLMClient()
                 texts = [chunk.text for chunk in created_chunks]
                 embeddings = await llm.generate_embedding(texts)
-                if (
-                    isinstance(embeddings, list)
-                    and len(embeddings) == len(created_chunks)
+                if isinstance(embeddings, list) and len(embeddings) == len(
+                    created_chunks
                 ):
                     for chunk, emb in zip(created_chunks, embeddings):
                         await self._repo.update_embedding(db, chunk.id, emb)

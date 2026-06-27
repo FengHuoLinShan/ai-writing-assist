@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from modules.geo.contracts import (
     GeoContextBundle as GeoContextBundleContract,
+)
+from modules.geo.contracts import (
     GeoEdgeContract,
     GeoEraContract,
     GeoLocationContract,

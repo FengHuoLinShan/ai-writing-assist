@@ -8,14 +8,11 @@ Geo 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
-# 用于区分「未传」和「显式设为 None」的哨兵对象
-_UNSET = object()
 
 from modules.geo.models import GeoEdge, GeoEra, GeoLocation
 from modules.geo.schemas import (
@@ -28,10 +25,13 @@ from modules.geo.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE
 
+# 用于区分「未传」和「显式设为 None」的哨兵对象
+_UNSET = object()
 
 # ============================================================
 # GeoLocation 数据访问
 # ============================================================
+
 
 class GeoLocationRepository:
     """地理地点数据访问"""
@@ -154,7 +154,8 @@ class GeoLocationRepository:
         """
         if all_locations is None:
             all_locations = await self._load_novel_locations_for_ancestors(
-                db, location_id,
+                db,
+                location_id,
             )
 
         loc_map = {str(loc.id): loc for loc in all_locations}
@@ -286,6 +287,7 @@ class GeoLocationRepository:
 # ============================================================
 # GeoEdge 数据访问
 # ============================================================
+
 
 class GeoEdgeRepository:
     """地理关系边数据访问"""
@@ -424,11 +426,7 @@ class GeoEdgeRepository:
                 update_values[field] = value
 
         if update_values:
-            stmt = (
-                update(GeoEdge)
-                .where(GeoEdge.id == edge_id)
-                .values(**update_values)
-            )
+            stmt = update(GeoEdge).where(GeoEdge.id == edge_id).values(**update_values)
             await db.execute(stmt)
             await db.flush()
             edge = await self.get(db, edge_id)
@@ -451,6 +449,7 @@ class GeoEdgeRepository:
 # GeoEra 数据访问
 # ============================================================
 
+
 class GeoEraRepository:
     """历史时期数据访问"""
 
@@ -466,14 +465,10 @@ class GeoEraRepository:
             order_index=data.order_index,
             summary=data.summary,
             start_event_id=(
-                uuid.UUID(hex=data.start_event_id)
-                if data.start_event_id
-                else None
+                uuid.UUID(hex=data.start_event_id) if data.start_event_id else None
             ),
             end_event_id=(
-                uuid.UUID(hex=data.end_event_id)
-                if data.end_event_id
-                else None
+                uuid.UUID(hex=data.end_event_id) if data.end_event_id else None
             ),
             status=data.status or "canonical",
         )
@@ -521,9 +516,7 @@ class GeoEraRepository:
     ) -> list[GeoEra]:
         """获取所有历史时期（按 order_index 排序，无分页）"""
         stmt = (
-            select(GeoEra)
-            .where(GeoEra.novel_id == novel_id)
-            .order_by(GeoEra.order_index)
+            select(GeoEra).where(GeoEra.novel_id == novel_id).order_by(GeoEra.order_index)
         )
         result = await db.execute(stmt)
         items: Sequence[GeoEra] = result.scalars().all()
@@ -557,11 +550,7 @@ class GeoEraRepository:
             update_values["end_event_id"] = uuid.UUID(hex=data.end_event_id)
 
         if update_values:
-            stmt = (
-                update(GeoEra)
-                .where(GeoEra.id == era_id)
-                .values(**update_values)
-            )
+            stmt = update(GeoEra).where(GeoEra.id == era_id).values(**update_values)
             await db.execute(stmt)
             await db.flush()
             era = await self.get(db, era_id)

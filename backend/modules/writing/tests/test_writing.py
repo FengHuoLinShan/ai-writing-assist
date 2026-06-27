@@ -13,20 +13,23 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.writing.facade import get_draft, get_latest_draft_for_chapter, list_chapter_indices
-from modules.writing.repositories import WritingDraftRepository
 from modules.writing.contracts import WritingDraftContract
+from modules.writing.facade import (
+    get_draft,
+    get_latest_draft_for_chapter,
+    list_chapter_indices,
+)
+from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
-    DraftListItem,
     WritingDraftCreate,
     WritingDraftUpdate,
 )
-from modules.writing.services import WritingDraftService, WritingAnalysisService
-
+from modules.writing.services import WritingAnalysisService, WritingDraftService
 
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def repo() -> WritingDraftRepository:
@@ -59,6 +62,7 @@ def update_data() -> WritingDraftUpdate:
 # ============================================================
 # Repository 测试
 # ============================================================
+
 
 class TestWritingDraftRepository:
     """测试数据访问层"""
@@ -190,7 +194,9 @@ class TestWritingDraftRepository:
 
         # 获取最新版本
         latest = await repo.get_latest_by_chapter(
-            db_session, novel_id, chapter_index=1,
+            db_session,
+            novel_id,
+            chapter_index=1,
         )
         assert latest is not None
         assert latest.version_number == 2
@@ -205,7 +211,9 @@ class TestWritingDraftRepository:
         """测试获取没有草稿的章节"""
         novel_id = uuid.uuid4()
         latest = await repo.get_latest_by_chapter(
-            db_session, novel_id, chapter_index=1,
+            db_session,
+            novel_id,
+            chapter_index=1,
         )
         assert latest is None
 
@@ -230,7 +238,9 @@ class TestWritingDraftRepository:
 
         # 获取版本历史
         versions = await repo.get_version_history(
-            db_session, novel_id, chapter_index=1,
+            db_session,
+            novel_id,
+            chapter_index=1,
         )
         assert len(versions) == 2
         # 按版本降序排列
@@ -340,8 +350,10 @@ class TestWritingDraftRepository:
         # 创建三个章节的草稿
         for ch in (1, 1, 3, 5):
             data = WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content="内容",
+                novel_id=novel_id,
+                chapter_index=ch,
+                title=f"第{ch}章",
+                content="内容",
             )
             await repo.create(db_session, data)
 
@@ -363,6 +375,7 @@ class TestWritingDraftRepository:
 # ============================================================
 # Service 测试
 # ============================================================
+
 
 class TestWritingDraftService:
     """测试业务逻辑层"""
@@ -394,7 +407,9 @@ class TestWritingDraftService:
     ) -> None:
         """测试获取草稿"""
         created = await service.create_draft(db_session, sample_draft_data)
-        fetched = await service.get_draft(db_session, created.id, sample_draft_data.novel_id)
+        fetched = await service.get_draft(
+            db_session, created.id, sample_draft_data.novel_id
+        )
         assert fetched.id == created.id
         assert fetched.title == "第一章：开端"
 
@@ -422,7 +437,10 @@ class TestWritingDraftService:
         """测试更新草稿"""
         created = await service.create_draft(db_session, sample_draft_data)
         updated = await service.update_draft(
-            db_session, created.id, update_data, sample_draft_data.novel_id,
+            db_session,
+            created.id,
+            update_data,
+            sample_draft_data.novel_id,
         )
         assert updated.title == "更新后的标题"
         assert updated.content == "更新后的正文内容。"
@@ -438,7 +456,9 @@ class TestWritingDraftService:
         """测试更新不存在的草稿"""
         fake_id = str(uuid.uuid4())
         with pytest.raises(HTTPException) as exc_info:
-            await service.update_draft(db_session, fake_id, update_data, sample_draft_data.novel_id)
+            await service.update_draft(
+                db_session, fake_id, update_data, sample_draft_data.novel_id
+            )
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -488,7 +508,9 @@ class TestWritingDraftService:
         await service.create_draft(db_session, v2)
 
         latest = await service.get_latest_draft(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert latest.version_number == 2
         assert latest.title == "最新版本"
@@ -529,7 +551,9 @@ class TestWritingDraftService:
         await service.create_draft(db_session, v3)
 
         history = await service.get_version_history(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert history.total == 3
         assert len(history.versions) == 3
@@ -547,7 +571,9 @@ class TestWritingDraftService:
         """测试空版本历史"""
         fake_novel = str(uuid.uuid4())
         history = await service.get_version_history(
-            db_session, fake_novel, 1,
+            db_session,
+            fake_novel,
+            1,
         )
         assert history.total == 0
         assert len(history.versions) == 0
@@ -604,7 +630,9 @@ class TestWritingDraftService:
         """测试获取章节最新草稿契约"""
         await service.create_draft(db_session, sample_draft_data)
         contract = await service.get_latest_draft_contract(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert contract is not None
         assert contract.chapter_index == 1
@@ -619,7 +647,9 @@ class TestWritingDraftService:
         """测试获取不存在的章节最新草稿契约"""
         fake_novel = str(uuid.uuid4())
         contract = await service.get_latest_draft_contract(
-            db_session, fake_novel, 1,
+            db_session,
+            fake_novel,
+            1,
         )
         assert contract is None
 
@@ -633,8 +663,10 @@ class TestWritingDraftService:
         novel_id = str(uuid.uuid4())
         for ch in (1, 1, 3, 5):
             data = WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content="内容",
+                novel_id=novel_id,
+                chapter_index=ch,
+                title=f"第{ch}章",
+                content="内容",
             )
             await service.create_draft(db_session, data)
 
@@ -649,7 +681,8 @@ class TestWritingDraftService:
     ) -> None:
         """测试无草稿时返回空列表"""
         indices = await service.list_chapter_indices(
-            db_session, str(uuid.uuid4()),
+            db_session,
+            str(uuid.uuid4()),
         )
         assert indices == []
 
@@ -657,6 +690,7 @@ class TestWritingDraftService:
 # ============================================================
 # Facade 测试
 # ============================================================
+
 
 class TestWritingFacade:
     """测试对外入口"""
@@ -706,7 +740,9 @@ class TestWritingFacade:
         await repo.create(db_session, v2)
 
         contract = await get_latest_draft_for_chapter(
-            db_session, sample_draft_data.novel_id, 1,
+            db_session,
+            sample_draft_data.novel_id,
+            1,
         )
         assert contract is not None
         assert contract.version_number == 2
@@ -719,7 +755,9 @@ class TestWritingFacade:
     ) -> None:
         """测试 facade 获取不存在的章节草稿"""
         contract = await get_latest_draft_for_chapter(
-            db_session, str(uuid.uuid4()), 1,
+            db_session,
+            str(uuid.uuid4()),
+            1,
         )
         assert contract is None
 
@@ -733,8 +771,10 @@ class TestWritingFacade:
         repo = WritingDraftRepository()
         for ch in (1, 1, 3, 5):
             data = WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content="内容",
+                novel_id=novel_id,
+                chapter_index=ch,
+                title=f"第{ch}章",
+                content="内容",
             )
             await repo.create(db_session, data)
 
@@ -748,7 +788,8 @@ class TestWritingFacade:
     ) -> None:
         """测试 facade 无草稿时返回空列表"""
         indices = await list_chapter_indices(
-            db_session, str(uuid.uuid4()),
+            db_session,
+            str(uuid.uuid4()),
         )
         assert indices == []
 
@@ -757,16 +798,21 @@ class TestWritingFacade:
 # SaveAndAnalyze 测试
 # ============================================================
 
-class TestSaveAndAnalyze:
 
+class TestSaveAndAnalyze:
     @pytest.mark.asyncio
     async def test_save_and_analyze_creates_proposal(
         self,
         db_session: AsyncSession,
     ) -> None:
         from unittest.mock import AsyncMock, patch
-        from modules.memory.schemas import ChapterStateExtraction, CharacterLocationShift, FactionControlShift
-        from modules.memory.schemas import MemoryUpdateProposalContext
+
+        from modules.memory.schemas import (
+            ChapterStateExtraction,
+            CharacterLocationShift,
+            FactionControlShift,
+            MemoryUpdateProposalContext,
+        )
 
         novel_id = str(uuid.uuid4())
         content = "李明御剑飞往北境，天剑宗全面控制了北境。"
@@ -799,18 +845,24 @@ class TestSaveAndAnalyze:
             )
         ]
 
-        with patch(
-            "infrastructure.llm.client.LLMClient.generate_structured",
-            new_callable=AsyncMock,
-            return_value=mock_extraction,
-        ), patch(
-            "modules.memory.facade.create_memory_update_proposals",
-            new_callable=AsyncMock,
-            return_value=mock_proposals,
+        with (
+            patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                new_callable=AsyncMock,
+                return_value=mock_extraction,
+            ),
+            patch(
+                "modules.memory.facade.create_memory_update_proposals",
+                new_callable=AsyncMock,
+                return_value=mock_proposals,
+            ),
         ):
             service = WritingAnalysisService()
             result = await service.analyze_chapter(
-                db_session, novel_id, 1, content,
+                db_session,
+                novel_id,
+                1,
+                content,
             )
             assert result == (True, "success")
 
@@ -820,6 +872,7 @@ class TestSaveAndAnalyze:
         db_session: AsyncSession,
     ) -> None:
         from unittest.mock import AsyncMock, patch
+
         from modules.writing.api import SaveAndAnalyzeRequest, save_and_analyze
 
         novel_id = str(uuid.uuid4())

@@ -4,15 +4,16 @@ Revision ID: aed774d964ff
 Revises: aed774d964fe
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
+
 revision: str = "aed774d964ff"
-down_revision: Union[str, None] = "aed774d964fe"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "aed774d964fe"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -22,11 +23,15 @@ def upgrade() -> None:
     op.add_column("rag_chunks", sa.Column("char_count", sa.Integer(), nullable=True))
     op.add_column(
         "rag_chunks",
-        sa.Column("index_version", sa.String(32), nullable=False, server_default="legacy"),
+        sa.Column(
+            "index_version", sa.String(32), nullable=False, server_default="legacy"
+        ),
     )
     op.add_column(
         "rag_chunks",
-        sa.Column("embedding_status", sa.String(32), nullable=False, server_default="pending"),
+        sa.Column(
+            "embedding_status", sa.String(32), nullable=False, server_default="pending"
+        ),
     )
     op.add_column("rag_chunks", sa.Column("embedding_error", sa.Text(), nullable=True))
     op.add_column(

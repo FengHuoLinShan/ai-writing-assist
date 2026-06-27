@@ -8,7 +8,7 @@ Review 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,6 +136,7 @@ class ReviewReportRepository:
             return 0
 
         from sqlalchemy import delete as delete_stmt
+
         del_stmt = delete_stmt(ReviewReport).where(
             ReviewReport.id.in_(old_ids),
         )

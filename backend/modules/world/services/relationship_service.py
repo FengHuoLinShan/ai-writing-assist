@@ -123,7 +123,11 @@ class RelationshipService:
         related_ids: set[str] = set()
         for seed_id in seed_entity_ids:
             new_related = await self._repo.get_related_entity_ids(
-                db, nid, seed_id, depth=depth, limit=limit,
+                db,
+                nid,
+                seed_id,
+                depth=depth,
+                limit=limit,
             )
             related_ids.update(new_related)
 
@@ -139,17 +143,19 @@ class RelationshipService:
 
         contexts: list[WorldEntityContext] = []
         for entity in entities:
-            contexts.append(WorldEntityContext(
-                entity_id=str(entity.id),
-                entity_type=entity.entity_type,
-                name=entity.name,
-                summary=entity.summary,
-                public_info=entity.public_info,
-                importance=entity.importance,
-                importance_level=entity.importance_level,
-                reveal_level=entity.reveal_level,
-                status=entity.status,
-                related_entity_ids=list(related_ids),
-            ))
+            contexts.append(
+                WorldEntityContext(
+                    entity_id=str(entity.id),
+                    entity_type=entity.entity_type,
+                    name=entity.name,
+                    summary=entity.summary,
+                    public_info=entity.public_info,
+                    importance=entity.importance,
+                    importance_level=entity.importance_level,
+                    reveal_level=entity.reveal_level,
+                    status=entity.status,
+                    related_entity_ids=list(related_ids),
+                )
+            )
 
         return contexts

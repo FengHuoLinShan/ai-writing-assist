@@ -15,10 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.character.facade import (
     filter_context_by_character_knowledge,
-    find_character_id_by_name,
     get_character_knowledge_context,
     get_characters_context,
-    update_character_location,
 )
 from modules.character.repositories import (
     CharacterKnowledgeRepository,
@@ -32,10 +30,10 @@ from modules.character.schemas import (
     CharacterUpdate,
 )
 
-
 # ============================================================
 # Repository 测试
 # ============================================================
+
 
 class TestCharacterRepository:
     """测试数据访问层"""
@@ -139,7 +137,8 @@ class TestCharacterRepository:
             await repo.create(db_session, data)
 
         items, total = await repo.get_by_novel(
-            db_session, uuid.UUID(hex=sample_novel_id),
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
         )
         assert total >= 3
         assert len(items) >= 3
@@ -397,6 +396,7 @@ class TestCharacterKnowledgeRepository:
 # Service 测试
 # ============================================================
 
+
 class TestCharacterService:
     """测试业务逻辑层"""
 
@@ -499,6 +499,7 @@ class TestCharacterService:
 # 知识边界过滤测试（核心功能）
 # ============================================================
 
+
 class TestCharacterKnowledgeFilter:
     """测试人物知识边界过滤功能"""
 
@@ -520,21 +521,25 @@ class TestCharacterKnowledgeFilter:
         from modules.character.schemas import CharacterKnowledgeCreate
 
         k_repo = CharacterKnowledgeRepository()
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=target_id,
-            knowledge_level="unknown",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="unknown",
+            ),
+        )
 
         context_items = [
             {"target_type": "entity", "target_id": target_id, "content": "秘密信息"},
         ]
-        filtered, removed, replaced = (
-            await service.filter_context_by_character_knowledge(
-                db_session, sample_novel_id, sample_character_id, context_items,
-            )
+        filtered, removed, replaced = await service.filter_context_by_character_knowledge(
+            db_session,
+            sample_novel_id,
+            sample_character_id,
+            context_items,
         )
         assert len(filtered) == 0
         assert removed == 1
@@ -548,31 +553,39 @@ class TestCharacterKnowledgeFilter:
         sample_character_id: str,
     ) -> None:
         """测试 false_belief 时替换为误解内容"""
-        from modules.character.services import CharacterService
         from modules.character.repositories import CharacterKnowledgeRepository
         from modules.character.schemas import CharacterKnowledgeCreate
+        from modules.character.services import CharacterService
 
         service = CharacterService()
         k_repo = CharacterKnowledgeRepository()
         target_id = str(uuid.uuid4())
 
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=target_id,
-            knowledge_level="false_belief",
-            known_content="认为这个组织是正义的",
-            misconception="角色被误导，认为这个组织是光明磊落的",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="false_belief",
+                known_content="认为这个组织是正义的",
+                misconception="角色被误导，认为这个组织是光明磊落的",
+            ),
+        )
 
         context_items = [
-            {"target_type": "entity", "target_id": target_id, "content": "这个组织实际上是邪恶的"},
+            {
+                "target_type": "entity",
+                "target_id": target_id,
+                "content": "这个组织实际上是邪恶的",
+            },
         ]
-        filtered, removed, replaced = (
-            await service.filter_context_by_character_knowledge(
-                db_session, sample_novel_id, sample_character_id, context_items,
-            )
+        filtered, removed, replaced = await service.filter_context_by_character_knowledge(
+            db_session,
+            sample_novel_id,
+            sample_character_id,
+            context_items,
         )
         assert len(filtered) == 1
         assert removed == 0
@@ -589,30 +602,34 @@ class TestCharacterKnowledgeFilter:
         sample_character_id: str,
     ) -> None:
         """测试 knowledge_level=full 时保留项"""
-        from modules.character.services import CharacterService
         from modules.character.repositories import CharacterKnowledgeRepository
         from modules.character.schemas import CharacterKnowledgeCreate
+        from modules.character.services import CharacterService
 
         service = CharacterService()
         k_repo = CharacterKnowledgeRepository()
         target_id = str(uuid.uuid4())
 
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=target_id,
-            knowledge_level="full",
-            known_content="完全了解这个组织",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="full",
+                known_content="完全了解这个组织",
+            ),
+        )
 
         context_items = [
             {"target_type": "entity", "target_id": target_id, "content": "组织信息"},
         ]
-        filtered, removed, replaced = (
-            await service.filter_context_by_character_knowledge(
-                db_session, sample_novel_id, sample_character_id, context_items,
-            )
+        filtered, removed, replaced = await service.filter_context_by_character_knowledge(
+            db_session,
+            sample_novel_id,
+            sample_character_id,
+            context_items,
         )
         assert len(filtered) == 1
         assert removed == 0
@@ -627,9 +644,9 @@ class TestCharacterKnowledgeFilter:
         sample_character_id: str,
     ) -> None:
         """测试混合知识的过滤场景"""
-        from modules.character.services import CharacterService
         from modules.character.repositories import CharacterKnowledgeRepository
         from modules.character.schemas import CharacterKnowledgeCreate
+        from modules.character.services import CharacterService
 
         service = CharacterService()
         k_repo = CharacterKnowledgeRepository()
@@ -639,42 +656,52 @@ class TestCharacterKnowledgeFilter:
         false_id = str(uuid.uuid4())
 
         # full 知识
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=known_id,
-            knowledge_level="full",
-            known_content="已知信息",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=known_id,
+                knowledge_level="full",
+                known_content="已知信息",
+            ),
+        )
         # unknown 知识
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=unknown_id,
-            knowledge_level="unknown",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=unknown_id,
+                knowledge_level="unknown",
+            ),
+        )
         # false_belief 知识
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=false_id,
-            knowledge_level="false_belief",
-            known_content="表面说法",
-            misconception="角色的误解",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=false_id,
+                knowledge_level="false_belief",
+                known_content="表面说法",
+                misconception="角色的误解",
+            ),
+        )
 
         context_items = [
             {"target_type": "entity", "target_id": known_id, "content": "A"},
             {"target_type": "entity", "target_id": unknown_id, "content": "B"},
             {"target_type": "entity", "target_id": false_id, "content": "C"},
         ]
-        filtered, removed, replaced = (
-            await service.filter_context_by_character_knowledge(
-                db_session, sample_novel_id, sample_character_id, context_items,
-            )
+        filtered, removed, replaced = await service.filter_context_by_character_knowledge(
+            db_session,
+            sample_novel_id,
+            sample_character_id,
+            context_items,
         )
         assert len(filtered) == 2  # unknown 被移除
         assert removed == 1
@@ -684,6 +711,7 @@ class TestCharacterKnowledgeFilter:
 # ============================================================
 # Facade 测试
 # ============================================================
+
 
 class TestCharacterFacade:
     """测试对外入口"""
@@ -697,7 +725,9 @@ class TestCharacterFacade:
     ) -> None:
         """测试 facade.get_characters_context"""
         bundle = await get_characters_context(
-            db_session, sample_novel_id, [sample_character_id],
+            db_session,
+            sample_novel_id,
+            [sample_character_id],
         )
         assert isinstance(bundle, CharacterContextBundle)
         assert bundle.total == 1
@@ -716,17 +746,22 @@ class TestCharacterFacade:
         from modules.character.schemas import CharacterKnowledgeCreate
 
         k_repo = CharacterKnowledgeRepository()
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=sample_target_entity_id,
-            knowledge_level="full",
-            known_content="测试知识",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=sample_target_entity_id,
+                knowledge_level="full",
+                known_content="测试知识",
+            ),
+        )
 
         result = await get_character_knowledge_context(
-            db_session, sample_novel_id, sample_character_id,
+            db_session,
+            sample_novel_id,
+            sample_character_id,
             target_ids=[sample_target_entity_id],
         )
         assert len(result) == 1
@@ -746,19 +781,25 @@ class TestCharacterFacade:
 
         k_repo = CharacterKnowledgeRepository()
         target_id = str(uuid.uuid4())
-        await k_repo.create(db_session, CharacterKnowledgeCreate(
-            novel_id=sample_novel_id,
-            character_id=sample_character_id,
-            target_type="entity",
-            target_id=target_id,
-            knowledge_level="unknown",
-        ))
+        await k_repo.create(
+            db_session,
+            CharacterKnowledgeCreate(
+                novel_id=sample_novel_id,
+                character_id=sample_character_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="unknown",
+            ),
+        )
 
         context_items = [
             {"target_type": "entity", "target_id": target_id, "content": "秘密"},
         ]
         result = await filter_context_by_character_knowledge(
-            db_session, sample_novel_id, sample_character_id, context_items,
+            db_session,
+            sample_novel_id,
+            sample_character_id,
+            context_items,
         )
         assert len(result) == 0  # unknown -> 移除
 
@@ -766,6 +807,7 @@ class TestCharacterFacade:
 # ============================================================
 # API Schema 测试
 # ============================================================
+
 
 class TestCharacterSchemas:
     """测试 Pydantic schema"""
@@ -856,7 +898,11 @@ class TestUpdateCharacterLocation:
 
         location_id = str(uuid.uuid4())
         await repo.update_character_meta_location(
-            db_session, char.id, location_id, "在炎城", 5,
+            db_session,
+            char.id,
+            location_id,
+            "在炎城",
+            5,
         )
 
         updated = await repo.get(db_session, char.id)
@@ -924,14 +970,24 @@ class TestCharacterExtract:
             voice_style = None
             role = "protagonist"
 
-        with mock.patch("modules.character.facade.list_characters", return_value=([char_resp], 1)), \
-             mock.patch("modules.rag.facade.retrieve", return_value=mock_chunks), \
-             mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
-             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
-             mock.patch("core.config.get_settings") as mock_settings:
+        with (
+            mock.patch(
+                "modules.character.facade.list_characters", return_value=([char_resp], 1)
+            ),
+            mock.patch("modules.rag.facade.retrieve", return_value=mock_chunks),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                return_value=_MockExtractOutput(),
+            ),
+            mock.patch(
+                "infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"
+            ),
+            mock.patch("core.config.get_settings") as mock_settings,
+        ):
             mock_settings.return_value.llm_model = "test-model"
 
             from modules.character.tasks import handle_character_extract
+
             result = await handle_character_extract(db_session, task)
 
         assert result["status"] == "ok"
@@ -987,7 +1043,9 @@ class TestCharacterExtract:
                 if field in _EXTRACTABLE_FIELDS:
                     updates[field] = suggestions[field]
 
-        remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+        remaining_suggestions = {
+            k: v for k, v in suggestions.items() if k not in fields_to_apply
+        }
         meta["ai_suggestions"] = remaining_suggestions
         if not remaining_suggestions:
             meta.pop("ai_suggestions", None)
@@ -995,7 +1053,9 @@ class TestCharacterExtract:
         updates["meta"] = meta
 
         update_data = CharacterUpdate(**updates)
-        result = await service.update_character(db_session, char_id, update_data, novel_id=sample_novel_id)
+        result = await service.update_character(
+            db_session, char_id, update_data, novel_id=sample_novel_id
+        )
 
         assert result.desire == "追求武道巅峰"
         assert result.fear == "失去至亲之人"
@@ -1044,7 +1104,9 @@ class TestCharacterExtract:
                 if field in _EXTRACTABLE_FIELDS:
                     updates[field] = suggestions[field]
 
-        remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+        remaining_suggestions = {
+            k: v for k, v in suggestions.items() if k not in fields_to_apply
+        }
         meta["ai_suggestions"] = remaining_suggestions
         if not remaining_suggestions:
             meta.pop("ai_suggestions", None)
@@ -1052,10 +1114,15 @@ class TestCharacterExtract:
         updates["meta"] = meta
 
         update_data = CharacterUpdate(**updates)
-        result = await service.update_character(db_session, char_id, update_data, novel_id=sample_novel_id)
+        result = await service.update_character(
+            db_session, char_id, update_data, novel_id=sample_novel_id
+        )
 
         assert result.desire == "追求武道巅峰"
-        assert result.meta.get("ai_suggestions") is None or result.meta.get("ai_suggestions") == {}
+        assert (
+            result.meta.get("ai_suggestions") is None
+            or result.meta.get("ai_suggestions") == {}
+        )
         assert "ai_suggestions_at" not in result.meta
 
     @pytest.mark.asyncio
@@ -1123,14 +1190,24 @@ class TestCharacterExtract:
                 return empty_result
             return fallback_result
 
-        with mock.patch("modules.character.facade.list_characters", return_value=([char_resp], 1)), \
-             mock.patch("modules.rag.facade.retrieve", side_effect=_mock_retrieve), \
-             mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
-             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
-             mock.patch("core.config.get_settings") as mock_settings:
+        with (
+            mock.patch(
+                "modules.character.facade.list_characters", return_value=([char_resp], 1)
+            ),
+            mock.patch("modules.rag.facade.retrieve", side_effect=_mock_retrieve),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                return_value=_MockExtractOutput(),
+            ),
+            mock.patch(
+                "infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"
+            ),
+            mock.patch("core.config.get_settings") as mock_settings,
+        ):
             mock_settings.return_value.llm_model = "test-model"
 
             from modules.character.tasks import handle_character_extract
+
             result = await handle_character_extract(db_session, task)
 
         assert result["status"] == "ok", f"Expected ok, got {result}"
@@ -1200,15 +1277,25 @@ class TestCharacterExtract:
                 raise RuntimeError("LLM temporarily unavailable")
             return _MockExtractOutput()
 
-        with mock.patch("modules.character.facade.list_characters", return_value=([char_resp], 1)), \
-             mock.patch("modules.rag.facade.retrieve", return_value=mock_chunks), \
-             mock.patch("infrastructure.llm.client.LLMClient.generate_structured", side_effect=_mock_generate_structured), \
-             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
-             mock.patch("core.config.get_settings") as mock_settings, \
-             mock.patch("asyncio.sleep", new_callable=mock.AsyncMock):
+        with (
+            mock.patch(
+                "modules.character.facade.list_characters", return_value=([char_resp], 1)
+            ),
+            mock.patch("modules.rag.facade.retrieve", return_value=mock_chunks),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                side_effect=_mock_generate_structured,
+            ),
+            mock.patch(
+                "infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"
+            ),
+            mock.patch("core.config.get_settings") as mock_settings,
+            mock.patch("asyncio.sleep", new_callable=mock.AsyncMock),
+        ):
             mock_settings.return_value.llm_model = "test-model"
 
             from modules.character.tasks import handle_character_extract
+
             result = await handle_character_extract(db_session, task)
 
         assert result["status"] == "ok", f"Expected ok after retry, got {result}"
@@ -1268,12 +1355,20 @@ class TestCharacterExtract:
             voice_style = None
             role = None
 
-        with mock.patch("infrastructure.llm.client.LLMClient.generate_structured", return_value=_MockExtractOutput()), \
-             mock.patch("infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"), \
-             mock.patch("core.config.get_settings") as mock_settings:
+        with (
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                return_value=_MockExtractOutput(),
+            ),
+            mock.patch(
+                "infrastructure.llm.prompt_loader.load_prompt", return_value="test prompt"
+            ),
+            mock.patch("core.config.get_settings") as mock_settings,
+        ):
             mock_settings.return_value.llm_model = "test-model"
 
             from modules.character.tasks import handle_character_extract
+
             result = await handle_character_extract(db_session, task)
 
         assert result["status"] == "ok"
@@ -1308,11 +1403,17 @@ class TestGetCharacterLocationId:
 
         location_id = str(uuid.uuid4())
         await repo.update_character_meta_location(
-            db_session, char.id, location_id, "在炎城", 3,
+            db_session,
+            char.id,
+            location_id,
+            "在炎城",
+            3,
         )
 
         result = await get_character_location_id(
-            db_session, sample_novel_id, str(char.id),
+            db_session,
+            sample_novel_id,
+            str(char.id),
         )
         assert result == location_id
 
@@ -1329,6 +1430,8 @@ class TestGetCharacterLocationId:
         char = await repo.create(db_session, data)
 
         result = await get_character_location_id(
-            db_session, sample_novel_id, str(char.id),
+            db_session,
+            sample_novel_id,
+            str(char.id),
         )
         assert result is None

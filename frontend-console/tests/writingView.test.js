@@ -555,8 +555,8 @@ describe("深度导入", () => {
   describe("_gotoReview", () => {
     it("导航到 world 视图并提示", () => {
       writingView._gotoReview()
-      expect(router.navigate).toHaveBeenCalledWith("world", "objects")
-      expect(toast).toHaveBeenCalledWith("请在「对象库」中审查并确认候选对象", "info")
+      expect(router.navigate).toHaveBeenCalledWith("world", "candidates")
+      expect(toast).toHaveBeenCalledWith("请在「候选清洗」中审查并确认候选对象", "info")
     })
   })
 })

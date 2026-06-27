@@ -10,14 +10,9 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.geo.contracts import (
-    GeoContextBundle as GeoContextContract,
-    GeoEdgeContract,
-    GeoEraContract,
-    GeoLocationContract,
     RouteCalculationResult,
-    TravelConstraintContract,
 )
-from modules.geo.schemas import GeoContextBundle, LocationNode, TravelConstraintResult
+from modules.geo.schemas import GeoContextBundle, TravelConstraintResult
 from modules.geo.services import GeoQueryService, GeoTopologyService
 
 _query_service = GeoQueryService()
@@ -44,7 +39,10 @@ async def get_location_context(
         GeoContextBundle: 地理上下文组合
     """
     return await _query_service.get_location_context(
-        db, novel_id, location_id, depth,
+        db,
+        novel_id,
+        location_id,
+        depth,
     )
 
 
@@ -75,8 +73,7 @@ async def get_locations_context_batch(
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     return [
-        r for r in results
-        if isinstance(r, GeoContextBundle) and r.location is not None
+        r for r in results if isinstance(r, GeoContextBundle) and r.location is not None
     ]
 
 
@@ -114,7 +111,10 @@ async def get_travel_constraints(
         TravelConstraintResult: 通行约束信息
     """
     return await _query_service.get_travel_constraints(
-        db, novel_id, source_location_id, target_location_id,
+        db,
+        novel_id,
+        source_location_id,
+        target_location_id,
     )
 
 
@@ -138,7 +138,10 @@ async def get_geo_history_context(
         dict: 地理历史上下文数据
     """
     return await _query_service.get_geo_history_context(
-        db, novel_id, era_id, location_ids,
+        db,
+        novel_id,
+        era_id,
+        location_ids,
     )
 
 
@@ -165,5 +168,9 @@ async def calculate_route(
         RouteCalculationResult: 路径计算结果
     """
     return await _topology_service.calculate_route(
-        db, novel_id, source_location_id, target_location_id, chapter_index,
+        db,
+        novel_id,
+        source_location_id,
+        target_location_id,
+        chapter_index,
     )

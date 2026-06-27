@@ -6,19 +6,13 @@ Outline 业务逻辑层
 
 from __future__ import annotations
 
-import uuid
-from typing import Any
-
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import (
     ChapterCard,
-    ForeshadowingPlan,
     OutlineArc,
-    PlotThread,
-    RevealPlan,
 )
 from modules.outline.repositories import (
     ChapterCardRepository,
@@ -56,10 +50,10 @@ from modules.outline.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
 
-
 # ============================================================
 # PlotThreadService
 # ============================================================
+
 
 class PlotThreadService:
     """剧情线业务服务"""
@@ -109,7 +103,8 @@ class PlotThreadService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             thread_type=thread_type,
             status=status,
             skip=skip,
@@ -131,7 +126,8 @@ class PlotThreadService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         threads = await self._repo.get_active_by_novel(
-            db, nid,
+            db,
+            nid,
             chapter_index=chapter_index,
             limit=limit,
         )
@@ -163,8 +159,11 @@ class PlotThreadService:
         items, _ = await self._repo.get_by_novel(db, nid, limit=limit)
         return [
             {
-                "id": str(t.id), "name": t.name, "thread_type": t.thread_type,
-                "summary": t.summary or "", "start_chapter": t.start_chapter,
+                "id": str(t.id),
+                "name": t.name,
+                "thread_type": t.thread_type,
+                "summary": t.summary or "",
+                "start_chapter": t.start_chapter,
                 "planned_payoff_chapter": t.planned_payoff_chapter,
             }
             for t in items
@@ -207,10 +206,10 @@ class PlotThreadService:
         await self._repo.delete(db, tid)
 
 
-
 # ============================================================
 # OutlineArcService
 # ============================================================
+
 
 class OutlineArcService:
     """篇章纲业务服务"""
@@ -299,7 +298,8 @@ class OutlineArcService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             status=status,
             skip=skip,
             limit=limit,
@@ -356,17 +356,19 @@ class OutlineArcService:
         items, _ = await self._repo.get_by_novel(db, nid, limit=limit)
         return [
             {
-                "id": str(a.id), "title": a.title,
-                "start_chapter": a.start_chapter, "end_chapter": a.end_chapter,
+                "id": str(a.id),
+                "title": a.title,
+                "start_chapter": a.start_chapter,
+                "end_chapter": a.end_chapter,
             }
             for a in items
         ]
 
 
-
 # ============================================================
 # ChapterCardService
 # ============================================================
+
 
 class ChapterCardService:
     """章节卡业务服务"""
@@ -442,7 +444,8 @@ class ChapterCardService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             arc_id=arc_id,
             status=status,
             skip=skip,
@@ -473,7 +476,9 @@ class ChapterCardService:
         for item in cards:
             # 先检查是否已存在
             existing = await self._repo.get_by_chapter_index(
-                db, nid, item.chapter_index,
+                db,
+                nid,
+                item.chapter_index,
             )
             if existing is not None:
                 continue
@@ -574,10 +579,10 @@ class ChapterCardService:
         )
 
 
-
 # ============================================================
 # ForeshadowingPlanService
 # ============================================================
+
 
 class ForeshadowingPlanService:
     """伏笔计划业务服务"""
@@ -626,7 +631,8 @@ class ForeshadowingPlanService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             status=status,
             skip=skip,
             limit=limit,
@@ -676,6 +682,7 @@ class ForeshadowingPlanService:
 # ============================================================
 # PlotGenerationService
 # ============================================================
+
 
 class PlotGenerationService:
     """剧情结构生成服务
@@ -747,15 +754,20 @@ class PlotGenerationService:
         if existing_threads or existing_arcs:
             context_note = (
                 f"\n已有实体：{', '.join(e['name'] for e in existing_entities[:30])}\n"
-                f"已有剧情线：\n" + "\n".join(
+                f"已有剧情线：\n"
+                + "\n".join(
                     f"  - id={t['id']} name={t['name']} type={t['thread_type']} "
                     f"summary={t['summary'][:50]}"
                     for t in existing_threads
-                ) + "\n"
-                f"已有篇章纲：\n" + "\n".join(
-                    f"  - id={a['id']} title={a['title']} chapters={a['start_chapter']}-{a['end_chapter']}"
+                )
+                + "\n"
+                "已有篇章纲：\n"
+                + "\n".join(
+                    f"  - id={a['id']} title={a['title']} "
+                    f"chapters={a['start_chapter']}-{a['end_chapter']}"
                     for a in existing_arcs
-                ) + "\n"
+                )
+                + "\n"
             )
 
         system_prompt = (
@@ -763,9 +775,11 @@ class PlotGenerationService:
             "从章节正文中分析识别剧情线和篇章结构。"
             f"当前章节范围：第{start_chapter}章到第{end_chapter}章\n\n"
             "输出 JSON 对象，包含：\n"
-            "- plot_threads: 剧情线数组，每项包含 name, thread_type (main/secondary/hidden), "
+            "- plot_threads: 剧情线数组，每项包含 name, thread_type "
+            "(main/secondary/hidden), "
             "summary, visible_goal, start_chapter, planned_payoff_chapter, existing_id\n"
-            "- outline_arcs: 篇章纲数组，每项包含 title, arc_index, start_chapter, end_chapter, "
+            "- outline_arcs: 篇章纲数组，每项包含 title, arc_index, "
+            "start_chapter, end_chapter, "
             "arc_goal, core_conflict, climax, result, existing_id\n\n"
             f"{context_note}"
             "规则：只基于已有章节正文分析，不凭空创造未发生的内容。\n"
@@ -773,9 +787,11 @@ class PlotGenerationService:
             "- 已有记录通过 existing_id 标记（值为已有的 id），此时更新其字段\n"
             "- 新记录 existing_id 设为 null（不提供该字段）\n"
             "- 不修改不可变字段（name, thread_type, arc_index 等，即使提供了也忽略）\n"
-            "- 对已有线程，如在新章节中有明确进展则更新 summary / planned_payoff_chapter\n"
+            "- 对已有线程，如在新章节中有明确进展则更新 "
+            "summary / planned_payoff_chapter\n"
             "- 对已有篇章，如边界扩展则更新 end_chapter\n"
-            "start_chapter 和 planned_payoff_chapter 必须为正整数（≥1），不确定时写 null。"
+            "start_chapter 和 planned_payoff_chapter 必须为正整数（≥1），"
+            "不确定时写 null。"
             "climax 和 result 是 OutlineArc 必填字段，必须根据正文内容填写。"
         )
 
@@ -798,6 +814,8 @@ class PlotGenerationService:
         parsed = await llm.generate_structured(request, _PlotOutput)
 
         # 5. 持久化结果
+        import logging
+
         from modules.outline.schemas import (
             OutlineArcCreate,
             OutlineArcUpdate,
@@ -805,15 +823,24 @@ class PlotGenerationService:
             PlotThreadUpdate,
         )
 
-        import logging
-
         logger = logging.getLogger(__name__)
         created_threads = []
         created_arcs = []
 
         for pt in parsed.plot_threads:
-            sc = pt.start_chapter if (pt.start_chapter is not None and pt.start_chapter >= 1) else None
-            ppc = pt.planned_payoff_chapter if (pt.planned_payoff_chapter is not None and pt.planned_payoff_chapter >= 1) else None
+            sc = (
+                pt.start_chapter
+                if (pt.start_chapter is not None and pt.start_chapter >= 1)
+                else None
+            )
+            ppc = (
+                pt.planned_payoff_chapter
+                if (
+                    pt.planned_payoff_chapter is not None
+                    and pt.planned_payoff_chapter >= 1
+                )
+                else None
+            )
 
             if pt.existing_id:
                 updates: dict = {}
@@ -826,17 +853,23 @@ class PlotGenerationService:
                 if updates:
                     try:
                         await self._thread_service.update(
-                            db, pt.existing_id,
+                            db,
+                            pt.existing_id,
                             PlotThreadUpdate(**updates),
                             novel_id,
                         )
                     except Exception as exc:
-                        logger.warning("Failed to update thread %s: %s", pt.existing_id, exc)
+                        logger.warning(
+                            "Failed to update thread %s: %s", pt.existing_id, exc
+                        )
             else:
                 data = PlotThreadCreate(
-                    name=pt.name, thread_type=pt.thread_type,
-                    summary=pt.summary, visible_goal=pt.visible_goal,
-                    start_chapter=sc, planned_payoff_chapter=ppc,
+                    name=pt.name,
+                    thread_type=pt.thread_type,
+                    summary=pt.summary,
+                    visible_goal=pt.visible_goal,
+                    start_chapter=sc,
+                    planned_payoff_chapter=ppc,
                 )
                 try:
                     created = await self._thread_service.create(db, novel_id, data)
@@ -860,18 +893,25 @@ class PlotGenerationService:
                 if updates:
                     try:
                         await self._arc_service.update(
-                            db, arc.existing_id,
+                            db,
+                            arc.existing_id,
                             OutlineArcUpdate(**updates),
                             novel_id,
                         )
                     except Exception as exc:
-                        logger.warning("Failed to update arc %s: %s", arc.existing_id, exc)
+                        logger.warning(
+                            "Failed to update arc %s: %s", arc.existing_id, exc
+                        )
             else:
                 data = OutlineArcCreate(
-                    title=arc.title, arc_index=arc.arc_index,
-                    start_chapter=arc.start_chapter, end_chapter=arc.end_chapter,
-                    arc_goal=arc.arc_goal, core_conflict=arc.core_conflict,
-                    climax=arc.climax, result=arc.result,
+                    title=arc.title,
+                    arc_index=arc.arc_index,
+                    start_chapter=arc.start_chapter,
+                    end_chapter=arc.end_chapter,
+                    arc_goal=arc.arc_goal,
+                    core_conflict=arc.core_conflict,
+                    climax=arc.climax,
+                    result=arc.result,
                 )
                 try:
                     created = await self._arc_service.create(db, novel_id, data)
@@ -883,7 +923,8 @@ class PlotGenerationService:
 
         logger.info(
             "Plot structure generated: %d threads, %d arcs",
-            len(created_threads), len(created_arcs),
+            len(created_threads),
+            len(created_arcs),
         )
 
         return {
@@ -899,6 +940,7 @@ class PlotGenerationService:
         novel_id: str,
     ) -> list[dict]:
         from modules.outline.facade import list_thread_summaries
+
         return await list_thread_summaries(db, novel_id)
 
     async def _load_existing_arcs(
@@ -907,6 +949,7 @@ class PlotGenerationService:
         novel_id: str,
     ) -> list[dict]:
         from modules.outline.facade import list_arc_summaries
+
         return await list_arc_summaries(db, novel_id)
 
     async def _load_existing_entities(
@@ -915,13 +958,14 @@ class PlotGenerationService:
         novel_id: str,
     ) -> list[dict]:
         from modules.world.facade import list_entities
-        return await list_entities(db, novel_id)
 
+        return await list_entities(db, novel_id)
 
 
 # ============================================================
 # RevealPlanService
 # ============================================================
+
 
 class RevealPlanService:
     """揭示计划业务服务"""
@@ -971,7 +1015,8 @@ class RevealPlanService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             target_type=target_type,
             status=status,
             skip=skip,
@@ -1017,4 +1062,3 @@ class RevealPlanService:
                 detail=f"RevealPlan {plan_id} not found",
             )
         await self._repo.delete(db, pid)
-

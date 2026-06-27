@@ -12,10 +12,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 请求 Schema
 # ============================================================
+
 
 class TimelineEventCreate(BaseModel):
     """创建时间线事件请求"""
@@ -104,6 +104,7 @@ class TimelineEventUpdate(BaseModel):
 # 响应 Schema
 # ============================================================
 
+
 class TimelineEventResponse(BaseModel):
     """时间线事件响应"""
 
@@ -162,6 +163,7 @@ class TimelineEventListResponse(BaseModel):
 # ============================================================
 # Facade 输出 Schema
 # ============================================================
+
 
 class TimelineEventContext(BaseModel):
     """时间线事件上下文 — 供其他模块读取"""

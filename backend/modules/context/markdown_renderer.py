@@ -20,10 +20,7 @@ Context Markdown 渲染器
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any
-
-from modules.context.contracts import AUTHOR_ONLY_WARNING, StructureContextBundle
+from modules.context.contracts import StructureContextBundle
 
 # ============================================================
 # Section Renderers
@@ -113,7 +110,8 @@ def _render_hard_constraints(context: StructureContextBundle) -> str:
         "4. **不让角色知道不该知道的信息**。严格遵守 character_knowledge 边界。",
         "5. **不凭空增加重大设定**。新设定必须有合理来源或用户确认。",
         "6. **输出必须符合 JSON schema**。",
-        "7. **不重要对象不要升级为正史对象**。别名标记为 alias_of_existing，临时对象标记为 temporary_only。",
+        "7. **不重要对象不要升级为正史对象**。"
+        "别名标记为 alias_of_existing，临时对象标记为 temporary_only。",
     ]
     return "\n".join(lines) + "\n"
 
@@ -202,9 +200,7 @@ def _render_characters(context: StructureContextBundle) -> str:
 
         # 知识边界信息
         if char.get("character_id"):
-            lines.append(
-                f"- **知识边界**: 该人物知道的信息受 `character_knowledge` 约束"
-            )
+            lines.append("- **知识边界**: 该人物知道的信息受 `character_knowledge` 约束")
 
         lines.append("")
 
@@ -247,7 +243,8 @@ def _render_geo_history(context: StructureContextBundle) -> str:
 
         loc_name = getattr(loc, "name", loc.get("name", "未知地点"))
         loc_level = getattr(
-            loc, "location_level",
+            loc,
+            "location_level",
             loc.get("location_level", "unknown"),
         )
         lines.append(f"### {loc_name} ({loc_level})")
@@ -272,11 +269,13 @@ def _render_geo_history(context: StructureContextBundle) -> str:
             for edge in edges[:5]:  # 最多显示 5 条
                 rel_type = getattr(edge, "relation_type", edge.get("relation_type", ""))
                 direction = getattr(
-                    edge, "direction_label",
+                    edge,
+                    "direction_label",
                     edge.get("direction_label", ""),
                 )
                 difficulty = getattr(
-                    edge, "difficulty",
+                    edge,
+                    "difficulty",
                     edge.get("difficulty", ""),
                 )
                 parts = [rel_type]
@@ -289,18 +288,12 @@ def _render_geo_history(context: StructureContextBundle) -> str:
         # 父子地点
         parents = loc_data.get("parent_locations", [])
         if parents:
-            parent_names = [
-                getattr(p, "name", p.get("name", "?"))
-                for p in parents
-            ]
+            parent_names = [getattr(p, "name", p.get("name", "?")) for p in parents]
             lines.append(f"- **上级地点**: {' > '.join(parent_names)}")
 
         children = loc_data.get("child_locations", [])
         if children:
-            child_names = [
-                getattr(c, "name", c.get("name", "?"))
-                for c in children[:3]
-            ]
+            child_names = [getattr(c, "name", c.get("name", "?")) for c in children[:3]]
             lines.append(f"- **下级地点**: {', '.join(child_names)}")
 
         # 历史时期
@@ -408,7 +401,8 @@ def _render_forbidden(context: StructureContextBundle) -> str:
 
     # 从 plot_threads 中提取 hidden_truth 防止提前揭示
     hidden_threads = [
-        t for t in context.plot_threads
+        t
+        for t in context.plot_threads
         if t.get("thread_type") == "hidden" and t.get("hidden_truth")
     ]
     if hidden_threads:
@@ -441,7 +435,7 @@ def _render_creative_materials(context: StructureContextBundle) -> str:
         src_type = chunk.get("source_type", "")
         chap = chunk.get("chapter_index")
 
-        parts = [f"- "]
+        parts = ["- "]
         if chap is not None:
             parts.append(f"[第 {chap} 章] ")
         if src_type:

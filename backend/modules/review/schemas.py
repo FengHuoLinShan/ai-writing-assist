@@ -12,10 +12,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 内部工具
 # ============================================================
+
 
 def _uuid_validator(v: object) -> str:
     """将 UUID 原始值转为字符串"""
@@ -29,6 +29,7 @@ def _uuid_validator(v: object) -> str:
 # ============================================================
 # ReviewWarning Schema
 # ============================================================
+
 
 class ReviewWarning(BaseModel):
     """复查警告项"""
@@ -55,6 +56,7 @@ class ReviewWarning(BaseModel):
 # ============================================================
 # ReviewReport Schema
 # ============================================================
+
 
 class ReviewReportCreate(BaseModel):
     """创建复查报告请求"""
@@ -180,6 +182,7 @@ class ReviewReportResponse(BaseModel):
 # ============================================================
 # Facade 输出 Schema
 # ============================================================
+
 
 class ReviewReportContext(BaseModel):
     """复查报告上下文 — 供其他模块读取"""

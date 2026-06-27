@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,14 +30,16 @@ class ReviewService:
     编排 7 个检查策略，汇总结果，生成决策和修改建议。
     """
 
-    VALID_TARGET_TYPES = frozenset({
-        "world_structure",
-        "plot_structure",
-        "chapter_cards",
-        "memory_update",
-        "entity_candidates",
-        "geo_structure",
-    })
+    VALID_TARGET_TYPES = frozenset(
+        {
+            "world_structure",
+            "plot_structure",
+            "chapter_cards",
+            "memory_update",
+            "entity_candidates",
+            "geo_structure",
+        }
+    )
 
     def __init__(self, strategies: list[CheckStrategy] | None = None) -> None:
         self._repo = ReviewReportRepository()
@@ -160,8 +161,12 @@ class ReviewService:
         """获取复查报告列表"""
         nid = parse_uuid(novel_id, "novel_id")
         reports, total = await self._repo.get_by_novel(
-            db, nid, target_type=target_type, decision=decision,
-            skip=skip, limit=limit,
+            db,
+            nid,
+            target_type=target_type,
+            decision=decision,
+            skip=skip,
+            limit=limit,
         )
         return [self._to_context(r) for r in reports], total
 
@@ -179,7 +184,7 @@ class ReviewService:
         payload = dict(candidate_payload)
         if target_type:
             payload["target_type"] = target_type
-        from sqlalchemy.ext.asyncio import AsyncSession
+
         return await self._strategies[0].check(None, "", payload)  # type: ignore[arg-type]
 
     async def _check_entity_references(

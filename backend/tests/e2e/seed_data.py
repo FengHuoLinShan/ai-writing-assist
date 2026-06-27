@@ -313,13 +313,15 @@ async def create_locations(
         if name in entity_ids:
             return uuid.UUID(hex=entity_ids[name])
         eid = uuid.uuid4()
-        session.add(WorldEntity(
-            id=eid,
-            novel_id=project_id,
-            entity_type="location",
-            name=name,
-            status="canonical",
-        ))
+        session.add(
+            WorldEntity(
+                id=eid,
+                novel_id=project_id,
+                entity_type="location",
+                name=name,
+                status="canonical",
+            )
+        )
         entity_ids[name] = str(eid)
         await session.flush()  # 立即 flush 确保 FK 可引用
         return eid
@@ -546,6 +548,7 @@ async def create_timeline_events(
 
 
 # ---- 组合函数 ------------------------------------------------------------
+
 
 async def create_base_scene(session: AsyncSession) -> dict[str, Any]:
     """

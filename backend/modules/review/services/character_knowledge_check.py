@@ -67,7 +67,9 @@ class CharacterKnowledgeCheck(CheckStrategy):
                     continue
 
                 knowledge_list = await get_character_knowledge_context(
-                    db, novel_id, cid,
+                    db,
+                    novel_id,
+                    cid,
                     target_ids=list(entity_ids) if entity_ids else None,
                 )
 

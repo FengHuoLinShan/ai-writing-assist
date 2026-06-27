@@ -8,10 +8,9 @@ Writing 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import delete, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.models import WritingDraft
@@ -41,7 +40,9 @@ class WritingDraftRepository:
 
         # 获取当前最大版本号（使用 FOR UPDATE 锁定行）
         next_version = await self._next_version_number(
-            db, novel_id, data.chapter_index,
+            db,
+            novel_id,
+            data.chapter_index,
         )
 
         draft = WritingDraft(

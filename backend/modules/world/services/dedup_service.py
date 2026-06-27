@@ -11,7 +11,6 @@ from fastapi import status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.contracts import DuplicateSuggestion
 from modules.world.models import EntityAlias, WorldEntity
 from modules.world.repositories import (
     EntityAliasRepository,
@@ -67,21 +66,26 @@ class EntityDedupService:
 
         # 1. 名称精确匹配
         exact_matches = await self._find_exact_name_matches(
-            db, nid, candidate.name, candidate.entity_type,
+            db,
+            nid,
+            candidate.name,
+            candidate.entity_type,
         )
         for match in exact_matches:
             eid_str = str(match.id)
             if eid_str not in seen_ids:
                 seen_ids.add(eid_str)
-                suggestions.append(DuplicateSuggestionResult(
-                    candidate_id=candidate_id,
-                    candidate_name=candidate.name,
-                    existing_entity_id=eid_str,
-                    existing_entity_name=match.name,
-                    similarity_score=1.0,
-                    match_method="exact_name",
-                    action="alias_of_existing",
-                ))
+                suggestions.append(
+                    DuplicateSuggestionResult(
+                        candidate_id=candidate_id,
+                        candidate_name=candidate.name,
+                        existing_entity_id=eid_str,
+                        existing_entity_name=match.name,
+                        similarity_score=1.0,
+                        match_method="exact_name",
+                        action="alias_of_existing",
+                    )
+                )
 
         # 2. 别名匹配
         alias_matches = await self._find_alias_matches(db, nid, candidate.name)
@@ -91,34 +95,40 @@ class EntityDedupService:
                 eid = parse_uuid(alias_elem.entity_id, "entity_id")
                 entity = await self._entity_repo.get(db, eid)
                 entity_name = entity.name if entity else alias_elem.alias
-                suggestions.append(DuplicateSuggestionResult(
-                    candidate_id=candidate_id,
-                    candidate_name=candidate.name,
-                    existing_entity_id=alias_elem.entity_id,
-                    existing_entity_name=entity_name,
-                    similarity_score=SIMILARITY_HIGH_CONFIDENCE,
-                    match_method="alias_match",
-                    action="alias_of_existing",
-                ))
+                suggestions.append(
+                    DuplicateSuggestionResult(
+                        candidate_id=candidate_id,
+                        candidate_name=candidate.name,
+                        existing_entity_id=alias_elem.entity_id,
+                        existing_entity_name=entity_name,
+                        similarity_score=SIMILARITY_HIGH_CONFIDENCE,
+                        match_method="alias_match",
+                        action="alias_of_existing",
+                    )
+                )
 
         # 3. 模糊名称匹配（difflib）
         all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
         fuzzy_matches = self._fuzzy_name_matches(
-            candidate.name, candidate.entity_type, all_entities,
+            candidate.name,
+            candidate.entity_type,
+            all_entities,
         )
         for fuzz in fuzzy_matches:
             eid_str = fuzz["entity_id"]
             if eid_str not in seen_ids:
                 seen_ids.add(eid_str)
-                suggestions.append(DuplicateSuggestionResult(
-                    candidate_id=candidate_id,
-                    candidate_name=candidate.name,
-                    existing_entity_id=eid_str,
-                    existing_entity_name=fuzz["entity_name"],
-                    similarity_score=fuzz["score"],
-                    match_method="fuzzy_name",
-                    action=fuzz["action"],
-                ))
+                suggestions.append(
+                    DuplicateSuggestionResult(
+                        candidate_id=candidate_id,
+                        candidate_name=candidate.name,
+                        existing_entity_id=eid_str,
+                        existing_entity_name=fuzz["entity_name"],
+                        similarity_score=fuzz["score"],
+                        match_method="fuzzy_name",
+                        action=fuzz["action"],
+                    )
+                )
 
         suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
         return suggestions
@@ -142,15 +152,17 @@ class EntityDedupService:
             eid_str = str(match.id)
             if eid_str not in seen_ids:
                 seen_ids.add(eid_str)
-                suggestions.append(DuplicateSuggestionResult(
-                    candidate_id="",
-                    candidate_name=name,
-                    existing_entity_id=eid_str,
-                    existing_entity_name=match.name,
-                    similarity_score=1.0,
-                    match_method="exact_name",
-                    action="alias_of_existing",
-                ))
+                suggestions.append(
+                    DuplicateSuggestionResult(
+                        candidate_id="",
+                        candidate_name=name,
+                        existing_entity_id=eid_str,
+                        existing_entity_name=match.name,
+                        similarity_score=1.0,
+                        match_method="exact_name",
+                        action="alias_of_existing",
+                    )
+                )
 
         # 2. 别名匹配
         alias_matches = await self._find_alias_matches(db, nid, name)
@@ -160,15 +172,17 @@ class EntityDedupService:
                 eid = parse_uuid(alias_elem.entity_id, "entity_id")
                 entity = await self._entity_repo.get(db, eid)
                 entity_name = entity.name if entity else alias_elem.alias
-                suggestions.append(DuplicateSuggestionResult(
-                    candidate_id="",
-                    candidate_name=name,
-                    existing_entity_id=alias_elem.entity_id,
-                    existing_entity_name=entity_name,
-                    similarity_score=SIMILARITY_HIGH_CONFIDENCE,
-                    match_method="alias_match",
-                    action="alias_of_existing",
-                ))
+                suggestions.append(
+                    DuplicateSuggestionResult(
+                        candidate_id="",
+                        candidate_name=name,
+                        existing_entity_id=alias_elem.entity_id,
+                        existing_entity_name=entity_name,
+                        similarity_score=SIMILARITY_HIGH_CONFIDENCE,
+                        match_method="alias_match",
+                        action="alias_of_existing",
+                    )
+                )
 
         # 3. 模糊匹配
         all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
@@ -177,15 +191,17 @@ class EntityDedupService:
             eid_str = fuzz["entity_id"]
             if eid_str not in seen_ids:
                 seen_ids.add(eid_str)
-                suggestions.append(DuplicateSuggestionResult(
-                    candidate_id="",
-                    candidate_name=name,
-                    existing_entity_id=eid_str,
-                    existing_entity_name=fuzz["entity_name"],
-                    similarity_score=fuzz["score"],
-                    match_method="fuzzy_name",
-                    action=fuzz["action"],
-                ))
+                suggestions.append(
+                    DuplicateSuggestionResult(
+                        candidate_id="",
+                        candidate_name=name,
+                        existing_entity_id=eid_str,
+                        existing_entity_name=fuzz["entity_name"],
+                        similarity_score=fuzz["score"],
+                        match_method="fuzzy_name",
+                        action=fuzz["action"],
+                    )
+                )
 
         suggestions.sort(key=lambda s: s.similarity_score, reverse=True)
         return suggestions
@@ -248,16 +264,22 @@ class EntityDedupService:
 
         # 合并 public_info
         if candidate.source_text:
-            entity.public_info = merge_text_field(entity.public_info, candidate.source_text)
+            entity.public_info = merge_text_field(
+                entity.public_info, candidate.source_text
+            )
             merged_fields.append("public_info")
 
         # 合并 hidden_truth
         if candidate.source_text:
-            entity.hidden_truth = merge_text_field(entity.hidden_truth, candidate.source_text)
+            entity.hidden_truth = merge_text_field(
+                entity.hidden_truth, candidate.source_text
+            )
             merged_fields.append("hidden_truth")
 
         # 合并 importance
-        if candidate.importance_score is not None and candidate.importance_score > (entity.importance or 0):
+        if candidate.importance_score is not None and candidate.importance_score > (
+            entity.importance or 0
+        ):
             entity.importance = candidate.importance_score
 
         candidate.status = "canonical"
@@ -282,19 +304,23 @@ class EntityDedupService:
             candidates = [entity.name]
             best_score = max(
                 (
-                    difflib.SequenceMatcher(None, normalized_name, normalize_name(c)).ratio()
+                    difflib.SequenceMatcher(
+                        None, normalized_name, normalize_name(c)
+                    ).ratio()
                     for c in candidates
                     if c
                 ),
                 default=0.0,
             )
             if 0.72 <= best_score < 1.0:
-                results.append({
-                    "entity_id": str(entity.id),
-                    "entity_name": entity.name,
-                    "score": best_score,
-                    "action": "alias_of_existing",
-                })
+                results.append(
+                    {
+                        "entity_id": str(entity.id),
+                        "entity_name": entity.name,
+                        "score": best_score,
+                        "action": "alias_of_existing",
+                    }
+                )
         return sorted(results, key=lambda r: r["score"], reverse=True)
 
     async def _find_exact_name_matches(

@@ -6,15 +6,16 @@ Project Pydantic Schema 定义
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
-
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ============================================================
 # 请求 Schema
 # ============================================================
+
 
 class ProjectCreate(BaseModel):
     """创建项目请求"""
@@ -69,15 +70,6 @@ class ProjectUpdate(BaseModel):
     default_reveal_policy: Annotated[str | None, Field(None, max_length=32)]
 
 
-# ============================================================
-# 响应 Schema
-# ============================================================
-
-import uuid
-
-from pydantic import field_validator
-
-
 class ProjectResponse(BaseModel):
     """项目响应 — 从 ORM 转换时自动处理 UUID→str"""
 
@@ -119,6 +111,7 @@ class ProjectListResponse(BaseModel):
 # ============================================================
 # Facade 输出 Schema（供其他模块读取）
 # ============================================================
+
 
 class ProjectContext(BaseModel):
     """项目上下文 — 供其他模块读取的项目信息"""

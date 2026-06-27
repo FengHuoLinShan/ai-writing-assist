@@ -38,6 +38,7 @@ class DuplicateCheck(CheckStrategy):
                 if isinstance(ci, int):
                     try:
                         from modules.outline.facade import get_chapter_card
+
                         existing = await get_chapter_card(db, novel_id, ci)
                         if existing is not None:
                             warnings.append(
@@ -70,11 +71,17 @@ class DuplicateCheck(CheckStrategy):
             if name:
                 try:
                     from modules.world.facade import get_world_context
+
                     ctx = await get_world_context(db, novel_id, limit=50)
-                    existing_names = [
-                        e.name for e in ctx.entities
-                        if hasattr(e, "name") and e.name == name
-                    ] if hasattr(ctx, "entities") else []
+                    existing_names = (
+                        [
+                            e.name
+                            for e in ctx.entities
+                            if hasattr(e, "name") and e.name == name
+                        ]
+                        if hasattr(ctx, "entities")
+                        else []
+                    )
                     if existing_names:
                         warnings.append(
                             ReviewWarning(
@@ -97,7 +104,9 @@ class DuplicateCheck(CheckStrategy):
 
         candidate_names = [
             (i, cand.get("name", ""))
-            for i, cand in enumerate(candidates_list if isinstance(candidates_list, list) else [])
+            for i, cand in enumerate(
+                candidates_list if isinstance(candidates_list, list) else []
+            )
             if isinstance(cand, dict) and cand.get("name", "")
         ]
 

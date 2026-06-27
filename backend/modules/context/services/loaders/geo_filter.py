@@ -48,7 +48,9 @@ class GeoReachabilityFilter:
         from modules.character.facade import get_character_location_id
 
         char_location_id = await get_character_location_id(
-            db, novel_id, character_ids[0],
+            db,
+            novel_id,
+            character_ids[0],
         )
 
         if not char_location_id:
@@ -79,8 +81,10 @@ class GeoReachabilityFilter:
                     continue
                 try:
                     route = await calculate_route(
-                        db, novel_id,
-                        char_location_id, target_loc_id,
+                        db,
+                        novel_id,
+                        char_location_id,
+                        target_loc_id,
                         chapter_index,
                     )
                     if not route.is_reachable:
@@ -88,7 +92,8 @@ class GeoReachabilityFilter:
                         break
                 except Exception as exc:
                     logger.warning(
-                        "地缘可达性计算异常，保留 chunk: %s", str(exc),
+                        "地缘可达性计算异常，保留 chunk: %s",
+                        str(exc),
                     )
                     break
 

@@ -40,7 +40,10 @@ async def review_structure_candidate(
         ReviewReportContext — 复查报告，包含决策和所有警告
     """
     return await _service.run_all_checks(
-        db, novel_id, target_type, candidate_payload,
+        db,
+        novel_id,
+        target_type,
+        candidate_payload,
     )
 
 

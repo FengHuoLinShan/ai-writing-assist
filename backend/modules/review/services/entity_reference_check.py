@@ -27,7 +27,10 @@ class EntityReferenceCheck(CheckStrategy):
         warnings: list[ReviewWarning] = []
 
         referenced_ids: dict[str, list[str]] = {
-            "entity": [], "character": [], "thread": [], "arc": [],
+            "entity": [],
+            "character": [],
+            "thread": [],
+            "arc": [],
         }
 
         def _extract_refs(items: Any, field_map: list[tuple[str, str]]) -> None:
@@ -68,20 +71,26 @@ class EntityReferenceCheck(CheckStrategy):
         )
 
         for ref_type in referenced_ids:
-            referenced_ids[ref_type] = list(set(
-                i for i in referenced_ids[ref_type] if is_valid_uuid(i)
-            ))
+            referenced_ids[ref_type] = list(
+                set(i for i in referenced_ids[ref_type] if is_valid_uuid(i))
+            )
 
         # 验证实体引用
         if referenced_ids["entity"]:
             try:
                 from modules.world.facade import get_world_context
+
                 ctx = await get_world_context(
-                    db, novel_id,
+                    db,
+                    novel_id,
                     entity_ids=referenced_ids["entity"],
                     limit=len(referenced_ids["entity"]),
                 )
-                found_ids = {e.entity_id for e in ctx.entities} if hasattr(ctx, "entities") else set()
+                found_ids = (
+                    {e.entity_id for e in ctx.entities}
+                    if hasattr(ctx, "entities")
+                    else set()
+                )
                 for mid in set(referenced_ids["entity"]) - found_ids:
                     warnings.append(
                         ReviewWarning(
@@ -98,11 +107,17 @@ class EntityReferenceCheck(CheckStrategy):
         if referenced_ids["character"]:
             try:
                 from modules.character.facade import get_characters_context
+
                 ctx = await get_characters_context(
-                    db, novel_id,
+                    db,
+                    novel_id,
                     character_ids=referenced_ids["character"],
                 )
-                found_ids = {c.character_id for c in ctx.characters} if hasattr(ctx, "characters") else set()
+                found_ids = (
+                    {c.character_id for c in ctx.characters}
+                    if hasattr(ctx, "characters")
+                    else set()
+                )
                 for mid in set(referenced_ids["character"]) - found_ids:
                     warnings.append(
                         ReviewWarning(

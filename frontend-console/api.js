@@ -40,6 +40,23 @@ function _setCache(key, data) {
   _apiCache.set(key, { data, time: Date.now() })
 }
 
+function _formatErrorDetail(detail) {
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      if (!item || typeof item !== "object") return String(item)
+      const loc = Array.isArray(item.loc) ? item.loc.join(".") : item.loc
+      const msg = item.msg || item.message || item.type || JSON.stringify(item)
+      return loc ? `${loc}: ${msg}` : msg
+    }).join("; ")
+  }
+
+  if (detail && typeof detail === "object") {
+    return detail.message || detail.msg || JSON.stringify(detail)
+  }
+
+  return detail || ""
+}
+
 /**
  * 通用请求函数
  * @param {string} path - API 路径（不含基础 URL）
@@ -102,7 +119,7 @@ async function request(path, options = {}) {
       let detail = "", responseBody = ""
       try {
         const errBody = await resp.json()
-        detail = errBody.detail || errBody.message || ""
+        detail = _formatErrorDetail(errBody.detail || errBody.message || "")
         responseBody = JSON.stringify(errBody).slice(0, 500)
       } catch (e) { console.warn("解析错误响应失败", e) }
 
@@ -284,10 +301,11 @@ const api = {
     },
 
     /** 创建别名 */
-    async createAlias(payload) {
-      return request("/world/aliases", {
+    async createAlias(payload, novelId) {
+      const { novel_id, ...body } = payload || {}
+      return request(`/world/aliases${buildQueryString({ novel_id: novelId || novel_id })}`, {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       })
     },
 

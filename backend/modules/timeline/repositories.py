@@ -7,7 +7,7 @@ Timeline 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,9 +93,7 @@ class TimelineEventRepository:
         if event_type:
             conditions.append(TimelineEvent.event_type == event_type)
         if before_chapter_index is not None:
-            conditions.append(
-                TimelineEvent.chapter_index <= before_chapter_index
-            )
+            conditions.append(TimelineEvent.chapter_index <= before_chapter_index)
         if character_id:
             conditions.append(
                 TimelineEvent.related_character_ids.contains([character_id])
@@ -106,9 +104,7 @@ class TimelineEventRepository:
                     TimelineEvent.related_entity_ids.contains([entity_ids[0]])
                 )
             else:
-                conditions.append(
-                    TimelineEvent.related_entity_ids.overlap(entity_ids)
-                )
+                conditions.append(TimelineEvent.related_entity_ids.overlap(entity_ids))
 
         # 计数
         count_stmt = select(func.count(TimelineEvent.id)).where(*conditions)
@@ -225,7 +221,9 @@ class TimelineEventRepository:
         )
         result = await db.execute(stmt)
         items: Sequence[TimelineEvent] = result.scalars().all()
-        return [e for e in items if isinstance(e.geo_effects, list) and len(e.geo_effects) > 0]
+        return [
+            e for e in items if isinstance(e.geo_effects, list) and len(e.geo_effects) > 0
+        ]
 
     async def get_all_by_novel(
         self,

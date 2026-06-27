@@ -15,22 +15,29 @@ class ContextCompileRequest(BaseModel):
     novel_id: str = Field(..., description="项目 ID (UUID hex string)")
     task: str = Field(..., description="创作任务描述，如「生成章节卡」、「生成剧情线」")
     scope: str = Field(
-        ..., description="编译范围: project / world / world_character / arc / chapter / full",
+        ...,
+        description="编译范围: project / world / world_character / arc / chapter / full",
     )
     chapter_index: int | None = Field(
-        None, ge=0, description="当前章节索引（scope=chapter 时必填）",
+        None,
+        ge=0,
+        description="当前章节索引（scope=chapter 时必填）",
     )
     arc_id: str | None = Field(
-        None, description="当前篇章 ID（scope=arc 时必填）",
+        None,
+        description="当前篇章 ID（scope=arc 时必填）",
     )
     entity_ids: list[str] | None = Field(
-        None, description="指定关注的世界对象 ID 列表",
+        None,
+        description="指定关注的世界对象 ID 列表",
     )
     character_ids: list[str] | None = Field(
-        None, description="指定关注的人物 ID 列表",
+        None,
+        description="指定关注的人物 ID 列表",
     )
     location_ids: list[str] | None = Field(
-        None, description="指定关注的地点 ID 列表",
+        None,
+        description="指定关注的地点 ID 列表",
     )
     reveal_mode: str = Field(
         default="author_safe",
@@ -54,16 +61,20 @@ class ContextCompileResponse(BaseModel):
     scope: str = Field(..., description="编译范围")
     reveal_mode: str = Field(..., description="揭示模式")
     budgets: list[BudgetUsedItem] = Field(
-        default_factory=list, description="预算使用情况",
+        default_factory=list,
+        description="预算使用情况",
     )
     warnings: list[str] = Field(
-        default_factory=list, description="编译警告",
+        default_factory=list,
+        description="编译警告",
     )
     section_count: int = Field(
-        default=0, description="Markdown 非空段落数",
+        default=0,
+        description="Markdown 非空段落数",
     )
     sections_present: list[str] = Field(
-        default_factory=list, description="包含数据的段落名列表",
+        default_factory=list,
+        description="包含数据的段落名列表",
     )
 
 
@@ -73,22 +84,29 @@ class ContextRenderRequest(BaseModel):
     novel_id: str = Field(..., description="项目 ID (UUID hex string)")
     task: str = Field(..., description="创作任务描述")
     scope: str = Field(
-        ..., description="编译范围: project / world / world_character / arc / chapter / full",
+        ...,
+        description="编译范围: project / world / world_character / arc / chapter / full",
     )
     chapter_index: int | None = Field(
-        None, ge=0, description="当前章节索引",
+        None,
+        ge=0,
+        description="当前章节索引",
     )
     arc_id: str | None = Field(
-        None, description="当前篇章 ID",
+        None,
+        description="当前篇章 ID",
     )
     entity_ids: list[str] | None = Field(
-        None, description="指定关注的世界对象 ID 列表",
+        None,
+        description="指定关注的世界对象 ID 列表",
     )
     character_ids: list[str] | None = Field(
-        None, description="指定关注的人物 ID 列表",
+        None,
+        description="指定关注的人物 ID 列表",
     )
     location_ids: list[str] | None = Field(
-        None, description="指定关注的地点 ID 列表",
+        None,
+        description="指定关注的地点 ID 列表",
     )
     reveal_mode: str = Field(
         default="author_safe",
@@ -101,5 +119,6 @@ class ContextRenderResponse(BaseModel):
 
     markdown: str = Field(..., description="渲染后的 Markdown 文本")
     compile_info: ContextCompileResponse = Field(
-        ..., description="编译元信息",
+        ...,
+        description="编译元信息",
     )

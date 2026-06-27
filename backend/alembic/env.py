@@ -3,6 +3,7 @@ Alembic 迁移环境配置
 
 支持异步 PostgreSQL + pgvector。
 """
+# ruff: noqa: E402, I001
 
 from logging.config import fileConfig
 
@@ -34,6 +35,16 @@ import modules.writing.models  # noqa: F401
 import infrastructure.tasks.models  # noqa: F401
 
 target_metadata = Base.metadata
+
+
+def get_database_url() -> str:
+    """Return migration database URL from runtime settings."""
+    from core.config import get_settings
+
+    return get_settings().database_url
+
+
+config.set_main_option("sqlalchemy.url", get_database_url())
 
 
 def run_migrations_offline() -> None:

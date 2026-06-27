@@ -26,12 +26,12 @@ from modules.context.facade import (
     render_context_markdown,
 )
 from modules.context.markdown_renderer import render_context_markdown as render_md
-from modules.context.services import CompileOptions, ContextCompiler
-
+from modules.context.services import CompileOptions
 
 # ============================================================
 # 基本导入测试
 # ============================================================
+
 
 class TestImports:
     """验证模块可正常导入"""
@@ -39,9 +39,9 @@ class TestImports:
     def test_import_contracts(self) -> None:
         from modules.context.contracts import (
             AUTHOR_ONLY_WARNING,
-            CONTEXT_BUDGET,
             StructureContextBundle,
         )
+
         assert StructureContextBundle is not None
         assert AUTHOR_ONLY_WARNING
         assert isinstance(CONTEXT_BUDGET, dict)
@@ -54,6 +54,7 @@ class TestImports:
             ContextRenderRequest,
             ContextRenderResponse,
         )
+
         assert ContextCompileRequest is not None
         assert ContextCompileResponse is not None
         assert ContextRenderRequest is not None
@@ -65,6 +66,7 @@ class TestImports:
             compile_structure_context,
             render_context_markdown,
         )
+
         assert compile_structure_context is not None
         assert render_context_markdown is not None
 
@@ -72,6 +74,7 @@ class TestImports:
 # ============================================================
 # StructureContextBundle 基础测试
 # ============================================================
+
 
 class TestStructureContextBundle:
     """测试 StructureContextBundle 数据结构"""
@@ -122,6 +125,7 @@ class TestStructureContextBundle:
 # ============================================================
 # Context Compiler 核心测试
 # ============================================================
+
 
 class TestContextCompiler:
     """测试 Context Compiler 核心逻辑"""
@@ -282,6 +286,7 @@ class TestContextCompiler:
 # CompileOptions 测试
 # ============================================================
 
+
 class TestCompileOptions:
     """测试 CompileOptions 数据类"""
 
@@ -317,6 +322,7 @@ class TestCompileOptions:
 # ============================================================
 # Markdown 渲染测试
 # ============================================================
+
 
 class TestMarkdownRenderer:
     """测试 Markdown 渲染"""
@@ -482,6 +488,7 @@ class TestMarkdownRenderer:
 # Static Renderer Tests (no DB needed)
 # ============================================================
 
+
 class TestFacadeRenderContextMarkdown:
     """测试 facade.render_context_markdown（静态渲染，无需 DB）"""
 
@@ -504,7 +511,9 @@ class TestFacadeRenderContextMarkdown:
             scope="world_character",
             project={"title": "测试", "genre": "玄幻"},
             characters=[{"name": "张三", "role": "protagonist"}],
-            world_entities=[{"name": "灵界", "entity_type": "location", "summary": "修炼世界"}],
+            world_entities=[
+                {"name": "灵界", "entity_type": "location", "summary": "修炼世界"}
+            ],
         )
         md = render_context_markdown(bundle)
         assert "测试" in md
@@ -515,6 +524,7 @@ class TestFacadeRenderContextMarkdown:
 # ============================================================
 # API Schema 测试
 # ============================================================
+
 
 class TestApiSchemas:
     """测试 API 请求/响应 Schema 校验"""
@@ -570,6 +580,7 @@ class TestApiSchemas:
 # GeoReachabilityFilter 测试
 # ============================================================
 
+
 class TestGeoReachabilityFilter:
     """测试地缘可达性过滤器"""
 
@@ -598,14 +609,16 @@ class TestGeoReachabilityFilter:
             "entity-south": "loc-south",
         }
 
-        with mock.patch(
-            "modules.character.facade.get_character_location_id",
-            return_value="loc-north",
-        ), mock.patch(
-            "modules.geo.facade.calculate_route",
-            return_value=mock.Mock(is_reachable=False),
+        with (
+            mock.patch(
+                "modules.character.facade.get_character_location_id",
+                return_value="loc-north",
+            ),
+            mock.patch(
+                "modules.geo.facade.calculate_route",
+                return_value=mock.Mock(is_reachable=False),
+            ),
         ):
-
             result = await geo_filter.filter_chunks(
                 db=mock.AsyncMock(),
                 novel_id="test-novel",
@@ -637,12 +650,15 @@ class TestGeoReachabilityFilter:
         ]
         entity_to_location = {"entity-north": "loc-north"}
 
-        with mock.patch(
-            "modules.character.facade.get_character_location_id",
-            return_value="loc-north",
-        ), mock.patch(
-            "modules.geo.facade.calculate_route",
-            return_value=mock.Mock(is_reachable=True),
+        with (
+            mock.patch(
+                "modules.character.facade.get_character_location_id",
+                return_value="loc-north",
+            ),
+            mock.patch(
+                "modules.geo.facade.calculate_route",
+                return_value=mock.Mock(is_reachable=True),
+            ),
         ):
             result = await geo_filter.filter_chunks(
                 db=mock.AsyncMock(),
@@ -754,6 +770,7 @@ class TestGeoReachabilityFilter:
 # RagChunksLoader 地缘过滤集成测试
 # ============================================================
 
+
 class TestRagChunksLoaderGeoFilter:
     """测试 RagChunksLoader 与地缘过滤的集成"""
 
@@ -761,7 +778,7 @@ class TestRagChunksLoaderGeoFilter:
     async def test_rag_loader_applies_geo_filter_when_enabled(self) -> None:
         from unittest import mock
 
-        from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
+        from modules.context.contracts import StructureContextBundle
         from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
         from modules.context.services.types import CompileOptions
         from modules.rag.contracts import RagChunkContract, RagResultBundle
@@ -808,10 +825,13 @@ class TestRagChunksLoaderGeoFilter:
         ]
 
         with mock.patch(
-            "modules.rag.facade.retrieve", return_value=mock_result,
+            "modules.rag.facade.retrieve",
+            return_value=mock_result,
         ):
             loader._geo_filter = mock.AsyncMock()
-            loader._geo_filter.filter_chunks = mock.AsyncMock(return_value=filtered_chunks)
+            loader._geo_filter.filter_chunks = mock.AsyncMock(
+                return_value=filtered_chunks
+            )
 
             await loader.load(mock.AsyncMock(), options, bundle)
 
@@ -822,7 +842,7 @@ class TestRagChunksLoaderGeoFilter:
     async def test_rag_loader_skips_geo_filter_when_disabled(self) -> None:
         from unittest import mock
 
-        from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
+        from modules.context.contracts import StructureContextBundle
         from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
         from modules.context.services.types import CompileOptions
         from modules.rag.contracts import RagChunkContract, RagResultBundle
@@ -859,7 +879,8 @@ class TestRagChunksLoaderGeoFilter:
         )
 
         with mock.patch(
-            "modules.rag.facade.retrieve", return_value=mock_result,
+            "modules.rag.facade.retrieve",
+            return_value=mock_result,
         ):
             await loader.load(mock.AsyncMock(), options, bundle)
 

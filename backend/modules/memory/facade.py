@@ -49,7 +49,8 @@ async def get_recent_story_memory(
     # author_safe 模式下过滤 visibility 为 author_only 的记录
     if reveal_mode == "author_safe":
         records = [
-            r for r in records
+            r
+            for r in records
             if getattr(r, "visibility", "reader_known") != "author_only"
         ]
     return records

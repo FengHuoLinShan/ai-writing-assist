@@ -13,17 +13,16 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Integer, String, Text, UniqueConstraint
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
 
-
 # ============================================================
 # PlotThread — 剧情线
 # ============================================================
+
 
 class PlotThread(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """剧情线定义
@@ -112,6 +111,7 @@ class PlotThread(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # ============================================================
 # OutlineArc — 篇章纲
 # ============================================================
+
 
 class OutlineArc(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """篇章纲（8-15 章的小剧情闭环）
@@ -209,6 +209,7 @@ class OutlineArc(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # ============================================================
 # ChapterCard — 章节卡
 # ============================================================
+
 
 class ChapterCard(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """章节卡
@@ -335,16 +336,13 @@ class ChapterCard(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<ChapterCard id={self.id} "
-            f"ch={self.chapter_index} "
-            f"title={self.title!r}>"
-        )
+        return f"<ChapterCard id={self.id} ch={self.chapter_index} title={self.title!r}>"
 
 
 # ============================================================
 # ForeshadowingPlan — 伏笔计划
 # ============================================================
+
 
 class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """伏笔计划
@@ -413,6 +411,7 @@ class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin
 # RevealPlan — 信息揭示计划
 # ============================================================
 
+
 class RevealPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """信息揭示计划
 
@@ -451,7 +450,4 @@ class RevealPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<RevealPlan id={self.id} "
-            f"target={self.target_type}:{self.target_id}>"
-        )
+        return f"<RevealPlan id={self.id} target={self.target_type}:{self.target_id}>"

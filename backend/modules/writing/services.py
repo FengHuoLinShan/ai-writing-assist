@@ -7,8 +7,6 @@ Writing 业务逻辑层
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -179,7 +177,6 @@ class WritingDraftService:
 
 
 class WritingAnalysisService:
-
     async def analyze_chapter(
         self,
         db: AsyncSession,
@@ -190,8 +187,8 @@ class WritingAnalysisService:
         from core.config import get_settings
         from infrastructure.llm.client import LLMClient
         from infrastructure.llm.schemas import LLMCallRequest
-        from modules.memory.schemas import ChapterStateExtraction
         from modules.memory.facade import create_memory_update_proposals
+        from modules.memory.schemas import ChapterStateExtraction
         from shared.constants import DEFAULT_LLM_TIMEOUT
 
         settings = get_settings()
@@ -200,12 +197,16 @@ class WritingAnalysisService:
             "你是一个小说地缘/势力资产分析助手。"
             "从章节正文中识别实质性地缘变化或角色移动。"
             "若发现主要角色更换了所处场景/城市，必须提取入 character_shifts；"
-            "若发现某军队、宗门、势力占据、撤出或潜伏于某地点，必须提取入 faction_shifts。"
+            "若发现某军队、宗门、势力占据、撤出或潜伏于某地点，"
+            "必须提取入 faction_shifts。"
             "宁可不抽，绝不盲目提取路人或一次性无名地标。"
             "输出 JSON 对象，包含：\n"
             "- summary: 情节主线脉络极简总结\n"
-            "- character_shifts: 角色位移数组，每项含 character_name, destination_location_name, movement_type\n"
-            "- faction_shifts: 势力割据变更数组，每项含 faction_name, target_location_name, new_relation(controls/stationed_at/hidden_presence), description\n"
+            "- character_shifts: 角色位移数组，每项含 character_name, "
+            "destination_location_name, movement_type\n"
+            "- faction_shifts: 势力割据变更数组，每项含 faction_name, "
+            "target_location_name, "
+            "new_relation(controls/stationed_at/hidden_presence), description\n"
         )
 
         request = LLMCallRequest(
@@ -221,11 +222,12 @@ class WritingAnalysisService:
         llm = LLMClient()
         try:
             import asyncio
+
             parsed = await asyncio.wait_for(
                 llm.generate_structured(request, ChapterStateExtraction),
                 timeout=DEFAULT_LLM_TIMEOUT,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False, "timeout"
         except Exception:
             try:
@@ -254,4 +256,3 @@ class WritingAnalysisService:
         )
 
         return len(proposals) > 0, "success"
-

@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.services import PlotGenerationService
-
 from tests.conftest import test_project_id  # noqa: F401
 
 pytestmark = pytest.mark.asyncio
@@ -43,12 +42,15 @@ class TestPlotGenerationService:
     async def test_generate_empty_when_no_draft(
         self,
         db_session: AsyncSession,
-        test_project_id: str,
+        test_project_id: str,  # noqa: F811
         service: PlotGenerationService,
     ):
         """RED: 无章节正文时返回空结果"""
         result = await service.generate(
-            db_session, test_project_id, start_chapter=1, end_chapter=5,
+            db_session,
+            test_project_id,
+            start_chapter=1,
+            end_chapter=5,
         )
 
         assert result["total_threads"] == 0
@@ -59,7 +61,7 @@ class TestPlotGenerationService:
     async def test_generate_includes_existing_context(
         self,
         db_session: AsyncSession,
-        test_project_id: str,
+        test_project_id: str,  # noqa: F811
         service: PlotGenerationService,
     ):
         """RED: 已有剧情线和篇章纲应包含在 LLM prompt 中"""
@@ -68,8 +70,14 @@ class TestPlotGenerationService:
 
         thread_svc = service._thread_service
         await thread_svc.create(
-            db_session, test_project_id,
-            PlotThreadCreate(name="已有主线", thread_type="main", summary="已有摘要", visible_goal="目标"),
+            db_session,
+            test_project_id,
+            PlotThreadCreate(
+                name="已有主线",
+                thread_type="main",
+                summary="已有摘要",
+                visible_goal="目标",
+            ),
         )
 
         # 2. 创建草稿
@@ -90,7 +98,10 @@ class TestPlotGenerationService:
             mock_cls.return_value = mock_client
 
             await service.generate(
-                db_session, test_project_id, start_chapter=1, end_chapter=1,
+                db_session,
+                test_project_id,
+                start_chapter=1,
+                end_chapter=1,
             )
 
         # 4. 验证 prompt 包含已有剧情线信息
@@ -101,26 +112,34 @@ class TestPlotGenerationService:
     async def test_generate_updates_existing(
         self,
         db_session: AsyncSession,
-        test_project_id: str,
+        test_project_id: str,  # noqa: F811
         service: PlotGenerationService,
     ):
         """RED: existing_id 非空时更新已有记录而非创建"""
-        from modules.outline.schemas import PlotThreadCreate, OutlineArcCreate
+        from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
 
         # 1. 创建已有 thread 和 arc
         thread_svc = service._thread_service
         arc_svc = service._arc_service
         existing_thread = await thread_svc.create(
-            db_session, test_project_id,
-            PlotThreadCreate(name="旧主线", thread_type="main", summary="旧摘要", visible_goal="旧目标"),
+            db_session,
+            test_project_id,
+            PlotThreadCreate(
+                name="旧主线", thread_type="main", summary="旧摘要", visible_goal="旧目标"
+            ),
         )
         existing_arc = await arc_svc.create(
-            db_session, test_project_id,
+            db_session,
+            test_project_id,
             OutlineArcCreate(
-                title="旧篇章", arc_index=1,
-                start_chapter=1, end_chapter=3,
-                arc_goal="旧目标", core_conflict="旧冲突",
-                climax="旧高潮", result="旧结果",
+                title="旧篇章",
+                arc_index=1,
+                start_chapter=1,
+                end_chapter=3,
+                arc_goal="旧目标",
+                core_conflict="旧冲突",
+                climax="旧高潮",
+                result="旧结果",
             ),
         )
 
@@ -128,25 +147,44 @@ class TestPlotGenerationService:
         await _create_draft(db_session, test_project_id, 1)
 
         # 3. Mock LLM 返回带 existing_id 的结果
-        fake = type("PlotOutput", (), {
-            "plot_threads": [
-                type("T", (), {
-                    "name": "旧主线", "thread_type": "main",
-                    "summary": "新摘要", "visible_goal": "新目标",
-                    "start_chapter": 1, "planned_payoff_chapter": 10,
-                    "existing_id": str(existing_thread.id),
-                })(),
-            ],
-            "outline_arcs": [
-                type("A", (), {
-                    "title": "旧篇章", "arc_index": 1,
-                    "start_chapter": 1, "end_chapter": 5,
-                    "arc_goal": "新目标", "core_conflict": "新冲突",
-                    "climax": "新高潮", "result": "新结果",
-                    "existing_id": str(existing_arc.id),
-                })(),
-            ],
-        })()
+        fake = type(
+            "PlotOutput",
+            (),
+            {
+                "plot_threads": [
+                    type(
+                        "T",
+                        (),
+                        {
+                            "name": "旧主线",
+                            "thread_type": "main",
+                            "summary": "新摘要",
+                            "visible_goal": "新目标",
+                            "start_chapter": 1,
+                            "planned_payoff_chapter": 10,
+                            "existing_id": str(existing_thread.id),
+                        },
+                    )(),
+                ],
+                "outline_arcs": [
+                    type(
+                        "A",
+                        (),
+                        {
+                            "title": "旧篇章",
+                            "arc_index": 1,
+                            "start_chapter": 1,
+                            "end_chapter": 5,
+                            "arc_goal": "新目标",
+                            "core_conflict": "新冲突",
+                            "climax": "新高潮",
+                            "result": "新结果",
+                            "existing_id": str(existing_arc.id),
+                        },
+                    )(),
+                ],
+            },
+        )()
 
         with patch("infrastructure.llm.client.LLMClient") as mock_cls:
             mock_client = AsyncMock()
@@ -154,7 +192,10 @@ class TestPlotGenerationService:
             mock_cls.return_value = mock_client
 
             result = await service.generate(
-                db_session, test_project_id, start_chapter=1, end_chapter=1,
+                db_session,
+                test_project_id,
+                start_chapter=1,
+                end_chapter=1,
             )
 
         # 4. 验证：更新不产生新记录
@@ -163,19 +204,32 @@ class TestPlotGenerationService:
 
         # 5. 验证 DB 中数据已更新
         from sqlalchemy import select
-        from modules.outline.models import PlotThread, OutlineArc
+
+        from modules.outline.models import OutlineArc, PlotThread
 
         nid_uuid = uuid.UUID(hex=test_project_id)
-        threads = (await db_session.execute(
-            select(PlotThread).where(PlotThread.novel_id == nid_uuid)
-        )).scalars().all()
+        threads = (
+            (
+                await db_session.execute(
+                    select(PlotThread).where(PlotThread.novel_id == nid_uuid)
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(threads) == 1, "不应新增 thread"
         assert threads[0].summary == "新摘要", "摘要应已更新"
         assert threads[0].visible_goal == "新目标", "目标应已更新"
 
-        arcs = (await db_session.execute(
-            select(OutlineArc).where(OutlineArc.novel_id == nid_uuid)
-        )).scalars().all()
+        arcs = (
+            (
+                await db_session.execute(
+                    select(OutlineArc).where(OutlineArc.novel_id == nid_uuid)
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(arcs) == 1, "不应新增 arc"
         assert arcs[0].arc_goal == "新目标", "目标应已更新"
         assert arcs[0].end_chapter == 5, "end_chapter 应已更新"
@@ -183,24 +237,35 @@ class TestPlotGenerationService:
     async def test_facade_delegates_to_service(
         self,
         db_session: AsyncSession,
-        test_project_id: str,
+        test_project_id: str,  # noqa: F811
     ):
         """RED: facade.generate_plot_structure 应正确委托给服务"""
         from modules.outline.facade import generate_plot_structure
 
         await _create_draft(db_session, test_project_id, 1)
 
-        fake = type("PlotOutput", (), {
-            "plot_threads": [
-                type("T", (), {
-                    "name": "主线", "thread_type": "main",
-                    "summary": "冒险", "visible_goal": "真相",
-                    "start_chapter": 1, "planned_payoff_chapter": None,
-                    "existing_id": None,
-                })(),
-            ],
-            "outline_arcs": [],
-        })()
+        fake = type(
+            "PlotOutput",
+            (),
+            {
+                "plot_threads": [
+                    type(
+                        "T",
+                        (),
+                        {
+                            "name": "主线",
+                            "thread_type": "main",
+                            "summary": "冒险",
+                            "visible_goal": "真相",
+                            "start_chapter": 1,
+                            "planned_payoff_chapter": None,
+                            "existing_id": None,
+                        },
+                    )(),
+                ],
+                "outline_arcs": [],
+            },
+        )()
 
         with patch("infrastructure.llm.client.LLMClient") as mock_cls:
             mock_client = AsyncMock()
@@ -208,7 +273,10 @@ class TestPlotGenerationService:
             mock_cls.return_value = mock_client
 
             result = await generate_plot_structure(
-                db_session, test_project_id, 1, 1,
+                db_session,
+                test_project_id,
+                1,
+                1,
             )
 
         assert result["total_threads"] == 1
@@ -217,7 +285,7 @@ class TestPlotGenerationService:
     async def test_generate_creates_threads_and_arcs(
         self,
         db_session: AsyncSession,
-        test_project_id: str,
+        test_project_id: str,  # noqa: F811
         service: PlotGenerationService,
     ):
         """RED: 调用 LLM 后应创建剧情线和篇章纲"""
@@ -274,7 +342,10 @@ class TestPlotGenerationService:
 
             # 3. 执行
             result = await service.generate(
-                db_session, test_project_id, start_chapter=1, end_chapter=2,
+                db_session,
+                test_project_id,
+                start_chapter=1,
+                end_chapter=2,
             )
 
         # 4. 验证
@@ -287,7 +358,8 @@ class TestPlotGenerationService:
 
         # 5. 验证 DB 中确实有数据
         from sqlalchemy import select
-        from modules.outline.models import PlotThread, OutlineArc
+
+        from modules.outline.models import OutlineArc, PlotThread
 
         nid = uuid.UUID(hex=test_project_id)
         thread_result = await db_session.execute(

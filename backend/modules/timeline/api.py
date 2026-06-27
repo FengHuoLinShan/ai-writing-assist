@@ -45,12 +45,8 @@ async def list_timeline_events(
     ),
     status: str | None = Query(None, description="状态过滤"),
     event_type: str | None = Query(None, description="事件类型过滤"),
-    before_chapter: int | None = Query(
-        None, description="只返回该章节之前的事件"
-    ),
-    character_id: str | None = Query(
-        None, description="按关联角色 ID 过滤"
-    ),
+    before_chapter: int | None = Query(None, description="只返回该章节之前的事件"),
+    character_id: str | None = Query(None, description="按关联角色 ID 过滤"),
 ) -> TimelineEventListResponse:
     """获取时间线事件列表"""
     items, total = await _service.list_events(

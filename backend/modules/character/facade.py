@@ -78,7 +78,9 @@ async def get_character_id_by_world_entity(
         人物 ID 字符串，未找到返回 None
     """
     return await _service.get_character_id_by_world_entity(
-        db, novel_id, world_entity_id,
+        db,
+        novel_id,
+        world_entity_id,
     )
 
 
@@ -103,7 +105,10 @@ async def get_characters_context(
         CharacterContextBundle — 包含人物列表和元信息的上下文包
     """
     return await _service.get_characters_context(
-        db, novel_id, character_ids, reveal_mode,
+        db,
+        novel_id,
+        character_ids,
+        reveal_mode,
     )
 
 
@@ -128,7 +133,10 @@ async def get_character_knowledge_context(
         list[CharacterKnowledgeContext] — 角色对目标的知识记录列表
     """
     return await _service.get_character_knowledge_context(
-        db, novel_id, character_id, target_ids,
+        db,
+        novel_id,
+        character_id,
+        target_ids,
     )
 
 
@@ -156,7 +164,10 @@ async def filter_context_by_character_knowledge(
         list[dict] — 过滤后的上下文项列表
     """
     filtered, _, _ = await _service.filter_context_by_character_knowledge(
-        db, novel_id, character_id, context_items,
+        db,
+        novel_id,
+        character_id,
+        context_items,
     )
     return filtered
 
@@ -167,8 +178,10 @@ async def find_character_id_by_name(
     name: str,
 ) -> str | None:
     from shared.utils import parse_uuid
+
     nid = parse_uuid(novel_id, "novel_id")
     from modules.character.repositories import CharacterRepository
+
     repo = CharacterRepository()
     return await repo.find_character_by_name(db, nid, name)
 
@@ -182,10 +195,14 @@ async def update_character_location(
     chapter_index: int,
 ) -> None:
     from shared.utils import parse_uuid
+
     cid = parse_uuid(character_id, "character_id")
     from modules.character.repositories import CharacterRepository
+
     repo = CharacterRepository()
-    await repo.update_character_meta_location(db, cid, location_id, text_state, chapter_index)
+    await repo.update_character_meta_location(
+        db, cid, location_id, text_state, chapter_index
+    )
 
 
 async def get_characters_at_location(
@@ -204,8 +221,10 @@ async def get_characters_at_location(
         list[dict] — 人物列表，每项含 id, name, current_state
     """
     from shared.utils import parse_uuid
+
     nid = parse_uuid(novel_id, "novel_id")
     from modules.character.repositories import CharacterRepository
+
     repo = CharacterRepository()
     return await repo.find_characters_by_location(db, nid, location_id)
 
@@ -226,7 +245,9 @@ async def get_character_location_id(
         地点 ID 字符串，未设置位置时返回 None
     """
     from shared.utils import parse_uuid
+
     cid = parse_uuid(character_id, "character_id")
     from modules.character.repositories import CharacterRepository
+
     repo = CharacterRepository()
     return await repo.get_character_location_id(db, cid)

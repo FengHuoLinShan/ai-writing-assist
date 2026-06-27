@@ -17,10 +17,6 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Class-level pytestmark for all async test classes
-pytestmark = pytest.mark.asyncio
-
-from modules.geo.models import GeoEdge, GeoEra, GeoLocation
 from modules.geo.repositories import (
     GeoEdgeRepository,
     GeoEraRepository,
@@ -33,9 +29,14 @@ from modules.geo.schemas import (
     GeoEraUpdate,
     GeoLocationCreate,
     GeoLocationUpdate,
-    TravelConstraintResult,
 )
-from modules.geo.services import GeoEdgeService, GeoEraService, GeoLocationService, GeoQueryService, GeoTopologyService
+from modules.geo.services import (
+    GeoEdgeService,
+    GeoEraService,
+    GeoLocationService,
+    GeoQueryService,
+    GeoTopologyService,
+)
 
 # ============================================================
 # 测试用常量
@@ -51,6 +52,7 @@ GEO_MUTATION_NOVEL_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 # ============================================================
 # GeoLocation 测试
 # ============================================================
+
 
 class TestGeoLocationRepository:
     """地点数据访问层测试"""
@@ -123,6 +125,7 @@ class TestGeoLocationRepository:
     async def test_get_nonexistent_location(self, db_session: AsyncSession) -> None:
         repo = GeoLocationRepository()
         import uuid
+
         result = await repo.get(db_session, uuid.uuid4())
         assert result is None
 
@@ -215,14 +218,18 @@ class TestGeoLocationService:
                     location_level="building",
                 ),
             )
-        items, total = await service.list_locations(db_session, NOVEL_ID, skip=0, limit=10)
+        items, total = await service.list_locations(
+            db_session, NOVEL_ID, skip=0, limit=10
+        )
         assert total == 3
         assert len(items) == 3
 
     async def test_delete_nonexistent(self, db_session: AsyncSession) -> None:
         service = GeoLocationService()
         import uuid
+
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc:
             await service.delete_location(db_session, str(uuid.uuid4()))
         assert exc.value.status_code == 404
@@ -232,10 +239,13 @@ class TestGeoLocationService:
 # GeoEdge 测试
 # ============================================================
 
+
 class TestGeoEdgeRepository:
     """关系边数据访问层测试"""
 
-    async def _create_locations(self, repo: GeoLocationRepository, db: AsyncSession) -> tuple:
+    async def _create_locations(
+        self, repo: GeoLocationRepository, db: AsyncSession
+    ) -> tuple:
         loc_a = await repo.create(
             db,
             GeoLocationCreate(
@@ -347,6 +357,7 @@ class TestGeoEdgeRepository:
 # GeoEra 测试
 # ============================================================
 
+
 class TestGeoEraRepository:
     """历史时期数据访问层测试"""
 
@@ -408,6 +419,7 @@ class TestGeoEraRepository:
 # ============================================================
 # 复合查询测试
 # ============================================================
+
 
 class TestGeoQueryService:
     """地理复合查询测试"""
@@ -548,9 +560,7 @@ class TestGeoQueryService:
         query = GeoQueryService()
         data = await self._setup_test_data(db_session)
 
-        # 不存在的 ID 之间 — 应该报 404（因为 ID 解析会失败）
-        # 改用存在的 ID 但没有边
-        import uuid
+        # 使用合法但无通行边的目标 ID，验证无路径语义。
         fake_id = str(uuid.uuid4())
         result = await query.get_travel_constraints(
             db_session,
@@ -558,8 +568,9 @@ class TestGeoQueryService:
             data["city"].id,
             fake_id,
         )
-        # 由于 fake_id 解析失败会抛 422，我们用真实 ID 测试无路径情况
-        # 实际上到这里会报错，让我们用正确的方法测试
+        assert result.has_direct_route is False
+        assert result.blocked is True
+        assert result.blocked_reason == "两地之间没有直接通行关系"
 
     async def test_get_geo_history_context(self, db_session: AsyncSession) -> None:
         query = GeoQueryService()
@@ -581,15 +592,17 @@ class TestGeoQueryService:
 
 import uuid as uuid_utils  # noqa: E402
 
+
 # 确保 facade 导入可用
 async def test_facade_imports() -> None:
     """验证 facade 接口可正常导入"""
     from modules.geo.facade import (
+        get_geo_history_context,
         get_location_context,
         get_location_tree,
         get_travel_constraints,
-        get_geo_history_context,
     )
+
     assert callable(get_location_context)
     assert callable(get_location_tree)
     assert callable(get_travel_constraints)
@@ -599,13 +612,14 @@ async def test_facade_imports() -> None:
 async def test_contracts_imports() -> None:
     """验证 contracts 可正常导入"""
     from modules.geo.contracts import (
-        GeoLocationContract,
+        GeoContextBundle,
         GeoEdgeContract,
         GeoEraContract,
-        GeoContextBundle,
-        TravelConstraintContract,
+        GeoLocationContract,
         RouteCalculationResult,
+        TravelConstraintContract,
     )
+
     assert GeoLocationContract is not None
     assert GeoEdgeContract is not None
     assert GeoEraContract is not None
@@ -617,6 +631,7 @@ async def test_contracts_imports() -> None:
 # ============================================================
 # GeoTopologyService 测试
 # ============================================================
+
 
 class TestGeoTopologyService:
     """地理拓扑服务测试"""
@@ -669,7 +684,7 @@ class TestGeoTopologyService:
         }
         result = GeoTopologyService._dijkstra(graph, "A", "D")
         assert result.is_reachable is False
-        assert result.total_hours == float('inf')
+        assert result.total_hours == float("inf")
         assert result.path == []
         assert result.reason is not None
 
@@ -679,11 +694,12 @@ class TestGeoTopologyService:
         }
         result = GeoTopologyService._dijkstra(graph, "Z", "B")
         assert result.is_reachable is False
-        assert result.total_hours == float('inf')
+        assert result.total_hours == float("inf")
         assert result.reason is not None
 
     def test_dijkstra_performance(self) -> None:
         import time
+
         graph: dict[str, list[tuple[str, float]]] = {}
         for i in range(1000):
             src = f"loc_{i}"
@@ -742,27 +758,45 @@ class TestCalculateRoute:
     async def test_calculate_route_reachable(self, db_session: AsyncSession) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "30000000-0000-0000-0000-000000000001", "城市A")
-        loc_b = await self._create_location(db_session, "30000000-0000-0000-0000-000000000002", "城市B")
-        loc_c = await self._create_location(db_session, "30000000-0000-0000-0000-000000000003", "城市C")
+        loc_a = await self._create_location(
+            db_session, "30000000-0000-0000-0000-000000000001", "城市A"
+        )
+        loc_b = await self._create_location(
+            db_session, "30000000-0000-0000-0000-000000000002", "城市B"
+        )
+        loc_c = await self._create_location(
+            db_session, "30000000-0000-0000-0000-000000000003", "城市C"
+        )
 
         await self._create_edge(db_session, loc_a, loc_b, "1日")
         await self._create_edge(db_session, loc_b, loc_c, "2日")
 
         result = await calculate_route(
-            db_session, NOVEL_ID, loc_a, loc_c, chapter_index=1,
+            db_session,
+            NOVEL_ID,
+            loc_a,
+            loc_c,
+            chapter_index=1,
         )
         assert result.is_reachable is True
         assert result.total_hours == 72.0
         assert result.path == [loc_a, loc_b, loc_c]
 
-    async def test_calculate_route_same_source_target(self, db_session: AsyncSession) -> None:
+    async def test_calculate_route_same_source_target(
+        self, db_session: AsyncSession
+    ) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "30000000-0000-0000-0000-000000000004", "城市D")
+        loc_a = await self._create_location(
+            db_session, "30000000-0000-0000-0000-000000000004", "城市D"
+        )
 
         result = await calculate_route(
-            db_session, NOVEL_ID, loc_a, loc_a, chapter_index=1,
+            db_session,
+            NOVEL_ID,
+            loc_a,
+            loc_a,
+            chapter_index=1,
         )
         assert result.is_reachable is True
         assert result.total_hours == 0.0
@@ -771,22 +805,30 @@ class TestCalculateRoute:
     async def test_calculate_route_unreachable(self, db_session: AsyncSession) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "30000000-0000-0000-0000-000000000005", "城市E")
-        loc_b = await self._create_location(db_session, "30000000-0000-0000-0000-000000000006", "城市F")
+        loc_a = await self._create_location(
+            db_session, "30000000-0000-0000-0000-000000000005", "城市E"
+        )
+        loc_b = await self._create_location(
+            db_session, "30000000-0000-0000-0000-000000000006", "城市F"
+        )
 
         result = await calculate_route(
-            db_session, NOVEL_ID, loc_a, loc_b, chapter_index=1,
+            db_session,
+            NOVEL_ID,
+            loc_a,
+            loc_b,
+            chapter_index=1,
         )
         assert result.is_reachable is False
 
 
 async def test_facade_calculate_route_import() -> None:
     from modules.geo.facade import calculate_route
+
     assert callable(calculate_route)
 
 
 class TestCompileActiveGraph:
-
     async def _create_location(
         self,
         db: AsyncSession,
@@ -832,9 +874,11 @@ class TestCompileActiveGraph:
         order_index: int,
         geo_effects: list[dict],
     ) -> None:
+        import uuid
+
         from modules.timeline.repositories import TimelineEventRepository
         from modules.timeline.schemas import TimelineEventCreate
-        import uuid
+
         repo = TimelineEventRepository()
         nid = uuid.UUID(novel_id)
         await repo.create(
@@ -855,8 +899,12 @@ class TestCompileActiveGraph:
     async def test_block_mutation_removes_edge(self, db_session: AsyncSession) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000001", "城市A")
-        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000002", "城市B")
+        loc_a = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000001", "城市A"
+        )
+        loc_b = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000002", "城市B"
+        )
 
         await self._create_edge(db_session, loc_a, loc_b, "1日")
 
@@ -879,15 +927,23 @@ class TestCompileActiveGraph:
         )
 
         result = await calculate_route(
-            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            loc_a,
+            loc_b,
+            chapter_index=1,
         )
         assert result.is_reachable is False
 
     async def test_connect_mutation_adds_edge(self, db_session: AsyncSession) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000003", "城市C")
-        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000004", "城市D")
+        loc_a = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000003", "城市C"
+        )
+        loc_b = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000004", "城市D"
+        )
 
         await self._create_timeline_event_with_geo_effects(
             db_session,
@@ -909,16 +965,26 @@ class TestCompileActiveGraph:
         )
 
         result = await calculate_route(
-            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            loc_a,
+            loc_b,
+            chapter_index=1,
         )
         assert result.is_reachable is True
         assert result.total_hours == 48.0
 
-    async def test_reveal_hidden_mutation_adds_edge(self, db_session: AsyncSession) -> None:
+    async def test_reveal_hidden_mutation_adds_edge(
+        self, db_session: AsyncSession
+    ) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000005", "城市E")
-        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000006", "城市F")
+        loc_a = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000005", "城市E"
+        )
+        loc_b = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000006", "城市F"
+        )
 
         await self._create_timeline_event_with_geo_effects(
             db_session,
@@ -940,7 +1006,11 @@ class TestCompileActiveGraph:
         )
 
         result = await calculate_route(
-            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=2,
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            loc_a,
+            loc_b,
+            chapter_index=2,
         )
         assert result.is_reachable is True
         assert result.total_hours == 12.0
@@ -948,8 +1018,12 @@ class TestCompileActiveGraph:
     async def test_blocked_path_edge_excluded(self, db_session: AsyncSession) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000007", "城市G")
-        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000008", "城市H")
+        loc_a = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000007", "城市G"
+        )
+        loc_b = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000008", "城市H"
+        )
 
         service = GeoEdgeService()
         await service.create_edge(
@@ -964,15 +1038,25 @@ class TestCompileActiveGraph:
         )
 
         result = await calculate_route(
-            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            loc_a,
+            loc_b,
+            chapter_index=1,
         )
         assert result.is_reachable is False
 
-    async def test_block_mutation_removes_bidirectional(self, db_session: AsyncSession) -> None:
+    async def test_block_mutation_removes_bidirectional(
+        self, db_session: AsyncSession
+    ) -> None:
         from modules.geo.facade import calculate_route
 
-        loc_a = await self._create_location(db_session, "40000000-0000-0000-0000-000000000009", "城市I")
-        loc_b = await self._create_location(db_session, "40000000-0000-0000-0000-000000000010", "城市J")
+        loc_a = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000009", "城市I"
+        )
+        loc_b = await self._create_location(
+            db_session, "40000000-0000-0000-0000-000000000010", "城市J"
+        )
 
         await self._create_edge(db_session, loc_a, loc_b, "1日")
         await self._create_edge(db_session, loc_b, loc_a, "1日")
@@ -996,24 +1080,32 @@ class TestCompileActiveGraph:
         )
 
         result_ab = await calculate_route(
-            db_session, GEO_MUTATION_NOVEL_ID, loc_a, loc_b, chapter_index=1,
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            loc_a,
+            loc_b,
+            chapter_index=1,
         )
         assert result_ab.is_reachable is False
 
         result_ba = await calculate_route(
-            db_session, GEO_MUTATION_NOVEL_ID, loc_b, loc_a, chapter_index=1,
+            db_session,
+            GEO_MUTATION_NOVEL_ID,
+            loc_b,
+            loc_a,
+            chapter_index=1,
         )
         assert result_ba.is_reachable is False
 
 
 async def test_calculate_routing_api_route_registered() -> None:
     from modules.geo.api import router
+
     routes = [r.path for r in router.routes]
     assert "/api/geo/calculate-routing" in routes
 
 
 class TestLocationFactionsAndCharacters:
-
     _NOVEL_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     async def _create_world_entity(
@@ -1087,10 +1179,16 @@ class TestLocationFactionsAndCharacters:
         location_id = str(uuid.uuid4())
 
         await self._create_relationship(
-            db_session, faction_id, location_id, "controls", "铁血军团控制此城",
+            db_session,
+            faction_id,
+            location_id,
+            "controls",
+            "铁血军团控制此城",
         )
 
-        factions = await service.get_location_factions(db_session, self._NOVEL_ID, location_id)
+        factions = await service.get_location_factions(
+            db_session, self._NOVEL_ID, location_id
+        )
         assert len(factions) == 1
         assert factions[0]["name"] == "铁血军团"
         assert factions[0]["relation_type"] == "controls"
@@ -1102,7 +1200,9 @@ class TestLocationFactionsAndCharacters:
 
         location_id = str(uuid.uuid4())
 
-        factions = await service.get_location_factions(db_session, self._NOVEL_ID, location_id)
+        factions = await service.get_location_factions(
+            db_session, self._NOVEL_ID, location_id
+        )
         assert factions == []
 
     async def test_get_location_characters(self, db_session: AsyncSession) -> None:
@@ -1123,7 +1223,9 @@ class TestLocationFactionsAndCharacters:
             current_state="休息中",
         )
 
-        characters = await service.get_location_characters(db_session, self._NOVEL_ID, location_id)
+        characters = await service.get_location_characters(
+            db_session, self._NOVEL_ID, location_id
+        )
         assert len(characters) == 1
         assert characters[0]["name"] == "林月"
         assert characters[0]["current_state"] == "巡逻中"
@@ -1133,5 +1235,7 @@ class TestLocationFactionsAndCharacters:
 
         location_id = str(uuid.uuid4())
 
-        characters = await service.get_location_characters(db_session, self._NOVEL_ID, location_id)
+        characters = await service.get_location_characters(
+            db_session, self._NOVEL_ID, location_id
+        )
         assert characters == []

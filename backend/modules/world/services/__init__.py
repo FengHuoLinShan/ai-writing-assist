@@ -4,7 +4,10 @@ from modules.world.services.alias_service import AliasService
 from modules.world.services.candidate_service import EntityCandidateService
 from modules.world.services.dedup_service import EntityDedupService
 from modules.world.services.entity_service import WorldEntityService
-from modules.world.services.extraction_service import EntityExtractionService, ExtractionResult
+from modules.world.services.extraction_service import (
+    EntityExtractionService,
+    ExtractionResult,
+)
 from modules.world.services.helpers import (
     merge_text_field,
     normalize_name,

@@ -12,10 +12,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 通用的 UUID→str 转换函数
 # ============================================================
+
 
 def _coerce_uuid_to_str(v: object) -> str:
     """将 UUID 或字符串转为字符串"""
@@ -29,6 +29,7 @@ def _coerce_uuid_to_str(v: object) -> str:
 # ============================================================
 # GeoLocation Schema
 # ============================================================
+
 
 class GeoLocationCreate(BaseModel):
     """创建地理地点请求"""
@@ -138,7 +139,10 @@ class GeoLocationResponse(BaseModel):
     updated_at: datetime | None = None
 
     @field_validator(
-        "id", "novel_id", "world_entity_id", "parent_location_id",
+        "id",
+        "novel_id",
+        "world_entity_id",
+        "parent_location_id",
         mode="before",
     )
     @classmethod
@@ -159,6 +163,7 @@ class GeoLocationListResponse(BaseModel):
 # ============================================================
 # GeoEdge Schema
 # ============================================================
+
 
 class GeoEdgeCreate(BaseModel):
     """创建地理关系边请求"""
@@ -239,7 +244,10 @@ class GeoEdgeResponse(BaseModel):
     updated_at: datetime | None = None
 
     @field_validator(
-        "id", "novel_id", "source_location_id", "target_location_id",
+        "id",
+        "novel_id",
+        "source_location_id",
+        "target_location_id",
         mode="before",
     )
     @classmethod
@@ -259,6 +267,7 @@ class GeoEdgeListResponse(BaseModel):
 # ============================================================
 # GeoEra Schema
 # ============================================================
+
 
 class GeoEraCreate(BaseModel):
     """创建历史时期请求"""
@@ -327,6 +336,7 @@ class GeoEraListResponse(BaseModel):
 # Facade 复合输出 Schema
 # ============================================================
 
+
 class LocationNode(BaseModel):
     """地点树节点"""
 
@@ -371,8 +381,12 @@ class RouteQueryResponse(BaseModel):
     """路径计算响应"""
 
     is_reachable: bool = Field(..., description="是否可达")
-    total_travel_hours: float = Field(..., description="总旅行耗时（小时），不可达时为 -1.0")
-    recommended_path: list[str] = Field(default_factory=list, description="途经节点 ID 列表")
+    total_travel_hours: float = Field(
+        ..., description="总旅行耗时（小时），不可达时为 -1.0"
+    )
+    recommended_path: list[str] = Field(
+        default_factory=list, description="途经节点 ID 列表"
+    )
     message: str = Field(default="", description="附加信息（如不可达原因）")
 
 

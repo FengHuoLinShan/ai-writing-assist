@@ -8,7 +8,6 @@ Project 模块测试
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -23,10 +22,10 @@ from modules.project.schemas import (
 )
 from modules.project.services import ProjectService
 
-
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def repo() -> ProjectRepository:
@@ -67,6 +66,7 @@ def update_data() -> ProjectUpdate:
 # ============================================================
 # Repository 测试
 # ============================================================
+
 
 class TestProjectRepository:
     """测试数据访问层"""
@@ -242,6 +242,7 @@ class TestProjectRepository:
 # Service 测试
 # ============================================================
 
+
 class TestProjectService:
     """测试业务逻辑层"""
 
@@ -329,6 +330,7 @@ class TestProjectService:
 # ============================================================
 # Facade 测试
 # ============================================================
+
 
 class TestProjectFacade:
     """测试对外入口"""

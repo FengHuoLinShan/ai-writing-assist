@@ -11,8 +11,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.imports.services import ImportService
 from modules.imports.schemas import ImportResponse
+from modules.imports.services import ImportService
 from shared.utils import parse_uuid as _parse_uuid
 
 _service = ImportService()
@@ -103,8 +103,9 @@ async def resume_deep_import(
     """
     import uuid
 
-    from infrastructure.tasks.models import AsyncTask
     from sqlalchemy import select
+
+    from infrastructure.tasks.models import AsyncTask
     from shared.enums import TaskStatus as TaskStatusEnum
 
     # 读取前一个任务的 meta 获取章节范围
@@ -113,10 +114,10 @@ async def resume_deep_import(
     prev_task = result.scalar_one_or_none()
     if prev_task is None:
         from fastapi import HTTPException
+
         raise HTTPException(404, detail=f"Previous task not found: {prev_task_id}")
 
     prev_meta = prev_task.meta or {}
-    novel_id = prev_meta.get("novel_id", "")
 
     task_meta = dict(prev_meta)
     task_meta["prev_task_id"] = prev_task_id
@@ -136,5 +137,3 @@ async def resume_deep_import(
         "status": str(task.status),
         "message": "深度导入继续任务已提交",
     }
-
-

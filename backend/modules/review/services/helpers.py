@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
-from shared.utils import parse_uuid  # noqa: F401
-
-from shared.utils import is_valid_uuid  # noqa: F401
+from shared.utils import (
+    is_valid_uuid,  # noqa: F401
+    parse_uuid,  # noqa: F401
+)

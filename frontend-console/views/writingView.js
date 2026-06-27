@@ -1065,8 +1065,8 @@ const writingView = {
   },
 
   _gotoReview() {
-    router.navigate("world", "objects")
-    toast("请在「对象库」中审查并确认候选对象", "info")
+    router.navigate("world", "candidates")
+    toast("请在「候选清洗」中审查并确认候选对象", "info")
   },
 
   // ============================================================

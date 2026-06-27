@@ -21,10 +21,10 @@ from modules.imports.parsers import (
 )
 from modules.imports.repositories import ImportRecordRepository
 
-
 # ============================================================
 # Parser 测试
 # ============================================================
+
 
 class TestSplitChapters:
     """测试分章逻辑"""
@@ -105,6 +105,7 @@ class TestFileValidation:
     def test_validate_file_type(self):
         """测试文件类型白名单"""
         from modules.imports.services import _get_extension
+
         assert _get_extension("test.txt") == ".txt"
         assert _get_extension("test.epub") == ".epub"
         assert _get_extension("test.HTML") == ".html"
@@ -114,6 +115,7 @@ class TestFileValidation:
     def test_path_traversal_sanitize(self):
         """测试路径穿越防护"""
         from modules.imports.services import _get_extension
+
         assert _get_extension("../../../etc/passwd.txt") == ".txt"
 
 
@@ -121,12 +123,14 @@ class TestFileValidation:
 # File size & encoding 测试
 # ============================================================
 
+
 class TestFileLimits:
     """测试文件大小和编码限制"""
 
     def test_oversized_file(self):
         """超过 50MB 的文件应拒绝"""
         from modules.imports.parsers import MAX_FILE_SIZE
+
         large_data = b"x" * (MAX_FILE_SIZE + 1)
         # parsers 本身不校验大小，由 service 层拒绝
         # 这里测试 parsers 处理大文件无内存异常
@@ -146,6 +150,7 @@ class TestFileLimits:
 # ============================================================
 # Repository 测试
 # ============================================================
+
 
 class TestImportRecordRepository:
     """测试数据访问层"""
@@ -188,7 +193,8 @@ class TestImportRecordRepository:
         record = await repo.create(db_session, nid, "test.txt", "txt", 512)
 
         updated = await repo.update_status(
-            db_session, record.id,
+            db_session,
+            record.id,
             status="done",
             total_chapters=10,
             imported_chapters=10,
@@ -218,6 +224,7 @@ class TestImportRecordRepository:
 # ============================================================
 # Service 测试
 # ============================================================
+
 
 class TestImportService:
     """测试业务逻辑层"""
@@ -294,8 +301,12 @@ class TestImportService:
         sample_txt_content: bytes,
     ):
         """测试导入记录列表"""
-        await service.upload_and_import(db_session, test_project_id, "a.txt", sample_txt_content)
-        await service.upload_and_import(db_session, test_project_id, "b.txt", sample_txt_content)
+        await service.upload_and_import(
+            db_session, test_project_id, "a.txt", sample_txt_content
+        )
+        await service.upload_and_import(
+            db_session, test_project_id, "b.txt", sample_txt_content
+        )
 
         result = await service.list_import_records(db_session, test_project_id)
         assert result.total >= 2
@@ -310,7 +321,10 @@ class TestImportService:
     ):
         """测试获取单条记录"""
         resp = await service.upload_and_import(
-            db_session, test_project_id, "novel.txt", sample_txt_content,
+            db_session,
+            test_project_id,
+            "novel.txt",
+            sample_txt_content,
         )
         fetched = await service.get_import_record(db_session, test_project_id, resp.id)
         assert fetched.id == resp.id

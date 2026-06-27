@@ -7,7 +7,10 @@ import uuid
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.character.repositories import CharacterKnowledgeRepository, CharacterRepository
+from modules.character.repositories import (
+    CharacterKnowledgeRepository,
+    CharacterRepository,
+)
 from modules.character.schemas import CharacterCreate, CharacterKnowledgeCreate
 
 

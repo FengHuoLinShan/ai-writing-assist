@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 class ImportResponse(BaseModel):
     """导入记录响应"""
+
     id: str = Field(..., description="导入记录 ID")
     novel_id: str = Field(..., description="小说项目 ID")
     file_name: str = Field(..., description="原始文件名")
@@ -27,12 +28,14 @@ class ImportResponse(BaseModel):
 
 class ImportListResponse(BaseModel):
     """导入记录列表响应"""
+
     items: list[ImportResponse]
     total: int
 
 
 class ImportChapterItem(BaseModel):
     """导入后的章节信息"""
+
     chapter_index: int = Field(..., description="章节索引")
     title: str | None = Field(None, description="章节标题")
     word_count: int = Field(0, description="字数")

@@ -29,12 +29,12 @@ class PlotThreadsLoader(Loader):
         from modules.outline.facade import get_active_threads
 
         threads = await get_active_threads(
-            db, options.novel_id,
+            db,
+            options.novel_id,
             chapter_index=options.chapter_index,
             limit=10,
         )
         if threads:
             bundle.plot_threads = [
-                t.model_dump() if hasattr(t, "model_dump") else t
-                for t in threads
+                t.model_dump() if hasattr(t, "model_dump") else t for t in threads
             ]

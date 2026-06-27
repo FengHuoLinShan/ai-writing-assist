@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.models import ImportRecord
@@ -64,8 +64,12 @@ class ImportRecordRepository:
             .offset(skip)
             .limit(limit)
         )
-        count_stmt = select(func.count()).select_from(ImportRecord).where(
-            ImportRecord.novel_id == novel_id,
+        count_stmt = (
+            select(func.count())
+            .select_from(ImportRecord)
+            .where(
+                ImportRecord.novel_id == novel_id,
+            )
         )
         items = (await db.execute(stmt)).scalars().all()
         total = (await db.execute(count_stmt)).scalar() or 0

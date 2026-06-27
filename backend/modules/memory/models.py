@@ -12,8 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy import JSON
+from sqlalchemy import JSON, DateTime, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,7 +28,10 @@ class MemoryRecord(Base, UUIDMixin, NovelMixin, TimestampMixin):
         String(64),
         nullable=False,
         index=True,
-        comment="记忆类型（chapter_state / event / character_state / knowledge / foreshadowing / resource / outline_drift / geo_history）",
+        comment=(
+            "记忆类型（chapter_state / event / character_state / knowledge / "
+            "foreshadowing / resource / outline_drift / geo_history）"
+        ),
     )
     target_type: Mapped[str | None] = mapped_column(
         String(64),
@@ -136,7 +138,10 @@ class MemoryUpdateProposal(Base, UUIDMixin, NovelMixin, TimestampMixin):
     proposal_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        comment="提案类型（create_memory / update_memory / update_character_state / update_knowledge / add_timeline_event / update_foreshadowing）",
+        comment=(
+            "提案类型（create_memory / update_memory / update_character_state / "
+            "update_knowledge / add_timeline_event / update_foreshadowing）"
+        ),
     )
     payload: Mapped[dict[str, Any]] = mapped_column(
         JSON,

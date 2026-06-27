@@ -8,9 +8,10 @@ Outline 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy import Select, asc, delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import (
@@ -34,10 +35,10 @@ from modules.outline.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE
 
-
 # ============================================================
 # PlotThreadRepository
 # ============================================================
+
 
 class PlotThreadRepository:
     """剧情线数据访问"""
@@ -125,7 +126,8 @@ class PlotThreadRepository:
         """获取活跃剧情线（status=canonical，且在指定章节仍活跃）
 
         如果提供了 chapter_index，筛选 start_chapter <= chapter_index
-        且 (planned_payoff_chapter IS NULL OR planned_payoff_chapter >= chapter_index) 的线。
+        且 (planned_payoff_chapter IS NULL
+        OR planned_payoff_chapter >= chapter_index) 的线。
         如未提供 chapter_index，返回所有 canonical 状态的线。
         """
         conditions = [
@@ -222,6 +224,7 @@ class PlotThreadRepository:
 # ============================================================
 # OutlineArcRepository
 # ============================================================
+
 
 class OutlineArcRepository:
     """篇章纲数据访问"""
@@ -352,9 +355,7 @@ class OutlineArcRepository:
 
         if update_values:
             stmt = (
-                update(OutlineArc)
-                .where(OutlineArc.id == arc_id)
-                .values(**update_values)
+                update(OutlineArc).where(OutlineArc.id == arc_id).values(**update_values)
             )
             await db.execute(stmt)
             await db.flush()
@@ -377,6 +378,7 @@ class OutlineArcRepository:
 # ============================================================
 # ChapterCardRepository
 # ============================================================
+
 
 class ChapterCardRepository:
     """章节卡数据访问"""
@@ -565,10 +567,14 @@ class ChapterCardRepository:
         character_ids: list[str],
         entity_ids: list[str],
     ) -> None:
-        stmt = select(ChapterCard).where(
-            ChapterCard.novel_id == novel_id,
-            ChapterCard.chapter_index == chapter_index,
-        ).limit(1)
+        stmt = (
+            select(ChapterCard)
+            .where(
+                ChapterCard.novel_id == novel_id,
+                ChapterCard.chapter_index == chapter_index,
+            )
+            .limit(1)
+        )
         result = await db.execute(stmt)
         card = result.scalar_one_or_none()
         if card is None:
@@ -588,6 +594,7 @@ class ChapterCardRepository:
 # ============================================================
 # ForeshadowingPlanRepository
 # ============================================================
+
 
 class ForeshadowingPlanRepository:
     """伏笔计划数据访问"""
@@ -717,6 +724,7 @@ class ForeshadowingPlanRepository:
 # RevealPlanRepository
 # ============================================================
 
+
 class RevealPlanRepository:
     """揭示计划数据访问"""
 
@@ -730,7 +738,9 @@ class RevealPlanRepository:
         entity = RevealPlan(
             novel_id=novel_id,
             target_type=data.target_type,
-            target_id=uuid.UUID(hex=data.target_id) if isinstance(data.target_id, str) else data.target_id,
+            target_id=uuid.UUID(hex=data.target_id)
+            if isinstance(data.target_id, str)
+            else data.target_id,
             secret_summary=data.secret_summary,
             reveal_stages=data.reveal_stages or [],
             status=data.status or "draft",
@@ -791,7 +801,9 @@ class RevealPlanRepository:
         stmt = select(RevealPlan).where(
             RevealPlan.novel_id == novel_id,
             RevealPlan.target_type == target_type,
-            RevealPlan.target_id == uuid.UUID(hex=target_id) if isinstance(target_id, str) else target_id,
+            RevealPlan.target_id == uuid.UUID(hex=target_id)
+            if isinstance(target_id, str)
+            else target_id,
         )
         result = await db.execute(stmt)
         items: Sequence[RevealPlan] = result.scalars().all()
@@ -820,16 +832,16 @@ class RevealPlanRepository:
 
         if data.target_id is not None:
             tid = data.target_id
-            update_values["target_id"] = uuid.UUID(hex=tid) if isinstance(tid, str) else tid
+            update_values["target_id"] = (
+                uuid.UUID(hex=tid) if isinstance(tid, str) else tid
+            )
 
         if data.reveal_stages is not None:
             update_values["reveal_stages"] = data.reveal_stages
 
         if update_values:
             stmt = (
-                update(RevealPlan)
-                .where(RevealPlan.id == plan_id)
-                .values(**update_values)
+                update(RevealPlan).where(RevealPlan.id == plan_id).values(**update_values)
             )
             await db.execute(stmt)
             await db.flush()

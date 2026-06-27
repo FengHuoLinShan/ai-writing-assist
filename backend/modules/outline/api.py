@@ -7,8 +7,7 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi import status as http_status
+from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.outline.schemas import (
@@ -22,7 +21,6 @@ from modules.outline.schemas import (
     ForeshadowingPlanListResponse,
     ForeshadowingPlanResponse,
     ForeshadowingPlanUpdate,
-    OutlineArcContext,
     OutlineArcCreate,
     OutlineArcListResponse,
     OutlineArcResponse,
@@ -59,6 +57,7 @@ _reveal_service = RevealPlanService()
 # PlotThread 路由
 # ============================================================
 
+
 @router.get("/threads", response_model=PlotThreadListResponse)
 async def list_threads(
     db: DbSession,
@@ -75,7 +74,8 @@ async def list_threads(
 ) -> PlotThreadListResponse:
     """获取剧情线列表"""
     return await _thread_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         thread_type=thread_type,
         status=status,
         skip=skip,
@@ -110,7 +110,8 @@ async def get_active_threads(
 ) -> list[PlotThreadContext]:
     """获取活跃剧情线"""
     return await _thread_service.get_active_threads(
-        db, novel_id,
+        db,
+        novel_id,
         chapter_index=chapter_index,
         limit=limit,
     )
@@ -151,6 +152,7 @@ async def delete_thread(
 # OutlineArc 路由
 # ============================================================
 
+
 @router.get("/arcs", response_model=OutlineArcListResponse)
 async def list_arcs(
     db: DbSession,
@@ -166,7 +168,8 @@ async def list_arcs(
 ) -> OutlineArcListResponse:
     """获取篇章纲列表"""
     return await _arc_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         status=status,
         skip=skip,
         limit=limit,
@@ -218,6 +221,7 @@ async def delete_arc(
 # ChapterCard 路由
 # ============================================================
 
+
 @router.get("/chapters", response_model=ChapterCardListResponse)
 async def list_chapters(
     db: DbSession,
@@ -234,7 +238,8 @@ async def list_chapters(
 ) -> ChapterCardListResponse:
     """获取章节卡列表"""
     return await _chapter_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         arc_id=arc_id,
         status=status,
         skip=skip,
@@ -294,7 +299,9 @@ async def get_chapter_by_index(
 ) -> ChapterCardResponse | None:
     """按章节索引获取章节卡"""
     return await _chapter_service.get_by_chapter_index(
-        db, novel_id, chapter_index,
+        db,
+        novel_id,
+        chapter_index,
     )
 
 
@@ -309,13 +316,16 @@ async def create_chapters_from_candidate(
 ) -> list[ChapterCardContext]:
     """从候选批量创建章节卡"""
     return await _chapter_service.create_from_candidate(
-        db, request.novel_id, request.cards,
+        db,
+        request.novel_id,
+        request.cards,
     )
 
 
 # ============================================================
 # ForeshadowingPlan 路由
 # ============================================================
+
 
 @router.get("/foreshadowing", response_model=ForeshadowingPlanListResponse)
 async def list_foreshadowing(
@@ -332,7 +342,8 @@ async def list_foreshadowing(
 ) -> ForeshadowingPlanListResponse:
     """获取伏笔计划列表"""
     return await _foreshadowing_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         status=status,
         skip=skip,
         limit=limit,
@@ -394,6 +405,7 @@ async def delete_foreshadowing(
 # RevealPlan 路由
 # ============================================================
 
+
 @router.get("/reveals", response_model=RevealPlanListResponse)
 async def list_reveals(
     db: DbSession,
@@ -410,7 +422,8 @@ async def list_reveals(
 ) -> RevealPlanListResponse:
     """获取揭示计划列表"""
     return await _reveal_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         target_type=target_type,
         status=status,
         skip=skip,

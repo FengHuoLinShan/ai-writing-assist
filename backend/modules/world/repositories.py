@@ -8,9 +8,10 @@ World 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy import Select, delete, func, or_, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import EntityAlias, EntityCandidate, Relationship, WorldEntity
@@ -25,10 +26,10 @@ from modules.world.schemas import (
 )
 from shared.constants import DEFAULT_PAGE_SIZE
 
-
 # ============================================================
 # WorldEntityRepository
 # ============================================================
+
 
 class WorldEntityRepository:
     """世界对象数据访问"""
@@ -243,6 +244,7 @@ class WorldEntityRepository:
 # RelationshipRepository
 # ============================================================
 
+
 class RelationshipRepository:
     """关系数据访问"""
 
@@ -384,7 +386,9 @@ class RelationshipRepository:
                 if len(related) >= limit:
                     break
                 second_hop = await self._get_one_hop_ids(
-                    db, novel_id, hop_id,
+                    db,
+                    novel_id,
+                    hop_id,
                 )
                 related.update(second_hop)
                 if len(related) >= limit:
@@ -405,19 +409,13 @@ class RelationshipRepository:
         """
         from sqlalchemy import union_all
 
-        src_stmt = (
-            select(Relationship.target_id.label("related_id"))
-            .where(
-                Relationship.novel_id == novel_id,
-                Relationship.source_id == entity_id,
-            )
+        src_stmt = select(Relationship.target_id.label("related_id")).where(
+            Relationship.novel_id == novel_id,
+            Relationship.source_id == entity_id,
         )
-        tgt_stmt = (
-            select(Relationship.source_id.label("related_id"))
-            .where(
-                Relationship.novel_id == novel_id,
-                Relationship.target_id == entity_id,
-            )
+        tgt_stmt = select(Relationship.source_id.label("related_id")).where(
+            Relationship.novel_id == novel_id,
+            Relationship.target_id == entity_id,
         )
         combined = union_all(src_stmt, tgt_stmt)
         result = await db.execute(combined)
@@ -484,13 +482,17 @@ class RelationshipRepository:
         relation_type: str,
         description: str | None = None,
     ) -> None:
-        stmt = select(Relationship).where(
-            Relationship.novel_id == novel_id,
-            Relationship.source_id == source_id,
-            Relationship.target_id == target_id,
-            Relationship.relation_type == relation_type,
-            Relationship.status == "canonical",
-        ).limit(1)
+        stmt = (
+            select(Relationship)
+            .where(
+                Relationship.novel_id == novel_id,
+                Relationship.source_id == source_id,
+                Relationship.target_id == target_id,
+                Relationship.relation_type == relation_type,
+                Relationship.status == "canonical",
+            )
+            .limit(1)
+        )
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
 
@@ -515,12 +517,14 @@ class RelationshipRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         location_id: str,
-        entity_repo: "WorldEntityRepository",
+        entity_repo: WorldEntityRepository,
     ) -> list[dict[str, Any]]:
         stmt = select(Relationship).where(
             Relationship.novel_id == novel_id,
             Relationship.target_id == location_id,
-            Relationship.relation_type.in_(["controls", "stationed_at", "hidden_presence"]),
+            Relationship.relation_type.in_(
+                ["controls", "stationed_at", "hidden_presence"]
+            ),
             Relationship.status == "canonical",
         )
         result = await db.execute(stmt)
@@ -531,6 +535,7 @@ class RelationshipRepository:
             return []
 
         from shared.utils import parse_uuid
+
         entity_stmt = select(WorldEntity).where(
             WorldEntity.id.in_([parse_uuid(fid) for fid in faction_ids]),
             WorldEntity.status == "canonical",
@@ -543,12 +548,14 @@ class RelationshipRepository:
         for r in relationships:
             entity = entity_map.get(r.source_id)
             if entity:
-                factions.append({
-                    "id": str(entity.id),
-                    "name": entity.name,
-                    "relation_type": r.relation_type,
-                    "description": r.description or "",
-                })
+                factions.append(
+                    {
+                        "id": str(entity.id),
+                        "name": entity.name,
+                        "relation_type": r.relation_type,
+                        "description": r.description or "",
+                    }
+                )
         return factions
 
 
@@ -661,6 +668,7 @@ class EntityAliasRepository:
 # ============================================================
 # EntityCandidateRepository
 # ============================================================
+
 
 class EntityCandidateRepository:
     """候选对象数据访问"""

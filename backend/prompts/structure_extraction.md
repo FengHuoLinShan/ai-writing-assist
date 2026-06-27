@@ -21,7 +21,15 @@
 
 ## 输出要求
 
-输出 JSON 数组，每个元素包含：
+只输出一个 JSON 对象，不要输出 Markdown、解释或顶层数组。对象格式：
+
+```json
+{
+  "entities": []
+}
+```
+
+`entities` 数组的每个元素包含：
 
 - name: 对象名称
 - entity_type: 对象类型（location/faction/item/event/rule/power_system/secret/legend/resource/character_ref）

@@ -7,8 +7,7 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi import status as http_status
+from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.world.schemas import (
@@ -24,7 +23,6 @@ from modules.world.schemas import (
     RelationshipListResponse,
     RelationshipResponse,
     RelationshipUpdate,
-    WorldContextBundle,
     WorldEntityContext,
     WorldEntityCreate,
     WorldEntityListResponse,
@@ -53,6 +51,7 @@ _dedup_service = EntityDedupService()
 # WorldEntity 路由
 # ============================================================
 
+
 @router.get("/entities", response_model=WorldEntityListResponse)
 async def list_entities(
     db: DbSession,
@@ -69,7 +68,8 @@ async def list_entities(
 ) -> WorldEntityListResponse:
     """获取世界对象列表"""
     return await _entity_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         entity_type=entity_type,
         status=status,
         skip=skip,
@@ -133,7 +133,8 @@ async def get_related_entities(
 ) -> list[WorldEntityContext]:
     """获取对象的关联实体（关系一跳/二跳扩展）"""
     return await _relationship_service.expand_related(
-        db, novel_id,
+        db,
+        novel_id,
         seed_entity_ids=[entity_id],
         depth=depth,
         limit=limit,
@@ -143,6 +144,7 @@ async def get_related_entities(
 # ============================================================
 # Relationship 路由
 # ============================================================
+
 
 @router.get("/relationships", response_model=RelationshipListResponse)
 async def list_relationships(
@@ -158,7 +160,8 @@ async def list_relationships(
 ) -> RelationshipListResponse:
     """获取关系列表"""
     items, total = await _relationship_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         skip=skip,
         limit=limit,
     )
@@ -200,6 +203,7 @@ async def delete_relationship(
 # EntityAlias 路由
 # ============================================================
 
+
 @router.get("/aliases", response_model=EntityAliasListResponse)
 async def list_aliases(
     db: DbSession,
@@ -215,7 +219,8 @@ async def list_aliases(
 ) -> EntityAliasListResponse:
     """获取别名列表"""
     items, total = await _alias_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         entity_id=entity_id,
         skip=skip,
         limit=limit,
@@ -247,6 +252,7 @@ async def delete_alias(
 # EntityCandidate 路由
 # ============================================================
 
+
 @router.get("/candidates", response_model=EntityCandidateListResponse)
 async def list_candidates(
     db: DbSession,
@@ -263,7 +269,8 @@ async def list_candidates(
 ) -> EntityCandidateListResponse:
     """获取候选对象列表"""
     return await _candidate_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         status=status,
         suggested_action=suggested_action,
         skip=skip,
@@ -356,6 +363,9 @@ async def merge_from_candidate(
     合并后候选状态变为 canonical。
     """
     entity = await _dedup_service.merge_candidate_into_entity(
-        db, novel_id, candidate_id, entity_id,
+        db,
+        novel_id,
+        candidate_id,
+        entity_id,
     )
     return WorldEntityResponse.model_validate(entity)

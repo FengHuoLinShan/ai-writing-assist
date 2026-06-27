@@ -297,10 +297,13 @@ const outlineView = {
       <div class="form-group"><label>篇章目标</label><textarea class="form-textarea" id="arc-goal" rows="2"></textarea></div>
       <div class="form-group"><label>核心冲突</label><textarea class="form-textarea" id="arc-conflict" rows="2"></textarea></div>
       <div class="form-group"><label>入口钩子</label><input class="form-input" id="arc-hook" /></div>
-      <div class="form-group"><label>高潮</label><textarea class="form-textarea" id="arc-climax" rows="2"></textarea></div>`
+      <div class="form-group"><label>高潮</label><textarea class="form-textarea" id="arc-climax" rows="2"></textarea></div>
+      <div class="form-group"><label>结果 *</label><textarea class="form-textarea" id="arc-result" rows="2"></textarea></div>`
     showModal("新建篇章纲", formHtml, [{ text: "创建", class: "btn-primary", handler: async () => {
       const title = document.getElementById("arc-title")?.value
       if (!title) { toast("请输入标题", "warning"); return }
+      const result = document.getElementById("arc-result")?.value
+      if (!result) { toast("请输入结果", "warning"); return }
       try {
         await api.outline.createArc({ title,
           start_chapter: parseInt(document.getElementById("arc-start")?.value) || undefined,
@@ -309,6 +312,7 @@ const outlineView = {
           core_conflict: document.getElementById("arc-conflict")?.value || "",
           entry_hook: document.getElementById("arc-hook")?.value || "",
           climax: document.getElementById("arc-climax")?.value || "",
+          result,
         }, state.currentProjectId)
         toast("已创建", "success")
         await this._loadArcs()

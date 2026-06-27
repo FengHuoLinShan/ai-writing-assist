@@ -16,29 +16,31 @@ Worker 流程:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
-from collections.abc import Callable
-from datetime import datetime, timezone
+import os
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, text as sql_text, update
+from sqlalchemy import select, update
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import modules
+import modules.project.models  # noqa: F401
 from core.database import DatabaseManager, get_manager
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
-from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TASK_POLL_INTERVAL
+from shared.constants import (
+    TASK_HEARTBEAT_INTERVAL,
+    TASK_MAX_HEARTBEAT_GAP,
+    TASK_POLL_INTERVAL,
+)
 
 logger = logging.getLogger(__name__)
 
 # 自动发现并导入所有模块的 task handler（@task_handler 装饰器触发注册）
-import importlib
-import os
-import modules
-
-
 # 注册 projects 表（NovelMixin FK 依赖）
-import modules.project.models  # noqa: F401
 
 
 def _discover_and_import_tasks() -> None:
@@ -137,7 +139,8 @@ class TaskWorker:
         finally:
             self._running = False
             logger.info(
-                "TaskWorker stopped — processed=%d, succeeded=%d, failed=%d, cancelled=%d",
+                "TaskWorker stopped — processed=%d, succeeded=%d, "
+                "failed=%d, cancelled=%d",
                 self._stats["processed"],
                 self._stats["succeeded"],
                 self._stats["failed"],
@@ -236,12 +239,14 @@ class TaskWorker:
                         stmt = (
                             update(AsyncTask)
                             .where(AsyncTask.id == task_id)
-                            .values(heartbeat_at=datetime.now(timezone.utc))
+                            .values(heartbeat_at=datetime.now(UTC))
                         )
                         await hb_session.execute(stmt)
                         await hb_session.commit()
                 except Exception:
-                    logger.warning("Heartbeat update failed for task %s", task_id, exc_info=True)
+                    logger.warning(
+                        "Heartbeat update failed for task %s", task_id, exc_info=True
+                    )
         except asyncio.CancelledError:
             pass
 
@@ -258,7 +263,8 @@ class TaskWorker:
             result = await session.execute(
                 sql_text(
                     "UPDATE async_tasks "
-                    "SET status = 'pending', error_message = 'Task recovered: heartbeat timeout' "
+                    "SET status = 'pending', "
+                    "error_message = 'Task recovered: heartbeat timeout' "
                     "WHERE status = 'running' "
                     "AND heartbeat_at < NOW() - make_interval(secs => :gap)"
                 ),

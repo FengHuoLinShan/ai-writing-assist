@@ -8,7 +8,7 @@ E2E 测试 conftest — 真实 PostgreSQL 连接
 from __future__ import annotations
 
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -19,13 +19,23 @@ from sqlalchemy.ext.asyncio import (
 
 logging.basicConfig(level=logging.WARNING)
 
-# 真实 PG 数据库 — 与 Docker Compose / .env 配置一致
-DATABASE_URL = "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
+
+def get_e2e_database_url() -> str:
+    """Return the real PG URL from runtime config, including .env overrides."""
+    from core.config import get_settings
+
+    get_settings.cache_clear()
+    return get_settings().database_url
+
+
+# 真实 PG 数据库 — 与 Docker Compose / .env 配置一致，可由 DATABASE_URL 覆盖。
+DATABASE_URL = get_e2e_database_url()
 
 
 # ============================================================
 # Per-test database session（独立连接，事务回滚）
 # ============================================================
+
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -47,6 +57,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 # ============================================================
 # FastAPI test client（真实 PG 注入）
 # ============================================================
+
 
 @pytest_asyncio.fixture
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:

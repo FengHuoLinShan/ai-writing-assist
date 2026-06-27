@@ -28,7 +28,10 @@ class TimelineCheck(CheckStrategy):
 
         try:
             from modules.timeline.facade import check_timeline_conflicts
-            conflict_result = await check_timeline_conflicts(db, novel_id, candidate_payload)
+
+            conflict_result = await check_timeline_conflicts(
+                db, novel_id, candidate_payload
+            )
             for conflict in conflict_result:
                 warnings.append(
                     ReviewWarning(
@@ -91,13 +94,14 @@ class TimelineCheck(CheckStrategy):
                 gap = sorted_indices[j] - sorted_indices[j - 1]
                 if gap > 1:
                     gaps.append(
-                        f"{sorted_indices[j - 1]} → {sorted_indices[j]}（跳过 {gap - 1} 章）"
+                        f"{sorted_indices[j - 1]} → {sorted_indices[j]}"
+                        f"（跳过 {gap - 1} 章）"
                     )
             if len(gaps) > 3:
                 warnings.append(
                     ReviewWarning(
                         type="timeline_conflict",
-                        message=f"章节序列存在多处不连续跳转:\n" + "\n".join(gaps[:5]),
+                        message="章节序列存在多处不连续跳转:\n" + "\n".join(gaps[:5]),
                         severity="low",
                         location={"gaps": gaps},
                     )
@@ -113,7 +117,9 @@ class TimelineCheck(CheckStrategy):
         if isinstance(foreshadowings, dict):
             foreshadowings = [foreshadowings]
 
-        for i, fs in enumerate(foreshadowings if isinstance(foreshadowings, list) else []):
+        for i, fs in enumerate(
+            foreshadowings if isinstance(foreshadowings, list) else []
+        ):
             if not isinstance(fs, dict):
                 continue
             seed = fs.get("planned_seed_chapter")

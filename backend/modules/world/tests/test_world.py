@@ -8,6 +8,8 @@ World 模块测试
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -16,9 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.world.facade import (
     expand_related_entities,
     find_duplicate_entity_candidates,
-    find_entity_id_by_name,
     get_world_context,
-    upsert_relationship,
 )
 from modules.world.repositories import (
     EntityAliasRepository,
@@ -27,12 +27,10 @@ from modules.world.repositories import (
     WorldEntityRepository,
 )
 from modules.world.schemas import (
+    DuplicateSuggestionResult,
     EntityAliasCreate,
-    EntityAliasResponse,
     EntityCandidateCreate,
-    EntityCandidateResponse,
     RelationshipCreate,
-    RelationshipResponse,
     WorldContextBundle,
     WorldEntityCreate,
     WorldEntityResponse,
@@ -42,14 +40,15 @@ from modules.world.services import (
     AliasService,
     EntityCandidateService,
     EntityDedupService,
+    EntityExtractionService,
     RelationshipService,
     WorldEntityService,
 )
 
-
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def novel_id() -> str:
@@ -146,6 +145,7 @@ def sample_entity_data3() -> WorldEntityCreate:
 # WorldEntity CRUD 测试
 # ============================================================
 
+
 class TestWorldEntityService:
     """世界对象 CRUD 测试"""
 
@@ -221,7 +221,9 @@ class TestWorldEntityService:
 
         # 按类型过滤
         result = await entity_service.list(
-            db_session, novel_id, entity_type="location",
+            db_session,
+            novel_id,
+            entity_type="location",
         )
         assert result.total == 1
         assert result.items[0].entity_type == "location"
@@ -274,6 +276,7 @@ class TestWorldEntityService:
 # ============================================================
 # Relationship CRUD 测试
 # ============================================================
+
 
 class TestRelationshipService:
     """关系 CRUD 测试"""
@@ -334,10 +337,13 @@ class TestRelationshipService:
         e2 = await self._create_entity(db_session, entity_service, novel_id, "王国B")
 
         rel = await rel_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             RelationshipCreate(
-                source_type="location", source_id=e1.id,
-                target_type="location", target_id=e2.id,
+                source_type="location",
+                source_id=e1.id,
+                target_type="location",
+                target_id=e2.id,
                 relation_type="ally_of",
             ),
         )
@@ -363,17 +369,23 @@ class TestRelationshipService:
         # A→B (战争), A→C (盟友)
         for target, rtype in [(e2.id, "at_war_with"), (e3.id, "ally_of")]:
             await rel_service.create(
-                db_session, novel_id,
+                db_session,
+                novel_id,
                 RelationshipCreate(
-                    source_type="location", source_id=e1.id,
-                    target_type="location", target_id=target,
+                    source_type="location",
+                    source_id=e1.id,
+                    target_type="location",
+                    target_id=target,
                     relation_type=rtype,
                 ),
             )
 
         # 一跳扩展
         related = await rel_service.expand_related(
-            db_session, novel_id, seed_entity_ids=[e1.id], depth=1,
+            db_session,
+            novel_id,
+            seed_entity_ids=[e1.id],
+            depth=1,
         )
 
         assert len(related) == 2
@@ -396,25 +408,34 @@ class TestRelationshipService:
 
         # A→B, B→C
         await rel_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             RelationshipCreate(
-                source_type="location", source_id=e1.id,
-                target_type="location", target_id=e2.id,
+                source_type="location",
+                source_id=e1.id,
+                target_type="location",
+                target_id=e2.id,
                 relation_type="ally_of",
             ),
         )
         await rel_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             RelationshipCreate(
-                source_type="location", source_id=e2.id,
-                target_type="location", target_id=e3.id,
+                source_type="location",
+                source_id=e2.id,
+                target_type="location",
+                target_id=e3.id,
                 relation_type="ally_of",
             ),
         )
 
         # 二跳扩展（A → B → C）
         related = await rel_service.expand_related(
-            db_session, novel_id, seed_entity_ids=[e1.id], depth=2,
+            db_session,
+            novel_id,
+            seed_entity_ids=[e1.id],
+            depth=2,
         )
 
         related_ids = {r.entity_id for r in related}
@@ -427,6 +448,7 @@ class TestRelationshipService:
 # ============================================================
 # EntityAlias 测试
 # ============================================================
+
 
 class TestAliasService:
     """别名服务测试"""
@@ -441,7 +463,8 @@ class TestAliasService:
     ) -> None:
         """测试创建别名"""
         entity = await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="中央大陆"),
         )
 
@@ -471,16 +494,19 @@ class TestAliasService:
     ) -> None:
         """测试别名列表"""
         entity = await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="中央大陆"),
         )
 
         await alias_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             EntityAliasCreate(entity_id=entity.id, alias="中土"),
         )
         await alias_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             EntityAliasCreate(entity_id=entity.id, alias="中原", alias_type="name"),
         )
 
@@ -490,7 +516,9 @@ class TestAliasService:
 
         # 按 entity_id 过滤
         items, total = await alias_service.list(
-            db_session, novel_id, entity_id=entity.id,
+            db_session,
+            novel_id,
+            entity_id=entity.id,
         )
         assert total == 2
 
@@ -498,6 +526,7 @@ class TestAliasService:
 # ============================================================
 # EntityCandidate 测试
 # ============================================================
+
 
 class TestEntityCandidateService:
     """候选对象服务测试"""
@@ -547,8 +576,10 @@ class TestEntityCandidateService:
         created = await candidate_service.create(db_session, novel_id, data)
 
         from modules.world.schemas import EntityCandidateUpdate
+
         updated = await candidate_service.update(
-            db_session, created.id,
+            db_session,
+            created.id,
             EntityCandidateUpdate(
                 suggested_action="create_new",
                 confidence=0.85,
@@ -558,10 +589,375 @@ class TestEntityCandidateService:
         assert updated.suggested_action == "create_new"
         assert updated.confidence == 0.85
 
+    @pytest.mark.asyncio
+    async def test_list_candidate_includes_suggested_existing_entity_name(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        candidate_service: EntityCandidateService,
+        novel_id: str,
+    ) -> None:
+        """候选响应应展示建议合并/别名的目标对象名"""
+        entity = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character_ref", name="林岚"),
+        )
+        await candidate_service.create(
+            db_session,
+            novel_id,
+            EntityCandidateCreate(
+                name="蓝灯",
+                entity_type="character_ref",
+                suggested_action="alias_of_existing",
+                suggested_existing_entity_id=entity.id,
+            ),
+        )
+
+        result = await candidate_service.list(db_session, novel_id)
+
+        assert result.items[0].suggested_existing_entity_id == entity.id
+        assert result.items[0].suggested_existing_entity_name == "林岚"
+
+    @pytest.mark.asyncio
+    async def test_candidate_does_not_leak_cross_novel_existing_entity_name(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        candidate_service: EntityCandidateService,
+        novel_id: str,
+    ) -> None:
+        """候选目标名不能跨 novel_id 泄露"""
+        other_novel_id = str(uuid.uuid4())
+        other_entity = await entity_service.create(
+            db_session,
+            other_novel_id,
+            WorldEntityCreate(entity_type="character_ref", name="其他项目人物"),
+        )
+        await candidate_service.create(
+            db_session,
+            novel_id,
+            EntityCandidateCreate(
+                name="蓝灯",
+                entity_type="character_ref",
+                suggested_action="alias_of_existing",
+                suggested_existing_entity_id=other_entity.id,
+            ),
+        )
+
+        result = await candidate_service.list(db_session, novel_id)
+
+        assert result.items[0].suggested_existing_entity_id == other_entity.id
+        assert result.items[0].suggested_existing_entity_name is None
+
+    @pytest.mark.asyncio
+    async def test_accept_temporary_only_candidate_is_rejected_without_status_change(
+        self,
+        db_session: AsyncSession,
+        candidate_service: EntityCandidateService,
+        novel_id: str,
+    ) -> None:
+        """临时候选不能被晋升，失败的晋升动作不应偷偷改状态"""
+        candidate = await candidate_service.create(
+            db_session,
+            novel_id,
+            EntityCandidateCreate(
+                name="旧绳索",
+                entity_type="item",
+                suggested_action="temporary_only",
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await candidate_service.accept_candidate(db_session, novel_id, candidate.id)
+
+        assert exc.value.status_code == 400
+        current = await candidate_service.get(db_session, candidate.id, novel_id)
+        assert current.status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_accept_candidate_rejects_cross_novel_id(
+        self,
+        db_session: AsyncSession,
+        candidate_service: EntityCandidateService,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        """接受候选时不能用其他 novel_id 写入正史"""
+        candidate = await candidate_service.create(
+            db_session,
+            novel_id,
+            EntityCandidateCreate(
+                name="黑曜钥匙",
+                entity_type="item",
+                suggested_action="create_new",
+            ),
+        )
+        other_novel_id = str(uuid.uuid4())
+
+        with pytest.raises(HTTPException) as exc:
+            await candidate_service.accept_candidate(
+                db_session,
+                other_novel_id,
+                candidate.id,
+            )
+
+        assert exc.value.status_code == 404
+        current = await candidate_service.get(db_session, candidate.id, novel_id)
+        assert current.status == "pending"
+        other_entities = await entity_service.list(db_session, other_novel_id)
+        assert other_entities.total == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "suggested_action",
+        ["alias_of_existing", "merge_with_existing"],
+    )
+    async def test_accept_existing_target_action_requires_existing_entity_id(
+        self,
+        db_session: AsyncSession,
+        candidate_service: EntityCandidateService,
+        novel_id: str,
+        suggested_action: str,
+    ) -> None:
+        """别名/合并候选缺少目标对象 ID 时不能退化成创建新对象"""
+        candidate = await candidate_service.create(
+            db_session,
+            novel_id,
+            EntityCandidateCreate(
+                name="岚姐",
+                entity_type="character_ref",
+                suggested_action=suggested_action,
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await candidate_service.accept_candidate(db_session, novel_id, candidate.id)
+
+        assert exc.value.status_code == 400
+        current = await candidate_service.get(db_session, candidate.id, novel_id)
+        assert current.status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_accept_alias_candidate_rejects_cross_novel_target_before_writing(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        candidate_service: EntityCandidateService,
+        alias_service: AliasService,
+        novel_id: str,
+    ) -> None:
+        """别名候选的目标对象必须属于同一 novel，失败时不写别名/状态"""
+        other_entity = await entity_service.create(
+            db_session,
+            str(uuid.uuid4()),
+            WorldEntityCreate(entity_type="character_ref", name="其他项目人物"),
+        )
+        candidate = await candidate_service.create(
+            db_session,
+            novel_id,
+            EntityCandidateCreate(
+                name="岚姐",
+                entity_type="character_ref",
+                suggested_action="alias_of_existing",
+                suggested_existing_entity_id=other_entity.id,
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await candidate_service.accept_candidate(db_session, novel_id, candidate.id)
+
+        assert exc.value.status_code == 400
+        current = await candidate_service.get(db_session, candidate.id, novel_id)
+        assert current.status == "pending"
+        aliases, total = await alias_service.list(db_session, novel_id)
+        assert aliases == []
+        assert total == 0
+
+
+class TestEntityExtractionService:
+    """世界对象抽取服务测试"""
+
+    @pytest.mark.asyncio
+    async def test_extract_entities_creates_candidates_from_structured_object(
+        self,
+        novel_id: str,
+    ) -> None:
+        """LLM 返回 {"entities": [...]} 时应创建候选"""
+        draft_provider = AsyncMock()
+        draft_provider.load_chapters = AsyncMock(
+            return_value=[
+                {
+                    "chapter_index": 1,
+                    "title": "第一章",
+                    "content": "蓝灯留下黑曜钥匙。",
+                }
+            ]
+        )
+        service = EntityExtractionService(draft_provider=draft_provider)
+        service._entity_repo.get_by_novel = AsyncMock(return_value=([], 0))
+        service._dedup_service.find_similar_entities = AsyncMock(return_value=[])
+        created_candidate = SimpleNamespace(
+            id=uuid.uuid4(),
+            name="黑曜钥匙",
+            entity_type="item",
+            suggested_action="create_new",
+        )
+        service._candidate_repo.create = AsyncMock(return_value=created_candidate)
+        llm_output = SimpleNamespace(
+            entities=[
+                SimpleNamespace(
+                    name="黑曜钥匙",
+                    entity_type="item",
+                    summary="打开旧钟楼地下门的钥匙",
+                    public_info="林舟已发现它",
+                    hidden_truth="与灰鸦会有关",
+                    importance=0.9,
+                    suggested_action="create_new",
+                    suggested_existing_entity_name=None,
+                    candidate_reason="反复推动主线",
+                    confidence=0.86,
+                    source_chapter=1,
+                ),
+            ]
+        )
+
+        db = AsyncMock()
+
+        with patch(
+            "infrastructure.llm.client.LLMClient.generate_structured",
+            new=AsyncMock(return_value=llm_output),
+        ):
+            result = await service.extract_entities_from_chapters(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=1,
+                end_chapter=1,
+            )
+
+        assert result.total_created == 1
+        assert result.degraded is False
+        service._candidate_repo.create.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_extract_entities_reports_degraded_when_all_batches_fail(
+        self,
+        novel_id: str,
+    ) -> None:
+        """LLM 结构化输出失败时返回降级信号，由导入 workflow 决定任务失败"""
+        draft_provider = AsyncMock()
+        draft_provider.load_chapters = AsyncMock(
+            return_value=[
+                {
+                    "chapter_index": 1,
+                    "title": "第一章",
+                    "content": "蓝灯留下黑曜钥匙。",
+                }
+            ]
+        )
+        service = EntityExtractionService(draft_provider=draft_provider)
+        service._entity_repo.get_by_novel = AsyncMock(return_value=([], 0))
+        service._candidate_repo.create = AsyncMock()
+
+        db = AsyncMock()
+
+        with patch(
+            "infrastructure.llm.client.LLMClient.generate_structured",
+            new=AsyncMock(side_effect=ValueError("invalid json")),
+        ):
+            result = await service.extract_entities_from_chapters(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=1,
+                end_chapter=1,
+            )
+
+        assert result.total_created == 0
+        assert result.degraded is True
+        assert result.failed_batches == 1
+        assert result.errors
+        service._candidate_repo.create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_extract_entities_keeps_high_confidence_duplicate_as_review_candidate(
+        self,
+        novel_id: str,
+    ) -> None:
+        """高置信去重结果仍应进入候选池，由用户确认别名/合并"""
+        draft_provider = AsyncMock()
+        draft_provider.load_chapters = AsyncMock(
+            return_value=[
+                {
+                    "chapter_index": 1,
+                    "title": "第一章",
+                    "content": "岚姐在旧钟楼留下暗号。",
+                }
+            ]
+        )
+        service = EntityExtractionService(draft_provider=draft_provider)
+        existing_id = str(uuid.uuid4())
+        service._entity_repo.get_by_novel = AsyncMock(return_value=([], 0))
+        service._dedup_service.find_similar_entities = AsyncMock(
+            return_value=[
+                DuplicateSuggestionResult(
+                    candidate_id="",
+                    candidate_name="岚姐",
+                    existing_entity_id=existing_id,
+                    existing_entity_name="林岚",
+                    similarity_score=1.0,
+                    match_method="exact_name",
+                    action="alias_of_existing",
+                )
+            ]
+        )
+        service._candidate_repo.create = AsyncMock(
+            return_value=SimpleNamespace(
+                id=uuid.uuid4(),
+                name="岚姐",
+                entity_type="character_ref",
+                suggested_action="alias_of_existing",
+            )
+        )
+        llm_output = SimpleNamespace(
+            entities=[
+                SimpleNamespace(
+                    name="岚姐",
+                    entity_type="character_ref",
+                    summary="林岚的临时称呼",
+                    public_info="同伴这样称呼她",
+                    hidden_truth="",
+                    importance=0.7,
+                    suggested_action="alias_of_existing",
+                    suggested_existing_entity_name="林岚",
+                    candidate_reason="已有重要人物的别名",
+                    confidence=0.9,
+                    source_chapter=1,
+                ),
+            ]
+        )
+
+        with patch(
+            "infrastructure.llm.client.LLMClient.generate_structured",
+            new=AsyncMock(return_value=llm_output),
+        ):
+            result = await service.extract_entities_from_chapters(
+                db=AsyncMock(),
+                novel_id=novel_id,
+                start_chapter=1,
+                end_chapter=1,
+            )
+
+        assert result.total_created == 1
+        service._candidate_repo.create.assert_awaited_once()
+        candidate_data = service._candidate_repo.create.await_args.args[2]
+        assert candidate_data.suggested_action == "alias_of_existing"
+        assert candidate_data.suggested_existing_entity_id == existing_id
+
 
 # ============================================================
 # EntityDedupService 测试
 # ============================================================
+
 
 class TestEntityDedupService:
     """去重服务测试"""
@@ -578,13 +974,15 @@ class TestEntityDedupService:
         """测试名称精确匹配去重"""
         # 先创建正史对象
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="黑暗森林"),
         )
 
         # 创建同名候选
         candidate = await candidate_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             EntityCandidateCreate(
                 name="黑暗森林",
                 entity_type="location",
@@ -594,7 +992,9 @@ class TestEntityDedupService:
 
         # 去重检查
         suggestions = await dedup_service.find_duplicates(
-            db_session, novel_id, candidate.id,
+            db_session,
+            novel_id,
+            candidate.id,
         )
 
         # 应该匹配到已存在的正史对象
@@ -610,6 +1010,7 @@ class TestEntityDedupService:
 # Facade 测试
 # ============================================================
 
+
 class TestFacade:
     """Facade 对外接口测试"""
 
@@ -622,11 +1023,13 @@ class TestFacade:
     ) -> None:
         """测试获取世界上下文"""
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="东方大陆"),
         )
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="location", name="西方大陆"),
         )
 
@@ -641,7 +1044,9 @@ class TestFacade:
         all_entities = await entity_service.list(db_session, novel_id)
         first_id = all_entities.items[0].id
         ctx = await get_world_context(
-            db_session, novel_id, entity_ids=[first_id],
+            db_session,
+            novel_id,
+            entity_ids=[first_id],
         )
         assert ctx.total_count == 1
 
@@ -655,25 +1060,33 @@ class TestFacade:
     ) -> None:
         """测试 facade 的关系扩展"""
         e1 = await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="faction", name="帝国"),
         )
         e2 = await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="faction", name="叛军"),
         )
 
         await rel_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             RelationshipCreate(
-                source_type="faction", source_id=e1.id,
-                target_type="faction", target_id=e2.id,
+                source_type="faction",
+                source_id=e1.id,
+                target_type="faction",
+                target_id=e2.id,
                 relation_type="at_war_with",
             ),
         )
 
         related = await expand_related_entities(
-            db_session, novel_id, seed_entity_ids=[e1.id], depth=1,
+            db_session,
+            novel_id,
+            seed_entity_ids=[e1.id],
+            depth=1,
         )
         assert len(related) == 1
         assert related[0].entity_id == e2.id
@@ -688,16 +1101,20 @@ class TestFacade:
     ) -> None:
         """测试 facade 的去重调用"""
         await entity_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             WorldEntityCreate(entity_type="item", name="月光宝盒"),
         )
         candidate = await candidate_service.create(
-            db_session, novel_id,
+            db_session,
+            novel_id,
             EntityCandidateCreate(name="月光宝盒", entity_type="item"),
         )
 
         suggestions = await find_duplicate_entity_candidates(
-            db_session, novel_id, candidate.id,
+            db_session,
+            novel_id,
+            candidate.id,
         )
         assert len(suggestions) >= 1
         assert any(s.match_method == "exact_name" for s in suggestions)
@@ -727,10 +1144,14 @@ class TestFindEntityByName:
         novel_id: str,
     ) -> None:
         nid = uuid.UUID(hex=novel_id)
-        data = WorldEntityCreate(entity_type="location", name="Fire City", status="canonical")
+        data = WorldEntityCreate(
+            entity_type="location", name="Fire City", status="canonical"
+        )
         entity = await entity_repo.create(db_session, nid, data)
 
-        alias_data = EntityAliasCreate(entity_id=str(entity.id), alias="炎城", alias_type="translation")
+        alias_data = EntityAliasCreate(
+            entity_id=str(entity.id), alias="炎城", alias_type="translation"
+        )
         await alias_repo.create(db_session, nid, alias_data)
 
         result = await entity_repo.find_entity_by_name(db_session, nid, "炎城")
@@ -761,8 +1182,14 @@ class TestUpsertRelationship:
         target_id = str(uuid.uuid4())
 
         await rel_repo.upsert_relationship(
-            db_session, nid, source_id, target_id,
-            "location", "faction", "controls", "控制关系",
+            db_session,
+            nid,
+            source_id,
+            target_id,
+            "location",
+            "faction",
+            "controls",
+            "控制关系",
         )
 
         rels, total = await rel_repo.get_by_novel(db_session, nid)
@@ -784,12 +1211,24 @@ class TestUpsertRelationship:
         target_id = str(uuid.uuid4())
 
         await rel_repo.upsert_relationship(
-            db_session, nid, source_id, target_id,
-            "location", "faction", "controls", "初始描述",
+            db_session,
+            nid,
+            source_id,
+            target_id,
+            "location",
+            "faction",
+            "controls",
+            "初始描述",
         )
         await rel_repo.upsert_relationship(
-            db_session, nid, source_id, target_id,
-            "location", "faction", "controls", "更新描述",
+            db_session,
+            nid,
+            source_id,
+            target_id,
+            "location",
+            "faction",
+            "controls",
+            "更新描述",
         )
 
         rels, total = await rel_repo.get_by_novel(db_session, nid)

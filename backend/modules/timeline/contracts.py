@@ -10,6 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from modules.timeline.schemas import (  # noqa: F401
+    TimelineConflictWarning,
+    TimelineEventContext,
+)
+
 
 @dataclass(frozen=True)
 class TimelineEventContract:
@@ -57,10 +62,3 @@ class TimelineConflictWarningContract:
     """相关事件 ID"""
     suggestion: str | None = None
     """修改建议"""
-
-
-# facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.timeline.schemas import (  # noqa: F401
-    TimelineConflictWarning,  # facade.check_timeline_conflicts 返回
-    TimelineEventContext,     # facade.get_relevant_timeline_context 返回
-)

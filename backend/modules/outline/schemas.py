@@ -12,10 +12,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 内部工具
 # ============================================================
+
 
 def _uuid_validator(v: object) -> str:
     """将 UUID 原始值转为字符串"""
@@ -29,6 +29,7 @@ def _uuid_validator(v: object) -> str:
 # ============================================================
 # PlotThread Schema
 # ============================================================
+
 
 class PlotThreadCreate(BaseModel):
     """创建剧情线请求"""
@@ -161,6 +162,7 @@ class PlotThreadListResponse(BaseModel):
 # ============================================================
 # OutlineArc Schema
 # ============================================================
+
 
 class OutlineArcCreate(BaseModel):
     """创建篇章纲请求"""
@@ -300,6 +302,7 @@ class OutlineArcListResponse(BaseModel):
 # ============================================================
 # ChapterCard Schema
 # ============================================================
+
 
 class ChapterCardCreate(BaseModel):
     """创建章节卡请求"""
@@ -457,6 +460,7 @@ class ChapterCardListResponse(BaseModel):
 # ForeshadowingPlan Schema
 # ============================================================
 
+
 class ForeshadowingPlanCreate(BaseModel):
     """创建伏笔计划请求"""
 
@@ -559,6 +563,7 @@ class ForeshadowingPlanListResponse(BaseModel):
 # RevealPlan Schema
 # ============================================================
 
+
 class RevealPlanCreate(BaseModel):
     """创建揭示计划请求"""
 
@@ -632,6 +637,7 @@ class RevealPlanListResponse(BaseModel):
 # 候选批量创建章节卡
 # ============================================================
 
+
 class ChapterCardCandidateItem(BaseModel):
     """候选章节卡单项"""
 
@@ -670,6 +676,7 @@ class ChapterCardFromCandidateRequest(BaseModel):
 # ============================================================
 # Facade 输出 Schema
 # ============================================================
+
 
 class ChapterCardContext(BaseModel):
     """章节卡上下文 — 供其他模块读取"""

@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Float, Integer, String, Text
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
@@ -45,7 +44,10 @@ class TimelineEvent(Base, UUIDMixin, NovelMixin, TimestampMixin):
     event_type: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="事件类型（plot / character / world / battle / travel / discovery / relationship / geo_change / offscreen）",
+        comment=(
+            "事件类型（plot / character / world / battle / travel / discovery / "
+            "relationship / geo_change / offscreen）"
+        ),
     )
     related_character_ids: Mapped[list[Any]] = mapped_column(
         JSON,
@@ -99,6 +101,5 @@ class TimelineEvent(Base, UUIDMixin, NovelMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return (
-            f"<TimelineEvent id={self.id} order={self.order_index} "
-            f"title={self.title!r}>"
+            f"<TimelineEvent id={self.id} order={self.order_index} title={self.title!r}>"
         )

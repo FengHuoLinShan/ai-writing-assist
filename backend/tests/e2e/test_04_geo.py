@@ -1,6 +1,7 @@
 """
 地理层级与历史时期 E2E 测试
 """
+
 from __future__ import annotations
 
 import uuid
@@ -27,10 +28,14 @@ class TestGeoLocation:
 
     async def test_create_location(self, ctx):
         client, pid, eids = ctx
-        resp = await client.post("/api/geo/locations", json={
-            "novel_id": pid, "world_entity_id": eids["廷根市"],
-            "location_level": "city",
-        })
+        resp = await client.post(
+            "/api/geo/locations",
+            json={
+                "novel_id": pid,
+                "world_entity_id": eids["廷根市"],
+                "location_level": "city",
+            },
+        )
         assert resp.status_code == 201
 
     async def test_get_location_tree(self, ctx):
@@ -59,25 +64,38 @@ class TestGeoEdge:
     async def test_create_edge(self, ctx):
         client, pid = ctx
         # Need existing locations first
-        loc1 = await client.post("/api/geo/locations", json={
-            "novel_id": pid, "world_entity_id": (await _any_entity_id(client, pid)),
-            "location_level": "city",
-        })
-        loc2 = await client.post("/api/geo/locations", json={
-            "novel_id": pid, "world_entity_id": (await _any_entity_id(client, pid)),
-            "location_level": "city",
-        })
-        resp = await client.post("/api/geo/edges", json={
-            "novel_id": pid,
-            "source_location_id": loc1.json()["id"],
-            "target_location_id": loc2.json()["id"],
-            "relation_type": "road_to",
-        })
+        loc1 = await client.post(
+            "/api/geo/locations",
+            json={
+                "novel_id": pid,
+                "world_entity_id": (await _any_entity_id(client, pid)),
+                "location_level": "city",
+            },
+        )
+        loc2 = await client.post(
+            "/api/geo/locations",
+            json={
+                "novel_id": pid,
+                "world_entity_id": (await _any_entity_id(client, pid)),
+                "location_level": "city",
+            },
+        )
+        resp = await client.post(
+            "/api/geo/edges",
+            json={
+                "novel_id": pid,
+                "source_location_id": loc1.json()["id"],
+                "target_location_id": loc2.json()["id"],
+                "relation_type": "road_to",
+            },
+        )
         assert resp.status_code == 201
 
     async def test_get_edges_by_location(self, ctx):
         client, pid = ctx
-        resp = await client.get(f"/api/geo/edges/by-location?novel_id={pid}&location_id={uuid.uuid4()}")
+        resp = await client.get(
+            f"/api/geo/edges/by-location?novel_id={pid}&location_id={uuid.uuid4()}"
+        )
         assert resp.status_code == 200
 
 
@@ -90,15 +108,24 @@ class TestGeoEra:
 
     async def test_create_era(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/geo/eras", json={
-            "novel_id": pid, "name": "古王朝时期", "order_index": 1,
-        })
+        resp = await client.post(
+            "/api/geo/eras",
+            json={
+                "novel_id": pid,
+                "name": "古王朝时期",
+                "order_index": 1,
+            },
+        )
         assert resp.status_code == 201
 
     async def test_list_eras(self, ctx):
         client, pid = ctx
-        await client.post("/api/geo/eras", json={"novel_id": pid, "name": "旧王朝", "order_index": 0})
-        await client.post("/api/geo/eras", json={"novel_id": pid, "name": "新王朝", "order_index": 1})
+        await client.post(
+            "/api/geo/eras", json={"novel_id": pid, "name": "旧王朝", "order_index": 0}
+        )
+        await client.post(
+            "/api/geo/eras", json={"novel_id": pid, "name": "新王朝", "order_index": 1}
+        )
         resp = await client.get(f"/api/geo/eras?novel_id={pid}")
         assert resp.status_code == 200
         items = resp.json().get("items", [])
@@ -138,12 +165,15 @@ class TestGeoMissingFlows:
         client, pid, lids = ctx
         source_id = lids["廷根市"]
         target_id = lids["贝克兰德"]
-        resp = await client.post("/api/geo/calculate-routing", json={
-            "novel_id": pid,
-            "source_location_id": source_id,
-            "target_location_id": target_id,
-            "chapter_index": 1,
-        })
+        resp = await client.post(
+            "/api/geo/calculate-routing",
+            json={
+                "novel_id": pid,
+                "source_location_id": source_id,
+                "target_location_id": target_id,
+                "chapter_index": 1,
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert "is_reachable" in body
@@ -190,9 +220,14 @@ class TestGeoSupplementFlows:
 
     async def test_history_context(self, ctx):
         client, pid, lids = ctx
-        era_resp = await client.post("/api/geo/eras", json={
-            "novel_id": pid, "name": "第四纪", "order_index": 0,
-        })
+        era_resp = await client.post(
+            "/api/geo/eras",
+            json={
+                "novel_id": pid,
+                "name": "第四纪",
+                "order_index": 0,
+            },
+        )
         assert era_resp.status_code == 201
         era_id = era_resp.json()["id"]
         loc_id = lids["廷根市"]

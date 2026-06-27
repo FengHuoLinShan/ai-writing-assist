@@ -21,7 +21,6 @@ from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class RagChunkRepository:
-
     def _json_array_contains_all(
         self,
         db: AsyncSession,
@@ -30,6 +29,7 @@ class RagChunkRepository:
     ) -> ColumnElement[bool]:
         if not values:
             from sqlalchemy import true
+
             return true()
         bind = db.get_bind()
         if bind.dialect.name == "postgresql":
@@ -92,10 +92,7 @@ class RagChunkRepository:
     ) -> tuple[list[RagChunk], int]:
         """获取片段列表（分页），返回 (items, total)"""
         # 获取总数
-        count_stmt = (
-            select(func.count(RagChunk.id))
-            .where(RagChunk.novel_id == novel_id)
-        )
+        count_stmt = select(func.count(RagChunk.id)).where(RagChunk.novel_id == novel_id)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()
 
@@ -264,9 +261,7 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -288,9 +283,7 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -312,9 +305,7 @@ class RagChunkRepository:
             conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc())
+            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -370,11 +361,7 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = (
-            select(RagChunk)
-            .where(and_(*conditions))
-            .limit(limit)
-        )
+        stmt = select(RagChunk).where(and_(*conditions)).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -398,12 +385,9 @@ class RagChunkRepository:
         Returns:
             list[(RagChunk, score)] — 按相似度降序排列
         """
-        stmt = (
-            select(RagChunk)
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.embedding.is_not(None),
-            )
+        stmt = select(RagChunk).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding.is_not(None),
         )
         result = await db.execute(stmt)
         chunks: list[RagChunk] = list(result.scalars().all())
@@ -433,10 +417,7 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
     ) -> int:
         """统计小说项目的片段总数"""
-        stmt = (
-            select(func.count(RagChunk.id))
-            .where(RagChunk.novel_id == novel_id)
-        )
+        stmt = select(func.count(RagChunk.id)).where(RagChunk.novel_id == novel_id)
         result = await db.execute(stmt)
         return result.scalar_one()
 
@@ -463,12 +444,9 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
     ) -> int:
         """统计 embedding 失败的 chunk 数。"""
-        stmt = (
-            select(func.count(RagChunk.id))
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.embedding_status == "failed",
-            )
+        stmt = select(func.count(RagChunk.id)).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding_status == "failed",
         )
         result = await db.execute(stmt)
         return result.scalar_one() or 0

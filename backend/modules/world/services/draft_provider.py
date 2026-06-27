@@ -48,14 +48,19 @@ class WritingDraftProvider(DraftProvider):
             if draft and draft.content:
                 report = await index_chapter_with_report(db, novel_id, idx)
                 rag_chunks = await get_ordered_chapter_chunks(db, novel_id, idx)
-                content = "\n\n".join(
-                    f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
-                    for chunk in rag_chunks
-                ) or draft.content
-                chapters.append({
-                    "chapter_index": idx,
-                    "title": draft.title or f"第{idx}章",
-                    "content": content,
-                    "rag_warnings": report.warnings,
-                })
+                content = (
+                    "\n\n".join(
+                        f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
+                        for chunk in rag_chunks
+                    )
+                    or draft.content
+                )
+                chapters.append(
+                    {
+                        "chapter_index": idx,
+                        "title": draft.title or f"第{idx}章",
+                        "content": content,
+                        "rag_warnings": report.warnings,
+                    }
+                )
         return chapters

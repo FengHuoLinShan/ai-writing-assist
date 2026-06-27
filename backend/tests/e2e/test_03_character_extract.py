@@ -1,8 +1,10 @@
 """
 人物档案抽取 E2E 测试 — 真实 LLM + 真实 PG
 
-验证完整链路：创建角色 → 写入章节 → RAG 索引 → LLM 抽取 → DB 写入 → apply-suggestions → 前端 API
+验证完整链路：创建角色 → 写入章节 → RAG 索引 → LLM 抽取
+→ DB 写入 → apply-suggestions → 前端 API
 """
+
 from __future__ import annotations
 
 import uuid
@@ -20,6 +22,7 @@ async def extract_ctx(db_session: AsyncSession):
     await db_session.flush()
 
     from pathlib import Path
+
     from modules.writing.models import WritingDraft
 
     chapter_text = Path(__file__).resolve().parent / "samples" / "lotm_chapter_1.txt"
@@ -38,6 +41,7 @@ async def extract_ctx(db_session: AsyncSession):
     await db_session.flush()
 
     from modules.rag.facade import index_chapter
+
     count = await index_chapter(db_session, meta["project_id"], 1)
     await db_session.flush()
 
@@ -58,8 +62,8 @@ class TestCharacterExtractE2E:
 
         char_id = cids["克莱恩·莫雷蒂"]
 
-        from modules.character.tasks import handle_character_extract
         from infrastructure.tasks.models import AsyncTask
+        from modules.character.tasks import handle_character_extract
 
         task = AsyncTask(
             id=uuid.uuid4(),
@@ -75,6 +79,7 @@ class TestCharacterExtractE2E:
         assert len(result["fields"]) > 0, "No fields extracted"
 
         from modules.character.repositories import CharacterRepository
+
         repo = CharacterRepository()
         char_uuid = uuid.UUID(hex=char_id)
         updated = await repo.get(db, char_uuid)
@@ -96,8 +101,8 @@ class TestCharacterExtractE2E:
         db, pid, cids, chunk_count = extract_ctx
         char_id = cids["克莱恩·莫雷蒂"]
 
-        from modules.character.tasks import handle_character_extract
         from infrastructure.tasks.models import AsyncTask
+        from modules.character.tasks import handle_character_extract
 
         task = AsyncTask(
             id=uuid.uuid4(),
@@ -109,8 +114,8 @@ class TestCharacterExtractE2E:
         result = await handle_character_extract(db, task)
         assert result["status"] == "ok"
 
-        from modules.character.services import CharacterService
         from modules.character.schemas import CharacterUpdate
+        from modules.character.services import CharacterService
         from modules.character.tasks import _EXTRACTABLE_FIELDS
 
         service = CharacterService()
@@ -126,7 +131,9 @@ class TestCharacterExtractE2E:
                 if field in _EXTRACTABLE_FIELDS:
                     updates[field] = suggestions[field]
 
-        remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+        remaining_suggestions = {
+            k: v for k, v in suggestions.items() if k not in fields_to_apply
+        }
         meta["ai_suggestions"] = remaining_suggestions
         if not remaining_suggestions:
             meta.pop("ai_suggestions", None)
@@ -139,10 +146,14 @@ class TestCharacterExtractE2E:
         for field in fields_to_apply:
             if field in _EXTRACTABLE_FIELDS and suggestions.get(field):
                 assert getattr(updated, field) == suggestions[field], (
-                    f"Field {field}: expected {suggestions[field]!r}, got {getattr(updated, field)!r}"
+                    f"Field {field}: expected {suggestions[field]!r}, "
+                    f"got {getattr(updated, field)!r}"
                 )
 
-        assert updated.meta.get("ai_suggestions") is None or updated.meta.get("ai_suggestions") == {}
+        assert (
+            updated.meta.get("ai_suggestions") is None
+            or updated.meta.get("ai_suggestions") == {}
+        )
 
     @pytest.mark.asyncio
     async def test_extract_apply_then_get_character_shows_updated_fields(
@@ -152,8 +163,8 @@ class TestCharacterExtractE2E:
         db, pid, cids, chunk_count = extract_ctx
         char_id = cids["克莱恩·莫雷蒂"]
 
-        from modules.character.tasks import handle_character_extract
         from infrastructure.tasks.models import AsyncTask
+        from modules.character.tasks import handle_character_extract
 
         task = AsyncTask(
             id=uuid.uuid4(),
@@ -165,8 +176,8 @@ class TestCharacterExtractE2E:
         result = await handle_character_extract(db, task)
         assert result["status"] == "ok"
 
-        from modules.character.services import CharacterService
         from modules.character.schemas import CharacterUpdate
+        from modules.character.services import CharacterService
         from modules.character.tasks import _EXTRACTABLE_FIELDS
 
         service = CharacterService()
@@ -181,7 +192,9 @@ class TestCharacterExtractE2E:
                 if field in _EXTRACTABLE_FIELDS:
                     updates[field] = suggestions[field]
 
-        remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+        remaining_suggestions = {
+            k: v for k, v in suggestions.items() if k not in fields_to_apply
+        }
         meta = dict(char.meta or {})
         meta["ai_suggestions"] = remaining_suggestions
         if not remaining_suggestions:
@@ -196,5 +209,6 @@ class TestCharacterExtractE2E:
         for field in fields_to_apply:
             if field in _EXTRACTABLE_FIELDS and suggestions.get(field):
                 assert getattr(refreshed, field) == suggestions[field], (
-                    f"Field {field}: expected {suggestions[field]!r}, got {getattr(refreshed, field)!r}"
+                    f"Field {field}: expected {suggestions[field]!r}, "
+                    f"got {getattr(refreshed, field)!r}"
                 )

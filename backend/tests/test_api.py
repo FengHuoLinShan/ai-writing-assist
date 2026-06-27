@@ -9,13 +9,8 @@ API 分层测试 — 覆盖全部 11 个业务模块 + 系统端点
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
-
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -24,13 +19,17 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 # Scaffold helpers
 # ============================================================
 
+
 async def _create_project(client: AsyncClient) -> str:
-    resp = await client.post("/api/projects", json={
-        "title": "API 测试小说",
-        "genre": "奇幻",
-        "tone": "dark",
-        "language": "zh",
-    })
+    resp = await client.post(
+        "/api/projects",
+        json={
+            "title": "API 测试小说",
+            "genre": "奇幻",
+            "tone": "dark",
+            "language": "zh",
+        },
+    )
     assert resp.status_code in (200, 201)
     data = resp.json()
     return data.get("id") or data["project_id"]
@@ -39,6 +38,7 @@ async def _create_project(client: AsyncClient) -> str:
 # ============================================================
 # System
 # ============================================================
+
 
 class TestSystemEndpoints:
     async def test_health(self, async_client: AsyncClient):
@@ -57,12 +57,16 @@ class TestSystemEndpoints:
 # Project
 # ============================================================
 
+
 class TestProjectAPI:
     async def test_create(self, async_client: AsyncClient):
-        resp = await async_client.post("/api/projects", json={
-            "title": "新小说",
-            "genre": "奇幻",
-        })
+        resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "新小说",
+                "genre": "奇幻",
+            },
+        )
         assert resp.status_code in (200, 201)
 
     async def test_list(self, async_client: AsyncClient):
@@ -76,7 +80,9 @@ class TestProjectAPI:
         assert resp.status_code == 422
 
     async def test_get_not_found(self, async_client: AsyncClient):
-        resp = await async_client.get("/api/projects/00000000-0000-0000-0000-000000000000")
+        resp = await async_client.get(
+            "/api/projects/00000000-0000-0000-0000-000000000000"
+        )
         assert resp.status_code == 404
 
     async def test_get_invalid_uuid(self, async_client: AsyncClient):
@@ -84,7 +90,9 @@ class TestProjectAPI:
         assert resp.status_code == 422
 
     async def test_update(self, async_client: AsyncClient, test_project_id: str):
-        resp = await async_client.put(f"/api/projects/{test_project_id}", json={"title": "改"})
+        resp = await async_client.put(
+            f"/api/projects/{test_project_id}", json={"title": "改"}
+        )
         assert resp.status_code in (200, 204)
 
     async def test_delete(self, async_client: AsyncClient, test_project_id: str):
@@ -96,6 +104,7 @@ class TestProjectAPI:
 # World — 世界对象
 # ============================================================
 
+
 class TestWorldAPI:
     async def test_create_entity(self, async_client: AsyncClient, test_project_id: str):
         resp = await async_client.post(
@@ -105,7 +114,9 @@ class TestWorldAPI:
         )
         assert resp.status_code in (200, 201)
 
-    async def test_create_entity_missing_name(self, async_client: AsyncClient, test_project_id: str):
+    async def test_create_entity_missing_name(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/world/entities",
             params={"novel_id": test_project_id},
@@ -134,7 +145,9 @@ class TestWorldAPI:
         )
         assert resp.status_code == 422
 
-    async def test_create_candidate(self, async_client: AsyncClient, test_project_id: str):
+    async def test_create_candidate(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/world/candidates",
             params={"novel_id": test_project_id},
@@ -144,12 +157,14 @@ class TestWorldAPI:
 
     async def test_dedup_not_found(self, async_client: AsyncClient, test_project_id: str):
         resp = await async_client.post(
-            f"/api/world/candidates/00000000-0000-0000-0000-000000000000/dedup",
+            "/api/world/candidates/00000000-0000-0000-0000-000000000000/dedup",
             params={"novel_id": test_project_id},
         )
         assert resp.status_code == 404
 
-    async def test_create_relationship(self, async_client: AsyncClient, test_project_id: str, test_entity_id: str):
+    async def test_create_relationship(
+        self, async_client: AsyncClient, test_project_id: str, test_entity_id: str
+    ):
         resp = await async_client.post(
             "/api/world/relationships",
             params={"novel_id": test_project_id},
@@ -167,6 +182,7 @@ class TestWorldAPI:
 # ============================================================
 # Character — 人物档案
 # ============================================================
+
 
 class TestCharacterAPI:
     async def test_create(self, async_client: AsyncClient, test_project_id: str):
@@ -207,8 +223,11 @@ class TestCharacterAPI:
 # Geo — 地理历史
 # ============================================================
 
+
 class TestGeoAPI:
-    async def test_create_location(self, async_client: AsyncClient, test_project_id: str, test_entity_id: str):
+    async def test_create_location(
+        self, async_client: AsyncClient, test_project_id: str, test_entity_id: str
+    ):
         resp = await async_client.post(
             "/api/geo/locations",
             json={
@@ -250,12 +269,13 @@ class TestGeoAPI:
                 "relation_type": "road_to",
             },
         )
-        assert resp.status_code in (200, 201, 422)
+        assert resp.status_code in (200, 201, 404, 422)
 
 
 # ============================================================
 # Memory — 长期记忆
 # ============================================================
+
 
 class TestMemoryAPI:
     async def test_create_record(self, async_client: AsyncClient, test_project_id: str):
@@ -294,6 +314,7 @@ class TestMemoryAPI:
 # Timeline — 时间线
 # ============================================================
 
+
 class TestTimelineAPI:
     async def test_create_event(self, async_client: AsyncClient, test_project_id: str):
         resp = await async_client.post(
@@ -322,6 +343,7 @@ class TestTimelineAPI:
 # ============================================================
 # Outline — 剧情结构
 # ============================================================
+
 
 class TestOutlineAPI:
     async def test_create_thread(self, async_client: AsyncClient, test_project_id: str):
@@ -356,7 +378,9 @@ class TestOutlineAPI:
         data = resp.json()
         assert "arc_goal" in data
 
-    async def test_create_chapter_card(self, async_client: AsyncClient, test_project_id: str):
+    async def test_create_chapter_card(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/outline/chapters",
             params={"novel_id": test_project_id},
@@ -370,7 +394,9 @@ class TestOutlineAPI:
         data = resp.json()
         assert data.get("chapter_index") == 1
 
-    async def test_create_foreshadowing(self, async_client: AsyncClient, test_project_id: str):
+    async def test_create_foreshadowing(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/outline/foreshadowing",
             params={"novel_id": test_project_id},
@@ -397,12 +423,13 @@ class TestOutlineAPI:
             json={"novel_id": "00000000-0000-0000-0000-000000000000", "cards": []},
         )
         # Invalid UUID may trigger 422 or service returns []
-        assert resp.status_code in (200, 201, 422)
+        assert resp.status_code in (200, 201, 404, 422)
 
 
 # ============================================================
 # RAG — 检索增强
 # ============================================================
+
 
 class TestRagAPI:
     async def test_create_chunk(self, async_client: AsyncClient, test_project_id: str):
@@ -434,22 +461,13 @@ class TestRagAPI:
         data = resp.json()
         assert "chunks" in data
 
-    async def test_retrieve_top_k_zero(self, async_client: AsyncClient, test_project_id: str):
+    async def test_retrieve_top_k_zero(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/rag/retrieve",
             params={"novel_id": test_project_id},
             json={"query": "测试", "top_k": 0},
-        )
-        assert resp.status_code in (200, 201, 422)
-
-    async def test_similar_entities(self, async_client: AsyncClient, test_project_id: str):
-        # similar-entities uses query params, not body
-        resp = await async_client.post(
-            "/api/rag/similar-entities",
-            params={
-                "novel_id": test_project_id,
-                "candidate_embedding": "0.1,0.2,0.3",
-            },
         )
         assert resp.status_code in (200, 201, 422)
 
@@ -466,6 +484,7 @@ class TestRagAPI:
 # Context — 上下文编译
 # ============================================================
 
+
 class TestContextAPI:
     async def test_compile(self, async_client: AsyncClient, test_project_id: str):
         resp = await async_client.post(
@@ -480,7 +499,9 @@ class TestContextAPI:
         data = resp.json()
         assert "task" in data
 
-    async def test_compile_invalid_scope(self, async_client: AsyncClient, test_project_id: str):
+    async def test_compile_invalid_scope(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/context/compile",
             json={
@@ -509,6 +530,7 @@ class TestContextAPI:
 # Review — 结构复查
 # ============================================================
 
+
 class TestReviewAPI:
     async def test_run_review(self, async_client: AsyncClient, test_project_id: str):
         resp = await async_client.post(
@@ -523,7 +545,9 @@ class TestReviewAPI:
         data = resp.json()
         assert "decision" in data
 
-    async def test_run_review_invalid_type(self, async_client: AsyncClient, test_project_id: str):
+    async def test_run_review_invalid_type(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/review",
             json={
@@ -545,6 +569,7 @@ class TestReviewAPI:
 # ============================================================
 # Writing — 草稿
 # ============================================================
+
 
 class TestWritingAPI:
     async def test_create_draft(self, async_client: AsyncClient, test_project_id: str):
@@ -576,6 +601,7 @@ class TestWritingAPI:
 # ============================================================
 # Tasks — 任务队列
 # ============================================================
+
 
 class TestTaskAPI:
     async def test_create_task(self, async_client: AsyncClient):

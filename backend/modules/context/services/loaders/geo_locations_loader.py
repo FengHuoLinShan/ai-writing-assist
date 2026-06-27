@@ -48,7 +48,9 @@ class GeoLocationsLoader(Loader):
         # 批量查询地点（并行，避免 N+1）
         from modules.geo.facade import get_locations_context_batch
 
-        results = await get_locations_context_batch(db, options.novel_id, location_ids, depth=1)
+        results = await get_locations_context_batch(
+            db, options.novel_id, location_ids, depth=1
+        )
         locations = []
         for ctx in results:
             if ctx and ctx.location:

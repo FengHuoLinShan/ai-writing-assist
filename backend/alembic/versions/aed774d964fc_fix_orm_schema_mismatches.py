@@ -7,15 +7,17 @@
 Revision ID: aed774d964fc
 Revises: aed774d964fb
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 
+from alembic import op
+
 revision: str = "aed774d964fc"
-down_revision: Union[str, None] = "aed774d964fb"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "aed774d964fb"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -25,14 +27,24 @@ def upgrade() -> None:
     # 2. review_reports: add status column
     op.add_column(
         "review_reports",
-        sa.Column("status", sa.String(32), nullable=False, server_default="canonical",
-                  comment="报告状态：draft/canonical/deprecated"),
+        sa.Column(
+            "status",
+            sa.String(32),
+            nullable=False,
+            server_default="canonical",
+            comment="报告状态：draft/canonical/deprecated",
+        ),
     )
 
     # 3. review_reports: add updated_at column (from TimestampMixin)
     op.add_column(
         "review_reports",
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("timezone('utc', now())"), nullable=True),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=True,
+        ),
     )
 
 

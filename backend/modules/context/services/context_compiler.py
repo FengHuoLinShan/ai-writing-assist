@@ -30,19 +30,38 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "world": ["project", "world_entities"],
     "world_character": ["project", "world_entities", "characters"],
     "arc": [
-        "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "timeline_events", "plot_threads", "outline_arc",
+        "project",
+        "world_entities",
+        "characters",
+        "geo_locations",
+        "memory_records",
+        "timeline_events",
+        "plot_threads",
+        "outline_arc",
         "rag_chunks",
     ],
     "chapter": [
-        "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "timeline_events", "plot_threads", "chapter_card",
+        "project",
+        "world_entities",
+        "characters",
+        "geo_locations",
+        "memory_records",
+        "timeline_events",
+        "plot_threads",
+        "chapter_card",
         "rag_chunks",
     ],
     "full": [
-        "project", "world_entities", "characters", "geo_locations",
-        "memory_records", "timeline_events", "plot_threads", "outline_arc",
-        "chapter_card", "rag_chunks",
+        "project",
+        "world_entities",
+        "characters",
+        "geo_locations",
+        "memory_records",
+        "timeline_events",
+        "plot_threads",
+        "outline_arc",
+        "chapter_card",
+        "rag_chunks",
     ],
 }
 
@@ -58,7 +77,7 @@ class ContextCompiler:
 
     def __init__(self, loaders: list[Loader] | None = None) -> None:
         self._loaders: dict[str, Loader] = {}
-        for loader in (loaders or self._default_loaders()):
+        for loader in loaders or self._default_loaders():
             self._loaders[loader.name] = loader
 
     @staticmethod

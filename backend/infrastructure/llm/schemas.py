@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from core.config import DEFAULT_LLM_MODEL
+
 
 class LLMMessage(BaseModel):
     """LLM 对话消息"""
@@ -21,7 +23,7 @@ class LLMMessage(BaseModel):
 class LLMCallRequest(BaseModel):
     """LLM 调用请求参数"""
 
-    model: str = "gpt-4o"
+    model: str = DEFAULT_LLM_MODEL
     """模型名称"""
     messages: list[LLMMessage] = Field(default_factory=list)
     """对话消息列表"""

@@ -179,6 +179,32 @@ describe("篇章纲", () => {
     it("调用 showModal", () => {
       outlineView._createArc()
       expect(showModal).toHaveBeenCalled()
+      const html = vi.mocked(showModal).mock.calls[0][1]
+      expect(html).toContain("arc-result")
+    })
+
+    it("创建篇章纲时提交 result 字段并刷新列表", async () => {
+      state.currentProjectId = "p1"
+      api.outline.createArc.mockResolvedValue({})
+      api.outline.listArcs.mockResolvedValue({ items: [] })
+      outlineView._createArc()
+      const html = vi.mocked(showModal).mock.calls[0][1]
+      document.body.innerHTML = html
+      document.getElementById("arc-title").value = "第一卷"
+      document.getElementById("arc-goal").value = "建立世界"
+      document.getElementById("arc-conflict").value = "身份冲突"
+      document.getElementById("arc-result").value = "主角确认旧城真相"
+
+      const handler = vi.mocked(showModal).mock.calls[0][2][0].handler
+      await handler()
+
+      expect(api.outline.createArc).toHaveBeenCalledWith(expect.objectContaining({
+        title: "第一卷",
+        arc_goal: "建立世界",
+        core_conflict: "身份冲突",
+        result: "主角确认旧城真相",
+      }), "p1")
+      expect(api.outline.listArcs).toHaveBeenCalledWith({ novel_id: "p1" })
     })
   })
 })

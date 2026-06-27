@@ -29,19 +29,25 @@ class TestSecurity:
             "'; UPDATE projects SET title='hacked' WHERE '1'='1",
         ]
         for payload in payloads:
-            resp = await async_client.post("/api/projects", json={
-                "title": payload,
-                "genre": "测试",
-            })
-            assert resp.status_code in (200, 201, 422), \
+            resp = await async_client.post(
+                "/api/projects",
+                json={
+                    "title": payload,
+                    "genre": "测试",
+                },
+            )
+            assert resp.status_code in (200, 201, 422), (
                 f"SQL 注入 '{payload[:30]}' 返回 {resp.status_code}"
+            )
 
             # 验证无法删表
             list_resp = await async_client.get("/api/projects")
             assert list_resp.status_code == 200
 
     async def test_sql_injection_in_entity_name(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         payload = "'; SELECT * FROM world_entities; --"
         resp = await async_client.post(
@@ -53,7 +59,9 @@ class TestSecurity:
         assert resp.status_code in (200, 201)
 
     async def test_sql_injection_in_search_query(
-        self, async_client: AsyncClient, test_project_id: str,
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
     ):
         """搜索查询中的 SQL 注入字符串不应对数据库造成影响"""
         # novel_id 是 Query 参数，query 是 body 中的 RagQuery 字段
@@ -69,9 +77,11 @@ class TestSecurity:
     # XSS — 检查字段存储后不破坏响应
     # ============================================================
 
-    async def test_xss_in_entity_name(self, async_client: AsyncClient, test_project_id: str):
+    async def test_xss_in_entity_name(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         """XSS 字符串存储在正史中后，API 返回应正常"""
-        xss_name = '<img src=x onerror=alert(1)>'
+        xss_name = "<img src=x onerror=alert(1)>"
         resp = await async_client.post(
             "/api/world/entities",
             params={"novel_id": test_project_id},
@@ -92,10 +102,13 @@ class TestSecurity:
 
     async def test_xss_in_project_title(self, async_client: AsyncClient):
         xss = '<script>alert("XSS")</script>'
-        resp = await async_client.post("/api/projects", json={
-            "title": xss,
-            "genre": "测试",
-        })
+        resp = await async_client.post(
+            "/api/projects",
+            json={
+                "title": xss,
+                "genre": "测试",
+            },
+        )
         assert resp.status_code in (200, 201)
 
     # ============================================================
@@ -112,7 +125,9 @@ class TestSecurity:
         # SQLite 中 String(255) 不会严格截断，但不应崩溃
         assert resp.status_code in (200, 201, 422)
 
-    async def test_very_long_jsonb_content(self, async_client: AsyncClient, test_project_id: str):
+    async def test_very_long_jsonb_content(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         """超长 JSONB 内容不应崩溃"""
         resp = await async_client.post(
             "/api/world/entities",
@@ -125,7 +140,9 @@ class TestSecurity:
         )
         assert resp.status_code in (200, 201, 422)
 
-    async def test_very_long_summary(self, async_client: AsyncClient, test_project_id: str):
+    async def test_very_long_summary(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         """记忆记录的超长摘要不应崩溃"""
         resp = await async_client.post(
             f"/api/novels/{test_project_id}/memories/records",
@@ -141,7 +158,9 @@ class TestSecurity:
     # 非法枚举值
     # ============================================================
 
-    async def test_invalid_entity_type(self, async_client: AsyncClient, test_project_id: str):
+    async def test_invalid_entity_type(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         env_types = [
             "invalid_type_xyz",
             "12345",
@@ -167,7 +186,9 @@ class TestSecurity:
         )
         assert resp.status_code in (200, 201, 422)
 
-    async def test_invalid_knowledge_level(self, async_client: AsyncClient, test_project_id: str):
+    async def test_invalid_knowledge_level(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         # valid character creation
         resp = await async_client.post(
             "/api/characters",
@@ -175,7 +196,9 @@ class TestSecurity:
         )
         assert resp.status_code in (200, 201)
 
-    async def test_negative_chapter_index(self, async_client: AsyncClient, test_project_id: str):
+    async def test_negative_chapter_index(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         resp = await async_client.post(
             "/api/outline/chapters",
             params={"novel_id": test_project_id},
@@ -192,7 +215,9 @@ class TestSecurity:
     # RAG top_k 超限
     # ============================================================
 
-    async def test_rag_top_k_overflow(self, async_client: AsyncClient, test_project_id: str):
+    async def test_rag_top_k_overflow(
+        self, async_client: AsyncClient, test_project_id: str
+    ):
         """超大 top_k 不应导致全量数据返回"""
         resp = await async_client.post(
             "/api/rag/retrieve",

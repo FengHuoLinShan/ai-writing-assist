@@ -32,22 +32,19 @@ class TimelineEventsLoader(Loader):
 
         entity_ids_for_tl = (
             options.entity_ids
-            or [
-                e.get("entity_id", e.get("id", ""))
-                for e in bundle.world_entities
-            ]
+            or [e.get("entity_id", e.get("id", "")) for e in bundle.world_entities]
             or None
         )
 
         events = await get_relevant_timeline_context(
-            db, options.novel_id,
+            db,
+            options.novel_id,
             chapter_index=options.chapter_index,
             related_entity_ids=entity_ids_for_tl,
             limit=tl_limit,
         )
         if events:
             bundle.timeline_events = [
-                e.model_dump() if hasattr(e, "model_dump") else e
-                for e in events
+                e.model_dump() if hasattr(e, "model_dump") else e for e in events
             ]
         bundle.budget_used["timeline"] = len(bundle.timeline_events)

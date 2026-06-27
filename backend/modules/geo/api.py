@@ -29,7 +29,13 @@ from modules.geo.schemas import (
     RouteQueryResponse,
     TravelConstraintResult,
 )
-from modules.geo.services import GeoEdgeService, GeoEraService, GeoLocationService, GeoQueryService, GeoTopologyService
+from modules.geo.services import (
+    GeoEdgeService,
+    GeoEraService,
+    GeoLocationService,
+    GeoQueryService,
+    GeoTopologyService,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/geo", tags=["geo"])
@@ -44,6 +50,7 @@ _topology_service = GeoTopologyService()
 # ============================================================
 # GeoLocation 路由
 # ============================================================
+
 
 @router.post("/locations", response_model=GeoLocationResponse, status_code=201)
 async def create_location(
@@ -72,7 +79,11 @@ async def list_locations(
 ) -> GeoLocationListResponse:
     """获取地点列表"""
     items, total = await _location_service.list_locations(
-        db, novel_id, skip=skip, limit=limit, location_level=location_level,
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
+        location_level=location_level,
     )
     return GeoLocationListResponse(items=items, total=total)
 
@@ -104,7 +115,9 @@ async def update_location(
     novel_id: str = Query(..., description="小说项目 ID"),
 ) -> GeoLocationResponse:
     """更新地点信息"""
-    return await _location_service.update_location(db, location_id, data, novel_id=novel_id)
+    return await _location_service.update_location(
+        db, location_id, data, novel_id=novel_id
+    )
 
 
 @router.delete("/locations/{location_id}", status_code=204)
@@ -120,6 +133,7 @@ async def delete_location(
 # ============================================================
 # GeoEdge 路由
 # ============================================================
+
 
 @router.post("/edges", response_model=GeoEdgeResponse, status_code=201)
 async def create_edge(
@@ -144,7 +158,10 @@ async def list_edges(
 ) -> GeoEdgeListResponse:
     """获取关系边列表"""
     items, total = await _edge_service.list_edges(
-        db, novel_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
     return GeoEdgeListResponse(items=items, total=total)
 
@@ -194,6 +211,7 @@ async def delete_edge(
 # GeoEra 路由
 # ============================================================
 
+
 @router.post("/eras", response_model=GeoEraResponse, status_code=201)
 async def create_era(
     db: DbSession,
@@ -217,7 +235,10 @@ async def list_eras(
 ) -> GeoEraListResponse:
     """获取历史时期列表（按时间顺序排序）"""
     items, total = await _era_service.list_eras(
-        db, novel_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
     return GeoEraListResponse(items=items, total=total)
 
@@ -257,6 +278,7 @@ async def delete_era(
 # 业务查询路由
 # ============================================================
 
+
 @router.get("/travel-constraints", response_model=TravelConstraintResult)
 async def get_travel_constraints(
     db: DbSession,
@@ -266,7 +288,10 @@ async def get_travel_constraints(
 ) -> TravelConstraintResult:
     """查询两地之间的通行约束"""
     return await _query_service.get_travel_constraints(
-        db, novel_id, source, target,
+        db,
+        novel_id,
+        source,
+        target,
     )
 
 
@@ -290,7 +315,10 @@ async def get_geo_history_context(
         loc_ids = [lid.strip() for lid in location_ids.split(",") if lid.strip()]
 
     return await _query_service.get_geo_history_context(
-        db, novel_id, era_id=era_id, location_ids=loc_ids,
+        db,
+        novel_id,
+        era_id=era_id,
+        location_ids=loc_ids,
     )
 
 

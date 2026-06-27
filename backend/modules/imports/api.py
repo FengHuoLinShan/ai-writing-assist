@@ -25,7 +25,9 @@ async def upload_file(
 ) -> ImportResponse:
     """上传小说文件并自动导入"""
     content = await file.read()
-    return await _service.upload_and_import(db, novel_id, file.filename or "unknown", content)
+    return await _service.upload_and_import(
+        db, novel_id, file.filename or "unknown", content
+    )
 
 
 @router.get("", response_model=ImportListResponse)
@@ -78,9 +80,11 @@ async def submit_deep_import(
 
     if not novel_id:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="novel_id is required")
     if end_chapter < start_chapter:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="end_chapter must be >= start_chapter")
 
     # 自动检测最后章节
@@ -111,6 +115,7 @@ async def resume_deep_import(
     prev_task_id = body.get("task_id", "")
     if not prev_task_id:
         from fastapi import HTTPException
+
         raise HTTPException(400, detail="task_id is required")
 
     result = await _resume(db, prev_task_id)

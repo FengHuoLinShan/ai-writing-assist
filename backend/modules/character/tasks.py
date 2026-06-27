@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC
 
 from infrastructure.tasks.registry import task_handler
 from shared.constants import LLM_RETRY_BASE_DELAY, LLM_RETRY_MAX_ATTEMPTS
@@ -12,9 +13,16 @@ logger = logging.getLogger(__name__)
 
 # 人物档案字段中可由 AI 抽取的部分
 _EXTRACTABLE_FIELDS = [
-    "desire", "fear", "secret", "weakness",
-    "current_goal", "current_state", "current_emotion",
-    "stance", "voice_style", "role",
+    "desire",
+    "fear",
+    "secret",
+    "weakness",
+    "current_goal",
+    "current_state",
+    "current_emotion",
+    "stance",
+    "voice_style",
+    "role",
 ]
 
 # 每个字段的意图查询关键词
@@ -47,14 +55,18 @@ async def _collect_character_chunks(
         query = f"{character_name} {query_keywords}"
         try:
             result = await _rag_retrieve(
-                db, novel_id, query,
+                db,
+                novel_id,
+                query,
                 character_ids=[character_id],
                 mode="extraction",
                 top_k=5,
             )
             if result.total == 0:
                 result = await _rag_retrieve(
-                    db, novel_id, query,
+                    db,
+                    novel_id,
+                    query,
                     mode="extraction",
                     top_k=5,
                 )
@@ -121,20 +133,29 @@ async def handle_character_extract(db, task):
 
     # 2. 用 RAG 检索含该角色的 chunk（逐字段意图查询）
     all_chunks_text, rag_warnings = await _collect_character_chunks(
-        db, novel_id, character_id, character.name,
+        db,
+        novel_id,
+        character_id,
+        character.name,
     )
 
     if not all_chunks_text:
         indexed = await _index_existing_drafts_for_character(
-            db, novel_id, character.name,
+            db,
+            novel_id,
+            character.name,
         )
         if indexed:
             logger.info(
                 "Backfilled %d RAG chunks for character %s before extraction",
-                indexed, character.name,
+                indexed,
+                character.name,
             )
             all_chunks_text, retry_warnings = await _collect_character_chunks(
-                db, novel_id, character_id, character.name,
+                db,
+                novel_id,
+                character_id,
+                character.name,
             )
             rag_warnings.extend(retry_warnings)
 
@@ -150,10 +171,11 @@ async def handle_character_extract(db, task):
     chunk_context = "\n\n---\n\n".join(all_chunks_text)
 
     # 3. 调用 LLM 结构化抽取
+    from pydantic import BaseModel
+
     from core.config import get_settings
     from infrastructure.llm.client import LLMClient
     from infrastructure.llm.schemas import LLMCallRequest
-    from pydantic import BaseModel
 
     class _CharacterExtractOutput(BaseModel):
         role: str | None = None
@@ -168,13 +190,13 @@ async def handle_character_extract(db, task):
         voice_style: str | None = None
 
     existing_info = "\n".join(
-        f"{f}: {getattr(character, f, '') or '(空)'}"
-        for f in _EXTRACTABLE_FIELDS
+        f"{f}: {getattr(character, f, '') or '(空)'}" for f in _EXTRACTABLE_FIELDS
     )
 
     from infrastructure.llm.prompt_loader import load_prompt
 
-    system_prompt = load_prompt("extract_character",
+    system_prompt = load_prompt(
+        "extract_character",
         character_name=character.name,
         existing_info=existing_info,
     )
@@ -194,23 +216,35 @@ async def handle_character_extract(db, task):
     extract_result = None
     for attempt in range(LLM_RETRY_MAX_ATTEMPTS):
         try:
-            extract_result = await llm.generate_structured(request, _CharacterExtractOutput)
+            extract_result = await llm.generate_structured(
+                request, _CharacterExtractOutput
+            )
             break
         except Exception as exc:
             if attempt < LLM_RETRY_MAX_ATTEMPTS - 1:
-                delay = LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                delay = LLM_RETRY_BASE_DELAY * (2**attempt)
                 logger.warning(
                     "LLM extraction attempt %d/%d failed for %s, retrying in %.1fs: %s",
-                    attempt + 1, LLM_RETRY_MAX_ATTEMPTS, character.name, delay, exc,
+                    attempt + 1,
+                    LLM_RETRY_MAX_ATTEMPTS,
+                    character.name,
+                    delay,
+                    exc,
                 )
                 await asyncio.sleep(delay)
             else:
-                logger.error("LLM extraction failed for %s after %d attempts: %s", character.name, LLM_RETRY_MAX_ATTEMPTS, exc)
+                logger.error(
+                    "LLM extraction failed for %s after %d attempts: %s",
+                    character.name,
+                    LLM_RETRY_MAX_ATTEMPTS,
+                    exc,
+                )
                 return {
                     "character_id": character_id,
                     "status": "llm_failed",
                     "error": str(exc),
-                    "warnings": rag_warnings + ["LLM 抽取失败，本次生成人物档案可能不准确"],
+                    "warnings": rag_warnings
+                    + ["LLM 抽取失败，本次生成人物档案可能不准确"],
                 }
 
     if extract_result is None:
@@ -238,7 +272,7 @@ async def handle_character_extract(db, task):
     char = await char_service.get_character(db, character_id, novel_id=novel_id)
     current_meta = dict(char.meta or {})
     current_meta["ai_suggestions"] = suggestions
-    current_meta["ai_suggestions_at"] = (await _now_iso())
+    current_meta["ai_suggestions_at"] = await _now_iso()
 
     update_data = CharacterUpdate(meta=current_meta)
     await char_service.update_character(db, character_id, update_data, novel_id=novel_id)
@@ -246,7 +280,9 @@ async def handle_character_extract(db, task):
 
     logger.info(
         "Extracted %d fields for character %s: %s",
-        len(suggestions), character.name, list(suggestions.keys()),
+        len(suggestions),
+        character.name,
+        list(suggestions.keys()),
     )
 
     return {
@@ -259,5 +295,6 @@ async def handle_character_extract(db, task):
 
 async def _now_iso() -> str:
     """返回当前时间的 ISO 格式字符串"""
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+
+    return datetime.now(UTC).isoformat()

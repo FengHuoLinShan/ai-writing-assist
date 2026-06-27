@@ -1,6 +1,7 @@
 """
 记忆记录与提案确认 E2E 测试
 """
+
 from __future__ import annotations
 
 import uuid
@@ -21,22 +22,38 @@ class TestMemoryRecord:
 
     async def test_create_record(self, ctx):
         client, pid = ctx
-        resp = await client.post(f"/api/novels/{pid}/memories/records", json={
-            "novel_id": pid, "memory_type": "event", "summary": "克莱恩穿越事件",
-            "chapter_index": 1, "visibility": "author_safe",
-        })
+        resp = await client.post(
+            f"/api/novels/{pid}/memories/records",
+            json={
+                "novel_id": pid,
+                "memory_type": "event",
+                "summary": "克莱恩穿越事件",
+                "chapter_index": 1,
+                "visibility": "author_safe",
+            },
+        )
         assert resp.status_code == 201
 
     async def test_list_records(self, ctx):
         client, pid = ctx
-        await client.post(f"/api/novels/{pid}/memories/records", json={
-            "novel_id": pid, "memory_type": "event", "summary": "记忆1",
-            "chapter_index": 1,
-        })
-        await client.post(f"/api/novels/{pid}/memories/records", json={
-            "novel_id": pid, "memory_type": "event", "summary": "记忆2",
-            "chapter_index": 2,
-        })
+        await client.post(
+            f"/api/novels/{pid}/memories/records",
+            json={
+                "novel_id": pid,
+                "memory_type": "event",
+                "summary": "记忆1",
+                "chapter_index": 1,
+            },
+        )
+        await client.post(
+            f"/api/novels/{pid}/memories/records",
+            json={
+                "novel_id": pid,
+                "memory_type": "event",
+                "summary": "记忆2",
+                "chapter_index": 2,
+            },
+        )
         resp = await client.get(f"/api/novels/{pid}/memories/records")
         assert resp.status_code == 200
         items = resp.json().get("items", [])
@@ -56,6 +73,7 @@ class TestMemoryMissingFlows:
         pid = meta["project_id"]
         pid_uuid = uuid.UUID(pid)
         from modules.memory.models import MemoryUpdateProposal
+
         proposal = MemoryUpdateProposal(
             novel_id=pid_uuid,
             proposal_type="create_memory",
@@ -97,6 +115,7 @@ class TestMemoryMissingFlows:
         client, pid, _, db_session = ctx
         pid_uuid = uuid.UUID(pid)
         from modules.memory.models import MemoryUpdateProposal
+
         proposal = MemoryUpdateProposal(
             novel_id=pid_uuid,
             proposal_type="create_memory",

@@ -30,10 +30,10 @@ from modules.memory.schemas import (
 )
 from modules.memory.services import MemoryService
 
-
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def repo() -> MemoryRecordRepository:
@@ -108,6 +108,7 @@ def sample_extraction_result() -> dict[str, list[dict[str, Any]]]:
 # ============================================================
 # MemoryRecordRepository 测试
 # ============================================================
+
 
 class TestMemoryRecordRepository:
     """测试记忆记录数据访问层"""
@@ -297,9 +298,7 @@ class TestMemoryRecordRepository:
         )
         await db_session.flush()
 
-        records = await repo.get_by_entity(
-            db_session, nid, uuid.UUID(hex=entity_id)
-        )
+        records = await repo.get_by_entity(db_session, nid, uuid.UUID(hex=entity_id))
         assert len(records) == 1
         assert records[0].summary == "关联实体的记忆"
 
@@ -307,6 +306,7 @@ class TestMemoryRecordRepository:
 # ============================================================
 # MemoryProposalRepository 测试
 # ============================================================
+
 
 class TestMemoryProposalRepository:
     """测试记忆提案数据访问层"""
@@ -375,9 +375,7 @@ class TestMemoryProposalRepository:
         )
 
         # 批准
-        decided = await proposal_repo.decide(
-            db_session, proposal.id, decision="approved"
-        )
+        decided = await proposal_repo.decide(db_session, proposal.id, decision="approved")
         assert decided is not None
         assert decided.decision == "approved"
         assert decided.decided_at is not None
@@ -386,6 +384,7 @@ class TestMemoryProposalRepository:
 # ============================================================
 # MemoryService 测试
 # ============================================================
+
 
 class TestMemoryService:
     """测试记忆业务逻辑层"""
@@ -490,6 +489,7 @@ class TestMemoryService:
 # Facade 测试
 # ============================================================
 
+
 class TestMemoryFacade:
     """测试对外入口"""
 
@@ -569,9 +569,7 @@ class TestMemoryFacade:
         assert len(proposals) == 2
 
         # 确认第一个提案
-        result = await confirm_memory_proposal(
-            db_session, proposals[0].id, novel_id
-        )
+        result = await confirm_memory_proposal(db_session, proposals[0].id, novel_id)
         assert result.summary is not None
         assert result.memory_type == "event"
         assert result.importance == 0.8
@@ -581,8 +579,8 @@ class TestMemoryFacade:
 # ChapterStateExtraction Schema 测试
 # ============================================================
 
-class TestChapterStateExtraction:
 
+class TestChapterStateExtraction:
     def test_chapter_state_extraction_valid(self) -> None:
         extraction = ChapterStateExtraction(
             summary="主角前往北境",
@@ -633,7 +631,6 @@ class TestChapterStateExtraction:
 
 
 class TestGeoMutationsDispatch:
-
     @pytest.mark.asyncio
     async def test_confirm_proposal_with_character_shift(
         self,
@@ -654,7 +651,8 @@ class TestGeoMutationsDispatch:
         entity_repo = WorldEntityRepository()
         nid = uuid.UUID(hex=novel_id)
         loc = await entity_repo.create(
-            db_session, nid,
+            db_session,
+            nid,
             WorldEntityCreate(entity_type="location", name="炎城", status="canonical"),
         )
 
@@ -683,7 +681,9 @@ class TestGeoMutationsDispatch:
 
         service = MemoryService()
         result = await service.confirm_memory_proposal(
-            db_session, str(proposal.id), novel_id,
+            db_session,
+            str(proposal.id),
+            novel_id,
         )
         assert result.summary == "林动前往炎城"
 
@@ -699,17 +699,22 @@ class TestGeoMutationsDispatch:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.repositories import WorldEntityRepository, RelationshipRepository
+        from modules.world.repositories import (
+            RelationshipRepository,
+            WorldEntityRepository,
+        )
         from modules.world.schemas import WorldEntityCreate
 
         entity_repo = WorldEntityRepository()
         nid = uuid.UUID(hex=novel_id)
         faction = await entity_repo.create(
-            db_session, nid,
+            db_session,
+            nid,
             WorldEntityCreate(entity_type="faction", name="血狼帮", status="canonical"),
         )
         loc = await entity_repo.create(
-            db_session, nid,
+            db_session,
+            nid,
             WorldEntityCreate(entity_type="location", name="炎城", status="canonical"),
         )
 
@@ -739,14 +744,20 @@ class TestGeoMutationsDispatch:
 
         service = MemoryService()
         result = await service.confirm_memory_proposal(
-            db_session, str(proposal.id), novel_id,
+            db_session,
+            str(proposal.id),
+            novel_id,
         )
         assert result.summary == "血狼帮驻扎炎城"
 
         rel_repo = RelationshipRepository()
         rels, total = await rel_repo.get_by_novel(db_session, nid)
         assert total >= 1
-        matched = [r for r in rels if r.source_id == str(faction.id) and r.target_id == str(loc.id)]
+        matched = [
+            r
+            for r in rels
+            if r.source_id == str(faction.id) and r.target_id == str(loc.id)
+        ]
         assert len(matched) == 1
         assert matched[0].relation_type == "stationed_at"
 
@@ -783,7 +794,9 @@ class TestGeoMutationsDispatch:
 
         service = MemoryService()
         result = await service.confirm_memory_proposal(
-            db_session, str(proposal.id), novel_id,
+            db_session,
+            str(proposal.id),
+            novel_id,
         )
         assert result.summary == "不存在的角色位移"
         assert result.memory_type == "chapter_state"
@@ -796,10 +809,10 @@ class TestGeoMutationsDispatch:
     ) -> None:
         from modules.character.repositories import CharacterRepository
         from modules.character.schemas import CharacterCreate
-        from modules.world.repositories import WorldEntityRepository
-        from modules.world.schemas import WorldEntityCreate
         from modules.outline.repositories import ChapterCardRepository
         from modules.outline.schemas import ChapterCardCreate
+        from modules.world.repositories import WorldEntityRepository
+        from modules.world.schemas import WorldEntityCreate
 
         char_repo = CharacterRepository()
         char = await char_repo.create(
@@ -810,17 +823,20 @@ class TestGeoMutationsDispatch:
         entity_repo = WorldEntityRepository()
         nid = uuid.UUID(hex=novel_id)
         faction = await entity_repo.create(
-            db_session, nid,
+            db_session,
+            nid,
             WorldEntityCreate(entity_type="faction", name="血狼帮", status="canonical"),
         )
         loc = await entity_repo.create(
-            db_session, nid,
+            db_session,
+            nid,
             WorldEntityCreate(entity_type="location", name="炎城", status="canonical"),
         )
 
         chapter_repo = ChapterCardRepository()
         card = await chapter_repo.create(
-            db_session, nid,
+            db_session,
+            nid,
             ChapterCardCreate(
                 chapter_index=7,
                 chapter_goal="目标",
@@ -862,7 +878,9 @@ class TestGeoMutationsDispatch:
 
         service = MemoryService()
         result = await service.confirm_memory_proposal(
-            db_session, str(proposal.id), novel_id,
+            db_session,
+            str(proposal.id),
+            novel_id,
         )
         assert result.summary == "林动抵达炎城，血狼帮驻扎"
 

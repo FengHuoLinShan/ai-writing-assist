@@ -22,7 +22,9 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "writing_drafts"
     __table_args__ = (
         UniqueConstraint(
-            "novel_id", "chapter_index", "version_number",
+            "novel_id",
+            "chapter_index",
+            "version_number",
             name="uq_writing_draft_version",
         ),
         {"comment": "正文草稿"},

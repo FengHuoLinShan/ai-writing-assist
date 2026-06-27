@@ -10,21 +10,14 @@ from __future__ import annotations
 import heapq
 import logging
 import re
-import uuid
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.geo.contracts import (
-    GeoContextBundle as GeoContextContract,
-    GeoEdgeContract,
-    GeoEraContract,
-    GeoLocationContract,
     RouteCalculationResult,
-    TravelConstraintContract,
 )
 from modules.geo.repositories import (
     GeoEdgeRepository,
@@ -51,8 +44,17 @@ from shared.utils import parse_uuid
 logger = logging.getLogger(__name__)
 
 _CHINESE_NUM_MAP = {
-    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
     "半": 0.5,
 }
 
@@ -78,6 +80,7 @@ def _parse_chinese_num(text: str) -> float | None:
 # GeoLocation 服务
 # ============================================================
 
+
 class GeoLocationService:
     """地理地点业务服务"""
 
@@ -85,7 +88,6 @@ class GeoLocationService:
         self._repo = GeoLocationRepository()
         self._edge_repo = GeoEdgeRepository()
         self._era_repo = GeoEraRepository()
-
 
     async def create_location(
         self,
@@ -126,7 +128,11 @@ class GeoLocationService:
         nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_multi(
-            db, nid, skip=skip, limit=limit, location_level=location_level,
+            db,
+            nid,
+            skip=skip,
+            limit=limit,
+            location_level=location_level,
         )
         return [GeoLocationResponse.model_validate(loc) for loc in items], total
 
@@ -238,6 +244,7 @@ class GeoLocationService:
 # GeoEdge 服务
 # ============================================================
 
+
 class GeoEdgeService:
     """地理关系边业务服务"""
 
@@ -337,10 +344,10 @@ class GeoEdgeService:
             )
 
 
-
 # ============================================================
 # GeoEra 服务
 # ============================================================
+
 
 class GeoEraService:
     """历史时期业务服务"""
@@ -429,10 +436,10 @@ class GeoEraService:
             )
 
 
-
 # ============================================================
 # 复合查询服务
 # ============================================================
+
 
 class GeoQueryService:
     """地理复合查询服务 — 处理跨表查询和上下文构建"""
@@ -479,9 +486,7 @@ class GeoQueryService:
             if anc.id != lid:
                 parent_locations.append(GeoLocationResponse.model_validate(anc))
 
-        child_responses = [
-            GeoLocationResponse.model_validate(c) for c in children
-        ]
+        child_responses = [GeoLocationResponse.model_validate(c) for c in children]
         edge_responses = [GeoEdgeResponse.model_validate(e) for e in edges]
         era_states: list[dict] = []
         current_era_response = None
@@ -512,9 +517,7 @@ class GeoQueryService:
             current_era_response = GeoEraResponse.model_validate(era)
 
         return GeoContextBundle(
-            location=GeoLocationResponse.model_validate(location)
-            if location
-            else None,
+            location=GeoLocationResponse.model_validate(location) if location else None,
             parent_locations=parent_locations,
             child_locations=child_responses,
             edges=edge_responses,
@@ -695,12 +698,14 @@ class GeoQueryService:
                             loc_era_state = es
                             break
 
-                entry["locations"].append({
-                    "location_id": str(loc.id),
-                    "location_name": loc.summary or str(loc.id),
-                    "location_level": loc.location_level,
-                    "era_state": loc_era_state or {},
-                })
+                entry["locations"].append(
+                    {
+                        "location_id": str(loc.id),
+                        "location_name": loc.summary or str(loc.id),
+                        "location_level": loc.location_level,
+                        "era_state": loc_era_state or {},
+                    }
+                )
 
             era_summaries.append(entry)
 
@@ -718,6 +723,7 @@ class GeoQueryService:
         location_id: str,
     ) -> list[dict]:
         from modules.world.facade import get_location_factions as world_get_factions
+
         return await world_get_factions(db, novel_id, location_id)
 
     async def get_location_characters(
@@ -727,6 +733,7 @@ class GeoQueryService:
         location_id: str,
     ) -> list[dict]:
         from modules.character.facade import get_characters_at_location
+
         return await get_characters_at_location(db, novel_id, location_id)
 
     # ============================================================
@@ -737,6 +744,7 @@ class GeoQueryService:
 # ============================================================
 # 地理拓扑服务
 # ============================================================
+
 
 class GeoTopologyService:
     """地理拓扑服务 — 动态图编译与最短路径计算"""
@@ -757,25 +765,25 @@ class GeoTopologyService:
         except ValueError:
             pass
 
-        m = re.match(r'^([一二两三四五六七八九十半\d]+)\s*[天日]', text)
+        m = re.match(r"^([一二两三四五六七八九十半\d]+)\s*[天日]", text)
         if m:
             num_str = m.group(1)
             val = _parse_chinese_num(num_str)
             if val is not None:
                 return val * 24.0
 
-        m = re.match(r'^([一二两三四五六七八九十半\d]+)\s*小时', text)
+        m = re.match(r"^([一二两三四五六七八九十半\d]+)\s*小时", text)
         if m:
             num_str = m.group(1)
             val = _parse_chinese_num(num_str)
             if val is not None:
                 return val
 
-        m = re.match(r'^(\d+(?:\.\d+)?)\s*d(?:ays?)?', text, re.IGNORECASE)
+        m = re.match(r"^(\d+(?:\.\d+)?)\s*d(?:ays?)?", text, re.IGNORECASE)
         if m:
             return float(m.group(1)) * 24.0
 
-        m = re.match(r'^(\d+(?:\.\d+)?)\s*h(?:ours?)?', text, re.IGNORECASE)
+        m = re.match(r"^(\d+(?:\.\d+)?)\s*h(?:ours?)?", text, re.IGNORECASE)
         if m:
             return float(m.group(1))
 
@@ -843,7 +851,7 @@ class GeoTopologyService:
         if source_id not in graph:
             return RouteCalculationResult(
                 is_reachable=False,
-                total_hours=float('inf'),
+                total_hours=float("inf"),
                 path=[],
                 reason="起点在当前章节无通路连通外部",
             )
@@ -876,14 +884,14 @@ class GeoTopologyService:
                 if v in visited:
                     continue
                 new_dist = d + w
-                if new_dist < dist.get(v, float('inf')):
+                if new_dist < dist.get(v, float("inf")):
                     dist[v] = new_dist
                     prev[v] = u
                     heapq.heappush(pq, (new_dist, v))
 
         return RouteCalculationResult(
             is_reachable=False,
-            total_hours=float('inf'),
+            total_hours=float("inf"),
             path=[],
             reason="受当前章节历史事件物理阻断，路线不通",
         )
@@ -900,4 +908,3 @@ class GeoTopologyService:
         all_edges, _ = await self._edge_repo.get_multi(db, nid, skip=0, limit=10000)
         graph = await self._compile_active_graph(db, novel_id, chapter_index, all_edges)
         return self._dijkstra(graph, source_location_id, target_location_id)
-

@@ -8,7 +8,7 @@ FastAPI 依赖注入
 
 from __future__ import annotations
 
-from typing import Annotated, AsyncGenerator
+from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 # --- 可选：项目上下文依赖 ---
 # 当需要从请求路径中提取 novel_id 并验证项目存在时使用
 # 具体逻辑由 modules/project 提供，此处只定义接口骨架
+
 
 class CurrentProject:
     """当前请求关联的项目上下文（由 Project 模块填充）"""

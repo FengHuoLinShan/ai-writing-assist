@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -17,26 +17,25 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.main import app
-from core.base import Base
-from core.dependencies import get_db
-
+import infrastructure.tasks.models  # noqa: F401
+import modules.character.models  # noqa: F401
+import modules.geo.models  # noqa: F401
 
 # ============================================================
 # 导入所有 ORM 模型注册到 Base.metadata
 # ============================================================
 import modules.imports.models  # noqa: F401
-import modules.project.models  # noqa: F401
-import modules.world.models  # noqa: F401
-import modules.character.models  # noqa: F401
-import modules.geo.models  # noqa: F401
 import modules.memory.models  # noqa: F401
-import modules.timeline.models  # noqa: F401
 import modules.outline.models  # noqa: F401
+import modules.project.models  # noqa: F401
 import modules.rag.models  # noqa: F401
 import modules.review.models  # noqa: F401
+import modules.timeline.models  # noqa: F401
+import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-import infrastructure.tasks.models  # noqa: F401
+from app.main import app
+from core.base import Base
+from core.dependencies import get_db
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -76,11 +75,13 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 # 共享 fixtures — 常用的测试数据工厂
 # ============================================================
 
+
 @pytest_asyncio.fixture
 async def test_project_id(db_session: AsyncSession) -> str:
     """创建一个测试项目并返回其 ID"""
-    from modules.project.models import Project
     import uuid
+
+    from modules.project.models import Project
 
     pid = uuid.uuid4()
     p = Project(
@@ -99,8 +100,9 @@ async def test_project_id(db_session: AsyncSession) -> str:
 @pytest_asyncio.fixture
 async def test_entity_id(db_session: AsyncSession, test_project_id: str) -> str:
     """创建一个测试世界对象并返回其 ID"""
-    from modules.world.models import WorldEntity
     import uuid
+
+    from modules.world.models import WorldEntity
 
     eid = uuid.uuid4()
     e = WorldEntity(
@@ -119,8 +121,9 @@ async def test_entity_id(db_session: AsyncSession, test_project_id: str) -> str:
 @pytest_asyncio.fixture
 async def test_character_id(db_session: AsyncSession, test_project_id: str) -> str:
     """创建一个测试人物并返回其 ID"""
-    from modules.character.models import Character
     import uuid
+
+    from modules.character.models import Character
 
     cid = uuid.uuid4()
     c = Character(

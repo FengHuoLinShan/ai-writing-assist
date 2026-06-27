@@ -1,6 +1,7 @@
 """
 复查报告 E2E 测试
 """
+
 from __future__ import annotations
 
 import pytest_asyncio
@@ -19,11 +20,21 @@ class TestReviewCRUD:
 
     async def test_review_entity_candidates(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/review", json={
-            "novel_id": pid, "target_type": "entity_candidates",
-            "candidate_payload": {"name": "测试", "entity_type": "item", "importance": 0.5},
-        })
-        assert resp.status_code in (201, 500), f"review: {resp.status_code} {resp.text[:200]}"
+        resp = await client.post(
+            "/api/review",
+            json={
+                "novel_id": pid,
+                "target_type": "entity_candidates",
+                "candidate_payload": {
+                    "name": "测试",
+                    "entity_type": "item",
+                    "importance": 0.5,
+                },
+            },
+        )
+        assert resp.status_code in (201, 500), (
+            f"review: {resp.status_code} {resp.text[:200]}"
+        )
 
 
 class TestReviewMissingFlows:
@@ -35,11 +46,18 @@ class TestReviewMissingFlows:
 
     async def test_run_review(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/review", json={
-            "novel_id": pid,
-            "target_type": "entity_candidates",
-            "candidate_payload": {"name": "测试实体", "entity_type": "item", "importance": 0.5},
-        })
+        resp = await client.post(
+            "/api/review",
+            json={
+                "novel_id": pid,
+                "target_type": "entity_candidates",
+                "candidate_payload": {
+                    "name": "测试实体",
+                    "entity_type": "item",
+                    "importance": 0.5,
+                },
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert "id" in data
@@ -48,11 +66,18 @@ class TestReviewMissingFlows:
 
     async def test_review_detail(self, ctx):
         client, pid = ctx
-        create_resp = await client.post("/api/review", json={
-            "novel_id": pid,
-            "target_type": "entity_candidates",
-            "candidate_payload": {"name": "详情测试实体", "entity_type": "character_ref", "importance": 0.7},
-        })
+        create_resp = await client.post(
+            "/api/review",
+            json={
+                "novel_id": pid,
+                "target_type": "entity_candidates",
+                "candidate_payload": {
+                    "name": "详情测试实体",
+                    "entity_type": "character_ref",
+                    "importance": 0.7,
+                },
+            },
+        )
         assert create_resp.status_code == 201
         review_id = create_resp.json()["id"]
         resp = await client.get(f"/api/review/{review_id}?novel_id={pid}")

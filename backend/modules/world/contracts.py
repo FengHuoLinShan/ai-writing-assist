@@ -7,7 +7,14 @@ World 对外契约
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from modules.world.schemas import (  # noqa: F401
+    DuplicateSuggestionResult,
+    WorldContextBundle,
+    WorldEntityContext,
+    WorldEntityResponse,
+)
 
 
 @dataclass(frozen=True)
@@ -122,13 +129,3 @@ class DuplicateSuggestion:
     """匹配方法（exact_name/trgm_similar/vector_similar/fuzzy_name）"""
     action: str
     """建议动作（alias_of_existing/merge_with_existing/needs_user_decision）"""
-
-
-# facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.world.schemas import (  # noqa: F401
-    DuplicateSuggestionResult,  # facade.find_duplicate_entity_candidates / find_similar_entities 返回
-    WorldContextBundle,         # facade.get_world_context 返回
-    WorldEntityContext,         # facade.expand_related_entities 返回
-    WorldEntityResponse,        # facade.merge_candidate_into_entity 返回
-)
-

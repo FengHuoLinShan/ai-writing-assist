@@ -15,34 +15,33 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin
 
 # 尝试导入 pgvector Vector 类型；不可用时回退到 Text
 try:
-    from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
+    from pgvector.sqlalchemy import Vector as _Vector  # type: ignore[import-untyped]
 
     _HAS_PGVECTOR = True
 except ImportError:
+    _Vector = None
     _HAS_PGVECTOR = False
 
 
 def _vector_column(dim: int = 1024):
     """返回 pgvector Vector 列或 Text 回退列（用于 SQLite 测试）"""
     if _HAS_PGVECTOR:
-        from pgvector.sqlalchemy import Vector
-
-        return mapped_column(Vector(dim), nullable=True)
+        return mapped_column(_Vector(dim), nullable=True)
     return mapped_column(Text, nullable=True, comment="embedding 向量（JSON 序列化）")
 
 
 # ============================================================
 # WorldEntity — 世界对象正史库
 # ============================================================
+
 
 class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """世界对象 — 需要长期维护的结构化创作资产"""
@@ -127,6 +126,7 @@ class WorldEntity(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # Relationship — 对象间关系
 # ============================================================
 
+
 class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """世界对象/人物之间的关系边"""
 
@@ -191,6 +191,7 @@ class Relationship(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
 # EntityAlias — 对象别名
 # ============================================================
 
+
 class EntityAlias(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """世界对象的别名/称号/化名
 
@@ -234,12 +235,15 @@ class EntityAlias(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     # 所属实体通过 EntityAliasRepository 查询，不定义 ORM relationship
 
     def __repr__(self) -> str:
-        return f"<EntityAlias id={self.id} alias={self.alias!r} → entity={self.entity_id}>"
+        return (
+            f"<EntityAlias id={self.id} alias={self.alias!r} → entity={self.entity_id}>"
+        )
 
 
 # ============================================================
 # EntityCandidate — 候选对象池
 # ============================================================
+
 
 class EntityCandidate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     """AI 生成的世界对象候选
@@ -312,4 +316,7 @@ class EntityCandidate(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     embedding = _vector_column()
 
     def __repr__(self) -> str:
-        return f"<EntityCandidate id={self.id} name={self.name!r} action={self.suggested_action}>"
+        return (
+            f"<EntityCandidate id={self.id} name={self.name!r} "
+            f"action={self.suggested_action}>"
+        )

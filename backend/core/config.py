@@ -23,6 +23,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Final
 
+DEFAULT_DATABASE_URL: Final[str] = (
+    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine"
+)
+DEFAULT_LLM_BASE_URL: Final[str] = "https://opencode.ai/zen/go/v1"
+DEFAULT_LLM_MODEL: Final[str] = "deepseek-v4-flash"
+
 # 尝试加载 .env 文件（dev 环境）
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 if _env_path.exists():
@@ -46,34 +52,43 @@ class Settings:
     """应用全局配置，不可变对象，通过 get_settings() 获取"""
 
     # --- 数据库 ---
-    database_url: str = field(default_factory=lambda: _env(
-        "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/novel_engine",
-    ))
+    database_url: str = field(
+        default_factory=lambda: _env(
+            "DATABASE_URL",
+            DEFAULT_DATABASE_URL,
+        )
+    )
     pool_size: int = int(_env("POOL_SIZE", "10"))
     max_overflow: int = int(_env("MAX_OVERFLOW", "20"))
     echo_sql: bool = _env("ECHO_SQL", "false").lower() == "true"
 
     # --- LLM ---
     llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY", ""))
-    llm_base_url: str = field(default_factory=lambda: _env(
-        "LLM_BASE_URL", "https://api.openai.com/v1",
-    ))
-    llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", "gpt-4o"))
+    llm_base_url: str = field(
+        default_factory=lambda: _env(
+            "LLM_BASE_URL",
+            DEFAULT_LLM_BASE_URL,
+        )
+    )
+    llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", DEFAULT_LLM_MODEL))
     llm_max_tokens: int = int(_env("LLM_MAX_TOKENS", "4096"))
     llm_timeout: int = int(_env("LLM_TIMEOUT", "60"))
 
     # --- Embedding ---
     embedding_dim: int = int(_env("EMBEDDING_DIM", "1024"))
-    embedding_model: str = field(default_factory=lambda: _env(
-        "EMBEDDING_MODEL", "text-embedding-3-large",
-    ))
+    embedding_model: str = field(
+        default_factory=lambda: _env(
+            "EMBEDDING_MODEL",
+            "text-embedding-3-large",
+        )
+    )
 
     # --- CORS ---
-    allowed_origins: list[str] = field(default_factory=lambda: [
-        o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",")
-        if o.strip()
-    ])
+    allowed_origins: list[str] = field(
+        default_factory=lambda: [
+            o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+        ]
+    )
 
     # --- 应用 ---
     app_name: str = "ai-novel-structural-engine"
@@ -82,15 +97,21 @@ class Settings:
     log_level: str = field(default_factory=lambda: _env("LOG_LEVEL", "INFO"))
 
     # --- pgvector ---
-    vector_index_type: str = field(default_factory=lambda: _env(
-        "VECTOR_INDEX_TYPE", "hnsw",
-    ))
-    vector_distance: str = field(default_factory=lambda: _env(
-        "VECTOR_DISTANCE", "vector_cosine_ops",
-    ))
+    vector_index_type: str = field(
+        default_factory=lambda: _env(
+            "VECTOR_INDEX_TYPE",
+            "hnsw",
+        )
+    )
+    vector_distance: str = field(
+        default_factory=lambda: _env(
+            "VECTOR_DISTANCE",
+            "vector_cosine_ops",
+        )
+    )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """获取全局配置单例（缓存避免重复创建）"""
     return Settings()  # noqa: F821

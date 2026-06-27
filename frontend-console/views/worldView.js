@@ -38,6 +38,17 @@ const worldView = {
 
     try {
       if (state.currentProjectId) {
+        await this._reloadWorldLists()
+      }
+    } catch {
+      this._entities = []
+      this._candidates = []
+    }
+  },
+
+  async _reloadWorldLists() {
+    try {
+      if (state.currentProjectId) {
         const data = await api.world.listEntities({ novel_id: state.currentProjectId })
         this._entities = data.items || data || []
       }
@@ -285,19 +296,25 @@ const worldView = {
       }
 
       const isMergeCandidate = c.suggested_action === "alias_of_existing" || c.suggested_action === "merge_with_existing"
+      const targetName = c.suggested_existing_entity_name || ""
+      let actionLabel = actionMap[c.suggested_action] || c.suggested_action
+      if (targetName && c.suggested_action === "alias_of_existing") actionLabel = `作为${targetName}别名`
+      if (targetName && c.suggested_action === "merge_with_existing") actionLabel = `合并到${targetName}`
+      const canPromote = !["temporary_only", "ignore"].includes(c.suggested_action)
+      const ignoreLabel = c.suggested_action === "temporary_only" ? "设为临时" : "忽略"
 
       html += `
         <tr data-id="${esc(c.id || c.candidate_id)}">
           <td>${esc(c.name)}</td>
           <td style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
           <td>${esc(c.importance_score || c.importance || "-")}</td>
-          <td style="color:var(--warning)">${esc(actionMap[c.suggested_action] || c.suggested_action)}</td>
+          <td style="color:var(--warning)">${esc(actionLabel)}</td>
           <td style="display:flex;gap:4px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(c.id || c.candidate_id)}">确认</button>
+            ${canPromote ? `<button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(c.id || c.candidate_id)}">确认</button>` : ""}
             ${isMergeCandidate && c.suggested_existing_entity_name ? `
               <button class="btn btn-sm" data-action="merge-candidate" data-id="${esc(c.id || c.candidate_id)}" data-entity-id="${esc(c.suggested_existing_entity_id)}" data-entity-name="${esc(c.suggested_existing_entity_name)}">合并到</button>
             ` : ""}
-            <button class="btn btn-sm btn-danger" data-action="ignore-candidate" data-id="${esc(c.id || c.candidate_id)}">忽略</button>
+            <button class="btn btn-sm ${c.suggested_action === "temporary_only" ? "" : "btn-danger"}" data-action="ignore-candidate" data-id="${esc(c.id || c.candidate_id)}">${ignoreLabel}</button>
           </td>
         </tr>
       `
@@ -324,6 +341,7 @@ const worldView = {
             novel_id: state.currentProjectId,
           })
           toast(`已合并到「${esc(result.name || targetName)}」`, "success")
+          await this._reloadWorldLists()
           router.navigate("world", "candidates")
         } catch (err) {
           toast(`合并失败：${err.message}`, "error")
@@ -493,10 +511,9 @@ const worldView = {
         if (!eid || !text) { toast("请输入对象 ID 和别名", "warning"); return }
         try {
           await api.world.createAlias({
-            novel_id: state.currentProjectId,
             entity_id: eid, alias: text,
             alias_type: document.getElementById("alias-type")?.value || "name",
-          })
+          }, state.currentProjectId)
           toast("别名已创建", "success")
           router.navigate("world", "aliases")
         } catch (err) { toast(err.message || "创建失败", "error") }
@@ -551,6 +568,7 @@ const worldView = {
               summary: document.getElementById("edit-entity-summary")?.value,
             }, state.currentProjectId)
             toast("已保存", "success")
+            await this._reloadWorldLists()
             router.navigate("world", "objects")
           } catch (err) {
             toast(`保存失败：${err.message}`, "error")
@@ -565,6 +583,7 @@ const worldView = {
       try {
         await api.world.deleteEntity(id, state.currentProjectId)
         toast("已删除", "success")
+        await this._reloadWorldLists()
         router.navigate("world", "objects")
       } catch (err) {
         toast(`删除失败：${err.message}`, "error")
@@ -577,6 +596,10 @@ const worldView = {
     if (!candidate) return
 
     const action = candidate.suggested_action || "create_new"
+    if (action === "temporary_only" || action === "ignore") {
+      this.ignoreCandidate(id)
+      return
+    }
     const actionText = {
       create_new: "创建为新世界对象",
       alias_of_existing: `作为 "${candidate.suggested_existing_entity_name || "已有对象"}" 的别名`,
@@ -589,6 +612,7 @@ const worldView = {
         try {
           await api.world.acceptCandidate(id, state.currentProjectId)
           toast(`候选 "${candidate.name}" 已接受`, "success")
+          await this._reloadWorldLists()
           router.navigate("world", "candidates")
         } catch (err) {
           toast(`处理失败：${err.message}`, "error")
@@ -600,12 +624,16 @@ const worldView = {
 
   ignoreCandidate(id) {
     const candidate = this._candidates.find((c) => (c.id || c.candidate_id) === id)
+    const isTemporary = candidate?.suggested_action === "temporary_only"
     confirmAction(
-      `确定忽略候选 "${candidate?.name || id}"？`,
+      isTemporary
+        ? `将候选 "${candidate?.name || id}" 标记为临时并从候选清洗中移除？`
+        : `确定忽略候选 "${candidate?.name || id}"？`,
       async () => {
         try {
           await api.world.confirmCandidate(id, { suggested_action: "ignore", status: "ignored" }, state.currentProjectId)
-          toast("已忽略", "success")
+          toast(isTemporary ? "已设为临时" : "已忽略", "success")
+          await this._reloadWorldLists()
           router.navigate("world", "candidates")
         } catch (err) {
           toast(`操作失败：${err.message}`, "error")
@@ -693,6 +721,7 @@ const worldView = {
               summary: document.getElementById("create-entity-summary")?.value || "",
             }, state.currentProjectId)
             toast(`对象 "${name}" 已创建`, "success")
+            await this._reloadWorldLists()
             router.navigate("world", "objects")
           } catch (err) {
             toast(`创建失败：${err.message}`, "error")

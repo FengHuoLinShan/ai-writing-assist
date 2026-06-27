@@ -10,8 +10,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, AsyncIterator
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -38,17 +38,13 @@ class DatabaseManager:
     @property
     def engine(self) -> AsyncEngine:
         if self._engine is None:
-            raise RuntimeError(
-                "DatabaseManager not initialized. Call .init() first."
-            )
+            raise RuntimeError("DatabaseManager not initialized. Call .init() first.")
         return self._engine
 
     @property
     def session_factory(self) -> async_sessionmaker[AsyncSession]:
         if self._session_factory is None:
-            raise RuntimeError(
-                "DatabaseManager not initialized. Call .init() first."
-            )
+            raise RuntimeError("DatabaseManager not initialized. Call .init() first.")
         return self._session_factory
 
     def init(self) -> None:

@@ -5,12 +5,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class DeepImportStep(str, Enum):
+class DeepImportStep(StrEnum):
     """深度导入步骤标识"""
 
     extract_world = "extract_world"
@@ -37,4 +37,12 @@ class DeepImportProgress(BaseModel):
     message: str = Field(
         default="",
         description="当前步骤的描述/提示消息",
+    )
+    degraded: bool = Field(
+        default=False,
+        description="是否完成但存在降级或空产出",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="降级或空产出的可读原因",
     )

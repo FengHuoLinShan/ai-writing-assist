@@ -5,7 +5,11 @@
 from __future__ import annotations
 
 from modules.writing.contracts import WritingDraftContract
-from modules.writing.facade import get_draft, get_latest_draft_for_chapter, list_chapter_indices
+from modules.writing.facade import (
+    get_draft,
+    get_latest_draft_for_chapter,
+    list_chapter_indices,
+)
 from modules.writing.models import WritingDraft
 from modules.writing.schemas import (
     DraftListItem,

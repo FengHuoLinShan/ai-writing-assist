@@ -1,6 +1,7 @@
 """
 上下文编译 E2E 测试
 """
+
 from __future__ import annotations
 
 import pytest_asyncio
@@ -19,41 +20,66 @@ class TestContextCompile:
 
     async def test_compile_minimal(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "world", "scope": "project",
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "project",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json() is not None
 
     async def test_compile_full(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "plot", "scope": "full",
-            "chapter_index": 5,
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "plot",
+                "scope": "full",
+                "chapter_index": 5,
+            },
+        )
         assert resp.status_code == 200
 
     async def test_compile_with_entities(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "world", "scope": "chapter",
-            "chapter_index": 1,
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "chapter",
+                "chapter_index": 1,
+            },
+        )
         assert resp.status_code == 200
 
     async def test_render_markdown(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/context/render", json={
-            "novel_id": pid, "task": "world", "scope": "project",
-        })
+        resp = await client.post(
+            "/api/context/render",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "project",
+            },
+        )
         assert resp.status_code == 200
         md = resp.json().get("markdown", resp.text)
         assert len(md) > 50
 
     async def test_reveal_mode_author_safe(self, ctx):
         client, pid = ctx
-        resp = await client.post("/api/context/compile", json={
-            "novel_id": pid, "task": "world", "scope": "full",
-            "reveal_mode": "author_safe",
-        })
+        resp = await client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": pid,
+                "task": "world",
+                "scope": "full",
+                "reveal_mode": "author_safe",
+            },
+        )
         assert resp.status_code == 200

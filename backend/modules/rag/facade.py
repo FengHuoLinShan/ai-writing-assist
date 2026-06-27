@@ -189,10 +189,7 @@ async def retrieve(
         top_k=top_k,
     )
 
-    chunk_contracts = [
-        _to_chunk_contract(chunk, score)
-        for chunk, score in scored_chunks
-    ]
+    chunk_contracts = [_to_chunk_contract(chunk, score) for chunk, score in scored_chunks]
 
     return RagResultBundle(
         chunks=chunk_contracts,

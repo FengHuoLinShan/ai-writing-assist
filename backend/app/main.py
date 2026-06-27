@@ -10,21 +10,35 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from core.config import get_settings
-from core.database import get_manager
+import modules.character.models  # noqa: F401
 
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
 import modules.project.models  # noqa: F401
 import modules.world.models  # noqa: F401
-import modules.character.models  # noqa: F401
+import modules.world.tasks  # noqa: F401 — 注册任务处理器
+from core.config import get_settings
+from core.database import get_manager
+from infrastructure.tasks import api as tasks_api
+from modules.character import api as character_api
+from modules.context import api as context_api
+from modules.geo import api as geo_api
+from modules.imports import api as imports_api
+from modules.memory import api as memory_api
+from modules.outline import api as outline_api
+from modules.project import api as project_api
+from modules.rag import api as rag_api
+from modules.review import api as review_api
+from modules.timeline import api as timeline_api
+from modules.world import api as world_api
+from modules.writing import api as writing_api
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +46,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 生命周期管理
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -123,26 +138,35 @@ app = FastAPI(
 
 class _TimingMiddleware:
     """在响应头注入 X-Request-Time-Ms"""
-    def __init__(self, app: "ASGIApp") -> None:
+
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: "Scope", receive: "Receive", send: "Send") -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         start = time.perf_counter()
+
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 elapsed = time.perf_counter() - start
                 headers = list(message.get("headers", []))
-                headers.append((b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode()))
+                headers.append(
+                    (b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode())
+                )
                 message["headers"] = headers
             await send(message)
+
         try:
             await self.app(scope, receive, send_with_headers)
         except Exception:
             elapsed = time.perf_counter() - start
-            logger.error("%s — unhandled exception after %.1fms", scope.get("path", ""), round(elapsed * 1000, 1))
+            logger.error(
+                "%s — unhandled exception after %.1fms",
+                scope.get("path", ""),
+                round(elapsed * 1000, 1),
+            )
             raise
 
 
@@ -224,6 +248,7 @@ async def health_check():
     try:
         async with manager.session() as sess:
             from sqlalchemy import text
+
             result = await sess.execute(text("SELECT 1"))
             db_ok = result.scalar() == 1
     except Exception as exc:
@@ -239,6 +264,7 @@ async def health_check():
     }
     if status == "degraded":
         from fastapi.responses import JSONResponse
+
         return JSONResponse(status_code=503, content=result)
     return result
 
@@ -274,24 +300,8 @@ async def root():
 # 路由注册
 # ---------------------------------------------------------------------------
 
-# 注意：各模块 router 已自带 prefix（如 /api/projects），
-# 此处 include 时不额外加前缀。
+# 注意：各模块 router 已自带 prefix（如 /api/projects），此处 include 时不额外加前缀。
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
-
-from infrastructure.tasks import api as tasks_api
-from modules.character import api as character_api
-from modules.imports import api as imports_api
-import modules.world.tasks  # noqa: F401 — 注册任务处理器
-from modules.context import api as context_api
-from modules.geo import api as geo_api
-from modules.memory import api as memory_api
-from modules.outline import api as outline_api
-from modules.project import api as project_api
-from modules.rag import api as rag_api
-from modules.review import api as review_api
-from modules.timeline import api as timeline_api
-from modules.world import api as world_api
-from modules.writing import api as writing_api
 
 app.include_router(project_api.router)
 app.include_router(imports_api.router)

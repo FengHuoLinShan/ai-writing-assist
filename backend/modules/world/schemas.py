@@ -12,10 +12,10 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 内部工具
 # ============================================================
+
 
 def _uuid_validator(v: object) -> str:
     """将 UUID 原始值转为字符串"""
@@ -29,6 +29,7 @@ def _uuid_validator(v: object) -> str:
 # ============================================================
 # WorldEntity Schema
 # ============================================================
+
 
 class WorldEntityCreate(BaseModel):
     """创建世界对象请求"""
@@ -144,6 +145,7 @@ class WorldEntityResponse(BaseModel):
 # Relationship Schema
 # ============================================================
 
+
 class RelationshipCreate(BaseModel):
     """创建关系请求"""
 
@@ -235,6 +237,7 @@ class RelationshipResponse(BaseModel):
 # EntityAlias Schema
 # ============================================================
 
+
 class EntityAliasCreate(BaseModel):
     """创建别名请求"""
 
@@ -286,7 +289,7 @@ class EntityAliasResponse(BaseModel):
     entity_id: str
 
     @classmethod
-    def model_validate(cls, obj: object, **kwargs: Any) -> "EntityAliasResponse":
+    def model_validate(cls, obj: object, **kwargs: Any) -> EntityAliasResponse:
         """从 ORM 对象创建响应，自动将 UUID 转为字符串"""
         if hasattr(obj, "__table__"):
             data = {}
@@ -297,6 +300,7 @@ class EntityAliasResponse(BaseModel):
                 data[col.name] = v
             return cls(**data)
         return super().model_validate(obj, **kwargs)
+
     alias: str
     alias_type: str = "name"
     source_chapter_index: int | None = None
@@ -313,6 +317,7 @@ class EntityAliasResponse(BaseModel):
 # ============================================================
 # EntityCandidate Schema
 # ============================================================
+
 
 class EntityCandidateCreate(BaseModel):
     """创建候选对象请求"""
@@ -406,6 +411,7 @@ class EntityCandidateResponse(BaseModel):
     candidate_reason: str | None = None
     suggested_action: str = "needs_user_decision"
     suggested_existing_entity_id: str | None = None
+    suggested_existing_entity_name: str | None = None
     status: str = "pending"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -419,6 +425,7 @@ class EntityCandidateResponse(BaseModel):
 # ============================================================
 # 列表响应
 # ============================================================
+
 
 class WorldEntityListResponse(BaseModel):
     """世界对象列表响应"""
@@ -451,6 +458,7 @@ class EntityCandidateListResponse(BaseModel):
 # ============================================================
 # Facade 输出 Schema（供其他模块读取）
 # ============================================================
+
 
 class WorldEntityContext(BaseModel):
     """世界对象上下文 — 供其他模块读取的简化对象信息"""

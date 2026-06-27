@@ -43,6 +43,7 @@ from modules.world.schemas import (
     WorldEntityResponse,
     WorldEntityUpdate,
 )
+
 # 注意：不导出 Services — 其他模块只能通过 contracts/facade 访问
 # 详见 AI开发规则.md 第 3 节
 

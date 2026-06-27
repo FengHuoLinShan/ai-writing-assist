@@ -69,7 +69,8 @@ class WorldEntityService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             entity_type=entity_type,
             status=status,
             skip=skip,

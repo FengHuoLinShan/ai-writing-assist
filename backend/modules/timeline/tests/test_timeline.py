@@ -25,10 +25,10 @@ from modules.timeline.schemas import (
 )
 from modules.timeline.services import TimelineService
 
-
 # ============================================================
 # Fixtures
 # ============================================================
+
 
 @pytest.fixture
 def repo() -> TimelineEventRepository:
@@ -81,6 +81,7 @@ def sample_event_data_3() -> TimelineEventCreate:
 # ============================================================
 # TimelineEventRepository 测试
 # ============================================================
+
 
 class TestTimelineEventRepository:
     """测试时间线事件数据访问层"""
@@ -195,16 +196,12 @@ class TestTimelineEventRepository:
         await db_session.flush()
 
         # 按角色过滤
-        items, total = await repo.get_multi(
-            db_session, nid, character_id=char_id
-        )
+        items, total = await repo.get_multi(db_session, nid, character_id=char_id)
         assert total == 1
         assert items[0].title == "事件A"
 
         # 按状态过滤
-        items, total = await repo.get_multi(
-            db_session, nid, status="candidate"
-        )
+        items, total = await repo.get_multi(db_session, nid, status="candidate")
         assert total == 1
         assert items[0].title == "事件B"
 
@@ -268,9 +265,7 @@ class TestTimelineEventRepository:
         await repo.create(
             db_session,
             nid,
-            TimelineEventCreate(
-                title="事件", summary="测试", order_index=500
-            ),
+            TimelineEventCreate(title="事件", summary="测试", order_index=500),
         )
         await db_session.flush()
 
@@ -289,16 +284,12 @@ class TestTimelineEventRepository:
         e1 = await repo.create(
             db_session,
             nid,
-            TimelineEventCreate(
-                title="事件一", summary="第一", order_index=200
-            ),
+            TimelineEventCreate(title="事件一", summary="第一", order_index=200),
         )
         e2 = await repo.create(
             db_session,
             nid,
-            TimelineEventCreate(
-                title="事件二", summary="第二", order_index=100
-            ),
+            TimelineEventCreate(title="事件二", summary="第二", order_index=100),
         )
         await db_session.flush()
 
@@ -312,6 +303,7 @@ class TestTimelineEventRepository:
 # ============================================================
 # TimelineService 测试
 # ============================================================
+
 
 class TestTimelineService:
     """测试时间线业务逻辑层"""
@@ -412,6 +404,7 @@ class TestTimelineService:
 # Facade 测试
 # ============================================================
 
+
 class TestTimelineFacade:
     """测试对外入口"""
 
@@ -451,9 +444,7 @@ class TestTimelineFacade:
         )
         await db_session.flush()
 
-        ctx = await get_relevant_timeline_context(
-            db_session, novel_id, chapter_index=2
-        )
+        ctx = await get_relevant_timeline_context(db_session, novel_id, chapter_index=2)
         assert len(ctx) >= 1
 
     @pytest.mark.asyncio
@@ -587,8 +578,8 @@ class TestTimelineFacade:
 # get_geo_effects_up_to_chapter 测试
 # ============================================================
 
-class TestGetGeoEffects:
 
+class TestGetGeoEffects:
     @pytest.mark.asyncio
     async def test_returns_geo_effects_from_canonical_events_up_to_chapter(
         self,
@@ -637,7 +628,9 @@ class TestGetGeoEffects:
         await db_session.flush()
 
         effects = await get_geo_effects_up_to_chapter(
-            db_session, novel_id, chapter_index=3,
+            db_session,
+            novel_id,
+            chapter_index=3,
         )
         assert len(effects) == 2
         assert effects[0]["location_id"] == "loc-1"
@@ -667,7 +660,9 @@ class TestGetGeoEffects:
         await db_session.flush()
 
         effects = await get_geo_effects_up_to_chapter(
-            db_session, novel_id, chapter_index=5,
+            db_session,
+            novel_id,
+            chapter_index=5,
         )
         assert len(effects) == 0
 
@@ -707,7 +702,9 @@ class TestGetGeoEffects:
         await db_session.flush()
 
         effects = await get_geo_effects_up_to_chapter(
-            db_session, novel_id, chapter_index=5,
+            db_session,
+            novel_id,
+            chapter_index=5,
         )
         assert len(effects) == 1
         assert effects[0]["location_id"] == "loc-1"
@@ -737,10 +734,14 @@ class TestGetGeoEffects:
         await db_session.flush()
 
         facade_result = await get_geo_effects_up_to_chapter(
-            db_session, novel_id, chapter_index=3,
+            db_session,
+            novel_id,
+            chapter_index=3,
         )
         service_result = await service.get_geo_effects_up_to_chapter(
-            db_session, novel_id, chapter_index=3,
+            db_session,
+            novel_id,
+            chapter_index=3,
         )
         assert facade_result == service_result
         assert len(facade_result) == 1
@@ -781,7 +782,9 @@ class TestGetGeoEffects:
         await db_session.flush()
 
         effects = await get_geo_effects_up_to_chapter(
-            db_session, novel_id, chapter_index=1,
+            db_session,
+            novel_id,
+            chapter_index=1,
         )
         assert len(effects) == 2
         assert effects[0]["location_id"] == "loc-global"

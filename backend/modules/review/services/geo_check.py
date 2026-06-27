@@ -59,6 +59,7 @@ class GeoCheck(CheckStrategy):
                 continue
             try:
                 from modules.geo.facade import get_location_context
+
                 await get_location_context(db, novel_id, lid, depth=0)
             except Exception:
                 warnings.append(

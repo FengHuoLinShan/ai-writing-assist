@@ -24,7 +24,9 @@ class TestCandidateCleaningFlow:
     """AI长篇小说结构化创作引擎_REVIEW_RULES_v1.0 §19.2 流程1"""
 
     async def test_candidate_to_alias_flow(
-        self, db_session: AsyncSession, test_project_id: str,
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
     ):
         novel_id = uuid.UUID(hex=test_project_id)
         nid_str = test_project_id
@@ -33,11 +35,15 @@ class TestCandidateCleaningFlow:
         repo = WorldEntityRepository()
         from modules.world.schemas import WorldEntityCreate
 
-        entity = await repo.create(db_session, novel_id, WorldEntityCreate(
-            name="残缺王印",
-            entity_type="item",
-            summary="旧王朝遗物,带有神秘力量",
-        ))
+        entity = await repo.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                name="残缺王印",
+                entity_type="item",
+                summary="旧王朝遗物,带有神秘力量",
+            ),
+        )
         entity_id = str(entity.id)
 
         # Step 2: 创建候选对象(黑银色小印章 → 应判定为别名)
@@ -45,7 +51,8 @@ class TestCandidateCleaningFlow:
         from modules.world.schemas import EntityCandidateCreate
 
         candidate = await candidate_service.create(
-            db_session, nid_str,
+            db_session,
+            nid_str,
             EntityCandidateCreate(
                 name="黑银色小印章",
                 entity_type="item",
@@ -61,7 +68,9 @@ class TestCandidateCleaningFlow:
         # Step 3: 执行去重检测
         dedup_service = EntityDedupService()
         suggestions = await dedup_service.find_duplicates(
-            db_session, nid_str, candidate_id,
+            db_session,
+            nid_str,
+            candidate_id,
         )
 
         # 去重应找到名称精确匹配或别名匹配
@@ -70,7 +79,9 @@ class TestCandidateCleaningFlow:
 
         # Step 4: 确认别名
         accepted = await candidate_service.accept_candidate(
-            db_session, nid_str, candidate_id,
+            db_session,
+            nid_str,
+            candidate_id,
         )
         assert accepted is not None
         # accept_candidate with alias_of_existing returns existing entity
@@ -102,5 +113,7 @@ class TestCandidateCleaningFlow:
         result = await db_session.execute(stmt)
         updated_candidate = result.scalar_one_or_none()
         assert updated_candidate is not None
-        assert updated_candidate.status == "canonical" or updated_candidate.status == "pending", \
-            f"候选应标记为已处理,当前状态: {updated_candidate.status}"
+        assert (
+            updated_candidate.status == "canonical"
+            or updated_candidate.status == "pending"
+        ), f"候选应标记为已处理,当前状态: {updated_candidate.status}"

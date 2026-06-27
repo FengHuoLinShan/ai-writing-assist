@@ -6,8 +6,7 @@ Timeline 业务逻辑层
 
 from __future__ import annotations
 
-import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -22,6 +21,9 @@ from modules.timeline.schemas import (
     TimelineEventUpdate,
 )
 from shared.utils import parse_uuid
+
+if TYPE_CHECKING:
+    from modules.timeline.models import TimelineEvent
 
 _DEFAULT_CONTEXT_LIMIT = 12
 
@@ -167,9 +169,7 @@ class TimelineService:
                 character_id=str(cid) if cid else None,
                 limit=limit,
             )
-            return [
-                TimelineEventContext.model_validate(e) for e in items
-            ]
+            return [TimelineEventContext.model_validate(e) for e in items]
 
         # 没有 entity_ids：按角色或章节过滤
         if character_id:
@@ -181,9 +181,7 @@ class TimelineService:
                 character_id=character_id,
                 limit=limit,
             )
-            return [
-                TimelineEventContext.model_validate(e) for e in items
-            ]
+            return [TimelineEventContext.model_validate(e) for e in items]
 
         # 最后：只按章节过滤
         items, _ = await self._repo.get_multi(
@@ -226,7 +224,9 @@ class TimelineService:
         warnings: list[TimelineConflictWarning] = []
         warnings.extend(self._check_order_conflicts(candidate_events, existing_events))
         warnings.extend(self._check_duplicate_events(candidate_events, existing_events))
-        warnings.extend(self._check_character_location_conflicts(candidate_events, existing_events))
+        warnings.extend(
+            self._check_character_location_conflicts(candidate_events, existing_events)
+        )
         return warnings
 
     def _check_order_conflicts(
@@ -286,7 +286,9 @@ class TimelineService:
                             description=f"候选事件「{c_title}」与已有事件「{existing.title}」标题完全相同",
                             severity="warning",
                             source_event_ids=[str(existing.id)],
-                            suggestion="检查是否为同一事件，如是则复用已有事件 ID 而非创建新事件",
+                            suggestion=(
+                                "检查是否为同一事件，如是则复用已有事件 ID 而非创建新事件"
+                            ),
                         )
                     )
                     continue
@@ -313,19 +315,19 @@ class TimelineService:
         """检查角色冲突 — 角色同时在两地出现"""
         character_chapter_events: dict[str, dict[int, list[str]]] = {}
         for existing in existing_events:
-            for cid in (existing.related_character_ids or []):
+            for cid in existing.related_character_ids or []:
                 cid_str = str(cid)
                 ch = existing.chapter_index or 0
-                character_chapter_events.setdefault(cid_str, {}).setdefault(ch, []).append(
-                    str(existing.id)
-                )
+                character_chapter_events.setdefault(cid_str, {}).setdefault(
+                    ch, []
+                ).append(str(existing.id))
 
         warnings: list[TimelineConflictWarning] = []
         for candidate in candidate_events:
             cand_ch = candidate.get("chapter_index")
             if cand_ch is None:
                 continue
-            for cid in (candidate.get("related_character_ids") or []):
+            for cid in candidate.get("related_character_ids") or []:
                 existing_event_ids = character_chapter_events.get(cid, {}).get(cand_ch)
                 if existing_event_ids and candidate.get("related_location_ids"):
                     warnings.append(
@@ -359,4 +361,3 @@ class TimelineService:
     # ============================================================
     # 内部工具
     # ============================================================
-

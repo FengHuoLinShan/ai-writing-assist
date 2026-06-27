@@ -43,7 +43,8 @@ class AliasService:
         limit = min(limit, MAX_PAGE_SIZE)
         eid = parse_uuid(entity_id, "entity_id") if entity_id else None
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             entity_id=eid,
             skip=skip,
             limit=limit,

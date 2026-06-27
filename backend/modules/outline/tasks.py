@@ -39,11 +39,14 @@ async def handle_plot_structure_generate(db, task):
     result = await svc.generate(db, novel_id, start_chapter, end_chapter)
 
     if result["total_threads"] == 0 and result["total_arcs"] == 0:
-        raise HTTPException(400, detail=f"未找到章节 {start_chapter}-{end_chapter} 的正文")
+        raise HTTPException(
+            400, detail=f"未找到章节 {start_chapter}-{end_chapter} 的正文"
+        )
 
     logger.info(
         "Plot structure generated: %d threads, %d arcs",
-        result["total_threads"], result["total_arcs"],
+        result["total_threads"],
+        result["total_arcs"],
     )
 
     return result
@@ -98,26 +101,36 @@ async def handle_chapter_card_extraction(db, task):
         draft = await get_latest_draft_for_chapter(db, novel_id, idx)
         if not draft or not draft.content:
             skipped_no_draft += 1
-            items.append({"chapter_index": idx, "status": "skipped", "reason": "no_draft"})
+            items.append(
+                {"chapter_index": idx, "status": "skipped", "reason": "no_draft"}
+            )
             continue
 
         # 2. 检查是否已有章节卡
         existing = await card_service.get_by_chapter_index(db, novel_id, idx)
         if existing is not None:
             skipped_has_card += 1
-            items.append({"chapter_index": idx, "status": "skipped", "reason": "has_card"})
+            items.append(
+                {"chapter_index": idx, "status": "skipped", "reason": "has_card"}
+            )
             continue
 
         # 3. 调用 LLM 单章提取
         try:
             report = await index_chapter_with_report(db, novel_id, idx)
             rag_chunks = await get_ordered_chapter_chunks(db, novel_id, idx)
-            extraction_content = "\n\n".join(
-                f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
-                for chunk in rag_chunks
-            ) or draft.content
+            extraction_content = (
+                "\n\n".join(
+                    f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
+                    for chunk in rag_chunks
+                )
+                or draft.content
+            )
             card_data = await _extract_single_chapter_card(
-                db, novel_id, idx, extraction_content,
+                db,
+                novel_id,
+                idx,
+                extraction_content,
             )
 
             create_data = ChapterCardCreate(
@@ -136,12 +149,14 @@ async def handle_chapter_card_extraction(db, task):
             )
             result = await card_service.create(db, novel_id, create_data)
             created += 1
-            items.append({
-                "chapter_index": idx,
-                "card_id": str(result.id),
-                "status": "created",
-                "warnings": report.warnings,
-            })
+            items.append(
+                {
+                    "chapter_index": idx,
+                    "card_id": str(result.id),
+                    "status": "created",
+                    "warnings": report.warnings,
+                }
+            )
         except Exception as exc:
             logger.warning("Failed to extract chapter card for ch %d: %s", idx, exc)
             errors.append(f"第{idx}章: {exc}")
@@ -168,10 +183,11 @@ async def _extract_single_chapter_card(
     content: str,
 ) -> Any:
     """对单章正文调用 LLM 提取章节卡信息"""
+    from pydantic import BaseModel
+
     from core.config import get_settings
     from infrastructure.llm.client import LLMClient
     from infrastructure.llm.schemas import LLMCallRequest
-    from pydantic import BaseModel
 
     class _ExtractedSceneCard(BaseModel):
         scene_index: int
@@ -198,7 +214,8 @@ async def _extract_single_chapter_card(
 
     from infrastructure.llm.prompt_loader import load_prompt
 
-    system_prompt = load_prompt("extract_chapter_scene",
+    system_prompt = load_prompt(
+        "extract_chapter_scene",
         chapter_index=str(chapter_index),
         entity_names=entity_names,
     )
@@ -217,4 +234,3 @@ async def _extract_single_chapter_card(
     llm = LLMClient()
     result = await llm.generate_structured(request, _ExtractedChapterCard)
     return result
-

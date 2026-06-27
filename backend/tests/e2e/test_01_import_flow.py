@@ -22,11 +22,14 @@ SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
 # 导入流程测试
 # ============================================================
 
+
 class TestImportPipeline:
     """从文件上传到 WritingDraft 创建的全流程"""
 
     @pytest_asyncio.fixture
-    async def project_and_client(self, async_client: AsyncClient, db_session: AsyncSession):
+    async def project_and_client(
+        self, async_client: AsyncClient, db_session: AsyncSession
+    ):
         """预先创建项目，返回 client + project_id"""
         # 创建项目
         meta = await create_base_scene(db_session)
@@ -78,7 +81,9 @@ class TestImportPipeline:
             draft_resp = await client.get(
                 f"/api/writing/chapters/{ch_idx}/draft?novel_id={pid}",
             )
-            assert draft_resp.status_code == 200, f"第 {ch_idx} 章草稿不存在: {draft_resp.text}"
+            assert draft_resp.status_code == 200, (
+                f"第 {ch_idx} 章草稿不存在: {draft_resp.text}"
+            )
             draft = draft_resp.json()
             content = draft.get("content", "")
             assert len(content) > 100, f"第 {ch_idx} 章正文太短"
@@ -109,7 +114,9 @@ class TestImportPipeline:
         files = {"file": ("virus.exe", b"fake content", "application/octet-stream")}
         data = {"novel_id": pid}
         resp = await client.post("/api/imports/upload", files=files, data=data)
-        assert resp.status_code == 400, f"应为 400，实际 {resp.status_code} (body: {resp.text[:200]})"
+        assert resp.status_code == 400, (
+            f"应为 400，实际 {resp.status_code} (body: {resp.text[:200]})"
+        )
         assert "不支持" in resp.text
 
     async def test_import_invalid_file_type_other(
@@ -133,15 +140,20 @@ class TestImportPipeline:
         await self._upload_file(client, pid, "lotm_chapter_1.txt")
 
         for ch_idx in (1, 2):
-            resp = await client.get(f"/api/writing/chapters/{ch_idx}/draft?novel_id={pid}")
+            resp = await client.get(
+                f"/api/writing/chapters/{ch_idx}/draft?novel_id={pid}"
+            )
             assert resp.status_code == 200
             draft = resp.json()
-            assert draft["version_number"] == 1, f"第 {ch_idx} 章版本号应为 1，实际 {draft['version_number']}"
+            assert draft["version_number"] == 1, (
+                f"第 {ch_idx} 章版本号应为 1，实际 {draft['version_number']}"
+            )
 
 
 # ============================================================
 # 实体候选 API 测试
 # ============================================================
+
 
 class TestEntityCandidateAPI:
     """通过 API 创建、查询、管理实体候选"""
@@ -209,11 +221,13 @@ class TestEntityCandidateAPI:
         pid = meta["project_id"]
 
         # 创建 3 个候选
-        for i, (name, action) in enumerate([
-            ("克莱恩", "create_new"),
-            ("愚者", "alias_of_existing"),
-            ("值夜者", "merge_with_existing"),
-        ]):
+        for i, (name, action) in enumerate(
+            [
+                ("克莱恩", "create_new"),
+                ("愚者", "alias_of_existing"),
+                ("值夜者", "merge_with_existing"),
+            ]
+        ):
             await async_client.post(
                 f"/api/world/candidates?novel_id={pid}",
                 json={
@@ -249,7 +263,11 @@ class TestEntityCandidateAPI:
 
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "罗塞尔", "entity_type": "character_ref", "suggested_action": "create_new"},
+            json={
+                "name": "罗塞尔",
+                "entity_type": "character_ref",
+                "suggested_action": "create_new",
+            },
         )
         cid = create_resp.json()["id"]
 
@@ -270,7 +288,11 @@ class TestEntityCandidateAPI:
 
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "未知实体", "entity_type": "secret", "suggested_action": "needs_user_decision"},
+            json={
+                "name": "未知实体",
+                "entity_type": "secret",
+                "suggested_action": "needs_user_decision",
+            },
         )
         cid = create_resp.json()["id"]
 
@@ -293,7 +315,11 @@ class TestEntityCandidateAPI:
 
         create_resp = await async_client.post(
             f"/api/world/candidates?novel_id={pid}",
-            json={"name": "临时", "entity_type": "item", "suggested_action": "temporary_only"},
+            json={
+                "name": "临时",
+                "entity_type": "item",
+                "suggested_action": "temporary_only",
+            },
         )
         cid = create_resp.json()["id"]
 
@@ -312,6 +338,7 @@ class TestEntityCandidateAPI:
 # ============================================================
 # 实体去重与合并测试
 # ============================================================
+
 
 class TestEntityDedupMerge:
     """候选去重检查和合并为正史对象"""
@@ -444,6 +471,7 @@ class TestEntityDedupMerge:
 # 异步任务提交测试
 # ============================================================
 
+
 class TestAsyncTaskSubmission:
     """异步任务框架测试 — 提交和查询任务"""
 
@@ -456,15 +484,18 @@ class TestAsyncTaskSubmission:
         meta = await create_base_scene(db_session)
         pid = meta["project_id"]
 
-        resp = await async_client.post("/api/tasks", json={
-            "task_type": "world_entity_extraction",
-            "meta": {
-                "novel_id": pid,
-                "start_chapter": 1,
-                "end_chapter": 2,
-                "batch_size": 5,
+        resp = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "world_entity_extraction",
+                "meta": {
+                    "novel_id": pid,
+                    "start_chapter": 1,
+                    "end_chapter": 2,
+                    "batch_size": 5,
+                },
             },
-        })
+        )
         assert resp.status_code == 201, f"提交任务失败: {resp.text}"
         data = resp.json()
         assert "task_id" in data, f"响应中无 task_id: {data}"
@@ -482,10 +513,13 @@ class TestAsyncTaskSubmission:
         db_session: AsyncSession,
     ):
         """不存在的任务类型应返回 400"""
-        resp = await async_client.post("/api/tasks", json={
-            "task_type": "nonexistent_task_type_xyz",
-            "meta": {},
-        })
+        resp = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "nonexistent_task_type_xyz",
+                "meta": {},
+            },
+        )
         assert resp.status_code == 400, f"应为 400，实际 {resp.status_code}: {resp.text}"
 
     async def test_cancel_task(
@@ -494,10 +528,17 @@ class TestAsyncTaskSubmission:
         db_session: AsyncSession,
     ):
         """取消 pending 状态的任务"""
-        resp = await async_client.post("/api/tasks", json={
-            "task_type": "world_entity_extraction",
-            "meta": {"novel_id": str(uuid.uuid4()), "start_chapter": 1, "end_chapter": 1},
-        })
+        resp = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "world_entity_extraction",
+                "meta": {
+                    "novel_id": str(uuid.uuid4()),
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                },
+            },
+        )
         task_id = resp.json()["task_id"]
 
         cancel_resp = await async_client.post(f"/api/tasks/{task_id}/cancel")

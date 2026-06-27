@@ -9,7 +9,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
-
 from modules.memory.schemas import (
     MemoryProposalDecision,
     MemoryProposalListResponse,
@@ -30,6 +29,7 @@ _service = MemoryService()
 # ============================================================
 # 记忆记录 CRUD
 # ============================================================
+
 
 @router.post("/records", response_model=MemoryRecordResponse, status_code=201)
 async def create_memory_record(
@@ -103,6 +103,7 @@ async def delete_memory_record(
 # ============================================================
 # 记忆提案管理
 # ============================================================
+
 
 @router.get("/proposals/pending", response_model=MemoryProposalListResponse)
 async def list_pending_proposals(

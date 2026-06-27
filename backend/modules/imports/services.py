@@ -7,8 +7,6 @@ Import 业务逻辑层
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.imports.models import ImportRecord
 from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_file
 from modules.imports.repositories import ImportRecordRepository
-from modules.imports.schemas import ImportChapterItem, ImportListResponse, ImportResponse
+from modules.imports.schemas import ImportListResponse, ImportResponse
 from modules.writing.facade import create_draft
-from shared.utils import parse_uuid
 from modules.writing.schemas import WritingDraftCreate
+from shared.utils import parse_uuid
 
 
 class ImportService:
@@ -57,7 +55,8 @@ class ImportService:
 
             if total == 0:
                 await self._repo.update_status(
-                    db, record.id,
+                    db,
+                    record.id,
                     status="failed",
                     error_message="文件中未解析出任何章节",
                 )
@@ -80,13 +79,16 @@ class ImportService:
 
             # 更新记录为完成
             record = await self._repo.update_status(
-                db, record.id,
+                db,
+                record.id,
                 status="done",
                 total_chapters=total,
                 imported_chapters=imported,
             )
             if record is None:
-                raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+                raise HTTPException(
+                    status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
             return ImportResponse(
                 id=str(record.id),
                 novel_id=str(record.novel_id),
@@ -104,7 +106,8 @@ class ImportService:
             raise
         except ValueError as exc:
             await self._repo.update_status(
-                db, record.id,
+                db,
+                record.id,
                 status="failed",
                 error_message=str(exc)[:1000],
             )
@@ -114,9 +117,11 @@ class ImportService:
             ) from exc
         except Exception as exc:
             import logging
+
             logging.getLogger(__name__).error("导入失败: %s", exc, exc_info=True)
             await self._repo.update_status(
-                db, record.id,
+                db,
+                record.id,
                 status="failed",
                 error_message=str(exc)[:1000],
             )
@@ -166,12 +171,18 @@ class ImportService:
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的文件类型: {ext}。仅支持: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+                detail=(
+                    f"不支持的文件类型: {ext}。仅支持: "
+                    f"{', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                ),
             )
         if file_size > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"文件过大（{file_size} bytes），最大允许 {MAX_FILE_SIZE} bytes（50MB）",
+                detail=(
+                    f"文件过大（{file_size} bytes），"
+                    f"最大允许 {MAX_FILE_SIZE} bytes（50MB）"
+                ),
             )
         # 文件类型去掉点号
         return ext.lstrip(".")
@@ -196,6 +207,7 @@ def _record_to_response(record: ImportRecord) -> ImportResponse:
 def _get_extension(file_name: str) -> str:
     """安全提取文件扩展名，防止路径穿越"""
     import os
+
     safe_name = os.path.basename(file_name)
     if not safe_name:
         return ""

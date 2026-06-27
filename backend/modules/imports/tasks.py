@@ -13,8 +13,8 @@ from sqlalchemy import select
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import task_handler
 from modules.imports.workflow import DeepImportWorkflow
+from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from shared.utils import parse_uuid as _parse_uuid
-from modules.imports.workflow_schemas import DeepImportProgress
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
         "current_step": progress.current_step.value if progress.current_step else None,
         "completed_steps": progress.completed_steps,
         "message": progress.message,
+        "degraded": progress.degraded,
+        "warnings": progress.warnings,
     }
 
 
@@ -86,8 +88,18 @@ async def handle_deep_import_resume(db, task) -> dict[str, Any]:
     if prev_task is None:
         raise ValueError(f"Previous task not found: {prev_task_id}")
 
+    if prev_task.task_type != "deep_import":
+        raise ValueError("Previous task is not a deep_import task")
+    if prev_task.status != "done":
+        raise ValueError("Previous deep import task is not completed")
+
     prev_result = prev_task.result or {}
     completed = prev_result.get("completed_steps", [])
+    if (
+        prev_result.get("phase") != "awaiting_review"
+        or DeepImportStep.extract_world.value not in completed
+    ):
+        raise ValueError("Previous deep import task is not awaiting review")
 
     progress = DeepImportProgress(
         phase="awaiting_review",
@@ -114,6 +126,6 @@ async def handle_deep_import_resume(db, task) -> dict[str, Any]:
         "current_step": progress.current_step.value if progress.current_step else None,
         "completed_steps": progress.completed_steps,
         "message": progress.message,
+        "degraded": progress.degraded,
+        "warnings": progress.warnings,
     }
-
-

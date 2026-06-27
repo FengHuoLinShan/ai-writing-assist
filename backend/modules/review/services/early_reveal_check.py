@@ -74,7 +74,7 @@ class EarlyRevealCheck(CheckStrategy):
         leaked_fields = []
         hidden_subs = set()
         for ci in range(len(hidden_truth) - 2):
-            sub = hidden_truth[ci:ci + 3]
+            sub = hidden_truth[ci : ci + 3]
             if sub.strip():
                 hidden_subs.add(sub)
 
@@ -93,7 +93,8 @@ class EarlyRevealCheck(CheckStrategy):
                 ReviewWarning(
                     type="early_reveal",
                     message=(
-                        f"世界对象 '{entity.get('name', 'unnamed')}' 的 hidden_truth 泄露至 "
+                        f"世界对象 '{entity.get('name', 'unnamed')}' "
+                        "的 hidden_truth 泄露至 "
                         f"{'/'.join(leaked_fields)}，揭示层级为 {reveal_level}"
                     ),
                     severity="high",
@@ -121,7 +122,7 @@ class EarlyRevealCheck(CheckStrategy):
         if visible_goal and len(hidden_truth) > 2:
             revealed = any(
                 visible_goal.find(sub) >= 0
-                for sub in [hidden_truth[i:i + 3] for i in range(len(hidden_truth) - 2)]
+                for sub in [hidden_truth[i : i + 3] for i in range(len(hidden_truth) - 2)]
                 if sub.strip()
             )
             if revealed:
@@ -164,7 +165,8 @@ class EarlyRevealCheck(CheckStrategy):
                         type="early_reveal",
                         message=(
                             f"揭示计划 '{reveal.get('secret_summary', 'unnamed')[:50]}' "
-                            f"两个揭示阶段间隔 {gap} 章（{chapters[j - 1]} → {chapters[j]}），"
+                            f"两个揭示阶段间隔 {gap} 章"
+                            f"（{chapters[j - 1]} → {chapters[j]}），"
                             f"可能造成读者遗忘前文伏笔"
                         ),
                         severity="low",

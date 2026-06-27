@@ -8,7 +8,7 @@ Project 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,10 +64,7 @@ class ProjectRepository:
 
         # 获取分页数据
         stmt = (
-            select(Project)
-            .offset(skip)
-            .limit(limit)
-            .order_by(Project.created_at.desc())
+            select(Project).offset(skip).limit(limit).order_by(Project.created_at.desc())
         )
         result = await db.execute(stmt)
         items: Sequence[Project] = result.scalars().all()
@@ -101,11 +98,7 @@ class ProjectRepository:
                 update_values[field] = value
 
         if update_values:
-            stmt = (
-                update(Project)
-                .where(Project.id == project_id)
-                .values(**update_values)
-            )
+            stmt = update(Project).where(Project.id == project_id).values(**update_values)
             await db.execute(stmt)
             await db.flush()
             # 重新查询以获取更新后的对象

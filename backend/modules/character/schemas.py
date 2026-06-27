@@ -12,10 +12,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
 # 请求 Schema
 # ============================================================
+
 
 class CharacterCreate(BaseModel):
     """创建人物请求"""
@@ -196,6 +196,7 @@ class CharacterKnowledgeUpdate(BaseModel):
 # 响应 Schema
 # ============================================================
 
+
 class CharacterResponse(BaseModel):
     """人物响应 — 从 ORM 转换"""
 
@@ -270,7 +271,9 @@ class CharacterKnowledgeResponse(BaseModel):
     status: str = "canonical"
     created_at: datetime | None = None
 
-    @field_validator("id", "novel_id", "character_id", "target_id", "source_memory_id", mode="before")
+    @field_validator(
+        "id", "novel_id", "character_id", "target_id", "source_memory_id", mode="before"
+    )
     @classmethod
     def coerce_uuid_to_str(cls, v: object) -> str | None:
         if v is None:
@@ -299,6 +302,7 @@ class CharacterKnowledgeListResponse(BaseModel):
 # ============================================================
 # Filter-Context 相关 Schema
 # ============================================================
+
 
 class FilterContextRequest(BaseModel):
     """按人物知识过滤上下文的请求"""
@@ -329,6 +333,7 @@ class FilterContextResponse(BaseModel):
 # ============================================================
 # Facade 输出 Schema（供其他模块读取/使用）
 # ============================================================
+
 
 class CharacterContextItem(BaseModel):
     """人物上下文中单个人物的信息"""

@@ -7,8 +7,6 @@ Character 业务逻辑层
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,7 +90,10 @@ class CharacterService:
         nid = parse_uuid(novel_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid, skip=skip, limit=limit,
+            db,
+            nid,
+            skip=skip,
+            limit=limit,
         )
         return [CharacterResponse.model_validate(c) for c in items], total
 
@@ -216,11 +217,13 @@ class CharacterService:
         cid = parse_uuid(character_id)
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._knowledge_repo.get_by_character(
-            db, nid, cid, skip=skip, limit=limit,
+            db,
+            nid,
+            cid,
+            skip=skip,
+            limit=limit,
         )
-        return [
-            CharacterKnowledgeResponse.model_validate(k) for k in items
-        ], total
+        return [CharacterKnowledgeResponse.model_validate(k) for k in items], total
 
     async def update_knowledge(
         self,
@@ -325,13 +328,12 @@ class CharacterService:
         """
         nid = parse_uuid(novel_id)
         cid = parse_uuid(character_id)
-        tids = (
-            [parse_uuid(tid) for tid in target_ids]
-            if target_ids
-            else None
-        )
+        tids = [parse_uuid(tid) for tid in target_ids] if target_ids else None
         knowledge_list = await self._knowledge_repo.get_by_target(
-            db, nid, cid, tids,
+            db,
+            nid,
+            cid,
+            tids,
         )
 
         return [
@@ -387,7 +389,10 @@ class CharacterService:
         for t_type, t_ids in target_ids_map.items():
             tid_uuids = [parse_uuid(tid) for tid in t_ids]
             records = await self._knowledge_repo.get_by_target(
-                db, nid, cid, tid_uuids,
+                db,
+                nid,
+                cid,
+                tid_uuids,
             )
             for rec in records:
                 key = f"{rec.target_type}:{rec.target_id}"
@@ -418,13 +423,9 @@ class CharacterService:
             elif level == KnowledgeLevel.false_belief:
                 # 误解 → 用 misconception 替换 original_content
                 filtered_item = dict(item)  # copy
-                filtered_item["original_content"] = filtered_item.get(
-                    "content", ""
-                )
+                filtered_item["original_content"] = filtered_item.get("content", "")
                 filtered_item["content"] = (
-                    knowledge["misconception"]
-                    or knowledge["known_content"]
-                    or ""
+                    knowledge["misconception"] or knowledge["known_content"] or ""
                 )
                 filtered_item["knowledge_level"] = "false_belief"
                 filtered_item["is_misconception"] = True
@@ -435,9 +436,7 @@ class CharacterService:
                 filtered_item = dict(item)
                 filtered_item["knowledge_level"] = level
                 if knowledge["known_content"]:
-                    filtered_item["character_known_content"] = (
-                        knowledge["known_content"]
-                    )
+                    filtered_item["character_known_content"] = knowledge["known_content"]
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
@@ -445,4 +444,3 @@ class CharacterService:
     # ============================================================
     # 内部工具
     # ============================================================
-

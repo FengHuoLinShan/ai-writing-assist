@@ -31,13 +31,13 @@ class MemoryRecordsLoader(Loader):
         from modules.memory.facade import get_recent_story_memory
 
         records = await get_recent_story_memory(
-            db, options.novel_id,
+            db,
+            options.novel_id,
             before_chapter_index=options.chapter_index,
             limit=mem_limit,
         )
         if records:
             bundle.memory_records = [
-                r.model_dump() if hasattr(r, "model_dump") else r
-                for r in records
+                r.model_dump() if hasattr(r, "model_dump") else r for r in records
             ]
         bundle.budget_used["memory"] = len(bundle.memory_records)

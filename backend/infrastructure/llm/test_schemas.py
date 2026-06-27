@@ -29,7 +29,7 @@ class TestLLMMessage:
 class TestLLMCallRequest:
     def test_defaults(self) -> None:
         req = LLMCallRequest()
-        assert req.model == "gpt-4o"
+        assert req.model == "deepseek-v4-flash"
         assert req.messages == []
         assert req.temperature == 0.7
         assert req.max_tokens == 4096

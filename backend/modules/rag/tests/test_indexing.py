@@ -11,8 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate
-
-from tests.conftest import test_project_id, test_character_id  # noqa: F401
+from tests.conftest import test_character_id, test_project_id  # noqa: F401
 
 
 @pytest.fixture
@@ -30,15 +29,33 @@ async def test_delete_by_chapter_removes_chunks(
     nid = uuid.UUID(hex=test_project_id)
 
     # 先创建 2 个第 1 章 chunk + 1 个第 2 章 chunk
-    chunk1 = await repo.create(db_session, nid, RagChunkCreate(
-        source_type="chapter_text", chapter_index=1, text="第一章内容。",
-    ))
-    chunk2 = await repo.create(db_session, nid, RagChunkCreate(
-        source_type="chapter_text", chapter_index=1, text="第一章更多内容。",
-    ))
-    await repo.create(db_session, nid, RagChunkCreate(
-        source_type="chapter_text", chapter_index=2, text="第二章内容。",
-    ))
+    await repo.create(
+        db_session,
+        nid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="第一章内容。",
+        ),
+    )
+    await repo.create(
+        db_session,
+        nid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="第一章更多内容。",
+        ),
+    )
+    await repo.create(
+        db_session,
+        nid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=2,
+            text="第二章内容。",
+        ),
+    )
 
     # 执行删除第 1 章
     deleted = await repo.delete_by_chapter(db_session, nid, "chapter_text", 1)
@@ -73,13 +90,12 @@ async def test_index_chapter_creates_chunks_with_character_ids(
     test_character_id: str,  # noqa: F811
 ):
     """RED: index_chapter 应创建带角色标记的 chunk"""
-    from modules.rag.facade import index_chapter
-    from modules.writing.models import WritingDraft
     import uuid as _uuid
 
-    nid_uuid = uuid.UUID(hex=test_project_id)
-    cid_uuid = uuid.UUID(hex=test_character_id)
+    from modules.rag.facade import index_chapter
+    from modules.writing.models import WritingDraft
 
+    nid_uuid = uuid.UUID(hex=test_project_id)
     # 先创建一个草稿
     draft = WritingDraft(
         id=_uuid.uuid4(),
@@ -105,8 +121,7 @@ async def test_index_chapter_creates_chunks_with_character_ids(
     for c in chunks:
         all_char_ids.extend(c.character_ids or [])
     assert test_character_id in all_char_ids, (
-        f"chunk 应包含角色 ID {test_character_id}，"
-        f"实际包含: {all_char_ids}"
+        f"chunk 应包含角色 ID {test_character_id}，实际包含: {all_char_ids}"
     )
 
 
@@ -118,16 +133,23 @@ async def test_index_chapter_replaces_old_chunks(
     test_character_id: str,  # noqa: F811
 ):
     """RED: 重新索引应替换旧 chunk 而非追加"""
+    import uuid as _uuid
+
     from modules.rag.facade import index_chapter
     from modules.writing.models import WritingDraft
-    import uuid as _uuid
 
     nid_uuid = uuid.UUID(hex=test_project_id)
 
     # 先创建旧 chunk
-    await repo.create(db_session, nid_uuid, RagChunkCreate(
-        source_type="chapter_text", chapter_index=1, text="旧内容。",
-    ))
+    await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="旧内容。",
+        ),
+    )
 
     # 创建草稿
     draft = WritingDraft(
@@ -159,10 +181,11 @@ async def test_index_chapter_with_embeddings(
     test_project_id: str,  # noqa: F811
 ):
     """RED: index_chapter 应生成并存储 embedding"""
-    from modules.rag.facade import index_chapter
-    from unittest.mock import patch, AsyncMock
-    from modules.writing.models import WritingDraft
     import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.rag.facade import index_chapter
+    from modules.writing.models import WritingDraft
 
     nid_uuid = uuid.UUID(hex=test_project_id)
 
@@ -228,53 +251,65 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     entity_id = uuid.uuid4()
     thread_id = uuid.uuid4()
 
-    db_session.add(Character(
-        id=char_id,
-        novel_id=nid_uuid,
-        name="克莱恩·莫雷蒂",
-        aliases=[{"alias": "周明瑞", "type": "original_name"}],
-        role="主角",
-    ))
-    db_session.add(WorldEntity(
-        id=entity_id,
-        novel_id=nid_uuid,
-        entity_type="secret",
-        name="灰雾",
-        summary="神秘空间",
-        status="canonical",
-    ))
-    db_session.add(EntityAlias(
-        id=uuid.uuid4(),
-        novel_id=nid_uuid,
-        entity_id=entity_id,
-        alias="神秘空间",
-        alias_type="name",
-    ))
-    db_session.add(PlotThread(
-        id=thread_id,
-        novel_id=nid_uuid,
-        name="穿越谜团",
-        thread_type="hidden",
-        summary="主角穿越相关暗线",
-        status="canonical",
-    ))
-    db_session.add(WritingDraft(
-        id=uuid.uuid4(),
-        novel_id=nid_uuid,
-        chapter_index=1,
-        title="第一章",
-        content=(
-            "周明瑞从梦中醒来，脑海里残留着穿越谜团。"
-            "他看见神秘空间一样的灰雾在眼前翻涌。" * 20
-        ),
-        version_number=1,
-        status="draft",
-    ))
+    db_session.add(
+        Character(
+            id=char_id,
+            novel_id=nid_uuid,
+            name="克莱恩·莫雷蒂",
+            aliases=[{"alias": "周明瑞", "type": "original_name"}],
+            role="主角",
+        )
+    )
+    db_session.add(
+        WorldEntity(
+            id=entity_id,
+            novel_id=nid_uuid,
+            entity_type="secret",
+            name="灰雾",
+            summary="神秘空间",
+            status="canonical",
+        )
+    )
+    db_session.add(
+        EntityAlias(
+            id=uuid.uuid4(),
+            novel_id=nid_uuid,
+            entity_id=entity_id,
+            alias="神秘空间",
+            alias_type="name",
+        )
+    )
+    db_session.add(
+        PlotThread(
+            id=thread_id,
+            novel_id=nid_uuid,
+            name="穿越谜团",
+            thread_type="hidden",
+            summary="主角穿越相关暗线",
+            status="canonical",
+        )
+    )
+    db_session.add(
+        WritingDraft(
+            id=uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章",
+            content=(
+                "周明瑞从梦中醒来，脑海里残留着穿越谜团。"
+                "他看见神秘空间一样的灰雾在眼前翻涌。" * 20
+            ),
+            version_number=1,
+            status="draft",
+        )
+    )
     await db_session.flush()
 
     with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
         mock_client = AsyncMock()
-        mock_client.generate_embedding = AsyncMock(side_effect=Exception("embedding down"))
+        mock_client.generate_embedding = AsyncMock(
+            side_effect=Exception("embedding down")
+        )
         mock_client_cls.return_value = mock_client
 
         report = await index_chapter_with_report(db_session, test_project_id, 1)
@@ -302,10 +337,11 @@ async def test_index_chapter_embedding_empty_when_no_llm(
     test_project_id: str,  # noqa: F811
 ):
     """RED: LLM 不可用时不应阻塞索引"""
-    from modules.rag.facade import index_chapter
-    from unittest.mock import patch, AsyncMock
-    from modules.writing.models import WritingDraft
     import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.rag.facade import index_chapter
+    from modules.writing.models import WritingDraft
 
     nid_uuid = uuid.UUID(hex=test_project_id)
 
@@ -352,15 +388,17 @@ async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
 
     nid_uuid = uuid.UUID(hex=test_project_id)
     for idx in (1, 2):
-        db_session.add(WritingDraft(
-            id=uuid.uuid4(),
-            novel_id=nid_uuid,
-            chapter_index=idx,
-            title=f"第{idx}章",
-            content=f"第{idx}章正文。周明瑞醒来并观察这个世界。" * 8,
-            version_number=1,
-            status="draft",
-        ))
+        db_session.add(
+            WritingDraft(
+                id=uuid.uuid4(),
+                novel_id=nid_uuid,
+                chapter_index=idx,
+                title=f"第{idx}章",
+                content=f"第{idx}章正文。周明瑞醒来并观察这个世界。" * 8,
+                version_number=1,
+                status="draft",
+            )
+        )
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type="rag_reindex_novel",
@@ -373,7 +411,9 @@ async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
 
     with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
         mock_client = AsyncMock()
-        mock_client.generate_embedding = AsyncMock(side_effect=Exception("embedding down"))
+        mock_client.generate_embedding = AsyncMock(
+            side_effect=Exception("embedding down")
+        )
         mock_client_cls.return_value = mock_client
 
         result = await handle_rag_reindex_novel(db_session, task)

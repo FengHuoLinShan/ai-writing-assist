@@ -1,6 +1,7 @@
 """
 全模块分页覆盖 E2E 测试
 """
+
 from __future__ import annotations
 
 import pytest
@@ -75,10 +76,18 @@ class TestPagination:
         """Review has no list endpoint, only GET /{id}"""
         client, pid = ctx
         # POST to create a review first
-        create = await client.post("/api/review", json={
-            "novel_id": pid, "target_type": "entity_candidates",
-            "candidate_payload": {"name": "测试", "entity_type": "item", "importance": 0.5},
-        })
+        create = await client.post(
+            "/api/review",
+            json={
+                "novel_id": pid,
+                "target_type": "entity_candidates",
+                "candidate_payload": {
+                    "name": "测试",
+                    "entity_type": "item",
+                    "importance": 0.5,
+                },
+            },
+        )
         if create.status_code == 201:
             rid = create.json()["id"]
             get = await client.get(f"/api/review/{rid}?novel_id={pid}")

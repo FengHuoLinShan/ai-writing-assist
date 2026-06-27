@@ -97,7 +97,8 @@ class LLMClient:
         )
 
     async def generate_stream(
-        self, request: LLMCallRequest,
+        self,
+        request: LLMCallRequest,
     ) -> AsyncIterator[LLMStreamChunk]:
         """流式调用 LLM（带自动重试）
 
@@ -164,7 +165,7 @@ class LLMClient:
             except json.JSONDecodeError as e:
                 raw_content = response.content if locals().get("response") else ""
                 last_error = LLMInvalidResponseError(
-                    f"Invalid JSON response (attempt {attempt+1}): {e}",
+                    f"Invalid JSON response (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                     raw_response=raw_content,
                 )
@@ -176,7 +177,7 @@ class LLMClient:
                 )
             except ValidationError as e:
                 last_error = LLMInvalidResponseError(
-                    f"Schema validation failed (attempt {attempt+1}): {e}",
+                    f"Schema validation failed (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                 )
                 logger.warning(
@@ -190,9 +191,12 @@ class LLMClient:
                 # 修复模式：追加错误信息，让模型修正输出
                 fix_msg = fix_prompt or (
                     f"Your previous response failed validation. Error: {last_error}\n"
-                    f"Please output valid JSON matching this schema: {schema.model_json_schema()}"
+                    "Please output valid JSON matching this schema: "
+                    f"{schema.model_json_schema()}"
                 )
-                req.messages.append(LLMMessage(role="assistant", content=response.content))
+                req.messages.append(
+                    LLMMessage(role="assistant", content=response.content)
+                )
                 req.messages.append(LLMMessage(role="user", content=fix_msg))
 
         raise LLMInvalidResponseError(

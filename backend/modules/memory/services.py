@@ -184,8 +184,6 @@ class MemoryService:
             list[MemoryUpdateProposalContext]: 创建的提案列表
         """
         nid = parse_uuid(novel_id)
-        sid = parse_uuid(source_id) if source_id else None
-
         proposals = extraction_result.get("proposals", [])
         results: list[MemoryUpdateProposalContext] = []
 
@@ -243,7 +241,10 @@ class MemoryService:
         if proposal.decision != "pending":
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT,
-                detail=f"Memory proposal {proposal_id} already decided as {proposal.decision}",
+                detail=(
+                    f"Memory proposal {proposal_id} already decided "
+                    f"as {proposal.decision}"
+                ),
             )
 
         # 使用编辑后的 payload 或原始 payload 创建记忆记录
@@ -253,9 +254,7 @@ class MemoryService:
         create_data = MemoryRecordCreate(
             memory_type=payload.get("memory_type", proposal.proposal_type),
             target_type=payload.get("target_type"),
-            target_id=(
-                str(payload["target_id"]) if payload.get("target_id") else None
-            ),
+            target_id=(str(payload["target_id"]) if payload.get("target_id") else None),
             chapter_index=payload.get("chapter_index", proposal.chapter_index),
             title=payload.get("title"),
             summary=payload.get("summary", ""),
@@ -268,8 +267,7 @@ class MemoryService:
             importance=payload.get("importance", 0.5),
             status="canonical",
             source_text_excerpt=(
-                payload.get("source_text_excerpt")
-                or proposal.source_text_excerpt
+                payload.get("source_text_excerpt") or proposal.source_text_excerpt
             ),
         )
 
@@ -284,6 +282,7 @@ class MemoryService:
         geo_mutations = payload.get("geo_mutations")
         if geo_mutations:
             import logging
+
             _geo_logger = logging.getLogger(__name__)
             chapter_index = proposal.chapter_index
 
@@ -295,25 +294,42 @@ class MemoryService:
                     if not char_name or not loc_name:
                         continue
 
-                    from modules.character.facade import find_character_id_by_name
+                    from modules.character.facade import (
+                        find_character_id_by_name,
+                        update_character_location,
+                    )
                     from modules.world.facade import find_entity_id_by_name
-                    from modules.character.facade import update_character_location
 
                     char_id = await find_character_id_by_name(db, novel_id, char_name)
-                    loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
+                    loc_id = await find_entity_id_by_name(
+                        db, novel_id, loc_name, entity_type="location"
+                    )
 
                     if char_id and loc_id:
-                        text_state = f"目前正{movement_type}至{loc_name}。" if movement_type else f"目前位于{loc_name}。"
+                        text_state = (
+                            f"目前正{movement_type}至{loc_name}。"
+                            if movement_type
+                            else f"目前位于{loc_name}。"
+                        )
                         await update_character_location(
-                            db, novel_id, char_id, loc_id, text_state, chapter_index or 0,
+                            db,
+                            novel_id,
+                            char_id,
+                            loc_id,
+                            text_state,
+                            chapter_index or 0,
                         )
                     else:
                         _geo_logger.warning(
                             "角色位移分发跳过: char=%s found=%s, loc=%s found=%s",
-                            char_name, char_id is not None, loc_name, loc_id is not None,
+                            char_name,
+                            char_id is not None,
+                            loc_name,
+                            loc_id is not None,
                         )
                 except Exception as e:
                     import logging
+
                     logging.getLogger(__name__).warning("角色位移分发失败: %s", e)
 
             for shift in geo_mutations.get("faction_shifts", []):
@@ -325,23 +341,40 @@ class MemoryService:
                     if not faction_name or not loc_name:
                         continue
 
-                    from modules.world.facade import find_entity_id_by_name, upsert_relationship
+                    from modules.world.facade import (
+                        find_entity_id_by_name,
+                        upsert_relationship,
+                    )
 
-                    faction_id = await find_entity_id_by_name(db, novel_id, faction_name, entity_type="faction")
-                    loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
+                    faction_id = await find_entity_id_by_name(
+                        db, novel_id, faction_name, entity_type="faction"
+                    )
+                    loc_id = await find_entity_id_by_name(
+                        db, novel_id, loc_name, entity_type="location"
+                    )
 
                     if faction_id and loc_id:
                         await upsert_relationship(
-                            db, novel_id, faction_id, loc_id,
-                            "faction", "location", new_relation, description,
+                            db,
+                            novel_id,
+                            faction_id,
+                            loc_id,
+                            "faction",
+                            "location",
+                            new_relation,
+                            description,
                         )
                     else:
                         _geo_logger.warning(
                             "势力割据分发跳过: faction=%s found=%s, loc=%s found=%s",
-                            faction_name, faction_id is not None, loc_name, loc_id is not None,
+                            faction_name,
+                            faction_id is not None,
+                            loc_name,
+                            loc_id is not None,
                         )
                 except Exception as e:
                     import logging
+
                     logging.getLogger(__name__).warning("势力割据分发失败: %s", e)
 
             try:
@@ -349,13 +382,24 @@ class MemoryService:
                 entity_ids = []
                 for shift in geo_mutations.get("character_shifts", []):
                     from modules.character.facade import find_character_id_by_name
-                    cid = await find_character_id_by_name(db, novel_id, shift.get("character_name", ""))
+
+                    cid = await find_character_id_by_name(
+                        db, novel_id, shift.get("character_name", "")
+                    )
                     if cid:
                         char_ids.append(cid)
                 for shift in geo_mutations.get("faction_shifts", []):
                     from modules.world.facade import find_entity_id_by_name
-                    fid = await find_entity_id_by_name(db, novel_id, shift.get("faction_name", ""), entity_type="faction")
-                    lid = await find_entity_id_by_name(db, novel_id, shift.get("target_location_name", ""), entity_type="location")
+
+                    fid = await find_entity_id_by_name(
+                        db, novel_id, shift.get("faction_name", ""), entity_type="faction"
+                    )
+                    lid = await find_entity_id_by_name(
+                        db,
+                        novel_id,
+                        shift.get("target_location_name", ""),
+                        entity_type="location",
+                    )
                     if fid:
                         entity_ids.append(fid)
                     if lid:
@@ -363,11 +407,17 @@ class MemoryService:
 
                 if char_ids or entity_ids:
                     from modules.outline.facade import merge_chapter_involved_ids
+
                     await merge_chapter_involved_ids(
-                        db, novel_id, chapter_index or 0, char_ids, entity_ids,
+                        db,
+                        novel_id,
+                        chapter_index or 0,
+                        char_ids,
+                        entity_ids,
                     )
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning("章节关联合并失败: %s", e)
 
         return MemoryRecordContext.model_validate(record)
@@ -385,7 +435,10 @@ class MemoryService:
     ) -> None:
         """对記憶提案做出決策（approved/rejected）"""
         await self._proposal_repo.decide(
-            db, proposal_id, decision=decision, decided_by=decided_by,
+            db,
+            proposal_id,
+            decision=decision,
+            decided_by=decided_by,
         )
 
     async def get_memory_proposal(
@@ -437,12 +490,9 @@ class MemoryService:
         """获取与某实体关联的记忆"""
         nid = parse_uuid(novel_id)
         eid = parse_uuid(entity_id)
-        records = await self._record_repo.get_by_entity(
-            db, nid, eid, limit=limit
-        )
+        records = await self._record_repo.get_by_entity(db, nid, eid, limit=limit)
         return [MemoryRecordContext.model_validate(r) for r in records]
 
     # ============================================================
     # 内部工具
     # ============================================================
-

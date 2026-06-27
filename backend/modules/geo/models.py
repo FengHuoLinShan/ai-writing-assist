@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Float, ForeignKey, JSON, String, Text, Uuid
+from sqlalchemy import JSON, Float, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.base import Base, TimestampMixin
@@ -276,7 +276,4 @@ class GeoEra(Base, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<GeoEra id={self.id} name={self.name!r} "
-            f"order_index={self.order_index}>"
-        )
+        return f"<GeoEra id={self.id} name={self.name!r} order_index={self.order_index}>"

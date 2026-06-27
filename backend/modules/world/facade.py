@@ -42,7 +42,8 @@ async def list_entities(
     返回轻量结果（id, name, entity_type），供其他模块注入上下文。
     """
     result = await _entity_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         entity_type=entity_type,
         limit=limit,
     )
@@ -79,12 +80,14 @@ async def list_entity_terms(
             continue
         item_terms = [item.name]
         item_terms.extend(alias_map.get(str(item.id), []))
-        terms.append({
-            "id": str(item.id),
-            "name": item.name,
-            "entity_type": item.entity_type,
-            "terms": [t for t in item_terms if t],
-        })
+        terms.append(
+            {
+                "id": str(item.id),
+                "name": item.name,
+                "entity_type": item.entity_type,
+                "terms": [t for t in item_terms if t],
+            }
+        )
     return terms
 
 
@@ -113,6 +116,10 @@ async def run_entity_extraction(
         "total_chapters": result.total_chapters,
         "total_created": result.total_created,
         "total_skipped": result.total_skipped,
+        "total_batches": result.total_batches,
+        "failed_batches": result.failed_batches,
+        "degraded": result.degraded,
+        "errors": result.errors,
         "items": result.items,
     }
 
@@ -123,7 +130,8 @@ async def count_pending_candidates(
 ) -> int:
     """统计待处理的候选对象数量"""
     result = await _candidate_service.list(
-        db, novel_id,
+        db,
+        novel_id,
         status="pending",
         limit=1,
     )
@@ -153,7 +161,8 @@ async def get_world_context(
         WorldContextBundle — 世界上下文组合包
     """
     return await _entity_service.get_entity_context(
-        db, novel_id,
+        db,
+        novel_id,
         entity_ids=entity_ids,
         reveal_mode=reveal_mode,
         limit=limit,
@@ -182,7 +191,8 @@ async def expand_related_entities(
         list[WorldEntityContext] — 相关对象的上下文列表
     """
     return await _relationship_service.expand_related(
-        db, novel_id,
+        db,
+        novel_id,
         seed_entity_ids=seed_entity_ids,
         depth=depth,
         limit=limit,
@@ -231,7 +241,11 @@ async def find_similar_entities(
         list[DuplicateSuggestionResult] — 去重建议列表
     """
     return await _dedup_service.find_similar_entities(
-        db, novel_id, name, aliases=aliases, entity_type=entity_type,
+        db,
+        novel_id,
+        name,
+        aliases=aliases,
+        entity_type=entity_type,
     )
 
 
@@ -253,7 +267,10 @@ async def accept_candidate(
         WorldEntityResponse — 创建/更新后的正史对象
     """
     return await _candidate_service.accept_candidate(
-        db, novel_id, candidate_id, user_edits=user_edits,
+        db,
+        novel_id,
+        candidate_id,
+        user_edits=user_edits,
     )
 
 
@@ -277,7 +294,10 @@ async def merge_candidate_into_entity(
         WorldEntityResponse — 更新后的正史对象
     """
     entity = await _dedup_service.merge_candidate_into_entity(
-        db, novel_id, candidate_id, target_entity_id,
+        db,
+        novel_id,
+        candidate_id,
+        target_entity_id,
     )
     return WorldEntityResponse.model_validate(entity)
 
@@ -289,8 +309,10 @@ async def find_entity_id_by_name(
     entity_type: str | None = None,
 ) -> str | None:
     from shared.utils import parse_uuid
+
     nid = parse_uuid(novel_id, "novel_id")
     from modules.world.repositories import WorldEntityRepository
+
     repo = WorldEntityRepository()
     return await repo.find_entity_by_name(db, nid, name, entity_type=entity_type)
 
@@ -306,12 +328,20 @@ async def upsert_relationship(
     description: str | None = None,
 ) -> None:
     from shared.utils import parse_uuid
+
     nid = parse_uuid(novel_id, "novel_id")
     from modules.world.repositories import RelationshipRepository
+
     repo = RelationshipRepository()
     await repo.upsert_relationship(
-        db, nid, source_id, target_id,
-        source_type, target_type, relation_type, description,
+        db,
+        nid,
+        source_id,
+        target_id,
+        source_type,
+        target_type,
+        relation_type,
+        description,
     )
 
 
@@ -331,8 +361,10 @@ async def get_location_factions(
         list[dict] — 势力列表，每项含 id, name, relation_type, description
     """
     from shared.utils import parse_uuid
+
     nid = parse_uuid(novel_id, "novel_id")
     from modules.world.repositories import RelationshipRepository, WorldEntityRepository
+
     rel_repo = RelationshipRepository()
     entity_repo = WorldEntityRepository()
     return await rel_repo.get_factions_for_location(db, nid, location_id, entity_repo)

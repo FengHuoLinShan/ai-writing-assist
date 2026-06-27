@@ -34,12 +34,14 @@ _service = CharacterService()
 
 class TaskSubmitResponse(BaseModel):
     """任务提交响应"""
+
     task_id: str
     status: str = "pending"
 
 
 class ApplySuggestionsRequest(BaseModel):
     """应用 AI 建议请求"""
+
     fields: list[str]
     """要应用的字段列表"""
 
@@ -47,6 +49,7 @@ class ApplySuggestionsRequest(BaseModel):
 # ============================================================
 # Characters CRUD
 # ============================================================
+
 
 @router.post("", response_model=CharacterResponse, status_code=201)
 async def create_character(
@@ -71,7 +74,10 @@ async def list_characters(
 ) -> CharacterListResponse:
     """获取人物列表"""
     items, total = await _service.list_characters(
-        db, novel_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
     )
     return CharacterListResponse(items=items, total=total)
 
@@ -112,7 +118,9 @@ async def delete_character(
 # ============================================================
 
 
-@router.post("/{character_id}/extract", response_model=TaskSubmitResponse, status_code=201)
+@router.post(
+    "/{character_id}/extract", response_model=TaskSubmitResponse, status_code=201
+)
 async def extract_character(
     db: DbSession,
     character_id: str,
@@ -158,10 +166,7 @@ async def extract_all_characters(
         db.add(task)
         tasks.append(task)
     await db.flush()
-    return [
-        TaskSubmitResponse(task_id=str(t.id))
-        for t in tasks
-    ]
+    return [TaskSubmitResponse(task_id=str(t.id)) for t in tasks]
 
 
 @router.get("/{character_id}/suggestions")
@@ -173,7 +178,10 @@ async def get_character_suggestions(
     """获取人物的 AI 抽取建议（meta.ai_suggestions）"""
     char = await _service.get_character(db, character_id, novel_id=novel_id)
     meta = getattr(char, "meta", {}) or {}
-    return {"suggestions": meta.get("ai_suggestions", {}), "updated_at": meta.get("ai_suggestions_at")}
+    return {
+        "suggestions": meta.get("ai_suggestions", {}),
+        "updated_at": meta.get("ai_suggestions_at"),
+    }
 
 
 @router.put("/{character_id}/apply-suggestions", response_model=CharacterResponse)
@@ -196,7 +204,9 @@ async def apply_character_suggestions(
     if not suggestions:
         raise HTTPException(400, detail="没有待应用的 AI 建议")
 
-    fields_to_apply = request.fields if request and request.fields else list(suggestions.keys())
+    fields_to_apply = (
+        request.fields if request and request.fields else list(suggestions.keys())
+    )
     if not fields_to_apply:
         raise HTTPException(400, detail="请指定要应用的字段")
 
@@ -207,6 +217,7 @@ async def apply_character_suggestions(
             raw_value = suggestions[field]
             # 移除 #包围的原始内容保留
             from modules.character.tasks import _EXTRACTABLE_FIELDS
+
             if field in _EXTRACTABLE_FIELDS:
                 updates[field] = raw_value
 
@@ -214,7 +225,9 @@ async def apply_character_suggestions(
         raise HTTPException(400, detail="没有可应用的字段")
 
     # 清除已应用的 suggestions
-    remaining_suggestions = {k: v for k, v in suggestions.items() if k not in fields_to_apply}
+    remaining_suggestions = {
+        k: v for k, v in suggestions.items() if k not in fields_to_apply
+    }
     meta["ai_suggestions"] = remaining_suggestions
     if not remaining_suggestions:
         meta.pop("ai_suggestions", None)
@@ -222,7 +235,9 @@ async def apply_character_suggestions(
     updates["meta"] = meta
 
     update_data = CharacterUpdate(**updates)
-    return await _service.update_character(db, character_id, update_data, novel_id=novel_id)
+    return await _service.update_character(
+        db, character_id, update_data, novel_id=novel_id
+    )
 
 
 @router.patch("/{character_id}/state", response_model=CharacterResponse)
@@ -248,6 +263,7 @@ async def update_character_state(
 # ============================================================
 # Character Knowledge API
 # ============================================================
+
 
 @router.post(
     "/{character_id}/knowledge",
@@ -283,7 +299,11 @@ async def list_character_knowledge(
 ) -> CharacterKnowledgeListResponse:
     """获取人物知识列表"""
     items, total = await _service.list_knowledge(
-        db, novel_id, character_id, skip=skip, limit=limit,
+        db,
+        novel_id,
+        character_id,
+        skip=skip,
+        limit=limit,
     )
     return CharacterKnowledgeListResponse(items=items, total=total)
 
@@ -332,6 +352,7 @@ async def delete_character_knowledge(
 # Filter Context API（核心功能）
 # ============================================================
 
+
 @router.post(
     "/{character_id}/filter-context",
     response_model=FilterContextResponse,
@@ -347,10 +368,11 @@ async def filter_context(
     根据角色对上下文项中目标的了解程度，过滤掉角色不该知道的信息。
     """
     items = request.context_items if request else []
-    filtered, removed, replaced = (
-        await _service.filter_context_by_character_knowledge(
-            db, novel_id, character_id, items,
-        )
+    filtered, removed, replaced = await _service.filter_context_by_character_knowledge(
+        db,
+        novel_id,
+        character_id,
+        items,
     )
     return FilterContextResponse(
         filtered_items=filtered,

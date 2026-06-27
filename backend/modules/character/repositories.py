@@ -8,7 +8,7 @@ Character 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,9 +35,7 @@ class CharacterRepository:
         character = Character(
             novel_id=uuid.UUID(hex=data.novel_id),
             world_entity_id=(
-                uuid.UUID(hex=data.world_entity_id)
-                if data.world_entity_id
-                else None
+                uuid.UUID(hex=data.world_entity_id) if data.world_entity_id else None
             ),
             name=data.name,
             aliases=data.aliases or [],
@@ -81,9 +79,8 @@ class CharacterRepository:
     ) -> tuple[list[Character], int]:
         """根据小说 ID 获取人物列表（分页），返回 (items, total)"""
         # 获取总数
-        count_stmt = (
-            select(func.count(Character.id))
-            .where(Character.novel_id == novel_id)
+        count_stmt = select(func.count(Character.id)).where(
+            Character.novel_id == novel_id
         )
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
@@ -206,11 +203,15 @@ class CharacterRepository:
         novel_id: uuid.UUID,
         name: str,
     ) -> str | None:
-        stmt = select(Character.id).where(
-            Character.novel_id == novel_id,
-            Character.name == name,
-            Character.status == "canonical",
-        ).limit(1)
+        stmt = (
+            select(Character.id)
+            .where(
+                Character.novel_id == novel_id,
+                Character.name == name,
+                Character.status == "canonical",
+            )
+            .limit(1)
+        )
         result = await db.execute(stmt)
         row = result.scalar_one_or_none()
         if row is not None:
@@ -223,7 +224,7 @@ class CharacterRepository:
         alias_result = await db.execute(alias_stmt)
         chars = alias_result.scalars().all()
         for char in chars:
-            for alias_entry in (char.aliases or []):
+            for alias_entry in char.aliases or []:
                 if isinstance(alias_entry, dict) and alias_entry.get("alias") == name:
                     return str(char.id)
 
@@ -265,11 +266,13 @@ class CharacterRepository:
         for char in all_chars:
             meta = char.meta or {}
             if meta.get("current_location_id") == location_id:
-                characters.append({
-                    "id": str(char.id),
-                    "name": char.name,
-                    "current_state": char.current_state or "",
-                })
+                characters.append(
+                    {
+                        "id": str(char.id),
+                        "name": char.name,
+                        "current_state": char.current_state or "",
+                    }
+                )
         return characters
 
     async def get_character_location_id(
@@ -305,9 +308,7 @@ class CharacterKnowledgeRepository:
             misconception=data.misconception,
             source_chapter_index=data.source_chapter_index,
             source_memory_id=(
-                uuid.UUID(hex=data.source_memory_id)
-                if data.source_memory_id
-                else None
+                uuid.UUID(hex=data.source_memory_id) if data.source_memory_id else None
             ),
             status=data.status or "canonical",
         )
@@ -321,9 +322,7 @@ class CharacterKnowledgeRepository:
         knowledge_id: uuid.UUID,
     ) -> CharacterKnowledge | None:
         """根据 ID 获取知识记录"""
-        stmt = select(CharacterKnowledge).where(
-            CharacterKnowledge.id == knowledge_id
-        )
+        stmt = select(CharacterKnowledge).where(CharacterKnowledge.id == knowledge_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -436,9 +435,7 @@ class CharacterKnowledgeRepository:
         knowledge_id: uuid.UUID,
     ) -> bool:
         """删除知识记录"""
-        stmt = delete(CharacterKnowledge).where(
-            CharacterKnowledge.id == knowledge_id
-        )
+        stmt = delete(CharacterKnowledge).where(CharacterKnowledge.id == knowledge_id)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0

@@ -10,22 +10,23 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Path, Query
-
-from core.dependencies import DbSession
 from pydantic import BaseModel, Field
 
+from core.dependencies import DbSession
 from modules.writing.schemas import (
     VersionHistoryResponse,
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
 )
+from modules.writing.services import WritingDraftService
 
 
 class ChapterIndicesResponse(BaseModel):
     """章节索引列表响应"""
+
     chapter_indices: list[int]
-from modules.writing.services import WritingDraftService
+
 
 router = APIRouter(prefix="/api/writing", tags=["writing"])
 _service = WritingDraftService()
@@ -153,8 +154,8 @@ async def save_and_analyze(
     db: DbSession,
     data: SaveAndAnalyzeRequest,
 ) -> SaveAndAnalyzeResponse:
-    from modules.writing.services import WritingDraftService
     import logging
+
     logger = logging.getLogger(__name__)
 
     draft_data = WritingDraftCreate(
@@ -170,9 +171,13 @@ async def save_and_analyze(
     analysis_status = "success"
     try:
         from modules.writing.services import WritingAnalysisService
+
         analysis_service = WritingAnalysisService()
         proposal_created, analysis_status = await analysis_service.analyze_chapter(
-            db, data.novel_id, data.chapter_index, data.content,
+            db,
+            data.novel_id,
+            data.chapter_index,
+            data.content,
         )
     except Exception as e:
         logger.error("地缘资产AI提取非致命性失败，已安全降级。详情: %s", str(e))

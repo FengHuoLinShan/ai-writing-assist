@@ -7,7 +7,7 @@ Project 是系统的根实体，不引用其他模块的表。
 
 from __future__ import annotations
 
-from sqlalchemy import String, Text
+from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin

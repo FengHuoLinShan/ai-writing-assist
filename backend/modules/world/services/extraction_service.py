@@ -17,9 +17,14 @@ from modules.world.services.helpers import parse_uuid
 
 class ExtractionResult:
     """抽取结果统计"""
+
     total_chapters: int
     total_created: int
     total_skipped: int
+    total_batches: int
+    failed_batches: int
+    degraded: bool
+    errors: list[str]
     items: list[dict[str, Any]]
 
     def __init__(
@@ -28,11 +33,18 @@ class ExtractionResult:
         total_chapters: int = 0,
         total_created: int = 0,
         total_skipped: int = 0,
+        total_batches: int = 0,
+        failed_batches: int = 0,
+        errors: list[str] | None = None,
         items: list[dict[str, Any]] | None = None,
     ) -> None:
         self.total_chapters = total_chapters
         self.total_created = total_created
         self.total_skipped = total_skipped
+        self.total_batches = total_batches
+        self.failed_batches = failed_batches
+        self.errors = errors or []
+        self.degraded = failed_batches > 0
         self.items = items or []
 
 
@@ -63,10 +75,14 @@ class EntityExtractionService:
 
         # 1. 读取已有正史对象作为 context
         all_entities, _ = await self._entity_repo.get_by_novel(db, nid, limit=500)
-        existing_context = "\n".join(
-            f"- {e.name} ({e.entity_type})"
-            for e in all_entities if e.status in ("canonical", "draft")
-        ) or "无已有对象"
+        existing_context = (
+            "\n".join(
+                f"- {e.name} ({e.entity_type})"
+                for e in all_entities
+                if e.status in ("canonical", "draft")
+            )
+            or "无已有对象"
+        )
 
         # 2. 分批读取 WritingDraft
         chapters = await self._load_chapters(db, novel_id, start_chapter, end_chapter)
@@ -83,8 +99,12 @@ class EntityExtractionService:
         llm = LLMClient()
         total_created = 0
         total_skipped = 0
+        failed_batches = 0
+        errors: list[str] = []
         created_items: list[dict[str, Any]] = []
-        batches = [chapters[i:i + batch_size] for i in range(0, len(chapters), batch_size)]
+        batches = [
+            chapters[i : i + batch_size] for i in range(0, len(chapters), batch_size)
+        ]
 
         for batch_idx, batch in enumerate(batches):
             batch_text = "\n\n".join(
@@ -94,11 +114,13 @@ class EntityExtractionService:
 
             from infrastructure.llm.prompt_loader import load_prompt
 
-            system_prompt = load_prompt("structure_extraction",
+            system_prompt = load_prompt(
+                "structure_extraction",
                 existing_entities_context=existing_context,
             )
 
             from core.config import get_settings
+
             _settings = get_settings()
             request = LLMCallRequest(
                 model=_settings.llm_model,
@@ -132,8 +154,13 @@ class EntityExtractionService:
                 result = await llm.generate_structured(request, _ExtractionOutput)
             except Exception as exc:
                 import logging
+
+                failed_batches += 1
+                errors.append(str(exc))
                 logging.getLogger(__name__).warning(
-                    "LLM extraction failed for batch %d: %s", batch_idx, exc,
+                    "LLM extraction failed for batch %d: %s",
+                    batch_idx,
+                    exc,
                 )
                 continue
 
@@ -144,14 +171,16 @@ class EntityExtractionService:
                     continue
 
                 suggestions = await self._dedup_service.find_similar_entities(
-                    db, novel_id, extracted.name,
+                    db,
+                    novel_id,
+                    extracted.name,
                     entity_type=extracted.entity_type,
                 )
 
-                high_confidence = [s for s in suggestions if s.similarity_score >= 0.88]
-                if high_confidence:
-                    total_skipped += 1
-                    continue
+                best_suggestion = suggestions[0] if suggestions else None
+                suggested_action = extracted.suggested_action
+                if best_suggestion and best_suggestion.similarity_score >= 0.88:
+                    suggested_action = best_suggestion.action
 
                 src_ch = extracted.source_chapter or batch[0]["chapter_index"]
 
@@ -163,21 +192,27 @@ class EntityExtractionService:
                     source_chapter_index=src_ch,
                     importance_score=min(max(extracted.importance, 0.0), 1.0),
                     confidence=min(max(extracted.confidence, 0.0), 1.0),
-                    candidate_reason=extracted.candidate_reason[:500] if extracted.candidate_reason else None,
-                    suggested_action=extracted.suggested_action,
+                    candidate_reason=(
+                        extracted.candidate_reason[:500]
+                        if extracted.candidate_reason
+                        else None
+                    ),
+                    suggested_action=suggested_action,
                     suggested_existing_entity_id=(
-                        suggestions[0].existing_entity_id if suggestions else None
+                        best_suggestion.existing_entity_id if best_suggestion else None
                     ),
                 )
                 try:
                     candidate = await self._candidate_repo.create(db, nid, candidate_data)
                     total_created += 1
-                    created_items.append({
-                        "candidate_id": str(candidate.id),
-                        "name": candidate.name,
-                        "entity_type": candidate.entity_type,
-                        "suggested_action": candidate.suggested_action,
-                    })
+                    created_items.append(
+                        {
+                            "candidate_id": str(candidate.id),
+                            "name": candidate.name,
+                            "entity_type": candidate.entity_type,
+                            "suggested_action": candidate.suggested_action,
+                        }
+                    )
                 except ValueError:
                     total_skipped += 1
 
@@ -186,6 +221,9 @@ class EntityExtractionService:
             total_chapters=len(chapters),
             total_created=total_created,
             total_skipped=total_skipped,
+            total_batches=len(batches),
+            failed_batches=failed_batches,
+            errors=errors,
             items=created_items,
         )
 
@@ -198,5 +236,8 @@ class EntityExtractionService:
     ) -> list[dict[str, Any]]:
         """通过 DraftProvider 读取指定范围的 WritingDraft"""
         return await self._draft_provider.load_chapters(
-            db, novel_id, start_chapter, end_chapter,
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
         )

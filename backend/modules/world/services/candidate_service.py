@@ -42,7 +42,9 @@ class EntityCandidateService:
         """创建候选对象"""
         nid = parse_uuid(novel_id, "novel_id")
         candidate = await self._repo.create(db, nid, data)
-        return EntityCandidateResponse.model_validate(candidate)
+        response = EntityCandidateResponse.model_validate(candidate)
+        await self._attach_existing_entity_names(db, nid, [response])
+        return response
 
     async def get(
         self,
@@ -60,7 +62,10 @@ class EntityCandidateService:
             )
         if novel_id and str(candidate.novel_id) != novel_id:
             raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return EntityCandidateResponse.model_validate(candidate)
+        response = EntityCandidateResponse.model_validate(candidate)
+        if candidate.novel_id:
+            await self._attach_existing_entity_names(db, candidate.novel_id, [response])
+        return response
 
     async def list(
         self,
@@ -76,16 +81,16 @@ class EntityCandidateService:
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.get_by_novel(
-            db, nid,
+            db,
+            nid,
             status=status,
             suggested_action=suggested_action,
             skip=skip,
             limit=limit,
         )
-        return EntityCandidateListResponse(
-            items=[EntityCandidateResponse.model_validate(c) for c in items],
-            total=total,
-        )
+        responses = [EntityCandidateResponse.model_validate(c) for c in items]
+        await self._attach_existing_entity_names(db, nid, responses)
+        return EntityCandidateListResponse(items=responses, total=total)
 
     async def update(
         self,
@@ -106,7 +111,10 @@ class EntityCandidateService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"EntityCandidate {candidate_id} not found",
             )
-        return EntityCandidateResponse.model_validate(candidate)
+        response = EntityCandidateResponse.model_validate(candidate)
+        if candidate.novel_id:
+            await self._attach_existing_entity_names(db, candidate.novel_id, [response])
+        return response
 
     async def delete(
         self,
@@ -164,21 +172,51 @@ class EntityCandidateService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"EntityCandidate {candidate_id} not found",
             )
+        if str(candidate.novel_id) != str(nid):
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
 
         action = candidate.suggested_action
         edits = user_edits or {}
 
         if action in ("ignore", "temporary_only"):
-            await self._repo.update_status(db, cid, "ignored")
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"Candidate suggested action is '{action}', cannot promote to canonical",
+                detail=(
+                    f"Candidate suggested action is '{action}', "
+                    "cannot promote to canonical"
+                ),
             )
+
+        if action in ("alias_of_existing", "merge_with_existing"):
+            if not candidate.suggested_existing_entity_id:
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Candidate suggested action is '{action}', "
+                        "but suggested_existing_entity_id is missing"
+                    ),
+                )
 
         if action == "alias_of_existing" and candidate.suggested_existing_entity_id:
             existing_eid = parse_uuid(
-                candidate.suggested_existing_entity_id, "entity_id",
+                candidate.suggested_existing_entity_id,
+                "entity_id",
             )
+            entity_repo = WorldEntityRepository()
+            entity = await entity_repo.get(db, existing_eid)
+            if entity is None:
+                raise HTTPException(
+                    status_code=http_status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        "Suggested existing entity "
+                        f"{candidate.suggested_existing_entity_id} not found"
+                    ),
+                )
+            if str(entity.novel_id) != str(nid):
+                raise HTTPException(
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
+                    detail="Suggested entity does not belong to the same novel",
+                )
             alias_repo = EntityAliasRepository()
             alias_data = EntityAliasCreate(
                 entity_id=candidate.suggested_existing_entity_id,
@@ -189,23 +227,12 @@ class EntityCandidateService:
             )
             await alias_repo.create(db, nid, alias_data)
             await self._repo.update_status(db, cid, "canonical")
-            entity_repo = WorldEntityRepository()
-            entity = await entity_repo.get(db, existing_eid)
-            if entity is None:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Suggested existing entity {candidate.suggested_existing_entity_id} not found",
-                )
-            if str(entity.novel_id) != str(nid):
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="Suggested entity does not belong to the same novel",
-                )
             return WorldEntityResponse.model_validate(entity)
 
         if action == "merge_with_existing" and candidate.suggested_existing_entity_id:
             existing_eid = parse_uuid(
-                candidate.suggested_existing_entity_id, "entity_id",
+                candidate.suggested_existing_entity_id,
+                "entity_id",
             )
             entity_repo = WorldEntityRepository()
 
@@ -213,7 +240,10 @@ class EntityCandidateService:
             if entity is None:
                 raise HTTPException(
                     status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Entity to merge into {candidate.suggested_existing_entity_id} not found",
+                    detail=(
+                        "Entity to merge into "
+                        f"{candidate.suggested_existing_entity_id} not found"
+                    ),
                 )
             if str(entity.novel_id) != str(nid):
                 raise HTTPException(
@@ -228,14 +258,17 @@ class EntityCandidateService:
             if edits:
                 merge_fields.update(edits)
 
-            update_data = WorldEntityUpdate(**{
-                k: v for k, v in merge_fields.items() if v is not None
-            })
+            update_data = WorldEntityUpdate(
+                **{k: v for k, v in merge_fields.items() if v is not None}
+            )
             entity = await entity_repo.update(db, existing_eid, update_data)
             if entity is None:
                 raise HTTPException(
                     status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Entity to merge into {candidate.suggested_existing_entity_id} not found",
+                    detail=(
+                        "Entity to merge into "
+                        f"{candidate.suggested_existing_entity_id} not found"
+                    ),
                 )
             await self._repo.update_status(db, cid, "canonical")
             return WorldEntityResponse.model_validate(entity)
@@ -265,8 +298,10 @@ class EntityCandidateService:
         # 自动同步：entity_type=人物 → 创建 Character 记录
         if mapped_type == "character_ref":
             import logging
+
             try:
                 from modules.character.facade import create_character
+
                 await create_character(
                     db=db,
                     novel_id=novel_id,
@@ -276,7 +311,36 @@ class EntityCandidateService:
             except Exception as exc:
                 logging.getLogger(__name__).warning(
                     "Failed to auto-create Character for candidate %s: %s",
-                    candidate.name, exc,
+                    candidate.name,
+                    exc,
                 )
 
         return WorldEntityResponse.model_validate(entity)
+
+    async def _attach_existing_entity_names(
+        self,
+        db: AsyncSession,
+        novel_id,
+        items: list[EntityCandidateResponse],
+    ) -> None:
+        """Populate suggested_existing_entity_name without crossing novel boundaries."""
+        ids = {
+            item.suggested_existing_entity_id
+            for item in items
+            if item.suggested_existing_entity_id
+        }
+        if not ids:
+            return
+
+        entity_repo = WorldEntityRepository()
+        for entity_id in ids:
+            try:
+                eid = parse_uuid(entity_id, "entity_id")
+            except HTTPException:
+                continue
+            entity = await entity_repo.get(db, eid)
+            if entity is None or str(entity.novel_id) != str(novel_id):
+                continue
+            for item in items:
+                if item.suggested_existing_entity_id == entity_id:
+                    item.suggested_existing_entity_name = entity.name

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-
 from core.dependencies import DbSession
 from modules.review.schemas import (
     ReviewListResponse,
@@ -36,26 +34,33 @@ async def list_reports(
 ) -> ReviewListResponse:
     """获取复查报告列表"""
     items, total = await _service.list_reports(
-        db, novel_id, target_type=target_type, decision=decision,
-        skip=skip, limit=limit,
+        db,
+        novel_id,
+        target_type=target_type,
+        decision=decision,
+        skip=skip,
+        limit=limit,
     )
     return ReviewListResponse(
-        items=[ReviewReportResponse(
-            id=r.report_id,
-            novel_id=r.novel_id,
-            target_type=r.target_type,
-            target_id=r.target_id,
-            status=r.status,
-            decision=r.decision,
-            score=r.score,
-            problems=r.problems,
-            conflict_warnings=r.conflict_warnings,
-            early_reveal_warnings=r.early_reveal_warnings,
-            character_knowledge_warnings=r.character_knowledge_warnings,
-            duplicate_entity_warnings=r.duplicate_entity_warnings,
-            geo_warnings=r.geo_warnings,
-            revision_instructions=r.revision_instructions,
-        ) for r in items],
+        items=[
+            ReviewReportResponse(
+                id=r.report_id,
+                novel_id=r.novel_id,
+                target_type=r.target_type,
+                target_id=r.target_id,
+                status=r.status,
+                decision=r.decision,
+                score=r.score,
+                problems=r.problems,
+                conflict_warnings=r.conflict_warnings,
+                early_reveal_warnings=r.early_reveal_warnings,
+                character_knowledge_warnings=r.character_knowledge_warnings,
+                duplicate_entity_warnings=r.duplicate_entity_warnings,
+                geo_warnings=r.geo_warnings,
+                revision_instructions=r.revision_instructions,
+            )
+            for r in items
+        ],
         total=total,
     )
 

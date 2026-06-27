@@ -7,7 +7,9 @@ Project 对外契约
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from modules.project.schemas import ProjectContext  # noqa: F401
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,3 @@ class ProjectContract:
     """当前创作阶段"""
     default_reveal_policy: str = "author_safe"
     """默认揭示策略"""
-
-
-# facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.project.schemas import ProjectContext  # noqa: F401 — facade.get_project_context 返回

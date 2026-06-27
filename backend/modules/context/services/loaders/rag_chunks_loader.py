@@ -39,7 +39,8 @@ class RagChunksLoader(Loader):
         from modules.rag.facade import retrieve
 
         result = await retrieve(
-            db, options.novel_id,
+            db,
+            options.novel_id,
             query=options.task,
             entity_ids=options.entity_ids,
             character_ids=options.character_ids,
@@ -49,8 +50,7 @@ class RagChunksLoader(Loader):
         )
         if result and result.chunks:
             bundle.rag_chunks = [
-                c.model_dump() if hasattr(c, "model_dump") else c
-                for c in result.chunks
+                c.model_dump() if hasattr(c, "model_dump") else c for c in result.chunks
             ]
 
         if (
@@ -89,11 +89,7 @@ class RagChunksLoader(Loader):
                 if hasattr(loc_data, "world_entity_id")
                 else loc_data.get("world_entity_id")
             )
-            loc_id = (
-                loc_data.id
-                if hasattr(loc_data, "id")
-                else loc_data.get("id")
-            )
+            loc_id = loc_data.id if hasattr(loc_data, "id") else loc_data.get("id")
             if we_id and loc_id:
                 mapping[str(we_id)] = str(loc_id)
         return mapping

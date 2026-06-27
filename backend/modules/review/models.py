@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Float, String
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Float, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
