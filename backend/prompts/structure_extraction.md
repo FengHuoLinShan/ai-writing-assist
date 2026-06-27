@@ -10,8 +10,8 @@
 1. 只抽取对后续创作、检索、伏笔、人物行动、世界观维护有价值的对象。
 2. 不抽取：路人、普通道具、常见物品、代词、一次性场景元素。
 3. 如果某个名词只是已有对象的别名、称号或临时称呼，将 `suggested_action` 设为 `link_to_existing` 并填写 `suggested_existing_entity_name`。
-4. 如果某个对象只在当前章节有用，标记为 `temporary_only`（系统会忽略，不入库）。
-5. `suggested_action=create_new` 的实体会被系统直接以 `status=canonical` 入库，无需用户确认。
+4. 如果某个对象只在当前章节有用，标记为 `temporary_only`，等待用户在候选清洗中确认清理。
+5. 所有抽取结果只进入候选清洗，不直接写入正史；用户确认后才会成为正史。
 6. 宁可少抽，不要把背景装饰塞进对象库。
 
 ## 已知已有对象
@@ -31,7 +31,7 @@
 - hidden_truth: 仅作者知道的隐藏真相（如果没有留空）
 - importance: 重要性 0.0~1.0
 - suggested_action: 建议动作，必须是以下之一：
-  - `create_new` — 创建为新正史对象（该对象是全新的长期资产）
+  - `create_new` — 建议创建为新对象（该对象是全新的长期资产，仍需用户确认）
   - `link_to_existing` — 链接到已有正史对象（该对象是已有对象的别名/化身/另一个名称，填写 `suggested_existing_entity_name`）
   - `ignore` — 忽略（不属于长期资产，不值得入库）
   - `temporary_only` — 临时角色/道具，仅在近期章节（约30章内）出现，应标记为临时
