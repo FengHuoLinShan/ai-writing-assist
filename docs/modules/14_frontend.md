@@ -2,37 +2,36 @@
 
 ## 定位
 
-前端是纯 Vanilla JS 单页面应用（SPA），无框架依赖。通过 REST API 与后端通信，提供命令行风格但易用的操作界面。
+前端是纯 Vanilla JS 单页面应用（SPA），无前端框架。通过 REST API 与后端通信，提供命令行风格但易用的操作界面。动态地图视口使用 Leaflet（ADR-0003）。
 
 ## 架构
 
-SPA 入口 `index.html`，文件职责：`state.js`（Proxy 响应式）、`router.js`（两级路由）、`api.js`（14 个模块封装）、`app.js`（生命周期）、`views/`（12 个视图）。
+SPA 入口 `index.html`，文件职责：`state.js`（Proxy 响应式）、`router.js`（Hash 路由与 KeepAlive）、`api.js`（projects/world/rag/context/writing/imports/tasks API 封装）、`app.js`（生命周期）、`views/`（8 个一级路由视图 + 地图拆分组件）。
 
 ## 核心设计
 
 - **中文优先**：所有 UI 文本中文，无工程术语
 - **命令行 + 按钮并行**：支持鼠标操作和键盘快捷键
 - **纯文字为主**：表格 / 树 / 卡片 / 折叠面板 / ASCII 地图
-- **低依赖**：Vanilla JS，无框架
+- **低依赖**：Vanilla JS，无框架；地图视口单独使用 Leaflet
 - **响应式状态**：使用 JS Proxy 实现 Observable 模式
-- **二级子视图**：每个 view 可含 subView（如 worldView 有 objects/candidates/relations/aliases）
+- **二级子视图**：每个 view 可含 subView（如 worldView 有 objects/relations/aliases/map）
 
 ## 视图列表
 
 | 视图 | 功能 |
 |------|------|
 | projectView | 新建/选择/编辑/删除项目；回收站管理（列出/恢复/永久删除）；文件上传进度条 |
-| worldView | 实体/候选/关系/别名 CRUD + 合并候选 + 去重检测 |
-| geoView | 已移除（页面保留，数据由 world 模块管理） |
-| characterView | 已移除（页面保留，功能迁入 worldView character 子标签） |
-| memoryView | 全景查询 + 事件列表 + 快照管理 + 全量重建 |
-| timelineView | 已移除（页面保留，功能迁入 worldView events 子标签） |
+| writingView | 写作工作台：Scene 树导航、编辑器、Scene 卡面板、版本历史、深度导入入口、章节卡提取、Ctrl+S 保存 |
+| worldView | 实体 / 关系 / 别名 / 地图子标签；人物、地点、事件均通过 world 数据模型承载 |
+| mapWorkspaceView | 地图一级工作台，复用 mapView 并减少从写作流切换上下文 |
+| mapView | 动态地图主视图：层级地图、地形编辑、地点绑定、Scene 标记、势力范围、聚焦模式 |
 | outlineView | 三个子标签：剧情线/篇章纲/Scene。Scene 卡片 CRUD + 拖拽重排 + AI 结构生成 + 章节卡提取 |
 | ragView | 检索 + 索引重建 + 状态 |
 | contextView | 上下文编译 + 渲染 |
-| reviewView | 已移除（页面保留） |
-| writingView | 写作工作台：左侧 Scene 树导航 → 中间编辑器 → 右侧 Scene 卡面板；版本历史模态框；深度导入三阶段进度条（40%/40%/20%）；章节卡提取；Ctrl+S 保存 |
 | generateView | 四大 Prompt 生成入口 |
+
+已移除的独立页面：geo / character / timeline / review。相关数据入口已合并到 world / outline / context 等当前模块。
 
 ## 写作工作台布局
 

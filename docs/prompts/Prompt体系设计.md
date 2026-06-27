@@ -12,12 +12,13 @@
 | `structure_plot.md` | 剧情结构生成（剧情线/篇章纲/伏笔/揭示） | ✅ 已创建，被 `outline/services.py` 调用 |
 | `structure_chapter_scene.md` | 章节与场景结构生成 | ✅ 已创建 |
 | `structure_review_memory.md` | 结构复查与状态抽取 | ⚠️ 已废弃（review 模块已移除） |
-| `structure_extraction.md` | 从章节正文抽取世界对象 | ✅ 已创建，被 `imports/scene_entity_extraction.py` 调用 |
+| `structure_extraction.md` | 从章节正文抽取世界对象（world 单章候选路径） | ✅ 已创建，被 `world/services/extraction_service.py` 调用 |
+| `scene_entity_extraction.md` | 从 Scene 正文抽取实体/关系/Delta（深度导入 Phase 2） | ✅ 已创建，被 `imports/scene_entity_extraction.py` 调用 |
 | `extract_chapter_scene.md` | 从正文提取章节卡字段 | ✅ 已创建 |
 | `shared_rules.md` | 所有 Prompt 共享规则 | ✅ 已创建 |
 | `scene_segmentation.md` | Scene 切分 | ✅ 已创建，被 `imports/scene_segmentation.py` 调用 |
 
-Prompt 输出结构化 JSON。`create_new` / 直接入库的字段会被系统以 `status=canonical` 直接写入，不再经过候选池等待用户确认。
+Prompt 输出结构化 JSON。Prompt 不输出 `status` 字段；系统根据 `suggested_action` 和当前调用流水线决定创建、关联、忽略或保留为候选。
 
 ## 3. shared_rules.md
 
@@ -39,7 +40,7 @@ Prompt 输出结构化 JSON。`create_new` / 直接入库的字段会被系统�
 
 - 输入：novel_goal / genre / tone / raw_idea / existing_entities / extraction_mode
 - 输出：world_entities / characters / relationships / character_knowledge / entity_candidates / geo_candidates / foreshadowing_candidates / timeline_candidates
-- 说明：`suggested_action=create_new` 的对象会被系统直接以 `status=canonical` 入库，不再等待用户确认。
+- 说明：`suggested_action=create_new` 的对象由调用方服务按当前流水线创建或保留为候选。
 
 ## 5. structure_plot.md
 
@@ -63,7 +64,7 @@ Prompt 输出结构化 JSON。`create_new` / 直接入库的字段会被系统�
 - 输入：章节正文 + 已有对象列表
 - 输出：`entities` 数组（含 `suggested_action` 路由断言）+ `delta_events`
 - 处理逻辑：
-  - `create_new` → 经去重检测后直接以 `status=canonical` 入库
+  - `create_new` → 经去重检测后创建为候选对象
   - `link_to_existing` → 作为已有对象别名处理
   - `ignore` / `temporary_only` → 跳过不入库
 - 核心规则：

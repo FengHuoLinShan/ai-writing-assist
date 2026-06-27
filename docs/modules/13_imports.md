@@ -36,7 +36,7 @@ DeepImportWorkflow 将三步串成全自动流水线，直接入库无需用户�
 ### Phase 2: 实体增量提取（串行，40%）
 - 按 scene_index 顺序串行处理每个 Scene
 - 加载当前 Memory 上下文 → LLM 抽取 → 3 层去重检测 → 自动入库
-- 实体入库 `core_entities`，status=`canonical`，content_json._meta.auto_ingested=true
+- 实体写入 `core_entities`，当前 `status="candidate"`，并带 `content_json._meta.auto_ingested=true`、来源 Scene/章节和批次元数据
 - Delta 变更写入 delta_log（Scene 内坍缩后）
 - 每个 Scene 完成时触发 Memory 增量快照
 

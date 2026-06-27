@@ -7,7 +7,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 ## 核心原则
 
 - 对象抽取不是 NER，而是长期创作资产识别
-- AI 抽取对象直接以 `status="canonical"` 自动入库，不经过候选池
+- AI 抽取对象写入 `core_entities`，当前使用 `status="candidate"` 表达待清洗/待提升状态；不再使用独立 `entity_candidates` 表
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
@@ -21,7 +21,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
 - `map_configs` / `map_tiles` / `map_location_bindings` / `map_markers` / `map_territory_tiles` — 动态地图子系统表，详见 `docs/modules/15_map.md`
-- `entity_candidates` — 候选对象池（已废弃，AI 抽取直接入正史）
+- ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB
 

@@ -42,14 +42,13 @@ stats = await llm.get_usage_stats()
 
 | 处理器 | 模块 | 说明 |
 |--------|------|------|
-| `world_entity_extraction` | world | 从章节正文抽取世界对象候选 |
-| `character_extract` | character | 人物档案 AI 抽取（RAG → LLM → ai_suggestions） |
+| `world_entity_extraction` | world | 从章节正文抽取世界对象并按当前 world 规则入库 |
 | `plot_structure_generate` | outline | 从正文生成剧情线+篇章纲 |
-| `chapter_card_extraction` | outline | 从正文提取章节卡字段 |
 | `rag_index_chapter` | rag | 单章 RAG 索引 |
 | `rag_reindex_novel` | rag | 全量/范围重建项目索引 |
-| `deep_import` | imports | 深度导入流水线（抽取→人物→剧情） |
-| `deep_import_resume` | imports | 候选确认后恢复深度导入 |
+| `publish_chapter` | writing | 发布章节草稿并触发后续索引/记忆流程 |
+| `deep_import` | imports | 深度导入流水线（Scene 切分 → 实体提取 → 结构分析） |
+| `deep_import_resume` | imports | 已废弃的兼容 handler；候选管理移除后直接返回完成状态 |
 
 ### API
 

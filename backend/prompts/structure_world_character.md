@@ -280,7 +280,7 @@
 3. **分级评估**：为每个候选对象评估 importance，按 extraction_mode 过滤
 4. **构建关系**：识别对象之间的关键关系
 5. **知识边界**：确定每个角色对相关信息的认知程度
-6. **输出结构化数据**：按输出 Schema 生成结构化 JSON。`suggested_action=create_new` 的对象会被系统直接以 `status=canonical` 入库
+6. **输出结构化数据**：按输出 Schema 生成结构化 JSON。不要输出 `status` 字段，系统会根据 `suggested_action` 和当前流水线决定创建、关联、忽略或保留为候选
 7. **自查**：检查是否有违反 shared_rules 的内容，特别是规则 3（不提前揭示）、规则 4（知识边界）、规则 5（不凭空增加）
 
 ---

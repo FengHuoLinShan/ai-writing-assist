@@ -4,7 +4,7 @@
 
 ## 快速启动
 
-直接打开 `index.html` 即可（无需构建工具）：
+直接打开 `index.html` 即可。地图视图会从 CDN 加载 Leaflet，因此离线使用时建议先启动本地服务器并确保浏览器可访问该资源。
 
 ```bash
 cd frontend-console
@@ -27,22 +27,23 @@ frontend-console/
 ├── index.html              # 单页应用入口
 ├── styles.css              # 完整样式表（终端深色主题）
 ├── state.js                # 全局响应式状态管理
-├── api.js                  # 完整 API 封装（76 个函数）
+├── api.js                  # API 封装（projects/world/rag/context/writing/imports/tasks）
 ├── router.js               # Hash 路由系统
 ├── commands.js             # 命令系统（全中文帮助）
 ├── app.js                  # 应用主入口（快捷键绑定）
-├── views/                  # 12 个视图
+├── views/                  # 8 个一级路由视图 + 地图拆分组件
 │   ├── projectView.js      # 项目
-│   ├── worldView.js        # 世界对象 + 候选清洗
-│   ├── geoView.js          # 地理历史
-│   ├── characterView.js    # 人物档案 + 知识边界
-│   ├── memoryView.js       # 长期记忆
-│   ├── timelineView.js     # 时间线
+│   ├── writingView.js      # 写作台
+│   ├── worldView.js        # 世界对象 / 关系 / 别名 / 地图子标签
+│   ├── mapWorkspaceView.js # 地图一级工作台
+│   ├── mapView.js          # 动态地图主视图
+│   ├── mapState.js         # 地图前端会话状态
+│   ├── mapHexRenderer.js   # 六边形渲染
+│   ├── mapEditPanel.js     # 地图编辑面板
+│   ├── mapRouteContext.js  # 地图路由上下文
 │   ├── outlineView.js      # 剧情结构
 │   ├── ragView.js          # RAG 检索
 │   ├── contextView.js      # 上下文编译
-│   ├── reviewView.js       # 结构复查
-│   ├── writingView.js      # 草稿导出
 │   └── generateView.js     # 生成中心
 └── README.md
 ```
@@ -50,7 +51,7 @@ frontend-console/
 ## 技术栈
 
 - 纯原生 HTML + CSS + JavaScript
-- 零外部依赖
+- 无前端框架；地图视口使用 Leaflet（ADR-0003）
 - 所有 UI 文字为中文
 - 终端深色主题（#050807）
 

@@ -4,7 +4,9 @@ Alembic 迁移环境配置
 支持异步 PostgreSQL + pgvector。
 """
 
+import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 
@@ -36,9 +38,24 @@ from core.base import Base  # noqa: E402
 target_metadata = Base.metadata
 
 
+def _database_url() -> str:
+    """Return the runtime database URL, falling back to alembic.ini."""
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == "DATABASE_URL" and "DATABASE_URL" not in os.environ:
+                os.environ["DATABASE_URL"] = value.strip().strip("\"'")
+                break
+    return os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+
+
 def run_migrations_offline() -> None:
     """离线迁移：输出 SQL 脚本，不连接数据库"""
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -67,8 +84,7 @@ def run_migrations_online() -> None:
     """在线迁移：使用同步 psycopg2 连接"""
     from sqlalchemy import create_engine
 
-    config_section = config.get_section(config.config_ini_section)
-    sync_url = config_section["sqlalchemy.url"].replace(
+    sync_url = _database_url().replace(
         "postgresql+asyncpg://",
         "postgresql+psycopg2://",
     )
