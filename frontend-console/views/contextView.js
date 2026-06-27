@@ -21,7 +21,7 @@ const contextView = {
         在此可以预览 AI 生成结构时使用的上下文。
       </p>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="two-column-workspace context-workspace">
         <div>
           <div class="card">
             <div class="card-title">编译上下文</div>

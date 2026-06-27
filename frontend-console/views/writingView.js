@@ -202,7 +202,7 @@ const writingView = {
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px;">
         手动工作台 — 选择章节，撰写正文。
       </p>
-      <div style="display:grid;grid-template-columns:200px 1fr 260px;gap:12px;align-items:start;">
+      <div class="writing-workspace-layout">
         <div id="writing-tree-container">${this._renderSceneTree()}</div>
         <div id="writing-editor-container">${this._renderEditor()}</div>
         <div id="writing-panel-container">${this._renderScenePanel()}</div>

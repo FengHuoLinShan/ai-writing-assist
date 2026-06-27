@@ -15,11 +15,11 @@ const generateView = {
         从左侧菜单中选择模块，或使用下方的生成中心统一入口。
       </p>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="two-column-workspace generate-workspace">
         <div>
           <div class="card" style="margin-bottom:12px;">
             <div class="card-title">生成类型</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+            <div class="generate-type-grid">
               <div class="clickable generate-card ${this._currentType === "world_character" ? "active" : ""}" data-action="select-type" data-type="world_character">
                 <strong>1. 世界与人物结构</strong>
                 <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">世界对象、人物、关系等</p>

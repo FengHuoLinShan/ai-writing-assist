@@ -112,6 +112,12 @@ const mapView = {
 
   /** 退出时清理 Leaflet 实例 */
   unmount() {
+    this._teardownInteractiveSurface()
+    this._state = null
+    resetMapState()
+  },
+
+  _teardownInteractiveSurface() {
     if (this._tooltipDebounceTimer) {
       clearTimeout(this._tooltipDebounceTimer)
       this._tooltipDebounceTimer = null
@@ -126,12 +132,10 @@ const mapView = {
     }
     this._canvas = null
     this._ctx = null
-    this._state = null
     if (this._keyHandler) {
       document.removeEventListener("keydown", this._keyHandler)
       this._keyHandler = null
     }
-    resetMapState()
   },
 
   // ============================================================
@@ -162,6 +166,46 @@ const mapView = {
       toast(`加载地图失败：${err.message}`, "error")
       this._state = null
     }
+  },
+
+  async _reloadMapStatePreservingSession(mapId, sceneId = mapState.currentSceneId) {
+    const session = {
+      mode: mapState.mode,
+      activeTool: mapState.activeTool,
+      selectedTerrain: mapState.selectedTerrain,
+      selectedLocationEntityId: mapState.selectedLocationEntityId,
+      bindCenterMode: mapState.bindCenterMode,
+      currentSceneId: mapState.currentSceneId,
+      sceneList: mapState.sceneList,
+      currentScene: mapState.currentScene,
+      selectedMarkerType: mapState.selectedMarkerType,
+      selectedMarkerEntityId: mapState.selectedMarkerEntityId,
+      selectedMarkerLabel: mapState.selectedMarkerLabel,
+      focusMode: mapState.focusMode,
+      focusEntityId: mapState.focusEntityId,
+      focusRelatedHexes: new Set(mapState.focusRelatedHexes),
+      selectedFactionId: mapState.selectedFactionId,
+      factionColors: { ...mapState.factionColors },
+    }
+
+    await this._loadMapState(mapId, sceneId)
+
+    mapState.mode = session.mode
+    mapState.activeTool = session.activeTool
+    mapState.selectedTerrain = session.selectedTerrain
+    mapState.selectedLocationEntityId = session.selectedLocationEntityId
+    mapState.bindCenterMode = session.bindCenterMode
+    mapState.currentSceneId = session.currentSceneId
+    mapState.sceneList = session.sceneList
+    mapState.currentScene = session.currentScene
+    mapState.selectedMarkerType = session.selectedMarkerType
+    mapState.selectedMarkerEntityId = session.selectedMarkerEntityId
+    mapState.selectedMarkerLabel = session.selectedMarkerLabel
+    mapState.focusMode = session.focusMode
+    mapState.focusEntityId = session.focusEntityId
+    mapState.focusRelatedHexes = session.focusRelatedHexes
+    mapState.selectedFactionId = session.selectedFactionId
+    mapState.factionColors = session.factionColors
   },
 
   async _loadLocations() {
@@ -412,6 +456,7 @@ const mapView = {
 
     // canvas overlay：用 L.LayerGroup 持有一个 canvas
     this._canvas = document.createElement("canvas")
+    this._canvas.dataset.testid = "map-canvas"
     this._canvas.width = container.clientWidth
     this._canvas.height = container.clientHeight
     this._canvas.style.position = "absolute"
@@ -687,7 +732,7 @@ const mapView = {
         state.currentProjectId
       )
       toast("标记已添加", "success")
-      await this._loadMapState(this._state.map.id)
+      await this._reloadMapStatePreservingSession(this._state.map.id)
       this._redraw()
     } catch (err) {
       toast(`标记创建失败：${err.message}`, "error")
@@ -768,6 +813,8 @@ const mapView = {
       const isCenter = !!mapState.bindCenterMode
       stageBindingChange(entityId, q, r, isCenter)
       updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
+    } else if (mapState.activeTool === "territory") {
+      this._handleTerritoryPaint(q, r)
     }
   },
 
@@ -911,6 +958,7 @@ const mapView = {
       },
       "map-focus-clear": () => {
         clearFocus()
+        this._refreshFactionList()
         this._redraw()
       },
       "map-territory-paint": () => this._switchTool("territory"),
@@ -1011,9 +1059,9 @@ const mapView = {
   async _enterEdit() {
     await this._loadLocations()
     await this._loadAllEntities()
-    this.unmount()
+    this._teardownInteractiveSurface()
     mapState.mode = "edit"
-    this._render("map-root")
+    this._render(this._mountRootId || "map-root")
   },
 
   _exitEdit() {
@@ -1021,8 +1069,9 @@ const mapView = {
     mapState.pendingBindings = {}
     updatePendingCount(0)
     updateBindingPendingCount(0)
+    this._teardownInteractiveSurface()
     mapState.mode = "browse"
-    this._render("map-root")
+    this._render(this._mountRootId || "map-root")
   },
 
   _switchTool(tool) {
@@ -1062,7 +1111,7 @@ const mapView = {
       if (terrainChanges > 0) await this._applyTerrainChanges()
       if (bindingChanges > 0) await this._applyBindings()
       toast(`已应用 ${terrainChanges + bindingChanges} 个变更`, "success")
-      await this._loadMapState(this._state.map.id)
+      await this._reloadMapStatePreservingSession(this._state.map.id)
       this._redraw()
     } catch (err) {
       toast(`应用失败：${err.message}`, "error")
@@ -1111,8 +1160,9 @@ const mapView = {
   async _saveAndExit() {
     // 先应用未保存变更，再退出编辑
     await this._applyAllChanges()
+    this._teardownInteractiveSurface()
     mapState.mode = "browse"
-    this._render("map-root")
+    this._render(this._mountRootId || "map-root")
     toast("已保存", "success")
   },
 
@@ -1124,7 +1174,7 @@ const mapView = {
     } else {
       confirmAction(
         `为该地点创建详图？`,
-        () => this._showCreateDetailForm(entityId),
+        () => setTimeout(() => this._showCreateDetailForm(entityId), 0),
         "创建详图"
       )
     }
@@ -1208,7 +1258,7 @@ const mapView = {
             parent_map_id: this._state.map.id, parent_entity_id: entityId,
           }, state.currentProjectId)
           if (autogen) {
-            await api.world.generateMap(created.id, state.currentProjectId)
+            await this._generateMapWhenAvailable(created.id)
           }
           closeModal()
           toast("详图已创建", "success")
@@ -1218,6 +1268,25 @@ const mapView = {
         }
       },
     }])
+  },
+
+  async _generateMapWhenAvailable(mapId) {
+    let lastError = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await api.world.generateMap(mapId, state.currentProjectId)
+      } catch (err) {
+        lastError = err
+        const message = (err?.message || "").toLowerCase()
+        if (!message.includes("404") &&
+            !message.includes("not found") &&
+            !message.includes("不存在")) {
+          throw err
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)))
+      }
+    }
+    throw lastError
   },
 
   _showSettingsModal() {
@@ -1311,6 +1380,7 @@ const mapView = {
       setFocusMode(true, entityId)
       this._loadFocusState(entityId)
     }
+    this._refreshFactionList()
     this._redraw()
   },
 
@@ -1318,11 +1388,17 @@ const mapView = {
     if (!this._state) return
     try {
       const resp = await api.world.getFocusState(this._state.map.id, entityId, state.currentProjectId)
-      setFocusRelatedHexes(resp.related_hexes || [])
+      const relatedHexes = resp.related_hexes || (resp.territories || [])
+      setFocusRelatedHexes(relatedHexes)
       this._redraw()
     } catch (err) {
       toast(`加载聚焦状态失败：${err.message}`, "error")
     }
+  },
+
+  _refreshFactionList() {
+    const bar = document.querySelector(".map-faction-bar")
+    if (bar) bar.outerHTML = this._renderFactionList()
   },
 
   _getHexOpacity(q, r) {
@@ -1372,7 +1448,7 @@ const mapView = {
         state.currentProjectId
       )
       toast("势力范围已更新", "success")
-      await this._loadMapState(this._state.map.id)
+      await this._reloadMapStatePreservingSession(this._state.map.id)
       this._redraw()
     } catch (err) {
       toast(`势力范围更新失败：${err.message}`, "error")
@@ -1395,7 +1471,7 @@ const mapView = {
             state.currentProjectId
           )
           toast("势力范围已清除", "success")
-          await this._loadMapState(this._state.map.id)
+          await this._reloadMapStatePreservingSession(this._state.map.id)
           this._redraw()
         } catch (err) {
           toast(`清除失败：${err.message}`, "error")

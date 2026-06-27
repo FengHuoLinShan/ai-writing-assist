@@ -51,6 +51,26 @@ export const SEL = {
   // Toast
   toastContainer: "#toast-container",
 
+  // 地图
+  mapBreadcrumb: ".map-breadcrumb",
+  mapCanvas: "[data-testid='map-canvas']",
+  mapDetailPanel: "#map-detail-panel",
+  mapFactionBar: ".map-faction-bar",
+  mapLeaflet: "#map-leaflet",
+  mapSceneBar: ".map-scene-bar",
+  mapSceneLabel: ".map-scene-label",
+  mapTerrainSelect: "#map-terrain-select",
+  mapBindSelect: "#map-bind-select",
+  mapBindCenter: "#map-bind-center",
+  mapMarkerType: "#map-marker-type",
+  mapMarkerEntity: "#map-marker-entity",
+  mapMarkerLabel: "#map-marker-label",
+  mapMarkerSceneStart: "#map-marker-scene-start",
+  mapMarkerSceneEnd: "#map-marker-scene-end",
+  mapTerritoryFaction: "#map-territory-faction",
+  mapDetailName: "#map-detail-name",
+  mapDetailAutogen: "#map-detail-autogen",
+
   // 命令栏
   commandInput: "#command-input",
   commandPrompt: "#command-prompt",

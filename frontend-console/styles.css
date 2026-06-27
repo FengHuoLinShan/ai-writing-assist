@@ -121,6 +121,9 @@
   --text-dim: var(--text-tertiary);
   --border: #E2E8F0;
   --border-light: var(--text-quaternary);
+  --border-dim: var(--text-quaternary);
+  --bg-surface: var(--bg-panel);
+  --bg-alt: var(--bg-active);
   --selected: var(--bg-active);
   --hover: var(--bg-hover);
   --hover-bg: var(--bg-hover);
@@ -424,6 +427,7 @@ html, body {
   overflow: hidden;
   margin-left: 40px;
   margin-right: 40px;
+  min-width: 0;
 }
 
 #workspace-header {
@@ -452,22 +456,24 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding-bottom: var(--space-12);
+  min-width: 0;
 }
 
 /* ===== 右侧功能留白 / 批注区 ===== */
 #contextual-notes {
-  width: 0;
+  width: clamp(220px, 18vw, 280px);
   position: relative;
   flex-shrink: 0;
 }
 
 .note-card {
   position: absolute;
-  left: 16px;
+  left: 0;
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  max-width: 320px;
+  width: min(100%, 320px);
+  max-width: 100%;
   animation: noteIn 0.2s ease-out;
 }
 
@@ -866,6 +872,36 @@ html, body {
 }
 .form-row > * { flex: 1; }
 
+.two-column-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.two-column-workspace > * {
+  min-width: 0;
+}
+
+.generate-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.writing-workspace-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 260px;
+  gap: 12px;
+  align-items: start;
+}
+
+#writing-tree-container,
+#writing-editor-container,
+#writing-panel-container {
+  min-width: 0;
+}
+
 /* ===== 卡片 ===== */
 .card {
   background: var(--bg-panel);
@@ -1230,6 +1266,7 @@ kbd {
 /* ===== 表格 ===== */
 .data-table {
   width: 100%;
+  max-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--text-base);
@@ -1529,7 +1566,7 @@ kbd {
 
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: var(--space-6);
   margin-top: var(--space-6);
 }
@@ -1541,6 +1578,7 @@ kbd {
   border: 1px solid var(--text-quaternary);
   padding: var(--space-6);
   min-height: 220px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   transition: box-shadow 0.2s ease;
@@ -1553,7 +1591,7 @@ kbd {
 
 .project-card.featured {
   grid-column: span 1;
-  min-width: 480px;
+  min-width: 0;
 }
 
 .project-status {
@@ -1756,6 +1794,46 @@ kbd {
   #workspace {
     margin-right: var(--space-4);
   }
+
+  .writing-workspace-layout {
+    grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  }
+
+  #writing-panel-container {
+    grid-column: 1 / -1;
+  }
+
+  .two-column-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .map-container {
+    flex-direction: column;
+  }
+
+  .map-leaflet {
+    width: 100%;
+    flex: none;
+    height: min(520px, 62vh);
+    min-height: 360px;
+  }
+
+  .map-edit-panel,
+  .map-detail-panel {
+    width: 100%;
+    flex: none;
+  }
+
+  .map-detail-panel {
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    max-height: none;
+  }
+
+  .map-toolbar-right,
+  .map-scene-bar {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 600px) {
@@ -1765,9 +1843,83 @@ kbd {
   }
   #workspace {
     margin-left: var(--space-3);
+    margin-right: var(--space-3);
   }
   #topbar {
     padding: 0 var(--space-4);
+  }
+
+  #workspace-header {
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+
+  #view-title {
+    font-size: var(--text-xl);
+    margin-left: 0;
+  }
+
+  #view-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .card,
+  .project-card {
+    padding: var(--space-4);
+  }
+
+  .project-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .writing-workspace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #writing-panel-container {
+    grid-column: auto;
+  }
+
+  .form-row,
+  .generate-type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-row {
+    flex-direction: column;
+  }
+
+  .data-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table th,
+  .data-table td {
+    white-space: nowrap;
+  }
+
+  .map-toolbar {
+    align-items: stretch;
+  }
+
+  .map-toolbar-right,
+  .map-edit-actions {
+    width: 100%;
+  }
+
+  .map-toolbar-right .btn,
+  .map-edit-actions .btn {
+    flex: 1;
+  }
+
+  .map-leaflet {
+    height: 380px;
+    min-height: 320px;
   }
 }
 
@@ -1983,12 +2135,14 @@ kbd {
   position: relative;
   display: flex;
   gap: 12px;
+  min-width: 0;
 }
 
 .map-leaflet {
   flex: 1;
   height: 520px;
   min-height: 400px;
+  min-width: 0;
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1997,6 +2151,7 @@ kbd {
 .map-edit-panel {
   width: 240px;
   flex-shrink: 0;
+  min-width: 0;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -2106,6 +2261,7 @@ kbd {
 .map-detail-panel {
   width: 240px;
   flex-shrink: 0;
+  min-width: 0;
   border-left: 1px solid var(--border);
   background: var(--bg-elevated);
   padding: 12px;

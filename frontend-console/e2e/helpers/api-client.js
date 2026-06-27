@@ -160,6 +160,19 @@ export async function getMapState(novelId, mapId, sceneId = null) {
   return request(`/world/maps/${mapId}/state?${params.toString()}`)
 }
 
+export async function generateMap(novelId, mapId) {
+  return request(`/world/maps/${mapId}/generate?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+  })
+}
+
+export async function batchUpdateTiles(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/tiles?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+}
+
 export async function createLocationBindings(novelId, mapId, data) {
   return request(`/world/maps/${mapId}/location-bindings?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
@@ -172,4 +185,33 @@ export async function createMapMarker(novelId, mapId, data) {
     method: "POST",
     body: JSON.stringify(data),
   })
+}
+
+export async function listTerritories(novelId, mapId) {
+  return request(`/world/maps/${mapId}/territories?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function createTerritories(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/territories?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteTerritoriesByFaction(novelId, mapId, factionEntityId) {
+  const params = new URLSearchParams({
+    novel_id: novelId,
+    faction_entity_id: factionEntityId,
+  })
+  return request(`/world/maps/${mapId}/territories?${params.toString()}`, {
+    method: "DELETE",
+  })
+}
+
+export async function getFocusState(novelId, mapId, factionEntityId) {
+  const params = new URLSearchParams({
+    novel_id: novelId,
+    faction_entity_id: factionEntityId,
+  })
+  return request(`/world/maps/${mapId}/focus?${params.toString()}`)
 }
