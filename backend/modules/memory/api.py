@@ -1,7 +1,7 @@
 """
 Memory API 路由
 
-提供长期记忆记录的 CRUD API 和记忆提案的管理 API。
+提供世界全景查询、事件时间线、快照管理和全更新接口。
 """
 
 from __future__ import annotations
@@ -9,148 +9,116 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
-
 from modules.memory.schemas import (
-    MemoryProposalDecision,
-    MemoryProposalListResponse,
-    MemoryProposalResponse,
-    MemoryRecordCreate,
-    MemoryRecordListResponse,
-    MemoryRecordResponse,
-    MemoryRecordUpdate,
+    ChapterPanorama,
+    EventListResponse,
+    MemoryStatusResponse,
+    SnapshotListResponse,
+    SnapshotResponse,
 )
 from modules.memory.services import MemoryService
-from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from shared.utils import parse_uuid
 
 router = APIRouter(prefix="/api/novels/{novel_id}/memories", tags=["memory"])
 _service = MemoryService()
 
 
 # ============================================================
-# 记忆记录 CRUD
+# 全景
 # ============================================================
 
-@router.post("/records", response_model=MemoryRecordResponse, status_code=201)
-async def create_memory_record(
+
+@router.get("/panorama", response_model=ChapterPanorama)
+async def get_panorama(
     db: DbSession,
     novel_id: str,
-    data: MemoryRecordCreate,
-) -> MemoryRecordResponse:
-    """创建新的记忆记录"""
-    return await _service.create_memory_record(db, novel_id, data)
+    chapter_index: int = Query(..., ge=1, description="章节号"),
+) -> ChapterPanorama:
+    """获取指定章节的世界全景"""
+    return await _service.get_panorama(db, novel_id, chapter_index)
 
 
-@router.get("/records", response_model=MemoryRecordListResponse)
-async def list_memory_records(
+# ============================================================
+# 事件
+# ============================================================
+
+
+@router.get("/events", response_model=EventListResponse)
+async def list_events(
     db: DbSession,
     novel_id: str,
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-    memory_type: str | None = Query(None, description="记忆类型过滤"),
-    status: str | None = Query(None, description="状态过滤"),
-    before_chapter: int | None = Query(None, description="只返回该章节之前的记录"),
-) -> MemoryRecordListResponse:
-    """获取记忆记录列表"""
-    items, total = await _service.list_memory_records(
+    from_chapter: int = Query(default=1, ge=1, description="起始章"),
+    to_chapter: int = Query(default=999999, ge=1, description="结束章"),
+) -> EventListResponse:
+    """查询事件列表"""
+    return await _service.list_events(db, novel_id, from_chapter, to_chapter)
+
+
+@router.get("/events/{entity_id}/timeline", response_model=EventListResponse)
+async def get_entity_timeline(
+    db: DbSession,
+    novel_id: str,
+    entity_id: str,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> EventListResponse:
+    """获取单个实体的变化时间线"""
+    return await _service.get_entity_timeline(
         db,
         novel_id,
-        skip=skip,
-        limit=limit,
-        memory_type=memory_type,
-        status=status,
-        before_chapter_index=before_chapter,
+        entity_id,
+        skip,
+        limit,
     )
-    return MemoryRecordListResponse(items=items, total=total)
-
-
-@router.get("/records/{record_id}", response_model=MemoryRecordResponse)
-async def get_memory_record(
-    db: DbSession,
-    novel_id: str,
-    record_id: str,
-) -> MemoryRecordResponse:
-    """获取记忆记录详情"""
-    return await _service.get_memory_record(db, record_id, novel_id)
-
-
-@router.put("/records/{record_id}", response_model=MemoryRecordResponse)
-async def update_memory_record(
-    db: DbSession,
-    novel_id: str,
-    record_id: str,
-    data: MemoryRecordUpdate,
-) -> MemoryRecordResponse:
-    """更新记忆记录"""
-    return await _service.update_memory_record(db, record_id, data, novel_id)
-
-
-@router.delete("/records/{record_id}", status_code=204)
-async def delete_memory_record(
-    db: DbSession,
-    novel_id: str,
-    record_id: str,
-) -> None:
-    """删除记忆记录"""
-    await _service.delete_memory_record(db, record_id, novel_id)
 
 
 # ============================================================
-# 记忆提案管理
+# 快照
 # ============================================================
 
-@router.get("/proposals/pending", response_model=MemoryProposalListResponse)
-async def list_pending_proposals(
+
+@router.post("/snapshots/capture", response_model=SnapshotResponse, status_code=201)
+async def trigger_capture(
     db: DbSession,
     novel_id: str,
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(
-        default=DEFAULT_PAGE_SIZE,
-        ge=1,
-        le=MAX_PAGE_SIZE,
-        description="每页条数",
-    ),
-) -> MemoryProposalListResponse:
-    """获取待处理的记忆提案列表"""
-    items, total = await _service.list_pending_proposals(
-        db, novel_id, skip=skip, limit=limit
-    )
-    return MemoryProposalListResponse(items=items, total=total)
+    chapter_index: int = Query(..., ge=1, description="章节号"),
+) -> SnapshotResponse:
+    """手动生成快照"""
+    return await _service.capture_snapshot(db, novel_id, chapter_index)
 
 
-@router.post("/proposals/{proposal_id}/decide", response_model=MemoryProposalResponse)
-async def decide_proposal(
+@router.get("/snapshots", response_model=SnapshotListResponse)
+async def list_snapshots(
     db: DbSession,
     novel_id: str,
-    proposal_id: str,
-    decision: MemoryProposalDecision,
-) -> MemoryProposalResponse:
-    """处理记忆提案（批准/拒绝）"""
-    pid = parse_uuid(proposal_id, "proposal_id")
+) -> SnapshotListResponse:
+    """列出所有快照"""
+    return await _service.list_snapshots(db, novel_id)
 
-    if decision.decision == "approved":
-        # 批准：创建正史记忆记录
-        await _service.confirm_memory_proposal(
-            db,
-            proposal_id,
-            novel_id,
-            edited_payload=decision.edited_payload,
-            decided_by=decision.decided_by,
-        )
-    else:
-        # 拒绝：标记为 rejected
-        await _service.decide_proposal(
-            db,
-            pid,
-            decision="rejected",
-            decided_by=decision.decided_by,
-        )
 
-    # 返回更新后的提案信息
-    record = await _service.get_memory_proposal(db, proposal_id, novel_id)
-    return MemoryProposalResponse.model_validate(record)
+# ============================================================
+# 全更新
+# ============================================================
+
+
+@router.post("/rebuild")
+async def trigger_rebuild(
+    db: DbSession,
+    novel_id: str,
+    from_chapter: int = Query(..., ge=1, description="从哪一章开始重建"),
+) -> dict:
+    """从前文修正点全量重建后续事件和快照"""
+    return await _service.full_rebuild(db, novel_id, from_chapter)
+
+
+# ============================================================
+# 状态
+# ============================================================
+
+
+@router.get("/status", response_model=MemoryStatusResponse)
+async def get_status(
+    db: DbSession,
+    novel_id: str,
+) -> MemoryStatusResponse:
+    """获取 memory 模块当前状态"""
+    return await _service.get_status(db, novel_id)

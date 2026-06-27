@@ -4,7 +4,7 @@
 >
 > **输入来源**：用户直接提供的创意草稿 + 已有正史数据
 >
-> **输出去向**：entity_candidates → 去重复查 → 用户确认 → 正史库
+> **输出去向**：`suggested_action=create_new` 的实体会被系统直接以 `status=canonical` 入库。`link_to_existing` 会作为别名处理，`ignore` / `temporary_only` 会被跳过。
 
 ---
 
@@ -87,7 +87,7 @@
       "importance": 0.0-1.0,
       "importance_level": "core|important|normal|minor",
       "reveal_level": "reader_known|character_known|author_only",
-      "status": "draft",
+      "status": "canonical",
       "embedding_text": "string（用于生成 embedding 的纯文本，可选）"
     }
   ],
@@ -112,7 +112,7 @@
       "behavior_rules": ["string（行为规则/行动原则）"],
       "relationship_summary": "string（人物关系概述）",
       "importance": 0.0-1.0,
-      "status": "draft"
+      "status": "canonical"
     }
   ],
   "relationships": [
@@ -145,8 +145,8 @@
       "source_text_excerpt": "string（原始文本摘录）",
       "importance_score": 0.0-1.0,
       "confidence": 0.0-1.0,
-      "candidate_reason": "string（为什么认为这是一个值得关注的候选）",
-      "suggested_action": "create_new|merge_with_existing|alias_of_existing|ignore|temporary_only|needs_user_decision",
+      "candidate_reason": "string（为什么认为这是一个值得关注的对象）",
+      "suggested_action": "create_new|merge_with_existing|alias_of_existing|ignore|temporary_only",
       "suggested_existing_entity_id": "uuid（当 suggested_action 为 merge/alias 时提供已有对象 ID）"
     }
   ],
@@ -211,7 +211,7 @@
 | `secret` | 秘密/未揭示真相 | 国王的真实身份 |
 | `legend` | 传说/神话/预言 | 救世主预言 |
 | `resource` | 资源/材料/稀有物 | 星陨铁、灵泉水 |
-| `character_ref` | 已从人物表去除但需关联的对象 | 特殊定位引用 |
+| `character` | 人物 — 作为人物模块主实体的正史角色 | 主线角色、配角 |
 
 ### relation_type 枚举值
 
@@ -280,7 +280,7 @@
 3. **分级评估**：为每个候选对象评估 importance，按 extraction_mode 过滤
 4. **构建关系**：识别对象之间的关键关系
 5. **知识边界**：确定每个角色对相关信息的认知程度
-6. **输出候选**：按输出 Schema 生成结构化 JSON，所有 array 均为候选
+6. **输出结构化数据**：按输出 Schema 生成结构化 JSON。`suggested_action=create_new` 的对象会被系统直接以 `status=canonical` 入库
 7. **自查**：检查是否有违反 shared_rules 的内容，特别是规则 3（不提前揭示）、规则 4（知识边界）、规则 5（不凭空增加）
 
 ---

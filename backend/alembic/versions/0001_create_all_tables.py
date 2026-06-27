@@ -4,16 +4,18 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-05-24 17:30:00.000000
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 
+from alembic import op
+
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -33,9 +35,24 @@ def upgrade() -> None:
         sa.Column("language", sa.String(16), server_default="zh", nullable=False),
         sa.Column("target_length", sa.String(32), nullable=True),
         sa.Column("current_stage", sa.String(32), nullable=True),
-        sa.Column("default_reveal_policy", sa.String(32), server_default="author_safe", nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "default_reveal_policy",
+            sa.String(32),
+            server_default="author_safe",
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="小说项目",
     )
@@ -46,7 +63,12 @@ def upgrade() -> None:
     op.create_table(
         "world_entities",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("entity_type", sa.String(32), nullable=False, index=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
@@ -54,15 +76,31 @@ def upgrade() -> None:
         sa.Column("hidden_truth", sa.Text(), nullable=True),
         sa.Column("content_json", sa.JSON(), nullable=True, server_default="{}"),
         sa.Column("importance", sa.Float(), nullable=False, server_default="0.5"),
-        sa.Column("importance_level", sa.String(16), nullable=False, server_default="normal"),
-        sa.Column("reveal_level", sa.String(16), nullable=False, server_default="author_only"),
+        sa.Column(
+            "importance_level", sa.String(16), nullable=False, server_default="normal"
+        ),
+        sa.Column(
+            "reveal_level", sa.String(16), nullable=False, server_default="author_only"
+        ),
         sa.Column("embedding_text", sa.Text(), nullable=True),
         sa.Column("embedding", Vector(1024), nullable=True),
         sa.Column("created_by", sa.String(64), nullable=True),
         sa.Column("approved_by", sa.String(64), nullable=True),
-        sa.Column("status", sa.String(32), nullable=False, server_default="draft", index=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "status", sa.String(32), nullable=False, server_default="draft", index=True
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="世界对象正史库",
     )
@@ -74,18 +112,35 @@ def upgrade() -> None:
     op.create_table(
         "relationships",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("source_type", sa.String(32), nullable=False),
         sa.Column("source_id", sa.String(36), nullable=False, index=True),
         sa.Column("target_type", sa.String(32), nullable=False),
         sa.Column("target_id", sa.String(36), nullable=False, index=True),
         sa.Column("relation_type", sa.String(32), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("visibility", sa.String(20), nullable=False, server_default="author_only"),
+        sa.Column(
+            "visibility", sa.String(20), nullable=False, server_default="author_only"
+        ),
         sa.Column("strength", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="对象间关系边",
     )
@@ -97,15 +152,36 @@ def upgrade() -> None:
     op.create_table(
         "entity_aliases",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("entity_id", sa.UUID(), sa.ForeignKey("world_entities.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "entity_id",
+            sa.UUID(),
+            sa.ForeignKey("world_entities.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("alias", sa.String(255), nullable=False),
         sa.Column("alias_type", sa.String(20), nullable=False, server_default="name"),
         sa.Column("source_chapter_index", sa.Integer(), nullable=True),
         sa.Column("confidence", sa.Float(), nullable=False, server_default="0.8"),
         sa.Column("status", sa.String(32), nullable=False, server_default="confirmed"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="世界对象别名",
     )
@@ -117,7 +193,12 @@ def upgrade() -> None:
     op.create_table(
         "entity_candidates",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("entity_type", sa.String(32), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
@@ -126,13 +207,30 @@ def upgrade() -> None:
         sa.Column("importance_score", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("confidence", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("candidate_reason", sa.Text(), nullable=True),
-        sa.Column("suggested_action", sa.String(32), nullable=False, server_default="needs_user_decision"),
+        sa.Column(
+            "suggested_action",
+            sa.String(32),
+            nullable=False,
+            server_default="needs_user_decision",
+        ),
         sa.Column("suggested_existing_entity_id", sa.String(36), nullable=True),
         sa.Column("embedding_text", sa.Text(), nullable=True),
         sa.Column("embedding", Vector(1024), nullable=True),
-        sa.Column("status", sa.String(32), nullable=False, server_default="pending", index=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "status", sa.String(32), nullable=False, server_default="pending", index=True
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="世界对象候选池",
     )
@@ -144,8 +242,18 @@ def upgrade() -> None:
     op.create_table(
         "characters",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("world_entity_id", sa.UUID(), sa.ForeignKey("world_entities.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "world_entity_id",
+            sa.UUID(),
+            sa.ForeignKey("world_entities.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("aliases", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("role", sa.String(64), nullable=True),
@@ -163,8 +271,18 @@ def upgrade() -> None:
         sa.Column("behavior_rules", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("relationship_summary", sa.Text(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="人物档案",
     )
@@ -176,8 +294,18 @@ def upgrade() -> None:
     op.create_table(
         "character_knowledge",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("character_id", sa.UUID(), sa.ForeignKey("characters.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "character_id",
+            sa.UUID(),
+            sa.ForeignKey("characters.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("target_type", sa.String(32), nullable=False),
         sa.Column("target_id", sa.UUID(), nullable=False),
         sa.Column("knowledge_level", sa.String(20), nullable=False),
@@ -186,12 +314,21 @@ def upgrade() -> None:
         sa.Column("source_chapter_index", sa.Integer(), nullable=True),
         sa.Column("source_memory_id", sa.UUID(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="人物知识边界",
     )
-    op.create_index("ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"])
-    op.create_index("ix_character_knowledge_char_id", "character_knowledge", ["character_id"])
+    op.create_index(
+        "ix_character_knowledge_novel_id", "character_knowledge", ["novel_id"]
+    )
+    op.create_index(
+        "ix_character_knowledge_char_id", "character_knowledge", ["character_id"]
+    )
 
     # -----------------------------------------------------------
     # 8. geo_locations
@@ -199,10 +336,25 @@ def upgrade() -> None:
     op.create_table(
         "geo_locations",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("world_entity_id", sa.UUID(), sa.ForeignKey("world_entities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "world_entity_id",
+            sa.UUID(),
+            sa.ForeignKey("world_entities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("location_level", sa.String(32), nullable=False),
-        sa.Column("parent_location_id", sa.UUID(), sa.ForeignKey("geo_locations.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "parent_location_id",
+            sa.UUID(),
+            sa.ForeignKey("geo_locations.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("x", sa.Float(), nullable=True),
         sa.Column("y", sa.Float(), nullable=True),
         sa.Column("position_label", sa.String(128), nullable=True),
@@ -213,8 +365,18 @@ def upgrade() -> None:
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("content_json", sa.JSON(), nullable=True, server_default="{}"),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="地理地点",
     )
@@ -227,9 +389,24 @@ def upgrade() -> None:
     op.create_table(
         "geo_edges",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("source_location_id", sa.UUID(), sa.ForeignKey("geo_locations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("target_location_id", sa.UUID(), sa.ForeignKey("geo_locations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "source_location_id",
+            sa.UUID(),
+            sa.ForeignKey("geo_locations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "target_location_id",
+            sa.UUID(),
+            sa.ForeignKey("geo_locations.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("relation_type", sa.String(32), nullable=False),
         sa.Column("direction_label", sa.String(64), nullable=True),
         sa.Column("distance_label", sa.String(64), nullable=True),
@@ -238,8 +415,18 @@ def upgrade() -> None:
         sa.Column("visibility", sa.String(20), nullable=False, server_default="public"),
         sa.Column("condition_text", sa.Text(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="地理关系边",
     )
@@ -253,15 +440,30 @@ def upgrade() -> None:
     op.create_table(
         "geo_eras",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(128), nullable=False),
         sa.Column("order_index", sa.Integer(), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("start_event_id", sa.UUID(), nullable=True),
         sa.Column("end_event_id", sa.UUID(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="历史时期",
     )
@@ -273,7 +475,12 @@ def upgrade() -> None:
     op.create_table(
         "memory_records",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("memory_type", sa.String(32), nullable=False),
         sa.Column("target_type", sa.String(32), nullable=True),
         sa.Column("target_id", sa.UUID(), nullable=True),
@@ -281,16 +488,30 @@ def upgrade() -> None:
         sa.Column("title", sa.String(255), nullable=True),
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("content_json", sa.JSON(), nullable=True, server_default="{}"),
-        sa.Column("visibility", sa.String(20), nullable=False, server_default="reader_known"),
-        sa.Column("known_by_character_ids", sa.JSON(), nullable=True, server_default="[]"),
+        sa.Column(
+            "visibility", sa.String(20), nullable=False, server_default="reader_known"
+        ),
+        sa.Column(
+            "known_by_character_ids", sa.JSON(), nullable=True, server_default="[]"
+        ),
         sa.Column("related_entity_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_character_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_thread_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("importance", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("status", sa.String(32), nullable=False, server_default="canonical"),
         sa.Column("source_text_excerpt", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="长期记忆记录",
     )
@@ -303,7 +524,12 @@ def upgrade() -> None:
     op.create_table(
         "memory_update_proposals",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("chapter_id", sa.UUID(), nullable=True),
         sa.Column("chapter_index", sa.Integer(), nullable=True),
         sa.Column("proposal_type", sa.String(32), nullable=False),
@@ -314,12 +540,21 @@ def upgrade() -> None:
         sa.Column("decision", sa.String(16), nullable=False, server_default="pending"),
         sa.Column("decided_by", sa.String(64), nullable=True),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="记忆更新提案",
     )
-    op.create_index("ix_memory_proposals_novel_id", "memory_update_proposals", ["novel_id"])
-    op.create_index("ix_memory_proposals_decision", "memory_update_proposals", ["decision"])
+    op.create_index(
+        "ix_memory_proposals_novel_id", "memory_update_proposals", ["novel_id"]
+    )
+    op.create_index(
+        "ix_memory_proposals_decision", "memory_update_proposals", ["decision"]
+    )
 
     # -----------------------------------------------------------
     # 13. timeline_events
@@ -327,7 +562,12 @@ def upgrade() -> None:
     op.create_table(
         "timeline_events",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("order_index", sa.Integer(), nullable=False),
@@ -338,11 +578,25 @@ def upgrade() -> None:
         sa.Column("related_thread_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_location_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("geo_effects", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("visibility", sa.String(20), nullable=False, server_default="author_only"),
-        sa.Column("known_by_character_ids", sa.JSON(), nullable=True, server_default="[]"),
+        sa.Column(
+            "visibility", sa.String(20), nullable=False, server_default="author_only"
+        ),
+        sa.Column(
+            "known_by_character_ids", sa.JSON(), nullable=True, server_default="[]"
+        ),
         sa.Column("status", sa.String(32), nullable=False, server_default="candidate"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="轻量时间线事件",
     )
@@ -355,7 +609,12 @@ def upgrade() -> None:
     op.create_table(
         "plot_threads",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("thread_type", sa.String(32), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
@@ -370,8 +629,18 @@ def upgrade() -> None:
         sa.Column("reader_known_state", sa.Text(), nullable=True),
         sa.Column("author_known_state", sa.Text(), nullable=True),
         sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="剧情线",
     )
@@ -383,7 +652,12 @@ def upgrade() -> None:
     op.create_table(
         "outline_arcs",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("arc_index", sa.Integer(), nullable=True),
         sa.Column("start_chapter", sa.Integer(), nullable=True),
@@ -400,8 +674,18 @@ def upgrade() -> None:
         sa.Column("related_character_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_entity_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="篇章纲",
     )
@@ -413,17 +697,29 @@ def upgrade() -> None:
     op.create_table(
         "chapter_cards",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("chapter_index", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(255), nullable=True),
-        sa.Column("arc_id", sa.UUID(), sa.ForeignKey("outline_arcs.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "arc_id",
+            sa.UUID(),
+            sa.ForeignKey("outline_arcs.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("chapter_goal", sa.Text(), nullable=False),
         sa.Column("main_conflict", sa.Text(), nullable=False),
         sa.Column("emotional_point", sa.Text(), nullable=True),
         sa.Column("plot_function", sa.String(32), nullable=True),
         sa.Column("must_happen", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("must_not_happen", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("involved_character_ids", sa.JSON(), nullable=True, server_default="[]"),
+        sa.Column(
+            "involved_character_ids", sa.JSON(), nullable=True, server_default="[]"
+        ),
         sa.Column("involved_entity_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_thread_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("visible_progress", sa.JSON(), nullable=True, server_default="[]"),
@@ -433,13 +729,25 @@ def upgrade() -> None:
         sa.Column("ending_hook", sa.Text(), nullable=True),
         sa.Column("scene_cards", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="章节卡",
     )
     op.create_index("ix_chapter_cards_novel_id", "chapter_cards", ["novel_id"])
-    op.create_index("ix_chapter_cards_chapter", "chapter_cards", ["chapter_index"], unique=True)
+    op.create_index(
+        "ix_chapter_cards_chapter", "chapter_cards", ["chapter_index"], unique=True
+    )
 
     # -----------------------------------------------------------
     # 17. foreshadowing_plans
@@ -447,19 +755,36 @@ def upgrade() -> None:
     op.create_table(
         "foreshadowing_plans",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("surface_meaning", sa.Text(), nullable=True),
         sa.Column("hidden_meaning", sa.Text(), nullable=True),
         sa.Column("planned_seed_chapter", sa.Integer(), nullable=True),
-        sa.Column("planned_reinforce_chapters", sa.JSON(), nullable=True, server_default="[]"),
+        sa.Column(
+            "planned_reinforce_chapters", sa.JSON(), nullable=True, server_default="[]"
+        ),
         sa.Column("planned_payoff_chapter", sa.Integer(), nullable=True),
         sa.Column("related_entity_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("related_thread_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="伏笔计划",
     )
@@ -471,14 +796,29 @@ def upgrade() -> None:
     op.create_table(
         "reveal_plans",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("target_type", sa.String(32), nullable=False),
         sa.Column("target_id", sa.UUID(), nullable=False),
         sa.Column("secret_summary", sa.Text(), nullable=False),
         sa.Column("reveal_stages", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="信息揭示计划",
     )
@@ -490,7 +830,12 @@ def upgrade() -> None:
     op.create_table(
         "rag_chunks",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("source_type", sa.String(32), nullable=False),
         sa.Column("source_id", sa.UUID(), nullable=True),
         sa.Column("chapter_index", sa.Integer(), nullable=True),
@@ -499,12 +844,24 @@ def upgrade() -> None:
         sa.Column("entity_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("character_ids", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("thread_ids", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("visibility", sa.String(20), nullable=False, server_default="author_only"),
+        sa.Column(
+            "visibility", sa.String(20), nullable=False, server_default="author_only"
+        ),
         sa.Column("importance", sa.Float(), nullable=False, server_default="0.5"),
         sa.Column("embedding", Vector(1024), nullable=True),
         sa.Column("metadata", sa.JSON(), nullable=True, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="RAG 分块",
     )
@@ -517,7 +874,12 @@ def upgrade() -> None:
     op.create_table(
         "review_reports",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("target_type", sa.String(32), nullable=False),
         sa.Column("target_id", sa.UUID(), nullable=True),
         sa.Column("decision", sa.String(20), nullable=False),
@@ -525,11 +887,20 @@ def upgrade() -> None:
         sa.Column("problems", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("conflict_warnings", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("early_reveal_warnings", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("character_knowledge_warnings", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("duplicate_entity_warnings", sa.JSON(), nullable=True, server_default="[]"),
+        sa.Column(
+            "character_knowledge_warnings", sa.JSON(), nullable=True, server_default="[]"
+        ),
+        sa.Column(
+            "duplicate_entity_warnings", sa.JSON(), nullable=True, server_default="[]"
+        ),
         sa.Column("geo_warnings", sa.JSON(), nullable=True, server_default="[]"),
         sa.Column("revision_instructions", sa.JSON(), nullable=True, server_default="[]"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="结构复查报告",
     )
@@ -541,20 +912,42 @@ def upgrade() -> None:
     op.create_table(
         "writing_drafts",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("novel_id", sa.UUID(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "novel_id",
+            sa.UUID(),
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("chapter_index", sa.Integer(), nullable=False),
-        sa.Column("chapter_card_id", sa.UUID(), sa.ForeignKey("chapter_cards.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "chapter_card_id",
+            sa.UUID(),
+            sa.ForeignKey("chapter_cards.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("title", sa.String(255), nullable=True),
         sa.Column("content", sa.Text(), nullable=True),
         sa.Column("version_number", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("status", sa.String(32), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="正文草稿",
     )
     op.create_index("ix_writing_drafts_novel_id", "writing_drafts", ["novel_id"])
-    op.create_index("ix_writing_drafts_chapter", "writing_drafts", ["novel_id", "chapter_index"])
+    op.create_index(
+        "ix_writing_drafts_chapter", "writing_drafts", ["novel_id", "chapter_index"]
+    )
 
     # -----------------------------------------------------------
     # 22. async_tasks
@@ -563,16 +956,28 @@ def upgrade() -> None:
         "async_tasks",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("task_type", sa.String(64), nullable=False),
-        sa.Column("status", sa.String(16), nullable=False, server_default="pending", index=True),
+        sa.Column(
+            "status", sa.String(16), nullable=False, server_default="pending", index=True
+        ),
         sa.Column("progress", sa.Float(), nullable=False, server_default="0"),
         sa.Column("meta", sa.JSON(), nullable=True, server_default="{}"),
         sa.Column("result", sa.JSON(), nullable=True, server_default="{}"),
         sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id"),
         comment="异步任务队列",
     )

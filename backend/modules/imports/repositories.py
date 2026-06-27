@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.models import ImportRecord
@@ -48,6 +48,26 @@ class ImportRecordRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_done_by_file_name(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        file_name: str,
+    ) -> ImportRecord | None:
+        """查询同一项目下同名文件的成功导入记录（带锁，防止并发重复导入）。"""
+        stmt = (
+            select(ImportRecord)
+            .where(
+                ImportRecord.novel_id == novel_id,
+                ImportRecord.file_name == file_name,
+                ImportRecord.status == "done",
+            )
+            .with_for_update()
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_by_novel(
         self,
         db: AsyncSession,
@@ -64,8 +84,12 @@ class ImportRecordRepository:
             .offset(skip)
             .limit(limit)
         )
-        count_stmt = select(func.count()).select_from(ImportRecord).where(
-            ImportRecord.novel_id == novel_id,
+        count_stmt = (
+            select(func.count())
+            .select_from(ImportRecord)
+            .where(
+                ImportRecord.novel_id == novel_id,
+            )
         )
         items = (await db.execute(stmt)).scalars().all()
         total = (await db.execute(count_stmt)).scalar() or 0

@@ -6,7 +6,7 @@ context 模块是系统最核心的智能模块之一。RAG 负责找资料，Co
 
 ## 职责
 
-- 按需聚合 project / world / geo / character / memory / timeline / outline / rag 数据
+- 按需聚合 project / world / memory / outline / rag 数据
 - 按 scope 选择性加载，不预加载所有数据
 - Context Budget 控制，防止上下文过载
 - Reveal 过滤（author_safe 隐藏 hidden_truth）
@@ -16,7 +16,7 @@ context 模块是系统最核心的智能模块之一。RAG 负责找资料，Co
 
 - 不直接创建或操作任何数据库表（本模块无数据表）
 - 不负责 RAG 检索（委托 rag 模块）
-- 不负责结构复查（委托 review 模块）
+- 不负责结构复查（当前无 review 模块，由 outline 和 world 各自管理一致性）
 - 不负责 LLM 调用（委托 infrastructure/llm）
 - 不负责剧情推理
 
@@ -114,10 +114,7 @@ pytest modules/context/tests/ -v
 ## 依赖的模块
 
 - modules/project/facade — get_project_context
-- modules/world/facade — get_world_context, expand_related_entities
-- modules/geo/facade — get_location_context, get_geo_history_context
-- modules/character/facade — get_characters_context, get_character_knowledge_context
+- modules/world/facade — get_world_context, expand_related_entities, get_characters_context, get_character_knowledge_context, get_events_context
 - modules/memory/facade — get_recent_story_memory
-- modules/timeline/facade — get_relevant_timeline_context
-- modules/outline/facade — get_chapter_card, get_active_threads, get_arc_context
+- modules/outline/api — 剧情线/篇章纲/Scene 数据（outline 无 facade，API 层直接提供）
 - modules/rag/facade — retrieve

@@ -4,6 +4,7 @@
     python run_worker.py            # 常驻模式
     python run_worker.py --reload   # 开发模式，文件变化时自动重启
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,8 @@ def _run_sync() -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Task queue worker")
     parser.add_argument(
-        "--reload", action="store_true",
+        "--reload",
+        action="store_true",
         help="Auto-reload on file changes (uses watchfiles)",
     )
     args = parser.parse_args()

@@ -1,83 +1,95 @@
 """
-modules/world — 世界对象与关系管理模块
+modules/world — 核心实体与关系管理模块（v3 因果时空网）
 
-管理小说世界中的核心对象（地点、组织、物品、事件、规则等）及其关系。
+管理小说世界的核心实体、事件、关系、版本历史和人物档案。
 """
 
 from __future__ import annotations
 
 from modules.world.contracts import (
-    DuplicateSuggestion,
-    EntityAliasContract,
-    EntityCandidateContract,
-    RelationshipContract,
-    WorldEntityContract,
+    CharacterContract,
+    CharacterKnowledgeContract,
+    CoreEntityContract,
+    EntityRelationContract,
+    EntityRevisionContract,
+    EventContract,
 )
 from modules.world.facade import (
-    accept_candidate,
-    count_pending_candidates,
+    create_character,
     expand_related_entities,
-    find_duplicate_entity_candidates,
     find_similar_entities,
+    get_characters_context,
+    get_events_context,
     get_world_context,
     list_entities,
     merge_candidate_into_entity,
     run_entity_extraction,
 )
 from modules.world.models import (
-    EntityAlias,
-    EntityCandidate,
-    Relationship,
-    WorldEntity,
+    Character,
+    CharacterKnowledge,
+    CoreEntity,
+    EntityRelation,
+    EntityRevision,
+    Event,
 )
 from modules.world.schemas import (
-    EntityAliasCreate,
-    EntityAliasResponse,
-    EntityCandidateCreate,
-    EntityCandidateResponse,
-    RelationshipCreate,
-    RelationshipResponse,
+    CharacterContextBundle,
+    CharacterKnowledgeContext,
+    CharacterResponse,
+    CoreEntityResponse,
+    EntityRelationCreate,
+    EntityRelationResponse,
+    EventContext,
+    EventResponse,
+    EventsContextBundle,
     WorldContextBundle,
     WorldEntityContext,
     WorldEntityCreate,
     WorldEntityResponse,
     WorldEntityUpdate,
 )
+
 # 注意：不导出 Services — 其他模块只能通过 contracts/facade 访问
-# 详见 AI开发规则.md 第 3 节
 
 __all__ = [
     # ORM Models
-    "WorldEntity",
-    "Relationship",
-    "EntityAlias",
-    "EntityCandidate",
+    "CoreEntity",
+    "Event",
+    "EntityRelation",
+    "EntityRevision",
+    "Character",
+    "CharacterKnowledge",
     # Pydantic Schemas
+    "CoreEntityResponse",
+    "EventResponse",
+    "EventContext",
+    "EventsContextBundle",
+    "EntityRelationCreate",
+    "EntityRelationResponse",
+    "CharacterResponse",
+    "CharacterContextBundle",
+    "CharacterKnowledgeContext",
     "WorldEntityCreate",
     "WorldEntityUpdate",
     "WorldEntityResponse",
-    "RelationshipCreate",
-    "RelationshipResponse",
-    "EntityAliasCreate",
-    "EntityAliasResponse",
-    "EntityCandidateCreate",
-    "EntityCandidateResponse",
     "WorldEntityContext",
     "WorldContextBundle",
     # Contracts
-    "WorldEntityContract",
-    "RelationshipContract",
-    "EntityAliasContract",
-    "EntityCandidateContract",
-    "DuplicateSuggestion",
-    # Facade（唯一对外入口）
+    "CoreEntityContract",
+    "EventContract",
+    "EntityRelationContract",
+    "EntityRevisionContract",
+    "CharacterContract",
+    "CharacterKnowledgeContract",
+    # Facade
     "get_world_context",
     "expand_related_entities",
-    "find_duplicate_entity_candidates",
     "find_similar_entities",
     "merge_candidate_into_entity",
-    "accept_candidate",
     "list_entities",
-    "count_pending_candidates",
     "run_entity_extraction",
+    "get_events_context",
+    "create_character",
+    "get_characters_context",
 ]

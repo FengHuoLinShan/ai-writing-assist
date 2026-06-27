@@ -12,8 +12,8 @@
 - 根目录 `CLAUDE.md` / `AGENTS.md` 只记录“不能做什么”
 - 项目结构、目录设计、分层架构写入 [`00_整体设计.md`](00_整体设计.md)
 - 里程碑、当前状态、已知不足写入 [`项目进度.md`](项目进度.md)
-- 开发命令与工程规则写入根目录 `DEVELOPMENT_GUIDE.md`
-- 测试要求与 Review 分级写入根目录 `TESTING_GUIDE.md`
+- 开发命令与工程规则写入根目录 `development-guide.md`
+- 测试要求与 Review 分级写入根目录 `testing-guide.md`
 - 模块专属约束写入模块 README 或模块级 `CLAUDE.md`
 
 ## 子模块文档
@@ -47,7 +47,7 @@
 
 如果要开发某个模块：
 1. 先读根目录 `CLAUDE.md` 或 `AGENTS.md`
-2. 再读 `DEVELOPMENT_GUIDE.md` 和 `TESTING_GUIDE.md`
+2. 再读 `development-guide.md` 和 `testing-guide.md`
 3. 继续读对应 `modules/<模块>.md` 与模块 README
 4. 最后读 `01_数据库设计.md` 中该模块相关表
 

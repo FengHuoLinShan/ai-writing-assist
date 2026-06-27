@@ -8,10 +8,9 @@ Writing 数据访问层
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from collections.abc import Sequence
 
-from sqlalchemy import delete, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.models import WritingDraft
@@ -25,29 +24,22 @@ class WritingDraftRepository:
         self,
         db: AsyncSession,
         data: WritingDraftCreate,
-        chapter_card_id: uuid.UUID | None = None,
     ) -> WritingDraft:
-        """创建新草稿
+        """创建新草稿版本
 
-        使用 SELECT MAX + 唯一约束兜底实现原子版本号递增。
-        并发时如果版本号冲突，唯一约束会阻止重复插入。
+        SELECT MAX + 唯一约束兜底实现原子版本号递增。
         """
         novel_id = uuid.UUID(hex=data.novel_id)
-        cid: uuid.UUID | None = None
-        if data.chapter_card_id is not None:
-            cid = uuid.UUID(hex=data.chapter_card_id)
-        elif chapter_card_id is not None:
-            cid = chapter_card_id
 
-        # 获取当前最大版本号（使用 FOR UPDATE 锁定行）
         next_version = await self._next_version_number(
-            db, novel_id, data.chapter_index,
+            db,
+            novel_id,
+            data.chapter_index,
         )
 
         draft = WritingDraft(
             novel_id=novel_id,
             chapter_index=data.chapter_index,
-            chapter_card_id=cid,
             title=data.title,
             content=data.content,
             version_number=next_version,
@@ -110,13 +102,13 @@ class WritingDraftRepository:
         draft_id: uuid.UUID,
         data: WritingDraftUpdate,
     ) -> WritingDraft | None:
-        """更新草稿，返回更新后的对象（不存在返回 None）"""
+        """暂存草稿（原地更新，不递增版本号）。返回更新后的对象。"""
         draft = await self.get(db, draft_id)
         if draft is None:
             return None
 
         update_values: dict[str, object] = {}
-        for field in ("title", "content", "status"):
+        for field in ("title", "content"):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
@@ -137,12 +129,66 @@ class WritingDraftRepository:
         self,
         db: AsyncSession,
         draft_id: uuid.UUID,
-    ) -> bool:
-        """删除草稿，返回是否成功删除"""
-        stmt = delete(WritingDraft).where(WritingDraft.id == draft_id)
+    ) -> WritingDraft | None:
+        """删除单个版本。返回被删除的 draft（用于后续重排版本号）。"""
+        draft = await self.get(db, draft_id)
+        if draft is None:
+            return None
+
+        # 删除该版本
+        del_stmt = delete(WritingDraft).where(WritingDraft.id == draft_id)
+        await db.execute(del_stmt)
+        await db.flush()
+        return draft
+
+    async def renumber_versions_after_delete(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        deleted_version: int,
+    ) -> None:
+        """删除后重排高于被删版本的版本号（-1）。"""
+        renumber_stmt = (
+            update(WritingDraft)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index == chapter_index,
+                WritingDraft.version_number > deleted_version,
+            )
+            .values(version_number=WritingDraft.version_number - 1)
+        )
+        await db.execute(renumber_stmt)
+        await db.flush()
+
+    async def count_versions(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> int:
+        """返回某章版本总数"""
+        stmt = select(func.count(WritingDraft.id)).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index == chapter_index,
+        )
+        result = await db.execute(stmt)
+        return result.scalar() or 0
+
+    async def delete_all_versions(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> int:
+        """删除某章全部版本。返回删除的版本数。"""
+        stmt = delete(WritingDraft).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index == chapter_index,
+        )
         result = await db.execute(stmt)
         await db.flush()
-        return result.rowcount > 0
+        return result.rowcount or 0
 
     # ============================================================
     # 内部方法
@@ -157,12 +203,57 @@ class WritingDraftRepository:
         stmt = (
             select(WritingDraft.chapter_index)
             .where(WritingDraft.novel_id == novel_id)
-            .where(WritingDraft.status != "deprecated")
             .distinct()
             .order_by(WritingDraft.chapter_index)
         )
         result = await db.execute(stmt)
         return [row[0] for row in result.all()]
+
+    async def update_latest_content(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        *,
+        title: str | None,
+        content: str,
+    ) -> WritingDraft:
+        draft = await self.get_latest_by_chapter(db, novel_id, chapter_index)
+        if draft is None:
+            raise ValueError(f"No draft found for chapter {chapter_index}")
+        draft.title = title
+        draft.content = content
+        db.add(draft)
+        await db.flush()
+        return draft
+
+    async def shift_chapter_indices_from(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_index: int,
+    ) -> None:
+        stmt = (
+            select(WritingDraft.chapter_index)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index >= start_index,
+            )
+            .distinct()
+            .order_by(WritingDraft.chapter_index.desc())
+        )
+        result = await db.execute(stmt)
+        indices = [row[0] for row in result.all()]
+        for idx in indices:
+            await db.execute(
+                update(WritingDraft)
+                .where(
+                    WritingDraft.novel_id == novel_id,
+                    WritingDraft.chapter_index == idx,
+                )
+                .values(chapter_index=idx + 1)
+            )
+        await db.flush()
 
     async def _next_version_number(
         self,
@@ -170,11 +261,7 @@ class WritingDraftRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> int:
-        """获取下一个版本号。
-
-        PostgreSQL 不允许对聚合查询使用 FOR UPDATE，所以这里锁定当前
-        最新版本行；没有历史版本时由唯一约束兜底防止并发重复。
-        """
+        """获取下一个版本号 = max(当前版本号) + 1"""
         stmt = (
             select(WritingDraft.version_number)
             .where(

@@ -12,8 +12,8 @@ from typing import Final
 # Embedding
 # ============================================================
 
-DEFAULT_EMBEDDING_DIM: Final[int] = 1024
-"""默认 embedding 向量维度（OpenAI text-embedding-3-large）"""
+DEFAULT_EMBEDDING_DIM: Final[int] = 768
+"""默认 embedding 向量维度（bge-base-zh-v1.5）"""
 
 # ============================================================
 # 分页
@@ -42,13 +42,13 @@ SIMILARITY_LOW_CONFIDENCE: Final[float] = 0.65
 # 检索评分权重（混合检索）
 # ============================================================
 
-RAG_VECTOR_WEIGHT: Final[float] = 0.45
-"""向量检索权重"""
-RAG_KEYWORD_WEIGHT: Final[float] = 0.30
+RAG_VECTOR_WEIGHT: Final[float] = 0.50
+"""向量检索权重（BGE 中文语义质量更高，适当提高）"""
+RAG_KEYWORD_WEIGHT: Final[float] = 0.25
 """关键词检索权重"""
-RAG_RELATION_WEIGHT: Final[float] = 0.15
+RAG_RELATION_WEIGHT: Final[float] = 0.12
 """关系扩展权重"""
-RAG_IMPORTANCE_WEIGHT: Final[float] = 0.10
+RAG_IMPORTANCE_WEIGHT: Final[float] = 0.13
 """重要性/时效性权重"""
 
 # ============================================================
@@ -56,15 +56,15 @@ RAG_IMPORTANCE_WEIGHT: Final[float] = 0.10
 # ============================================================
 
 CONTEXT_BUDGET_DEFAULTS: Final[dict[str, int]] = {
-    "core_entities": 8,       # 核心对象
-    "normal_entities": 8,     # 普通对象
-    "characters": 6,          # 人物
-    "memories": 10,           # 记忆记录
-    "foreshadowings": 5,      # 伏笔
-    "timeline_events": 8,     # 时间线事件
+    "core_entities": 8,  # 核心对象
+    "normal_entities": 8,  # 普通对象
+    "characters": 6,  # 人物
+    "memories": 10,  # 记忆记录
+    "foreshadowings": 5,  # 伏笔
+    "timeline_events": 8,  # 时间线事件
     "geo_relationships": 10,  # 地理关系
-    "relation_edges": 12,     # 关系边
-    "rag_chunks": 8,          # RAG 片段
+    "relation_edges": 12,  # 关系边
+    "rag_chunks": 8,  # RAG 片段
 }
 """Context Compiler 默认各项上限"""
 
@@ -119,6 +119,40 @@ VECTOR_INDEX_EF_CONSTRUCTION: Final[int] = 200
 
 VECTOR_INDEX_M: Final[int] = 16
 """HNSW M 参数默认值"""
+
+# ============================================================
+# 去重（Dedup）
+# ============================================================
+
+DEDUP_FUSION_TOP_K: Final[int] = 50
+"""各通道（词法/语义）最大召回数"""
+
+DEDUP_PGTRGM_MIN_SIMILARITY: Final[float] = 0.4
+"""pg_trgm similarity() DB 层粗筛最低阈值"""
+
+DEDUP_MIN_FINAL_SCORE: Final[float] = 0.58
+"""去重建议最终展示最低分"""
+
+# 级联阈值（双阈值策略）
+DEDUP_AUTO_MERGE_THRESHOLD: Final[float] = 0.88
+"""≥ 此值自动合并（高置信）"""
+
+DEDUP_REVIEW_THRESHOLD: Final[float] = 0.70
+"""0.70–0.88 区间需人工审核"""
+
+DEDUP_DISCARD_THRESHOLD: Final[float] = 0.58
+"""< 0.58 直接丢弃"""
+
+DEDUP_CONFLICT_FIELDS: Final[list[str]] = [
+    "weapon",
+    "ability",
+    "affiliation",
+    "title",
+    "species",
+    "gender",
+    "age",
+]
+"""content_json 中需检测冲突的关键字段"""
 
 # ============================================================
 # 应用信息

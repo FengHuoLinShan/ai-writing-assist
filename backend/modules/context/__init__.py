@@ -8,22 +8,28 @@ from __future__ import annotations
 from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
 from modules.context.facade import (
     compile_structure_context,
+    compile_with_tiers,
+    render_compiled_context_markdown,
     render_context_markdown,
 )
 from modules.context.schemas import (
     ContextCompileRequest,
-    ContextCompileResponse,
     ContextRenderRequest,
     ContextRenderResponse,
+    ContextSectionItem,
+    ContextTierCompileResponse,
 )
 
 __all__ = [
     "CONTEXT_BUDGET",
     "ContextCompileRequest",
-    "ContextCompileResponse",
     "ContextRenderRequest",
     "ContextRenderResponse",
+    "ContextSectionItem",
+    "ContextTierCompileResponse",
     "StructureContextBundle",
     "compile_structure_context",
+    "compile_with_tiers",
+    "render_compiled_context_markdown",
     "render_context_markdown",
 ]

@@ -1,173 +1,205 @@
-"""WorldEntityService — 世界对象 CRUD"""
+"""WorldEntityService — 核心实体 CRUD。继承 BaseCRUDService (ADR-0002)。
+
+list 加 entity_type / status filter + 返 ListResponse (per design B3,
+subclass override)。
+"""
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.models import WorldEntity
-from modules.world.repositories import WorldEntityRepository
+from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
-    WorldContextBundle,
-    WorldEntityContext,
-    WorldEntityCreate,
-    WorldEntityListResponse,
-    WorldEntityResponse,
-    WorldEntityUpdate,
+    CoreEntityCreate,
+    CoreEntityListResponse,
+    CoreEntityResponse,
+    CoreEntityUpdate,
+    EntityPromoteRequest,
+    EntityPromoteResponse,
 )
+from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
+logger = logging.getLogger(__name__)
 
-class WorldEntityService:
-    """世界对象业务服务"""
 
-    def __init__(self) -> None:
-        self._repo = WorldEntityRepository()
+class WorldEntityService(
+    CrudService[
+        Any,
+        CoreEntityCreate,
+        CoreEntityUpdate,
+        CoreEntityResponse,
+    ],
+):
+    """核心实体业务服务。
+
+    5 verb 继承自 base; list 加 filter (entity_type / status) + 返 ListResponse;
+    扩展行为（别名、embedding、上下文）已拆分到独立服务。
+    """
+
+    repo = CoreEntityRepository()
+    response = CoreEntityResponse
+    label = "CoreEntity"
+    id_param = "entity_id"
+
+    # ============================================================
+    # Override: create 加重复确认
+    # ============================================================
 
     async def create(
         self,
         db: AsyncSession,
         novel_id: str,
-        data: WorldEntityCreate,
-    ) -> WorldEntityResponse:
-        """创建世界对象"""
+        data: CoreEntityCreate,
+    ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        entity = await self._repo.create(db, nid, data)
-        return WorldEntityResponse.model_validate(entity)
 
-    async def get(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        novel_id: str | None = None,
-    ) -> WorldEntityResponse:
-        """获取世界对象详情"""
-        eid = parse_uuid(entity_id, "entity_id")
-        entity = await self._repo.get(db, eid)
-        if entity is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {entity_id} not found",
+        # 手动创建默认标记来源
+        if not data.created_by:
+            data = data.model_copy(update={"created_by": "manual"})
+
+        if not data.force_create:
+            similar = await self.repo.find_similar_by_search_text(
+                db,
+                nid,
+                data.name,
+                entity_type=data.entity_type,
+                status_filter=["canonical", "draft"],
+                min_similarity=0.9,
+                top_k=5,
             )
-        if novel_id and str(entity.novel_id) != novel_id:
-            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        return WorldEntityResponse.model_validate(entity)
+            if similar:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "requires_confirmation": True,
+                        "similar_entities": [
+                            {
+                                "id": str(e.id),
+                                "name": e.name,
+                                "similarity_score": round(score, 2),
+                            }
+                            for e, score in similar[:5]
+                        ],
+                    },
+                )
 
-    async def list(
+        obj = await self.repo.create(db, nid, data)
+        return self._to_response(obj)
+
+    # ============================================================
+    # Override: list 加 filter kwargs + 返 ListResponse 包装
+    # ============================================================
+
+    async def list(  # type: ignore[override]
         self,
         db: AsyncSession,
         novel_id: str,
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        q: str | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> WorldEntityListResponse:
-        """获取世界对象列表"""
+    ) -> CoreEntityListResponse:
+        """带 filter 的 list, 返 ListResponse 包装 (不是 tuple)。"""
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
-        items, total = await self._repo.get_by_novel(
-            db, nid,
+        items, total = await self.repo.get_by_novel(
+            db,
+            nid,
             entity_type=entity_type,
             status=status,
+            q=q,
             skip=skip,
             limit=limit,
         )
-        return WorldEntityListResponse(
-            items=[WorldEntityResponse.model_validate(e) for e in items],
+        return CoreEntityListResponse(
+            items=[CoreEntityResponse.model_validate(e) for e in items],
             total=total,
         )
+
+    # ============================================================
+    # Override: update 前打快照，支持手动编辑后回滚
+    # ============================================================
 
     async def update(
         self,
         db: AsyncSession,
-        entity_id: str,
-        data: WorldEntityUpdate,
-        novel_id: str | None = None,
-    ) -> WorldEntityResponse:
-        """更新世界对象"""
-        eid = parse_uuid(entity_id, "entity_id")
-        if novel_id:
-            existing = await self._repo.get(db, eid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        entity = await self._repo.update(db, eid, data)
-        if entity is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {entity_id} not found",
-            )
-        return WorldEntityResponse.model_validate(entity)
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        novel_id: str | None = None,
-    ) -> None:
-        """删除世界对象"""
-        eid = parse_uuid(entity_id, "entity_id")
-        if novel_id:
-            existing = await self._repo.get(db, eid)
-            if existing is None or str(existing.novel_id) != novel_id:
-                raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND)
-        deleted = await self._repo.delete(db, eid)
-        if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"WorldEntity {entity_id} not found",
-            )
-
-    async def get_entity_context(
-        self,
-        db: AsyncSession,
+        id: str,
+        data: CoreEntityUpdate,
+        *,
         novel_id: str,
-        entity_ids: list[str] | None = None,
-        reveal_mode: str = "author_safe",
-        limit: int = 20,
-    ) -> WorldContextBundle:
-        """获取世界对象上下文包（供其他模块使用）"""
-        nid = parse_uuid(novel_id, "novel_id")
-
-        if entity_ids:
-            eids = [parse_uuid(eid, "entity_id") for eid in entity_ids]
-            entities = await self._repo.get_by_ids(db, nid, eids)
-        else:
-            entities, _ = await self._repo.get_by_novel(db, nid, limit=limit)
-
-        contexts: list[WorldEntityContext] = []
-        for entity in entities:
-            ctx = _entity_to_context(entity, reveal_mode)
-            contexts.append(ctx)
-
-        return WorldContextBundle(
-            novel_id=novel_id,
-            entities=contexts,
-            total_count=len(contexts),
-            reveal_mode=reveal_mode,
+    ) -> CoreEntityResponse:
+        """更新实体前为当前状态打快照；snapshot 失败不阻断主流程。"""
+        from modules.world.services.entity_revision_service import (
+            EntityRevisionService,
         )
 
+        try:
+            revision_service = EntityRevisionService()
+            await revision_service.create_snapshot(
+                db,
+                entity_id=id,
+                novel_id=novel_id,
+                revision_reason="manual_update",
+            )
+        except Exception:
+            # snapshot 创建失败不应阻断编辑主流程，但需要记录日志便于排障
+            logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
 
-def _entity_to_context(
-    entity: WorldEntity,
-    reveal_mode: str,
-) -> WorldEntityContext:
-    """将 ORM 模型转为上下文对象，根据 reveal_mode 过滤信息"""
-    hidden = None
-    if reveal_mode == "author_only":
-        hidden = entity.hidden_truth
+        return await super().update(db, id, data, novel_id=novel_id)
 
-    return WorldEntityContext(
-        entity_id=str(entity.id),
-        entity_type=entity.entity_type,
-        name=entity.name,
-        summary=entity.summary,
-        public_info=entity.public_info,
-        hidden_truth=hidden,
-        importance=entity.importance,
-        importance_level=entity.importance_level,
-        reveal_level=entity.reveal_level,
-        status=entity.status,
-    )
+    # ============================================================
+    # Promote: 将草稿/候选实体提升为正史
+    # ============================================================
+
+    async def promote(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        data: EntityPromoteRequest,
+        *,
+        novel_id: str,
+    ) -> EntityPromoteResponse:
+        """将 draft/candidate 状态实体提升为 canonical。
+
+        - 仅允许从 draft/candidate 提升；其他状态返回 400。
+        - 自动设置 approved_by 与 status=canonical。
+        """
+        from fastapi import status as http_status
+
+        rid = parse_uuid(entity_id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
+
+        entity = await self.repo.get(db, rid)
+        self._assert_found_in_novel(entity, entity_id, nid)
+        assert entity is not None
+
+        if entity.status not in {"draft", "candidate"}:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"无法提升状态为 '{entity.status}' 的实体，"
+                    "仅 draft/candidate 可被提升为正史"
+                ),
+            )
+
+        update_data = CoreEntityUpdate(
+            status="canonical",
+            approved_by=data.approved_by or "manual",
+        )
+        updated = await self.repo.update(db, rid, update_data)
+        self._assert_found_in_novel(updated, entity_id, nid)
+        assert updated is not None
+
+        return EntityPromoteResponse(
+            entity_id=str(updated.id),
+            status=updated.status,
+            approved_by=updated.approved_by,
+        )

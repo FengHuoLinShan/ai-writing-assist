@@ -1,448 +1,554 @@
 """
 Memory 业务逻辑层
 
-调用 repository 完成业务操作，包含记忆创建、提案管理和确认流程。
+事件溯源 + 阶段性快照的协调逻辑。
 """
 
 from __future__ import annotations
 
-import uuid
+import logging
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.repositories import (
-    MemoryProposalRepository,
-    MemoryRecordRepository,
-)
+from modules.memory.repositories import EventRepository, SnapshotRepository
 from modules.memory.schemas import (
-    MemoryProposalResponse,
-    MemoryRecordContext,
-    MemoryRecordCreate,
-    MemoryRecordResponse,
-    MemoryRecordUpdate,
-    MemoryUpdateProposalContext,
+    ChapterPanorama,
+    CharacterLocationInPanorama,
+    EntityInPanorama,
+    EventListResponse,
+    EventType,
+    KnowledgeInPanorama,
+    MemoryEventResponse,
+    MemoryStatusResponse,
+    RelationInPanorama,
+    SnapshotListResponse,
+    SnapshotResponse,
 )
 from shared.utils import parse_uuid
 
-_DEFAULT_RECENT_LIMIT = 8
-_DEFAULT_ENTITY_LIMIT = 20
-_DEFAULT_PROPOSAL_LIMIT = 50
+logger = logging.getLogger(__name__)
+
+_SNAPSHOT_INTERVAL = 10  # K=10
 
 
 class MemoryService:
-    """记忆业务服务"""
+    """记忆业务服务 — 事件溯源引擎"""
 
-    def __init__(self) -> None:
-        self._record_repo = MemoryRecordRepository()
-        self._proposal_repo = MemoryProposalRepository()
-
-    # ============================================================
-    # 记忆记录 CRUD
-    # ============================================================
-
-    async def create_memory_record(
+    def __init__(
         self,
-        db: AsyncSession,
-        novel_id: str,
-        data: MemoryRecordCreate,
-    ) -> MemoryRecordResponse:
-        """创建新的记忆记录"""
-        nid = parse_uuid(novel_id)
-        record = await self._record_repo.create(db, nid, data)
-        return MemoryRecordResponse.model_validate(record)
-
-    async def get_memory_record(
-        self,
-        db: AsyncSession,
-        record_id: str,
-        novel_id: str,
-    ) -> MemoryRecordResponse:
-        """获取记忆记录详情"""
-        rid = parse_uuid(record_id)
-        nid = parse_uuid(novel_id)
-        record = await self._record_repo.get(db, rid)
-        if record is None or str(record.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Memory record {record_id} not found",
-            )
-        return MemoryRecordResponse.model_validate(record)
-
-    async def list_memory_records(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        skip: int = 0,
-        limit: int = 20,
-        memory_type: str | None = None,
-        status: str | None = None,
-        before_chapter_index: int | None = None,
-    ) -> tuple[list[MemoryRecordResponse], int]:
-        """获取记忆记录列表"""
-        nid = parse_uuid(novel_id)
-        items, total = await self._record_repo.get_multi(
-            db,
-            nid,
-            skip=skip,
-            limit=limit,
-            memory_type=memory_type,
-            status=status,
-            before_chapter_index=before_chapter_index,
-        )
-        return [MemoryRecordResponse.model_validate(r) for r in items], total
-
-    async def update_memory_record(
-        self,
-        db: AsyncSession,
-        record_id: str,
-        data: MemoryRecordUpdate,
-        novel_id: str,
-    ) -> MemoryRecordResponse:
-        """更新记忆记录"""
-        rid = parse_uuid(record_id)
-        nid = parse_uuid(novel_id)
-        # 先校验所有权
-        record = await self._record_repo.get(db, rid)
-        if record is None or str(record.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Memory record {record_id} not found",
-            )
-        record = await self._record_repo.update(db, rid, data)
-        return MemoryRecordResponse.model_validate(record)
-
-    async def delete_memory_record(
-        self,
-        db: AsyncSession,
-        record_id: str,
-        novel_id: str,
+        event_repo: EventRepository | None = None,
+        snapshot_repo: SnapshotRepository | None = None,
     ) -> None:
-        """删除记忆记录"""
-        rid = parse_uuid(record_id)
-        nid = parse_uuid(novel_id)
-        record = await self._record_repo.get(db, rid)
-        if record is None or str(record.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Memory record {record_id} not found",
-            )
-        await self._record_repo.delete(db, rid)
+        self._event_repo = event_repo or EventRepository()
+        self._snapshot_repo = snapshot_repo or SnapshotRepository()
 
     # ============================================================
-    # 提案管理
+    # 事件记录
     # ============================================================
 
-    async def list_pending_proposals(
+    async def record_events(
         self,
         db: AsyncSession,
         novel_id: str,
-        *,
-        skip: int = 0,
-        limit: int = 20,
-    ) -> tuple[list[MemoryProposalResponse], int]:
-        """获取待处理的提案列表"""
-        nid = parse_uuid(novel_id)
-        items, total = await self._proposal_repo.get_pending(
-            db, nid, skip=skip, limit=limit
-        )
-        return [MemoryProposalResponse.model_validate(p) for p in items], total
+        chapter_index: int,
+        events: list[dict[str, Any]],
+    ) -> list[MemoryEventResponse]:
+        """批量记录一章的变化事件
 
-    async def create_memory_update_proposals(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        source_type: str,
-        source_id: str,
-        extraction_result: dict[str, Any],
-    ) -> list[MemoryUpdateProposalContext]:
-        """从抽取结果创建记忆提案
-
-        Args:
-            db: 数据库 session
-            novel_id: 项目 ID
-            source_type: 来源类型（如 chapter_text / outline_change）
-            source_id: 来源 ID
-            extraction_result: AI 抽取结果，格式为
-                {
-                    "proposals": [
-                        {
-                            "proposal_type": "create_memory",
-                            "payload": {...},
-                            "confidence": 0.8,
-                            "reason": "...",
-                            "chapter_index": 5,
-                        },
-                        ...
-                    ]
-                }
-
-        Returns:
-            list[MemoryUpdateProposalContext]: 创建的提案列表
+        events 格式: [{"event_type": "entity_created", "entity_id": ..., ...}, ...]
         """
         nid = parse_uuid(novel_id)
-        sid = parse_uuid(source_id) if source_id else None
+        # 先清除该章的旧事件（如果存在）
+        await self._event_repo.delete_by_chapter(db, nid, chapter_index)
 
-        proposals = extraction_result.get("proposals", [])
-        results: list[MemoryUpdateProposalContext] = []
-
-        for prop in proposals:
-            proposal = await self._proposal_repo.create(
+        results: list[MemoryEventResponse] = []
+        for seq, evt in enumerate(events, start=1):
+            record = await self._event_repo.create(
                 db,
                 novel_id=nid,
-                proposal_type=prop.get("proposal_type", "create_memory"),
-                payload=prop.get("payload", {}),
-                chapter_index=prop.get("chapter_index"),
-                confidence=prop.get("confidence", 0.5),
-                reason=prop.get("reason"),
-                source_text_excerpt=prop.get("source_text_excerpt"),
+                chapter_index=chapter_index,
+                sequence=seq,
+                event_type=evt["event_type"],
+                entity_id=parse_uuid(evt["entity_id"]) if evt.get("entity_id") else None,
+                entity_type=evt.get("entity_type"),
+                snapshot_before=evt.get("snapshot_before"),
+                snapshot_after=evt.get("snapshot_after", evt.get("payload", {})),
+                source=evt.get("source", "ai_extraction"),
             )
-            results.append(MemoryUpdateProposalContext.model_validate(proposal))
+            results.append(MemoryEventResponse.model_validate(record))
 
+        await db.flush()
         return results
 
-    async def confirm_memory_proposal(
+    # ============================================================
+    # 状态重放
+    # ============================================================
+
+    async def replay_state(
         self,
         db: AsyncSession,
-        proposal_id: str,
         novel_id: str,
-        edited_payload: dict[str, Any] | None = None,
-        decided_by: str | None = None,
-    ) -> MemoryRecordContext:
-        """确认记忆提案，写入 canonical memory
+        chapter_index: int,
+    ) -> dict[str, Any]:
+        """重放事件至指定章节，返回完整世界状态
 
-        Args:
-            db: 数据库 session
-            proposal_id: 提案 ID
-            novel_id: 项目 ID
-            edited_payload: 编辑后的 payload（如未提供则使用原 payload）
-            decided_by: 决策者标识
-
-        Returns:
-            MemoryRecordContext: 创建的正史记忆记录
-
-        Raises:
-            HTTPException: 提案不存在或已被处理
+        优先从最近快照 + 增量事件重放。
         """
-        pid = parse_uuid(proposal_id)
         nid = parse_uuid(novel_id)
-        proposal = await self._proposal_repo.get(db, pid)
-        if proposal is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Memory proposal {proposal_id} not found",
+        nearest = await self._snapshot_repo.get_nearest(db, nid, chapter_index)
+
+        if nearest:
+            state = dict(nearest.full_state)
+            start_chapter = nearest.chapter_index + 1
+        else:
+            state = {
+                "entities": {},
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            }
+            start_chapter = 1
+
+        if start_chapter <= chapter_index:
+            events = await self._event_repo.get_by_chapter_range(
+                db, nid, start_chapter, chapter_index
             )
-        if proposal is None or str(proposal.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Memory proposal {proposal_id} not found",
-            )
-        if proposal.decision != "pending":
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail=f"Memory proposal {proposal_id} already decided as {proposal.decision}",
-            )
+            state = self._apply_events(state, events)
 
-        # 使用编辑后的 payload 或原始 payload 创建记忆记录
-        payload = edited_payload or proposal.payload
-
-        # 构建记忆记录创建数据
-        create_data = MemoryRecordCreate(
-            memory_type=payload.get("memory_type", proposal.proposal_type),
-            target_type=payload.get("target_type"),
-            target_id=(
-                str(payload["target_id"]) if payload.get("target_id") else None
-            ),
-            chapter_index=payload.get("chapter_index", proposal.chapter_index),
-            title=payload.get("title"),
-            summary=payload.get("summary", ""),
-            content_json=payload.get("content_json", {}),
-            visibility=payload.get("visibility", "reader_known"),
-            known_by_character_ids=payload.get("known_by_character_ids", []),
-            related_entity_ids=payload.get("related_entity_ids", []),
-            related_character_ids=payload.get("related_character_ids", []),
-            related_thread_ids=payload.get("related_thread_ids", []),
-            importance=payload.get("importance", 0.5),
-            status="canonical",
-            source_text_excerpt=(
-                payload.get("source_text_excerpt")
-                or proposal.source_text_excerpt
-            ),
-        )
-
-        # 先创建正史记忆记录
-        record = await self._record_repo.create(db, proposal.novel_id, create_data)
-
-        # 再标记提案为 approved（记录创建成功后）
-        await self._proposal_repo.decide(
-            db, pid, decision="approved", decided_by=decided_by
-        )
-
-        geo_mutations = payload.get("geo_mutations")
-        if geo_mutations:
-            import logging
-            _geo_logger = logging.getLogger(__name__)
-            chapter_index = proposal.chapter_index
-
-            for shift in geo_mutations.get("character_shifts", []):
-                try:
-                    char_name = shift.get("character_name", "")
-                    loc_name = shift.get("destination_location_name", "")
-                    movement_type = shift.get("movement_type", "")
-                    if not char_name or not loc_name:
-                        continue
-
-                    from modules.character.facade import find_character_id_by_name
-                    from modules.world.facade import find_entity_id_by_name
-                    from modules.character.facade import update_character_location
-
-                    char_id = await find_character_id_by_name(db, novel_id, char_name)
-                    loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
-
-                    if char_id and loc_id:
-                        text_state = f"目前正{movement_type}至{loc_name}。" if movement_type else f"目前位于{loc_name}。"
-                        await update_character_location(
-                            db, novel_id, char_id, loc_id, text_state, chapter_index or 0,
-                        )
-                    else:
-                        _geo_logger.warning(
-                            "角色位移分发跳过: char=%s found=%s, loc=%s found=%s",
-                            char_name, char_id is not None, loc_name, loc_id is not None,
-                        )
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning("角色位移分发失败: %s", e)
-
-            for shift in geo_mutations.get("faction_shifts", []):
-                try:
-                    faction_name = shift.get("faction_name", "")
-                    loc_name = shift.get("target_location_name", "")
-                    new_relation = shift.get("new_relation", "stationed_at")
-                    description = shift.get("description", "")
-                    if not faction_name or not loc_name:
-                        continue
-
-                    from modules.world.facade import find_entity_id_by_name, upsert_relationship
-
-                    faction_id = await find_entity_id_by_name(db, novel_id, faction_name, entity_type="faction")
-                    loc_id = await find_entity_id_by_name(db, novel_id, loc_name, entity_type="location")
-
-                    if faction_id and loc_id:
-                        await upsert_relationship(
-                            db, novel_id, faction_id, loc_id,
-                            "faction", "location", new_relation, description,
-                        )
-                    else:
-                        _geo_logger.warning(
-                            "势力割据分发跳过: faction=%s found=%s, loc=%s found=%s",
-                            faction_name, faction_id is not None, loc_name, loc_id is not None,
-                        )
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning("势力割据分发失败: %s", e)
-
-            try:
-                char_ids = []
-                entity_ids = []
-                for shift in geo_mutations.get("character_shifts", []):
-                    from modules.character.facade import find_character_id_by_name
-                    cid = await find_character_id_by_name(db, novel_id, shift.get("character_name", ""))
-                    if cid:
-                        char_ids.append(cid)
-                for shift in geo_mutations.get("faction_shifts", []):
-                    from modules.world.facade import find_entity_id_by_name
-                    fid = await find_entity_id_by_name(db, novel_id, shift.get("faction_name", ""), entity_type="faction")
-                    lid = await find_entity_id_by_name(db, novel_id, shift.get("target_location_name", ""), entity_type="location")
-                    if fid:
-                        entity_ids.append(fid)
-                    if lid:
-                        entity_ids.append(lid)
-
-                if char_ids or entity_ids:
-                    from modules.outline.facade import merge_chapter_involved_ids
-                    await merge_chapter_involved_ids(
-                        db, novel_id, chapter_index or 0, char_ids, entity_ids,
-                    )
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning("章节关联合并失败: %s", e)
-
-        return MemoryRecordContext.model_validate(record)
+        return state
 
     # ============================================================
-    # 提案决策支持
+    # 快照管理
     # ============================================================
 
-    async def decide_proposal(
-        self,
-        db: AsyncSession,
-        proposal_id: uuid.UUID,
-        decision: str,
-        decided_by: str | None = None,
-    ) -> None:
-        """对記憶提案做出決策（approved/rejected）"""
-        await self._proposal_repo.decide(
-            db, proposal_id, decision=decision, decided_by=decided_by,
-        )
-
-    async def get_memory_proposal(
-        self,
-        db: AsyncSession,
-        proposal_id: str,
-        novel_id: str,
-    ) -> MemoryProposalResponse:
-        """获取记忆提案详情"""
-        pid = parse_uuid(proposal_id)
-        nid = parse_uuid(novel_id)
-        proposal = await self._proposal_repo.get(db, pid)
-        if proposal is None or str(proposal.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Memory proposal {proposal_id} not found",
-            )
-        return MemoryProposalResponse.model_validate(proposal)
-
-    # ============================================================
-    # Facade 支持方法
-    # ============================================================
-
-    async def get_recent_story_memory(
+    async def capture_snapshot(
         self,
         db: AsyncSession,
         novel_id: str,
-        before_chapter_index: int | None = None,
-        limit: int = _DEFAULT_RECENT_LIMIT,
-    ) -> list[MemoryRecordContext]:
-        """获取最近的故事记忆"""
+        chapter_index: int,
+    ) -> SnapshotResponse:
+        """在指定章生成快照节点
+
+        从 world facade 抓取当前世界状态，结合 replay 的事件流验证一致性，
+        然后物化为快照行。
+        """
+        from modules.world.facade import get_full_state
+
         nid = parse_uuid(novel_id)
-        items, _ = await self._record_repo.get_multi(
+
+        # 获取当前世界完整状态
+        full_state = await get_full_state(db, novel_id)
+
+        # 计算该快照覆盖的事件数
+        events = await self._event_repo.get_by_chapter_range(db, nid, 1, chapter_index)
+
+        snapshot = await self._snapshot_repo.create(
+            db,
+            novel_id=nid,
+            chapter_index=chapter_index,
+            full_state=full_state,
+            events_until=len(events),
+        )
+
+        return SnapshotResponse.model_validate(snapshot)
+
+    # ============================================================
+    # 全景查询
+    # ============================================================
+
+    async def get_panorama(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+    ) -> ChapterPanorama:
+        """返回指定章节的世界全景
+
+        流程：找最近快照 → 应用增量事件 → 组装 ChapterPanorama
+        如果没有任何快照/事件，回退到 world facade 直接获取当前状态。
+        """
+        nid = parse_uuid(novel_id)
+        from modules.world.facade import get_full_state
+
+        nearest = await self._snapshot_repo.get_nearest(db, nid, chapter_index)
+
+        if nearest:
+            state = dict(nearest.full_state)
+            start_chapter = nearest.chapter_index + 1
+            if start_chapter <= chapter_index:
+                events = await self._event_repo.get_by_chapter_range(
+                    db, nid, start_chapter, chapter_index
+                )
+                state = self._apply_events(state, events)
+        else:
+            # 没有任何快照 — 检查是否有事件可重放
+            events = await self._event_repo.get_by_chapter_range(
+                db, nid, 1, chapter_index
+            )
+            if events:
+                state = self._apply_events(
+                    {
+                        "entities": {},
+                        "relations": [],
+                        "character_locations": {},
+                        "character_knowledge": [],
+                    },
+                    events,
+                )
+            else:
+                # 完全没有数据，回退到 world 当前状态
+                state = await get_full_state(db, novel_id)
+
+        return self._build_panorama(novel_id, chapter_index, state)
+
+    # ============================================================
+    # 过时管理
+    # ============================================================
+
+    async def mark_stale(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        from_chapter: int,
+    ) -> dict[str, Any]:
+        """标记从指定章节开始的所有快照为过时"""
+        nid = parse_uuid(novel_id)
+        count = await self._snapshot_repo.mark_stale_from(db, nid, from_chapter)
+        logger.info("Marked %d snapshots as stale from chapter %d", count, from_chapter)
+        return {"stale_count": count, "from_chapter": from_chapter}
+
+    async def list_events(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        from_chapter: int,
+        to_chapter: int,
+    ) -> EventListResponse:
+        """按章节范围查询事件列表"""
+        nid = parse_uuid(novel_id)
+        events = await self._event_repo.get_by_chapter_range(
             db,
             nid,
-            status="canonical",
-            before_chapter_index=before_chapter_index,
-            limit=limit,
+            from_chapter,
+            to_chapter,
         )
-        return [MemoryRecordContext.model_validate(r) for r in items]
+        items = [MemoryEventResponse.model_validate(e) for e in events]
+        return EventListResponse(items=items, total=len(items))
 
-    async def get_entity_memory(
+    async def get_entity_timeline(
         self,
         db: AsyncSession,
         novel_id: str,
         entity_id: str,
-        limit: int = _DEFAULT_ENTITY_LIMIT,
-    ) -> list[MemoryRecordContext]:
-        """获取与某实体关联的记忆"""
+        skip: int,
+        limit: int,
+    ) -> EventListResponse:
+        """获取单个实体的变化时间线"""
         nid = parse_uuid(novel_id)
         eid = parse_uuid(entity_id)
-        records = await self._record_repo.get_by_entity(
-            db, nid, eid, limit=limit
+        events, total = await self._event_repo.get_by_entity(
+            db,
+            nid,
+            eid,
+            skip=skip,
+            limit=limit,
         )
-        return [MemoryRecordContext.model_validate(r) for r in records]
+        items = [MemoryEventResponse.model_validate(e) for e in events]
+        return EventListResponse(items=items, total=total)
+
+    async def list_snapshots(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> SnapshotListResponse:
+        """列出所有快照"""
+        nid = parse_uuid(novel_id)
+        snapshots = await self._snapshot_repo.list_for_novel(db, nid)
+        items = [SnapshotResponse.model_validate(s) for s in snapshots]
+        return SnapshotListResponse(items=items, total=len(items))
+
+    async def get_status(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> MemoryStatusResponse:
+        """获取 memory 模块当前状态"""
+        nid = parse_uuid(novel_id)
+        snapshots = await self._snapshot_repo.list_for_novel(db, nid)
+
+        if not snapshots:
+            return MemoryStatusResponse(
+                novel_id=novel_id,
+                latest_chapter=None,
+                latest_snapshot_chapter=None,
+                has_stale=False,
+                stale_from_chapter=None,
+            )
+
+        latest_current = max(
+            (s.chapter_index for s in snapshots if s.status == "current"),
+            default=None,
+        )
+        stale_snapshots = [s for s in snapshots if s.status == "stale"]
+        stale_from = (
+            min((s.chapter_index for s in stale_snapshots), default=None)
+            if stale_snapshots
+            else None
+        )
+
+        return MemoryStatusResponse(
+            novel_id=novel_id,
+            latest_chapter=max(s.chapter_index for s in snapshots),
+            latest_snapshot_chapter=latest_current,
+            has_stale=len(stale_snapshots) > 0,
+            stale_from_chapter=stale_from,
+        )
 
     # ============================================================
-    # 内部工具
+    # 手动全更新
     # ============================================================
 
+    async def full_rebuild(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        from_chapter: int,
+    ) -> dict[str, Any]:
+        """从前文修正点开始，全量重建后续的事件和快照
+
+        流程：
+        1. 重放到 from_chapter-1 的状态作为基准
+        2. 获取 world 当前完整状态
+        3. 对比差异，重新生成 from_chapter 之后的事件
+        4. 重建 from_chapter 之后的快照
+        """
+        nid = parse_uuid(novel_id)
+        from modules.world.facade import get_full_state
+
+        # 清理旧数据
+        await self._snapshot_repo.delete_stale(db, nid)
+        await self._event_repo.delete_from_chapter(db, nid, from_chapter)
+
+        # 获取基准状态（from_chapter 之前的状态）
+        if from_chapter > 1:
+            base_state = await self.replay_state(db, novel_id, from_chapter - 1)
+        else:
+            base_state = {
+                "entities": {},
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            }
+
+        # 获取当前世界状态
+        current_state = await get_full_state(db, novel_id)
+
+        # 计算差异事件
+        all_events = self._diff_states(base_state, current_state)
+
+        # 按章节重新分配事件（如果事件中带有 chapter_index 信息）
+        # v1 简化：将所有差异事件作为 from_chapter 的新事件
+        # 后续可扩展为更细粒度的差异分配
+        if all_events:
+            await self.record_events(db, novel_id, from_chapter, all_events)
+
+        # 重建快照（每 K 章一个，加上最新章）
+        all_events_after = await self._event_repo.get_by_chapter_range(
+            db, nid, from_chapter, 999999
+        )
+        final_chapter = max(
+            (e.chapter_index for e in all_events_after), default=from_chapter
+        )
+
+        rebuilt_count = 0
+        for ch in range(from_chapter, final_chapter + 1):
+            if ch % _SNAPSHOT_INTERVAL == 0 or ch == final_chapter:
+                await self.capture_snapshot(db, novel_id, ch)
+                rebuilt_count += 1
+
+        return {
+            "rebuilt_snapshots": rebuilt_count,
+            "from_chapter": from_chapter,
+            "final_chapter": final_chapter,
+        }
+
+    # ============================================================
+    # 内部方法
+    # ============================================================
+
+    def _apply_events(self, state: dict[str, Any], events: list[Any]) -> dict[str, Any]:
+        """应用事件序列到状态上"""
+        state = {
+            "entities": {e["id"]: e for e in state.get("entities", [])},
+            "relations": list(state.get("relations", [])),
+            "character_locations": dict(state.get("character_locations", {})),
+            "character_knowledge": list(state.get("character_knowledge", [])),
+        }
+
+        for event in events:
+            etype = event.event_type
+            after = event.snapshot_after or {}
+            eid = str(event.entity_id) if event.entity_id else None
+
+            if etype == EventType.entity_created and eid:
+                state["entities"][eid] = after
+            elif etype == EventType.entity_updated and eid:
+                if eid in state["entities"]:
+                    state["entities"][eid].update(after)
+            elif etype == EventType.entity_removed and eid:
+                state["entities"].pop(eid, None)
+            elif etype == EventType.entity_moved and eid:
+                state["character_locations"][eid] = after
+            elif etype == EventType.relation_established:
+                state["relations"].append(after)
+            elif etype == EventType.relation_ended:
+                rel_id = after.get("relation_id") or after.get("id")
+                state["relations"] = [
+                    r for r in state["relations"] if r.get("id") != rel_id
+                ]
+            elif etype == EventType.knowledge_changed:
+                state["character_knowledge"].append(after)
+
+        # 将 entities 恢复为列表格式
+        state["entities"] = list(state["entities"].values())
+        return state
+
+    def _diff_states(self, before: dict, after: dict) -> list[dict[str, Any]]:
+        """对比两个世界状态，生成变化事件列表"""
+        events: list[dict[str, Any]] = []
+
+        before_entities = {e["id"]: e for e in before.get("entities", [])}
+        after_entities = {e["id"]: e for e in after.get("entities", [])}
+
+        # 新增或更新的实体
+        for eid, aent in after_entities.items():
+            bent = before_entities.get(eid)
+            if bent is None:
+                events.append(
+                    {
+                        "event_type": EventType.entity_created,
+                        "entity_id": eid,
+                        "entity_type": aent.get("entity_type"),
+                        "snapshot_after": aent,
+                        "source": "ai_extraction",
+                    }
+                )
+            else:
+                # 简单对比：检查关键字段变化
+                changed = False
+                for key in (
+                    "name",
+                    "summary",
+                    "public_info",
+                    "hidden_truth",
+                    "importance",
+                    "status",
+                ):
+                    if aent.get(key) != bent.get(key):
+                        changed = True
+                        break
+                if changed:
+                    events.append(
+                        {
+                            "event_type": EventType.entity_updated,
+                            "entity_id": eid,
+                            "entity_type": aent.get("entity_type"),
+                            "snapshot_before": bent,
+                            "snapshot_after": aent,
+                            "source": "ai_extraction",
+                        }
+                    )
+
+        # 删除的实体
+        for eid in before_entities:
+            if eid not in after_entities:
+                events.append(
+                    {
+                        "event_type": EventType.entity_removed,
+                        "entity_id": eid,
+                        "entity_type": before_entities[eid].get("entity_type"),
+                        "snapshot_before": before_entities[eid],
+                        "snapshot_after": {},
+                        "source": "manual_edit",
+                    }
+                )
+
+        # 关系变化
+        before_rels = {
+            (r["source_id"], r["target_id"], r.get("relation_type", "")): r
+            for r in before.get("relations", [])
+        }
+        after_rels = {
+            (r["source_id"], r["target_id"], r.get("relation_type", "")): r
+            for r in after.get("relations", [])
+        }
+
+        for key, arel in after_rels.items():
+            if key not in before_rels:
+                events.append(
+                    {
+                        "event_type": EventType.relation_established,
+                        "entity_id": arel.get("source_id"),
+                        "entity_type": "relation",
+                        "snapshot_after": arel,
+                        "source": "ai_extraction",
+                    }
+                )
+
+        for key, brel in before_rels.items():
+            if key not in after_rels:
+                events.append(
+                    {
+                        "event_type": EventType.relation_ended,
+                        "entity_id": brel.get("source_id"),
+                        "entity_type": "relation",
+                        "snapshot_before": brel,
+                        "snapshot_after": {"relation_id": brel.get("id")},
+                        "source": "manual_edit",
+                    }
+                )
+
+        # 角色位置变化
+        before_locs = before.get("character_locations", {})
+        after_locs = after.get("character_locations", {})
+        for cid, aloc in after_locs.items():
+            bloc = before_locs.get(cid, {})
+            if str(aloc.get("location_id")) != str(bloc.get("location_id")):
+                events.append(
+                    {
+                        "event_type": EventType.entity_moved,
+                        "entity_id": cid,
+                        "entity_type": "character",
+                        "snapshot_before": bloc if bloc else None,
+                        "snapshot_after": aloc,
+                        "source": "ai_extraction",
+                    }
+                )
+
+        return events
+
+    def _build_panorama(
+        self,
+        novel_id: str,
+        chapter_index: int,
+        state: dict[str, Any],
+    ) -> ChapterPanorama:
+        """将内部状态字典转换为 ChapterPanorama"""
+        entities = [EntityInPanorama(**e) for e in state.get("entities", [])]
+        relations = [RelationInPanorama(**r) for r in state.get("relations", [])]
+        locations: dict[str, CharacterLocationInPanorama] = {}
+        for cid, loc in state.get("character_locations", {}).items():
+            locations[cid] = CharacterLocationInPanorama(**loc)
+        knowledge = [
+            KnowledgeInPanorama(**k) for k in state.get("character_knowledge", [])
+        ]
+
+        return ChapterPanorama(
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            entities=entities,
+            relations=relations,
+            character_locations=locations,
+            character_knowledge=knowledge,
+        )

@@ -1,60 +1,52 @@
 """
-Project Pydantic Schema 定义
-
-用于 API 请求/响应校验和 Facade 输出。
+Project Pydantic Schemas
 """
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-# ============================================================
-# 请求 Schema
-# ============================================================
+def _sanitize_title(v: str) -> str:
+    """去除首尾空白，并拒绝空字节与纯空白"""
+    if "\x00" in v:
+        raise ValueError("title must not contain null bytes")
+    v = v.strip()
+    if not v:
+        raise ValueError("title must not be empty")
+    return v
+
 
 class ProjectCreate(BaseModel):
     """创建项目请求"""
 
-    title: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-        description="项目标题",
-    )
-    genre: str | None = Field(
-        None,
-        max_length=64,
-        description="题材（如：玄幻、科幻、悬疑）",
-    )
-    tone: str | None = Field(
-        None,
-        max_length=64,
-        description="风格基调（如：严肃、轻松、黑暗）",
-    )
-    language: str = Field(
-        default="zh",
-        max_length=16,
-        description="创作语言",
-    )
-    target_length: str | None = Field(
-        None,
-        max_length=32,
-        description="目标规模（short/medium/novel/epic）",
-    )
-    current_stage: str | None = Field(
-        None,
-        max_length=32,
-        description="当前创作阶段",
-    )
+    title: str = Field(..., min_length=1, max_length=255, description="项目标题")
+    genre: str | None = Field(None, max_length=64, description="题材")
+    tone: str | None = Field(None, max_length=64, description="风格基调")
+    language: str = Field(default="zh", max_length=16, description="创作语言")
+    target_length: str | None = Field(None, max_length=32, description="目标规模")
+    current_stage: str | None = Field(None, max_length=32, description="创作阶段")
     default_reveal_policy: str = Field(
-        default="author_safe",
-        max_length=32,
-        description="默认揭示策略",
+        default="author_safe", max_length=32, description="默认揭示策略"
     )
+    settings: dict = Field(default={}, description="小说配置（JSON）")
+
+    @field_validator("title")
+    @classmethod
+    def _sanitize_title_field(cls, v: str) -> str:
+        return _sanitize_title(v)
+
+    @field_validator("default_reveal_policy")
+    @classmethod
+    def _check_reveal_policy(cls, v: str) -> str:
+        valid = {"author_safe", "author_only", "reader_known", "public"}
+        if v not in valid:
+            raise ValueError(f"default_reveal_policy must be one of {valid}")
+        return v
 
 
 class ProjectUpdate(BaseModel):
@@ -67,25 +59,28 @@ class ProjectUpdate(BaseModel):
     target_length: Annotated[str | None, Field(None, max_length=32)]
     current_stage: Annotated[str | None, Field(None, max_length=32)]
     default_reveal_policy: Annotated[str | None, Field(None, max_length=32)]
+    settings: Annotated[dict | None, Field(None, description="小说配置（JSON）")]
 
+    @field_validator("title")
+    @classmethod
+    def _sanitize_title_field(cls, v: str | None) -> str | None:
+        return _sanitize_title(v) if v else v
 
-# ============================================================
-# 响应 Schema
-# ============================================================
-
-import uuid
-
-from pydantic import field_validator
+    @field_validator("default_reveal_policy")
+    @classmethod
+    def _check_reveal_policy(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        valid = {"author_safe", "author_only", "reader_known", "public"}
+        if v not in valid:
+            raise ValueError(f"default_reveal_policy must be one of {valid}")
+        return v
 
 
 class ProjectResponse(BaseModel):
-    """项目响应 — 从 ORM 转换时自动处理 UUID→str"""
+    """项目响应"""
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        # 确保 UUID 在 JSON 序列化时转为字符串
-        json_encoders={uuid.UUID: str},
-    )
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
 
     id: str
     title: str
@@ -95,13 +90,14 @@ class ProjectResponse(BaseModel):
     target_length: str | None = None
     current_stage: str | None = None
     default_reveal_policy: str = "author_safe"
+    settings: dict = {}
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    deleted_at: datetime | None = None
 
     @field_validator("id", mode="before")
     @classmethod
     def coerce_id_to_str(cls, v: object) -> str:
-        """将 UUID 属性的原始值转为字符串"""
         if isinstance(v, uuid.UUID):
             return str(v)
         if isinstance(v, str):
@@ -116,17 +112,12 @@ class ProjectListResponse(BaseModel):
     total: int
 
 
-# ============================================================
-# Facade 输出 Schema（供其他模块读取）
-# ============================================================
-
 class ProjectContext(BaseModel):
     """项目上下文 — 供其他模块读取的项目信息"""
 
     model_config = ConfigDict(from_attributes=True)
 
     novel_id: str
-    """项目 ID（其他模块用 novel_id 引用）"""
     title: str
     genre: str | None = None
     tone: str | None = None
@@ -134,3 +125,4 @@ class ProjectContext(BaseModel):
     target_length: str | None = None
     current_stage: str | None = None
     default_reveal_policy: str = "author_safe"
+    settings: dict = {}

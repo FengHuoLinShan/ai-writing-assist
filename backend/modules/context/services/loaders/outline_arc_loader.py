@@ -1,11 +1,10 @@
-"""篇章纲加载器"""
-
 from __future__ import annotations
 
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as _container_get
 from modules.context.contracts import StructureContextBundle
 from modules.context.services.protocol import Loader
 from modules.context.services.types import CompileOptions
@@ -14,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class OutlineArcLoader(Loader):
-    """加载篇章纲"""
-
     @property
     def name(self) -> str:
         return "outline_arc"
@@ -26,21 +23,30 @@ class OutlineArcLoader(Loader):
         options: CompileOptions,
         bundle: StructureContextBundle,
     ) -> None:
-        arc_id = options.arc_id
-        if not arc_id and options.chapter_index is not None:
-            from modules.outline.facade import get_chapter_card
+        chapter = options.chapter_index
+        if chapter is None:
+            return
 
-            card = await get_chapter_card(db, options.novel_id, options.chapter_index)
-            if card and card.arc_id:
-                arc_id = card.arc_id
-
-        if arc_id:
-            from modules.outline.facade import get_arc_context
-
-            try:
-                arc = await get_arc_context(db, options.novel_id, arc_id)
-                bundle.outline_arc = (
-                    arc.model_dump() if hasattr(arc, "model_dump") else arc
-                )
-            except Exception:
-                pass
+        arc_svc = _container_get("outline.arc_service")
+        arc = await arc_svc.get_by_chapter(
+            db,
+            options.novel_id,
+            chapter,
+        )
+        if arc is not None:
+            bundle.outline_arc = {
+                "id": arc.id,
+                "title": arc.title,
+                "arc_index": arc.arc_index,
+                "start_chapter": arc.start_chapter,
+                "end_chapter": arc.end_chapter,
+                "arc_goal": arc.arc_goal,
+                "core_conflict": arc.core_conflict,
+                "main_opposition": arc.main_opposition,
+                "entry_hook": arc.entry_hook,
+                "midpoint_turn": arc.midpoint_turn,
+                "climax": arc.climax,
+                "result": arc.result,
+                "next_hook": arc.next_hook,
+                "status": arc.status,
+            }

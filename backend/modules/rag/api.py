@@ -10,23 +10,25 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
+from infrastructure.tasks.enqueuer import enqueue_task
 from modules.rag.facade import (
     create_chunk,
     get_index_status,
+    get_metrics_status,
     list_chunks,
     retrieve,
+    split_text_into_chunks,
 )
 from modules.rag.schemas import (
     RagChunkCreate,
     RagChunkResponse,
     RagQuery,
+    RagRebuildRequest,
     RagResult,
 )
-from modules.rag.services import ChunkingService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/rag", tags=["rag"])
-_chunking = ChunkingService()
 
 
 @router.post("/chunks", response_model=RagChunkResponse, status_code=201)
@@ -57,7 +59,11 @@ async def list_rag_chunks(
     """获取 RAG 片段列表"""
     items, total = await list_chunks(db, novel_id, skip=skip, limit=limit)
     status = await get_index_status(db, novel_id)
-    return {"items": items, "total": total, **status}
+    return {
+        "items": items,
+        "total": total,
+        **status,
+    }
 
 
 @router.post("/retrieve", response_model=RagResult)
@@ -100,6 +106,7 @@ async def retrieve_chunks(
             entity_ids=c.entity_ids,
             character_ids=c.character_ids,
             thread_ids=c.thread_ids,
+            scene_id=c.scene_id,
             visibility=c.visibility,
             importance=c.importance,
             index_version=c.index_version,
@@ -120,6 +127,33 @@ async def retrieve_chunks(
     )
 
 
+@router.get("/metrics", response_model=dict)
+async def get_rag_metrics() -> dict:
+    """获取 RAG 检索运行时指标。"""
+    return await get_metrics_status()
+
+
+@router.post("/rebuild", response_model=dict)
+async def rebuild_rag_index(
+    db: DbSession,
+    request: RagRebuildRequest,
+) -> dict:
+    """按章节范围重建 RAG 索引
+
+    入队异步任务 `rag_reindex_novel`，由 worker 逐章重建。
+    """
+    task_id = enqueue_task(
+        db,
+        "rag_reindex_novel",
+        meta={
+            "novel_id": request.novel_id,
+            "start_chapter": request.start_chapter,
+            "end_chapter": request.end_chapter,
+        },
+    )
+    return {"task_id": task_id, "status": "pending"}
+
+
 @router.post("/chunks/split", response_model=dict)
 async def split_text(
     text: str = Query(..., description="要分割的文本"),
@@ -131,14 +165,12 @@ async def split_text(
     overlap: int = Query(default=100, ge=0, description="重叠字符数"),
 ) -> dict:
     """分割文本为 RAG 片段（工具接口，不写入数据库）"""
-    chunks: list[str] = []
-
-    if method == "paragraph":
-        chunks = _chunking.split_by_paragraphs(text)
-    elif method == "length":
-        chunks = _chunking.split_by_length(text, chunk_size=chunk_size, overlap=overlap)
-    else:
-        chunks = [text]
+    chunks = await split_text_into_chunks(
+        text,
+        method=method,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
 
     return {
         "chunks": chunks,

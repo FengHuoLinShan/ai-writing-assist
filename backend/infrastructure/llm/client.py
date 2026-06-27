@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import typing
 from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
@@ -77,6 +78,11 @@ class LLMClient:
         """当前使用的 provider 名称"""
         return self._provider.name
 
+    @property
+    def model_name(self) -> str:
+        """当前默认的 LLM 模型名称"""
+        return self._settings.llm_model
+
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
@@ -97,7 +103,8 @@ class LLMClient:
         )
 
     async def generate_stream(
-        self, request: LLMCallRequest,
+        self,
+        request: LLMCallRequest,
     ) -> AsyncIterator[LLMStreamChunk]:
         """流式调用 LLM（带自动重试）
 
@@ -160,11 +167,22 @@ class LLMClient:
             try:
                 response = await self.generate(req)
                 data = json.loads(response.content)
+                # Auto-wrap bare list if schema expects a single list field
+                # (LLMs often return [...] instead of {"entities": [...]})
+                if isinstance(data, list):
+                    fields = list(schema.model_fields.keys())
+                    if len(fields) == 1:
+                        field_annotation = schema.model_fields[fields[0]].annotation
+                        if (
+                            field_annotation is not None
+                            and typing.get_origin(field_annotation) is list
+                        ):
+                            data = {fields[0]: data}
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
                 raw_content = response.content if locals().get("response") else ""
                 last_error = LLMInvalidResponseError(
-                    f"Invalid JSON response (attempt {attempt+1}): {e}",
+                    f"Invalid JSON response (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                     raw_response=raw_content,
                 )
@@ -176,7 +194,7 @@ class LLMClient:
                 )
             except ValidationError as e:
                 last_error = LLMInvalidResponseError(
-                    f"Schema validation failed (attempt {attempt+1}): {e}",
+                    f"Schema validation failed (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                 )
                 logger.warning(
@@ -190,9 +208,12 @@ class LLMClient:
                 # 修复模式：追加错误信息，让模型修正输出
                 fix_msg = fix_prompt or (
                     f"Your previous response failed validation. Error: {last_error}\n"
-                    f"Please output valid JSON matching this schema: {schema.model_json_schema()}"
+                    f"Please output valid JSON matching this schema: "
+                    f"{schema.model_json_schema()}"
                 )
-                req.messages.append(LLMMessage(role="assistant", content=response.content))
+                req.messages.append(
+                    LLMMessage(role="assistant", content=response.content)
+                )
                 req.messages.append(LLMMessage(role="user", content=fix_msg))
 
         raise LLMInvalidResponseError(
@@ -238,13 +259,34 @@ class LLMClient:
         self,
         text: str | list[str],
         model: str | None = None,
+        *,
+        is_query: bool = False,
     ) -> list[float] | list[list[float]]:
-        """生成文本 embedding（带自动重试）。
+        """生成文本 embedding。
+
+        根据 EMBEDDING_PROVIDER 配置自动路由：
+        - bge_onnx → 本地 BGE ONNX/sentence-transformers worker
+        - openai → OpenAI API (保留为 fallback)
 
         Args:
             text: 单文本或文本列表
             model: embedding 模型名称，默认使用配置中的 embedding_model
+            is_query: 是否为查询文本（BGE 模式会自动拼接指令前缀）
         """
+        settings = get_settings()
+        provider = settings.embedding_provider
+
+        if provider == "bge_onnx":
+            from infrastructure.embedding.client import BgeEmbeddingClient
+
+            client = await BgeEmbeddingClient.get_instance()
+            try:
+                return await client.generate_embedding(text, is_query=is_query)
+            except Exception:
+                logger.warning("BGE embedding failed, falling back to OpenAI")
+                raise
+
+        # OpenAI / 其他远程 API
         return await retry_with_backoff(
             self._provider.generate_embedding,
             max_attempts=LLM_RETRY_MAX_ATTEMPTS,

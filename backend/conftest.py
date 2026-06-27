@@ -6,7 +6,12 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+# 必须在所有项目 import 之前设置，防止 lru_cache 缓存 bge_onnx 默认值
+import os
+
+os.environ.setdefault("EMBEDDING_PROVIDER", "openai")
+
+from collections.abc import AsyncGenerator
 
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import (
@@ -15,21 +20,20 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from core.base import Base
+import infrastructure.tasks.models  # noqa: F401
+import modules.imports.models  # noqa: F401
+
+# character/geo/review/timeline 已从 minimal-core 移除
+import modules.memory.models  # noqa: F401
+import modules.outline.models  # noqa: F401
 
 # 导入所有 ORM 模型注册到 Base.metadata
 import modules.project.models  # noqa: F401
-import modules.world.models  # noqa: F401
-import modules.character.models  # noqa: F401
-import modules.geo.models  # noqa: F401
-import modules.memory.models  # noqa: F401
-import modules.timeline.models  # noqa: F401
-import modules.outline.models  # noqa: F401
 import modules.rag.models  # noqa: F401
-import modules.review.models  # noqa: F401
+import modules.world.map_models  # noqa: F401
+import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
-import modules.imports.models  # noqa: F401
-import infrastructure.tasks.models  # noqa: F401
+from core.base import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

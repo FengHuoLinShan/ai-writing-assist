@@ -4,94 +4,125 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小说结构化创作控制台</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="styles.css">
+  <!-- Leaflet 1.9.4 (ADR-0003) — 动态地图视口引擎，仅 map 子视图使用 -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="" />
 </head>
 <body>
   <div id="app">
     <!-- 顶部状态栏 -->
     <header id="topbar">
-      <span id="topbar-title">小说结构化创作控制台</span>
-      <span id="topbar-project" class="topbar-segment"></span>
-      <span id="topbar-module" class="topbar-segment"></span>
-      <span id="topbar-mode" class="topbar-segment"></span>
-      <span id="topbar-status" class="topbar-segment topbar-status"></span>
+      <div class="topbar-left">
+        <span class="logo">
+          <span class="logo-mark">&#9670;</span>
+          NovelCraft
+        </span>
+      </div>
+      <div class="topbar-center">
+        <span id="topbar-project"></span>
+        <span class="separator">&#183;</span>
+        <span id="topbar-module">项目</span>
+      </div>
+      <div class="topbar-right">
+        <span id="topbar-status-dot" class="status-indicator disconnected"></span>
+        <span id="topbar-status" class="status-text">未连接</span>
+        <div class="avatar">U</div>
+      </div>
     </header>
 
-    <!-- 主区域：三栏布局 -->
-    <main id="main-layout">
+    <!-- 主区域 -->
+    <div id="main-layout">
       <!-- 左侧导航 -->
       <nav id="sidebar">
         <ul id="nav-list">
-          <li data-view="project" class="nav-item active">项目</li>
-          <li data-view="writing" class="nav-item">手动工作台</li>
-          <li class="nav-section">创作核心</li>
-          <li data-view="world" class="nav-item">世界对象</li>
-          <li data-view="character" class="nav-item">人物档案</li>
-          <li data-view="outline" class="nav-item">剧情结构</li>
-          <li data-view="geo" class="nav-item">地理历史</li>
-          <li data-view="timeline" class="nav-item">时间线</li>
-          <li data-view="memory" class="nav-item">长期记忆</li>
-          <li class="nav-section nav-collapsible" onclick="toggleMoreNav()" style="cursor:pointer;">
-            <span id="more-toggle">▸</span> 更多
+          <li data-view="project" class="nav-item active" data-tooltip="项目" title="项目">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
+            </svg>
           </li>
-          <div id="more-nav-items" style="display:none;">
-            <li data-view="rag" class="nav-item">RAG 检索</li>
-            <li data-view="context" class="nav-item">上下文</li>
-            <li data-view="review" class="nav-item">结构复查</li>
-            <li data-view="generate" class="nav-item">生成中心</li>
-          </div>
+          <li data-view="writing" class="nav-item" data-tooltip="手动工作台" title="手动工作台">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </li>
+          <li data-view="world" class="nav-item" data-tooltip="世界对象" title="世界对象">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          </li>
+          <li data-view="map" class="nav-item" data-tooltip="地图" title="地图">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z"/>
+              <path d="M9 3v15"/>
+              <path d="M15 6v15"/>
+            </svg>
+          </li>
+          <li data-view="rag" class="nav-item" data-tooltip="RAG 检索" title="RAG 检索">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+          </li>
+          <li data-view="outline" class="nav-item" data-tooltip="大纲" title="大纲">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h16v16H4z" fill="none" stroke="currentColor" stroke-width="2"/>
+              <line x1="8" y1="9" x2="16" y2="9" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="8" y1="15" x2="13" y2="15" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </li>
+          <li data-view="generate" class="nav-item" data-tooltip="生成中心" title="生成中心">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </li>
+          <li data-view="context" class="nav-item" data-tooltip="上下文" title="上下文">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+          </li>
+          <li class="nav-item help" data-tooltip="快捷键帮助" title="快捷键帮助">
+            <span>?</span>
+          </li>
         </ul>
       </nav>
 
       <!-- 主工作区 -->
-      <section id="workspace">
-        <div id="workspace-header">
+      <main id="workspace">
+        <header id="workspace-header">
           <h2 id="view-title">项目</h2>
           <div id="view-actions"></div>
-        </div>
+        </header>
         <div id="workspace-content">
           <div id="empty-state">
             <p>加载中...</p>
           </div>
         </div>
-      </section>
+      </main>
 
-      <!-- 右侧信息栏 -->
-      <aside id="right-panel">
-        <div id="right-panel-header">
-          <span id="right-panel-title">帮助说明</span>
-          <button id="right-panel-close" title="关闭">&times;</button>
-        </div>
-        <div id="right-panel-content">
-          <div class="help-section">
-            <h3>欢迎使用小说创作控制台</h3>
-            <p>这是一个面向中文长篇小说的结构化创作管理工具。</p>
-            <h4>快速入门</h4>
-            <ul>
-              <li>点击左侧菜单切换模块</li>
-              <li>按 <kbd>:</kbd> 打开命令栏</li>
-              <li>按 <kbd>?</kbd> 查看所有快捷键</li>
-            </ul>
-            <h4>创作流程</h4>
-            <ol>
-              <li>创建项目</li>
-              <li>构建世界对象与人物</li>
-              <li>设计地理与宏观历史</li>
-              <li>生成剧情线与章节卡</li>
-              <li>复查结构一致性</li>
-              <li>确认候选入正史</li>
-            </ol>
-          </div>
-        </div>
-      </aside>
-    </main>
+      <!-- 右侧功能留白（杂志旁注） -->
+      <aside id="contextual-notes"></aside>
+    </div>
 
-    <!-- 底部命令栏 -->
-    <footer id="command-bar">
-      <span id="command-prompt">:</span>
-      <input id="command-input" type="text" autocomplete="off" spellcheck="false" placeholder="输入命令 (:help 查看帮助, / 搜索)">
-      <span id="command-hint"></span>
-    </footer>
+    <!-- 底部命令栏（Spotlight 风格，默认隐藏） -->
+    <div id="command-bar">
+      <div class="command-header">
+        <span id="command-mode" class="command-mode-label command">命令模式</span>
+        <span id="command-hint"></span>
+      </div>
+      <div class="command-input-wrap">
+        <span id="command-prompt">:</span>
+        <input id="command-input" type="text" autocomplete="off" spellcheck="false" placeholder="输入命令...">
+      </div>
+      <div id="command-suggestions" class="command-suggestions"></div>
+    </div>
   </div>
 
   <!-- Toast 通知 -->
@@ -118,44 +149,44 @@
       </div>
       <div id="help-body">
         <table class="help-table">
-          <tr><td><kbd>?</kbd></td><td>打开帮助</td></tr>
-          <tr><td><kbd>:</kbd></td><td>聚焦命令栏</td></tr>
-          <tr><td><kbd>/</kbd></td><td>搜索</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>返回 / 关闭弹窗</td></tr>
-          <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>上下移动</td></tr>
+          <tr><td><kbd>?</kbd></td><td>显示快捷键帮助面板</td></tr>
+          <tr><td><kbd>:</kbd></td><td>聚焦命令栏（命令模式）</td></tr>
+          <tr><td><kbd>/</kbd></td><td>聚焦命令栏（搜索模式）</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>返回上级 / 关闭弹窗 / 退出命令栏</td></tr>
+          <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>列表上下移动</td></tr>
           <tr><td><kbd>h</kbd> / <kbd>l</kbd></td><td>左右切换区域</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>打开 / 选择</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>打开 / 选中</td></tr>
           <tr><td><kbd>n</kbd></td><td>新建</td></tr>
           <tr><td><kbd>e</kbd></td><td>编辑</td></tr>
           <tr><td><kbd>s</kbd></td><td>保存</td></tr>
           <tr><td><kbd>g</kbd></td><td>生成</td></tr>
-          <tr><td><kbd>r</kbd></td><td>复查</td></tr>
-          <tr><td><kbd>c</kbd></td><td>确认</td></tr>
-          <tr><td><kbd>i</kbd></td><td>忽略</td></tr>
-          <tr><td><kbd>x</kbd></td><td>删除（二次确认）</td></tr>
+          <tr><td><kbd>x</kbd></td><td>删除（需二次确认）</td></tr>
         </table>
       </div>
     </div>
   </div>
 
   <!-- 脚本加载 -->
+  <script src="shared/esc.js"></script>
+  <script src="ui/toast.js"></script>
+  <script src="ui/modal.js"></script>
   <script src="state.js"></script>
   <script src="api.js"></script>
+  <!-- Leaflet 1.9.4 (ADR-0003) — 动态地图视口引擎，挂在 window.L -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
   <script src="router.js"></script>
   <script src="commands.js"></script>
-  <script src="app.js"></script>
-  <script src="error-logger.js"></script>
+  <script type="module" src="app.js"></script>
+  <script src="errorLogger.js"></script>
   <!-- 视图 -->
   <script type="module" src="views/projectView.js"></script>
   <script type="module" src="views/worldView.js"></script>
-  <script type="module" src="views/geoView.js"></script>
-  <script type="module" src="views/characterView.js"></script>
-  <script type="module" src="views/memoryView.js"></script>
-  <script type="module" src="views/timelineView.js"></script>
-  <script type="module" src="views/outlineView.js"></script>
+  <script type="module" src="views/mapWorkspaceView.js"></script>
   <script type="module" src="views/ragView.js"></script>
+  <script type="module" src="views/outlineView.js"></script>
   <script type="module" src="views/contextView.js"></script>
-  <script type="module" src="views/reviewView.js"></script>
   <script type="module" src="views/writingView.js"></script>
   <script type="module" src="views/generateView.js"></script>
 </body>

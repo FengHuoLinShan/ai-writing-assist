@@ -1,104 +1,88 @@
 """
 Memory 数据访问层
 
-封装 memory_records 和 memory_update_proposals 表的所有数据库操作。
+- EventRepository: memory_events 表操作
+- SnapshotRepository: memory_snapshots 表操作
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Sequence
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import MemoryRecord, MemoryUpdateProposal
-from modules.memory.schemas import MemoryRecordCreate, MemoryRecordUpdate
+from modules.memory.models import MemoryEvent, MemorySnapshot
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
-class MemoryRecordRepository:
-    """记忆记录数据访问"""
+class EventRepository:
+    """记忆事件数据访问"""
 
     async def create(
         self,
         db: AsyncSession,
-        novel_id: uuid.UUID,
-        data: MemoryRecordCreate,
-    ) -> MemoryRecord:
-        """创建新的记忆记录"""
-        record = MemoryRecord(
-            novel_id=novel_id,
-            memory_type=data.memory_type,
-            target_type=data.target_type,
-            target_id=uuid.UUID(hex=data.target_id) if data.target_id else None,
-            chapter_index=data.chapter_index,
-            title=data.title,
-            summary=data.summary,
-            content_json=data.content_json or {},
-            visibility=data.visibility or "reader_known",
-            known_by_character_ids=data.known_by_character_ids or [],
-            related_entity_ids=data.related_entity_ids or [],
-            related_character_ids=data.related_character_ids or [],
-            related_thread_ids=data.related_thread_ids or [],
-            importance=data.importance if data.importance is not None else 0.5,
-            status=data.status or "canonical",
-            source_text_excerpt=data.source_text_excerpt,
-        )
-        db.add(record)
-        await db.flush()
-        return record
-
-    async def get(
-        self,
-        db: AsyncSession,
-        record_id: uuid.UUID,
-    ) -> MemoryRecord | None:
-        """根据 ID 获取记忆记录"""
-        stmt = select(MemoryRecord).where(MemoryRecord.id == record_id)
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_multi(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
         *,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-        memory_type: str | None = None,
-        status: str | None = None,
-        before_chapter_index: int | None = None,
-    ) -> tuple[list[MemoryRecord], int]:
-        """获取记忆记录列表（支持过滤和分页）"""
-        conditions = [MemoryRecord.novel_id == novel_id]
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        sequence: int,
+        event_type: str,
+        snapshot_after: dict,
+        entity_id: uuid.UUID | None = None,
+        entity_type: str | None = None,
+        snapshot_before: dict | None = None,
+        source: str = "ai_extraction",
+    ) -> MemoryEvent:
+        event = MemoryEvent(
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            sequence=sequence,
+            event_type=event_type,
+            entity_id=entity_id,
+            entity_type=entity_type,
+            snapshot_before=snapshot_before,
+            snapshot_after=snapshot_after,
+            source=source,
+        )
+        db.add(event)
+        await db.flush()
+        return event
 
-        if memory_type:
-            conditions.append(MemoryRecord.memory_type == memory_type)
-        if status:
-            conditions.append(MemoryRecord.status == status)
-        if before_chapter_index is not None:
-            conditions.append(
-                MemoryRecord.chapter_index <= before_chapter_index
-            )
-
-        # 计数
-        count_stmt = select(func.count(MemoryRecord.id)).where(*conditions)
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar() or 0
-
-        # 分页查询
+    async def get_by_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> list[MemoryEvent]:
         stmt = (
-            select(MemoryRecord)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(MemoryRecord.chapter_index.desc().nullslast())
+            select(MemoryEvent)
+            .where(
+                MemoryEvent.novel_id == novel_id,
+                MemoryEvent.chapter_index == chapter_index,
+            )
+            .order_by(MemoryEvent.sequence)
         )
         result = await db.execute(stmt)
-        items: Sequence[MemoryRecord] = result.scalars().all()
-        return list(items), total
+        return list(result.scalars().all())
+
+    async def get_by_chapter_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+        to_chapter: int,
+    ) -> list[MemoryEvent]:
+        stmt = (
+            select(MemoryEvent)
+            .where(
+                MemoryEvent.novel_id == novel_id,
+                MemoryEvent.chapter_index >= from_chapter,
+                MemoryEvent.chapter_index <= to_chapter,
+            )
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_entity(
         self,
@@ -106,191 +90,177 @@ class MemoryRecordRepository:
         novel_id: uuid.UUID,
         entity_id: uuid.UUID,
         *,
+        skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> list[MemoryRecord]:
-        """获取与某实体关联的记忆记录"""
-        # 使用 JSONB containment 查询
-        # PostgreSQL: related_entity_ids @> ARRAY['entity_id']
-        # SQLite: JSON 内查找字符串（回退方案）
-        try:
-            stmt = (
-                select(MemoryRecord)
-                .where(
-                    MemoryRecord.novel_id == novel_id,
-                    MemoryRecord.related_entity_ids.contains([str(entity_id)]),
-                )
-                .order_by(MemoryRecord.created_at.desc())
-                .limit(limit)
-            )
-            result = await db.execute(stmt)
-        except Exception:
-            # SQLite 回退：使用 like 查询 JSON 文本
-            eid_str = str(entity_id)
-            stmt = (
-                select(MemoryRecord)
-                .where(
-                    MemoryRecord.novel_id == novel_id,
-                )
-                .order_by(MemoryRecord.created_at.desc())
-                .limit(limit)
-            )
-            result = await db.execute(stmt)
-            all_records: Sequence[MemoryRecord] = result.scalars().all()
-            # Python 端过滤
-            items = [
-                r for r in all_records
-                if r.related_entity_ids and eid_str in [str(x) for x in r.related_entity_ids]
-            ]
-            return list(items)
-        else:
-            items: Sequence[MemoryRecord] = result.scalars().all()
-            return list(items)
+    ) -> tuple[list[MemoryEvent], int]:
+        conditions = [
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.entity_id == entity_id,
+        ]
+        count_stmt = select(func.count(MemoryEvent.id)).where(*conditions)
+        total = (await db.execute(count_stmt)).scalar() or 0
 
-    async def update(
+        stmt = (
+            select(MemoryEvent)
+            .where(*conditions)
+            .offset(skip)
+            .limit(limit)
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def delete_by_chapter(
         self,
         db: AsyncSession,
-        record_id: uuid.UUID,
-        data: MemoryRecordUpdate,
-    ) -> MemoryRecord | None:
-        """更新记忆记录"""
-        record = await self.get(db, record_id)
-        if record is None:
-            return None
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> int:
+        from sqlalchemy import delete
 
-        update_values: dict[str, object] = {}
-        for field in (
-            "title",
-            "summary",
-            "content_json",
-            "visibility",
-            "importance",
-            "status",
-        ):
-            value = getattr(data, field, None)
-            if value is not None:
-                update_values[field] = value
-
-        if data.known_by_character_ids is not None:
-            update_values["known_by_character_ids"] = data.known_by_character_ids
-
-        if update_values:
-            stmt = (
-                update(MemoryRecord)
-                .where(MemoryRecord.id == record_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
-            await db.flush()
-            record = await self.get(db, record_id)
-
-        return record
-
-    async def delete(
-        self,
-        db: AsyncSession,
-        record_id: uuid.UUID,
-    ) -> bool:
-        """删除记忆记录"""
-        stmt = delete(MemoryRecord).where(MemoryRecord.id == record_id)
+        stmt = delete(MemoryEvent).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index == chapter_index,
+        )
         result = await db.execute(stmt)
         await db.flush()
-        return result.rowcount > 0
+        return result.rowcount
+
+    async def delete_from_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+    ) -> int:
+        from sqlalchemy import delete
+
+        stmt = delete(MemoryEvent).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index >= from_chapter,
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount
+
+    async def get_max_sequence(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> int:
+        stmt = select(func.coalesce(func.max(MemoryEvent.sequence), 0)).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index == chapter_index,
+        )
+        result = await db.execute(stmt)
+        return result.scalar() or 0
 
 
-class MemoryProposalRepository:
-    """记忆提案数据访问"""
+class SnapshotRepository:
+    """记忆快照数据访问"""
 
     async def create(
         self,
         db: AsyncSession,
-        novel_id: uuid.UUID,
-        proposal_type: str,
-        payload: dict[str, Any],
         *,
-        chapter_id: uuid.UUID | None = None,
-        chapter_index: int | None = None,
-        confidence: float = 0.5,
-        reason: str | None = None,
-        source_text_excerpt: str | None = None,
-    ) -> MemoryUpdateProposal:
-        """创建新的记忆提案"""
-        proposal = MemoryUpdateProposal(
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        full_state: dict,
+        events_until: int | None = None,
+    ) -> MemorySnapshot:
+        snapshot = MemorySnapshot(
             novel_id=novel_id,
-            chapter_id=chapter_id,
             chapter_index=chapter_index,
-            proposal_type=proposal_type,
-            payload=payload,
-            confidence=confidence,
-            reason=reason,
-            source_text_excerpt=source_text_excerpt,
-            decision="pending",
+            status="current",
+            full_state=full_state,
+            events_until=events_until,
         )
-        db.add(proposal)
+        db.add(snapshot)
         await db.flush()
-        return proposal
+        return snapshot
 
-    async def get(
+    async def get_latest(
         self,
         db: AsyncSession,
-        proposal_id: uuid.UUID,
-    ) -> MemoryUpdateProposal | None:
-        """根据 ID 获取提案"""
-        stmt = select(MemoryUpdateProposal).where(
-            MemoryUpdateProposal.id == proposal_id
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> MemorySnapshot | None:
+        stmt = (
+            select(MemorySnapshot)
+            .where(
+                MemorySnapshot.novel_id == novel_id,
+                MemorySnapshot.chapter_index == chapter_index,
+                MemorySnapshot.status == "current",
+            )
+            .order_by(MemorySnapshot.created_at.desc())
+            .limit(1)
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_pending(
+    async def get_nearest(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
-        *,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[MemoryUpdateProposal], int]:
-        """获取待处理的提案列表"""
-        conditions = [
-            MemoryUpdateProposal.novel_id == novel_id,
-            MemoryUpdateProposal.decision == "pending",
-        ]
-
-        count_stmt = select(func.count(MemoryUpdateProposal.id)).where(*conditions)
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar() or 0
-
+        chapter_index: int,
+    ) -> MemorySnapshot | None:
+        """获取 ≤ chapter_index 的最近一个 current 快照"""
         stmt = (
-            select(MemoryUpdateProposal)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(MemoryUpdateProposal.created_at.asc())
+            select(MemorySnapshot)
+            .where(
+                MemorySnapshot.novel_id == novel_id,
+                MemorySnapshot.chapter_index <= chapter_index,
+                MemorySnapshot.status == "current",
+            )
+            .order_by(MemorySnapshot.chapter_index.desc())
+            .limit(1)
         )
         result = await db.execute(stmt)
-        items: Sequence[MemoryUpdateProposal] = result.scalars().all()
-        return list(items), total
+        return result.scalar_one_or_none()
 
-    async def decide(
+    async def list_for_novel(
         self,
         db: AsyncSession,
-        proposal_id: uuid.UUID,
-        decision: str,
-        decided_by: str | None = None,
-    ) -> MemoryUpdateProposal | None:
-        """审批提案（approved / rejected）"""
-        proposal = await self.get(db, proposal_id)
-        if proposal is None:
-            return None
-
+        novel_id: uuid.UUID,
+    ) -> list[MemorySnapshot]:
         stmt = (
-            update(MemoryUpdateProposal)
-            .where(MemoryUpdateProposal.id == proposal_id)
-            .values(
-                decision=decision,
-                decided_by=decided_by,
-                decided_at=datetime.now(timezone.utc),
-            )
+            select(MemorySnapshot)
+            .where(MemorySnapshot.novel_id == novel_id)
+            .order_by(MemorySnapshot.chapter_index)
         )
-        await db.execute(stmt)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_stale_from(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+    ) -> int:
+        stmt = (
+            update(MemorySnapshot)
+            .where(
+                MemorySnapshot.novel_id == novel_id,
+                MemorySnapshot.chapter_index >= from_chapter,
+                MemorySnapshot.status == "current",
+            )
+            .values(status="stale")
+        )
+        result = await db.execute(stmt)
         await db.flush()
-        return await self.get(db, proposal_id)
+        return result.rowcount
+
+    async def delete_stale(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> int:
+        from sqlalchemy import delete
+
+        stmt = delete(MemorySnapshot).where(
+            MemorySnapshot.novel_id == novel_id,
+            MemorySnapshot.status == "stale",
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount

@@ -17,12 +17,10 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 
 明确不做：
 
-- 世界观管理 → world 模块
-- 人物管理 → character 模块
+- 世界观管理 / 人物管理 → world 模块
 - 大纲管理 → outline 模块
 - RAG 检索 → rag 模块
 - 正文生成 → writing 模块
-- 结构复查 → review 模块
 
 ## 数据表
 
@@ -40,7 +38,9 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 - `target_length` — 目标规模（如：short, medium, novel, epic）
 - `current_stage` — 当前创作阶段（如：world_building, outlining, writing, revising）
 - `default_reveal_policy` — 默认揭示策略（默认 `author_safe`）
+- `settings` — 小说配置（JSON，如 temporary_entity_expiry_chapters）
 - `created_at` / `updated_at` — 时间戳
+- `deleted_at` — 软删除时间（`NULL` 表示未删除）
 
 ## 对外契约（contracts.py）
 
@@ -73,7 +73,10 @@ async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/{project_id}` | 项目详情 |
 | PUT | `/api/projects/{project_id}` | 更新项目 |
-| DELETE | `/api/projects/{project_id}` | 删除项目 |
+| DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站） |
+| GET | `/api/projects/recycle-bin` | 回收站列表 |
+| POST | `/api/projects/{project_id}/restore` | 恢复项目 |
+| DELETE | `/api/projects/{project_id}/permanent` | 永久删除（级联清理） |
 
 ## 测试方式
 

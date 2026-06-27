@@ -1,8 +1,6 @@
 """
-Memory — 长期记忆模块
+Memory — 世界状态事件溯源模块
 
-维护小说推进过程中的状态变化历史。
-AI 只生成 proposal，用户确认后写入 memory_records。
+维护小说世界状态的按章变化事件和阶段性快照。
+其他模块通过 facade.py 和 contracts.py 与本模块交互。
 """
-
-from __future__ import annotations

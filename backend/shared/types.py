@@ -7,65 +7,39 @@
 
 from __future__ import annotations
 
-from typing import TypeAlias
-
 # ---- 核心 ID 类型别名 ----
 
-NovelID: TypeAlias = str
+type NovelID = str
 """小说项目 ID (UUID hex string)"""
 
-EntityID: TypeAlias = str
+type EntityID = str
 """世界对象 ID (UUID hex string)"""
 
-CharacterID: TypeAlias = str
+type CharacterID = str
 """人物 ID (UUID hex string)"""
 
-LocationID: TypeAlias = str
-"""地理地点 ID (UUID hex string)"""
-
-RelationshipID: TypeAlias = str
+type RelationshipID = str
 """关系 ID (UUID hex string)"""
 
-MemoryRecordID: TypeAlias = str
-"""记忆记录 ID (UUID hex string)"""
+type SnapshotID = str
+"""记忆快照 ID (UUID hex string)"""
 
-TimelineEventID: TypeAlias = str
-"""时间线事件 ID (UUID hex string)"""
-
-PlotThreadID: TypeAlias = str
-"""剧情线 ID (UUID hex string)"""
-
-ArcID: TypeAlias = str
-"""篇章 ID (UUID hex string)"""
-
-ChapterCardID: TypeAlias = str
-"""章节卡 ID (UUID hex string)"""
-
-ForeshadowingPlanID: TypeAlias = str
-"""伏笔计划 ID (UUID hex string)"""
-
-RevealPlanID: TypeAlias = str
-"""揭示计划 ID (UUID hex string)"""
-
-ReviewReportID: TypeAlias = str
-"""复查报告 ID (UUID hex string)"""
-
-DraftID: TypeAlias = str
+type DraftID = str
 """正文草稿 ID (UUID hex string)"""
 
-TaskID: TypeAlias = str
+type TaskID = str
 """异步任务 ID (UUID hex string)"""
 
 # ---- 通用类型别名 ----
 
-JSON: TypeAlias = dict[str, object]
+type JSON = dict[str, object]
 """通用 JSON 对象"""
 
-JSONList: TypeAlias = list[object]
+type JSONList = list[object]
 """通用 JSON 数组"""
 
-ChapterIndex: TypeAlias = int
+type ChapterIndex = int
 """章节索引（从 1 开始）"""
 
-EmbeddingVector: TypeAlias = list[float]
+type EmbeddingVector = list[float]
 """Embedding 向量"""

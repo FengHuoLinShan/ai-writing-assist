@@ -42,6 +42,8 @@ class RagChunkContract:
     """关联的人物 ID 列表"""
     thread_ids: list[str] = field(default_factory=list)
     """关联的剧情线 ID 列表"""
+    scene_id: str | None = None
+    """关联的 Scene ID"""
     visibility: str = "author_only"
     """信息可见性"""
     importance: float = 0.5
@@ -54,6 +56,8 @@ class RagChunkContract:
     """embedding 失败原因"""
     index_warnings: list[str] = field(default_factory=list)
     """索引过程告警"""
+    meta: dict | None = None
+    """扩展元数据（arc_name、chapter_title 等）"""
     score: float | None = None
     """检索评分（检索结果中填充）"""
 

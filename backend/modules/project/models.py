@@ -1,13 +1,12 @@
 """
-Project ORM 模型
-
-对应数据库 projects 表。
-Project 是系统的根实体，不引用其他模块的表。
+Project 数据模型
 """
 
 from __future__ import annotations
 
-from sqlalchemy import String, Text
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin
@@ -54,6 +53,17 @@ class Project(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default="author_safe",
         comment="默认揭示策略",
+    )
+    settings: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="小说配置（JSON，如 temporary_entity_expiry_chapters）",
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="软删除时间，NULL 表示未删除",
     )
 
     def __repr__(self) -> str:

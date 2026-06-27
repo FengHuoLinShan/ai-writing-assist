@@ -12,16 +12,12 @@
  */
 const routes = {
   project: { title: "项目", subViews: [] },
-  world: { title: "世界对象", subViews: ["objects", "candidates", "relations", "aliases"] },
-  geo: { title: "地理历史", subViews: ["tree", "edges", "eras", "history", "map"] },
-  character: { title: "人物档案", subViews: ["list", "detail", "knowledge"] },
-  memory: { title: "长期记忆", subViews: ["records", "proposals", "by_chapter", "by_entity"] },
-  timeline: { title: "时间线", subViews: [] },
-  outline: { title: "剧情结构", subViews: ["threads", "arcs", "chapters", "foreshadowing", "reveals"] },
+  world: { title: "世界对象", subViews: ["objects", "relations", "aliases", "map"] },
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
-  review: { title: "结构复查", subViews: [] },
-  writing: { title: "手动工作台", subViews: [] },
+  outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"] },
+  writing: { title: "写作台", subViews: [] },
+  map: { title: "地图", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
 }
 
@@ -55,7 +51,7 @@ function getRoute(name) {
  * @returns {string}
  */
 function getCurrentView() {
-  return _state.currentView
+  return state.currentView
 }
 
 /**
@@ -82,6 +78,47 @@ let _prevRenderedSubView = null
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = {}
 
+/** @type {Object<string, DocumentFragment>} 各视图缓存的 DOM */
+const _viewDomCache = {}
+
+/** @type {Set<string>} 标记为 KeepAlive 的视图 */
+const _keepAliveViews = new Set(["writing", "outline"])
+
+/**
+ * 根据当前是否选择了项目，构造路由 hash
+ * 有项目时: #workbench/:pid/:view[/:subView]
+ * 无项目时: #:view[/:subView]
+ */
+function _buildHash(viewName, subView) {
+  if (state.currentProjectId && viewName !== "project") {
+    const base = `workbench/${state.currentProjectId}/${viewName}`
+    return subView ? `${base}/${subView}` : base
+  }
+  return subView ? `${viewName}/${subView}` : viewName
+}
+
+/**
+ * 解析 hash，支持两种格式：
+ * - workbench/:pid/:view[/:subView]
+ * - :view[/:subView]
+ */
+function _parseHash(hash) {
+  const [path] = hash.split("?")
+  const parts = path.split("/")
+  if (parts[0] === "workbench" && parts.length >= 3) {
+    return {
+      projectId: parts[1],
+      viewName: parts[2],
+      subView: parts[3] || null,
+    }
+  }
+  return {
+    projectId: null,
+    viewName: parts[0] || "project",
+    subView: parts[1] || null,
+  }
+}
+
 /**
  * 获取视图最后访问的子标签
  * @param {string} viewName
@@ -91,32 +128,92 @@ function getLastSubView(viewName) {
   return _lastSubViewMap[viewName] || null
 }
 
-async function renderCurrentView() {
-  const viewName = _state.currentView
-  const content = document.getElementById("workspace-content")
+/**
+ * 同步当前项目状态：当 projectId 变化时，清空缓存并加载项目元数据。
+ * 避免面包屑/标题显示旧项目名或为空。
+ */
+async function _syncCurrentProject(projectId) {
+  // 无 projectId 时保留当前选择（例如项目列表视图），不要清空 localStorage 恢复的状态
+  if (!projectId) {
+    return
+  }
 
+  const changed = state.currentProjectId !== projectId
+  if (changed) {
+    Object.keys(_viewDomCache).forEach((k) => delete _viewDomCache[k])
+    state.currentProjectId = projectId
+    state.currentProject = null
+  }
+
+  // 当前项目对象已存在且 ID 一致时避免重复请求
+  if (state.currentProject && state.currentProject.id === projectId) {
+    return
+  }
+
+  try {
+    const project = await api.projects.get(projectId)
+    state.currentProject = project
+  } catch (err) {
+    console.warn("加载项目信息失败:", err)
+    state.currentProject = null
+  }
+}
+
+/** @type {boolean} 下一次渲染强制重新执行 onEnter（用于增删改后刷新当前视图） */
+let _forceRefresh = false
+
+async function renderCurrentView() {
+  const viewName = state.currentView
+  const content = document.getElementById("workspace-content")
   if (!content) return
 
+  // 离开旧视图
   if (_prevView && _prevView !== viewName) {
     const prevRenderer = viewRenderers[_prevView]
-    if (prevRenderer && prevRenderer.onLeave) {
-      try { prevRenderer.onLeave() } catch (e) { console.error(e) }
+    if (prevRenderer) {
+      if (_keepAliveViews.has(_prevView) && prevRenderer.onDeactivate) {
+        try { prevRenderer.onDeactivate() } catch (e) { console.error(e) }
+      }
+      if (prevRenderer.onLeave) {
+        try { prevRenderer.onLeave() } catch (e) { console.error(e) }
+      }
+    }
+    if (_keepAliveViews.has(_prevView)) {
+      const frag = document.createDocumentFragment()
+      while (content.firstChild) {
+        frag.appendChild(content.firstChild)
+      }
+      const cacheKey = `${_prevView}:${_prevRenderedSubView || ""}`
+      _viewDomCache[cacheKey] = frag
     }
   }
   _prevView = viewName
 
-  const isSameRender = _prevRenderedView === viewName && _prevRenderedSubView === (_state.currentSubView || "")
+  const forceRefresh = _forceRefresh
+  _forceRefresh = false
+  const isSameRender = !forceRefresh && _prevRenderedView === viewName && _prevRenderedSubView === (state.currentSubView || "")
   const renderer = viewRenderers[viewName]
 
-  _state.loading = true
+  state.loading = true
 
   try {
     if (renderer) {
-      if (!isSameRender && renderer.onEnter) {
-        await renderer.onEnter()
+      const cacheKey = `${viewName}:${state.currentSubView || ""}`
+      const cached = _viewDomCache[cacheKey]
+      if (cached && _keepAliveViews.has(viewName) && !forceRefresh) {
+        content.innerHTML = ""
+        content.appendChild(cached)
+        delete _viewDomCache[cacheKey]
+        if (renderer.onActivate) {
+          await renderer.onActivate()
+        }
+      } else {
+        if (!isSameRender && renderer.onEnter) {
+          await renderer.onEnter()
+        }
+        const html = await renderer.render()
+        content.innerHTML = html
       }
-      const html = await renderer.render()
-      content.innerHTML = html
     } else {
       const route = routes[viewName]
       content.innerHTML = `
@@ -137,80 +234,92 @@ async function renderCurrentView() {
       </div>
     `
   } finally {
-    _state.loading = false
+    state.loading = false
     _prevRenderedView = viewName
-    _prevRenderedSubView = _state.currentSubView || ""
+    _prevRenderedSubView = state.currentSubView || ""
   }
 
   updateRightPanelForView(viewName)
 
   for (const listener of _navListeners) {
-    try { listener(viewName, _state.currentSubView) } catch (e) { console.error(e) }
+    try { listener(viewName, state.currentSubView) } catch (e) { console.error(e) }
   }
 }
 
-function navigate(viewName, subView = null, pushHistory = true) {
+async function navigate(viewName, subView = null, pushHistory = true) {
   if (!routes[viewName]) {
     console.warn(`未知路由: ${viewName}`)
     return
   }
 
-  if (_state.currentView && _state.currentView !== viewName) {
-    _lastSubViewMap[_state.currentView] = _state.currentSubView
+  if (state.currentView && state.currentView !== viewName) {
+    _lastSubViewMap[state.currentView] = state.currentSubView
   }
 
-  const isSameView = _state.currentView === viewName
+  const isSameView = state.currentView === viewName
 
-  _state.currentView = viewName
-  _state.currentSubView = subView
+  state.currentView = viewName
+  state.currentSubView = subView
 
   if (!isSameView) {
-    _state.selectedItem = null
-    _state.selectedItems = []
+    state.selectedItem = null
+    state.selectedItems = []
   }
 
   // 更新 URL hash
   if (pushHistory) {
-    const hash = subView ? `#${viewName}/${subView}` : `#${viewName}`
+    const hash = "#" + _buildHash(viewName, subView)
     if (window.location.hash !== hash) {
-      window.history.pushState({ view: viewName, subView }, "", hash)
+      window.history.pushState({ view: viewName, subView, projectId: state.currentProjectId }, "", hash)
     }
   }
 
   // 渲染
-  renderCurrentView()
+  await renderCurrentView()
+}
+
+/**
+ * 强制刷新当前视图：重新执行 onEnter()（重新拉取数据）并重渲染。
+ * 用于增删改操作后刷新列表 —— navigate 到当前位置会因 isSameRender 跳过 onEnter，
+ * 导致界面显示旧数据，refresh 绕过该优化。
+ */
+async function refresh() {
+  _forceRefresh = true
+  const cacheKey = `${state.currentView}:${state.currentSubView || ""}`
+  delete _viewDomCache[cacheKey]
+  await renderCurrentView()
 }
 
 /**
  * 根据当前 hash 初始化路由
  */
-function initRouter() {
+async function initRouter() {
   const hash = window.location.hash.slice(1) || "project"
-  const parts = hash.split("/")
-  const viewName = parts[0]
-  const subView = parts[1] || null
+  const parsed = _parseHash(hash)
 
-  if (routes[viewName]) {
-    _state.currentView = viewName
-    _state.currentSubView = subView
+  await _syncCurrentProject(parsed.projectId)
+
+  if (routes[parsed.viewName]) {
+    state.currentView = parsed.viewName
+    state.currentSubView = parsed.subView
   } else {
-    _state.currentView = "project"
+    state.currentView = "project"
   }
 
   // 监听浏览器前进/后退
-  window.addEventListener("popstate", (e) => {
-    // 从 hash 中读取当前视图（降级处理 e.state 为 null 的情况）
+  window.addEventListener("popstate", async (e) => {
     const hash = window.location.hash.slice(1) || "project"
-    const parts = hash.split("/")
-    const viewFromHash = parts[0]
-    const subFromHash = parts[1] || null
+    const parsed = _parseHash(hash)
 
-    const targetView = (e.state && e.state.view) ? e.state.view : viewFromHash
-    const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : subFromHash
+    const projectId = parsed.projectId || (e.state && e.state.projectId) || null
+    await _syncCurrentProject(projectId)
+
+    const targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
+    const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : parsed.subView
 
     if (routes[targetView]) {
-      _state.currentView = targetView
-      _state.currentSubView = targetSubView
+      state.currentView = targetView
+      state.currentSubView = targetSubView
       renderCurrentView()
     }
   })
@@ -219,4 +328,4 @@ function initRouter() {
 }
 
 // 导出
-window.router = { navigate, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView }
+window.router = { navigate, refresh, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView }

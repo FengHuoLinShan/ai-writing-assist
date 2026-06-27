@@ -27,13 +27,16 @@ const App = {
     this._bindKeyboard()
     this._bindModalClose()
     this._bindHelpClose()
-    this._bindRightPanelClose()
+    this._bindCommandBarDismiss()
+
+    // 主题初始化
+    this._initTheme()
 
     // 从 localStorage 恢复项目选择
     this._restoreProjectState()
 
-    // 初始化路由
-    router.initRouter()
+    // 初始化路由（async，等待项目元数据同步完成后再渲染首屏）
+    await router.initRouter()
 
     // 检查后端连接
     this._checkBackendHealth()
@@ -41,7 +44,7 @@ const App = {
     // 定期检查（每 30 秒）
     setInterval(() => this._checkBackendHealth(), 30000)
 
-    console.log("小说结构化创作控制台 v1.0 已启动")
+    console.log("小说结构化创作控制台 v2.0 已启动")
   },
 
   /**
@@ -49,12 +52,17 @@ const App = {
    */
   _bindNavigation() {
     document.querySelectorAll(".nav-item[data-view]").forEach((el) => {
-      el.addEventListener("click", () => {
+      el.addEventListener("click", async () => {
         const viewName = el.dataset.view
         const route = router.getRoute(viewName)
         const lastSub = router.getLastSubView(viewName)
-        router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
+        await router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
       })
+    })
+
+    // 帮助按钮
+    document.querySelector(".nav-item.help")?.addEventListener("click", () => {
+      this._showHelp()
     })
   },
 
@@ -63,19 +71,22 @@ const App = {
    */
   _bindCommandBar() {
     const input = document.getElementById("command-input")
-    const prompt = document.getElementById("command-prompt")
     const hint = document.getElementById("command-hint")
+    const bar = document.getElementById("command-bar")
+    const suggestions = document.getElementById("command-suggestions")
 
-    if (!input) return
+    if (!input || !bar) return
 
     // 聚焦/失焦
     input.addEventListener("focus", () => {
-      _state.mode = "COMMAND"
+      const prefix = input.value.startsWith("/") ? "/" : ":"
+      state.mode = prefix === ":" ? "COMMAND" : "SEARCH"
+      bar.classList.add("active")
     })
 
     input.addEventListener("blur", () => {
       if (!input.value) {
-        _state.mode = "NORMAL"
+        this._hideCommandBar()
       }
     })
 
@@ -85,20 +96,22 @@ const App = {
         e.preventDefault()
         const value = input.value.trim()
         input.value = ""
-        _state.mode = "NORMAL"
+        this._hideCommandBar()
 
         if (value) {
           await commands.execute(value)
         }
 
-        input.blur()
         document.getElementById("workspace")?.focus()
+        return
       }
 
       if (e.key === "Escape") {
+        e.preventDefault()
         input.value = ""
-        input.blur()
-        _state.mode = "NORMAL"
+        this._hideCommandBar()
+        document.getElementById("workspace")?.focus()
+        return
       }
 
       // 自动补全建议（Tab）
@@ -116,41 +129,104 @@ const App = {
 
       // 实时提示
       if (e.key === "Backspace" || e.key.length === 1) {
-        setTimeout(() => this._updateHint(input, hint), 50)
+        setTimeout(() => this._updateHint(input, hint, suggestions), 50)
       }
     })
 
     // 输入提示
     input.addEventListener("input", () => {
-      this._updateHint(input, hint)
+      this._updateHint(input, hint, suggestions)
     })
   },
 
   /**
-   * 更新命令栏提示
+   * 隐藏命令栏
    */
-  _updateHint(input, hint) {
-    if (!hint) return
+  _hideCommandBar() {
+    state.mode = "NORMAL"
+    const bar = document.getElementById("command-bar")
+    const suggestions = document.getElementById("command-suggestions")
+    if (bar) bar.classList.remove("active", "has-suggestions")
+    if (suggestions) suggestions.replaceChildren()
+  },
+
+  /**
+   * 点击外部关闭命令栏
+   */
+  _bindCommandBarDismiss() {
+    document.addEventListener("click", (e) => {
+      const bar = document.getElementById("command-bar")
+      const input = document.getElementById("command-input")
+      if (!bar || !input) return
+      if (bar.classList.contains("active") && !bar.contains(e.target)) {
+        input.value = ""
+        this._hideCommandBar()
+      }
+    })
+  },
+
+  /**
+   * 更新命令栏提示和建议
+   */
+  _updateHint(input, hint, suggestionsEl) {
+    const bar = document.getElementById("command-bar")
     const value = input.value.trim()
 
-    if (!value) {
-      hint.textContent = ""
-      return
+    if (hint) {
+      if (!value) {
+        hint.textContent = ""
+      } else if (value.startsWith(":")) {
+        hint.textContent = "Tab 补全"
+      } else if (value.startsWith("/")) {
+        hint.textContent = "按 Enter 跳转 RAG 搜索"
+      } else {
+        hint.textContent = ""
+      }
     }
+
+    if (!suggestionsEl || !bar) return
 
     if (value.startsWith(":")) {
       const prefix = value.slice(1)
       const suggestions = commands.getSuggestions(prefix)
       if (suggestions.length > 0) {
-        hint.textContent = `建议：${suggestions.map((s) => s.name).join(" ")}`
-      } else {
-        hint.textContent = "没有匹配的命令"
+        suggestionsEl.replaceChildren()
+        for (const s of suggestions.slice(0, 6)) {
+          const row = document.createElement("div")
+          row.className = "suggestion"
+          row.dataset.cmd = s.name
+          const label = document.createElement("span")
+          label.textContent = s.name
+          if (s.description) {
+            const desc = document.createElement("span")
+            desc.style.color = "var(--text-tertiary)"
+            desc.style.marginLeft = "8px"
+            desc.style.fontSize = "12px"
+            desc.textContent = s.description
+            label.appendChild(desc)
+          }
+          const key = document.createElement("span")
+          key.className = "suggestion-key"
+          key.textContent = "Enter"
+          row.append(label, key)
+          row.addEventListener("mousedown", (e) => {
+            e.preventDefault()
+            const cmd = row.dataset.cmd
+            if (cmd) {
+              input.value = ""
+              this._hideCommandBar()
+              commands.execute(cmd)
+            }
+          })
+          suggestionsEl.appendChild(row)
+        }
+        bar.classList.add("has-suggestions")
+        return
       }
-    } else if (value.startsWith("/")) {
-      hint.textContent = "按 Enter 搜索"
-    } else {
-      hint.textContent = ""
     }
+
+    suggestionsEl.replaceChildren()
+    bar.classList.remove("has-suggestions")
   },
 
   /**
@@ -158,13 +234,21 @@ const App = {
    */
   _bindKeyboard() {
     document.addEventListener("keydown", (e) => {
-      // 忽略输入框中的快捷键
+      // Ctrl+S / Cmd+S: 始终触发保存（即使在输入框中）
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault()
+        if (typeof window.writingView?._autosave === "function") {
+          window.writingView._autosave()
+        }
+        return
+      }
+
+      // 忽略输入框中的其他快捷键（除 Esc）
       const tag = e.target.tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-        // Esc 退出输入
         if (e.key === "Escape") {
           e.target.blur()
-          _state.mode = "NORMAL"
+          state.mode = "NORMAL"
         }
         return
       }
@@ -177,7 +261,7 @@ const App = {
 
         case ":":
           e.preventDefault()
-          this._focusCommandBar()
+          this._focusCommandBar(":")
           break
 
         case "/":
@@ -191,16 +275,14 @@ const App = {
           } else if (!document.getElementById("help-overlay").classList.contains("hidden")) {
             document.getElementById("help-overlay").classList.add("hidden")
           } else {
-            // 返回上一级
-            if (_state.currentSubView) {
-              const route = router.getRoute(_state.currentView)
-              router.navigate(_state.currentView, null)
+            if (state.currentSubView) {
+              const route = router.getRoute(state.currentView)
+              router.navigate(state.currentView, null)
             }
           }
           break
 
         case "n":
-          // 新建 — 触发视图中的新建按钮
           this._triggerAction("new")
           break
 
@@ -209,11 +291,8 @@ const App = {
           break
 
         case "s":
-          // 触发保存：检查当前视图是否有_editCharacter或saveDraft等方法
-          if (typeof window.characterView?._editCharacter === "function" && _state.selectedItem) {
-            window.characterView._editCharacter(_state.selectedItem.id || _state.selectedItem.character_id)
-          } else if (typeof window.writingView?.saveDraft === "function") {
-            window.writingView.saveDraft()
+          if (typeof window.writingView?._autosave === "function") {
+            window.writingView._autosave()
           } else {
             this._triggerAction("save") || toast("没有可保存的内容", "info")
           }
@@ -221,18 +300,6 @@ const App = {
 
         case "g":
           this._triggerAction("generate")
-          break
-
-        case "r":
-          this._triggerAction("review")
-          break
-
-        case "c":
-          this._triggerAction("confirm")
-          break
-
-        case "i":
-          this._triggerAction("ignore")
           break
 
         case "x":
@@ -256,7 +323,6 @@ const App = {
 
         case "l":
           e.preventDefault()
-          this._focusRightPanel()
           break
 
         case "Enter":
@@ -272,13 +338,16 @@ const App = {
    */
   _focusCommandBar(prefix = ":") {
     const input = document.getElementById("command-input")
-    if (input) {
-      input.value = prefix
-      input.focus()
-      // 将光标移到末尾
-      const len = input.value.length
-      input.setSelectionRange(len, len)
-    }
+    const bar = document.getElementById("command-bar")
+    if (!input || !bar) return
+
+    input.value = prefix
+    bar.classList.add("active")
+    input.focus()
+    state.mode = prefix === ":" ? "COMMAND" : "SEARCH"
+
+    const len = input.value.length
+    input.setSelectionRange(len, len)
   },
 
   /**
@@ -289,27 +358,27 @@ const App = {
     const btn = document.querySelector(`[data-action="${action}"]`)
     if (btn) {
       btn.click()
-    } else {
-      // 尝试从视图操作区找对应按钮
-      const actions = document.getElementById("view-actions")
-      if (actions) {
-        const candidates = actions.querySelectorAll(".btn")
-        const actionMap = {
-          new: ["新建", "创建", "新增"],
-          edit: ["编辑"],
-          generate: ["生成"],
-          review: ["复查"],
-          confirm: ["确认"],
-          ignore: ["忽略"],
-          delete: ["删除", "废弃"],
-          select: ["打开", "查看"],
-        }
-        const texts = actionMap[action] || []
-        for (const btn of candidates) {
-          if (texts.some((t) => btn.textContent.includes(t))) {
-            btn.click()
-            return
-          }
+      return
+    }
+
+    const actions = document.getElementById("view-actions")
+    if (actions) {
+      const candidates = actions.querySelectorAll(".btn")
+      const actionMap = {
+        new: ["新建", "创建", "新增"],
+        edit: ["编辑"],
+        generate: ["生成"],
+        review: ["复查"],
+        confirm: ["确认"],
+        ignore: ["忽略"],
+        delete: ["删除", "废弃"],
+        select: ["打开", "查看"],
+      }
+      const texts = actionMap[action] || []
+      for (const b of candidates) {
+        if (texts.some((t) => b.textContent.includes(t))) {
+          b.click()
+          return
         }
       }
     }
@@ -320,13 +389,13 @@ const App = {
    * @param {number} direction - 1 向下, -1 向上
    */
   _moveSelection(direction) {
-    const rows = document.querySelectorAll(".data-table tr.clickable, .data-table tr[data-id]")
+    const rows = document.querySelectorAll(".data-table tr.clickable, .data-table tr[data-id], .project-card[data-id], .list-row[data-id]")
     if (rows.length === 0) return
 
     let currentIdx = -1
     let currentId = null
-    if (_state.selectedItem) {
-      currentId = _state.selectedItem.id || _state.selectedItem.value
+    if (state.selectedItem) {
+      currentId = state.selectedItem.id || state.selectedItem.value
     }
 
     rows.forEach((row, i) => {
@@ -349,16 +418,15 @@ const App = {
     rows[nextIdx].classList.add("selected")
     rows[nextIdx].scrollIntoView({ block: "nearest" })
 
-    // 更新选中状态
-    _state.selectedItem = { id: rows[nextIdx].dataset.id || rows[nextIdx].dataset.value }
+    state.selectedItem = { id: rows[nextIdx].dataset.id || rows[nextIdx].dataset.value }
   },
 
   /**
    * 聚焦左侧导航
    */
   _focusSidebar() {
-    const active = document.querySelector(".nav-item.active")
-    const target = active || document.querySelector(".nav-item")
+    const active = document.querySelector(".nav-item.active[data-view]")
+    const target = active || document.querySelector(".nav-item[data-view]")
     if (target) {
       if (!target.hasAttribute("tabindex")) {
         target.setAttribute("tabindex", "-1")
@@ -368,20 +436,10 @@ const App = {
   },
 
   /**
-   * 聚焦右侧信息栏
-   */
-  _focusRightPanel() {
-    const content = document.getElementById("right-panel-content")
-    if (content) {
-      content.focus()
-    }
-  },
-
-  /**
    * 显示快捷键帮助
    */
   _showHelp() {
-    document.getElementById("help-overlay").classList.remove("hidden")
+    document.getElementById("help-overlay")?.classList.remove("hidden")
   },
 
   /**
@@ -399,22 +457,12 @@ const App = {
    */
   _bindHelpClose() {
     document.getElementById("help-close")?.addEventListener("click", () => {
-      document.getElementById("help-overlay").classList.add("hidden")
+      document.getElementById("help-overlay")?.classList.add("hidden")
     })
     document.getElementById("help-overlay")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) {
-        document.getElementById("help-overlay").classList.add("hidden")
+        document.getElementById("help-overlay")?.classList.add("hidden")
       }
-    })
-  },
-
-  /**
-   * 绑定右侧信息栏关闭
-   */
-  _bindRightPanelClose() {
-    document.getElementById("right-panel-close")?.addEventListener("click", () => {
-      const panel = document.getElementById("right-panel")
-      if (panel) panel.style.display = "none"
     })
   },
 
@@ -425,12 +473,24 @@ const App = {
     try {
       const savedId = localStorage.getItem("novel_currentProjectId")
       if (savedId) {
-        _state.currentProjectId = savedId
+        state.currentProjectId = savedId
       }
       const savedProject = localStorage.getItem("novel_currentProject")
       if (savedProject) {
-        _state.currentProject = JSON.parse(savedProject)
+        state.currentProject = JSON.parse(savedProject)
       }
+    } catch {}
+  },
+
+  /**
+   * 初始化主题（明暗模式）
+   */
+  _initTheme() {
+    try {
+      const saved = localStorage.getItem("novel_theme")
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+      const theme = saved || (prefersDark ? "dark" : "light")
+      document.documentElement.setAttribute("data-theme", theme)
     } catch {}
   },
 
@@ -439,23 +499,14 @@ const App = {
    */
   async _checkBackendHealth() {
     const connected = await api.healthCheck()
-    _state.backendConnected = connected
+    state.backendConnected = connected
   },
-}
-
-/**
- * 切换"更多"导航折叠
- */
-function toggleMoreNav() {
-  const container = document.getElementById("more-nav-items")
-  const toggle = document.getElementById("more-toggle")
-  if (!container || !toggle) return
-  const isHidden = container.style.display === "none" || !container.style.display
-  container.style.display = isHidden ? "block" : "none"
-  toggle.textContent = isHidden ? "▾" : "▸"
 }
 
 // 页面加载完成后启动
 document.addEventListener("DOMContentLoaded", () => {
   App.init()
 })
+
+window.App = App
+export default App

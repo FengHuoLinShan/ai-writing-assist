@@ -1,26 +1,46 @@
-"""World 服务层 — 与旧 services.py 兼容的导出"""
+"""World 服务层导出"""
 
-from modules.world.services.alias_service import AliasService
-from modules.world.services.candidate_service import EntityCandidateService
-from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.character_knowledge_service import (
+    CharacterKnowledgeService,
+)
+from modules.world.services.character_service import CharacterService
+from modules.world.services.entity_alias_service import EntityAliasService
+from modules.world.services.entity_context_service import EntityContextService
+from modules.world.services.entity_embedding_service import EntityEmbeddingService
+from modules.world.services.entity_relation_service import EntityRelationService
+from modules.world.services.entity_revision_service import EntityRevisionService
 from modules.world.services.entity_service import WorldEntityService
-from modules.world.services.extraction_service import EntityExtractionService, ExtractionResult
+from modules.world.services.entity_stats_service import EntityStatsService
+from modules.world.services.event_service import EventService
 from modules.world.services.helpers import (
     merge_text_field,
     normalize_name,
     parse_uuid,
     world_entity_types_compatible,
 )
-from modules.world.services.relationship_service import RelationshipService
+from modules.world.services.map_service import (
+    MapConfigService,
+    MapLocationBindingService,
+    MapTileService,
+)
+
+# 去重服务: 仍可通过 modules.world.services.dedup_service 直接导入
+# (本文件不重导出以保持 facade 简洁 — 调用方按需 import)
 
 __all__ = [
     "WorldEntityService",
-    "RelationshipService",
-    "EntityCandidateService",
-    "AliasService",
-    "EntityDedupService",
-    "EntityExtractionService",
-    "ExtractionResult",
+    "EntityAliasService",
+    "EntityContextService",
+    "EntityEmbeddingService",
+    "EntityRelationService",
+    "EntityRevisionService",
+    "EntityStatsService",
+    "EventService",
+    "CharacterService",
+    "CharacterKnowledgeService",
+    "MapConfigService",
+    "MapTileService",
+    "MapLocationBindingService",
     "parse_uuid",
     "normalize_name",
     "merge_text_field",

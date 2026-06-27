@@ -2,20 +2,22 @@
 Writing 业务逻辑层
 
 调用 repository 完成业务操作。
-服务层可包含业务规则，但不直接操作数据库。
 """
 
 from __future__ import annotations
 
-import uuid
+import logging
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.facade import split_scene_chunk_to_new_chapter
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
+    ChapterSplitResponse,
     DraftListItem,
     VersionHistoryResponse,
     WritingDraftCreate,
@@ -24,19 +26,21 @@ from modules.writing.schemas import (
 )
 from shared.utils import parse_uuid
 
+logger = logging.getLogger(__name__)
+
 
 class WritingDraftService:
     """正文草稿业务服务"""
 
-    def __init__(self) -> None:
-        self._repo = WritingDraftRepository()
+    def __init__(self, repo: WritingDraftRepository | None = None) -> None:
+        self._repo = repo or WritingDraftRepository()
 
     async def create_draft(
         self,
         db: AsyncSession,
         data: WritingDraftCreate,
     ) -> WritingDraftResponse:
-        """创建新草稿（自动创建新版本）"""
+        """创建新草稿版本（发布）"""
         draft = await self._repo.create(db, data)
         return WritingDraftResponse.model_validate(draft)
 
@@ -64,7 +68,7 @@ class WritingDraftService:
         data: WritingDraftUpdate,
         novel_id: str,
     ) -> WritingDraftResponse:
-        """更新草稿"""
+        """暂存草稿（原地更新最新版本，不创建新版本）"""
         did = parse_uuid(draft_id, "draft")
         nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -73,8 +77,40 @@ class WritingDraftService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
-        draft = await self._repo.update(db, did, data)
-        return WritingDraftResponse.model_validate(draft)
+        # 多 Tab 冲突检测：以章节最新版本为准
+        latest = await self._repo.get_latest_by_chapter(
+            db, draft.novel_id, draft.chapter_index
+        )
+        latest_version = latest.version_number if latest else draft.version_number
+        latest_updated_at = latest.updated_at if latest else draft.updated_at
+
+        if data.expected_updated_at is not None and latest_updated_at is not None:
+            db_updated_at = _as_utc_aware(latest_updated_at)
+            expected_updated_at = _as_utc_aware(data.expected_updated_at)
+            if db_updated_at > expected_updated_at:
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail=(
+                        "该章节已被其他会话更新（当前修改时间晚于期望时间，"
+                        "请刷新后重新编辑。"
+                    ),
+                )
+
+        if data.expected_version is not None and latest_version != data.expected_version:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail=(
+                    f"该章节已被其他会话更新（当前版本 v{latest_version}，"
+                    f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
+                ),
+            )
+        updated = await self._repo.update(db, did, data)
+        if updated is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Draft {draft_id} not found",
+            )
+        return WritingDraftResponse.model_validate(updated)
 
     async def delete_draft(
         self,
@@ -82,7 +118,7 @@ class WritingDraftService:
         draft_id: str,
         novel_id: str,
     ) -> None:
-        """删除草稿"""
+        """删除单个版本（至少保留 1 个版本），并自动重排后续版本号"""
         did = parse_uuid(draft_id, "draft")
         nid = parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -91,7 +127,43 @@ class WritingDraftService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Draft {draft_id} not found",
             )
-        await self._repo.delete(db, did)
+
+        # 业务规则：至少保留 1 个版本
+        version_count = await self._repo.count_versions(
+            db,
+            draft.novel_id,
+            draft.chapter_index,
+        )
+        if version_count <= 1:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete the last version of a chapter",
+            )
+
+        deleted = await self._repo.delete(db, did)
+        if deleted is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Draft {draft_id} not found",
+            )
+
+        # 数据完整性：重排后续版本号
+        await self._repo.renumber_versions_after_delete(
+            db,
+            draft.novel_id,
+            draft.chapter_index,
+            draft.version_number,
+        )
+
+    async def delete_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+    ) -> int:
+        """删除整章所有版本。返回删除的版本数。"""
+        nid = parse_uuid(novel_id, "novel")
+        return await self._repo.delete_all_versions(db, nid, chapter_index)
 
     async def get_latest_draft(
         self,
@@ -118,7 +190,11 @@ class WritingDraftService:
         """获取章节版本历史"""
         nid = parse_uuid(novel_id, "novel")
         versions = await self._repo.get_version_history(db, nid, chapter_index)
-        items = [DraftListItem.model_validate(v) for v in versions]
+        items = []
+        for v in versions:
+            item = DraftListItem.model_validate(v)
+            item.word_count = len(v.content) if v.content else 0
+            items.append(item)
         return VersionHistoryResponse(
             novel_id=novel_id,
             chapter_index=chapter_index,
@@ -157,7 +233,6 @@ class WritingDraftService:
         return WritingDraftContract(
             novel_id=str(draft.novel_id),  # type: ignore[union-attr]
             chapter_index=draft.chapter_index,  # type: ignore[union-attr]
-            chapter_card_id=str(draft.chapter_card_id) if draft.chapter_card_id else None,
             title=draft.title,  # type: ignore[union-attr]
             content=draft.content,  # type: ignore[union-attr]
             version_number=draft.version_number,  # type: ignore[union-attr]
@@ -173,85 +248,76 @@ class WritingDraftService:
         nid = parse_uuid(novel_id, "novel")
         return await self._repo.list_chapter_indices(db, nid)
 
-    # ============================================================
-    # 内部工具
-    # ============================================================
-
-
-class WritingAnalysisService:
-
-    async def analyze_chapter(
+    async def split_chapter_at_offset(
         self,
         db: AsyncSession,
+        *,
         novel_id: str,
         chapter_index: int,
-        content: str,
-    ) -> tuple[bool, str]:
-        from core.config import get_settings
-        from infrastructure.llm.client import LLMClient
-        from infrastructure.llm.schemas import LLMCallRequest
-        from modules.memory.schemas import ChapterStateExtraction
-        from modules.memory.facade import create_memory_update_proposals
-        from shared.constants import DEFAULT_LLM_TIMEOUT
-
-        settings = get_settings()
-
-        system_prompt = (
-            "你是一个小说地缘/势力资产分析助手。"
-            "从章节正文中识别实质性地缘变化或角色移动。"
-            "若发现主要角色更换了所处场景/城市，必须提取入 character_shifts；"
-            "若发现某军队、宗门、势力占据、撤出或潜伏于某地点，必须提取入 faction_shifts。"
-            "宁可不抽，绝不盲目提取路人或一次性无名地标。"
-            "输出 JSON 对象，包含：\n"
-            "- summary: 情节主线脉络极简总结\n"
-            "- character_shifts: 角色位移数组，每项含 character_name, destination_location_name, movement_type\n"
-            "- faction_shifts: 势力割据变更数组，每项含 faction_name, target_location_name, new_relation(controls/stationed_at/hidden_presence), description\n"
-        )
-
-        request = LLMCallRequest(
-            model=settings.llm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content[:8000]},
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"},
-        )
-
-        llm = LLMClient()
-        try:
-            import asyncio
-            parsed = await asyncio.wait_for(
-                llm.generate_structured(request, ChapterStateExtraction),
-                timeout=DEFAULT_LLM_TIMEOUT,
+        split_pos: int,
+        source_scene_id: str | None,
+    ) -> ChapterSplitResponse:
+        nid = parse_uuid(novel_id, "novel")
+        latest = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
+        if latest is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No draft found for chapter {chapter_index}",
             )
-        except asyncio.TimeoutError:
-            return False, "timeout"
-        except Exception:
-            try:
-                raw = await llm.generate(request)
-                parsed = ChapterStateExtraction.model_validate_json(raw.content)
-            except Exception:
-                return False, "failed"
+        content = latest.content or ""
+        if not (0 < split_pos < len(content)):
+            raise HTTPException(
+                status_code=422,
+                detail="split_pos must be inside the chapter content",
+            )
 
-        if not parsed.character_shifts and not parsed.faction_shifts:
-            return False, "success"
+        head = content[:split_pos]
+        tail = content[split_pos:]
+        new_chapter_index = chapter_index + 1
 
-        extraction_result = {
-            "summary": parsed.summary,
-            "geo_mutations": {
-                "character_shifts": [s.model_dump() for s in parsed.character_shifts],
-                "faction_shifts": [s.model_dump() for s in parsed.faction_shifts],
-            },
-        }
-
-        proposals = await create_memory_update_proposals(
+        await self._repo.shift_chapter_indices_from(db, nid, new_chapter_index)
+        source = await self._repo.update_latest_content(
             db,
-            novel_id,
-            source_type="chapter_text",
-            source_id=f"chapter_{chapter_index}",
-            extraction_result=extraction_result,
+            nid,
+            chapter_index,
+            title=latest.title,
+            content=head,
+        )
+        new_draft = await self._repo.create(
+            db,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=new_chapter_index,
+                title=f"第{new_chapter_index}章",
+                content=tail,
+            ),
         )
 
-        return len(proposals) > 0, "success"
+        scenes: list[dict] = []
+        if source_scene_id:
+            scenes = await split_scene_chunk_to_new_chapter(
+                db,
+                novel_id,
+                source_scene_id=source_scene_id,
+                source_chapter_id=str(chapter_index),
+                source_chapter_index=chapter_index,
+                new_chapter_id=str(new_chapter_index),
+                new_chapter_index=new_chapter_index,
+                split_pos=split_pos,
+                new_chapter_length=len(tail),
+            )
 
+        return ChapterSplitResponse(
+            source_chapter_index=chapter_index,
+            new_chapter_index=new_chapter_index,
+            source_draft=WritingDraftResponse.model_validate(source),
+            new_draft=WritingDraftResponse.model_validate(new_draft),
+            scenes=scenes,
+        )
+
+
+def _as_utc_aware(dt: datetime) -> datetime:
+    """将可能为 naive 的 datetime 统一转为 UTC aware，便于比较。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)

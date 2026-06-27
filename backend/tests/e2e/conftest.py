@@ -7,9 +7,12 @@ E2E 测试 conftest — 真实 PostgreSQL 连接
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -20,12 +23,79 @@ from sqlalchemy.ext.asyncio import (
 logging.basicConfig(level=logging.WARNING)
 
 # 真实 PG 数据库 — 与 Docker Compose / .env 配置一致
-DATABASE_URL = "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
+DATABASE_URL = (
+    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
+)
+# asyncpg 原生连接检查使用 postgresql:// 协议头
+_PG_CHECK_URL = "postgresql://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
+
+
+# ============================================================
+# 环境可用性检查：无 PostgreSQL 时跳过全部 E2E 测试
+# ============================================================
+
+
+def _pg_available() -> bool:
+    try:
+        import asyncpg
+
+        async def _check() -> bool:
+            try:
+                conn = await asyncpg.connect(_PG_CHECK_URL, timeout=3, command_timeout=3)
+                await conn.close()
+                return True
+            except Exception:
+                return False
+
+        return asyncio.run(_check())
+    except Exception:
+        return False
+
+
+_PG_IS_AVAILABLE: bool = _pg_available()
+_E2E_DIR = Path(__file__).resolve().parent
+
+
+def pytest_collection_modifyitems(config, items):
+    """如果 PostgreSQL 不可用，只跳过 backend/tests/e2e 下的测试。"""
+    if not _PG_IS_AVAILABLE:
+        skip_marker = pytest.mark.skip(
+            reason="PostgreSQL 不可用（需要 Docker 运行 postgresql+pgvector）"
+        )
+        for item in items:
+            item_path = Path(str(item.fspath)).resolve()
+            if item_path.is_relative_to(_E2E_DIR):
+                item.add_marker(skip_marker)
+
+
+# ============================================================
+# 预启动 BGE Embedding Worker（避免 pytest 中 multiprocessing 初始化问题）
+# ============================================================
+
+
+def pytest_sessionstart(session):
+    """在测试会话开始前预启动 BGE embedding worker。"""
+    if not _PG_IS_AVAILABLE:
+        return
+    try:
+        from infrastructure.embedding.client import BgeEmbeddingClient
+
+        async def _init():
+            client = await BgeEmbeddingClient.get_instance()
+            if client.healthy:
+                print("[BGE] Worker pre-started successfully")
+            else:
+                print("[BGE] Worker pre-start returned but not healthy")
+
+        asyncio.run(_init())
+    except Exception as exc:
+        print(f"[BGE] Worker pre-start failed (will retry per-test): {exc}")
 
 
 # ============================================================
 # Per-test database session（独立连接，事务回滚）
 # ============================================================
+
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -47,6 +117,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 # ============================================================
 # FastAPI test client（真实 PG 注入）
 # ============================================================
+
 
 @pytest_asyncio.fixture
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:

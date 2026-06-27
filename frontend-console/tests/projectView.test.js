@@ -7,12 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import projectView from "../views/projectView.js"
+import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
 
 // 清理全局状态，确保各测试隔离
 beforeEach(() => {
-  _state.currentProjectId = null
-  _state.currentProject = null
-  _state.projects = []
+  resetState()
   vi.clearAllMocks()
 })
 
@@ -32,7 +31,7 @@ describe("projectView", () => {
       await projectView.onEnter()
 
       expect(api.projects.list).toHaveBeenCalledOnce()
-      expect(_state.projects).toEqual(projects)
+      expect(state.projects).toEqual(projects)
     })
 
     it("API 不可用时设置空列表", async () => {
@@ -40,7 +39,7 @@ describe("projectView", () => {
 
       await projectView.onEnter()
 
-      expect(_state.projects).toEqual([])
+      expect(state.projects).toEqual([])
     })
 
     it("自动选中已保存的项目", async () => {
@@ -49,22 +48,22 @@ describe("projectView", () => {
         { id: "p2", title: "项目B" },
       ]
       api.projects.list.mockResolvedValue({ items: projects })
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
 
       await projectView.onEnter()
 
-      expect(_state.currentProject).toEqual(projects[0])
+      expect(state.currentProject).toEqual(projects[0])
     })
 
     it("已保存的项目被删除后清除状态", async () => {
       api.projects.list.mockResolvedValue({ items: [] })
-      _state.currentProjectId = "p1"
-      _state.currentProject = { id: "p1", title: "已删除项目" }
+      state.currentProjectId = "p1"
+      state.currentProject = { id: "p1", title: "已删除项目" }
 
       await projectView.onEnter()
 
-      expect(_state.currentProjectId).toBeNull()
-      expect(_state.currentProject).toBeNull()
+      expect(state.currentProjectId).toBeNull()
+      expect(state.currentProject).toBeNull()
     })
   })
 
@@ -73,21 +72,21 @@ describe("projectView", () => {
   // ============================================================
 
   describe("openProject", () => {
-    it("选中项目并导航到 world 视图", () => {
-      _state.projects = [{ id: "p1", title: "项目A" }]
+    it("选中项目并导航到写作视图", () => {
+      state.projects = [{ id: "p1", title: "项目A" }]
 
       projectView.openProject("p1")
 
-      expect(_state.currentProjectId).toBe("p1")
-      expect(_state.currentProject?.title).toBe("项目A")
-      expect(router.navigate).toHaveBeenCalledWith("world", "objects")
+      expect(state.currentProjectId).toBe("p1")
+      expect(state.currentProject?.title).toBe("项目A")
+      expect(router.navigate).toHaveBeenCalledWith("writing")
       expect(globalThis.toast).toHaveBeenCalled()
     })
 
     it("项目不存在时不操作", () => {
       projectView.openProject("nonexistent")
 
-      expect(_state.currentProjectId).toBeNull()
+      expect(state.currentProjectId).toBeNull()
       expect(router.navigate).not.toHaveBeenCalled()
     })
   })
@@ -110,6 +109,49 @@ describe("projectView", () => {
       expect(buttons).toHaveLength(1)
       expect(buttons[0].text).toBe("创建")
     })
+
+    it("创建成功后导航到写作视图", async () => {
+      api.projects.create.mockResolvedValue({ id: "p-new", title: "新项目" })
+      projectView.showCreateForm()
+
+      const handler = captureModalHandler()
+      // 模拟用户输入
+      const titleInput = document.createElement("input")
+      titleInput.id = "create-title"
+      titleInput.value = "新项目"
+      document.body.appendChild(titleInput)
+
+      await handler()
+
+      expect(api.projects.create).toHaveBeenCalledWith({
+        title: "新项目",
+        genre: "",
+        tone: "",
+        language: "zh",
+      })
+      expect(state.currentProjectId).toBe("p-new")
+      expect(router.navigate).toHaveBeenCalledWith("writing")
+
+      titleInput.remove()
+    })
+
+    it("空标题提交时提示请输入项目标题", async () => {
+      api.projects.create.mockResolvedValue({ id: "p-new", title: "新项目" })
+      projectView.showCreateForm()
+
+      const handler = captureModalHandler()
+      const titleInput = document.createElement("input")
+      titleInput.id = "create-title"
+      titleInput.value = ""
+      document.body.appendChild(titleInput)
+
+      await handler()
+
+      expect(api.projects.create).not.toHaveBeenCalled()
+      expect(globalThis.toast).toHaveBeenCalledWith("请输入项目标题", "warning")
+
+      titleInput.remove()
+    })
   })
 
   // ============================================================
@@ -118,7 +160,7 @@ describe("projectView", () => {
 
   describe("editProject", () => {
     it("项目存在时调用 showModal", () => {
-      _state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", current_stage: "writing" }]
+      state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", tone: "黑暗", target_length: "novel", current_stage: "writing" }]
 
       projectView.editProject("p1")
 
@@ -128,12 +170,62 @@ describe("projectView", () => {
       const html = showModalMock.mock.calls[0][1]
       expect(title).toBe("编辑项目")
       expect(html).toContain("项目A")
-      expect(html).toContain("fantasy")
+      expect(html).toContain("edit-tone")
+      expect(html).toContain("edit-target-length")
     })
 
     it("项目不存在时不操作", () => {
       projectView.editProject("nonexistent")
       expect(globalThis.showModal).not.toHaveBeenCalled()
+    })
+
+    it("保存成功后同步项目列表与面包屑状态", async () => {
+      state.projects = [{ id: "p1", title: "项目A", genre: "fantasy", tone: "黑暗", target_length: "novel" }]
+      state.currentProjectId = "p1"
+      state.currentProject = { ...state.projects[0] }
+
+      const updated = { id: "p1", title: "项目A-改", genre: "武侠", tone: "热血", target_length: "epic" }
+      api.projects.update.mockResolvedValue(updated)
+
+      projectView.editProject("p1")
+      const handler = captureModalHandler()
+
+      const titleInput = document.createElement("input")
+      titleInput.id = "edit-title"
+      titleInput.value = "项目A-改"
+      document.body.appendChild(titleInput)
+
+      const genreInput = document.createElement("input")
+      genreInput.id = "edit-genre"
+      genreInput.value = "武侠"
+      document.body.appendChild(genreInput)
+
+      const toneInput = document.createElement("input")
+      toneInput.id = "edit-tone"
+      toneInput.value = "热血"
+      document.body.appendChild(toneInput)
+
+      const targetSelect = document.createElement("select")
+      targetSelect.id = "edit-target-length"
+      targetSelect.innerHTML = `<option value="">未设置</option><option value="epic" selected>史诗</option>`
+      document.body.appendChild(targetSelect)
+
+      await handler()
+
+      expect(api.projects.update).toHaveBeenCalledWith("p1", {
+        title: "项目A-改",
+        genre: "武侠",
+        tone: "热血",
+        target_length: "epic",
+        current_stage: null,
+      })
+      expect(state.projects[0]).toEqual(updated)
+      expect(state.currentProject).toEqual(updated)
+
+      titleInput.remove()
+      genreInput.remove()
+      toneInput.remove()
+      targetSelect.remove()
     })
   })
 
@@ -143,14 +235,29 @@ describe("projectView", () => {
 
   describe("deleteProject", () => {
     it("调用 confirmAction 进行二次确认", () => {
-      _state.projects = [{ id: "p1", title: "项目A" }]
+      state.projects = [{ id: "p1", title: "项目A" }]
 
       projectView.deleteProject("p1")
 
       expect(globalThis.confirmAction).toHaveBeenCalledOnce()
       const confirmMock = vi.mocked(globalThis.confirmAction)
       expect(confirmMock.mock.calls[0][0]).toContain("项目A")
-      expect(confirmMock.mock.calls[0][2]).toBe("确认删除")
+      expect(confirmMock.mock.calls[0][2]).toBe("移至回收站")
+    })
+
+    it("确认后删除并调用 router.refresh 刷新列表", async () => {
+      state.projects = [{ id: "p1", title: "项目A" }]
+      api.projects.remove.mockResolvedValue({})
+      autoConfirm()
+
+      projectView.deleteProject("p1")
+      // 等待 confirmAction 内的异步回调结算
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(api.projects.remove).toHaveBeenCalledWith("p1")
+      // 回归：必须用 refresh（重新拉数据），而非同位置 navigate（会因 isSameRender 跳过 onEnter 显示旧数据）
+      expect(router.refresh).toHaveBeenCalledOnce()
     })
   })
 

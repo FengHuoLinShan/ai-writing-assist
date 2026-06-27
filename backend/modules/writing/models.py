@@ -7,22 +7,21 @@ Writing ORM 模型
 
 from __future__ import annotations
 
-import uuid
-
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin
 
 
 class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
-    """正文草稿 — 人工写作的正文承载"""
+    """正文草稿 — 手工写作的正文承载"""
 
     __tablename__ = "writing_drafts"
     __table_args__ = (
         UniqueConstraint(
-            "novel_id", "chapter_index", "version_number",
+            "novel_id",
+            "chapter_index",
+            "version_number",
             name="uq_writing_draft_version",
         ),
         {"comment": "正文草稿"},
@@ -33,12 +32,6 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=False,
         index=True,
         comment="章节索引",
-    )
-    chapter_card_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("chapter_cards.id", ondelete="SET NULL"),
-        nullable=True,
-        comment="关联的章节卡 ID",
     )
     title: Mapped[str | None] = mapped_column(
         Text,
@@ -60,7 +53,6 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         String(32),
         nullable=False,
         default="draft",
-        index=True,
         comment="状态：draft / candidate / canonical / deprecated",
     )
 

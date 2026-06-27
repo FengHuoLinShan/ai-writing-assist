@@ -4,7 +4,7 @@
 >
 > **输入来源**：Context Compiler 编译的上下文 + OutlineArc（篇章纲）
 >
-> **输出去向**：chapter_cards + scene_cards 候选 → 结构复查 → 用户确认 → 正史库
+> **输出去向**：chapter_cards + scene_cards 直接入库。
 
 ---
 

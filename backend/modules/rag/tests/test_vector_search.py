@@ -4,21 +4,20 @@ TB4: Vector search 测试
 
 from __future__ import annotations
 
-import math
 import uuid
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.rag.services import RetrievalService
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.models import RagChunk
+from modules.rag.retrieval import RetrievalOrchestrator
+from modules.rag.scoring import cosine_similarity
 
 
 def test_cosine_similarity_identical():
     """RED: 相同向量的余弦相似度为 1.0"""
     v = [1.0, 2.0, 3.0]
-    sim = RetrievalService._cosine_similarity(v, v)
+    sim = cosine_similarity(v, v)
     assert abs(sim - 1.0) < 1e-6, f"期望 1.0, 实际 {sim}"
 
 
@@ -26,7 +25,7 @@ def test_cosine_similarity_orthogonal():
     """RED: 正交向量的余弦相似度为 0.0"""
     v1 = [1.0, 0.0]
     v2 = [0.0, 1.0]
-    sim = RetrievalService._cosine_similarity(v1, v2)
+    sim = cosine_similarity(v1, v2)
     assert abs(sim - 0.0) < 1e-6, f"期望 0.0, 实际 {sim}"
 
 
@@ -34,7 +33,7 @@ def test_cosine_similarity_opposite():
     """RED: 相反向量的余弦相似度为 -1.0"""
     v1 = [1.0, 2.0]
     v2 = [-1.0, -2.0]
-    sim = RetrievalService._cosine_similarity(v1, v2)
+    sim = cosine_similarity(v1, v2)
     assert abs(sim - (-1.0)) < 1e-6, f"期望 -1.0, 实际 {sim}"
 
 
@@ -42,7 +41,7 @@ def test_cosine_similarity_partial():
     """RED: 部分相似的向量"""
     v1 = [1.0, 0.0]
     v2 = [0.707, 0.707]
-    sim = RetrievalService._cosine_similarity(v1, v2)
+    sim = cosine_similarity(v1, v2)
     # cos(45°) ≈ 0.707
     assert abs(sim - 0.707) < 0.01, f"期望 ~0.707, 实际 {sim}"
 
@@ -50,7 +49,7 @@ def test_cosine_similarity_partial():
 def test_cosine_similarity_zero_vector():
     """RED: 零向量应返回 0.0（避免除零）"""
     v = [0.0, 0.0, 0.0]
-    sim = RetrievalService._cosine_similarity(v, [1.0, 2.0, 3.0])
+    sim = cosine_similarity(v, [1.0, 2.0, 3.0])
     assert sim == 0.0, "零向量应返回 0.0"
 
 
@@ -74,26 +73,33 @@ async def test_hybrid_search_with_query_embedding(
 ):
     """RED: hybrid_search 传入 query_embedding 时向量分数应为非零"""
     repo = RagChunkRepository()
-    retrieval = RetrievalService()
+    retrieval = RetrievalOrchestrator()
 
     # 创建一个 chunk
     nid = uuid.uuid4()
     from modules.rag.schemas import RagChunkCreate
 
-    chunk = await repo.create(db_session, nid, RagChunkCreate(
-        source_type="chapter_text", chapter_index=1,
-        text="主角的欲望是寻找真相。",
-        importance=0.8,
-    ))
+    chunk = await repo.create(
+        db_session,
+        nid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="主角的欲望是寻找真相。",
+            importance=0.8,
+        ),
+    )
 
-    # 设置 embedding（列定义为 Vector(1024)）
-    test_emb = [0.1 * (i % 3 + 1) for i in range(1024)]
+    # 设置 embedding（列定义为 Vector(768)）
+    test_emb = [0.1 * (i % 3 + 1) for i in range(768)]
     chunk.embedding = test_emb  # type: ignore[assignment]
     await db_session.flush()
 
     # 用精确匹配的 query_embedding 搜索
     results = await retrieval.hybrid_search(
-        db_session, nid, "主角",
+        db_session,
+        nid,
+        "主角",
         query_embedding=test_emb,
         top_k=5,
     )

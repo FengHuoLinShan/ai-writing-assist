@@ -17,42 +17,116 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, text as sql_text, update
+from sqlalchemy import select, update
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import DatabaseManager, get_manager
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
-from shared.constants import TASK_HEARTBEAT_INTERVAL, TASK_MAX_HEARTBEAT_GAP, TASK_POLL_INTERVAL
+from shared.constants import (
+    TASK_HEARTBEAT_INTERVAL,
+    TASK_MAX_HEARTBEAT_GAP,
+    TASK_POLL_INTERVAL,
+)
 
 logger = logging.getLogger(__name__)
 
-# 自动发现并导入所有模块的 task handler（@task_handler 装饰器触发注册）
-import importlib
-import os
-import modules
-
-
 # 注册 projects 表（NovelMixin FK 依赖）
-import modules.project.models  # noqa: F401
+import modules.imports.tasks  # noqa: E402, F401
+import modules.outline.tasks  # noqa: E402, F401
+import modules.project.models  # noqa: E402, F401
+import modules.rag.tasks  # noqa: E402, F401
+
+# 注册所有任务处理器（与 app/main.py 同步）
+import modules.world.tasks  # noqa: E402, F401
+import modules.writing.tasks  # noqa: E402, F401
 
 
-def _discover_and_import_tasks() -> None:
-    """扫描 modules/*/tasks.py 自动注册所有 task handlers"""
-    modules_path = modules.__path__[0]  # type: ignore[attr-defined]
-    for name in sorted(os.listdir(modules_path)):
-        if name.startswith("_"):
-            continue
-        tasks_path = os.path.join(modules_path, name, "tasks.py")
-        if os.path.isfile(tasks_path):
-            importlib.import_module(f"modules.{name}.tasks")
+def _register_container_services() -> None:
+    """注册 DI 容器服务（worker 进程不会经过 main.py，需独立注册）
 
+    所有 import 放在函数体内，避免模块级循环导入。
+    幂等调用：已注册的服务不会重复注册。
+    """
+    from core.container import register as _reg
+    from modules.context.facade import compile_structure_context as _ctx_compile
+    from modules.imports.scene_entity_extraction import (
+        SceneEntityExtractionService as _SceneExtSvc,
+    )
+    from modules.memory.services import MemoryService as _MemSvc
+    from modules.outline.services import (
+        OutlineArcService as _OAS,  # noqa: N814
+    )
+    from modules.outline.services import (
+        PlotStructureGenerator as _PSG,  # noqa: N814
+    )
+    from modules.outline.services import (
+        PlotThreadService as _PTS,  # noqa: N814
+    )
+    from modules.outline.services import (
+        SceneService as _SceneSvc,
+    )
+    from modules.rag.facade import (
+        get_ordered_chapter_chunks as _rag_get_chunks,
+    )
+    from modules.rag.facade import (
+        index_chapter_with_report as _rag_index,
+    )
+    from modules.world.facade import (
+        create_character as _w_create_char,
+    )
+    from modules.world.facade import (
+        get_character_id_by_world_entity as _w_get_char_id,
+    )
+    from modules.world.facade import (
+        list_characters as _w_list_chars,
+    )
+    from modules.world.facade import (
+        list_entities as _w_list_entities,
+    )
+    from modules.world.facade import (
+        list_entity_terms as _w_list_terms,
+    )
+    from modules.world.facade import (
+        run_entity_extraction as _w_extract,
+    )
+    from modules.writing.facade import (
+        get_latest_draft_for_chapter as _w_get_draft,
+    )
+    from modules.writing.facade import (
+        list_chapter_indices as _w_list_indices,
+    )
 
-_discover_and_import_tasks()
+    _svc_map = {
+        "world.list_characters": _w_list_chars,
+        "world.list_entity_terms": _w_list_terms,
+        "world.run_entity_extraction": _w_extract,
+        "world.list_entities": _w_list_entities,
+        "world.run_scene_entity_extraction": _SceneExtSvc().extract_by_scenes,
+        "world.create_character": _w_create_char,
+        "world.get_character_id_by_world_entity": _w_get_char_id,
+        "rag.index_chapter": _rag_index,
+        "rag.get_ordered_chapter_chunks": _rag_get_chunks,
+        "writing.list_chapter_indices": _w_list_indices,
+        "writing.get_latest_draft_for_chapter": _w_get_draft,
+        "outline.generate_structure": _PSG().generate,
+        "outline.arc_service": _OAS(),
+        "outline.thread_service": _PTS(),
+        "outline.scene_service": _SceneSvc(),
+        "context.compile": _ctx_compile,
+        "memory.service": _MemSvc(),
+        "memory.capture_snapshot": _MemSvc().capture_snapshot,
+    }
+
+    for name, svc in _svc_map.items():
+        try:
+            _reg(name, svc)
+        except ValueError:
+            pass  # 已在 main.py 中注册（测试/开发模式共用进程时）
 
 
 class TaskWorker:
@@ -102,6 +176,7 @@ class TaskWorker:
         Returns:
             执行完成的任务对象，如果没有 pending 任务则返回 None
         """
+        _register_container_services()
         async with self._db_manager.session_factory() as session:
             task = await self._claim_task(session)
             if task is None:
@@ -111,6 +186,7 @@ class TaskWorker:
 
     async def run_forever(self) -> None:
         """常驻循环：持续领取并执行任务"""
+        _register_container_services()
         self._running = True
         logger.info(
             "TaskWorker started — poll_interval=%.1fs, heartbeat_interval=%.1fs",
@@ -137,7 +213,8 @@ class TaskWorker:
         finally:
             self._running = False
             logger.info(
-                "TaskWorker stopped — processed=%d, succeeded=%d, failed=%d, cancelled=%d",
+                "TaskWorker stopped — processed=%d, succeeded=%d, "
+                "failed=%d, cancelled=%d",
                 self._stats["processed"],
                 self._stats["succeeded"],
                 self._stats["failed"],
@@ -201,12 +278,14 @@ class TaskWorker:
             logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
 
         except asyncio.CancelledError:
+            await session.rollback()
             task.mark_cancelled()
             await session.commit()
             self._stats["cancelled"] += 1
             logger.info("Task cancelled: %s (type=%s)", task.id, task.task_type)
 
         except Exception as e:
+            await session.rollback()
             task.mark_failed(f"{type(e).__name__}: {e}")
             await session.commit()
             self._stats["failed"] += 1
@@ -236,12 +315,14 @@ class TaskWorker:
                         stmt = (
                             update(AsyncTask)
                             .where(AsyncTask.id == task_id)
-                            .values(heartbeat_at=datetime.now(timezone.utc))
+                            .values(heartbeat_at=datetime.now(UTC))
                         )
                         await hb_session.execute(stmt)
                         await hb_session.commit()
                 except Exception:
-                    logger.warning("Heartbeat update failed for task %s", task_id, exc_info=True)
+                    logger.warning(
+                        "Heartbeat update failed for task %s", task_id, exc_info=True
+                    )
         except asyncio.CancelledError:
             pass
 
@@ -258,7 +339,8 @@ class TaskWorker:
             result = await session.execute(
                 sql_text(
                     "UPDATE async_tasks "
-                    "SET status = 'pending', error_message = 'Task recovered: heartbeat timeout' "
+                    "SET status = 'pending', "
+                    "error_message = 'Task recovered: heartbeat timeout' "
                     "WHERE status = 'running' "
                     "AND heartbeat_at < NOW() - make_interval(secs => :gap)"
                 ),

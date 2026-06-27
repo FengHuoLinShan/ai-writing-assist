@@ -2,6 +2,8 @@
  * 生成中心视图
  */
 
+import { bindWorkspaceClick } from "../shared/viewHelper.js"
+
 const generateView = {
   onLeave() { this._currentType = null },
   _currentType: null,
@@ -13,11 +15,11 @@ const generateView = {
         从左侧菜单中选择模块，或使用下方的生成中心统一入口。
       </p>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="two-column-workspace generate-workspace">
         <div>
           <div class="card" style="margin-bottom:12px;">
             <div class="card-title">生成类型</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+            <div class="generate-type-grid">
               <div class="clickable generate-card ${this._currentType === "world_character" ? "active" : ""}" data-action="select-type" data-type="world_character">
                 <strong>1. 世界与人物结构</strong>
                 <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">世界对象、人物、关系等</p>
@@ -29,10 +31,6 @@ const generateView = {
               <div class="clickable generate-card ${this._currentType === "chapter" ? "active" : ""}" data-action="select-type" data-type="chapter">
                 <strong>3. 章节与场景结构</strong>
                 <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">章节卡和场景卡</p>
-              </div>
-              <div class="clickable generate-card ${this._currentType === "review" ? "active" : ""}" data-action="select-type" data-type="review">
-                <strong>4. 结构复查与状态抽取</strong>
-                <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">检查冲突，抽取状态变化</p>
               </div>
             </div>
           </div>
@@ -99,20 +97,10 @@ const generateView = {
   },
 
   _bindEvents() {
-    const content = document.getElementById("workspace-content")
-    if (!content) return
-    content.removeEventListener("click", this._clickHandler)
-    this._clickHandler = (e) => {
-      const target = e.target.closest("[data-action]")
-      if (!target) return
-      const action = target.getAttribute("data-action")
-      if (action === "select-type") {
-        this._selectType(target.getAttribute("data-type"))
-      } else if (action === "start-generate") {
-        this._startGenerate()
-      }
-    }
-    content.addEventListener("click", this._clickHandler)
+    bindWorkspaceClick(this, {
+      "select-type": (_e, t) => this._selectType(t.getAttribute("data-type")),
+      "start-generate": () => this._startGenerate(),
+    })
   },
 
   _selectType(type) {
@@ -154,7 +142,7 @@ const generateView = {
     const resultEl = document.getElementById("generate-result")
     if (!resultEl) return
 
-    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构", review: "结构复查与状态抽取" }
+    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构" }
 
     this._updateStep(1, "done")
     this._updateStep(2, "active")
@@ -166,7 +154,7 @@ const generateView = {
       const relatedIds = related ? related.split(",").map((s) => s.trim()).filter((s) => s) : undefined
 
       await api.context.compile({
-        novel_id: _state.currentProjectId, task: intent, scope,
+        novel_id: state.currentProjectId, task: intent, scope,
         reveal_mode: "author_safe", entity_ids: relatedIds, character_ids: relatedIds,
       })
 
@@ -179,9 +167,8 @@ const generateView = {
         world_character: api.generate.worldCharacter,
         plot: api.generate.plotStructure,
         chapter: api.generate.chapterScene,
-        review: api.generate.reviewMemory,
       }
-      resp = await apiCalls[this._currentType]({ novel_id: _state.currentProjectId, intent, context: {} })
+      resp = await apiCalls[this._currentType]({ novel_id: state.currentProjectId, intent, context: {} })
 
       this._updateStep(3, resp ? "done" : "active")
       this._updateStep(4, "active")

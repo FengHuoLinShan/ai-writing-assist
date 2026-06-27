@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
+from modules.context.contracts import CompileOptions, StructureContextBundle
+from modules.context.markdown_renderer import (
+    render_compiled_context as _render_compiled_context,
+)
 from modules.context.markdown_renderer import (
     render_context_markdown as _render_markdown,
 )
-from modules.context.services import CompileOptions, ContextCompiler
+from modules.context.services import ContextCompiler
+from modules.context.services.compiled_context import CompiledContext
 
 _compiler = ContextCompiler()
 
@@ -45,6 +49,7 @@ async def compile_structure_context(
     location_ids: list[str] | None = None,
     reveal_mode: str = "author_safe",
     enable_geo_filter: bool = False,
+    viewpoint_character_id: str | None = None,
 ) -> StructureContextBundle:
     """编译结构化创作上下文
 
@@ -71,7 +76,9 @@ async def compile_structure_context(
             - author_safe: 隐藏 hidden_truth（默认）
             - author_full: 显示所有信息，标注作者视角
             - reader: 只显示读者已知信息
+            - character: 按指定角色的知识边界过滤
         enable_geo_filter: 是否启用地缘可达性过滤（默认关闭）
+        viewpoint_character_id: 视角人物 ID（reveal_mode="character" 时必填）
 
     Returns:
         StructureContextBundle — 结构化创作上下文包
@@ -87,5 +94,47 @@ async def compile_structure_context(
         location_ids=location_ids,
         reveal_mode=reveal_mode,
         enable_geo_filter=enable_geo_filter,
+        viewpoint_character_id=viewpoint_character_id,
     )
     return await _compiler.compile(db, options)
+
+
+async def compile_with_tiers(
+    db: AsyncSession,
+    novel_id: str,
+    task: str,
+    scope: str,
+    budget_tokens: int = 4000,
+    scene_id: str | None = None,
+    **kwargs,
+) -> CompiledContext:
+    options = CompileOptions(
+        novel_id=novel_id,
+        task=task,
+        scope=scope,
+        scene_id=scene_id,
+        budget_tokens=budget_tokens,
+        **kwargs,
+    )
+    return await _compiler.compile_with_tiers(db, options, budget_tokens=budget_tokens)
+
+
+async def render_compiled_context_markdown(
+    db: AsyncSession,
+    novel_id: str,
+    task: str,
+    scope: str,
+    budget_tokens: int = 4000,
+    scene_id: str | None = None,
+    **kwargs,
+) -> str:
+    ctx = await compile_with_tiers(
+        db,
+        novel_id,
+        task,
+        scope,
+        budget_tokens=budget_tokens,
+        scene_id=scene_id,
+        **kwargs,
+    )
+    return _render_compiled_context(ctx)

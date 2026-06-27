@@ -2,19 +2,29 @@ import { defineConfig } from "@playwright/test"
 
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:8000",
-    trace: "on-first-retry",
+    baseURL: "http://localhost:8080",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
-  webServer: {
-    command: "cd ../backend && python -m app.main",
-    port: 8000,
-    timeout: 15000,
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: "cd ../backend && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      url: "http://localhost:8000/api/health",
+      timeout: 60000,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: "python3 -m http.server 8080",
+      url: "http://localhost:8080",
+      timeout: 60000,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 })

@@ -31,7 +31,7 @@ async function executeCommand(input) {
     // 搜索模式
     const query = trimmed.slice(1).trim()
     if (query) {
-      _state.searchQuery = query
+      state.searchQuery = query
       router.navigate("rag", "search")
     } else {
       toast("请在 / 后输入搜索关键词，如 /王印 旧王都", "warning")
@@ -160,48 +160,13 @@ registerCommand("world", async () => {
 }, "打开世界对象页")
 
 registerCommand("candidates", async () => {
-  router.navigate("world", "candidates")
-}, "打开候选对象清洗页")
-
-registerCommand("geo", async () => {
-  router.navigate("geo", "tree")
-}, "打开地理历史页")
-
-registerCommand("characters", async () => {
-  router.navigate("character", "list")
-}, "打开人物档案页")
-
-registerCommand("memory", async () => {
-  router.navigate("memory", "records")
-}, "打开长期记忆页")
-
-registerCommand("proposals", async () => {
-  router.navigate("memory", "proposals")
-}, "查看待确认的记忆提案")
-
-registerCommand("timeline", async () => {
-  router.navigate("timeline")
-}, "打开时间线页")
-
-registerCommand("outline", async () => {
-  router.navigate("outline", "threads")
-}, "打开剧情结构页")
-
-registerCommand("threads", async () => {
-  router.navigate("outline", "threads")
-}, "查看剧情线")
-
-registerCommand("arcs", async () => {
-  router.navigate("outline", "arcs")
-}, "查看篇章纲")
-
-registerCommand("chapters", async () => {
-  router.navigate("outline", "chapters")
-}, "查看章节卡")
+  toast("候选管理已移除，AI 抽取直接自动入库。前往「对象库」查看。", "info")
+  router.navigate("world", "objects")
+}, "候选管理（已废弃，AI 直接自动入库）")
 
 registerCommand("rag", async (args) => {
   if (args[0] === "search" && args[1]) {
-    _state.searchQuery = args.slice(1).join(" ")
+    state.searchQuery = args.slice(1).join(" ")
     router.navigate("rag", "search")
   } else {
     router.navigate("rag", "status")
@@ -212,10 +177,6 @@ registerCommand("context", async () => {
   router.navigate("context")
 }, "编译上下文")
 
-registerCommand("review", async () => {
-  router.navigate("review")
-}, "结构复查")
-
 registerCommand("writing", async () => {
   router.navigate("writing")
 }, "打开草稿导出页")
@@ -225,10 +186,10 @@ registerCommand("generate", async () => {
 }, "打开生成中心")
 
 registerCommand("export", async (args) => {
-  const type = args[0] || "outline"
+  const type = args[0] || "writing"
   toast(`正在导出 ${type}...`, "info")
   // 导出逻辑在各视图中实现
-}, "导出", "<outline|context|world>")
+}, "导出", "<world|writing>")
 
 registerCommand("save", async () => {
   toast("已保存", "success")

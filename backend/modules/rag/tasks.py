@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from core.container import get as _container_get
 from infrastructure.tasks.registry import task_handler
 
 logger = logging.getLogger(__name__)
@@ -66,9 +67,10 @@ async def handle_rag_reindex_novel(db, task):
         raise ValueError("novel_id is required for rag_reindex_novel")
 
     from modules.rag.facade import index_chapter_with_report
-    from modules.writing.facade import list_chapter_indices
 
-    chapter_indices = await list_chapter_indices(db, novel_id)
+    _list_chapter_indices = _container_get("writing.list_chapter_indices")
+
+    chapter_indices = await _list_chapter_indices(db, novel_id)
     if start_chapter is not None:
         chapter_indices = [idx for idx in chapter_indices if idx >= int(start_chapter)]
     if end_chapter is not None:
@@ -89,12 +91,14 @@ async def handle_rag_reindex_novel(db, task):
         chunks_created += report.chunks_created
         embedding_failed_count += report.embedding_failed_count
         warnings.extend(report.warnings)
-        chapters.append({
-            "chapter_index": chapter_index,
-            "chunks_created": report.chunks_created,
-            "embedding_failed_count": report.embedding_failed_count,
-            "warnings": report.warnings,
-        })
+        chapters.append(
+            {
+                "chapter_index": chapter_index,
+                "chunks_created": report.chunks_created,
+                "embedding_failed_count": report.embedding_failed_count,
+                "warnings": report.warnings,
+            }
+        )
 
     task.update_progress(1.0)
     await db.flush()

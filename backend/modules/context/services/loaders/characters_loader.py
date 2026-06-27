@@ -31,33 +31,82 @@ class CharactersLoader(Loader):
         if options.character_ids:
             limited_ids = options.character_ids[:char_limit]
         else:
-            limited_ids = await self._infer_character_ids(db, options, char_limit)
+            limited_ids = await self._infer_character_ids(db, options, bundle, char_limit)
 
         if limited_ids:
-            from modules.character.facade import get_characters_context
+            from modules.world.facade import get_characters_context
 
             ctx = await get_characters_context(
-                db, options.novel_id,
+                db,
+                options.novel_id,
                 character_ids=limited_ids,
                 reveal_mode=options.reveal_mode,
             )
             if ctx:
                 bundle.characters = [c.model_dump() for c in ctx.characters]
 
-        # 知识边界过滤
-        if limited_ids and bundle.world_entities and options.scope != "project":
-            from modules.character.facade import filter_context_by_character_knowledge
+        # 知识边界过滤：仅在 character reveal 模式下执行，使用视角人物作为过滤主体。
+        if (
+            options.reveal_mode == "character"
+            and limited_ids
+            and bundle.world_entities
+            and options.scope != "project"
+        ):
+            from modules.world.facade import filter_context_by_character_knowledge
+
+            filter_character_id = options.viewpoint_character_id or limited_ids[0]
+            if not options.viewpoint_character_id:
+                logger.warning(
+                    "character reveal 模式未提供 viewpoint_character_id，"
+                    "使用 limited_ids[0] 作为过滤角色: %s",
+                    filter_character_id,
+                )
 
             try:
+                # 世界对象字段 (entity_type/entity_id) 需要映射为知识过滤器的
+                # target_type/target_id 才能正确匹配 character_knowledge 记录。
+                # character_knowledge 的 target_type 使用粗粒度分类：
+                # character/location/event 保持原样，其它世界对象统一归为 entity。
+                filter_input: list[dict] = []
+                for ent in bundle.world_entities:
+                    mapped = dict(ent)
+                    etype = ent.get("entity_type", "")
+                    if etype == "character":
+                        mapped["target_type"] = "character"
+                    elif etype in ("location", "event"):
+                        mapped["target_type"] = etype
+                    else:
+                        mapped["target_type"] = "entity"
+                    mapped["target_id"] = ent.get("entity_id", "") or ent.get("id", "")
+                    filter_input.append(mapped)
+
                 filtered = await filter_context_by_character_knowledge(
-                    db, options.novel_id,
-                    limited_ids[0],
-                    bundle.world_entities,
+                    db,
+                    options.novel_id,
+                    filter_character_id,
+                    filter_input,
                 )
+
+                # 将过滤结果映射回世界对象字段，并整合知识边界信息。
+                # false_belief 时用 misconception 替换 summary，且不暴露 hidden_truth。
+                restored: list[dict] = []
+                for ent in filtered or []:
+                    mapped = dict(ent)
+                    mapped.pop("target_type", None)
+                    mapped.pop("target_id", None)
+                    mapped.pop("original_content", None)
+                    if ent.get("knowledge_level") in {"false_belief", "misunderstood"}:
+                        misconception = ent.get("content", "")
+                        if misconception:
+                            mapped["summary"] = misconception
+                            mapped["misconception"] = misconception
+                        mapped.pop("hidden_truth", None)
+                    restored.append(mapped)
+
                 if filtered is not None:
-                    bundle.world_entities = filtered
+                    bundle.world_entities = restored
             except Exception:
-                pass
+                logger.warning("知识边界过滤失败", exc_info=True)
 
         bundle.budget_used["characters"] = len(bundle.characters)
 
@@ -65,26 +114,28 @@ class CharactersLoader(Loader):
         self,
         db: AsyncSession,
         options: CompileOptions,
+        bundle: StructureContextBundle,
         limit: int,
     ) -> list[str]:
-        """推断相关人物 ID"""
-        char_ids: list[str] = []
+        ids: list[str] = []
 
-        if options.chapter_index is not None:
-            from modules.outline.facade import get_chapter_card
+        # 1. Scene POV character
+        if options.scene_id:
+            from modules.outline.facade import get_scene
 
-            card = await get_chapter_card(db, options.novel_id, options.chapter_index)
-            if card and card.involved_character_ids:
-                char_ids.extend(card.involved_character_ids)
+            scene = await get_scene(db, options.scene_id)
+            pov = scene.get("pov_character_id") if scene else None
+            if pov:
+                ids.append(pov)
 
-        if not char_ids and options.arc_id is not None:
-            from modules.outline.facade import get_arc_context
+        # 2. World entities of type character
+        if not ids and bundle.world_entities:
+            for ent in bundle.world_entities:
+                if ent.get("entity_type") == "character":
+                    eid = ent.get("entity_id") or ent.get("id")
+                    if eid and eid not in ids:
+                        ids.append(eid)
+                if len(ids) >= limit:
+                    break
 
-            try:
-                arc = await get_arc_context(db, options.novel_id, options.arc_id)
-                if arc and arc.related_character_ids:
-                    char_ids.extend(arc.related_character_ids)
-            except Exception:
-                pass
-
-        return char_ids[:limit]
+        return ids[:limit]

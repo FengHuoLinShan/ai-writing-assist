@@ -18,7 +18,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 - 精确检索：entity_id / character_id / thread_id / chapter_index
 - 关键词检索：专名 / 别名 / 章节名
-- 项目词典检索：人物 name+aliases、世界对象 name+entity_aliases、剧情线名称
+- 项目词典检索：人物 name+aliases、世界对象 name+aliases（core_entities.content_json.aliases）、剧情线名称
 - 向量检索：语义相似
 - metadata 过滤：visibility / importance / source_type
 - 抽取模式：`mode="extraction"` 时允许明确 entity/character/thread/chapter 关系命中作为有效召回
@@ -35,7 +35,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 ```python
 async def create_chunk(db, novel_id, data) -> RagChunkResponse
-async def retrieve(db, novel_id, query, *, entity_ids=None, character_ids=None, thread_ids=None, chapter_index=None, visibility=None, mode="search", top_k=12) -> RagResultBundle
+async def retrieve(db, novel_id, query, *, entity_ids=None, character_ids=None, thread_ids=None, chapter_index=None, visibility=None, mode="search", top_k=12, reference_chapter_index=None) -> RagResultBundle
 async def index_chapter(db, novel_id, chapter_index) -> int
 async def index_chapter_with_report(db, novel_id, chapter_index) -> RagIndexReport
 async def get_ordered_chapter_chunks(db, novel_id, start_chapter, end_chapter=None) -> list[RagChunkContract]

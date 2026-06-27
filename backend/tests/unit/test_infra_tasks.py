@@ -1,0 +1,925 @@
+"""
+Infrastructure: Tasks 模块单元测试
+
+覆盖:
+- tasks/enqueuer.py — enqueue_task (纯逻辑)
+- tasks/api.py — submit_task / get_task_status / cancel_task (FastAPI 路由)
+- tasks/worker.py — TaskWorker (通过 mock 隔离 DB 和 Registry)
+
+注意: api.py 使用 FastAPI 路由, 通过 mock 外部依赖直接调用路由函数。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi import HTTPException
+
+# ============================================================
+# enqueuer.py
+# ============================================================
+
+
+class TestEnqueueTask:
+    """enqueue_task 单元测试"""
+
+    def test_create_task_with_defaults(self) -> None:
+        """GREEN: 使用默认参数创建任务"""
+        from infrastructure.tasks.enqueuer import enqueue_task
+
+        db = MagicMock()
+        db.add = MagicMock()
+
+        task_id = enqueue_task(db, task_type="test_type")
+
+        # 验证返回 task_id
+        assert isinstance(task_id, str)
+        uuid.UUID(hex=task_id)  # 不会抛出异常 = 有效 UUID
+
+        # 验证 db.add 被调用
+        db.add.assert_called_once()
+        task = db.add.call_args[0][0]
+        assert task.task_type == "test_type"
+        assert task.status == "pending"
+        assert task.progress == 0.0
+        assert task.meta == {}
+
+    def test_create_task_with_custom_params(self) -> None:
+        """GREEN: 使用自定义参数创建任务"""
+        from infrastructure.tasks.enqueuer import enqueue_task
+
+        db = MagicMock()
+        db.add = MagicMock()
+
+        task_id = enqueue_task(
+            db,
+            task_type="embedding_build",
+            meta={"novel_id": "abc-123"},
+            status="running",
+            progress=0.5,
+        )
+
+        assert isinstance(task_id, str)
+        task = db.add.call_args[0][0]
+        assert task.task_type == "embedding_build"
+        assert task.status == "running"
+        assert task.progress == 0.5
+        assert task.meta == {"novel_id": "abc-123"}
+
+    def test_create_task_meta_none_becomes_empty_dict(self) -> None:
+        """GREEN: meta=None 时转为空 dict"""
+        from infrastructure.tasks.enqueuer import enqueue_task
+
+        db = MagicMock()
+        db.add = MagicMock()
+
+        enqueue_task(db, task_type="test", meta=None)
+
+        task = db.add.call_args[0][0]
+        assert task.meta == {}
+
+
+# ============================================================
+# api.py
+# ============================================================
+
+
+class TestSubmitTask:
+    """submit_task API endpoint 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_submit_known_task_type(self) -> None:
+        """GREEN: 提交已注册的任务类型，返回 201 和 task_id"""
+        from infrastructure.tasks.api import TaskSubmitRequest, submit_task
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+
+        request = TaskSubmitRequest(task_type="test_type", meta={"key": "val"})
+
+        with patch(
+            "infrastructure.tasks.api.TaskRegistry",
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
+            registry_instance.__contains__ = MagicMock(return_value=True)
+
+            response = await submit_task(request, db=db)
+
+        assert response.task_id is not None
+        _ = uuid.UUID(hex=response.task_id)  # valid UUID
+        assert response.status == "pending"
+        db.add.assert_called_once()
+        db.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_submit_unknown_task_type_raises_400(self) -> None:
+        """RED: 提交未知任务类型时抛出 400 HTTPException"""
+        from infrastructure.tasks.api import TaskSubmitRequest, submit_task
+
+        db = AsyncMock()
+
+        request = TaskSubmitRequest(task_type="unknown_type")
+
+        with patch(
+            "infrastructure.tasks.api.TaskRegistry",
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
+            registry_instance.__contains__ = MagicMock(return_value=False)
+            registry_instance.registered_types = ["type_a", "type_b"]
+
+            with pytest.raises(HTTPException) as exc_info:
+                await submit_task(request, db=db)
+
+        assert exc_info.value.status_code == 400
+        assert "unknown_type" in exc_info.value.detail
+        assert "type_a" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_submit_empty_meta(self) -> None:
+        """GREEN: 提交空 meta 的任务"""
+        from infrastructure.tasks.api import TaskSubmitRequest, submit_task
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+
+        request = TaskSubmitRequest(task_type="test_type")
+
+        with patch(
+            "infrastructure.tasks.api.TaskRegistry",
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
+            registry_instance.__contains__ = MagicMock(return_value=True)
+
+            _ = await submit_task(request, db=db)
+
+        task = db.add.call_args[0][0]
+        assert task.meta == {}
+
+
+class TestGetTaskStatus:
+    """get_task_status API endpoint 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_task_exists(self) -> None:
+        """GREEN: 查询存在的任务返回完整状态"""
+        from infrastructure.tasks.api import get_task_status
+
+        task_id = uuid.uuid4()
+        now = datetime.now(UTC)
+
+        task_mock = MagicMock()
+        task_mock.id = task_id
+        task_mock.task_type = "test_type"
+        task_mock.status = "done"
+        task_mock.progress = 1.0
+        task_mock.meta = {"novel_id": "abc"}
+        task_mock.result = {"output": "ok"}
+        task_mock.error_message = None
+        task_mock.created_at = now
+        task_mock.started_at = now
+        task_mock.finished_at = now
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        response = await get_task_status(task_id, db=db)
+
+        assert response.task_id == str(task_id)
+        assert response.task_type == "test_type"
+        assert response.status == "done"
+        assert response.progress == 1.0
+        assert response.meta == {"novel_id": "abc"}
+        assert response.result == {"output": "ok"}
+        assert response.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_task_not_found_raises_404(self) -> None:
+        """RED: 任务不存在时抛出 404"""
+        from infrastructure.tasks.api import get_task_status
+
+        task_id = uuid.uuid4()
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_task_status(task_id, db=db)
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_status_fallback_when_none(self) -> None:
+        """GREEN: status 为 None 时回退到 'pending'"""
+        from infrastructure.tasks.api import get_task_status
+
+        task_id = uuid.uuid4()
+
+        task_mock = MagicMock()
+        task_mock.id = task_id
+        task_mock.task_type = "test"
+        task_mock.status = None  # <-- None
+        task_mock.progress = None
+        task_mock.meta = None
+        task_mock.result = None
+        task_mock.error_message = None
+        task_mock.created_at = None
+        task_mock.started_at = None
+        task_mock.finished_at = None
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        response = await get_task_status(task_id, db=db)
+
+        assert response.status == "pending"
+        assert response.meta == {}
+        assert response.result == {}
+        assert response.created_at is None
+
+
+class TestCancelTask:
+    """cancel_task API endpoint 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_task(self) -> None:
+        """GREEN: 取消 pending 状态的任务"""
+        from infrastructure.tasks.api import cancel_task
+
+        task_id = uuid.uuid4()
+
+        task_mock = MagicMock()
+        task_mock.id = task_id
+        task_mock.status = "pending"
+        task_mock.mark_cancelled = MagicMock()
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+        db.execute = AsyncMock(return_value=result_mock)
+        db.flush = AsyncMock()
+
+        response = await cancel_task(task_id, db=db)
+
+        assert response.task_id == str(task_id)
+        assert response.cancelled is True
+        task_mock.mark_cancelled.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_task(self) -> None:
+        """GREEN: 取消 running 状态的任务"""
+        from infrastructure.tasks.api import cancel_task
+
+        task_id = uuid.uuid4()
+
+        task_mock = MagicMock()
+        task_mock.id = task_id
+        task_mock.status = "running"
+        task_mock.mark_cancelled = MagicMock()
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+        db.execute = AsyncMock(return_value=result_mock)
+        db.flush = AsyncMock()
+
+        response = await cancel_task(task_id, db=db)
+        assert response.cancelled is True
+        task_mock.mark_cancelled.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cancel_done_task_raises_400(self) -> None:
+        """RED: 取消已完成的任务抛出 400"""
+        from infrastructure.tasks.api import cancel_task
+
+        task_id = uuid.uuid4()
+
+        task_mock = MagicMock()
+        task_mock.id = task_id
+        task_mock.status = "done"
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await cancel_task(task_id, db=db)
+
+        assert exc_info.value.status_code == 400
+        assert "done" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_cancel_failed_task_raises_400(self) -> None:
+        """RED: 取消已失败的任务抛出 400"""
+        from infrastructure.tasks.api import cancel_task
+
+        task_id = uuid.uuid4()
+
+        task_mock = MagicMock()
+        task_mock.id = task_id
+        task_mock.status = "failed"
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await cancel_task(task_id, db=db)
+
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_cancel_nonexistent_task_raises_404(self) -> None:
+        """RED: 取消不存在的任务抛出 404"""
+        from infrastructure.tasks.api import cancel_task
+
+        task_id = uuid.uuid4()
+
+        db = AsyncMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await cancel_task(task_id, db=db)
+
+        assert exc_info.value.status_code == 404
+
+
+# ============================================================
+# worker.py
+# ============================================================
+
+
+class TestTaskWorkerInitAndProps:
+    """TaskWorker 初始化和属性"""
+
+    def test_init_defaults(self) -> None:
+        """GREEN: 默认初始化使用全局常量"""
+        from infrastructure.tasks.worker import TaskWorker
+        from shared.constants import (
+            TASK_HEARTBEAT_INTERVAL,
+            TASK_MAX_HEARTBEAT_GAP,
+            TASK_POLL_INTERVAL,
+        )
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker()
+
+        assert worker._poll_interval == TASK_POLL_INTERVAL
+        assert worker._heartbeat_interval == TASK_HEARTBEAT_INTERVAL
+        assert worker._max_heartbeat_gap == TASK_MAX_HEARTBEAT_GAP
+        assert worker._running is False
+        assert worker._current_task is None
+        assert worker._heartbeat_task is None
+        assert worker._stats == {
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
+
+    def test_custom_parameters(self) -> None:
+        """GREEN: 自定义参数"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker(
+                poll_interval=0.5,
+                heartbeat_interval=5.0,
+                max_heartbeat_gap=30.0,
+            )
+
+        assert worker._poll_interval == 0.5
+        assert worker._heartbeat_interval == 5.0
+        assert worker._max_heartbeat_gap == 30.0
+
+    def test_stats_property(self) -> None:
+        """GREEN: stats 返回副本而非引用"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker()
+
+        stats = worker.stats
+        assert stats == {"processed": 0, "succeeded": 0, "failed": 0, "cancelled": 0}
+        # 验证是副本
+        stats["processed"] = 999
+        assert worker._stats["processed"] == 0
+
+    def test_stop_sets_running_false(self) -> None:
+        """GREEN: stop() 设置 _running = False"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker()
+
+        worker._running = True
+        worker.stop()
+        assert worker._running is False
+
+
+class TestTaskWorkerClaimTask:
+    """TaskWorker._claim_task 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_claim_pending_task(self) -> None:
+        """GREEN: 成功领取 pending 任务"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.status = "pending"
+        task_mock.task_type = "test_type"
+        task_mock.mark_running = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.commit = AsyncMock()
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker()
+
+        claimed = await worker._claim_task(db_session)
+
+        assert claimed is task_mock
+        task_mock.mark_running.assert_called_once()
+        db_session.commit.assert_awaited_once()
+        assert worker._current_task is task_mock
+
+    @pytest.mark.asyncio
+    async def test_claim_no_pending_task(self) -> None:
+        """GREEN: 无 pending 任务时返回 None"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker()
+
+        claimed = await worker._claim_task(db_session)
+
+        assert claimed is None
+        assert worker._current_task is None
+
+    @pytest.mark.asyncio
+    async def test_claim_uses_skip_locked(self) -> None:
+        """GREEN: _claim_task 使用 FOR UPDATE SKIP LOCKED"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.mark_running = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.commit = AsyncMock()
+
+        with patch("infrastructure.tasks.worker.get_manager"):
+            worker = TaskWorker()
+
+        await worker._claim_task(db_session)
+
+        # 验证 SELECT 语句使用了 with_for_update(skip_locked=True)
+        call_stmt = db_session.execute.call_args[0][0]
+        assert call_stmt._for_update_arg is not None
+        assert call_stmt._for_update_arg.skip_locked is True
+
+
+class TestTaskWorkerExecuteTask:
+    """TaskWorker._execute_task 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_success(self) -> None:
+        """GREEN: 任务执行成功更新状态为 done"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.mark_done = MagicMock()
+
+        db_session = AsyncMock()
+        db_session.commit = AsyncMock()
+
+        handler = AsyncMock(return_value={"output": "success"})
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=handler)
+
+            await worker._execute_task(task_mock, db_session)
+
+        handler.assert_awaited_once_with(task=task_mock, db=db_session)
+        task_mock.mark_done.assert_called_once_with({"output": "success"})
+        db_session.commit.assert_awaited()
+        assert worker._stats["succeeded"] == 1
+        assert worker._stats["processed"] == 1
+        assert worker._current_task is None
+
+    @pytest.mark.asyncio
+    async def test_execute_handler_returns_non_dict(self) -> None:
+        """GREEN: handler 返回非 dict 时包装为 {'result': ...}"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.mark_done = MagicMock()
+
+        db_session = AsyncMock()
+        db_session.commit = AsyncMock()
+
+        handler = AsyncMock(return_value="simple_string_result")
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=handler)
+
+            await worker._execute_task(task_mock, db_session)
+
+        task_mock.mark_done.assert_called_once_with({"result": "simple_string_result"})
+
+    @pytest.mark.asyncio
+    async def test_execute_handler_none_registered(self) -> None:
+        """RED: 未注册 handler 时标记为 failed"""
+        from unittest.mock import PropertyMock
+
+        from infrastructure.tasks.registry import TaskRegistry
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "unknown_type"
+        task_mock.mark_failed = MagicMock()
+
+        db_session = AsyncMock()
+        db_session.rollback = AsyncMock()
+        db_session.commit = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch.object(
+                TaskRegistry,
+                "registered_types",
+                new_callable=PropertyMock,
+                return_value=["known_type"],
+            ),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=None)
+
+            await worker._execute_task(task_mock, db_session)
+
+        db_session.rollback.assert_awaited_once()
+        task_mock.mark_failed.assert_called_once()
+        assert "No handler" in task_mock.mark_failed.call_args[0][0]
+        assert worker._stats["failed"] == 1
+        assert worker._stats["processed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_handler_raises_exception(self) -> None:
+        """RED: handler 抛出异常时标记为 failed"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.mark_failed = MagicMock()
+
+        db_session = AsyncMock()
+        db_session.rollback = AsyncMock()
+        db_session.commit = AsyncMock()
+
+        async def failing_handler(**kwargs):
+            raise ValueError("processing error")
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=failing_handler)
+
+            await worker._execute_task(task_mock, db_session)
+
+        db_session.rollback.assert_awaited_once()
+        task_mock.mark_failed.assert_called_once()
+        assert "ValueError: processing error" in task_mock.mark_failed.call_args[0][0]
+        assert worker._stats["failed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_cancelled_error(self) -> None:
+        """GREEN: 捕获 CancelledError 并标记为 cancelled"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.mark_cancelled = MagicMock()
+
+        db_session = AsyncMock()
+        db_session.rollback = AsyncMock()
+        db_session.commit = AsyncMock()
+
+        async def cancelling_handler(**kwargs):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=cancelling_handler)
+
+            await worker._execute_task(task_mock, db_session)
+
+        db_session.rollback.assert_awaited_once()
+        task_mock.mark_cancelled.assert_called_once()
+        assert worker._stats["cancelled"] == 1
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_task_cancelled_in_finally(self) -> None:
+        """GREEN: finally 中取消心跳协程"""
+        import asyncio
+
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.mark_done = MagicMock()
+
+        db_session = AsyncMock()
+        db_session.commit = AsyncMock()
+
+        handler = AsyncMock(return_value={"ok": True})
+
+        # 创建一个真实的心跳协程用于测试
+        async def dummy_heartbeat(task_id):
+            try:
+                while True:
+                    await asyncio.sleep(100)
+            except asyncio.CancelledError:
+                pass
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(
+                TaskWorker,
+                "_heartbeat_loop",
+                side_effect=dummy_heartbeat,
+            ),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=handler)
+
+            await worker._execute_task(task_mock, db_session)
+
+        # _heartbeat_task 应在 finally 中被置为 None
+        assert worker._heartbeat_task is None
+
+
+class TestTaskWorkerHeartbeat:
+    """TaskWorker._heartbeat_loop 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_updates_heartbeat_at(self) -> None:
+        """GREEN: 心跳更新任务的 heartbeat_at"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_id = uuid.uuid4()
+
+        # Mock db_manager 返回的 session
+        hb_session = AsyncMock()
+        hb_session.execute = AsyncMock()
+        hb_session.commit = AsyncMock()
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=hb_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager, heartbeat_interval=0.01)
+
+        # 运行心跳循环，让它更新一次后通过外边取消
+        heartbeat_task = asyncio.create_task(worker._heartbeat_loop(task_id))
+        await asyncio.sleep(0.05)
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
+        # 验证 execute 被调用（至少一次）
+        hb_session.execute.assert_called()
+        hb_session.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_logs_error_on_failure(self) -> None:
+        """GREEN: 心跳更新失败时记录 warning 不崩溃"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_id = uuid.uuid4()
+
+        # 模拟 session.execute 抛出异常
+        hb_session = AsyncMock()
+        hb_session.execute = AsyncMock(side_effect=Exception("DB gone"))
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=hb_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager, heartbeat_interval=0.01)
+
+        heartbeat_task = asyncio.create_task(worker._heartbeat_loop(task_id))
+        await asyncio.sleep(0.05)
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
+        # 即使失败也不应崩溃, 循环应继续直到取消
+        # 没有断言异常就是成功
+
+
+class TestTaskWorkerRecoverStale:
+    """TaskWorker.recover_stale_tasks 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_recover_stale_tasks(self) -> None:
+        """GREEN: 恢复超时任务"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        result_mock = MagicMock()
+        result_mock.rowcount = 3
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.commit = AsyncMock()
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager)
+
+        recovered = await worker.recover_stale_tasks()
+
+        assert recovered == 3
+        db_session.execute.assert_awaited_once()
+        db_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_recover_stale_tasks_rowcount_none(self) -> None:
+        """GREEN: rowcount 为 None 时返回 0"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        result_mock = MagicMock()
+        result_mock.rowcount = None
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.commit = AsyncMock()
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager)
+
+        recovered = await worker.recover_stale_tasks()
+        assert recovered == 0
+
+    @pytest.mark.asyncio
+    async def test_recover_uses_parameterized_query(self) -> None:
+        """GREEN: recover 使用参数化查询"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        result_mock = MagicMock()
+        result_mock.rowcount = 0
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.commit = AsyncMock()
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager)
+
+        await worker.recover_stale_tasks()
+
+        # 验证使用了参数化查询（:gap 参数）
+        call_stmt, call_params = db_session.execute.call_args[0]
+        stmt_text = str(call_stmt)
+        assert ":gap" in stmt_text
+        assert call_params == {"gap": worker._max_heartbeat_gap}
+
+
+class TestTaskWorkerRunOnce:
+    """TaskWorker.run_once 单元测试"""
+
+    @pytest.mark.asyncio
+    async def test_run_once_with_task(self) -> None:
+        """GREEN: run_once 正常领取并执行任务"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.mark_running = MagicMock()
+        task_mock.mark_done = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = task_mock
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.commit = AsyncMock()
+
+        handler = AsyncMock(return_value={"ok": True})
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        with patch.object(TaskWorker, "_heartbeat_loop", return_value=None):
+            worker = TaskWorker(db_manager=db_manager)
+            worker._registry.get_handler = MagicMock(return_value=handler)
+
+            result = await worker.run_once()
+
+        assert result is task_mock
+        handler.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_run_once_no_task(self) -> None:
+        """GREEN: 无 pending 任务时返回 None"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(return_value=result_mock)
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager)
+
+        result = await worker.run_once()
+        assert result is None

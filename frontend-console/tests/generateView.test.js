@@ -4,7 +4,7 @@ import generateView from "../views/generateView.js"
 beforeEach(() => { vi.clearAllMocks(); generateView._currentType = null })
 
 describe("generateView", () => {
-  describe("render", () => {
+  describe("generateView render", () => {
     it("包含生成类型卡片", async () => {
       const html = await generateView.render()
       expect(html).toContain("世界与人物结构")
@@ -41,7 +41,7 @@ describe("generateView", () => {
     })
 
     it("调用 API 并显示进度", async () => {
-      _state.currentProjectId = "p1"
+      state.currentProjectId = "p1"
       generateView._currentType = "chapter"
       document.body.innerHTML = `
         <textarea id="generate-intent">生成章节卡</textarea>

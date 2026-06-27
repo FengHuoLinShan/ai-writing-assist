@@ -20,10 +20,10 @@ Context Markdown 渲染器
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any
+from dataclasses import asdict, is_dataclass
 
-from modules.context.contracts import AUTHOR_ONLY_WARNING, StructureContextBundle
+from modules.context.contracts import StructureContextBundle
+from modules.context.services.compiled_context import CompiledContext
 
 # ============================================================
 # Section Renderers
@@ -113,7 +113,10 @@ def _render_hard_constraints(context: StructureContextBundle) -> str:
         "4. **不让角色知道不该知道的信息**。严格遵守 character_knowledge 边界。",
         "5. **不凭空增加重大设定**。新设定必须有合理来源或用户确认。",
         "6. **输出必须符合 JSON schema**。",
-        "7. **不重要对象不要升级为正史对象**。别名标记为 alias_of_existing，临时对象标记为 temporary_only。",
+        (
+            "7. **不重要对象不要升级为正史对象**。"
+            "别名标记为 alias_of_existing，临时对象标记为 temporary_only。"
+        ),
     ]
     return "\n".join(lines) + "\n"
 
@@ -202,9 +205,7 @@ def _render_characters(context: StructureContextBundle) -> str:
 
         # 知识边界信息
         if char.get("character_id"):
-            lines.append(
-                f"- **知识边界**: 该人物知道的信息受 `character_knowledge` 约束"
-            )
+            lines.append("- **知识边界**: 该人物知道的信息受 `character_knowledge` 约束")
 
         lines.append("")
 
@@ -225,8 +226,10 @@ def _render_world_entities(context: StructureContextBundle) -> str:
             lines.append(f"- **概要**: {ent['summary']}")
         if ent.get("public_info"):
             lines.append(f"- **公开信息**: {ent['public_info']}")
+        if ent.get("misconception"):
+            lines.append(f"- **角色误解（false_belief）**: {ent['misconception']}")
         if ent.get("hidden_truth"):
-            lines.append(f"- **{ent['hidden_truth']}**")
+            lines.append(f"- **隐藏真相**: {ent['hidden_truth']}")
         if ent.get("importance_level"):
             lines.append(f"- **重要性**: {ent['importance_level']}")
         lines.append("")
@@ -247,7 +250,8 @@ def _render_geo_history(context: StructureContextBundle) -> str:
 
         loc_name = getattr(loc, "name", loc.get("name", "未知地点"))
         loc_level = getattr(
-            loc, "location_level",
+            loc,
+            "location_level",
             loc.get("location_level", "unknown"),
         )
         lines.append(f"### {loc_name} ({loc_level})")
@@ -272,11 +276,13 @@ def _render_geo_history(context: StructureContextBundle) -> str:
             for edge in edges[:5]:  # 最多显示 5 条
                 rel_type = getattr(edge, "relation_type", edge.get("relation_type", ""))
                 direction = getattr(
-                    edge, "direction_label",
+                    edge,
+                    "direction_label",
                     edge.get("direction_label", ""),
                 )
                 difficulty = getattr(
-                    edge, "difficulty",
+                    edge,
+                    "difficulty",
                     edge.get("difficulty", ""),
                 )
                 parts = [rel_type]
@@ -289,18 +295,12 @@ def _render_geo_history(context: StructureContextBundle) -> str:
         # 父子地点
         parents = loc_data.get("parent_locations", [])
         if parents:
-            parent_names = [
-                getattr(p, "name", p.get("name", "?"))
-                for p in parents
-            ]
+            parent_names = [getattr(p, "name", p.get("name", "?")) for p in parents]
             lines.append(f"- **上级地点**: {' > '.join(parent_names)}")
 
         children = loc_data.get("child_locations", [])
         if children:
-            child_names = [
-                getattr(c, "name", c.get("name", "?"))
-                for c in children[:3]
-            ]
+            child_names = [getattr(c, "name", c.get("name", "?")) for c in children[:3]]
             lines.append(f"- **下级地点**: {', '.join(child_names)}")
 
         # 历史时期
@@ -342,23 +342,72 @@ def _render_plot_threads(context: StructureContextBundle) -> str:
 
 
 def _render_memory(context: StructureContextBundle) -> str:
-    """渲染长期记忆"""
-    if not context.memory_records:
+    """渲染长期记忆（全景格式）"""
+    records = context.memory_records
+
+    # 兼容旧格式：list of dicts
+    if isinstance(records, list):
+        if not records:
+            return "无相关数据\n"
+        lines: list[str] = []
+        for mem in records:
+            mtype = mem.get("memory_type", "event")
+            title = mem.get("title", "")
+            summary = mem.get("summary", "")
+            chap = mem.get("chapter_index")
+            chap_str = f" (第 {chap} 章)" if chap is not None else ""
+            header = f"- **[{mtype}]{chap_str}**: "
+            if title:
+                header += f"{title} — "
+            header += summary
+            lines.append(header)
+        return "\n".join(lines) + "\n"
+
+    # 新格式：ChapterPanorama dict
+    if not records or not isinstance(records, dict):
         return "无相关数据\n"
 
-    lines: list[str] = []
-    for mem in context.memory_records:
-        mtype = mem.get("memory_type", "event")
-        title = mem.get("title", "")
-        summary = mem.get("summary", "")
-        chap = mem.get("chapter_index")
-        chap_str = f" (第 {chap} 章)" if chap is not None else ""
+    lines = []
+    entities = records.get("entities", [])
+    relations = records.get("relations", [])
+    locations = records.get("character_locations", {})
+    chapter = records.get("chapter_index", "?")
 
-        header = f"- **[{mtype}]{chap_str}**: "
-        if title:
-            header += f"{title} — "
-        header += summary
-        lines.append(header)
+    lines.append(f"===== 第 {chapter} 章关系全景 =====")
+
+    if entities:
+        lines.append("**实体**")
+        for e in entities:
+            name = e.get("name", "?")
+            etype = e.get("entity_type", "?")
+            summary = e.get("summary", "")
+            importance = e.get("importance", 0.5)
+            star = "★" if importance >= 0.8 else "☆" if importance >= 0.5 else ""
+            line = f"- {name} ({etype}){star}"
+            if summary:
+                line += f": {summary}"
+            lines.append(line)
+
+    if relations:
+        lines.append("**关系**")
+        for r in relations:
+            src = r.get("source_id", "?")[:8]
+            tgt = r.get("target_id", "?")[:8]
+            rtype = r.get("relation_type", "?")
+            desc = r.get("description", "")
+            line = f"- {src} → {tgt} [{rtype}]"
+            if desc:
+                line += f" {desc}"
+            lines.append(line)
+
+    if locations:
+        lines.append("**角色位置**")
+        loc_map = {}
+        for cid, loc in locations.items():
+            loc_name = loc.get("location_id", "?")[:8]
+            loc_map.setdefault(loc_name, []).append(cid[:8])
+        for loc_name, chars in loc_map.items():
+            lines.append(f"- {loc_name}: {', '.join(chars)}")
 
     return "\n".join(lines) + "\n"
 
@@ -408,7 +457,8 @@ def _render_forbidden(context: StructureContextBundle) -> str:
 
     # 从 plot_threads 中提取 hidden_truth 防止提前揭示
     hidden_threads = [
-        t for t in context.plot_threads
+        t
+        for t in context.plot_threads
         if t.get("thread_type") == "hidden" and t.get("hidden_truth")
     ]
     if hidden_threads:
@@ -430,9 +480,39 @@ def _render_forbidden(context: StructureContextBundle) -> str:
 
 
 def _render_creative_materials(context: StructureContextBundle) -> str:
-    """渲染可用创作素材"""
+    """渲染可用创作素材（含实体标签和篇章信息）"""
     if not context.rag_chunks:
         return "无相关数据\n"
+
+    # 构建实体名称查找表（世界对象 + 人物）
+    entity_name_map: dict[str, str] = {}
+    for we in context.world_entities:
+        if isinstance(we, dict):
+            we_dict = we
+        elif is_dataclass(we):
+            we_dict = asdict(we)
+        elif hasattr(we, "model_dump"):
+            we_dict = we.model_dump()
+        else:
+            continue
+        eid = we_dict.get("id") or we_dict.get("entity_id")
+        ename = we_dict.get("name") or we_dict.get("entity_name")
+        if eid and ename:
+            entity_name_map[str(eid)] = str(ename)
+    # 同样从人物列表中查找
+    for char in context.characters:
+        if isinstance(char, dict):
+            char_dict = char
+        elif is_dataclass(char):
+            char_dict = asdict(char)
+        elif hasattr(char, "model_dump"):
+            char_dict = char.model_dump()
+        else:
+            continue
+        cid = char_dict.get("character_id") or char_dict.get("id")
+        cname = char_dict.get("name")
+        if cid and cname:
+            entity_name_map[str(cid)] = str(cname)
 
     lines: list[str] = []
     for chunk in context.rag_chunks:
@@ -440,15 +520,35 @@ def _render_creative_materials(context: StructureContextBundle) -> str:
         score = chunk.get("score")
         src_type = chunk.get("source_type", "")
         chap = chunk.get("chapter_index")
+        meta = chunk.get("meta", {})
+        entity_ids = chunk.get("entity_ids", [])
+        character_ids = chunk.get("character_ids", [])
 
-        parts = [f"- "]
+        parts = ["- "]
+        # 篇章名称
+        arc_in_meta = meta.get("arc_name") if isinstance(meta, dict) else None
+        if arc_in_meta:
+            parts.append(f"[{arc_in_meta}] ")
         if chap is not None:
             parts.append(f"[第 {chap} 章] ")
         if src_type:
             parts.append(f"[{src_type}] ")
         if score is not None:
             parts.append(f"(相关度: {score:.2f}) ")
-        parts.append(text[:200])  # 截断过长的片段
+
+        # 实体标签
+        tags: list[str] = []
+        for eid in (entity_ids or [])[:3]:
+            name = entity_name_map.get(eid, eid[:8] if eid else "?")
+            tags.append(f"#{name}")
+        for cid in (character_ids or [])[:2]:
+            name = entity_name_map.get(cid, cid[:8] if cid else "?")
+            tags.append(f"@{name}")
+
+        if tags:
+            parts.append("[" + ", ".join(tags) + "] ")
+
+        parts.append(text[:200])
 
         lines.append("".join(parts))
 
@@ -488,3 +588,25 @@ def _get_budget_for_category(category: str) -> int:
     from modules.context.contracts import CONTEXT_BUDGET
 
     return CONTEXT_BUDGET.get(category, 10)
+
+
+_TIER_HEADERS: dict[str, str] = {
+    "writing_objective": "一、创作目标",
+    "scene_blueprint": "二、场景蓝图",
+    "pov_knowledge": "三、视角人物知识边界",
+    "delta_timeline": "四、世界线变化时间线",
+    "open_narrative_obligations": "五、开放叙事义务",
+    "retrieval_evidence_packs": "六、检索证据包",
+    "style_assets": "七、风格素材",
+    "hard_constraints": "八、必须遵守的硬约束",
+    "compiler_warnings": "九、编译器警告",
+}
+
+
+def render_compiled_context(ctx: CompiledContext) -> str:
+    """从 CompiledContext IR 渲染为 Markdown，保持 Tier 顺序"""
+    parts = []
+    for section in sorted(ctx.sections, key=lambda s: s.tier):
+        header = _TIER_HEADERS.get(section.key, section.key)
+        parts.append(f"## {header}\n\n{section.content}\n")
+    return "\n".join(parts)

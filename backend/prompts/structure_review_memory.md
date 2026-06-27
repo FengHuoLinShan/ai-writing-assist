@@ -1,6 +1,9 @@
+> **⚠️ 已废弃**：`review` 模块已从系统中移除，本 Prompt 不再被任何代码路径使用。保留本文档仅作历史参考。
+
 # Structure: Review & Memory — 结构复查与状态抽取 Prompt
 
 > **用途**：对结构化创作候选进行复查（冲突检查、剧透检查、知识边界检查、重复检查），以及从用户手写正文或结构变更中抽取状态更新候选。
+> > 注：review 模块已移除，以下功能不再可用。
 >
 > **输入来源**：结构候选（world_entities_candidate、plot_structure_candidate、chapter_cards_candidate 等）或用户手写正文 / 结构变更
 >

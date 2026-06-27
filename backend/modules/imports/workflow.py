@@ -1,23 +1,28 @@
 """Deep Import 工作流编排器
 
-将世界对象抽取、人物同步、剧情结构生成三步串成流水线，
-每步完成后退回到 checkpoint，用户确认后继续。
+三阶段流水线：
+  Phase 1: Scene 切分（并行批次）→ scenes 表
+  Phase 2: 实体增量提取（串行按 Scene）→ core_entities + delta_log
+  Phase 3: 剧情结构分析（单次）
+  → plot_threads + outline_arcs + foreshadowing_plans + reveal_plans
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as _container_get
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 logger = logging.getLogger(__name__)
 
 
 class DeepImportWorkflow:
-    """深度导入流水线编排器"""
+    """深度导入流水线编排器 — 三阶段全自动"""
 
     async def run_step(
         self,
@@ -26,145 +31,190 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         progress: DeepImportProgress,
+        *,
+        workflow_id: str | None = None,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
             progress.phase = "running"
-            progress.current_step = DeepImportStep.extract_world
-            progress.message = "正在从章节正文中抽取世界对象..."
 
-            result = await self._extract_world(db, novel_id, start_chapter, end_chapter)
-            progress.completed_steps.append(DeepImportStep.extract_world.value)
-            progress.current_step = None
-            progress.phase = "awaiting_review"
+            # Phase 1: Scene 切分
+            progress.current_step = DeepImportStep.scene_segmentation
+            progress.message = "正在切分叙事 Scene..."
+            await self._emit_progress(progress, 0.0, on_progress)
+
+            async def _on_batch_progress(completed: int, total: int) -> None:
+                progress.phase1_total_batches = total
+                progress.phase1_completed_batches = completed
+                value = 0.0 + 0.4 * (completed / total) if total else 0.0
+                await self._emit_progress(progress, value, on_progress)
+
+            phase1_result = await self._segment_scenes(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+                on_batch_progress=_on_batch_progress,
+            )
+            progress.completed_steps.append(DeepImportStep.scene_segmentation.value)
             progress.message = (
-                f"世界对象抽取完成，共创建 {result['total_created']} 个候选。"
-                "请在「对象库」视图中审查并确认候选，然后继续深度导入。"
+                f"Scene 切分完成，共创建 {phase1_result['total_scenes']} 个 Scene。"
+            )
+            if phase1_result.get("degraded"):
+                progress.degraded = True
+                failed_count = len(phase1_result.get("failed_batches", []))
+                progress.message += f"（{failed_count} 个批次触发降级）"
+
+            # Phase 2: 实体增量提取
+            progress.current_step = DeepImportStep.entity_extraction
+            progress.message = "正在按 Scene 提取世界对象..."
+            await self._emit_progress(progress, 0.4, on_progress)
+
+            async def _on_scene_progress(completed: int, total: int) -> None:
+                progress.phase2_total_scenes = total
+                progress.phase2_completed_scenes = completed
+                value = 0.4 + 0.4 * (completed / total) if total else 0.4
+                await self._emit_progress(progress, value, on_progress)
+
+            phase2_result = await self._extract_entities_by_scene(
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+                on_scene_progress=_on_scene_progress,
+            )
+            progress.completed_steps.append(DeepImportStep.entity_extraction.value)
+            progress.message = (
+                f"实体提取完成，共创建 {phase2_result.get('total_created', 0)} 个实体，"
+                f"{phase2_result.get('total_relations', 0)} 条关系，"
+                f"记录 {phase2_result.get('total_deltas', 0)} 条变更。"
             )
 
-        elif progress.phase == "awaiting_review":
-            pending_count = await count_pending_candidates(db, novel_id)
-            if pending_count > 0:
-                raise ValueError(
-                    f"还有 {pending_count} 个候选对象未处理。"
-                    "请在「世界对象 → 对象库」中确认或忽略所有候选后再继续。"
-                )
-
-            progress.phase = "running"
-
-            progress.current_step = DeepImportStep.sync_characters
-            progress.message = "正在同步人物档案..."
-            char_result = await self._sync_characters(db, novel_id)
-            progress.completed_steps.append(DeepImportStep.sync_characters.value)
-
-            progress.current_step = DeepImportStep.generate_plot
-            progress.message = "正在生成剧情线和篇章纲..."
-            plot_result = await self._generate_plot(db, novel_id, start_chapter, end_chapter)
-            progress.completed_steps.append(DeepImportStep.generate_plot.value)
+            # Phase 3: 剧情结构分析
+            progress.current_step = DeepImportStep.structure_analysis
+            progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
+            await self._emit_progress(progress, 0.8, on_progress)
+            phase3_result = await self._analyze_structure(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+            )
+            progress.completed_steps.append(DeepImportStep.structure_analysis.value)
 
             progress.current_step = None
             progress.phase = "done"
             progress.message = (
                 f"深度导入完成！"
-                f"同步 {char_result['total_synced']} 个人物，"
-                f"创建 {plot_result['total_threads']} 条剧情线、"
-                f"{plot_result['total_arcs']} 个篇章纲。"
+                f"共 {phase1_result.get('total_scenes', 0)} 个 Scene，"
+                f"{phase2_result.get('total_created', 0)} 个实体，"
+                f"{phase3_result.get('total_threads', 0)} 条剧情线，"
+                f"{phase3_result.get('total_arcs', 0)} 个篇章纲。"
             )
+            await self._emit_progress(progress, 1.0, on_progress)
 
         else:
             raise ValueError(f"无法处理当前进度状态: {progress.phase}")
 
         return progress
 
+    @staticmethod
+    async def _emit_progress(
+        progress: DeepImportProgress,
+        progress_value: float,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
+    ) -> None:
+        if on_progress is not None:
+            await on_progress(progress, progress_value)
+
     # ------------------------------------------------------------------
-    # Step 1: 世界对象抽取
+    # Phase 1: Scene 切分
     # ------------------------------------------------------------------
 
-    async def _extract_world(
+    async def _segment_scenes(
         self,
         db: AsyncSession,
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        on_batch_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        """调用 world facade 从章节正文抽取世界对象候选"""
-        from modules.world.facade import run_entity_extraction
+        from modules.imports.scene_segmentation import SceneSegmentationService
 
-        return await run_entity_extraction(
+        service = SceneSegmentationService()
+        result = await service.segment_chapters(
             db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            on_batch_progress=on_batch_progress,
         )
+        logger.info(
+            "Phase 1 complete: %d scenes, %d failed batches, degraded=%s",
+            result.get("total_scenes", 0),
+            len(result.get("failed_batches", [])),
+            result.get("degraded", False),
+        )
+        return result
 
     # ------------------------------------------------------------------
-    # Step 2: 人物同步
+    # Phase 2: 实体增量提取
     # ------------------------------------------------------------------
 
-    async def _sync_characters(
+    async def _extract_entities_by_scene(
         self,
         db: AsyncSession,
         novel_id: str,
+        workflow_id: str | None = None,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        """将已确认的「人物」类型 world_entity 同步到人物档案"""
-        from modules.character.facade import (
-            create_character,
-            get_character_id_by_world_entity,
-        )
-        from modules.world.facade import list_entities
-
-        # 通过 world facade 查询所有 character_ref 实体
-        character_entities = await list_entities(
-            db, novel_id,
-            entity_type="character_ref",
-        )
-
-        total_synced = 0
-        for entity in character_entities:
-            # 通过 character facade 检查是否已存在
-            existing = await get_character_id_by_world_entity(
-                db, novel_id, entity["id"],
+        try:
+            handler = _container_get("world.run_scene_entity_extraction")
+            result = await handler(
+                db,
+                novel_id=novel_id,
+                workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
             )
-            if existing is not None:
-                continue
-
-            try:
-                await create_character(
-                    db=db,
-                    novel_id=novel_id,
-                    name=entity["name"],
-                    world_entity_id=entity["id"],
-                )
-                total_synced += 1
-            except Exception as exc:
-                logger.warning(
-                    "Failed to create Character for entity %s: %s",
-                    entity["name"], exc,
-                )
-
-        await db.flush()
-        return {"total_synced": total_synced, "total_entities": len(character_entities)}
+            return result
+        except Exception as exc:
+            logger.warning("Phase 2 entity extraction failed: %s", exc)
+            return {
+                "total_created": 0,
+                "total_relations": 0,
+                "total_deltas": 0,
+            }
 
     # ------------------------------------------------------------------
-    # Step 3: 剧情结构生成
+    # Phase 3: 剧情结构分析
     # ------------------------------------------------------------------
 
-    async def _generate_plot(
+    async def _analyze_structure(
         self,
         db: AsyncSession,
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
     ) -> dict[str, Any]:
-        """调用 outline facade 生成剧情线和篇章纲"""
-        from modules.outline.facade import generate_plot_structure
-
-        return await generate_plot_structure(db, novel_id, start_chapter, end_chapter)
-
-
-async def count_pending_candidates(
-    db: AsyncSession,
-    novel_id: str,
-) -> int:
-    """统计待处理的候选对象数量（facade 封装）"""
-    from modules.world.facade import count_pending_candidates as _count
-    return await _count(db, novel_id)
+        _generate = _container_get("outline.generate_structure")
+        try:
+            result = await _generate(
+                db,
+                novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+            logger.info(
+                "Phase 3 complete: %d threads, %d arcs",
+                result.get("total_threads", 0),
+                result.get("total_arcs", 0),
+            )
+            return result
+        except Exception as exc:
+            logger.warning("Phase 3 structure analysis failed: %s", exc)
+            return {
+                "total_threads": 0,
+                "total_arcs": 0,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+            }

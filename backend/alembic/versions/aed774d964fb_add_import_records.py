@@ -4,23 +4,35 @@ Revision ID: aed774d964fb
 Revises: 0001
 Create Date: 2026-05-25 16:14:09.883054
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 
+from alembic import op
+
 revision: str = "aed774d964fb"
-down_revision: Union[str, None] = "0001"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "0001"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     op.create_table(
         "import_records",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("timezone('utc', now())"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("timezone('utc', now())"), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("timezone('utc', now())"),
+            nullable=True,
+        ),
         sa.Column("novel_id", sa.UUID(), nullable=False),
         sa.Column("file_name", sa.String(length=255), nullable=False),
         sa.Column("file_type", sa.String(length=16), nullable=False),
@@ -32,9 +44,23 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_import_records_novel_id"), "import_records", ["novel_id"], unique=False)
+    op.create_index(
+        op.f("ix_import_records_novel_id"), "import_records", ["novel_id"], unique=False
+    )
+    op.create_index(
+        "uq_import_records_done_file_name",
+        "import_records",
+        ["novel_id", "file_name"],
+        unique=True,
+        postgresql_where=sa.text("status = 'done'"),
+        sqlite_where=sa.text("status = 'done'"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "uq_import_records_done_file_name",
+        table_name="import_records",
+    )
     op.drop_index(op.f("ix_import_records_novel_id"), table_name="import_records")
     op.drop_table("import_records")

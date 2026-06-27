@@ -24,7 +24,7 @@ except ImportError:
     _HAS_PGVECTOR = False
 
 
-def _embedding_column(dim: int = 1024):
+def _embedding_column(dim: int = 768):
     """返回 pgvector Vector 列或 LargeBinary 回退列（用于 SQLite 测试）"""
     if _HAS_PGVECTOR:
         return mapped_column(Vector(dim), nullable=True)
@@ -46,7 +46,9 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
     source_type: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
-        comment="来源类型（chapter_text / world_entity / character / memory / outline 等）",
+        comment=(
+            "来源类型（chapter_text / world_entity / character / memory / outline 等）"
+        ),
     )
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -108,6 +110,12 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         default=list,
         comment="关联的剧情线 ID 列表",
     )
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
+        comment="关联的 Scene ID（根据 scene_chunks 区间近似匹配）",
+    )
     visibility: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
@@ -130,7 +138,7 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         String(32),
         nullable=False,
         default="pending",
-        comment="embedding 状态：pending/succeeded/failed/skipped",
+        comment="embedding 状态：pending/pending_vectorization/succeeded/failed/skipped",
     )
     embedding_error: Mapped[str | None] = mapped_column(
         Text,

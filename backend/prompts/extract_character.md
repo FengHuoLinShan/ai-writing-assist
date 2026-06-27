@@ -13,6 +13,9 @@
 已有信息：
 {existing_info}
 
+概要（已有）：{existing_summary}
+别名（已有）：{existing_aliases}
+
 ## 输出 JSON Schema
 
 ```json
@@ -26,7 +29,11 @@
   "current_state": "当前状态（字符串 | null）",
   "current_emotion": "当前情绪（字符串 | null）",
   "stance": "立场（字符串 | null）",
-  "voice_style": "语言风格（字符串 | null）"
+  "voice_style": "语言风格（字符串 | null）",
+  "summary": "人物概要（字符串 | null）—— 融合已有了解和章节新信息的完整概要，不超过500字",
+  "aliases": [
+    {"alias": "别名文本", "type": "name|nickname|title|alias|codename"}
+  ] | null
 }
 ```
 
@@ -39,3 +46,5 @@
 5. 每条建议应简短有力（不超过 100 字）
 6. 如果已有信息不为空，输出时保留原文并用 # 括起来
    示例：`"desire": "#推翻帝国统治# 他内心深处真正的渴望是建立一个平等的新世界"`
+7. 概要规则：如果已有概要已充分描述该人物且章节中无新信息需要补充，输出 null。否则输出一个精炼的人物概要（不超过 500 字），融合已有了解和章节新信息。不要用 #...# 包裹已有内容，直接输出最终的完整概要文本。
+8. 别名规则：仅输出章节正文中明确出现、且不在已有别名列表中的别名/称呼。每个条目包含 alias（别名文本）和 type（类型：name/nickname/title/alias/codename，默认为 name）。如果未发现新别名，输出 null 或空数组 []。

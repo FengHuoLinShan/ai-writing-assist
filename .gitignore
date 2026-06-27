@@ -34,3 +34,17 @@ frontend-console/test-results/
 *.sqlite3
 backend/nul
 nul
+*.pyc
+*.pyo
+
+# Training data (large JSONL)
+backend/data/dedup_training/*.jsonl
+.claude/worktrees/
+.claude/agent-memory/
+.playwright-mcp/
+.worktrees/
+
+# Session/debug artifacts
+chaos-*.png
+chaos_test_*.py
+click-*.json

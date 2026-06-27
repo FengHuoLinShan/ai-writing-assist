@@ -2,7 +2,7 @@
 RAG Facade — 对外入口
 
 其他模块只能从 facade 导入。
-Facade 不写复杂业务逻辑，只做稳定的对外代理。
+Facade 不写复杂业务逻辑，只做稳定的对外代理与模块组装。
 """
 
 from __future__ import annotations
@@ -11,15 +11,25 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.rag.chunking import ChunkingService
 from modules.rag.contracts import RagChunkContract, RagIndexReport, RagResultBundle
+from modules.rag.indexing import IndexingService
+from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
+from modules.rag.query_expansion import QueryExpander
 from modules.rag.repositories import RagChunkRepository
+from modules.rag.retrieval import RetrievalOrchestrator
 from modules.rag.schemas import RagChunkCreate, RagChunkResponse
-from modules.rag.services import ChunkingService, IndexingService, RetrievalService
 
 _repo = RagChunkRepository()
 _chunking = ChunkingService()
-_retrieval = RetrievalService()
-_indexing = IndexingService()
+_query_expander = QueryExpander()
+
+
+_retrieval = RetrievalOrchestrator(
+    repo=_repo,
+    query_expander=_query_expander,
+)
+_indexing = IndexingService(repo=_repo, chunking=_chunking)
 
 
 async def create_chunk(
@@ -66,46 +76,38 @@ async def list_chunks(
 
 async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     """获取 RAG 索引诊断状态。"""
+    from core.config import get_settings
+
     nid = uuid.UUID(hex=novel_id)
     total = await _repo.count_by_novel(db, nid)
     embedding_failed_count = await _repo.count_embedding_failed(db, nid)
+    pending_vectorization = await _repo.count_pending_vectorization(db, nid)
+    settings = get_settings()
+
     warnings = []
+    if pending_vectorization:
+        warnings.append(
+            f"有 {pending_vectorization} 个片段待重新向量化（维度迁移后），"
+            "检索可能暂时不准确",
+        )
     if embedding_failed_count:
         warnings.append(
             f"有 {embedding_failed_count} 个片段 embedding 失败，检索和抽取可能不准确",
         )
+
+    from modules.rag.circuit_breaker import get_circuit_breaker
+
     return {
         "total": total,
+        "embedding_provider": settings.embedding_provider,
+        "embedding_model": settings.embedding_model,
+        "embedding_dim": settings.embedding_dim,
         "embedding_failed_count": embedding_failed_count,
-        "degraded": embedding_failed_count > 0,
+        "pending_vectorization": pending_vectorization,
+        "degraded": embedding_failed_count > 0 or pending_vectorization > 0,
         "warnings": warnings,
+        "circuit_breaker": get_circuit_breaker().status["state"],
     }
-
-
-def _to_chunk_contract(chunk, score: float | None = None) -> RagChunkContract:
-    return RagChunkContract(
-        id=str(chunk.id),
-        novel_id=str(chunk.novel_id),
-        source_type=chunk.source_type,
-        source_id=str(chunk.source_id) if chunk.source_id else None,
-        chapter_index=chunk.chapter_index,
-        chunk_index=chunk.chunk_index,
-        start_offset=chunk.start_offset,
-        end_offset=chunk.end_offset,
-        char_count=chunk.char_count,
-        text=chunk.text,
-        summary=chunk.summary,
-        entity_ids=chunk.entity_ids or [],
-        character_ids=chunk.character_ids or [],
-        thread_ids=chunk.thread_ids or [],
-        visibility=chunk.visibility,
-        importance=chunk.importance,
-        index_version=chunk.index_version,
-        embedding_status=chunk.embedding_status,
-        embedding_error=chunk.embedding_error,
-        index_warnings=chunk.index_warnings or [],
-        score=round(score, 4) if score is not None else None,
-    )
 
 
 async def get_ordered_chapter_chunks(
@@ -137,10 +139,9 @@ async def retrieve(
     visibility: str | None = None,
     mode: str = "search",
     top_k: int = 12,
+    reference_chapter_index: int | None = None,
 ) -> RagResultBundle:
-    """混合检索 RAG 片段
-
-    核心检索接口，用于 context compiler 或其他模块获取相关片段。
+    """混合检索 RAG 片段 — 委托给 RetrievalOrchestrator
 
     Args:
         db: 数据库 session
@@ -156,30 +157,10 @@ async def retrieve(
         RagResultBundle — 检索结果
     """
     nid = uuid.UUID(hex=novel_id)
-    top_k = max(1, top_k)
-    warnings: list[str] = []
-    degraded = False
-    query_embedding: list[float] | None = None
-    if await _repo.has_embeddings(db, nid):
-        try:
-            from infrastructure.llm.client import LLMClient
-
-            embedding = await LLMClient().generate_embedding(query)
-            if (
-                isinstance(embedding, list)
-                and embedding
-                and isinstance(embedding[0], float)
-            ):
-                query_embedding = embedding  # type: ignore[assignment]
-        except Exception as exc:
-            degraded = True
-            warnings.append(f"embedding 生成失败，本次检索已降级，结果可能不准确: {exc}")
-
-    scored_chunks = await _retrieval.hybrid_search(
+    return await _retrieval.retrieve(
         db,
         nid,
         query,
-        query_embedding=query_embedding,
         entity_ids=entity_ids,
         character_ids=character_ids,
         thread_ids=thread_ids,
@@ -187,19 +168,7 @@ async def retrieve(
         visibility=visibility,
         mode=mode,
         top_k=top_k,
-    )
-
-    chunk_contracts = [
-        _to_chunk_contract(chunk, score)
-        for chunk, score in scored_chunks
-    ]
-
-    return RagResultBundle(
-        chunks=chunk_contracts,
-        total=len(scored_chunks),
-        query=query,
-        warnings=warnings,
-        degraded=degraded,
+        reference_chapter_index=reference_chapter_index,
     )
 
 
@@ -234,6 +203,29 @@ async def index_chapter_with_report(
     return await _indexing.index_chapter_with_report(db, nid, chapter_index)
 
 
+async def index_chapter_incremental(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    old_content: str,
+    new_content: str,
+) -> RagIndexReport:
+    """增量索引章节，仅重建变更区域。
+
+    Args:
+        old_content: 上次索引时的章节原文
+        new_content: 当前的章节原文
+    """
+    nid = uuid.UUID(hex=novel_id)
+    return await _indexing.index_chapter_incremental(
+        db,
+        nid,
+        chapter_index,
+        old_content,
+        new_content,
+    )
+
+
 async def split_text_into_chunks(
     text: str,
     method: str = "paragraph",
@@ -260,3 +252,14 @@ async def split_text_into_chunks(
         return _chunking.split_by_length(text, chunk_size=chunk_size, overlap=overlap)
     else:
         return [text]
+
+
+async def get_metrics_status() -> dict:
+    """获取 RAG 检索运行时指标与熔断器状态。"""
+    from modules.rag.circuit_breaker import get_circuit_breaker
+    from modules.rag.metrics import get_metrics
+
+    return {
+        "metrics": get_metrics().snapshot,
+        "circuit_breaker": get_circuit_breaker().status,
+    }

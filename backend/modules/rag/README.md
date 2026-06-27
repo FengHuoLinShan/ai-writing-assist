@@ -37,6 +37,25 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 | 向量检索（预留） | `vector_search` | pgvector 余弦距离查询 |
 | 抽取检索 | `retrieve(mode="extraction")` | 明确关系命中即可召回，避免字段关键词缺失导致 no_chunks |
 
+## 中文小说分块参数
+
+`ChunkingService.split_chinese_novel` 面向中文长篇小说正文，默认参数为：
+
+- 目标长度 `target_length = 900` 字
+- 硬上限 `max_length = 1400` 字
+- 相邻 chunk 重叠 `overlap = 160` 字
+
+切分优先在语义边界（场景转换/地点转换/段落/句末标点）处进行，并记录每个 chunk 在原文中的 `start_offset` / `end_offset`。
+
+## Scene 关联
+
+`RagChunk` 通过 `scene_id` 与 `outline` 模块的 Scene 卡近似关联。索引章节时：
+
+1. 通过 `modules.outline.facade.get_scenes_by_novel` 读取当前小说的 Scene 列表。
+2. 筛选 `chapter_ids` 包含当前章节索引的 Scene。
+3. 将 chunk 的字符偏移范围与 `scene_chunks` 的 `[start_pos, end_pos]` 区间做重叠匹配。
+4. 命中第一个重叠 Scene 时写入 `scene_id`，无匹配时留空。
+
 ## 混合评分公式
 
 ```
@@ -74,18 +93,33 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
 POST /api/rag/chunks?novel_id=xxx       — 创建片段
 GET  /api/rag/chunks?novel_id=xxx        — 片段列表
 POST /api/rag/retrieve?novel_id=xxx      — 混合检索
+POST /api/rag/rebuild                   — 按章节范围重建索引
 POST /api/rag/chunks/split               — 文本分割工具
 ```
 
+`/api/rag/rebuild` 接收 `novel_id`、`start_chapter`、`end_chapter`（后两者可选），
+入队 `rag_reindex_novel` 异步任务，返回 `{task_id, status}`。
+
 `retrieve` 响应包含 `warnings` 与 `degraded`；`chunks` 列表响应额外包含 `embedding_failed_count`。
 
-## 服务
+## 模块职责
 
-| 服务 | 职责 |
+| 文件 | 职责 |
 |------|------|
-| `ChunkingService` | 文本分块（按段落 / 按长度） |
-| `RetrievalService` | 混合检索与评分 |
-| `IndexingService` | `cn-novel-v1` 章节索引与 embedding 诊断 |
+| `chunking.py` | 文本分块：`ChunkingService`、中文小说分块、段落/长度分块 |
+| `scoring.py` | 纯评分函数与 `Scorer`：关键词、关系、向量、重要性、时序衰减、动态权重 |
+| `query_expansion.py` | 项目词典加载与查询扩展：`QueryExpander`（可注入 term_loader） |
+| `retrieval.py` | 检索编排：`RetrievalOrchestrator` 组装 embedding → 扩展 → 召回 → 评分 → 去重 → 重排序 |
+| `indexing.py` | 章节索引：`IndexingService` 把草稿分块、标注入库、生成 embedding |
+| `facade.py` | 对外稳定入口，组装上述模块并代理公共方法 |
+| `api.py` | FastAPI 路由，所有端点通过 facade 委托 |
+
+## 依赖注入约定
+
+- `RetrievalOrchestrator` 构造函数可注入 `repo / scorer / query_expander / reranker_fn / embedder_fn / metrics / circuit_breaker`，默认使用仓库/评分器/容器单例。
+- `IndexingService` 构造函数可注入 `repo` 与 `chunking`。
+- `QueryExpander` 构造函数可注入 `term_loader`。
+- 不引入抽象端口/protocol（ADR-0002），使用普通类与函数/构造函数注入。
 
 ## 测试
 
@@ -98,6 +132,7 @@ pytest modules/rag/tests/ -v
 
 - `core.database` — 数据库 session
 - `core.base` — ORM base class
+- `core.container` — 轻量 DI 容器
 - `shared.constants` — 评分权重常量
 - `shared.enums` — Visibility 枚举
 

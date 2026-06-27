@@ -1,32 +1,51 @@
 """
-Project 数据访问层
-
-封装 projects 表的所有数据库操作。
-只处理 ORM ↔ DB 的基本 CRUD，不含业务逻辑。
+Project Repository
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
 from modules.project.schemas import ProjectCreate, ProjectUpdate
-from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class ProjectRepository:
-    """项目数据访问"""
+    """项目数据访问层"""
 
-    async def create(
+    async def get(self, db: AsyncSession, project_id: uuid.UUID) -> Project | None:
+        stmt = select(Project).where(
+            Project.id == project_id,
+            Project.deleted_at.is_(None),
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list(
         self,
         db: AsyncSession,
-        data: ProjectCreate,
-    ) -> Project:
-        """创建新项目"""
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Project], int]:
+        count_stmt = select(func.count(Project.id)).where(Project.deleted_at.is_(None))
+        count_result = await db.execute(count_stmt)
+        total = count_result.scalar() or 0
+        stmt = (
+            select(Project)
+            .where(Project.deleted_at.is_(None))
+            .offset(skip)
+            .limit(limit)
+            .order_by(Project.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        items = list(result.scalars().all())
+        return items, total
+
+    async def create(self, db: AsyncSession, data: ProjectCreate) -> Project:
         project = Project(
             title=data.title,
             genre=data.genre,
@@ -35,43 +54,11 @@ class ProjectRepository:
             target_length=data.target_length,
             current_stage=data.current_stage,
             default_reveal_policy=data.default_reveal_policy or "author_safe",
+            settings=data.settings or {},
         )
         db.add(project)
         await db.flush()
         return project
-
-    async def get(
-        self,
-        db: AsyncSession,
-        project_id: uuid.UUID,
-    ) -> Project | None:
-        """根据 ID 获取项目"""
-        stmt = select(Project).where(Project.id == project_id)
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_multi(
-        self,
-        db: AsyncSession,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[Project], int]:
-        """获取项目列表（分页），返回 (items, total)"""
-        # 获取总数
-        count_stmt = select(func.count(Project.id))
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar() or 0
-
-        # 获取分页数据
-        stmt = (
-            select(Project)
-            .offset(skip)
-            .limit(limit)
-            .order_by(Project.created_at.desc())
-        )
-        result = await db.execute(stmt)
-        items: Sequence[Project] = result.scalars().all()
-        return list(items), total
 
     async def update(
         self,
@@ -79,13 +66,9 @@ class ProjectRepository:
         project_id: uuid.UUID,
         data: ProjectUpdate,
     ) -> Project | None:
-        """更新项目，返回更新后的对象（不存在返回 None）"""
-        # 先检查是否存在
         project = await self.get(db, project_id)
         if project is None:
             return None
-
-        # 构建更新字典（只更新非 None 字段）
         update_values: dict[str, object] = {}
         for field in (
             "title",
@@ -95,31 +78,86 @@ class ProjectRepository:
             "target_length",
             "current_stage",
             "default_reveal_policy",
+            "settings",
         ):
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
-
         if update_values:
-            stmt = (
-                update(Project)
-                .where(Project.id == project_id)
-                .values(**update_values)
-            )
+            stmt = update(Project).where(Project.id == project_id).values(**update_values)
             await db.execute(stmt)
             await db.flush()
-            # 重新查询以获取更新后的对象
             project = await self.get(db, project_id)
-
         return project
 
-    async def delete(
+    # ============================================================
+    # 软删除
+    # ============================================================
+
+    async def get_deleted(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> Project | None:
+        stmt = select(Project).where(
+            Project.id == project_id,
+            Project.deleted_at.isnot(None),
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def soft_delete(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
+        """标记项目为软删除（设置 deleted_at）"""
+        stmt = (
+            update(Project)
+            .where(Project.id == project_id, Project.deleted_at.is_(None))
+            .values(deleted_at=datetime.now(UTC))
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0
+
+    async def restore(self, db: AsyncSession, project_id: uuid.UUID) -> bool:
+        """恢复已删除项目（清除 deleted_at）"""
+        stmt = (
+            update(Project)
+            .where(Project.id == project_id, Project.deleted_at.isnot(None))
+            .values(deleted_at=None)
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount > 0
+
+    async def list_deleted(
+        self,
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Project], int]:
+        """列出回收站中的项目"""
+        base_cond = Project.deleted_at.isnot(None)
+        count_stmt = select(func.count(Project.id)).where(base_cond)
+        total = (await db.execute(count_stmt)).scalar() or 0
+        stmt = (
+            select(Project)
+            .where(base_cond)
+            .offset(skip)
+            .limit(limit)
+            .order_by(Project.deleted_at.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def permanent_delete(
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
     ) -> bool:
-        """删除项目，返回是否成功删除"""
-        stmt = delete(Project).where(Project.id == project_id)
+        """永久删除项目（硬删除，数据库 CASCADE 处理关联数据）"""
+        stmt = delete(Project).where(
+            Project.id == project_id,
+            Project.deleted_at.isnot(None),
+        )
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0

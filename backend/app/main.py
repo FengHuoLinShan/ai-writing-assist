@@ -6,12 +6,12 @@ AI 长篇小说结构化创作引擎 v2.0
 注册所有模块的 API 路由，配置生命周期事件、中间件、异常处理器。
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,12 +19,74 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core.config import get_settings
+from core.container import register as _register
 from core.database import get_manager
 
+from modules.context.facade import (
+    compile_structure_context as _ctx_compile,
+)
+from modules.memory.services import MemoryService as _MemorySvc  # noqa: N814
+from modules.outline.services import (
+    OutlineArcService as _OAS,  # noqa: N814
+    PlotStructureGenerator as _PSG,  # noqa: N814
+    PlotThreadService as _PTS,  # noqa: N814
+    SceneService as _SceneSvc,  # noqa: N814
+)
+from modules.imports.scene_entity_extraction import (
+    SceneEntityExtractionService as _SceneExtractSvc,
+)
+from modules.rag.facade import (
+    get_ordered_chapter_chunks as _rag_get_chunks,
+    index_chapter_with_report as _rag_index,
+)
+from modules.writing.facade import (
+    get_latest_draft_for_chapter as _writing_get_draft,
+    list_chapter_indices as _writing_list_indices,
+)
+from modules.world.facade import (
+    create_character as _world_create_char,
+    get_character_id_by_world_entity as _world_get_char_id,
+    list_characters as _world_list_characters,
+    list_entities as _world_list_entities,
+    list_entity_terms as _world_list_entity_terms,
+    run_entity_extraction as _world_extract,
+)
+
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
-import modules.project.models  # noqa: F401
-import modules.world.models  # noqa: F401
-import modules.character.models  # noqa: F401
+import modules.project.models  # noqa: F401, I001
+import modules.world.map_models  # noqa: F401, I001
+import modules.world.models  # noqa: F401, I001
+
+
+def _register_container_services() -> None:
+    """注册所有模块服务到 DI 容器。
+
+    抽成函数以便在应用启动和测试 fixture 中复用。
+    """
+    _register("world.list_characters", _world_list_characters)
+    _register("world.list_entity_terms", _world_list_entity_terms)
+    _register("world.run_entity_extraction", _world_extract)
+    _register("world.list_entities", _world_list_entities)
+    _register(
+        "world.run_scene_entity_extraction",
+        _SceneExtractSvc().extract_by_scenes,
+    )
+    _register("world.create_character", _world_create_char)
+    _register("world.get_character_id_by_world_entity", _world_get_char_id)
+    _register("rag.index_chapter", _rag_index)
+    _register("rag.get_ordered_chapter_chunks", _rag_get_chunks)
+
+    _register("writing.list_chapter_indices", _writing_list_indices)
+    _register("writing.get_latest_draft_for_chapter", _writing_get_draft)
+    _register("outline.generate_structure", _PSG().generate)
+    _register("outline.arc_service", _OAS())
+    _register("outline.thread_service", _PTS())
+    _register("outline.scene_service", _SceneSvc())
+    _register("context.compile", _ctx_compile)
+    _register("memory.service", _MemorySvc())
+
+
+_register_container_services()
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +94,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 生命周期管理
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -123,26 +186,35 @@ app = FastAPI(
 
 class _TimingMiddleware:
     """在响应头注入 X-Request-Time-Ms"""
-    def __init__(self, app: "ASGIApp") -> None:
+
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: "Scope", receive: "Receive", send: "Send") -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         start = time.perf_counter()
+
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 elapsed = time.perf_counter() - start
                 headers = list(message.get("headers", []))
-                headers.append((b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode()))
+                headers.append(
+                    (b"X-Request-Time-Ms", str(round(elapsed * 1000, 1)).encode())
+                )
                 message["headers"] = headers
             await send(message)
+
         try:
             await self.app(scope, receive, send_with_headers)
         except Exception:
             elapsed = time.perf_counter() - start
-            logger.error("%s — unhandled exception after %.1fms", scope.get("path", ""), round(elapsed * 1000, 1))
+            logger.error(
+                "%s — unhandled exception after %.1fms",
+                scope.get("path", ""),
+                round(elapsed * 1000, 1),
+            )
             raise
 
 
@@ -224,6 +296,7 @@ async def health_check():
     try:
         async with manager.session() as sess:
             from sqlalchemy import text
+
             result = await sess.execute(text("SELECT 1"))
             db_ok = result.scalar() == 1
     except Exception as exc:
@@ -239,6 +312,7 @@ async def health_check():
     }
     if status == "degraded":
         from fastapi.responses import JSONResponse
+
         return JSONResponse(status_code=503, content=result)
     return result
 
@@ -256,15 +330,10 @@ async def root():
         "modules": [
             "projects",
             "world",
-            "characters",
-            "geo",
-            "memory",
-            "timeline",
-            "outline",
             "rag",
             "context",
-            "review",
             "writing",
+            "imports",
             "tasks",
         ],
     }
@@ -278,32 +347,33 @@ async def root():
 # 此处 include 时不额外加前缀。
 # 如需版本控制，未来可统一改为 prefix="/api/v1" + 移除模块内 prefix。
 
-from infrastructure.tasks import api as tasks_api
-from modules.character import api as character_api
-from modules.imports import api as imports_api
-import modules.world.tasks  # noqa: F401 — 注册任务处理器
-from modules.context import api as context_api
-from modules.geo import api as geo_api
-from modules.memory import api as memory_api
-from modules.outline import api as outline_api
-from modules.project import api as project_api
-from modules.rag import api as rag_api
-from modules.review import api as review_api
-from modules.timeline import api as timeline_api
-from modules.world import api as world_api
-from modules.writing import api as writing_api
+import modules.imports.tasks  # noqa: F401, E402 — 注册深度导入任务处理器
+import modules.outline.tasks  # noqa: F401, E402 — 注册剧情结构生成任务处理器
+import modules.rag.tasks  # noqa: F401, E402 — 注册 RAG 索引/重建任务处理器
+import modules.world.tasks  # noqa: F401, E402 — 注册世界模块任务处理器
+import modules.writing.tasks  # noqa: F401, E402 — 注册章节发布任务处理器
+from infrastructure.tasks import api as tasks_api  # noqa: E402
+from modules.context import api as context_api  # noqa: E402
 
-app.include_router(project_api.router)
+# geo/review — 已从 minimal-core 移除
+# character API 已迁入 modules.world.api；模块已删除
+from modules.imports import api as imports_api  # noqa: E402
+from modules.memory import api as memory_api  # noqa: E402
+from modules.outline import api as outline_api  # noqa: E402
+from modules.project.api import router as project_router  # noqa: E402
+from modules.rag import api as rag_api  # noqa: E402
+from modules.world import api as world_api  # noqa: E402
+from modules.world import map_api as world_map_api  # noqa: E402
+from modules.writing import api as writing_api  # noqa: E402
+
+app.include_router(project_router)
 app.include_router(imports_api.router)
 app.include_router(world_api.router)
-app.include_router(character_api.router)
-app.include_router(geo_api.router)
+app.include_router(world_map_api.router)
 app.include_router(memory_api.router)
-app.include_router(timeline_api.router)
 app.include_router(outline_api.router)
 app.include_router(rag_api.router)
 app.include_router(context_api.router)
-app.include_router(review_api.router)
 app.include_router(writing_api.router)
 app.include_router(tasks_api.router)
 

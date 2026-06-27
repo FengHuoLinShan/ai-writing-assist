@@ -1,144 +1,324 @@
-"""Outline 任务处理器测试
-
-测试章节卡提取、剧情结构生成等后台任务的行为。
-使用 mock 隔离 LLM 调用，只验证编排逻辑。
-"""
-
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
+from unittest import mock
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.models import AsyncTask
-from modules.outline.schemas import ChapterCardCreate
-from modules.outline.services import ChapterCardService
-from modules.outline.tasks import handle_chapter_card_extraction
-from modules.writing.facade import create_draft as _create_writing_draft
-from modules.writing.schemas import WritingDraftCreate
+from modules.outline.repositories import (
+    OutlineArcRepository,
+    PlotThreadRepository,
+    SceneRepository,
+)
+from modules.outline.services import PlotStructureGenerator
+from tests.utils import _make_bundle
+
+# Shared Pydantic response models used by LLM mocks in TestPlotStructureGenerator.
+# These were previously defined inside each test method, causing duplication.
 
 
-@pytest.fixture
-def card_service() -> ChapterCardService:
-    return ChapterCardService()
+class _GT(BaseModel):
+    name: str
+    thread_type: str
+    summary: str | None = None
+    visible_goal: str | None = None
+    hidden_truth: str | None = None
+    start_chapter: int | None = None
+    planned_payoff_chapter: int | None = None
+    current_stage: str | None = None
+    related_character_names: list[str] = []
+    related_entity_names: list[str] = []
 
 
-class _MockExtractedCard:
-    """模拟 _ExtractedChapterCard 返回值"""
-    def __init__(self, **kwargs):
-        for k, v in kwargs.items():
-            setattr(self, k, v)
+class _GA(BaseModel):
+    title: str
+    arc_index: int | None = None
+    start_chapter: int | None = None
+    end_chapter: int | None = None
+    arc_goal: str | None = None
+    core_conflict: str | None = None
+    main_opposition: str | None = None
+    entry_hook: str | None = None
+    midpoint_turn: str | None = None
+    climax: str | None = None
+    result: str | None = None
+    next_hook: str | None = None
+    related_character_names: list[str] = []
+    related_entity_names: list[str] = []
+    related_thread_names: list[str] = []
 
 
-class TestChapterCardExtraction:
-    """章节卡提取任务测试"""
+class _FP(BaseModel):
+    name: str = ""
+    summary: str | None = None
+    planned_seed_chapter: int | None = None
+    planned_payoff_chapter: int | None = None
+    status: str = "draft"
+
+
+class _RP(BaseModel):
+    target_name: str = ""
+    target_type: str = "world_entity"
+    secret_summary: str | None = None
+    status: str = "draft"
+
+
+class _OP(BaseModel):
+    thread_name: str = ""
+    offscreen_description: str | None = None
+    importance: str = "medium"
+
+
+class _RK(BaseModel):
+    risk_type: str = "其他"
+    description: str | None = None
+    severity: str = "medium"
+
+
+class _QN(BaseModel):
+    question: str = ""
+    context: str | None = None
+    suggested_options: list[str] = []
+
+
+class _GS(BaseModel):
+    title: str
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: str | None = None
+    chapter_start: int | None = None
+    chapter_end: int | None = None
+    scene_chunks: list[dict] = []
+
+
+class _GO(BaseModel):
+    plot_threads: list[_GT] = []
+    outline_arcs: list[_GA] = []
+    scenes: list[_GS] = []
+    foreshadowing_plans: list[_FP] = []
+    reveal_plans: list[_RP] = []
+    offscreen_progress: list[_OP] = []
+    risks: list[_RK] = []
+    questions_for_user: list[_QN] = []
+
+
+class TestPlotStructureGenerator:
+    """T6: AI 生成管线"""
 
     @pytest.mark.asyncio
-    async def test_skip_existing_and_no_draft(
+    async def test_generate_creates_threads_and_arcs(
         self,
         db_session: AsyncSession,
-        card_service: ChapterCardService,
+        sample_novel_id: str,
     ) -> None:
-        """测试已有章节卡和无正文的章节被跳过"""
-        novel_id = str(uuid.uuid4())
+        bundle = _make_bundle(sample_novel_id)
 
-        # 创建正文草稿：第1-3章
-        for ch in (1, 2, 3):
-            data = WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content=f"第{ch}章正文内容。",
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+        ):
+            mock_llm.return_value = _GO(
+                plot_threads=[
+                    _GT(
+                        name="主线：寻剑",
+                        thread_type="main",
+                        summary="主角寻找霜华剑",
+                        start_chapter=1,
+                        planned_payoff_chapter=30,
+                        current_stage="初期",
+                    ),
+                    _GT(
+                        name="暗线：魔神复苏",
+                        thread_type="hidden",
+                        summary="霜华剑封印松动",
+                        start_chapter=5,
+                        planned_payoff_chapter=40,
+                    ),
+                ],
+                outline_arcs=[
+                    _GA(
+                        title="第一卷：启程",
+                        arc_index=1,
+                        start_chapter=1,
+                        end_chapter=10,
+                        arc_goal="建立世界观",
+                        core_conflict="主角与家族的冲突",
+                    ),
+                    _GA(
+                        title="第二卷：寻剑",
+                        arc_index=2,
+                        start_chapter=11,
+                        end_chapter=20,
+                        arc_goal="寻找霜华剑",
+                    ),
+                ],
             )
-            await _create_writing_draft(db_session, data)
 
-        # 为第1章创建章节卡（应被跳过）
-        card_data = ChapterCardCreate(
-            chapter_index=1, title="第1章",
-            chapter_goal="已有目标", main_conflict="已有冲突",
-        )
-        await card_service.create(db_session, novel_id, card_data)
-
-        # 创建 mock task（第4章无正文 → 应跳过）
-        task = AsyncTask(
-            task_type="chapter_card_extraction",
-            meta={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 4},
-        )
-        task.mark_running()
-        db_session.add(task)
-        await db_session.flush()
-
-        mock_card = _MockExtractedCard(
-            chapter_goal="提取目标", main_conflict="提取冲突",
-            emotional_point=None, ending_hook=None, scene_cards=[],
-            must_happen=["事件A"], must_not_happen=[],
-            visible_progress=[], hidden_progress=[],
-        )
-
-        with patch("modules.outline.tasks._extract_single_chapter_card", return_value=mock_card):
-            result = await handle_chapter_card_extraction(db_session, task)
-
-        assert result["total"] == 4
-        assert result["skipped_no_draft"] == 1   # 第4章
-        assert result["skipped_has_card"] == 1    # 第1章
-        assert result["created"] == 2             # 第2-3章
-        assert len(result["errors"]) == 0
-
-        # 验证卡数量
-        cards = await card_service.list(db_session, novel_id)
-        assert cards.total == 3  # 1(原有) + 2(新建)
-
-    @pytest.mark.asyncio
-    async def test_empty_range(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试空章节范围"""
-        novel_id = str(uuid.uuid4())
-
-        task = AsyncTask(
-            task_type="chapter_card_extraction",
-            meta={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 3},
-        )
-        task.mark_running()
-        db_session.add(task)
-        await db_session.flush()
-
-        result = await handle_chapter_card_extraction(db_session, task)
-        assert result["total"] == -1  # end < start
-        assert result["created"] == 0
-
-    @pytest.mark.asyncio
-    async def test_progress_tracking(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """测试进度更新"""
-        novel_id = str(uuid.uuid4())
-
-        for ch in (1, 2):
-            data = WritingDraftCreate(
-                novel_id=novel_id, chapter_index=ch,
-                title=f"第{ch}章", content=f"第{ch}章正文。",
+            generator = PlotStructureGenerator()
+            result = await generator.generate(
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=10,
             )
-            await _create_writing_draft(db_session, data)
 
-        task = AsyncTask(
-            task_type="chapter_card_extraction",
-            meta={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 2},
+        assert result["total_threads"] == 2
+        assert result["total_arcs"] == 2
+        assert result["total_scenes"] == 0
+        assert "scenes" in result
+        assert "extra_sections" in result
+        assert isinstance(result["extra_sections"], dict)
+
+        threads, _ = await PlotThreadRepository().get_by_novel(
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
         )
-        task.mark_running()
-        db_session.add(task)
-        await db_session.flush()
+        assert len(threads) == 2
+        thread_names = [t.name for t in threads]
+        assert "主线：寻剑" in thread_names
+        assert "暗线：魔神复苏" in thread_names
 
-        mock_card = _MockExtractedCard(
-            chapter_goal="目标", main_conflict="冲突",
-            emotional_point=None, ending_hook=None, scene_cards=[],
-            must_happen=[], must_not_happen=[], visible_progress=[], hidden_progress=[],
+        arcs, _ = await OutlineArcRepository().get_by_novel(
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
         )
+        assert len(arcs) == 2
+        arc_titles = [a.title for a in arcs]
+        assert "第一卷：启程" in arc_titles
+        assert "第二卷：寻剑" in arc_titles
 
-        with patch("modules.outline.tasks._extract_single_chapter_card", return_value=mock_card):
-            result = await handle_chapter_card_extraction(db_session, task)
+    @pytest.mark.asyncio
+    async def test_generate_empty_llm_output(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """LLM 返回空列表时不应崩溃"""
+        bundle = _make_bundle(sample_novel_id)
 
-        assert result["created"] == 2
-        assert task.progress == 1.0
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+        ):
+            mock_llm.return_value = _GO(plot_threads=[], outline_arcs=[])
+
+            generator = PlotStructureGenerator()
+            result = await generator.generate(
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=10,
+            )
+
+        assert result["total_threads"] == 0
+        assert result["total_arcs"] == 0
+        assert result["total_scenes"] == 0
+        assert "scenes" in result
+        assert "extra_sections" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_creates_scenes(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """LLM 返回 Scene 数据时应创建 Scene 卡。"""
+        bundle = _make_bundle(sample_novel_id)
+
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+        ):
+            mock_llm.return_value = _GO(
+                scenes=[
+                    _GS(
+                        title="初入落星阁",
+                        goal="主角进入落星阁",
+                        core_conflict="主角与守阁人对峙",
+                        emotional_beat="紧张",
+                        must_happen="主角拿到令牌",
+                        narrative_tag="exposition",
+                        chapter_start=1,
+                        chapter_end=1,
+                        scene_chunks=[
+                            {"chapter_index": 1, "start_pos": 0, "end_pos": 100}
+                        ],
+                    ),
+                    _GS(
+                        title="霜华剑异动",
+                        goal="霜华剑出现异动",
+                        chapter_start=2,
+                        chapter_end=3,
+                    ),
+                ],
+            )
+
+            generator = PlotStructureGenerator()
+            result = await generator.generate(
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=3,
+            )
+
+        assert result["total_scenes"] == 2
+        assert len(result["scenes"]) == 2
+        assert result["scenes"][0]["title"] == "初入落星阁"
+        assert result["scenes"][0]["scene_index"] == 0
+        assert result["scenes"][1]["scene_index"] == 1
+
+        scenes, _ = await SceneRepository().get_by_novel(
+            db_session,
+            uuid.UUID(hex=sample_novel_id),
+        )
+        assert len(scenes) == 2
+        titles = [s.title for s in scenes]
+        assert "初入落星阁" in titles
+        assert "霜华剑异动" in titles
+
+    @pytest.mark.asyncio
+    async def test_generate_llm_failure_graceful(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        """LLM 异常时应优雅降级"""
+        bundle = _make_bundle(sample_novel_id)
+
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                side_effect=Exception("LLM down"),
+            ),
+        ):
+            generator = PlotStructureGenerator()
+            result = await generator.generate(
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=10,
+            )
+
+        assert result["total_threads"] == 0
+        assert result["total_arcs"] == 0
+        assert "extra_sections" in result

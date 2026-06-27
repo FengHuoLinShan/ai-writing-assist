@@ -13,6 +13,32 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class CompileOptions:
+    """编译选项 — facade 与 compiler 之间的契约"""
+
+    novel_id: str
+    task: str
+    scope: str
+    chapter_index: int | None = None
+    scene_id: str | None = None
+    """当前 Scene ID（scene-centric 编译时提供）"""
+    arc_id: str | None = None
+    entity_ids: list[str] | None = None
+    character_ids: list[str] | None = None
+    location_ids: list[str] | None = None
+    reveal_mode: str = "author_safe"
+    """揭示模式：author_safe / author_full / reader / character"""
+    viewpoint_character_id: str | None = None
+    """视角人物 ID（reveal_mode="character" 时必填）"""
+    enable_geo_filter: bool = False
+    mode: str = "writing"  # CompileMode value: "writing" or "debug"
+    budget_tokens: int = 4000
+    """总 token 预算，默认 4000"""
+    top_k: int = 8
+    """RAG 检索上限"""
+
+
+@dataclass
 class StructureContextBundle:
     """结构化创作上下文包
 
@@ -51,6 +77,8 @@ class StructureContextBundle:
     """当前篇章纲"""
     chapter_card: dict | None = None
     """当前章节卡"""
+    scene: dict | None = None
+    """当前 Scene 卡"""
     rag_chunks: list = field(default_factory=list)
     """RAG 检索片段列表"""
 
@@ -59,7 +87,9 @@ class StructureContextBundle:
 
     # --- 元信息 ---
     reveal_mode: str = "author_safe"
-    """揭示模式（author_safe / author_full / reader）"""
+    """揭示模式（author_safe / author_full / reader / character）"""
+    viewpoint_character_id: str | None = None
+    """视角人物 ID（reveal_mode="character" 时使用）"""
     budget_used: dict = field(default_factory=dict)
     """各分类已使用的预算"""
     warnings: list = field(default_factory=list)

@@ -1,328 +1,198 @@
 """
-Memory Pydantic Schema 定义
+Memory Pydantic Schema
 
-用于 API 请求/响应校验和 Facade 输出。
+API 请求/响应和 Facade 输出类型。
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # ============================================================
-# 请求 Schema
+# 枚举
 # ============================================================
 
-class MemoryRecordCreate(BaseModel):
-    """创建记忆记录请求"""
 
-    memory_type: str = Field(
-        ...,
-        min_length=1,
-        max_length=64,
-        description="记忆类型",
-    )
-    target_type: str | None = Field(
-        None,
-        max_length=64,
-        description="关联目标类型",
-    )
-    target_id: str | None = Field(
-        None,
-        description="关联目标 ID (UUID hex)",
-    )
-    chapter_index: int | None = Field(
-        None,
-        ge=1,
-        description="所属章节索引",
-    )
-    title: str | None = Field(
-        None,
-        max_length=255,
-        description="记忆标题",
-    )
-    summary: str = Field(
-        ...,
-        min_length=1,
-        max_length=2000,
-        description="记忆摘要",
-    )
-    content_json: dict[str, Any] = Field(
-        default_factory=dict,
-        description="详细内容",
-    )
-    visibility: str = Field(
-        default="reader_known",
-        max_length=32,
-        description="可见性",
-    )
-    known_by_character_ids: list[str] = Field(
-        default_factory=list,
-        description="已知该记忆的角色 ID 列表",
-    )
-    related_entity_ids: list[str] = Field(
-        default_factory=list,
-        description="关联世界对象 ID 列表",
-    )
-    related_character_ids: list[str] = Field(
-        default_factory=list,
-        description="关联角色 ID 列表",
-    )
-    related_thread_ids: list[str] = Field(
-        default_factory=list,
-        description="关联剧情线 ID 列表",
-    )
-    importance: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="重要性",
-    )
-    status: str = Field(
-        default="canonical",
-        max_length=32,
-        description="状态",
-    )
-    source_text_excerpt: str | None = Field(
-        None,
-        description="来源文本摘录",
-    )
+class EventType(StrEnum):
+    """记忆事件类型"""
+
+    entity_created = "entity_created"
+    entity_updated = "entity_updated"
+    entity_removed = "entity_removed"
+    entity_moved = "entity_moved"
+    relation_established = "relation_established"
+    relation_ended = "relation_ended"
+    knowledge_changed = "knowledge_changed"
+    manual_correction = "manual_correction"
 
 
-class MemoryRecordUpdate(BaseModel):
-    """更新记忆记录请求（所有字段可选）"""
+class EventSource(StrEnum):
+    """事件来源"""
 
-    title: str | None = Field(None, max_length=255)
-    summary: str | None = Field(None, min_length=1)
-    content_json: dict[str, Any] | None = None
-    visibility: str | None = Field(None, max_length=32)
-    known_by_character_ids: list[str] | None = None
-    importance: float | None = Field(None, ge=0.0, le=1.0)
-    status: str | None = Field(None, max_length=32)
+    ai_extraction = "ai_extraction"
+    manual_edit = "manual_edit"
 
 
-class MemoryProposalDecision(BaseModel):
-    """处理记忆提案请求"""
+class SnapshotStatus(StrEnum):
+    """快照状态"""
 
-    decision: str = Field(
-        ...,
-        pattern="^(approved|rejected)$",
-        description="决策（approved / rejected）",
-    )
-    edited_payload: dict[str, Any] | None = Field(
-        None,
-        description="编辑后的提案内容（仅在 approved 时可用）",
-    )
-    decided_by: str | None = Field(
-        None,
-        max_length=128,
-        description="决策者标识",
-    )
+    current = "current"
+    stale = "stale"
 
 
 # ============================================================
-# 响应 Schema
+# 全景子结构
 # ============================================================
 
-class MemoryRecordResponse(BaseModel):
-    """记忆记录响应"""
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={uuid.UUID: str},
-    )
+class EntityInPanorama(BaseModel):
+    """全景中的单个实体"""
 
     id: str
-    novel_id: str
-    memory_type: str
-    target_type: str | None = None
-    target_id: str | None = None
-    chapter_index: int | None = None
-    title: str | None = None
-    summary: str
-    content_json: dict[str, Any] = {}
-    visibility: str = "reader_known"
-    known_by_character_ids: list[str] = []
-    related_entity_ids: list[str] = []
-    related_character_ids: list[str] = []
-    related_thread_ids: list[str] = []
+    entity_type: str
+    name: str
+    summary: str | None = None
+    public_info: str | None = None
+    hidden_truth: str | None = None
     importance: float = 0.5
+    importance_level: str = "normal"
+    reveal_level: str = "author_only"
     status: str = "canonical"
-    source_text_excerpt: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
 
-    @field_validator(
-        "id",
-        "novel_id",
-        "target_id",
-        mode="before",
+
+class RelationInPanorama(BaseModel):
+    """全景中的单个关系"""
+
+    id: str
+    source_id: str
+    target_id: str
+    relation_type: str
+    description: str | None = None
+    strength: float = 0.5
+    status: str = "canonical"
+
+
+class CharacterLocationInPanorama(BaseModel):
+    """全景中的角色位置"""
+
+    location_id: str
+    text_state: str = ""
+    chapter_index: int | None = None
+
+
+class KnowledgeInPanorama(BaseModel):
+    """全景中的角色知识"""
+
+    id: str
+    character_id: str
+    target_type: str
+    target_id: str | None = None
+    knowledge_level: str
+    known_content: str | None = None
+    source_chapter_index: int | None = None
+    status: str = "canonical"
+
+
+# ============================================================
+# 全景响应
+# ============================================================
+
+
+class ChapterPanorama(BaseModel):
+    """章节关系全景 — memory 模块的核心输出"""
+
+    novel_id: str
+    chapter_index: int
+    entities: list[EntityInPanorama] = Field(default_factory=list)
+    relations: list[RelationInPanorama] = Field(default_factory=list)
+    character_locations: dict[str, CharacterLocationInPanorama] = Field(
+        default_factory=dict
     )
-    @classmethod
-    def coerce_id_to_str(cls, v: object) -> str | None:
-        """将 UUID 转为字符串"""
-        if v is None:
-            return None
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        if isinstance(v, str):
-            return v
-        return str(v)
-
-    @field_validator(
-        "known_by_character_ids",
-        "related_entity_ids",
-        "related_character_ids",
-        "related_thread_ids",
-        mode="before",
-    )
-    @classmethod
-    def coerce_jsonb_list(cls, v: object) -> list[str]:
-        """确保 JSONB 列表字段为 list[str]"""
-        if isinstance(v, list):
-            return [str(x) if isinstance(x, uuid.UUID) else x for x in v]
-        return list(v) if v else []
+    character_knowledge: list[KnowledgeInPanorama] = Field(default_factory=list)
 
 
-class MemoryProposalResponse(BaseModel):
-    """记忆提案响应"""
+# ============================================================
+# 事件响应
+# ============================================================
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_encoders={uuid.UUID: str},
-    )
+
+class MemoryEventResponse(BaseModel):
+    """记忆事件响应"""
+
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
 
     id: str
     novel_id: str
-    chapter_id: str | None = None
-    chapter_index: int | None = None
-    proposal_type: str
-    payload: dict[str, Any]
-    confidence: float = 0.5
-    reason: str | None = None
-    source_text_excerpt: str | None = None
-    decision: str = "pending"
-    decided_by: str | None = None
-    decided_at: datetime | None = None
+    chapter_index: int
+    sequence: int
+    event_type: str
+    entity_id: str | None = None
+    entity_type: str | None = None
+    snapshot_before: dict[str, Any] | None = None
+    snapshot_after: dict[str, Any] = {}
+    source: str = "ai_extraction"
     created_at: datetime | None = None
 
-    @field_validator("id", "novel_id", "chapter_id", mode="before")
+    @field_validator("id", "novel_id", "entity_id", mode="before")
     @classmethod
-    def coerce_id_to_str(cls, v: object) -> str | None:
+    def coerce_uuid(cls, v: object) -> str | None:
         if v is None:
             return None
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        if isinstance(v, str):
-            return v
         return str(v)
 
 
-class MemoryRecordListResponse(BaseModel):
-    """记忆记录列表响应"""
+class EventListResponse(BaseModel):
+    """事件列表响应"""
 
-    items: list[MemoryRecordResponse]
-    total: int
-
-
-class MemoryProposalListResponse(BaseModel):
-    """记忆提案列表响应"""
-
-    items: list[MemoryProposalResponse]
+    items: list[MemoryEventResponse]
     total: int
 
 
 # ============================================================
-# Facade 输出 Schema
+# 快照响应
 # ============================================================
 
-class MemoryRecordContext(BaseModel):
-    """记忆记录上下文 — 供其他模块读取的简版记忆信息"""
 
-    model_config = ConfigDict(from_attributes=True)
+class SnapshotResponse(BaseModel):
+    """快照响应"""
 
-    id: str
-    memory_type: str
-    chapter_index: int | None = None
-    title: str | None = None
-    summary: str
-    visibility: str = "reader_known"
-    known_by_character_ids: list[str] = []
-    related_entity_ids: list[str] = []
-    related_character_ids: list[str] = []
-    related_thread_ids: list[str] = []
-    importance: float = 0.5
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def coerce_id_to_str(cls, v: object) -> str:
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        return str(v)
-
-    @field_validator(
-        "known_by_character_ids",
-        "related_entity_ids",
-        "related_character_ids",
-        "related_thread_ids",
-        mode="before",
-    )
-    @classmethod
-    def coerce_jsonb_list(cls, v: object) -> list[str]:
-        if isinstance(v, list):
-            return [str(x) if isinstance(x, uuid.UUID) else x for x in v]
-        return list(v) if v else []
-
-
-class CharacterLocationShift(BaseModel):
-
-    character_name: str = Field(..., min_length=1, description="角色名")
-    destination_location_name: str = Field(..., min_length=1, description="目标地点名")
-    movement_type: str = Field(..., description="行为动词，如：步行潜入、御剑飞行、传送、撤退至")
-
-
-class FactionControlShift(BaseModel):
-
-    faction_name: str = Field(..., min_length=1, description="势力/组织名称")
-    target_location_name: str = Field(..., min_length=1, description="受影响地点名")
-    new_relation: str = Field(..., description="空间地缘关系属性")
-    description: str = Field(..., description="单句局势小结")
-
-    @field_validator('new_relation')
-    @classmethod
-    def validate_relation(cls, v: str) -> str:
-        allowed = ['controls', 'stationed_at', 'hidden_presence']
-        if v not in allowed:
-            return 'stationed_at'
-        return v
-
-
-class ChapterStateExtraction(BaseModel):
-
-    summary: str = Field(..., description="情节主线脉络极简总结")
-    character_shifts: list[CharacterLocationShift] = Field(default_factory=list, description="角色位移列表")
-    faction_shifts: list[FactionControlShift] = Field(default_factory=list, description="势力割据变更列表")
-
-
-class MemoryUpdateProposalContext(BaseModel):
-    """记忆提案上下文 — 供其他模块读取"""
-
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
 
     id: str
-    proposal_type: str
-    payload: dict[str, Any]
-    confidence: float = 0.5
-    reason: str | None = None
-    decision: str = "pending"
+    novel_id: str
+    chapter_index: int
+    status: str
+    events_until: int | None = None
+    created_at: datetime | None = None
 
-    @field_validator("id", mode="before")
+    @field_validator("id", "novel_id", mode="before")
     @classmethod
-    def coerce_id_to_str(cls, v: object) -> str:
-        if isinstance(v, uuid.UUID):
-            return str(v)
+    def coerce_uuid(cls, v: object) -> str:
         return str(v)
+
+
+class SnapshotListResponse(BaseModel):
+    """快照列表响应"""
+
+    items: list[SnapshotResponse]
+    total: int
+
+
+# ============================================================
+# 状态查询
+# ============================================================
+
+
+class MemoryStatusResponse(BaseModel):
+    """memory 模块状态"""
+
+    novel_id: str
+    latest_chapter: int | None = None
+    latest_snapshot_chapter: int | None = None
+    has_stale: bool = False
+    stale_from_chapter: int | None = None

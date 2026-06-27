@@ -7,6 +7,7 @@ Import 模块测试
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -15,16 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.parsers import (
+    MAX_FILE_SIZE,
     parse_file,
     parse_txt,
     split_chapters,
 )
 from modules.imports.repositories import ImportRecordRepository
-
+from modules.imports.services import ImportService
 
 # ============================================================
 # Parser 测试
 # ============================================================
+
 
 class TestSplitChapters:
     """测试分章逻辑"""
@@ -86,7 +89,12 @@ class TestParseTxt:
     def test_empty_content(self):
         """测试空内容"""
         chapters = parse_txt(b"")
-        assert len(chapters) == 1
+        assert chapters == []
+
+    def test_whitespace_only_content(self):
+        """纯空白内容不产生有效章节"""
+        chapters = parse_txt(b" \n\t \n")
+        assert chapters == []
 
     def test_parse_file_unified(self, sample_txt_content: bytes):
         """测试统一入口 parse_file"""
@@ -105,6 +113,7 @@ class TestFileValidation:
     def test_validate_file_type(self):
         """测试文件类型白名单"""
         from modules.imports.services import _get_extension
+
         assert _get_extension("test.txt") == ".txt"
         assert _get_extension("test.epub") == ".epub"
         assert _get_extension("test.HTML") == ".html"
@@ -114,6 +123,7 @@ class TestFileValidation:
     def test_path_traversal_sanitize(self):
         """测试路径穿越防护"""
         from modules.imports.services import _get_extension
+
         assert _get_extension("../../../etc/passwd.txt") == ".txt"
 
 
@@ -121,12 +131,14 @@ class TestFileValidation:
 # File size & encoding 测试
 # ============================================================
 
+
 class TestFileLimits:
     """测试文件大小和编码限制"""
 
     def test_oversized_file(self):
         """超过 50MB 的文件应拒绝"""
         from modules.imports.parsers import MAX_FILE_SIZE
+
         large_data = b"x" * (MAX_FILE_SIZE + 1)
         # parsers 本身不校验大小，由 service 层拒绝
         # 这里测试 parsers 处理大文件无内存异常
@@ -134,18 +146,25 @@ class TestFileLimits:
         assert len(chapters) >= 1
 
     def test_non_utf8_content(self):
-        """非 UTF-8 编码的文本应以 UTF-8 解码（忽略错误）"""
-        # 构造含非法 UTF-8 字节序列的内容
-        raw = b"\xff\xfe\x00\xe4\xbd\xa0\xe5\xa5\xbd\n\xe4\xb8\x96\xe7\x95\x8c"
+        """GBK 等常见中文编码的文本应被正确检测并解码"""
+        raw = "第一章\n这是第一章的内容\n".encode("gbk")
         chapters = parse_txt(raw)
-        # 不应抛出异常
         assert len(chapters) >= 1
         assert isinstance(chapters[0]["content"], str)
+        assert "第一章" in chapters[0]["title"]
+
+    def test_unrecoverable_encoding_records_failed(self):
+        """无法正确解码的文本应视为编码失败"""
+        # chardet 识别为 UTF-8-SIG，但末尾是截断的多字节序列
+        raw = b"\xef\xbb\xbf" + "第一章".encode() + b"\xe4\xb8"
+        with pytest.raises(ValueError, match="编码"):
+            parse_txt(raw)
 
 
 # ============================================================
 # Repository 测试
 # ============================================================
+
 
 class TestImportRecordRepository:
     """测试数据访问层"""
@@ -188,7 +207,8 @@ class TestImportRecordRepository:
         record = await repo.create(db_session, nid, "test.txt", "txt", 512)
 
         updated = await repo.update_status(
-            db_session, record.id,
+            db_session,
+            record.id,
             status="done",
             total_chapters=10,
             imported_chapters=10,
@@ -218,6 +238,7 @@ class TestImportRecordRepository:
 # ============================================================
 # Service 测试
 # ============================================================
+
 
 class TestImportService:
     """测试业务逻辑层"""
@@ -294,8 +315,12 @@ class TestImportService:
         sample_txt_content: bytes,
     ):
         """测试导入记录列表"""
-        await service.upload_and_import(db_session, test_project_id, "a.txt", sample_txt_content)
-        await service.upload_and_import(db_session, test_project_id, "b.txt", sample_txt_content)
+        await service.upload_and_import(
+            db_session, test_project_id, "a.txt", sample_txt_content
+        )
+        await service.upload_and_import(
+            db_session, test_project_id, "b.txt", sample_txt_content
+        )
 
         result = await service.list_import_records(db_session, test_project_id)
         assert result.total >= 2
@@ -310,8 +335,197 @@ class TestImportService:
     ):
         """测试获取单条记录"""
         resp = await service.upload_and_import(
-            db_session, test_project_id, "novel.txt", sample_txt_content,
+            db_session,
+            test_project_id,
+            "novel.txt",
+            sample_txt_content,
         )
         fetched = await service.get_import_record(db_session, test_project_id, resp.id)
         assert fetched.id == resp.id
         assert fetched.file_name == "novel.txt"
+
+    @pytest.mark.asyncio
+    async def test_upload_oversized_file(
+        self,
+        service,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ):
+        """超过 50MB 的文件应返回 413"""
+        large_data = b"x" * (MAX_FILE_SIZE + 1)
+        with pytest.raises(HTTPException) as exc:
+            await service.upload_and_import(
+                db_session,
+                test_project_id,
+                "large.txt",
+                large_data,
+            )
+        assert exc.value.status_code == 413
+
+    @pytest.mark.asyncio
+    async def test_upload_empty_file_records_failed_status(
+        self,
+        service,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch,
+    ):
+        """空文件应记录 failed，不创建正文草稿"""
+        commit_spy = AsyncMock()
+        monkeypatch.setattr(db_session, "commit", commit_spy)
+
+        with pytest.raises(HTTPException) as exc:
+            await service.upload_and_import(
+                db_session,
+                test_project_id,
+                "empty.txt",
+                b"",
+            )
+
+        assert exc.value.status_code == 400
+        assert "文件中未检测到有效章节" in str(exc.value.detail)
+
+        records = await service.list_import_records(db_session, test_project_id)
+        assert records.total == 1
+        assert records.items[0].status == "failed"
+        assert records.items[0].error_message == "文件中未检测到有效章节"
+
+        from modules.writing.models import WritingDraft
+
+        result = await db_session.execute(
+            select(WritingDraft).where(
+                WritingDraft.novel_id == uuid.UUID(test_project_id)
+            )
+        )
+        assert list(result.scalars().all()) == []
+        commit_spy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_record_novel_id_isolation(
+        self,
+        service,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+    ):
+        """跨 novel_id 访问导入记录应返回 404"""
+        resp = await service.upload_and_import(
+            db_session,
+            test_project_id,
+            "novel.txt",
+            sample_txt_content,
+        )
+        other_novel_id = str(uuid.uuid4())
+        with pytest.raises(HTTPException) as exc:
+            await service.get_import_record(
+                db_session,
+                other_novel_id,
+                resp.id,
+            )
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_upload_records_failed_status(
+        self,
+        service,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+        repo: ImportRecordRepository,
+    ):
+        """解析失败时记录状态应标记为 failed 并附带错误信息"""
+        with patch(
+            "modules.imports.services.parse_file",
+            side_effect=ValueError("mock parse error"),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await service.upload_and_import(
+                    db_session,
+                    test_project_id,
+                    "fail.txt",
+                    sample_txt_content,
+                )
+            assert exc.value.status_code == 422
+
+        nid = uuid.UUID(hex=test_project_id)
+        items, total = await repo.get_by_novel(db_session, nid)
+        assert total == 1
+        record = items[0]
+        assert record.status == "failed"
+        assert "mock parse error" in record.error_message
+
+    @pytest.mark.asyncio
+    async def test_list_records_pagination(
+        self,
+        service,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+    ):
+        """测试导入记录列表 skip/limit 分页"""
+        await service.upload_and_import(
+            db_session,
+            test_project_id,
+            "a.txt",
+            sample_txt_content,
+        )
+        await service.upload_and_import(
+            db_session,
+            test_project_id,
+            "b.txt",
+            sample_txt_content,
+        )
+        await service.upload_and_import(
+            db_session,
+            test_project_id,
+            "c.txt",
+            sample_txt_content,
+        )
+
+        page1 = await service.list_import_records(
+            db_session,
+            test_project_id,
+            skip=0,
+            limit=2,
+        )
+        assert page1.total == 3
+        assert len(page1.items) == 2
+
+        page2 = await service.list_import_records(
+            db_session,
+            test_project_id,
+            skip=2,
+            limit=2,
+        )
+        assert page2.total == 3
+        assert len(page2.items) == 1
+
+    @pytest.mark.asyncio
+    async def test_upload_failure_does_not_mask_error_when_update_status_fails(
+        self,
+        service: ImportService,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+        monkeypatch,
+    ):
+        """update_status 也失败时，仍应抛业务 HTTPException 而非二次异常。"""
+
+        async def _broken_update_status(*args, **kwargs):
+            raise RuntimeError("transaction aborted")
+
+        monkeypatch.setattr(service._repo, "update_status", _broken_update_status)
+
+        with patch(
+            "modules.imports.services.create_draft_only",
+            side_effect=RuntimeError("draft write failed"),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await service.upload_and_import(
+                    db_session,
+                    test_project_id,
+                    "fail.txt",
+                    sample_txt_content,
+                )
+        assert exc.value.status_code == 500
+        assert "导入过程中发生服务器错误" in exc.value.detail

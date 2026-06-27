@@ -14,7 +14,10 @@ Context 模块没有自己的数据表，它是纯组合层。
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import (
@@ -26,12 +29,12 @@ from modules.context.facade import (
     render_context_markdown,
 )
 from modules.context.markdown_renderer import render_context_markdown as render_md
-from modules.context.services import CompileOptions, ContextCompiler
-
+from modules.context.services import CompileOptions
 
 # ============================================================
 # 基本导入测试
 # ============================================================
+
 
 class TestImports:
     """验证模块可正常导入"""
@@ -39,9 +42,9 @@ class TestImports:
     def test_import_contracts(self) -> None:
         from modules.context.contracts import (
             AUTHOR_ONLY_WARNING,
-            CONTEXT_BUDGET,
             StructureContextBundle,
         )
+
         assert StructureContextBundle is not None
         assert AUTHOR_ONLY_WARNING
         assert isinstance(CONTEXT_BUDGET, dict)
@@ -50,14 +53,17 @@ class TestImports:
         from modules.context.schemas import (
             BudgetUsedItem,
             ContextCompileRequest,
-            ContextCompileResponse,
             ContextRenderRequest,
             ContextRenderResponse,
+            ContextSectionItem,
+            ContextTierCompileResponse,
         )
+
         assert ContextCompileRequest is not None
-        assert ContextCompileResponse is not None
         assert ContextRenderRequest is not None
         assert ContextRenderResponse is not None
+        assert ContextSectionItem is not None
+        assert ContextTierCompileResponse is not None
         assert BudgetUsedItem is not None
 
     def test_import_facade(self) -> None:
@@ -65,6 +71,7 @@ class TestImports:
             compile_structure_context,
             render_context_markdown,
         )
+
         assert compile_structure_context is not None
         assert render_context_markdown is not None
 
@@ -72,6 +79,7 @@ class TestImports:
 # ============================================================
 # StructureContextBundle 基础测试
 # ============================================================
+
 
 class TestStructureContextBundle:
     """测试 StructureContextBundle 数据结构"""
@@ -122,6 +130,7 @@ class TestStructureContextBundle:
 # ============================================================
 # Context Compiler 核心测试
 # ============================================================
+
 
 class TestContextCompiler:
     """测试 Context Compiler 核心逻辑"""
@@ -175,7 +184,8 @@ class TestContextCompiler:
         assert bundle.world_entities == []
         assert bundle.characters == []
         assert bundle.geo_locations == []
-        assert bundle.memory_records == []
+        # memory_records 现在是全景 dict（启用后），空列表兜底也兼容
+        assert isinstance(bundle.memory_records, (list, dict))
         assert bundle.timeline_events == []
         assert bundle.plot_threads == []
         assert bundle.outline_arc is None
@@ -247,40 +257,242 @@ class TestContextCompiler:
         assert bundle.project is None
 
     @pytest.mark.asyncio
-    async def test_compile_with_geo_filter_disabled(
+    async def test_compile_character_false_belief_hides_hidden_truth(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """默认不启用地缘过滤"""
+        """RED: character 视角 false_belief 应显示误解，不暴露 hidden_truth"""
+        from modules.project.models import Project
+        from modules.world.models import Character, CharacterKnowledge, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+
+        # POV 人物
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+
+        # 目标实体：带 hidden_truth
+        target_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="faction",
+                name="暗影组织",
+                summary="一个神秘组织。",
+                hidden_truth="真实隐藏真相：首领是国王。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+
+        # 人物知识边界：false_belief
+        db_session.add(
+            CharacterKnowledge(
+                id=uuid.uuid4(),
+                novel_id=nid,
+                character_id=char_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="false_belief",
+                known_content="一个神秘组织。",
+                misconception="错误认知：暗影组织是正义的。",
+            )
+        )
+        await db_session.flush()
+
         bundle = await compile_structure_context(
             db=db_session,
-            novel_id="00000000-0000-0000-0000-000000000008",
-            task="测试",
-            scope="chapter",
-            chapter_index=1,
+            novel_id=novel_id,
+            task="生成章节",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
         )
-        assert bundle.geo_filtered is False
+        rendered = render_context_markdown(bundle)
+
+        assert "错误认知" in rendered
+        assert "真实隐藏真相" not in rendered
+
+        # 强断言：summary 被 misconception 替换，hidden_truth 字段被移除
+        assert bundle.world_entities, "应保留至少一个世界对象"
+        assert bundle.world_entities[0]["summary"] == "错误认知：暗影组织是正义的。"
+        assert "hidden_truth" not in bundle.world_entities[0]
 
     @pytest.mark.asyncio
-    async def test_compile_with_geo_filter_enabled(
+    async def test_compile_author_safe_preserves_entities_without_knowledge(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """显式启用地缘过滤时参数正确传递"""
+        """RED: 非 character 模式下，无 knowledge 记录的世界对象应被保留"""
+        from modules.project.models import Project
+        from modules.world.models import Character, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+
+        target_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="faction",
+                name="暗影组织",
+                summary="一个神秘组织。",
+                hidden_truth="真实隐藏真相：首领是国王。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+        await db_session.flush()
+
         bundle = await compile_structure_context(
             db=db_session,
-            novel_id="00000000-0000-0000-0000-000000000009",
-            task="测试",
-            scope="chapter",
-            chapter_index=1,
-            enable_geo_filter=True,
+            novel_id=novel_id,
+            task="生成章节",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="author_safe",
         )
-        assert bundle.geo_filtered is False
+
+        faction_entities = [
+            e for e in bundle.world_entities if e.get("entity_type") == "faction"
+        ]
+        assert len(faction_entities) == 1, (
+            "无 knowledge 记录的 faction 实体在 author_safe 模式下应被保留"
+        )
+        assert faction_entities[0]["name"] == "暗影组织"
+        assert faction_entities[0]["summary"] == "一个神秘组织。"
+
+    @pytest.mark.asyncio
+    async def test_compile_character_reveal_removes_entity_without_knowledge(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """RED: character 视角下，无 knowledge 记录的世界对象应被过滤为 unknown 并移除"""
+        from modules.project.models import Project
+        from modules.world.models import Character, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+
+        target_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="faction",
+                name="暗影组织",
+                summary="一个神秘组织。",
+                hidden_truth="真实隐藏真相：首领是国王。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+        await db_session.flush()
+
+        bundle = await compile_structure_context(
+            db=db_session,
+            novel_id=novel_id,
+            task="生成章节",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
+        )
+
+        faction_entities = [
+            e for e in bundle.world_entities if e.get("entity_type") == "faction"
+        ]
+        assert len(faction_entities) == 0, (
+            "character reveal 模式下，无 knowledge 记录的实体应被当作 unknown 移除"
+        )
 
 
 # ============================================================
 # CompileOptions 测试
 # ============================================================
+
 
 class TestCompileOptions:
     """测试 CompileOptions 数据类"""
@@ -317,6 +529,7 @@ class TestCompileOptions:
 # ============================================================
 # Markdown 渲染测试
 # ============================================================
+
 
 class TestMarkdownRenderer:
     """测试 Markdown 渲染"""
@@ -482,6 +695,7 @@ class TestMarkdownRenderer:
 # Static Renderer Tests (no DB needed)
 # ============================================================
 
+
 class TestFacadeRenderContextMarkdown:
     """测试 facade.render_context_markdown（静态渲染，无需 DB）"""
 
@@ -504,7 +718,9 @@ class TestFacadeRenderContextMarkdown:
             scope="world_character",
             project={"title": "测试", "genre": "玄幻"},
             characters=[{"name": "张三", "role": "protagonist"}],
-            world_entities=[{"name": "灵界", "entity_type": "location", "summary": "修炼世界"}],
+            world_entities=[
+                {"name": "灵界", "entity_type": "location", "summary": "修炼世界"}
+            ],
         )
         md = render_context_markdown(bundle)
         assert "测试" in md
@@ -515,6 +731,7 @@ class TestFacadeRenderContextMarkdown:
 # ============================================================
 # API Schema 测试
 # ============================================================
+
 
 class TestApiSchemas:
     """测试 API 请求/响应 Schema 校验"""
@@ -570,299 +787,221 @@ class TestApiSchemas:
 # GeoReachabilityFilter 测试
 # ============================================================
 
-class TestGeoReachabilityFilter:
-    """测试地缘可达性过滤器"""
-
-    @pytest.mark.asyncio
-    async def test_filter_downweights_unreachable_chunks(self) -> None:
-        from unittest import mock
-
-        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
-
-        geo_filter = GeoReachabilityFilter()
-
-        chunks = [
-            {
-                "text": "北大陆的魔法学院",
-                "entity_ids": ["entity-north"],
-                "importance": 0.8,
-            },
-            {
-                "text": "南大陆的沙漠商队",
-                "entity_ids": ["entity-south"],
-                "importance": 0.7,
-            },
-        ]
-        entity_to_location = {
-            "entity-north": "loc-north",
-            "entity-south": "loc-south",
-        }
-
-        with mock.patch(
-            "modules.character.facade.get_character_location_id",
-            return_value="loc-north",
-        ), mock.patch(
-            "modules.geo.facade.calculate_route",
-            return_value=mock.Mock(is_reachable=False),
-        ):
-
-            result = await geo_filter.filter_chunks(
-                db=mock.AsyncMock(),
-                novel_id="test-novel",
-                chapter_index=5,
-                character_ids=["char-1"],
-                chunks=chunks,
-                entity_to_location_map=entity_to_location,
-            )
-
-        assert len(result) == 2
-        assert result[0]["importance"] == 0.8
-        assert result[1]["importance"] < 0.7
-        assert result[1].get("geo_filtered") is True
-
-    @pytest.mark.asyncio
-    async def test_filter_preserves_reachable_chunks(self) -> None:
-        from unittest import mock
-
-        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
-
-        geo_filter = GeoReachabilityFilter()
-
-        chunks = [
-            {
-                "text": "北大陆的魔法学院",
-                "entity_ids": ["entity-north"],
-                "importance": 0.8,
-            },
-        ]
-        entity_to_location = {"entity-north": "loc-north"}
-
-        with mock.patch(
-            "modules.character.facade.get_character_location_id",
-            return_value="loc-north",
-        ), mock.patch(
-            "modules.geo.facade.calculate_route",
-            return_value=mock.Mock(is_reachable=True),
-        ):
-            result = await geo_filter.filter_chunks(
-                db=mock.AsyncMock(),
-                novel_id="test-novel",
-                chapter_index=5,
-                character_ids=["char-1"],
-                chunks=chunks,
-                entity_to_location_map=entity_to_location,
-            )
-
-        assert len(result) == 1
-        assert result[0]["importance"] == 0.8
-        assert result[0].get("geo_filtered") is not True
-
-    @pytest.mark.asyncio
-    async def test_filter_no_character_location_skips(self) -> None:
-        from unittest import mock
-
-        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
-
-        geo_filter = GeoReachabilityFilter()
-
-        chunks = [
-            {
-                "text": "北大陆的魔法学院",
-                "entity_ids": ["entity-north"],
-                "importance": 0.8,
-            },
-        ]
-
-        with mock.patch(
-            "modules.character.facade.get_character_location_id",
-            return_value=None,
-        ):
-            result = await geo_filter.filter_chunks(
-                db=mock.AsyncMock(),
-                novel_id="test-novel",
-                chapter_index=5,
-                character_ids=["char-1"],
-                chunks=chunks,
-                entity_to_location_map={"entity-north": "loc-north"},
-            )
-
-        assert len(result) == 1
-        assert result[0]["importance"] == 0.8
-
-    @pytest.mark.asyncio
-    async def test_filter_no_chapter_index_skips(self) -> None:
-        from unittest import mock
-
-        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
-
-        geo_filter = GeoReachabilityFilter()
-
-        chunks = [
-            {
-                "text": "北大陆的魔法学院",
-                "entity_ids": ["entity-north"],
-                "importance": 0.8,
-            },
-        ]
-
-        result = await geo_filter.filter_chunks(
-            db=mock.AsyncMock(),
-            novel_id="test-novel",
-            chapter_index=None,
-            character_ids=["char-1"],
-            chunks=chunks,
-            entity_to_location_map={"entity-north": "loc-north"},
-        )
-
-        assert len(result) == 1
-        assert result[0]["importance"] == 0.8
-
-    @pytest.mark.asyncio
-    async def test_filter_chunk_without_entity_ids_preserved(self) -> None:
-        from unittest import mock
-
-        from modules.context.services.loaders.geo_filter import GeoReachabilityFilter
-
-        geo_filter = GeoReachabilityFilter()
-
-        chunks = [
-            {
-                "text": "通用背景信息",
-                "entity_ids": [],
-                "importance": 0.6,
-            },
-        ]
-
-        with mock.patch(
-            "modules.character.facade.get_character_location_id",
-            return_value="loc-north",
-        ):
-            result = await geo_filter.filter_chunks(
-                db=mock.AsyncMock(),
-                novel_id="test-novel",
-                chapter_index=5,
-                character_ids=["char-1"],
-                chunks=chunks,
-                entity_to_location_map={},
-            )
-
-        assert len(result) == 1
-        assert result[0]["importance"] == 0.6
-
 
 # ============================================================
-# RagChunksLoader 地缘过滤集成测试
+# API 集成测试
 # ============================================================
 
-class TestRagChunksLoaderGeoFilter:
-    """测试 RagChunksLoader 与地缘过滤的集成"""
+
+async def _setup_character_knowledge(
+    db_session: AsyncSession,
+    knowledge_level: str,
+    known_content: str | None = None,
+    misconception: str | None = None,
+) -> tuple[str, str, str, str]:
+    """创建项目、POV 人物、目标实体与知识边界记录。
+
+    返回: (novel_id_hex, character_id_hex, target_id_hex, hidden_truth)
+    """
+    from modules.project.models import Project
+    from modules.world.models import Character, CharacterKnowledge, CoreEntity
+
+    nid = uuid.uuid4()
+    novel_id_hex = nid.hex
+    db_session.add(
+        Project(
+            id=nid,
+            title="测试小说",
+            genre="奇幻",
+            language="zh",
+        )
+    )
+
+    char_id = uuid.uuid4()
+    db_session.add(
+        CoreEntity(
+            id=char_id,
+            novel_id=nid,
+            entity_type="character",
+            name="POV角色",
+            status="canonical",
+        )
+    )
+    db_session.add(
+        Character(
+            entity_id=char_id,
+            novel_id=nid,
+            name="POV角色",
+            status="canonical",
+        )
+    )
+
+    target_id = uuid.uuid4()
+    hidden_truth = "源堡是诡秘之主的唯一性"
+    db_session.add(
+        CoreEntity(
+            id=target_id,
+            novel_id=nid,
+            entity_type="location",
+            name="源堡",
+            summary="神秘的源质空间",
+            hidden_truth=hidden_truth,
+            status="canonical",
+            importance_level="core",
+            importance=0.9,
+        )
+    )
+    db_session.add(
+        CharacterKnowledge(
+            id=uuid.uuid4(),
+            novel_id=nid,
+            character_id=char_id,
+            target_type="entity",
+            target_id=target_id,
+            knowledge_level=knowledge_level,
+            known_content=known_content,
+            misconception=misconception,
+        )
+    )
+    await db_session.flush()
+    return novel_id_hex, char_id.hex, target_id.hex, hidden_truth
+
+
+def _response_text(data: dict) -> str:
+    """把 API 返回的 Tier 编译结果合并为可搜索文本。"""
+    parts = [s.get("content", "") for s in data.get("sections", [])]
+    return "\n".join(parts)
+
+
+class TestContextApiIntegration:
+    """通过 API client 验证知识边界与渲染行为"""
 
     @pytest.mark.asyncio
-    async def test_rag_loader_applies_geo_filter_when_enabled(self) -> None:
-        from unittest import mock
-
-        from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
-        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
-        from modules.context.services.types import CompileOptions
-        from modules.rag.contracts import RagChunkContract, RagResultBundle
-
-        loader = RagChunksLoader()
-        options = CompileOptions(
-            novel_id="test-novel",
-            task="测试",
-            scope="chapter",
-            chapter_index=5,
-            character_ids=["char-1"],
-            enable_geo_filter=True,
-        )
-        bundle = StructureContextBundle(
-            novel_id="test-novel",
-            task="测试",
-            scope="chapter",
-            budget_used={k: 0 for k in CONTEXT_BUDGET},
+    async def test_character_mode_hides_hidden_truth(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """character 视角 unknown 知识不应暴露 hidden_truth"""
+        novel_id, char_id, target_id, hidden_truth = await _setup_character_knowledge(
+            db_session,
+            knowledge_level="unknown",
         )
 
-        mock_result = RagResultBundle(
-            chunks=[
-                RagChunkContract(
-                    id="chunk-1",
-                    novel_id="test-novel",
-                    source_type="chapter_text",
-                    text="北大陆的魔法学院",
-                    entity_ids=["entity-north"],
-                    importance=0.8,
-                ),
-            ],
-            total=1,
-            query="测试",
-        )
-
-        filtered_chunks = [
-            {
-                "id": "chunk-1",
-                "text": "北大陆的魔法学院",
-                "entity_ids": ["entity-north"],
-                "importance": 0.24,
-                "geo_filtered": True,
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成场景",
+                "scope": "world_character",
+                "reveal_mode": "character",
+                "viewpoint_character_id": char_id,
+                "character_ids": [char_id],
+                "entity_ids": [target_id],
             },
-        ]
+        )
 
-        with mock.patch(
-            "modules.rag.facade.retrieve", return_value=mock_result,
-        ):
-            loader._geo_filter = mock.AsyncMock()
-            loader._geo_filter.filter_chunks = mock.AsyncMock(return_value=filtered_chunks)
-
-            await loader.load(mock.AsyncMock(), options, bundle)
-
-        assert bundle.rag_chunks == filtered_chunks
-        assert bundle.geo_filtered is True
+        assert response.status_code == 200
+        data = response.json()
+        assert data["reveal_mode"] == "character"
+        assert hidden_truth not in _response_text(data)
 
     @pytest.mark.asyncio
-    async def test_rag_loader_skips_geo_filter_when_disabled(self) -> None:
-        from unittest import mock
-
-        from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
-        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
-        from modules.context.services.types import CompileOptions
-        from modules.rag.contracts import RagChunkContract, RagResultBundle
-
-        loader = RagChunksLoader()
-        options = CompileOptions(
-            novel_id="test-novel",
-            task="测试",
-            scope="chapter",
-            chapter_index=5,
-            character_ids=["char-1"],
-            enable_geo_filter=False,
-        )
-        bundle = StructureContextBundle(
-            novel_id="test-novel",
-            task="测试",
-            scope="chapter",
-            budget_used={k: 0 for k in CONTEXT_BUDGET},
+    async def test_character_mode_restricted_redacts_hidden_truth(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """character 视角 restricted 知识应显示 known_content 并隐藏 hidden_truth"""
+        known_content = "主角知道这是神秘空间"
+        novel_id, char_id, target_id, hidden_truth = await _setup_character_knowledge(
+            db_session,
+            knowledge_level="restricted",
+            known_content=known_content,
         )
 
-        mock_result = RagResultBundle(
-            chunks=[
-                RagChunkContract(
-                    id="chunk-1",
-                    novel_id="test-novel",
-                    source_type="chapter_text",
-                    text="北大陆的魔法学院",
-                    entity_ids=["entity-north"],
-                    importance=0.8,
-                ),
-            ],
-            total=1,
-            query="测试",
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成场景",
+                "scope": "world_character",
+                "reveal_mode": "character",
+                "viewpoint_character_id": char_id,
+                "character_ids": [char_id],
+                "entity_ids": [target_id],
+            },
         )
 
-        with mock.patch(
-            "modules.rag.facade.retrieve", return_value=mock_result,
-        ):
-            await loader.load(mock.AsyncMock(), options, bundle)
+        assert response.status_code == 200
+        data = response.json()
+        text = _response_text(data)
+        assert hidden_truth not in text
+        assert known_content in text
 
-        assert len(bundle.rag_chunks) == 1
-        assert bundle.rag_chunks[0].importance == 0.8
-        assert bundle.geo_filtered is False
+    @pytest.mark.asyncio
+    async def test_character_mode_misunderstood_shows_misconception(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """character 视角 misunderstood 知识应显示 misconception 并隐藏 hidden_truth"""
+        misconception = "主角误以为这是梦境"
+        novel_id, char_id, target_id, hidden_truth = await _setup_character_knowledge(
+            db_session,
+            knowledge_level="misunderstood",
+            misconception=misconception,
+        )
+
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成场景",
+                "scope": "world_character",
+                "reveal_mode": "character",
+                "viewpoint_character_id": char_id,
+                "character_ids": [char_id],
+                "entity_ids": [target_id],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        text = _response_text(data)
+        assert hidden_truth not in text
+        assert misconception in text
+
+    @pytest.mark.asyncio
+    async def test_render_endpoint_returns_markdown(
+        self,
+        db_session: AsyncSession,
+        async_client: AsyncClient,
+    ) -> None:
+        """/api/context/render 应返回包含 Tier 标题的 markdown"""
+        from modules.project.models import Project
+
+        nid = uuid.uuid4()
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试渲染",
+                genre="奇幻",
+                language="zh",
+            )
+        )
+        await db_session.flush()
+
+        response = await async_client.post(
+            "/api/context/render",
+            json={
+                "novel_id": nid.hex,
+                "task": "测试渲染",
+                "scope": "project",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "markdown" in data
+        assert "## 一、创作目标" in data["markdown"]
