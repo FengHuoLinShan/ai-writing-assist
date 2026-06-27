@@ -8,6 +8,9 @@ const worldView = {
   _entities: [],
 
   /** @type {Array} */
+  _candidates: [],
+
+  /** @type {Array} */
   _batches: [],
 
   _total: 0,
@@ -49,6 +52,7 @@ const worldView = {
 
   async onEnter() {
     this._entities = []
+    this._candidates = []
     this._batches = []
     this._total = 0
 
@@ -71,6 +75,7 @@ const worldView = {
     }
 
     await this._loadEntities()
+    await this._loadCandidates()
 
     try {
       if (state.currentProjectId) {
@@ -105,6 +110,30 @@ const worldView = {
     }
   },
 
+  async _loadCandidates() {
+    this._candidates = []
+    if (!state.currentProjectId) return
+
+    try {
+      const data = await api.world.listEntities({
+        novel_id: state.currentProjectId,
+        status: "candidate",
+        skip: 0,
+        limit: 100,
+      })
+      this._candidates = data.items || data || []
+    } catch {
+      this._candidates = []
+    }
+  },
+
+  async _reloadWorldLists() {
+    await Promise.all([
+      this._loadEntities(),
+      this._loadCandidates(),
+    ])
+  },
+
   onLeave() {
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
@@ -116,10 +145,10 @@ const worldView = {
     const subView = state.currentSubView || "objects"
     let html = ''
 
-    // 子标签导航（移除了"候选清洗"）
     html += `
       <div class="subnav">
         <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
+        <span class="subnav-item ${subView === "candidates" ? "active" : ""}" data-subview="candidates" data-action="nav-candidates">候选清洗</span>
         <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
         <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
         <span class="subnav-item ${subView === "map" ? "active" : ""}" data-subview="map" data-action="nav-map">地图</span>
@@ -128,6 +157,8 @@ const worldView = {
 
     if (subView === "objects") {
       html += this._renderEntityList()
+    } else if (subView === "candidates") {
+      html += this._renderCandidatesList()
     } else if (subView === "relations") {
       html += await this._renderRelations()
     } else if (subView === "aliases") {
@@ -222,9 +253,9 @@ const worldView = {
         }
         try { localStorage.removeItem("novel_world_extract_task") } catch {}
         if (data.status === "done") {
-          toast("识别任务已完成，对象已自动入库", "success")
+          toast("识别任务已完成，请查看候选清洗", "success")
           // 刷新列表
-          await this._loadEntities()
+          await this._reloadWorldLists()
           try {
             if (state.currentProjectId) {
               this._batches = await api.world.listEntityBatches({ novel_id: state.currentProjectId })
@@ -272,6 +303,9 @@ const worldView = {
         </button>
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
+      <div style="margin-bottom:8px;text-align:center;">
+        <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidates.length}）</button>
+      </div>
     `
 
     html += this._renderFilters()
@@ -414,6 +448,91 @@ const worldView = {
             <button class="btn btn-sm" data-action="rollback-entity" data-id="${esc(e.id || e.entity_id)}">回滚</button>
             ${isCharacter ? `<button class="btn btn-sm" data-action="knowledge-entity" data-id="${esc(e.id || e.entity_id)}">知识</button>` : ""}
             <button class="btn btn-sm btn-danger" data-action="delete-entity" data-id="${esc(e.id || e.entity_id)}">删除</button>
+          </td>
+        </tr>
+      `
+    }
+
+    html += '</tbody></table>'
+    return html
+  },
+
+  _candidateMeta(candidate) {
+    return (candidate?.content_json || {})._meta || {}
+  },
+
+  _candidateAction(candidate) {
+    return candidate?.suggested_action
+      || this._candidateMeta(candidate).suggested_action
+      || "create_new"
+  },
+
+  _candidateTargetName(candidate) {
+    return candidate?.suggested_existing_entity_name
+      || this._candidateMeta(candidate).suggested_existing_entity_name
+      || ""
+  },
+
+  _renderCandidatesList() {
+    if (this._candidates.length === 0) {
+      return `
+        <div class="empty-state">
+          <div class="empty-icon">&#128269;</div>
+          <p>没有待处理的候选对象。</p>
+          <p>AI 从文本中抽取的候选对象会出现在这里，你可以决定如何处置它们。</p>
+        </div>
+      `
+    }
+
+    const actionMap = {
+      create_new: "创建新对象",
+      link_to_existing: "作为别名",
+      alias_of_existing: "作为别名",
+      merge_with_existing: "合并到已有",
+      temporary_only: "设为临时",
+      ignore: "忽略",
+      needs_user_decision: "需用户决定",
+    }
+    let html = `
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
+        以下是从文本中抽取的候选对象。请检查并决定如何处理。
+      </p>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th>类型</th>
+            <th>重要度</th>
+            <th>建议动作</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+    `
+
+    for (const c of this._candidates) {
+      const id = c.id || c.entity_id
+      const action = this._candidateAction(c)
+      const targetName = this._candidateTargetName(c)
+      let actionLabel = actionMap[action] || action
+      if (targetName && ["link_to_existing", "alias_of_existing"].includes(action)) {
+        actionLabel = `作为${targetName}别名`
+      } else if (targetName && action === "merge_with_existing") {
+        actionLabel = `合并到${targetName}`
+      }
+      const isTemporary = action === "temporary_only"
+      const canAccept = !["temporary_only", "ignore", "link_to_existing", "alias_of_existing", "merge_with_existing"].includes(action)
+      const canMerge = ["link_to_existing", "alias_of_existing", "merge_with_existing"].includes(action)
+      html += `
+        <tr data-id="${esc(id)}">
+          <td>${esc(c.name)}</td>
+          <td style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
+          <td>${esc(c.importance || c.importance_score || "-")}</td>
+          <td style="color:var(--warning)">${esc(actionLabel)}</td>
+          <td style="display:flex;gap:4px;flex-wrap:wrap;">
+            ${canAccept ? `<button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(id)}">确认</button>` : ""}
+            ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}" data-target-name="${esc(targetName)}">合并到</button>` : ""}
+            <button class="btn btn-sm ${isTemporary ? "" : "btn-danger"}" data-action="ignore-candidate" data-id="${esc(id)}">${isTemporary ? "设为临时" : "忽略"}</button>
           </td>
         </tr>
       `
@@ -683,6 +802,47 @@ const worldView = {
     )
   },
 
+  async acceptCandidate(id) {
+    const candidate = this._candidates.find((c) => (c.id || c.entity_id) === id)
+    if (!candidate) return
+
+    confirmAction(
+      `确定将 "${esc(candidate.name)}" 提升为正史吗？`,
+      async () => {
+        try {
+          await api.world.promoteEntity(id, state.currentProjectId)
+          toast(`候选 "${candidate.name}" 已确认`, "success")
+          await this._reloadWorldLists()
+          router.navigate("world", "candidates")
+        } catch (err) {
+          toast(`处理失败：${err.message}`, "error")
+        }
+      },
+      "确认提升为正史",
+    )
+  },
+
+  async ignoreCandidate(id) {
+    const candidate = this._candidates.find((c) => (c.id || c.entity_id) === id)
+    const isTemporary = this._candidateAction(candidate) === "temporary_only"
+    confirmAction(
+      isTemporary
+        ? `将候选 "${candidate?.name || id}" 标记为临时并从候选清洗中移除？`
+        : `确定忽略候选 "${candidate?.name || id}"？`,
+      async () => {
+        try {
+          await api.world.updateEntity(id, { status: "ignored" }, state.currentProjectId)
+          toast(isTemporary ? "已设为临时" : "已忽略", "success")
+          await this._reloadWorldLists()
+          router.navigate("world", "candidates")
+        } catch (err) {
+          toast(`操作失败：${err.message}`, "error")
+        }
+      },
+      isTemporary ? "设为临时" : "忽略",
+    )
+  },
+
   _entityOptionsHtml() {
     if (!this._entities || this._entities.length === 0) {
       return `<option value="">暂无对象</option>`
@@ -720,6 +880,7 @@ const worldView = {
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-objects": () => router.navigate("world", "objects"),
+      "nav-candidates": () => router.navigate("world", "candidates"),
       "nav-relations": () => router.navigate("world", "relations"),
       "nav-aliases": () => router.navigate("world", "aliases"),
       "nav-map": () => router.navigate("world", "map"),
@@ -728,6 +889,8 @@ const worldView = {
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
       "delete-entity": (_e, _t, ctx) => ctx.id && this.deleteEntity(ctx.id),
+      "accept-candidate": (_e, _t, ctx) => ctx.id && this.acceptCandidate(ctx.id),
+      "ignore-candidate": (_e, _t, ctx) => ctx.id && this.ignoreCandidate(ctx.id),
       "promote-entity": (_e, _t, ctx) => ctx.id && this.promoteEntity(ctx.id),
       "merge-entity": (_e, _t, ctx) => ctx.id && this.showMergeForm(ctx.id),
       "rollback-entity": (_e, _t, ctx) => ctx.id && this.showRollbackForm(ctx.id),
@@ -821,6 +984,7 @@ const worldView = {
 
   showMergeForm(candidateId) {
     const entity = this._entities.find((e) => (e.id || e.entity_id) === candidateId)
+      || this._candidates.find((e) => (e.id || e.entity_id) === candidateId)
     if (!entity) return
 
     const formHtml = `

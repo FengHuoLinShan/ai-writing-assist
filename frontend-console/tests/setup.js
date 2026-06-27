@@ -154,6 +154,7 @@ globalThis.api = {
     listAliases: vi.fn(),
     createEntity: vi.fn(),
     updateEntity: vi.fn(),
+    promoteEntity: vi.fn(),
     deleteEntity: vi.fn(),
     createRelationship: vi.fn(),
     deleteRelationship: vi.fn(),

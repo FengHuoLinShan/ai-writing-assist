@@ -10,6 +10,7 @@ import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
 beforeEach(() => {
   resetState()
   worldView._entities = []
+  worldView._candidates = []
   worldView._batches = []
   worldView._total = 0
   worldView._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
@@ -55,10 +56,10 @@ describe("onEnter", () => {
 // ============================================================
 
 describe("worldView render", () => {
-  it("渲染子标签导航（无候选清洗）", async () => {
+  it("渲染子标签导航（包含候选清洗）", async () => {
     const html = await worldView.render()
     expect(html).toContain("对象库")
-    expect(html).not.toContain("候选清洗")
+    expect(html).toContain("候选清洗")
     expect(html).toContain("关系")
     expect(html).toContain("别名")
   })
@@ -71,6 +72,104 @@ describe("worldView render", () => {
     expect(html).toContain("正在打开地图")
     expect(html).not.toContain("map-root")
     expect(router.navigate).toHaveBeenCalledWith("map", null)
+  })
+})
+
+// ============================================================
+// 候选清洗
+// ============================================================
+
+describe("候选清洗", () => {
+  describe("_renderCandidatesList", () => {
+    it("空列表显示空状态", () => {
+      const html = worldView._renderCandidatesList()
+      expect(html).toContain("没有待处理的候选对象")
+    })
+
+    it("别名/合并候选显示目标对象名称", () => {
+      worldView._candidates = [{
+        id: "c1",
+        name: "岚姐",
+        entity_type: "character",
+        status: "candidate",
+        content_json: {
+          _meta: {
+            suggested_action: "link_to_existing",
+            suggested_existing_entity_name: "林岚",
+          },
+        },
+      }]
+
+      const html = worldView._renderCandidatesList()
+
+      expect(html).toContain("作为林岚别名")
+      expect(html).toContain('data-action="merge-entity"')
+      expect(html).toContain('data-target-name="林岚"')
+    })
+
+    it("temporary_only 候选显示设为临时且不显示提升按钮", () => {
+      worldView._candidates = [{
+        id: "c1",
+        name: "临时钥匙",
+        entity_type: "item",
+        status: "candidate",
+        content_json: { _meta: { suggested_action: "temporary_only" } },
+      }]
+
+      const html = worldView._renderCandidatesList()
+
+      expect(html).toContain("设为临时")
+      expect(html).toContain('data-action="ignore-candidate"')
+      expect(html).not.toContain('data-action="accept-candidate"')
+    })
+  })
+
+  describe("acceptCandidate", () => {
+    it("确认 create_new 候选时提升为正史并刷新候选列表", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidates = [{
+        id: "c1",
+        name: "新地点",
+        content_json: { _meta: { suggested_action: "create_new" } },
+      }]
+      api.world.promoteEntity.mockResolvedValue({})
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+      autoConfirm()
+
+      await worldView.acceptCandidate("c1")
+
+      expect(api.world.promoteEntity).toHaveBeenCalledWith("c1", "p1")
+      expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+        novel_id: "p1",
+        status: "candidate",
+      }))
+    })
+  })
+
+  describe("ignoreCandidate", () => {
+    it("temporary_only 通过状态更新清理，成功后刷新候选列表", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidates = [{
+        id: "c1",
+        name: "临时钥匙",
+        content_json: { _meta: { suggested_action: "temporary_only" } },
+      }]
+      api.world.updateEntity.mockResolvedValue({})
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+      autoConfirm()
+
+      await worldView.ignoreCandidate("c1")
+
+      expect(api.world.updateEntity).toHaveBeenCalledWith(
+        "c1",
+        expect.objectContaining({ status: "ignored" }),
+        "p1",
+      )
+      expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+        novel_id: "p1",
+        status: "candidate",
+      }))
+    })
   })
 })
 

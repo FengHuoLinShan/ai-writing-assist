@@ -84,12 +84,69 @@ async def test_persist_entities_writes_auto_ingested_meta(
     result = await db_session.execute(stmt)
     found = next((e for e in result.scalars() if e.name == "克莱恩"), None)
     assert found is not None
-    assert found.status == "canonical"
+    assert found.status == "candidate"
     meta = (found.content_json or {}).get("_meta", {})
     assert meta.get("auto_ingested") is True
     assert meta.get("source_scene_index") == 1
     assert meta.get("source_chapter_index") == 1
     assert meta.get("batch_id") == "wf-test-1"
+    assert meta.get("suggested_action") == "create_new"
+
+
+@pytest.mark.asyncio
+async def test_persist_entities_keeps_temporary_and_link_candidates(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    temporary = ExtractedEntity(
+        name="临时钥匙",
+        entity_type="item",
+        suggested_action="temporary_only",
+        candidate_reason="只在当前 Scene 使用",
+    )
+    alias = ExtractedEntity(
+        name="岚姐",
+        entity_type="character",
+        suggested_action="link_to_existing",
+        suggested_existing_entity_name="林岚",
+        candidate_reason="已有角色的新称呼",
+    )
+
+    with patch(
+        "modules.world.facade.find_similar_entities",
+        new_callable=AsyncMock,
+        return_value={},
+    ):
+        created = await svc._persist_entities(
+            db_session,
+            novel_with_drafts,
+            [temporary, alias],
+            scene_index=1,
+            source_chapter_index=1,
+            workflow_id="wf-test-1",
+        )
+
+    assert created == 2
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_with_drafts, "novel_id")
+    stmt = select(CoreEntity).where(CoreEntity.novel_id == nid)
+    result = await db_session.execute(stmt)
+    by_name = {e.name: e for e in result.scalars()}
+
+    assert by_name["临时钥匙"].status == "candidate"
+    temp_meta = (by_name["临时钥匙"].content_json or {}).get("_meta", {})
+    assert temp_meta.get("suggested_action") == "temporary_only"
+    assert temp_meta.get("temporary") is True
+
+    assert by_name["岚姐"].status == "candidate"
+    alias_meta = (by_name["岚姐"].content_json or {}).get("_meta", {})
+    assert alias_meta.get("suggested_action") == "link_to_existing"
+    assert alias_meta.get("suggested_existing_entity_name") == "林岚"
 
 
 @pytest.mark.asyncio

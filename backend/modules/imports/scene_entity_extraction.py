@@ -323,15 +323,16 @@ class SceneEntityExtractionService:
 
         for ent in entities:
             action = ent.suggested_action
-            if action in ("ignore", "temporary_only", "link_to_existing"):
+            if action == "ignore":
                 continue
 
             if not ent.name:
                 continue
 
-            similar = await find_similar_entities(db, str(nid), ent.name)
-            if similar and similar.get("score", 0) >= 0.88:
-                continue
+            if action == "create_new":
+                similar = await find_similar_entities(db, str(nid), ent.name)
+                if similar and similar.get("score", 0) >= 0.88:
+                    continue
 
             content_json: dict[str, Any] = {
                 "_meta": {
@@ -340,9 +341,17 @@ class SceneEntityExtractionService:
                     "source_chapter_index": source_chapter_index,
                     "ingested_at": datetime.now(UTC).isoformat(),
                     "batch_id": workflow_id or "",
+                    "suggested_action": action,
+                    "suggested_existing_entity_name": (
+                        ent.suggested_existing_entity_name
+                    ),
+                    "candidate_reason": ent.candidate_reason,
+                    "confidence": ent.confidence,
                 },
                 "aliases": ent.aliases or [],
             }
+            if action == "temporary_only":
+                content_json["_meta"]["temporary"] = True
             try:
                 await create_entity(
                     db,
@@ -355,7 +364,7 @@ class SceneEntityExtractionService:
                         "hidden_truth": ent.hidden_truth or None,
                         "importance": ent.importance,
                         "content_json": content_json,
-                        "status": "canonical",
+                        "status": "candidate",
                         "created_by": "ai_import",
                     },
                 )

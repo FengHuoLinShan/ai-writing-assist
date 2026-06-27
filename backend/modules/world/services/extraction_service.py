@@ -200,120 +200,64 @@ class EntityExtractionService:
                     total_skipped += 1
                     continue
 
-                # --- Layer 3: LLM 指定的 link_to_existing ---
-                linked = False
-                if (
-                    suggested_action == "link_to_existing"
-                    and extracted.suggested_existing_entity_name
-                ):
-                    existing_id = await self._find_entity_by_name(
+                if suggested_action == "create_new":
+                    # --- Layer 1: Name embedding dedup ---
+                    name_embedding = await self._generate_embedding(
+                        llm, extracted.name, is_query=True
+                    )
+                    suggestions = await self._dedup_service.find_similar_entities(
                         db,
                         novel_id,
-                        extracted.suggested_existing_entity_name,
-                        extracted.entity_type,
+                        extracted.name,
+                        entity_type=extracted.entity_type,
+                        query_embedding=name_embedding,
                     )
-                    if existing_id is not None:
-                        if extracted.aliases:
-                            await self._sync_aliases_to_existing(
-                                db,
-                                existing_id,
-                                novel_id,
-                                extracted.aliases,
-                            )
+                    high_confidence = [
+                        s
+                        for s in suggestions
+                        if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE
+                    ]
+                    if high_confidence:
                         total_skipped += 1
-                        linked = True
                         new_entity_descriptions.append(
                             f"- {extracted.name} ({extracted.entity_type}) "
-                            "[linked to existing]"
+                            "[matched via name embedding]"
                         )
+                        continue
 
-                if linked:
-                    continue
-
-                # --- Layer 1: Name embedding dedup ---
-                name_embedding = await self._generate_embedding(
-                    llm, extracted.name, is_query=True
-                )
-                suggestions = await self._dedup_service.find_similar_entities(
-                    db,
-                    novel_id,
-                    extracted.name,
-                    entity_type=extracted.entity_type,
-                    query_embedding=name_embedding,
-                )
-                high_confidence = [
-                    s
-                    for s in suggestions
-                    if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE
-                ]
-                if high_confidence:
-                    best = high_confidence[0]
-                    if extracted.aliases:
-                        await self._sync_aliases_to_existing(
-                            db,
-                            best.existing_entity_id,
-                            novel_id,
-                            extracted.aliases,
+                    # --- Layer 2: Content embedding dedup ---
+                    content_text_parts = []
+                    if extracted.summary:
+                        content_text_parts.append(extracted.summary.strip())
+                    if extracted.public_info:
+                        content_text_parts.append(extracted.public_info.strip())
+                    content_text = ". ".join(content_text_parts).strip()
+                    if content_text:
+                        content_embedding = await self._generate_embedding(
+                            llm, content_text, is_query=True
                         )
-                    total_skipped += 1
-                    new_entity_descriptions.append(
-                        f"- {extracted.name} ({extracted.entity_type}) "
-                        "[matched via name embedding]"
-                    )
-                    continue
-
-                # --- Layer 2: Content embedding dedup ---
-                content_text_parts = []
-                if extracted.summary:
-                    content_text_parts.append(extracted.summary.strip())
-                if extracted.public_info:
-                    content_text_parts.append(extracted.public_info.strip())
-                content_text = ". ".join(content_text_parts).strip()
-                if content_text:
-                    content_embedding = await self._generate_embedding(
-                        llm, content_text, is_query=True
-                    )
-                    if content_embedding is not None:
-                        content_suggestions = (
-                            await self._dedup_service.find_similar_entities(
-                                db,
-                                novel_id,
-                                extracted.name,
-                                entity_type=extracted.entity_type,
-                                query_embedding=content_embedding,
-                            )
-                        )
-                        high_conf_content = [
-                            s
-                            for s in content_suggestions
-                            if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE
-                        ]
-                        if high_conf_content:
-                            best = high_conf_content[0]
-                            if extracted.aliases:
-                                await self._sync_aliases_to_existing(
+                        if content_embedding is not None:
+                            content_suggestions = (
+                                await self._dedup_service.find_similar_entities(
                                     db,
-                                    best.existing_entity_id,
                                     novel_id,
-                                    extracted.aliases,
+                                    extracted.name,
+                                    entity_type=extracted.entity_type,
+                                    query_embedding=content_embedding,
                                 )
-                            total_skipped += 1
-                            new_entity_descriptions.append(
-                                f"- {extracted.name} ({extracted.entity_type}) "
-                                "[matched via content embedding]"
                             )
-                            continue
-
-                # 若 LLM 指定 link_to_existing 但未能解析，跳过
-                if suggested_action == "link_to_existing":
-                    logger.warning(
-                        "link_to_existing for '%s' (chapter %d) "
-                        "could not resolve; skipping",
-                        extracted.name,
-                        ch_idx,
-                    )
-                    total_skipped += 1
-                    continue
+                            high_conf_content = [
+                                s
+                                for s in content_suggestions
+                                if s.similarity_score >= SIMILARITY_HIGH_CONFIDENCE
+                            ]
+                            if high_conf_content:
+                                total_skipped += 1
+                                new_entity_descriptions.append(
+                                    f"- {extracted.name} ({extracted.entity_type}) "
+                                    "[matched via content embedding]"
+                                )
+                                continue
 
                 # --- 创建新实体 ---
                 src_ch = extracted.source_chapter or ch_idx
@@ -324,6 +268,11 @@ class EntityExtractionService:
                     "batch_id": run_batch_id,
                     "source_chapter_index": src_ch,
                     "confidence": min(max(extracted.confidence, 0.0), 1.0),
+                    "suggested_action": suggested_action,
+                    "suggested_existing_entity_name": (
+                        extracted.suggested_existing_entity_name
+                    ),
+                    "candidate_reason": extracted.candidate_reason,
                 }
                 if suggested_action == "temporary_only":
                     _meta["temporary"] = True
@@ -346,7 +295,7 @@ class EntityExtractionService:
                     public_info=extracted.public_info,
                     hidden_truth=extracted.hidden_truth,
                     importance=min(max(extracted.importance, 0.0), 1.0),
-                    status="canonical",
+                    status="candidate",
                     created_by="ai_import",
                     content_json=content_json,
                 )
