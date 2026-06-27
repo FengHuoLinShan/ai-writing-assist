@@ -24,6 +24,8 @@ Thumbs.db
 .pytest_cache/
 *.coverage
 htmlcov/
+.playwright-mcp/
+chaos_test_*.py
 
 # Node
 node_modules/
@@ -34,3 +36,7 @@ frontend-console/test-results/
 *.sqlite3
 backend/nul
 nul
+
+# Local agent/tool artifacts
+.claude/agent-memory/
+backend/data/dedup_training/*.jsonl
