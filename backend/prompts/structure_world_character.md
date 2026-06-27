@@ -4,7 +4,7 @@
 >
 > **输入来源**：用户直接提供的创意草稿 + 已有正史数据
 >
-> **输出去向**：`suggested_action=create_new` 的实体会被系统直接以 `status=canonical` 入库。`link_to_existing` 会作为别名处理，`ignore` / `temporary_only` 会被跳过。
+> **输出去向**：实体类输出只进入候选清洗。`create_new` 表示建议创建新对象，`link_to_existing` / `alias_of_existing` 表示建议关联已有对象，`ignore` / `temporary_only` 表示建议清理；用户确认后才会写入正史。
 
 ---
 
