@@ -20,7 +20,9 @@ class TestImportsOutlineIntegration:
 
         workflow = DeepImportWorkflow()
 
-        async def _mock_generate(db, novel_id, *, start_chapter, end_chapter):
+        async def _mock_generate(
+            db, novel_id, *, start_chapter, end_chapter, **kwargs
+        ):
             return {
                 "total_threads": 3,
                 "total_arcs": 2,
@@ -53,7 +55,9 @@ class TestImportsOutlineIntegration:
 
         workflow = DeepImportWorkflow()
 
-        async def _mock_generate_fail(db, novel_id, *, start_chapter, end_chapter):
+        async def _mock_generate_fail(
+            db, novel_id, *, start_chapter, end_chapter, **kwargs
+        ):
             raise Exception("LLM timeout")
 
         with mock.patch(
