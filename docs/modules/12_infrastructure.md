@@ -3,6 +3,8 @@
 ## 1. LLM 客户端
 
 `infrastructure/llm/` 目录提供 OpenAI 兼容的 LLM 调用能力。
+默认使用显式 HTTP transport，避免进程隐式继承系统代理；如需代理，配置
+`LLM_PROXY_URL`，如需读取系统代理，显式设置 `LLM_TRUST_ENV=true`。
 
 ### 核心方法
 
@@ -33,6 +35,24 @@ await llm.close()
 # 获取 Provider 状态
 stats = await llm.get_usage_stats()
 ```
+
+### 配置与健康检查
+
+- `LLM_TRUST_ENV`：是否允许 httpx/OpenAI SDK 读取系统代理环境，默认 `false`
+- `LLM_PROXY_URL`：显式代理地址，默认空
+- `LLM_HEALTH_REQUIRED`：深度导入启动前是否要求 LLM health 通过，默认 `true`
+- `LLM_RETRY_MAX_ATTEMPTS` / `LLM_RETRY_BASE_DELAY` / `LLM_RETRY_MAX_DELAY`：LLM 重试预算
+
+健康检查入口：
+
+```bash
+python scripts/check_llm.py
+GET /api/health/llm
+```
+
+返回只包含 host、model、错误类型、延迟等脱敏诊断信息，不返回 API key。
+常见 `error_kind` 包括 `dns_fake_ip`、`proxy_error`、`tls_error`、`auth_error`、
+`rate_limit`、`timeout`、`provider_error`。
 
 ## 2. 异步任务系统
 

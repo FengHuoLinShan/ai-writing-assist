@@ -24,6 +24,7 @@ class TestDeepImportSchema:
     def test_default_progress(self):
         p = DeepImportProgress()
         assert p.phase == "pending"
+        assert p.quality_status == "pending"
         assert p.total_steps == 3
         assert p.completed_steps == []
         assert p.current_step is None
@@ -93,6 +94,184 @@ class TestDeepImportWorkflowAutoRun:
         assert "3 个实体" in result.message
         assert "2 条剧情线" in result.message
         assert "4 个篇章纲" in result.message
+        assert result.quality_status == "complete"
+        assert result.phase_errors == []
+
+    @pytest.mark.asyncio
+    async def test_health_failure_stops_before_scene_segmentation(self):
+        """LLM preflight failure should fail the workflow before writing assets."""
+        from infrastructure.llm.health import LLMHealthResult
+
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+        workflow._check_llm_health = AsyncMock(
+            return_value=LLMHealthResult(
+                ok=False,
+                model="deepseek-v4-flash",
+                base_url_host="opencode.ai",
+                error_kind="proxy_error",
+                message="CONNECT tunnel failed",
+            )
+        )
+        workflow._is_llm_health_required = Mock(return_value=True)
+        workflow._segment_scenes = AsyncMock()
+
+        result = await workflow.run_step(
+            db=None,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+        )
+
+        assert result.phase == "failed"
+        assert result.quality_status == "failed"
+        assert result.current_step is None
+        assert result.phase_errors[0]["phase"] == "preflight"
+        assert result.phase_errors[0]["error_kind"] == "proxy_error"
+        workflow._segment_scenes.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_empty_phase2_and_phase3_outputs_are_partial(self):
+        """Done with empty AI assets should be machine-readable as partial."""
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+
+        workflow._segment_scenes = AsyncMock(
+            return_value={
+                "total_scenes": 5,
+                "failed_batches": [],
+                "degraded": False,
+            }
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 0,
+                "total_relations": 0,
+                "total_deltas": 0,
+            }
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 0,
+                "total_arcs": 0,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+            }
+        )
+
+        result = await workflow.run_step(
+            db=None,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+        )
+
+        assert result.phase == "done"
+        assert result.quality_status == "partial"
+        assert result.degraded is True
+        assert [e["phase"] for e in result.phase_errors] == [
+            "entity_extraction",
+            "structure_analysis",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_phase2_exception_is_partial_and_phase3_still_runs(self):
+        """A per-scene persistence failure should not leave the whole task failed."""
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+
+        workflow._segment_scenes = AsyncMock(
+            return_value={
+                "total_scenes": 5,
+                "failed_batches": [],
+                "degraded": False,
+            }
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            side_effect=RuntimeError("cannot insert generated column")
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 1,
+                "total_arcs": 1,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+            }
+        )
+        db = AsyncMock()
+
+        result = await workflow.run_step(
+            db=db,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+        )
+
+        assert result.phase == "done"
+        assert result.quality_status == "partial"
+        assert result.degraded is True
+        assert DeepImportStep.structure_analysis.value in result.completed_steps
+        assert result.phase_errors[0]["phase"] == "entity_extraction"
+        assert result.phase_errors[0]["error_kind"] == "phase_failed"
+        db.rollback.assert_awaited_once()
+        workflow._analyze_structure.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_phase2_degraded_result_is_partial_even_with_created_entities(self):
+        """A normal Phase 2 return with partial entities must still expose degradation."""
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+
+        workflow._segment_scenes = AsyncMock(
+            return_value={
+                "total_scenes": 3,
+                "failed_batches": [],
+                "degraded": False,
+            }
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 2,
+                "total_relations": 0,
+                "total_deltas": 0,
+                "degraded": True,
+                "error_kind": "transport_failure",
+                "error_message": "connection failed",
+                "failed_scene_indices": [],
+                "completed_scenes": 1,
+                "skipped_scenes": 2,
+                "stopped_early": True,
+            }
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 1,
+                "total_arcs": 1,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+            }
+        )
+
+        result = await workflow.run_step(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+        )
+
+        assert result.phase == "done"
+        assert result.quality_status == "partial"
+        assert result.degraded is True
+        assert result.phase_errors[0]["phase"] == "entity_extraction"
+        assert result.phase_errors[0]["error_kind"] == "transport_failure"
+        assert "跳过 2 个 Scene" in result.phase_errors[0]["message"]
 
     @pytest.mark.asyncio
     async def test_run_step_emits_phase_progress_updates(self):
@@ -277,6 +456,15 @@ class TestDeepImportOrchestrator:
             message="完成",
             degraded=True,
             degraded_batches=[2],
+            quality_status="partial",
+            phase_errors=[
+                {
+                    "phase": "entity_extraction",
+                    "error_kind": "phase_failed",
+                    "message": "实体写入失败",
+                }
+            ],
+            llm_health={"ok": True, "model": "deepseek-v4-flash"},
         )
         orchestrator.workflow.run_step = AsyncMock(return_value=progress)
         task = Mock(
@@ -299,6 +487,15 @@ class TestDeepImportOrchestrator:
             "message": "完成",
             "degraded": True,
             "degraded_batches": [2],
+            "quality_status": "partial",
+            "phase_errors": [
+                {
+                    "phase": "entity_extraction",
+                    "error_kind": "phase_failed",
+                    "message": "实体写入失败",
+                }
+            ],
+            "llm_health": {"ok": True, "model": "deepseek-v4-flash"},
         }
 
     @pytest.mark.asyncio

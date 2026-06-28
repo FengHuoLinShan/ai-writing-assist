@@ -161,11 +161,11 @@ class TestSceneSegmentationDegradation:
                 novel_with_drafts,
                 start_chapter=1,
                 end_chapter=3,
-            )
+        )
 
         assert result["total_scenes"] == 3
         assert result["degraded"] is True
-        assert result["failed_batches"] == []
+        assert result["failed_batches"] == [0]
 
         from modules.outline.facade import get_scenes_by_novel
 
@@ -174,6 +174,153 @@ class TestSceneSegmentationDegradation:
         )
         assert len(scenes) == 3
         assert all(s["source"] == "deep_import" for s in scenes)
+
+    async def test_transport_failure_skips_single_chapter_llm_fallback(
+        self,
+        db_session: AsyncSession,
+        novel_with_drafts: str,
+    ) -> None:
+        """网络类失败应直接机械降级，避免 batch retry 后再触发单章 LLM 长等待。"""
+        from infrastructure.llm.errors import LLMConnectionError
+        from modules.imports.scene_segmentation import SceneSegmentationService
+
+        service = SceneSegmentationService()
+        with (
+            mock.patch.object(
+                service,
+                "_process_batch",
+                side_effect=LLMConnectionError("connection failed"),
+            ),
+            mock.patch.object(service, "_process_batch_single_chapter") as single_fb,
+        ):
+            result = await service.segment_chapters(
+                db_session,
+                novel_with_drafts,
+                start_chapter=1,
+                end_chapter=3,
+            )
+
+        assert result["total_scenes"] == 3
+        assert result["degraded"] is True
+        assert result["failed_batches"] == [0]
+        single_fb.assert_not_called()
+
+    async def test_primary_batch_failure_records_degraded_batch_when_fallback_succeeds(
+        self,
+        db_session: AsyncSession,
+        novel_with_drafts: str,
+    ) -> None:
+        """Primary batch failure counts even if single-chapter fallback works."""
+        from modules.imports.scene_segmentation import SceneSegmentationService
+
+        service = SceneSegmentationService()
+        fallback_output = [
+            {
+                "title": "Fallback Scene",
+                "goal": "单章 fallback 成功。",
+                "scene_chunks": [{"chapter_index": 1, "start_paragraph": 0}],
+            }
+        ]
+
+        with (
+            mock.patch.object(
+                service,
+                "_process_batch",
+                side_effect=RuntimeError("LLM batch failure"),
+            ),
+            mock.patch.object(
+                service,
+                "_process_batch_single_chapter",
+                return_value=fallback_output,
+            ),
+        ):
+            result = await service.segment_chapters(
+                db_session,
+                novel_with_drafts,
+                start_chapter=1,
+                end_chapter=3,
+            )
+
+        assert result["total_scenes"] == 1
+        assert result["degraded"] is True
+        assert result["failed_batches"] == [0]
+
+
+class TestSceneSegmentationBatchMapping:
+    """Phase 1 分批切分的章节映射保护。"""
+
+    async def test_later_batch_invalid_chapter_refs_are_kept_inside_batch(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """后续批次的 LLM 输出不得把 Scene 回指到当前批次外的章节。"""
+        from modules.imports.scene_segmentation import SceneSegmentationService
+        from modules.project.schemas import ProjectCreate
+        from modules.project.services import ProjectService
+        from modules.writing.facade import create_draft_only
+
+        project = await ProjectService().create_project(
+            db_session,
+            ProjectCreate(title="Batch Mapping Test", language="zh"),
+        )
+        novel_id = str(project.id)
+        for idx in range(1, 7):
+            await create_draft_only(
+                db_session,
+                novel_id,
+                chapter_index=idx,
+                title=f"第{idx}章",
+                content=f"第{idx}章内容。",
+            )
+
+        service = SceneSegmentationService()
+
+        async def _mock_batch(_db, batch, batch_idx):
+            if batch_idx == 0:
+                return [
+                    {
+                        "title": "第一批 Scene",
+                        "narrative_tag": "rising_action",
+                        "scene_chunks": [{"chapter_index": 1}],
+                    }
+                ]
+            return [
+                {
+                    "title": "错误回指 Scene",
+                    "narrative_tag": "rising_action",
+                    "scene_chunks": [{"chapter_index": 1}, {"chapter_index": 2}],
+                },
+                {
+                    "title": "Overlap Only Scene",
+                    "narrative_tag": "rising_action",
+                    "scene_chunks": [{"chapter_index": 5}],
+                },
+                {
+                    "title": "第六章 Scene",
+                    "narrative_tag": "rising_action",
+                    "scene_chunks": [{"chapter_index": 6}],
+                },
+            ]
+
+        with mock.patch.object(service, "_process_batch", side_effect=_mock_batch):
+            result = await service.segment_chapters(
+                db_session,
+                novel_id,
+                start_chapter=1,
+                end_chapter=6,
+            )
+
+        assert result["total_scenes"] == 3
+
+        from modules.outline.facade import get_scenes_by_novel
+
+        scenes = await get_scenes_by_novel(
+            db_session, novel_id, status_filter=["draft"]
+        )
+        by_title = {s["title"]: s for s in scenes}
+        assert by_title["错误回指 Scene"]["chapter_ids"] == ["6"]
+        assert "Overlap Only Scene" not in by_title
+        assert by_title["第六章 Scene"]["chapter_ids"] == ["6"]
 
 
 class TestDuplicateImportAndDeprecation:

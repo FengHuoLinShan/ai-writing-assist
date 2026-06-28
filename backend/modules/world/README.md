@@ -9,7 +9,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 ## 核心原则
 
 - 对象抽取不是 NER，而是长期创作资产识别
-- AI 抽取对象直接以 `status="canonical"` 自动入库，不经过候选池
+- AI 抽取对象默认以 `status="candidate"` 入库，等待用户确认后再进入正史
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - 对象分级：core / important / normal / temporary
@@ -22,7 +22,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB）
 - 对象去重（EntityDedupService）
 - 世界上下文/检索词典/批次（`EntityContextService`）
-- 实体统计与自动入库查询（`EntityStatsService`）
+- 实体统计与自动抽取批次查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）
 - 向其他模块提供世界上下文（`get_world_context`）
 - 人物档案与知识边界（Character / CharacterKnowledge）
@@ -37,6 +37,12 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 复杂跨类型实体消歧
 - 所有 Mention 实时 embedding
 - 独立知识图谱数据库
+
+## AI 抽取确认策略
+
+- 手动 AI 抽取或补抽默认写入 `candidate`，不得自动提升为 `canonical`。
+- 只有用户明确启动并确认的自动流水线可直接写入 `canonical`；这类路径必须保留来源、可编辑/可回滚标记，并有对应测试覆盖。
+- 本模块不恢复旧 `entity_candidates` 表；候选状态由 `core_entities.status` 表达。
 
 ## 数据表
 
@@ -53,7 +59,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | `map_location_bindings` | 地点绑定（core_entities.entity_type=location → hex，PRD §4.3） |
 | `map_markers` | 动态标记（P1 预留：character/event/item，按 Scene 时间层显隐，PRD §4.5） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
-| ~~`entity_candidates`~~ | 已废弃，AI 抽取直接入正史 |
+| ~~`entity_candidates`~~ | 已废弃，AI 抽取候选直接落在 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
 
 ### core_entities 表核心字段
@@ -69,10 +75,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `importance` — 重要性（0~1）
 - `importance_level` — 重要性级别（core / important / normal / temporary）
 - `reveal_level` — 揭示层级（author_only / hinted / revealed / fully_known）
-- `status` — 状态（draft / canonical / deprecated / ignored / conflicted；`candidate` 为历史兼容，`pending` 属于 async_tasks）
+- `status` — 状态（candidate / draft / canonical / deprecated / ignored / conflicted；`pending` 属于 async_tasks）
 - `embedding_text` — 用于向量化的文本
 - `embedding` — 向量（768 维，生产环境使用 pgvector bge-base-zh-v1.5）
-- `search_text` — 用于 pg_trgm 模糊搜索的文本列（由业务层维护）
+- `search_text` — 用于 pg_trgm 模糊搜索的 PostgreSQL 生成列（name + aliases），业务层不得显式写入
 - `pinyin_string` — name 的拼音字符串缓存（用于去重音似特征）
 - `created_by` / `approved_by` — 创建/确认者
 

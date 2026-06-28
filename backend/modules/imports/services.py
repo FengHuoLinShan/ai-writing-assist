@@ -155,15 +155,7 @@ class ImportService:
             )
         except IntegrityError as exc:
             logger.warning("并发重复导入被数据库约束拦截: %s", exc)
-            try:
-                await self._repo.update_status(
-                    db,
-                    record.id,
-                    status="failed",
-                    error_message=f"文件已导入: {file_name}",
-                )
-            except Exception as update_exc:
-                logger.error("标记导入记录失败状态时出错: %s", update_exc, exc_info=True)
+            await db.rollback()
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail=f"文件已导入: {file_name}",
@@ -229,7 +221,7 @@ class ImportService:
             )
         if file_size > MAX_FILE_SIZE:
             raise HTTPException(
-                status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=http_status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=(
                     f"文件过大（{file_size} bytes），"
                     f"最大允许 {MAX_FILE_SIZE} bytes（50MB）"

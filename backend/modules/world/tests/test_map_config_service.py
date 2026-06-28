@@ -236,6 +236,38 @@ class TestMapConfigValidation:
         assert exc.value.status_code == 409
 
     @pytest.mark.asyncio
+    async def test_create_duplicate_name_after_first_page_returns_409(self, db_session):
+        """同层级重名检查不能被默认分页上限漏掉。"""
+
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        svc = MapConfigService()
+        for index in range(101):
+            await svc.create(
+                db_session,
+                nid,
+                MapConfigCreate(
+                    name=f"地图{index:03d}",
+                    map_type="world",
+                    grid_width=1,
+                    grid_height=1,
+                ),
+            )
+
+        with pytest.raises(HTTPException) as exc:
+            await svc.create(
+                db_session,
+                nid,
+                MapConfigCreate(
+                    name="地图100",
+                    map_type="world",
+                    grid_width=1,
+                    grid_height=1,
+                ),
+            )
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
     async def test_create_with_parent_entity_not_location_returns_400(self, db_session):
         """B2：parent_entity_id 非 location 类型返回 400。"""
 

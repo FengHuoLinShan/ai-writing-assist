@@ -282,3 +282,29 @@ async def test_upload_duplicate_done_file_returns_400(
     )
     assert second.status_code == 400
     assert "已导入" in second.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_upload_same_file_name_in_different_projects_succeeds(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    """同名文件只在同一 novel 内判重，不应跨 novel 拦截。"""
+    other_project = (
+        await async_client.post("/api/projects", json={"title": "另一个导入项目"})
+    ).json()
+    content = "第一章\n内容\n".encode()
+
+    first = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": sample_project["id"]},
+        files={"file": ("same-name.txt", content, "text/plain")},
+    )
+    second = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": other_project["id"]},
+        files={"file": ("same-name.txt", content, "text/plain")},
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201

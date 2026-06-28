@@ -26,6 +26,9 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 
 DeepImportWorkflow 将三步串成全自动流水线，直接入库无需用户中途确认：
 
+启动前会执行 LLM health preflight。若 `LLM_HEALTH_REQUIRED=true` 且 LLM 不可用，
+任务直接进入 `phase="failed"` / `quality_status="failed"`，不写入半成品 Scene。
+
 ### Phase 1: Scene 切分（并行，40%）
 - 按 5 章/批 + 1 章 Overlap 拆分为 N 个子任务
 - 每个子任务调用 LLM（scene_segmentation.md prompt）
@@ -54,6 +57,12 @@ DeepImportWorkflow 将三步串成全自动流水线，直接入库无需用户�
 - phase1_total_batches / phase1_completed_batches
 - phase2_total_scenes / phase2_completed_scenes
 - degraded / degraded_batches 标记降级
+- quality_status: pending / complete / partial / failed
+- phase_errors: 各阶段可机器读取的失败或降级原因
+
+当任务能跑完但 Phase 2/3 未生成关键 AI 资产时，`phase` 仍可为 `done`，但
+`quality_status="partial"` 且 `degraded=true`。前端应把它显示为“部分完成”，
+验收脚本不得只凭 `phase="done"` 判定真实 LLM 导入成功。
 
 重复导入时，`POST /api/imports/deep` 先返回：
 - `status="requires_confirmation"`

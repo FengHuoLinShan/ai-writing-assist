@@ -4,7 +4,7 @@ services:
     container_name: ai-novel-db
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5207:5432"
     environment:
       POSTGRES_DB: ai_novel_engine
       POSTGRES_USER: novelist

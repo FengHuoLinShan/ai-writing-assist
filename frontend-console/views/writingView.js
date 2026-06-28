@@ -754,6 +754,8 @@ const writingView = {
     this._sceneMapSummaryLoading = true
     setTimeout(async () => {
       await this._loadCurrentSceneMapSummary(currentScene)
+      // 用户切换 Scene 后避免用旧结果重新渲染
+      if (this._currentSceneId !== currentScene.id) return
       const panelEl = document.getElementById("writing-panel-container")
       if (panelEl) {
         panelEl.innerHTML = this._renderScenePanel()
@@ -773,18 +775,24 @@ const writingView = {
     this._sceneMapSummarySceneId = scene.id
     this._sceneMapSummaryError = null
     this._sceneMapSummaryLoading = true
+    const isStale = () => this._currentSceneId && this._currentSceneId !== scene.id
+    const isActiveRequest = () => this._sceneMapSummarySceneId === scene.id
     try {
       const summary = await api.world.getMapSceneSummary(state.currentProjectId, scene.id)
+      if (isStale()) return null
       this._sceneMapSummary = summary
       this._sceneMapSummaryError = null
       return summary
     } catch {
+      if (isStale()) return null
       this._sceneMapSummary = null
       this._sceneMapSummaryError = "地图摘要暂不可用"
       toast("地图摘要暂不可用", "warning")
       return null
     } finally {
-      this._sceneMapSummaryLoading = false
+      if (isActiveRequest()) {
+        this._sceneMapSummaryLoading = false
+      }
     }
   },
 

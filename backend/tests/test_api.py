@@ -9,6 +9,8 @@ API 分层测试 — 覆盖全部 11 个业务模块 + 系统端点
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -36,6 +38,32 @@ class TestApiSystem:
 
         # Assert
         assert resp.status_code in (200, 503)
+
+    async def test_api_llm_health_returns_sanitized_result(
+        self,
+        async_client: AsyncClient,
+    ):
+        """LLM health endpoint returns diagnostics without secrets."""
+        from infrastructure.llm.health import LLMHealthResult
+
+        with patch(
+            "infrastructure.llm.health.check_llm_health",
+            AsyncMock(
+                return_value=LLMHealthResult(
+                    ok=True,
+                    model="deepseek-v4-flash",
+                    base_url_host="opencode.ai",
+                    message="LLM health check passed",
+                )
+            ),
+        ):
+            resp = await async_client.get("/api/health/llm")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["model"] == "deepseek-v4-flash"
+        assert "key" not in str(data).lower()
 
     async def test_api_system_root_returns_modules_list(
         self,

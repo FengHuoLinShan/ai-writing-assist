@@ -175,7 +175,8 @@ const worldView = {
 
   /** 渲染地图子视图容器（mapView 命令式挂载到 #map-root） */
   _renderMap() {
-    router.navigate("map", null)
+    // 延迟导航，避免在当前 render 周期内递归触发路由渲染导致竞态
+    setTimeout(() => router.navigate("map", null), 0)
     return `
       <div class="empty-state">
         <div class="empty-icon">&#128506;</div>

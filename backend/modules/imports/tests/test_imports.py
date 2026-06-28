@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
@@ -529,3 +530,40 @@ class TestImportService:
                 )
         assert exc.value.status_code == 500
         assert "导入过程中发生服务器错误" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_concurrent_duplicate_done_rolls_back_outer_transaction(
+        self,
+        service: ImportService,
+        db_session: AsyncSession,
+        test_project_id: str,
+        sample_txt_content: bytes,
+        monkeypatch,
+    ):
+        """done 状态唯一约束冲突时必须回滚外层事务，避免 draft/task 残留。"""
+        original_update_status = service._repo.update_status
+        rollback_spy = AsyncMock()
+
+        async def update_status_with_done_conflict(db, record_id, **kwargs):
+            if kwargs.get("status") == "done":
+                raise IntegrityError("update imports", {}, Exception("unique"))
+            return await original_update_status(db, record_id, **kwargs)
+
+        monkeypatch.setattr(
+            service._repo,
+            "update_status",
+            update_status_with_done_conflict,
+        )
+        monkeypatch.setattr(db_session, "rollback", rollback_spy)
+
+        with pytest.raises(HTTPException) as exc:
+            await service.upload_and_import(
+                db_session,
+                test_project_id,
+                "race.txt",
+                sample_txt_content,
+            )
+
+        assert exc.value.status_code == 400
+        assert "文件已导入" in exc.value.detail
+        rollback_spy.assert_awaited_once()

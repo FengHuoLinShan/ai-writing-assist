@@ -610,7 +610,3 @@ class TextArchive(Base, UUIDMixin, NovelMixin):
             f"<TextArchive id={self.id} entity={self.entity_id} "
             f"field={self.field_name} scene={self.scene_index}>"
         )
-
-
-# 需要 datetime/function 用于 EntityRevision.created_at
-from sqlalchemy import DateTime, func  # noqa: E402

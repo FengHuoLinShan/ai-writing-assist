@@ -145,9 +145,10 @@ class EntityDedupService:
         candidate_id: str,
     ) -> list[DuplicateSuggestionResult]:
         """查找与指定候选重名的已有实体"""
+        nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(candidate_id, "candidate_id")
         candidate = await self._entity_repo.get(db, cid)
-        if candidate is None:
+        if candidate is None or candidate.novel_id != nid:
             return []
 
         return await self.find_similar_entities(

@@ -40,6 +40,27 @@ def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(key: str, default: int) -> int:
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    return int(value)
+
+
+def _env_float(key: str, default: float) -> float:
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    return float(value)
+
+
 @dataclass(frozen=True)
 class Settings:
     """应用全局配置，不可变对象，通过 get_settings() 获取"""
@@ -66,6 +87,22 @@ class Settings:
     llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", "gpt-4o"))
     llm_max_tokens: int = int(_env("LLM_MAX_TOKENS", "4096"))
     llm_timeout: int = int(_env("LLM_TIMEOUT", "60"))
+    llm_trust_env: bool = field(
+        default_factory=lambda: _env_bool("LLM_TRUST_ENV", False)
+    )
+    llm_proxy_url: str = field(default_factory=lambda: _env("LLM_PROXY_URL", ""))
+    llm_health_required: bool = field(
+        default_factory=lambda: _env_bool("LLM_HEALTH_REQUIRED", True)
+    )
+    llm_retry_max_attempts: int = field(
+        default_factory=lambda: _env_int("LLM_RETRY_MAX_ATTEMPTS", 3)
+    )
+    llm_retry_base_delay: float = field(
+        default_factory=lambda: _env_float("LLM_RETRY_BASE_DELAY", 1.0)
+    )
+    llm_retry_max_delay: float = field(
+        default_factory=lambda: _env_float("LLM_RETRY_MAX_DELAY", 60.0)
+    )
 
     # --- Embedding ---
     embedding_dim: int = int(_env("EMBEDDING_DIM", "768"))

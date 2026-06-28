@@ -216,6 +216,24 @@ describe("writingView map integration", () => {
     expect(writingView._sceneMapSummary).toBeNull()
     expect(writingView._sceneMapSummaryError).toBe("地图摘要暂不可用")
   })
+
+  it("does not cache stale scene-summary results after scene switch", async () => {
+    state.currentProjectId = "p1"
+    writingView._currentSceneId = "s1"
+    let resolveSummary
+    api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => {
+      resolveSummary = resolve
+    }))
+
+    const pending = writingView._loadCurrentSceneMapSummary({ id: "s1" })
+    writingView._currentSceneId = "s2"
+    resolveSummary({ primary_location: { name: "旧地点" } })
+    await pending
+
+    expect(writingView._sceneMapSummary).toBeNull()
+    expect(writingView._sceneMapSummaryError).toBeNull()
+    expect(writingView._sceneMapSummaryLoading).toBe(false)
+  })
 })
 
 describe("_updateCurrentScene", () => {
@@ -344,6 +362,31 @@ describe("_submitDeepImport", () => {
     expect(pollingSpy).toHaveBeenCalled()
 
     pollingSpy.mockRestore()
+  })
+})
+
+describe("_renderDeepImportBar", () => {
+  it("显示部分完成和阶段错误原因", () => {
+    writingView._deepImportProgress = {
+      phase: "done",
+      qualityStatus: "partial",
+      stepLabel: "完成",
+      message: "深度导入完成，但部分阶段降级",
+      percent: 100,
+      degraded: true,
+      phaseErrors: [
+        {
+          phase: "entity_extraction",
+          error_kind: "empty_output",
+          message: "实体提取阶段未生成任何实体",
+        },
+      ],
+    }
+
+    const html = writingView._renderDeepImportBar()
+
+    expect(html).toContain("部分完成")
+    expect(html).toContain("实体提取阶段未生成任何实体")
   })
 })
 

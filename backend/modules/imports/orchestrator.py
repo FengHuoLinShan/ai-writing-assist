@@ -193,4 +193,7 @@ class DeepImportOrchestrator:
             "message": progress.message,
             "degraded": progress.degraded,
             "degraded_batches": progress.degraded_batches,
+            "quality_status": progress.quality_status,
+            "phase_errors": progress.phase_errors,
+            "llm_health": progress.llm_health,
         }

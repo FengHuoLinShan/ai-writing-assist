@@ -24,16 +24,19 @@ const mapWorkspaceView = {
   _activeSceneId: null,
   _focusEntityId: null,
   _layers: { ...DEFAULT_LAYERS },
+  _pendingTimers: new Set(),
 
   async onEnter() {
     await this._loadData()
   },
 
   onLeave() {
+    this._clearPendingTimers()
     mapView.unmount()
   },
 
   async render() {
+    this._clearPendingTimers()
     const context = parseMapRouteContext()
     if (context.projectId && !state.currentProjectId) {
       state.currentProjectId = context.projectId
@@ -46,17 +49,33 @@ const mapWorkspaceView = {
     } else if (context.mode === "recent") {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
-      setTimeout(() => this._openRecentMap(), 0)
+      this._defer(() => this._openRecentMap())
     }
 
     if (this._mode === "map" && this._activeMapId) {
       const html = this._renderMapWorkspace()
-      setTimeout(() => this._mountMap(), 0)
+      this._defer(() => this._mountMap())
       return html
     }
     const html = this._renderOverview()
-    setTimeout(() => this._bindEvents(), 0)
+    this._defer(() => this._bindEvents())
     return html
+  },
+
+  _defer(fn) {
+    const timer = setTimeout(() => {
+      this._pendingTimers.delete(timer)
+      fn()
+    }, 0)
+    this._pendingTimers.add(timer)
+    return timer
+  },
+
+  _clearPendingTimers() {
+    for (const timer of this._pendingTimers) {
+      clearTimeout(timer)
+    }
+    this._pendingTimers.clear()
   },
 
   async _loadData() {
@@ -154,6 +173,16 @@ const mapWorkspaceView = {
     const map = this._maps.find((m) => m.id === mapId)
     if (map) this._saveRecentMap(map)
     router.refresh?.()
+  },
+
+  _openLocation(locationId) {
+    const detailMap = this._maps.find((m) => m.parent_entity_id === locationId)
+    const fallbackMap = detailMap || this._maps[0]
+    if (!fallbackMap) {
+      toast("该地点尚未绑定地图", "warning")
+      return
+    }
+    this._openMap(fallbackMap.id, { focusEntityId: locationId })
   },
 
   _setLayer(layer, visible) {
@@ -283,6 +312,7 @@ const mapWorkspaceView = {
       const action = target.dataset.action
       if (action === "map-open-recent") this._openRecentMap()
       if (action === "map-open") this._openMap(target.dataset.id)
+      if (action === "map-search-location") this._openLocation(target.dataset.id)
       if (action === "map-create-world") this._showCreateWorldForm()
       if (action === "map-overview") {
         this._mode = "overview"

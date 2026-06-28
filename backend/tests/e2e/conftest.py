@@ -24,10 +24,10 @@ logging.basicConfig(level=logging.WARNING)
 
 # 真实 PG 数据库 — 与 Docker Compose / .env 配置一致
 DATABASE_URL = (
-    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
+    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine"
 )
 # asyncpg 原生连接检查使用 postgresql:// 协议头
-_PG_CHECK_URL = "postgresql://novelist:novel_dev_pass@localhost:5432/ai_novel_engine"
+_PG_CHECK_URL = "postgresql://novelist:novel_dev_pass@localhost:5207/ai_novel_engine"
 
 
 # ============================================================

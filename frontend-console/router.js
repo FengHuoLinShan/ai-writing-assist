@@ -230,7 +230,7 @@ async function renderCurrentView() {
       <div class="empty-state">
         <div class="empty-icon" style="color:var(--danger);">&#9888;</div>
         <p style="color:var(--danger);">页面加载失败</p>
-        <p style="color:var(--text-dim);font-size:12px;">${err.message}</p>
+        <p style="color:var(--text-dim);font-size:12px;">${esc(err.message)}</p>
       </div>
     `
   } finally {
@@ -328,4 +328,4 @@ async function initRouter() {
 }
 
 // 导出
-window.router = { navigate, refresh, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView }
+window.router = { navigate, refresh, getCurrentView, getRoute, registerView, onNavigate, initRouter, getLastSubView, renderCurrentView }

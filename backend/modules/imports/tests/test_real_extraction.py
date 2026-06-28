@@ -154,7 +154,7 @@ class TestImportFirst10Chapters:
 @pytest.mark.real_llm
 @real_llm_required
 class TestRealEntityExtraction:
-    """Cycle 2: 用真实 LLM 从前10章中抽取世界对象（自动入库）"""
+    """Cycle 2: 用真实 LLM 从前10章中抽取世界对象候选。"""
 
     @pytest_asyncio.fixture
     async def ctx(self, db_session: AsyncSession) -> dict:
@@ -194,10 +194,10 @@ class TestRealEntityExtraction:
         return {"project_id": project_id}
 
     @pytest.mark.asyncio
-    async def test_extraction_creates_canonical_entities(
+    async def test_extraction_creates_candidate_entities(
         self, ctx: dict, db_session: AsyncSession
     ):
-        """实体抽取应创建 canonical 实体（自动入库），而非候选"""
+        """实体抽取应创建 candidate 实体，等待用户确认后入正史。"""
         project_id = ctx["project_id"]
 
         # 创建抽取服务（注入直读 DraftProvider，不依赖 RAG/pgvector）
@@ -225,7 +225,7 @@ class TestRealEntityExtraction:
             f"{result.total_created + result.total_skipped}"
         )
 
-        # 验证结果包含自动入库标记
+        # 验证结果包含自动抽取来源标记
         assert all(item.get("auto_ingested") for item in result.items), (
             "所有实体应有 auto_ingested 标记"
         )
@@ -236,10 +236,10 @@ class TestRealEntityExtraction:
         assert len(batch_ids) == 1, f"应有统一 batch_id，实际 {batch_ids}"
 
     @pytest.mark.asyncio
-    async def test_entities_persisted_as_canonical(
+    async def test_entities_persisted_as_candidate(
         self, ctx: dict, db_session: AsyncSession
     ):
-        """抽取的实体应以 canonical 状态持久化到 core_entities 表"""
+        """抽取的实体应以 candidate 状态持久化到 core_entities 表"""
         project_id = ctx["project_id"]
 
         extraction_service = EntityExtractionService(
@@ -262,9 +262,9 @@ class TestRealEntityExtraction:
         entities, total = await repo.get_by_novel(db_session, nid, limit=100)
         assert total > 0, "core_entities 表中有实体"
 
-        # 验证全部为 canonical 状态
+        # 验证全部为 candidate 状态
         statuses = {e.status for e in entities}
-        assert statuses == {"canonical"}, f"所有实体应为 canonical，实际 {statuses}"
+        assert statuses == {"candidate"}, f"所有实体应为 candidate，实际 {statuses}"
 
         # 验证包含 auto_ingested 元数据
         for e in entities:
@@ -274,7 +274,7 @@ class TestRealEntityExtraction:
             assert meta.get("ingested_at"), f"{e.name} 应有 ingested_at"
 
         names = [e.name for e in entities]
-        print(f"DB中的实体 (canonical): {names}")
+        print(f"DB中的实体 (candidate): {names}")
 
     @pytest.mark.asyncio
     async def test_extraction_without_chapters_returns_400(
@@ -448,7 +448,7 @@ class TestAutoIngestContextLoading:
         """第二次抽取（相同章节）应加载已有实体作为上下文"""
         project_id = ctx["project_id"]
 
-        # 验证已有 canonical 实体在 DB 中
+        # 验证已有 candidate 实体在 DB 中
         from modules.world.repositories import CoreEntityRepository
         from shared.utils import parse_uuid
 
@@ -458,9 +458,9 @@ class TestAutoIngestContextLoading:
         assert total >= ctx["first_created"], (
             f"DB 中应有 >= {ctx['first_created']} 个实体，实际 {total}"
         )
-        all_canonical = all(e.status == "canonical" for e in entities)
-        assert all_canonical, "所有实体应为 canonical 状态"
-        print(f"上下文中有 {total} 个 canonical 实体")
+        all_candidate = all(e.status == "candidate" for e in entities)
+        assert all_candidate, "所有实体应为 candidate 状态"
+        print(f"上下文中有 {total} 个 candidate 实体")
 
         # 第二次抽取（验证加载上下文不会崩溃，且重复实体被跳过）
         service = EntityExtractionService(draft_provider=DirectDraftProvider())
@@ -484,7 +484,7 @@ class TestAutoIngestContextLoading:
 
     @pytest.mark.asyncio
     async def test_entity_batches_available(self, ctx: dict, db_session: AsyncSession):
-        """自动入库实体可通过批次 API 查询"""
+        """自动抽取候选可通过批次 API 查询"""
         project_id = ctx["project_id"]
 
         from modules.world.repositories import CoreEntityRepository

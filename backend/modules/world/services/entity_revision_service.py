@@ -34,7 +34,7 @@ class EntityRevisionService:
         nid = parse_uuid(novel_id, "novel_id")
 
         entity = await self._entity_repo.get(db, eid)
-        if entity is None:
+        if entity is None or entity.novel_id != nid:
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"CoreEntity {entity_id} not found",

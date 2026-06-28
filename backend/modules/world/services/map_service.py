@@ -256,12 +256,14 @@ class MapConfigService(
                     ),
                 )
 
-        # 顶层地图重名校验
-        # （PostgreSQL NULL 不参与 unique 约束，业务层补；PRD §4.1 同层级唯一）
-        existing, _ = await self.repo.get_by_novel(
-            db, nid, parent_map_id=parent_map_id_uuid, skip=0, limit=100
+        # PostgreSQL NULL 不参与 unique 约束，业务层按同父级精确查重。
+        existing = await self.repo.get_by_name(
+            db,
+            nid,
+            name=data.name,
+            parent_map_id=parent_map_id_uuid,
         )
-        if any(m.name == data.name for m in existing):
+        if existing is not None:
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT,
                 detail=f"同层级已存在名为 {data.name!r} 的地图",
@@ -627,6 +629,12 @@ class MapMarkerService:
             values["start_scene_id"] = uuid.UUID(data.start_scene_id)
         if data.end_scene_id is not None:
             values["end_scene_id"] = uuid.UUID(data.end_scene_id)
+
+        if "hex_q" in values or "hex_r" in values:
+            config = await self._ctx.require_map(db, novel_id, str(marker.map_id))
+            next_q = values.get("hex_q", marker.hex_q)
+            next_r = values.get("hex_r", marker.hex_r)
+            self._ctx.assert_hex_in_bounds(config, next_q, next_r)
 
         updated = await self.repo.update(db, mkid, values)
         assert updated is not None

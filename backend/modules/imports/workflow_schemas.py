@@ -32,6 +32,10 @@ class DeepImportProgress(BaseModel):
         default="pending",
         description="阶段: pending / running / done / failed",
     )
+    quality_status: str = Field(
+        default="pending",
+        description="质量状态: pending / complete / partial / failed",
+    )
     current_step: DeepImportStep | None = Field(
         default=None,
         description="当前正在执行的步骤",
@@ -52,4 +56,12 @@ class DeepImportProgress(BaseModel):
     degraded: bool = Field(default=False, description="是否有批次触发降级")
     degraded_batches: list[int] = Field(
         default_factory=list, description="触发降级的批次索引"
+    )
+    phase_errors: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="各阶段可机器读取的失败/降级原因",
+    )
+    llm_health: dict | None = Field(
+        default=None,
+        description="启动前 LLM 健康检查摘要（不含 API key）",
     )

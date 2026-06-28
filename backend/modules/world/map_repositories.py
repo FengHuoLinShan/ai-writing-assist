@@ -133,6 +133,24 @@ class MapConfigRepository:
         items = (await db.execute(stmt)).scalars().all()
         return list(items), total
 
+    async def get_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        name: str,
+        parent_map_id: uuid.UUID | None = None,
+    ) -> MapConfig | None:
+        """按同一父地图和名称精确查找地图。"""
+        conditions: list[Any] = [MapConfig.novel_id == novel_id, MapConfig.name == name]
+        if parent_map_id is None:
+            conditions.append(MapConfig.parent_map_id.is_(None))
+        else:
+            conditions.append(MapConfig.parent_map_id == parent_map_id)
+        stmt = select(MapConfig).where(*conditions).limit(1)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         db: AsyncSession,

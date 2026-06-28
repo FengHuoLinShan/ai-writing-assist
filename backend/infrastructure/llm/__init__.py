@@ -2,6 +2,7 @@
 # 封装模型调用，不放小说业务逻辑
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import (
+    LLMConnectionError,
     LLMError,
     LLMInvalidResponseError,
     LLMRateLimitError,
@@ -18,6 +19,7 @@ __all__ = [
     "LLMCallResponse",
     "LLMMessage",
     "LLMError",
+    "LLMConnectionError",
     "LLMTimeoutError",
     "LLMRateLimitError",
     "LLMInvalidResponseError",

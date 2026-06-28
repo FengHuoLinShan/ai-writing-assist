@@ -6,11 +6,16 @@ beforeEach(() => {
   resetState({ currentProjectId: "p1" })
   clearDocument()
   localStorage.clear()
+  vi.useRealTimers()
   vi.clearAllMocks()
   mapWorkspaceView._maps = []
   mapWorkspaceView._locations = []
   mapWorkspaceView._mode = "overview"
   mapWorkspaceView._message = null
+  mapWorkspaceView._activeMapId = null
+  mapWorkspaceView._activeSceneId = null
+  mapWorkspaceView._focusEntityId = null
+  mapWorkspaceView._clearPendingTimers?.()
 })
 
 describe("mapWorkspaceView overview", () => {
@@ -112,5 +117,42 @@ describe("mapWorkspaceView overview", () => {
     mapWorkspaceView._setLayer("markers", false)
 
     expect(mapWorkspaceView._layers.markers).toBe(false)
+  })
+
+  it("opens a searched location on its detail map", () => {
+    const root = document.createElement("div")
+    root.id = "workspace-content"
+    root.innerHTML = `<button data-action="map-search-location" data-id="loc1">洛阳</button>`
+    document.body.append(root)
+    mapWorkspaceView._maps = [
+      { id: "m1", name: "九州世界", map_type: "world", parent_map_id: null },
+      {
+        id: "m2",
+        name: "洛阳详图",
+        map_type: "city",
+        parent_map_id: "m1",
+        parent_entity_id: "loc1",
+      },
+    ]
+    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap").mockImplementation(() => {})
+
+    mapWorkspaceView._bindEvents()
+    root.querySelector("[data-action='map-search-location']").click()
+
+    expect(openSpy).toHaveBeenCalledWith("m2", { focusEntityId: "loc1" })
+    openSpy.mockRestore()
+  })
+
+  it("clears pending render timers on leave", async () => {
+    vi.useFakeTimers()
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout")
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+
+    await mapWorkspaceView.render()
+    mapWorkspaceView.onLeave()
+
+    expect(clearSpy).toHaveBeenCalled()
+    vi.useRealTimers()
   })
 })

@@ -48,8 +48,7 @@ def _database_url() -> str:
                 continue
             key, value = line.split("=", 1)
             if key.strip() == "DATABASE_URL" and "DATABASE_URL" not in os.environ:
-                os.environ["DATABASE_URL"] = value.strip().strip("\"'")
-                break
+                return value.strip().strip("\"'")
     return os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
 
 

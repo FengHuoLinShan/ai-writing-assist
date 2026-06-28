@@ -7,8 +7,12 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.fixture
@@ -105,3 +109,39 @@ async def test_rollback_with_no_data_returns_200_with_warning(
     data = rollback_resp.json()
     assert data["restored_fields"] == []
     assert any("no rollback data" in w.lower() for w in data["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_create_snapshot_rejects_cross_novel_entity(
+    db_session: AsyncSession,
+) -> None:
+    """底层 snapshot 入口也必须校验 entity 归属。"""
+    from modules.project.models import Project
+    from modules.world.models import CoreEntity
+    from modules.world.services.entity_revision_service import EntityRevisionService
+
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="项目一"),
+            Project(id=other_novel_id, title="项目二"),
+            CoreEntity(
+                id=entity_id,
+                novel_id=other_novel_id,
+                entity_type="character",
+                name="跨项目角色",
+                status="canonical",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await EntityRevisionService().create_snapshot(
+            db_session,
+            entity_id=str(entity_id),
+            novel_id=str(novel_id),
+        )
+    assert exc.value.status_code == 404

@@ -10,6 +10,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.errors import (
+    LLMConnectionError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from modules.imports.llm_schemas import (
     DeltaEvent,
     ExtractedEntity,
@@ -19,9 +24,6 @@ from modules.imports.llm_schemas import (
 from shared.utils import parse_llm_json, parse_uuid
 
 logger = logging.getLogger(__name__)
-
-MAX_RETRIES = 3
-
 
 class SceneEntityExtractionService:
     """Phase 2: 按 Scene 顺序串行提取实体，累积 Memory 上下文。"""
@@ -43,6 +45,13 @@ class SceneEntityExtractionService:
                 "total_relations": 0,
                 "total_deltas": 0,
                 "total_scenes": 0,
+                "degraded": False,
+                "error_kind": None,
+                "error_message": None,
+                "failed_scene_indices": [],
+                "completed_scenes": 0,
+                "skipped_scenes": 0,
+                "stopped_early": False,
             }
 
         from modules.world.facade import get_world_context
@@ -67,6 +76,13 @@ class SceneEntityExtractionService:
         total_deltas = 0
         total_scenes = len(scenes)
         accumulated_memory: list[dict] = []
+        seen_entity_keys: set[tuple[str, str]] = set()
+        failed_scene_indices: list[int] = []
+        completed_scenes = 0
+        skipped_scenes = 0
+        stopped_early = False
+        error_kind: str | None = None
+        error_message: str | None = None
 
         if on_scene_progress is not None:
             await on_scene_progress(0, total_scenes)
@@ -80,6 +96,7 @@ class SceneEntityExtractionService:
                     scene_idx,
                     existing_context,
                     accumulated_memory,
+                    seen_entity_keys,
                     workflow_id=workflow_id,
                 )
                 total_created += scene_result["created"]
@@ -87,19 +104,30 @@ class SceneEntityExtractionService:
                 total_deltas += scene_result["deltas"]
                 existing_context = scene_result["updated_context"]
                 accumulated_memory = scene_result["updated_memory"]
+                completed_scenes += 1
             except Exception as exc:
                 scene_index_value = (
                     scene.get("scene_index")
                     if isinstance(scene, dict)
                     else getattr(scene, "scene_index", scene_idx)
                 )
+                failed_scene_indices.append(scene_index_value)
+                error_kind = self._error_kind(exc)
+                error_message = str(exc)[:300]
                 logger.warning(
-                    "Scene idx=%d scene_index=%r extraction failed after %d retries: %s",
+                    "Scene idx=%d scene_index=%r extraction failed: %s",
                     scene_idx,
                     scene_index_value,
-                    MAX_RETRIES,
                     exc,
                 )
+                if self._is_transport_failure(exc):
+                    logger.warning(
+                        "Stopping scene entity extraction after transport failure; "
+                        "remaining scenes will be skipped."
+                    )
+                    stopped_early = True
+                    skipped_scenes = total_scenes - scene_idx - 1
+                    break
                 continue
 
             if on_scene_progress is not None:
@@ -111,11 +139,32 @@ class SceneEntityExtractionService:
             "total_relations": total_relations,
             "total_deltas": total_deltas,
             "total_scenes": total_scenes,
+            "degraded": bool(failed_scene_indices or stopped_early),
+            "error_kind": error_kind,
+            "error_message": error_message,
+            "failed_scene_indices": failed_scene_indices,
+            "completed_scenes": completed_scenes,
+            "skipped_scenes": skipped_scenes,
+            "stopped_early": stopped_early,
         }
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_transport_failure(exc: Exception) -> bool:
+        return isinstance(exc, (LLMConnectionError, LLMTimeoutError, LLMRateLimitError))
+
+    @staticmethod
+    def _error_kind(exc: Exception) -> str:
+        if isinstance(exc, LLMConnectionError):
+            return "connection_error"
+        if isinstance(exc, LLMTimeoutError):
+            return "timeout"
+        if isinstance(exc, LLMRateLimitError):
+            return "rate_limit"
+        return exc.__class__.__name__
 
     async def _get_scenes(self, db: AsyncSession, nid) -> list[dict[str, Any]]:
         from modules.outline.facade import get_scenes_by_novel
@@ -135,6 +184,7 @@ class SceneEntityExtractionService:
         scene_idx: int,
         existing_context: str,
         accumulated_memory: list[dict],
+        seen_entity_keys: set[tuple[str, str]],
         workflow_id: str | None = None,
     ) -> dict[str, Any]:
         scene_index = scene["scene_index"]
@@ -162,6 +212,7 @@ class SceneEntityExtractionService:
             extraction.entities,
             scene_index=scene_index,
             source_chapter_index=source_chapter_index,
+            seen_entity_keys=seen_entity_keys,
             workflow_id=workflow_id,
         )
         relation_count = await self._persist_relations(
@@ -293,20 +344,9 @@ class SceneEntityExtractionService:
         )
 
         llm_client = LLMClient(timeout=180)
-        for attempt in range(MAX_RETRIES):
-            try:
-                raw = await llm_client.generate(request)
-                parsed = parse_llm_json(raw.content, "Entity extraction")
-                return SceneEntityExtractionOutput.model_validate(parsed)
-            except Exception as exc:
-                logger.warning(
-                    "LLM extraction attempt %d/%d failed: %s",
-                    attempt + 1,
-                    MAX_RETRIES,
-                    exc,
-                )
-
-        return SceneEntityExtractionOutput()
+        raw = await llm_client.generate(request)
+        parsed = parse_llm_json(raw.content, "Entity extraction")
+        return SceneEntityExtractionOutput.model_validate(parsed)
 
     async def _persist_entities(
         self,
@@ -315,11 +355,13 @@ class SceneEntityExtractionService:
         entities: list[ExtractedEntity],
         scene_index: int,
         source_chapter_index: int,
+        seen_entity_keys: set[tuple[str, str]] | None = None,
         workflow_id: str | None = None,
     ) -> int:
         from modules.world.facade import create_entity, find_similar_entities
 
         created = 0
+        seen_entity_keys = seen_entity_keys if seen_entity_keys is not None else set()
 
         for ent in entities:
             action = ent.suggested_action
@@ -329,9 +371,14 @@ class SceneEntityExtractionService:
             if not ent.name:
                 continue
 
+            entity_key = self._entity_key(ent.entity_type, ent.name)
+            if entity_key in seen_entity_keys:
+                continue
+
             if action == "create_new":
                 similar = await find_similar_entities(db, str(nid), ent.name)
                 if similar and similar.get("score", 0) >= 0.88:
+                    seen_entity_keys.add(entity_key)
                     continue
 
             content_json: dict[str, Any] = {
@@ -352,23 +399,22 @@ class SceneEntityExtractionService:
             }
             if action == "temporary_only":
                 content_json["_meta"]["temporary"] = True
+            entity_payload = {
+                "name": ent.name,
+                "entity_type": ent.entity_type,
+                "summary": ent.summary or None,
+                "public_info": ent.public_info or None,
+                "hidden_truth": ent.hidden_truth or None,
+                "importance": ent.importance,
+                "content_json": content_json,
+                "status": "candidate",
+                "created_by": "ai_import",
+            }
             try:
-                await create_entity(
-                    db,
-                    str(nid),
-                    {
-                        "name": ent.name,
-                        "entity_type": ent.entity_type,
-                        "summary": ent.summary or None,
-                        "public_info": ent.public_info or None,
-                        "hidden_truth": ent.hidden_truth or None,
-                        "importance": ent.importance,
-                        "content_json": content_json,
-                        "status": "candidate",
-                        "created_by": "ai_import",
-                    },
-                )
+                async with db.begin_nested():
+                    await create_entity(db, str(nid), entity_payload)
                 created += 1
+                seen_entity_keys.add(entity_key)
             except Exception as exc:
                 logger.warning(
                     "Failed to create entity '%s': %s",
@@ -377,6 +423,10 @@ class SceneEntityExtractionService:
                 )
 
         return created
+
+    @staticmethod
+    def _entity_key(entity_type: str, name: str) -> tuple[str, str]:
+        return (entity_type.strip().lower(), " ".join(name.strip().lower().split()))
 
     async def _persist_relations(
         self,
@@ -410,7 +460,7 @@ class SceneEntityExtractionService:
                         "description": rel.description,
                         "quote": rel.quote,
                         "strength": rel.strength,
-                        "status": "canonical",
+                        "status": "candidate",
                     },
                 )
                 created += 1

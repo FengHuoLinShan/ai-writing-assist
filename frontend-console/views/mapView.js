@@ -66,6 +66,8 @@ const mapView = {
   _offset: { x: 0, y: 0 },
   /** 浏览模式 tooltip 防抖 timer */
   _tooltipDebounceTimer: null,
+  /** render 延迟绑定 timer */
+  _pendingTimers: new Set(),
   /** Leaflet popup 实例 */
   _tooltipPopup: null,
   /** 拖拽绘制中是否已移动到新格（用于区分单击和拖拽） */
@@ -112,9 +114,26 @@ const mapView = {
 
   /** 退出时清理 Leaflet 实例 */
   unmount() {
+    this._clearPendingTimers()
     this._teardownInteractiveSurface()
     this._state = null
     resetMapState()
+  },
+
+  _defer(fn) {
+    const timer = setTimeout(() => {
+      this._pendingTimers.delete(timer)
+      fn()
+    }, 0)
+    this._pendingTimers.add(timer)
+    return timer
+  },
+
+  _clearPendingTimers() {
+    for (const timer of this._pendingTimers) {
+      clearTimeout(timer)
+    }
+    this._pendingTimers.clear()
   },
 
   _teardownInteractiveSurface() {
@@ -263,27 +282,28 @@ const mapView = {
   // ============================================================
 
   _render(rootId) {
+    this._clearPendingTimers()
     const root = document.getElementById(rootId)
     if (!root) return
 
     if (this._maps.length === 0 && !this._state) {
       // 空列表：显示创建入口
       root.innerHTML = this._renderEmpty()
-      setTimeout(() => this._bindListEvents(), 0)
+      this._defer(() => this._bindListEvents())
       return
     }
 
     if (!this._state) {
       // 有列表但未选地图：显示列表
       root.innerHTML = this._renderList()
-      setTimeout(() => this._bindListEvents(), 0)
+      this._defer(() => this._bindListEvents())
       return
     }
 
     // 已选地图：渲染地图视图
     root.innerHTML = this._renderMapShell()
-    setTimeout(() => this._initLeaflet(), 0)
-    setTimeout(() => this._bindMapEvents(), 0)
+    this._defer(() => this._initLeaflet())
+    this._defer(() => this._bindMapEvents())
   },
 
   _renderEmpty() {
@@ -691,7 +711,7 @@ const mapView = {
   _updateSceneBar() {
     const bar = document.querySelector(".map-scene-bar")
     if (bar) bar.outerHTML = this._renderSceneBar()
-    setTimeout(() => this._bindSceneEvents(), 0)
+    this._defer(() => this._bindSceneEvents())
   },
 
   _bindSceneEvents() {
@@ -1336,7 +1356,7 @@ const mapView = {
     }
     const orgOptions = orgs.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")
     const selectedOrg = mapState.selectedFactionId
-    const currentColor = mapState.factionColors[selectedOrg] || "#FF6B6B"
+    const currentColor = this._safeHexColor(mapState.factionColors[selectedOrg], "#FF6B6B")
     return `
       <div class="map-tool-group">
         <h4>势力范围</h4>
@@ -1365,12 +1385,16 @@ const mapView = {
         <span class="map-faction-label">组织：</span>
         ${orgs.map((o) => {
           const isFocused = focused === o.id
-          const color = mapState.factionColors[o.id] || "#999"
+          const color = this._safeHexColor(mapState.factionColors[o.id], "#999")
           return `<span class="map-faction-tag ${isFocused ? "focused" : ""}" data-action="map-focus-toggle" data-id="${esc(o.id)}" style="background:${esc(color)}22;border-color:${esc(color)};">${esc(o.name)}</span>`
         }).join("")}
         ${focused ? `<button class="btn btn-sm" data-action="map-focus-clear">清除聚焦</button>` : ""}
       </div>
     `
+  },
+
+  _safeHexColor(color, fallback = "#999") {
+    return /^#[0-9A-Fa-f]{6}$/.test(color || "") ? color : fallback
   },
 
   _toggleFocusMode(entityId) {

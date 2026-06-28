@@ -1110,6 +1110,17 @@ describe("mapView P2 势力范围", () => {
     }
   })
 
+  it("falls back when faction color is not a safe hex color", () => {
+    mapView._allEntities = orgEntities
+    mapState.factionColors.o1 = "red;background-image:url(https://example.test/x)"
+
+    const html = mapView._renderFactionList()
+
+    expect(html).not.toContain("background-image")
+    expect(html).toContain("background:#99922")
+    expect(html).toContain("border-color:#999")
+  })
+
   it("聚焦模式切换", () => {
     mapView._toggleFocusMode("o1")
     expect(mapState.focusMode).toBe(true)

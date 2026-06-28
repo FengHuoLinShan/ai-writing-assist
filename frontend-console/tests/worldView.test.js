@@ -75,7 +75,9 @@ describe("worldView render", () => {
 
     expect(html).toContain("正在打开地图")
     expect(html).not.toContain("map-root")
-    expect(router.navigate).toHaveBeenCalledWith("map", null)
+    await vi.waitFor(() => {
+      expect(router.navigate).toHaveBeenCalledWith("map", null)
+    })
   })
 })
 

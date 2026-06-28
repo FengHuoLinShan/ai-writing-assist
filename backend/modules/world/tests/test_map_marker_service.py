@@ -122,6 +122,45 @@ class TestMapMarkerCRUD:
         assert updated.label == "更新标签"
 
     @pytest.mark.asyncio
+    async def test_update_marker_out_of_bounds_rejected(
+        self, db_session: AsyncSession, world_map
+    ):
+        char_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=uuid.UUID(hex=world_map.novel_id),
+                entity_type="character",
+                name="越界角色",
+                status="canonical",
+            )
+        )
+        await db_session.flush()
+
+        marker_svc = MapMarkerService()
+        created_marker = await marker_svc.create(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+            MapMarkerCreate(
+                entity_id=str(char_id),
+                marker_type="character",
+                hex_q=0,
+                hex_r=0,
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await marker_svc.update(
+                db_session,
+                world_map.novel_id,
+                created_marker.id,
+                MapMarkerUpdate(hex_q=999, hex_r=0),
+            )
+        assert exc.value.status_code == 400
+        assert "hex_q" in exc.value.detail
+
+    @pytest.mark.asyncio
     async def test_delete_marker(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(

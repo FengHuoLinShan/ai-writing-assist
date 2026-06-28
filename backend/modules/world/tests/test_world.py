@@ -34,6 +34,7 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.entity_relation_service import EntityRelationService
 
 # ============================================================
 # Fixtures
@@ -313,6 +314,32 @@ class TestEntityDedupService:
         assert exact_match[0].candidate_name == "黑暗森林"
         assert exact_match[0].similarity_score == 1.0
         assert exact_match[0].action in ("merge_with_existing", "alias_of_existing")
+
+    @pytest.mark.asyncio
+    async def test_find_duplicates_cross_novel_candidate_returns_empty(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        dedup_service: EntityDedupService,
+    ) -> None:
+        """candidate_id 不属于当前 novel 时不能泄露名称去查当前 novel。"""
+        novel_id = str(uuid.uuid4())
+        other_novel_id = str(uuid.uuid4())
+        candidate = await entity_repo.create_raw(
+            db_session,
+            novel_id=uuid.UUID(other_novel_id),
+            entity_type="location",
+            name="异界地点",
+            status="candidate",
+        )
+
+        suggestions = await dedup_service.find_duplicates(
+            db_session,
+            novel_id,
+            str(candidate.id),
+        )
+
+        assert suggestions == []
 
     # ============================================================
     # TDD 路径 1.1：高置信度静默合并
@@ -1514,3 +1541,38 @@ class TestWorldErrorPaths:
             },
         )
         assert knowledge_resp.status_code == 422
+
+
+class TestEntityRelationServiceUpsert:
+    @pytest.mark.asyncio
+    async def test_upsert_rejects_cross_novel_source_or_target(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        other_novel_id = str(uuid.uuid4())
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=uuid.UUID(novel_id),
+            entity_type="character",
+            name="甲",
+            status="canonical",
+        )
+        target = await entity_repo.create_raw(
+            db_session,
+            novel_id=uuid.UUID(other_novel_id),
+            entity_type="character",
+            name="乙",
+            status="canonical",
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await EntityRelationService().upsert(
+                db_session,
+                novel_id,
+                str(source.id),
+                str(target.id),
+                "knows",
+            )
+        assert exc.value.status_code == 404

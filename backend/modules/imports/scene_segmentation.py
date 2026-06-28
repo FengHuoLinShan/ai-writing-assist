@@ -12,6 +12,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.errors import (
+    LLMConnectionError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from modules.imports.llm_schemas import SceneSegmentationOutput
 from shared.utils import parse_llm_json
 
@@ -19,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 5
 OVERLAP = 1
-MAX_LLM_RETRIES = 3
 
 
 class SceneSegmentationService:
@@ -59,61 +63,82 @@ class SceneSegmentationService:
             await on_batch_progress(0, total_batches)
 
         for batch_idx, batch in enumerate(batches):
+            output_chapters = self._output_chapters_for_batch(batch, batch_idx)
+            overlap_chapter_indices = self._overlap_chapter_indices(batch, batch_idx)
             try:
                 batch_scenes = await self._process_batch(db, batch, batch_idx)
                 for s in batch_scenes:
-                    scene_data = self._build_scene_data(s, next_scene_index, batch)
+                    scene_data = self._build_scene_data(
+                        s,
+                        next_scene_index,
+                        batch,
+                        output_chapters=output_chapters,
+                        overlap_chapter_indices=overlap_chapter_indices,
+                    )
+                    if scene_data is None:
+                        continue
                     await create_scene(db, novel_id, scene_data)
                     next_scene_index += 1
                     added_count += 1
             except Exception as exc:
                 logger.warning("Batch %d failed: %s", batch_idx, exc)
                 degraded = True
-                try:
-                    fallback_scenes = await self._process_batch_single_chapter(
+                if batch_idx not in failed_batches:
+                    failed_batches.append(batch_idx)
+                if self._should_skip_llm_fallback(exc):
+                    next_scene_index, created = await self._create_mechanical_scenes(
                         db,
-                        batch,
-                        batch_idx,
+                        create_scene,
+                        novel_id,
+                        output_chapters,
+                        next_scene_index,
                     )
-                    for s in fallback_scenes:
-                        scene_data = self._build_scene_data(s, next_scene_index, batch)
-                        await create_scene(db, novel_id, scene_data)
-                        next_scene_index += 1
-                        added_count += 1
-                except Exception as fb_exc:
-                    logger.error(
-                        "Batch %d fallback also failed: %s",
-                        batch_idx,
-                        fb_exc,
-                    )
-                    for ch in batch:
-                        mech_data = {
-                            "scene_index": next_scene_index,
-                            "title": ch.get("title") or f"第{ch['chapter_index']}章",
-                            "goal": "",
-                            "core_conflict": "",
-                            "emotional_beat": "",
-                            "must_happen": "",
-                            "must_not_happen": "",
-                            "narrative_tag": "draft",
-                            "source": "deep_import",
-                            "scene_chunks": [
-                                {
-                                    "chapter_index": ch["chapter_index"],
-                                    "start_paragraph": 0,
-                                }
-                            ],
-                            "chapter_ids": [str(ch["chapter_index"])],
-                            "status": "draft",
-                        }
-                        await create_scene(db, novel_id, mech_data)
-                        next_scene_index += 1
-                        added_count += 1
+                    added_count += created
                     logger.info(
-                        "Batch %d: mechanical fallback, created %d scenes",
+                        "Batch %d: transport failure, "
+                        "mechanical fallback created %d scenes",
                         batch_idx,
-                        len(batch),
+                        created,
                     )
+                else:
+                    try:
+                        fallback_scenes = await self._process_batch_single_chapter(
+                            db,
+                            batch,
+                            batch_idx,
+                        )
+                        for s in fallback_scenes:
+                            scene_data = self._build_scene_data(
+                                s,
+                                next_scene_index,
+                                batch,
+                                output_chapters=output_chapters,
+                                overlap_chapter_indices=overlap_chapter_indices,
+                            )
+                            if scene_data is None:
+                                continue
+                            await create_scene(db, novel_id, scene_data)
+                            next_scene_index += 1
+                            added_count += 1
+                    except Exception as fb_exc:
+                        logger.error(
+                            "Batch %d fallback also failed: %s",
+                            batch_idx,
+                            fb_exc,
+                        )
+                        next_scene_index, created = await self._create_mechanical_scenes(
+                            db,
+                            create_scene,
+                            novel_id,
+                            output_chapters,
+                            next_scene_index,
+                        )
+                        added_count += created
+                        logger.info(
+                            "Batch %d: mechanical fallback, created %d scenes",
+                            batch_idx,
+                            created,
+                        )
 
             if on_batch_progress is not None:
                 await on_batch_progress(batch_idx + 1, total_batches)
@@ -123,6 +148,44 @@ class SceneSegmentationService:
             "failed_batches": failed_batches,
             "degraded": degraded,
         }
+
+    @staticmethod
+    def _should_skip_llm_fallback(exc: Exception) -> bool:
+        return isinstance(exc, (LLMConnectionError, LLMTimeoutError, LLMRateLimitError))
+
+    @staticmethod
+    async def _create_mechanical_scenes(
+        db: AsyncSession,
+        create_scene: Any,
+        novel_id: str,
+        output_chapters: list[dict],
+        next_scene_index: int,
+    ) -> tuple[int, int]:
+        created = 0
+        for ch in output_chapters:
+            mech_data = {
+                "scene_index": next_scene_index,
+                "title": ch.get("title") or f"第{ch['chapter_index']}章",
+                "goal": "",
+                "core_conflict": "",
+                "emotional_beat": "",
+                "must_happen": "",
+                "must_not_happen": "",
+                "narrative_tag": "draft",
+                "source": "deep_import",
+                "scene_chunks": [
+                    {
+                        "chapter_index": ch["chapter_index"],
+                        "start_paragraph": 0,
+                    }
+                ],
+                "chapter_ids": [str(ch["chapter_index"])],
+                "status": "draft",
+            }
+            await create_scene(db, novel_id, mech_data)
+            next_scene_index += 1
+            created += 1
+        return next_scene_index, created
 
     # ------------------------------------------------------------------
     # 内部方法
@@ -159,6 +222,22 @@ class SceneSegmentationService:
             i += BATCH_SIZE - OVERLAP
         return batches
 
+    @staticmethod
+    def _output_chapters_for_batch(batch: list[dict], batch_idx: int) -> list[dict]:
+        if batch_idx == 0 or OVERLAP <= 0:
+            return batch
+        return batch[OVERLAP:] or batch
+
+    @staticmethod
+    def _overlap_chapter_indices(batch: list[dict], batch_idx: int) -> set[int]:
+        if batch_idx == 0 or OVERLAP <= 0:
+            return set()
+        return {
+            int(ch["chapter_index"])
+            for ch in batch[:OVERLAP]
+            if ch.get("chapter_index") is not None
+        }
+
     async def _get_next_scene_index(self, db: AsyncSession, nid) -> int:
         from modules.outline.facade import get_next_scene_index
 
@@ -169,19 +248,63 @@ class SceneSegmentationService:
         scene_data: dict,
         scene_index: int,
         batch: list[dict],
-    ) -> dict[str, Any]:
+        *,
+        output_chapters: list[dict] | None = None,
+        overlap_chapter_indices: set[int] | None = None,
+    ) -> dict[str, Any] | None:
         """将 LLM 输出的 scene 数据构建为 Scene 创建参数字典"""
-        scene_chunks = scene_data.get("scene_chunks", [])
+        batch_chapter_indices = {
+            int(ch["chapter_index"])
+            for ch in batch
+            if ch.get("chapter_index") is not None
+        }
+        output_chapters = output_chapters if output_chapters is not None else batch
+        output_chapter_indices = {
+            int(ch["chapter_index"])
+            for ch in output_chapters
+            if ch.get("chapter_index") is not None
+        }
+        overlap_chapter_indices = overlap_chapter_indices or set()
+
+        scene_chunks = []
         chapter_ids: list[str] = []
-        for chunk in scene_chunks:
+        for chunk in scene_data.get("scene_chunks", []) or []:
             ch_idx = chunk.get("chapter_index")
-            if ch_idx is not None:
-                chapter_ids.append(str(ch_idx))
+            try:
+                normalized_idx = int(ch_idx)
+            except (TypeError, ValueError):
+                continue
+            if normalized_idx not in batch_chapter_indices:
+                continue
+            scene_chunks.append({**chunk, "chapter_index": normalized_idx})
+            chapter_ids.append(str(normalized_idx))
 
         if not chapter_ids:
-            first_ch = batch[0] if batch else {}
+            first_ch = output_chapters[0] if output_chapters else {}
             if first_ch:
                 chapter_ids.append(str(first_ch.get("chapter_index", "")))
+                scene_chunks = [
+                    {
+                        "chapter_index": first_ch.get("chapter_index"),
+                        "start_paragraph": 0,
+                    }
+                ]
+
+        unique_chapter_ids = list(dict.fromkeys(chapter_ids))
+        try:
+            referenced_indices = {int(ch_id) for ch_id in unique_chapter_ids}
+        except ValueError:
+            referenced_indices = set()
+        if (
+            referenced_indices
+            and referenced_indices.issubset(overlap_chapter_indices)
+            and not referenced_indices.intersection(output_chapter_indices)
+        ):
+            logger.info(
+                "Skipping overlap-only scene from later batch: %s",
+                scene_data.get("title"),
+            )
+            return None
 
         return {
             "scene_index": scene_index,
@@ -192,7 +315,7 @@ class SceneSegmentationService:
             "narrative_tag": scene_data.get("narrative_tag", "draft"),
             "source": "deep_import",
             "scene_chunks": scene_chunks,
-            "chapter_ids": chapter_ids,
+            "chapter_ids": unique_chapter_ids,
             "status": "draft",
         }
 
@@ -225,28 +348,13 @@ class SceneSegmentationService:
         )
 
         llm_client = LLMClient(timeout=180)
-        last_error: Exception | None = None
-
-        for attempt in range(MAX_LLM_RETRIES):
-            try:
-                raw = await llm_client.generate(request)
-                parsed = parse_llm_json(raw.content, f"Batch {batch_idx} LLM response")
-                output = SceneSegmentationOutput.model_validate(parsed)
-                scenes_data = [s.model_dump() for s in output.scenes]
-                if not scenes_data:
-                    raise ValueError("LLM returned empty scenes list")
-                return scenes_data
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "Batch %d LLM attempt %d/%d failed: %s",
-                    batch_idx,
-                    attempt + 1,
-                    MAX_LLM_RETRIES,
-                    exc,
-                )
-
-        raise last_error or RuntimeError("All LLM retries exhausted")
+        raw = await llm_client.generate(request)
+        parsed = parse_llm_json(raw.content, f"Batch {batch_idx} LLM response")
+        output = SceneSegmentationOutput.model_validate(parsed)
+        scenes_data = [s.model_dump() for s in output.scenes]
+        if not scenes_data:
+            raise ValueError("LLM returned empty scenes list")
+        return scenes_data
 
     async def _process_batch_single_chapter(
         self,
@@ -278,30 +386,30 @@ class SceneSegmentationService:
             )
 
             llm_client = LLMClient(timeout=120)
-            for attempt in range(MAX_LLM_RETRIES):
-                try:
-                    raw = await llm_client.generate(request)
-                    parsed = parse_llm_json(
-                        raw.content,
-                        f"Single-ch {ch['chapter_index']}",
-                    )
-                    output = SceneSegmentationOutput.model_validate(parsed)
-                    scenes = [s.model_dump() for s in output.scenes]
-                    if scenes:
-                        all_scenes.extend(scenes)
-                        break
-                except Exception as exc:
-                    logger.warning(
-                        "Single-chapter batch %d ch %d attempt %d failed: %s",
-                        batch_idx,
-                        ch["chapter_index"],
-                        attempt + 1,
-                        exc,
-                    )
-            else:
+            try:
+                raw = await llm_client.generate(request)
+                parsed = parse_llm_json(
+                    raw.content,
+                    f"Single-ch {ch['chapter_index']}",
+                )
+                output = SceneSegmentationOutput.model_validate(parsed)
+                scenes = [s.model_dump() for s in output.scenes]
+                if scenes:
+                    all_scenes.extend(scenes)
+                    continue
+            except Exception as exc:
+                logger.warning(
+                    "Single-chapter fallback batch %d ch %d failed: %s",
+                    batch_idx,
+                    ch["chapter_index"],
+                    exc,
+                )
                 raise RuntimeError(
                     f"Single-chapter fallback failed for ch {ch['chapter_index']}"
                 )
+            raise RuntimeError(
+                f"Single-chapter fallback returned no scenes for ch {ch['chapter_index']}"
+            )
         return all_scenes
 
     @staticmethod

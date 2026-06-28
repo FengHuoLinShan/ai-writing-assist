@@ -22,6 +22,7 @@ cd backend
 pip install -e ".[dev]"          # Install dependencies
 uvicorn app.main:app --reload    # Dev server (port 8000)
 python run_worker.py --reload    # Task worker with auto-reload
+python scripts/check_llm.py      # Sanitized LLM connectivity check
 
 # Database
 make db                          # docker compose up -d
@@ -92,7 +93,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 ## Core Infrastructure
 
 - **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`dependencies.py`, `DbSession`/`AppSettings` type aliases)
-- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support
+- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
 - **`infrastructure/tasks/`**: Async task system with `@task_handler` registry, status tracking, heartbeat, FOR UPDATE SKIP LOCKED for worker safety
 - **`shared/`**: Global enums (`enums.py`), constants (`constants.py`), types (`types.py`), utilities (`utils.py`)
 
@@ -137,6 +138,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 
 - API Keys from environment variables only, never in logs, never returned to frontend
 - .env not committed to repo; .env.example provided
+- LLM transport must not implicitly depend on system proxy state; use `LLM_TRUST_ENV` / `LLM_PROXY_URL` and verify with `python scripts/check_llm.py`
 - All API requests validated via Pydantic schema
 - No raw SQL string concatenation
 - Search/sort/filter fields whitelisted

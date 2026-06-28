@@ -29,7 +29,6 @@ from infrastructure.llm.schemas import (
     LLMMessage,
     LLMStreamChunk,
 )
-from shared.constants import LLM_RETRY_BASE_DELAY, LLM_RETRY_MAX_ATTEMPTS
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +96,9 @@ class LLMClient:
         """
         return await retry_with_backoff(
             self._provider.generate,
-            max_attempts=LLM_RETRY_MAX_ATTEMPTS,
-            base_delay=LLM_RETRY_BASE_DELAY,
+            max_attempts=self._settings.llm_retry_max_attempts,
+            base_delay=self._settings.llm_retry_base_delay,
+            max_delay=self._settings.llm_retry_max_delay,
             request=request,
         )
 
@@ -118,8 +118,9 @@ class LLMClient:
         # 一旦流开始后断掉，由上层处理
         stream = await retry_with_backoff(
             self._provider.generate_stream,
-            max_attempts=LLM_RETRY_MAX_ATTEMPTS,
-            base_delay=LLM_RETRY_BASE_DELAY,
+            max_attempts=self._settings.llm_retry_max_attempts,
+            base_delay=self._settings.llm_retry_base_delay,
+            max_delay=self._settings.llm_retry_max_delay,
             request=request,
         )
         async for chunk in stream:
@@ -289,8 +290,9 @@ class LLMClient:
         # OpenAI / 其他远程 API
         return await retry_with_backoff(
             self._provider.generate_embedding,
-            max_attempts=LLM_RETRY_MAX_ATTEMPTS,
-            base_delay=LLM_RETRY_BASE_DELAY,
+            max_attempts=self._settings.llm_retry_max_attempts,
+            base_delay=self._settings.llm_retry_base_delay,
+            max_delay=self._settings.llm_retry_max_delay,
             text=text,
             model=model,
         )

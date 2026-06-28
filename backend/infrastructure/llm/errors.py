@@ -10,9 +10,17 @@ from __future__ import annotations
 class LLMError(Exception):
     """LLM 调用基类异常"""
 
-    def __init__(self, message: str, *, provider: str = "", model: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str = "",
+        model: str = "",
+        error_kind: str = "",
+    ) -> None:
         self.provider = provider
         self.model = model
+        self.error_kind = error_kind
         super().__init__(message)
 
 
@@ -29,6 +37,25 @@ class LLMTimeoutError(LLMError):
     ) -> None:
         self.timeout = timeout
         super().__init__(message, provider=provider, model=model)
+
+
+class LLMConnectionError(LLMError):
+    """LLM 网络连接失败 — 可重试，并携带可诊断错误类型"""
+
+    def __init__(
+        self,
+        message: str = "LLM connection failed",
+        *,
+        provider: str = "",
+        model: str = "",
+        error_kind: str = "connection_error",
+    ) -> None:
+        super().__init__(
+            message,
+            provider=provider,
+            model=model,
+            error_kind=error_kind,
+        )
 
 
 class LLMRateLimitError(LLMError):

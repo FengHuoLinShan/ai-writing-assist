@@ -8,11 +8,14 @@ LLM Provider 管理
 from __future__ import annotations
 
 import logging
+import ssl
 import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 from openai import (
+    APIConnectionError,
     APIError,
     APITimeoutError,
     AsyncOpenAI,
@@ -25,6 +28,7 @@ from openai import (
 from core.config import get_settings
 from infrastructure.llm.errors import (
     LLMAuthError,
+    LLMConnectionError,
     LLMContentFilterError,
     LLMError,
     LLMInvalidResponseError,
@@ -54,29 +58,39 @@ class OpenAIProvider:
         base_url: str = "",
         default_model: str = "",
         timeout: int = 60,
+        trust_env: bool | None = None,
+        proxy_url: str | None = None,
     ) -> None:
         settings = get_settings()
         self._api_key = api_key or settings.llm_api_key
         self._base_url = base_url or settings.llm_base_url
         self._default_model = default_model or settings.llm_model
         self._timeout = timeout or settings.llm_timeout
+        self._trust_env = settings.llm_trust_env if trust_env is None else trust_env
+        self._proxy_url = settings.llm_proxy_url if proxy_url is None else proxy_url
+
+        self._http_client = self._build_http_client()
 
         self._client = AsyncOpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
             timeout=self._timeout,
+            http_client=self._http_client,
         )
 
         # 独立的 embedding 客户端：当配置了 EMBEDDING_BASE_URL 时使用独立端点
         _emb_base_url = settings.embedding_base_url
         _emb_api_key = settings.embedding_api_key or self._api_key
         if _emb_base_url:
+            self._embedding_http_client = self._build_http_client()
             self._embedding_client = AsyncOpenAI(
                 api_key=_emb_api_key,
                 base_url=_emb_base_url,
                 timeout=self._timeout,
+                http_client=self._embedding_http_client,
             )
         else:
+            self._embedding_http_client = None
             self._embedding_client = self._client
 
         logger.info(
@@ -102,6 +116,15 @@ class OpenAIProvider:
         ):
             await self._embedding_client.close()
             logger.debug("OpenAIProvider embedding HTTP connection closed")
+
+    def _build_http_client(self) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {
+            "timeout": self._timeout,
+            "trust_env": self._trust_env,
+        }
+        if self._proxy_url:
+            kwargs["proxy"] = self._proxy_url
+        return httpx.AsyncClient(**kwargs)
 
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """调用 LLM 并返回完整响应"""
@@ -150,6 +173,14 @@ class OpenAIProvider:
                 provider=self.name,
                 model=model,
                 filter_reason=str(e),
+            ) from e
+        except APIConnectionError as e:
+            kind = _classify_connection_error(e)
+            raise LLMConnectionError(
+                f"OpenAI connection failed ({kind}): {e}",
+                provider=self.name,
+                model=model,
+                error_kind=kind,
             ) from e
         except APIError as e:
             raise LLMError(
@@ -217,6 +248,14 @@ class OpenAIProvider:
                 f"OpenAI auth failed: {e}",
                 provider=self.name,
                 model=model,
+            ) from e
+        except APIConnectionError as e:
+            kind = _classify_connection_error(e)
+            raise LLMConnectionError(
+                f"OpenAI connection failed ({kind}): {e}",
+                provider=self.name,
+                model=model,
+                error_kind=kind,
             ) from e
         except APIError as e:
             raise LLMError(
@@ -332,3 +371,26 @@ def get_provider(name: str = "openai", **kwargs: Any) -> OpenAIProvider:
     if name != "openai":
         raise ValueError(f"Unknown provider: {name}. Available: ['openai']")
     return OpenAIProvider(**kwargs)
+
+
+def _classify_connection_error(error: BaseException) -> str:
+    """Classify OpenAI/httpx connection errors without logging secrets."""
+    chain: list[BaseException] = []
+    current: BaseException | None = error
+    while current is not None and len(chain) < 8:
+        chain.append(current)
+        current = current.__cause__
+
+    names = " ".join(type(item).__name__ for item in chain).lower()
+    text = " ".join(str(item) for item in chain).lower()
+    combined = f"{names} {text}"
+
+    if "proxy" in combined or "connect tunnel" in combined or "503" in combined:
+        return "proxy_error"
+    if "ssl" in combined or "tls" in combined or "eof" in combined:
+        return "tls_error"
+    if "name or service" in combined or "nodename" in combined:
+        return "dns_error"
+    if any(isinstance(item, ssl.SSLError) for item in chain):
+        return "tls_error"
+    return "connection_error"

@@ -134,9 +134,10 @@ async def submit_deep_import_sync(
     db: DbSession,
     body: dict = Body(..., description="深度导入参数（同步模式）"),
 ) -> dict:
-    """同步执行深度导入 — 直接在当前请求中运行三阶段流水线。
+    """同步执行深度导入 — 仅用于测试/无 Worker 场景。
 
-    用于 E2E 测试和不依赖 Worker 的场景。不创建异步任务，直接返回结果。
+    不创建异步任务，直接返回结果。该端点不经过 DeepImportOrchestrator，
+    因此不执行重复导入检测和旧派生数据废弃策略；正式入口使用 `/deep`。
 
     请求体：
     - novel_id: 项目 ID（必填）
@@ -196,6 +197,9 @@ async def submit_deep_import_sync(
         "message": progress.message,
         "degraded": progress.degraded,
         "degraded_batches": progress.degraded_batches,
+        "quality_status": progress.quality_status,
+        "phase_errors": progress.phase_errors,
+        "llm_health": progress.llm_health,
     }
 
 

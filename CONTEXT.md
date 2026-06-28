@@ -22,7 +22,8 @@
 | RAG 分块 | RagChunk | `rag_chunks` | 正文分块 + embedding 向量 + 元信息标注（entity_ids, character_ids, thread_ids） |
 | 事件 | Event | `core_entities` (entity_type="event") | 小说时间线事件。timeline_order 存于 content_json |
 | 导入记录 | ImportRecord | `import_records` | 小说文件导入跟踪。不存原文 |
-| ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。深度导入等用户确认启动的实体抽取可直接入 `core_entities`（`status=canonical`），并记录自动入库元数据 |
+| 候选创作资产 | Candidate Creative Asset | 多表状态表达 | AI 或系统从正文中提取出的、具备长期维护价值但尚未被用户确认的结构化资产。可对应 CoreEntity、Relation、Event、Scene、PlotThread 等对象；默认进入 candidate 或等价待确认状态，可进入工作上下文但不进入正史上下文 |
+| ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。候选对象不再使用独立候选表，改由对应资产表的状态与自动入库元数据表达 |
 | 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
 
@@ -90,12 +91,61 @@ core > important > normal > temporary > alias
 3. 用户确认后 promote 为 canonical
 4. 后台任务不在无用户授权的情况下自动 promote
 
-例外：用户明确启动的自动流水线（如深度导入）可直接写 canonical，但必须先通过 Pydantic schema 校验，并保留来源、可编辑/可回滚标记。
+例外：用户明确启动的自动流水线（如深度导入）可批量写入候选创作资产，但必须先通过 Pydantic schema 校验，并保留来源、可编辑/可回滚标记。
+
+### 工作上下文（Working Context）
+工作上下文是 AI 流水线内部使用的临时上下文层，用于长文档批量导入、后续结构分析和跨阶段抽取。它可以读取正史资产、草稿资产、候选创作资产、证据片段、置信度和来源依赖，但不等同于正史上下文。
+
+- 长文档导入的第二轮/后续阶段可以基于候选创作资产继续抽取，避免等待用户逐条确认后才推进剧情线、篇章纲、关系和伏笔分析
+- 工作上下文中的候选资产只能作为待确认依据，不作为用户确认后的硬事实
+- 由候选资产派生的 PlotThread、OutlineArc、EntityRelation、ForeshadowingPlan、RevealPlan 等下游资产必须保持 draft / candidate / pending 等待确认状态
+- 下游资产必须记录来源依赖；当依赖的候选资产被拒绝、合并或改名时，下游资产需要标记为需复核或重新计算
+- 面向正式写作、最终一致性校验和用户确认后的输出时，应使用正史上下文，而不是直接使用未确认的工作上下文
+
+实现方向：
+1. 近期：在上下文编译入口提供显式模式（如 `context_mode="canonical" | "working"`）。默认使用 canonical；深度导入、批量抽取和结构分析等内部流水线显式请求 working。
+2. 后续：当候选审查、回放和可解释性需求稳定后，引入持久化上下文快照表，记录 task_id、phase、context_mode、included_asset_ids、rendered_context 或摘要、prompt_hash、created_at，用于审计、复现和问题定位。
+3. 持久化快照只记录当次 AI 调用使用过的上下文视图，不替代正史资产表，也不改变 candidate → canonical 的用户确认语义。
+4. 第一版不新增上下文快照表；用户确认后的 AI 参考资料只在生成结果或任务 `_meta` 中保存摘要与资产 ID（context_mode、scope、range、reveal_mode、included/excluded asset ids、asset_counts、include_pending_objects、user_note、compiled_at），不保存完整 rendered context。
+5. 手动 AI 操作应先创建 AI 参考资料确认记录，再把 `context_confirmation_id` 传给正文生成、手动剧情分析、手动剧情结构生成、手动补抽世界对象等接口。确认记录第一版保存摘要与资产 ID，后续可扩展为持久化上下文快照与回放入口。
+6. `/api/context/confirm` 负责按用户当前选择重新编译上下文并创建确认记录，而不是只保存前端已预览结果；这样可以避免预览与最终执行之间的数据漂移。
+
+用户控制边界：
+- 正文生成、手动剧情分析、手动剧情结构生成、手动补抽世界对象必须先展示并确认“AI 参考资料”，再执行 LLM 调用
+- 深度导入不插入手动上下文确认；它保持自动化体验，由系统内部维护 working context，并在完成后集中展示结果、降级原因和待复核资产
+- 上下文页保留为高级预览/调试台；手动 AI 操作应在自身流程中打开参考资料确认界面，而不是要求用户跳转到上下文页
+
+“AI 参考资料”第一版可控项：
+- 章节/Scene 范围
+- 揭示模式（作者安全、作者全知、读者已知、角色视角）
+- 是否包含待确认对象（内部状态为 candidate 的候选创作资产）
+- 排除本次不想引用的世界对象、人物、剧情线、伏笔
+- 本次 AI 额外注意事项
+
+“AI 参考资料”弹窗编辑规则：
+- 弹窗内编辑的是参考资料选择规则和本次补充说明，不直接编辑编译后的 Markdown 上下文正文
+- 用户调整范围、揭示模式、是否包含待确认对象或排除资产后，通过“重新整理参考资料”重新调用上下文编译并刷新预览
+- 如用户发现结构化资产本身错误，应跳转或弹出对应资产编辑表单；保存后再重新整理参考资料
+- “本次 AI 额外注意事项”可作为临时高优先级上下文参与本次调用，并记录到 `_meta.user_note`，但不写入正史资产
+- 第一版不支持手动粘贴/改写完整上下文 Markdown，避免产生脱离结构化资产体系的临时事实
+
+用户可见文案应使用“待确认对象”，不直接暴露“候选资产 / candidate asset”等工程术语；代码、数据库和文档中的领域术语仍可使用 candidate / 候选创作资产。
+
+待确认对象默认值：
+- 正文生成默认不包含待确认对象
+- 手动剧情分析、手动剧情结构生成、手动补抽世界对象默认包含待确认对象，并在界面提示“包含待确认对象，结果需复核”
+- 深度导入内部自动使用待确认对象推进后续阶段，但不打断用户逐步确认
+
+待确认对象变更后的影响处理：
+- 第一版只标记受影响结果，不自动级联重算或覆盖用户已编辑内容
+- 当生成结果或任务 `_meta.included_asset_ids` 引用了被忽略、合并、改名或提升的待确认对象时，相关结果应标记为 `needs_review` 或 `stale_context`
+- `ready` 表示当前参考资料仍有效；`needs_review` 表示结果依赖待确认对象，需要用户复核；`stale_context` 表示依赖对象已发生结构性变化，建议重新分析或重新生成
+- 用户可手动触发“用当前 AI 参考资料重新分析/重新生成”
 
 ### 实体抽取（Entity Extraction）
 - **不是 NER**。不抽取路人、普通道具、代词、一次性场景元素
 - 只识别值得长期维护的**创作资产**
-- 深度导入等用户确认启动的抽取结果可直接以 `status="canonical"` 入库，`content_json._meta` 记录自动入库元数据
+- 深度导入等用户确认启动的抽取结果默认作为候选创作资产入库，`content_json._meta` 记录自动入库元数据；用户确认后再提升为正史
 
 ### novel_id 隔离（Project Isolation）
 - 所有 API 在 service 层强制项目隔离

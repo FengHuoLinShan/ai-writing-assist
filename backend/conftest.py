@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("EMBEDDING_PROVIDER", "openai")
+os.environ.setdefault("LLM_HEALTH_REQUIRED", "false")
 
 from collections.abc import AsyncGenerator
 

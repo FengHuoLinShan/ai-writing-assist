@@ -317,6 +317,20 @@ async def health_check():
     return result
 
 
+@app.get("/api/health/llm", tags=["system"])
+async def llm_health_check():
+    """LLM 连接健康检查端点，不暴露 API key。"""
+    from fastapi.responses import JSONResponse
+
+    from infrastructure.llm.health import check_llm_health
+
+    result = await check_llm_health()
+    content = result.model_dump()
+    if not result.ok:
+        return JSONResponse(status_code=503, content=content)
+    return content
+
+
 @app.get("/", tags=["system"])
 async def root():
     """API 根路由 — 返回系统概览信息"""
