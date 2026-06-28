@@ -1,0 +1,265 @@
+"""Context confirmation service."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.context.contracts import (
+    CompileOptions,
+    ContextConfirmationContract,
+)
+from modules.context.repositories import ContextConfirmationRepository
+from modules.context.services.compiled_context import CompiledContext
+from modules.context.services.context_compiler import ContextCompiler
+from shared.utils import parse_uuid
+
+
+class ContextConfirmationService:
+    """Owns AI reference confirmation semantics."""
+
+    def __init__(
+        self,
+        repository: ContextConfirmationRepository | None = None,
+        compiler: ContextCompiler | None = None,
+    ) -> None:
+        self._repo = repository or ContextConfirmationRepository()
+        self._compiler = compiler or ContextCompiler()
+
+    async def confirm_context(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        action: str,
+        task: str,
+        scope: str,
+        chapter_index: int | None = None,
+        scene_id: str | None = None,
+        arc_id: str | None = None,
+        entity_ids: list[str] | None = None,
+        character_ids: list[str] | None = None,
+        location_ids: list[str] | None = None,
+        reveal_mode: str = "author_safe",
+        enable_geo_filter: bool = False,
+        viewpoint_character_id: str | None = None,
+        budget_tokens: int = 4000,
+        context_mode: str = "canonical",
+        include_pending_objects: bool = False,
+        excluded_asset_ids: dict[str, list[str]] | None = None,
+        user_note: str | None = None,
+    ) -> ContextConfirmationContract:
+        options = CompileOptions(
+            novel_id=novel_id,
+            task=task,
+            scope=scope,
+            chapter_index=chapter_index,
+            scene_id=scene_id,
+            arc_id=arc_id,
+            entity_ids=entity_ids,
+            character_ids=character_ids,
+            location_ids=location_ids,
+            reveal_mode=reveal_mode,
+            enable_geo_filter=enable_geo_filter,
+            viewpoint_character_id=viewpoint_character_id,
+            budget_tokens=budget_tokens,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            excluded_asset_ids=excluded_asset_ids or {},
+            user_note=user_note,
+        )
+        compiled = await self._compiler.compile_with_tiers(
+            db,
+            options,
+            budget_tokens=budget_tokens,
+        )
+        selected_asset_ids = self._selected_asset_ids(compiled, options)
+        warnings = [
+            section.content
+            for section in compiled.sections
+            if section.key == "compiler_warnings"
+        ]
+        record = await self._repo.create(
+            db,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            action=action,
+            task=task,
+            scope=scope,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            excluded_asset_ids=excluded_asset_ids or {},
+            selected_asset_ids=selected_asset_ids,
+            user_note=user_note,
+            compile_options=self._compile_options_json(options),
+            warnings=warnings,
+        )
+        return self._to_contract(record)
+
+    async def require_confirmation(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        action: str,
+        confirmation_id: str | uuid.UUID,
+    ) -> ContextConfirmationContract:
+        record = await self._repo.get(db, self._as_uuid(confirmation_id))
+        if record is None:
+            raise ValueError("context_confirmation_id not found")
+        if str(record.novel_id) != str(parse_uuid(novel_id, "novel_id")):
+            raise ValueError("context confirmation novel_id mismatch")
+        if record.action != action:
+            raise ValueError("context confirmation action mismatch")
+        return self._to_contract(record)
+
+    async def compile_from_confirmation(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        action: str,
+        confirmation_id: str | uuid.UUID,
+    ) -> CompiledContext:
+        confirmation = await self.require_confirmation(
+            db,
+            novel_id=novel_id,
+            action=action,
+            confirmation_id=confirmation_id,
+        )
+        options = CompileOptions(**confirmation.compile_options)
+        return await self._compiler.compile_with_tiers(
+            db,
+            options,
+            budget_tokens=options.budget_tokens,
+        )
+
+    async def attach_result_ref(
+        self,
+        db: AsyncSession,
+        *,
+        confirmation_id: str | uuid.UUID,
+        result_type: str,
+        result_id: str,
+        status: str = "running",
+    ) -> ContextConfirmationContract:
+        record = await self._repo.get(db, self._as_uuid(confirmation_id))
+        if record is None:
+            raise ValueError("context_confirmation_id not found")
+        refs = [
+            ref
+            for ref in (record.result_refs or [])
+            if not (ref.get("type") == result_type and ref.get("id") == result_id)
+        ]
+        refs.append({"type": result_type, "id": result_id})
+        updated = await self._repo.update_tracking(
+            db,
+            record,
+            result_refs=refs,
+            result_status=status,
+        )
+        return self._to_contract(updated)
+
+    async def mark_asset_context_changed(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        asset_type: str,
+        asset_id: str,
+        reason: str,
+    ) -> int:
+        records = await self._repo.list_by_asset_ref(
+            db,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            asset_type=asset_type,
+            asset_id=asset_id,
+        )
+        status = "needs_review" if reason == "candidate_promoted" else "stale_context"
+        changed = 0
+        for record in records:
+            reasons = list(record.stale_reasons or [])
+            if reason not in reasons:
+                reasons.append(reason)
+            await self._repo.update_tracking(
+                db,
+                record,
+                result_status=status,
+                stale_reasons=reasons,
+            )
+            changed += 1
+        return changed
+
+    @staticmethod
+    def _selected_asset_ids(
+        compiled: CompiledContext,
+        options: CompileOptions,
+    ) -> dict[str, list[str]]:
+        selected: dict[str, list[str]] = {"project": [options.novel_id]}
+        if options.scene_id:
+            selected["scenes"] = [options.scene_id]
+        if options.arc_id:
+            selected["outline_arcs"] = [options.arc_id]
+        if options.entity_ids:
+            selected["world_entities"] = list(options.entity_ids)
+        if options.character_ids:
+            selected["characters"] = list(options.character_ids)
+        if options.location_ids:
+            selected["locations"] = list(options.location_ids)
+        selected["context_sections"] = [section.key for section in compiled.sections]
+        return selected
+
+    @staticmethod
+    def _compile_options_json(options: CompileOptions) -> dict[str, Any]:
+        return {
+            "novel_id": options.novel_id,
+            "task": options.task,
+            "scope": options.scope,
+            "chapter_index": options.chapter_index,
+            "scene_id": options.scene_id,
+            "arc_id": options.arc_id,
+            "entity_ids": options.entity_ids,
+            "character_ids": options.character_ids,
+            "location_ids": options.location_ids,
+            "reveal_mode": options.reveal_mode,
+            "viewpoint_character_id": options.viewpoint_character_id,
+            "enable_geo_filter": options.enable_geo_filter,
+            "budget_tokens": options.budget_tokens,
+            "top_k": options.top_k,
+            "context_mode": options.context_mode,
+            "include_pending_objects": options.include_pending_objects,
+            "excluded_asset_ids": options.excluded_asset_ids,
+            "user_note": options.user_note,
+        }
+
+    @staticmethod
+    def _to_contract(record) -> ContextConfirmationContract:
+        compiled_at = record.compiled_at or datetime.now(UTC)
+        created_at = record.created_at or compiled_at
+        return ContextConfirmationContract(
+            id=str(record.id),
+            novel_id=str(record.novel_id),
+            action=record.action,
+            task=record.task,
+            scope=record.scope,
+            context_mode=record.context_mode,
+            include_pending_objects=record.include_pending_objects,
+            excluded_asset_ids=record.excluded_asset_ids or {},
+            selected_asset_ids=record.selected_asset_ids or {},
+            user_note=record.user_note,
+            compile_options=record.compile_options or {},
+            warnings=record.warnings or [],
+            result_refs=record.result_refs or [],
+            result_status=record.result_status,
+            stale_reasons=record.stale_reasons or [],
+            compiled_at=compiled_at.isoformat(),
+            created_at=created_at.isoformat(),
+        )
+
+    @staticmethod
+    def _as_uuid(value: str | uuid.UUID) -> uuid.UUID:
+        if isinstance(value, uuid.UUID):
+            return value
+        return parse_uuid(str(value), "context_confirmation_id")

@@ -11,10 +11,11 @@ context 模块是系统最核心的智能模块之一。RAG 负责找资料，Co
 - Context Budget 控制，防止上下文过载
 - Reveal 过滤（author_safe 隐藏 hidden_truth）
 - Markdown 渲染，产出适合 LLM Prompt 的结构化上下文
+- 手动 AI 操作前创建“AI 参考资料”确认记录，保存选择参数、资产引用和结果追踪摘要
 
 ## 不负责
 
-- 不直接创建或操作任何数据库表（本模块无数据表）
+- 不保存完整 rendered context 快照；确认记录只保存摘要、选择参数和资产引用
 - 不负责 RAG 检索（委托 rag 模块）
 - 不负责结构复查（当前无 review 模块，由 outline 和 world 各自管理一致性）
 - 不负责 LLM 调用（委托 infrastructure/llm）
@@ -26,7 +27,15 @@ context 模块是系统最核心的智能模块之一。RAG 负责找资料，Co
 # facade.py
 async def compile_structure_context(db, novel_id, task, scope, ...) -> StructureContextBundle
 def render_context_markdown(context: StructureContextBundle) -> str
+async def confirm_context(db, novel_id, action, task, scope, ...) -> ContextConfirmationContract
+async def require_confirmation(db, novel_id, action, confirmation_id) -> ContextConfirmationContract
 ```
+
+## 数据表
+
+| 表 | 说明 |
+|----|------|
+| `context_confirmations` | 手动 AI 操作前的参考资料确认摘要，记录选择参数、资产 ID、warnings、结果引用和 stale 状态 |
 
 ## 支持 Scope
 

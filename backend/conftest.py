@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 import infrastructure.tasks.models  # noqa: F401
+import modules.context.models  # noqa: F401
 import modules.imports.models  # noqa: F401
 
 # character/geo/review/timeline 已从 minimal-core 移除

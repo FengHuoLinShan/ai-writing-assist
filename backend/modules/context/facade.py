@@ -9,17 +9,22 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import CompileOptions, StructureContextBundle
+from modules.context.contracts import (
+    CompileOptions,
+    ContextConfirmationContract,
+    StructureContextBundle,
+)
 from modules.context.markdown_renderer import (
     render_compiled_context as _render_compiled_context,
 )
 from modules.context.markdown_renderer import (
     render_context_markdown as _render_markdown,
 )
-from modules.context.services import ContextCompiler
+from modules.context.services import ContextCompiler, ContextConfirmationService
 from modules.context.services.compiled_context import CompiledContext
 
 _compiler = ContextCompiler()
+_confirmation_service = ContextConfirmationService()
 
 
 def render_context_markdown(context: StructureContextBundle) -> str:
@@ -50,6 +55,10 @@ async def compile_structure_context(
     reveal_mode: str = "author_safe",
     enable_geo_filter: bool = False,
     viewpoint_character_id: str | None = None,
+    context_mode: str = "canonical",
+    include_pending_objects: bool = False,
+    excluded_asset_ids: dict[str, list[str]] | None = None,
+    user_note: str | None = None,
 ) -> StructureContextBundle:
     """编译结构化创作上下文
 
@@ -95,6 +104,10 @@ async def compile_structure_context(
         reveal_mode=reveal_mode,
         enable_geo_filter=enable_geo_filter,
         viewpoint_character_id=viewpoint_character_id,
+        context_mode=context_mode,
+        include_pending_objects=include_pending_objects,
+        excluded_asset_ids=excluded_asset_ids or {},
+        user_note=user_note,
     )
     return await _compiler.compile(db, options)
 
@@ -138,3 +151,112 @@ async def render_compiled_context_markdown(
         **kwargs,
     )
     return _render_compiled_context(ctx)
+
+
+async def confirm_context(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    action: str,
+    task: str,
+    scope: str,
+    chapter_index: int | None = None,
+    scene_id: str | None = None,
+    arc_id: str | None = None,
+    entity_ids: list[str] | None = None,
+    character_ids: list[str] | None = None,
+    location_ids: list[str] | None = None,
+    reveal_mode: str = "author_safe",
+    enable_geo_filter: bool = False,
+    viewpoint_character_id: str | None = None,
+    budget_tokens: int = 4000,
+    context_mode: str = "canonical",
+    include_pending_objects: bool = False,
+    excluded_asset_ids: dict[str, list[str]] | None = None,
+    user_note: str | None = None,
+) -> ContextConfirmationContract:
+    return await _confirmation_service.confirm_context(
+        db,
+        novel_id=novel_id,
+        action=action,
+        task=task,
+        scope=scope,
+        chapter_index=chapter_index,
+        scene_id=scene_id,
+        arc_id=arc_id,
+        entity_ids=entity_ids,
+        character_ids=character_ids,
+        location_ids=location_ids,
+        reveal_mode=reveal_mode,
+        enable_geo_filter=enable_geo_filter,
+        viewpoint_character_id=viewpoint_character_id,
+        budget_tokens=budget_tokens,
+        context_mode=context_mode,
+        include_pending_objects=include_pending_objects,
+        excluded_asset_ids=excluded_asset_ids,
+        user_note=user_note,
+    )
+
+
+async def require_confirmation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    action: str,
+    confirmation_id: str,
+) -> ContextConfirmationContract:
+    return await _confirmation_service.require_confirmation(
+        db,
+        novel_id=novel_id,
+        action=action,
+        confirmation_id=confirmation_id,
+    )
+
+
+async def compile_from_confirmation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    action: str,
+    confirmation_id: str,
+) -> CompiledContext:
+    return await _confirmation_service.compile_from_confirmation(
+        db,
+        novel_id=novel_id,
+        action=action,
+        confirmation_id=confirmation_id,
+    )
+
+
+async def attach_result_ref(
+    db: AsyncSession,
+    *,
+    confirmation_id: str,
+    result_type: str,
+    result_id: str,
+    status: str = "running",
+) -> ContextConfirmationContract:
+    return await _confirmation_service.attach_result_ref(
+        db,
+        confirmation_id=confirmation_id,
+        result_type=result_type,
+        result_id=result_id,
+        status=status,
+    )
+
+
+async def mark_asset_context_changed(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    asset_type: str,
+    asset_id: str,
+    reason: str,
+) -> int:
+    return await _confirmation_service.mark_asset_context_changed(
+        db,
+        novel_id=novel_id,
+        asset_type=asset_type,
+        asset_id=asset_id,
+        reason=reason,
+    )

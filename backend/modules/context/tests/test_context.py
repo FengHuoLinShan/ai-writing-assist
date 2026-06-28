@@ -32,6 +32,150 @@ from modules.context.markdown_renderer import render_context_markdown as render_
 from modules.context.services import CompileOptions
 
 # ============================================================
+# Context Confirmation 测试
+# ============================================================
+
+
+class TestContextConfirmation:
+    """测试手动 AI 操作前的上下文确认记录。"""
+
+    @pytest.mark.asyncio
+    async def test_confirm_context_api_creates_summary_without_rendered_context(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """POST /api/context/confirm 应重新编译并保存确认摘要。"""
+        novel_id = "00000000-0000-0000-0000-000000000101"
+
+        response = await async_client.post(
+            "/api/context/confirm",
+            json={
+                "novel_id": novel_id,
+                "action": "writing.generate",
+                "task": "生成第 1 章正文草稿",
+                "scope": "chapter",
+                "chapter_index": 1,
+                "context_mode": "canonical",
+                "include_pending_objects": False,
+                "excluded_asset_ids": {"world_entities": ["entity-1"]},
+                "user_note": "本次注意保持克制语气",
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert data["id"]
+        assert data["novel_id"] == novel_id
+        assert data["action"] == "writing.generate"
+        assert data["context_mode"] == "canonical"
+        assert data["include_pending_objects"] is False
+        assert data["excluded_asset_ids"] == {"world_entities": ["entity-1"]}
+        assert data["user_note"] == "本次注意保持克制语气"
+        assert data["selected_asset_ids"]
+        assert "rendered_context" not in data
+
+    @pytest.mark.asyncio
+    async def test_facade_requires_matching_confirmation(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """require_confirmation 应校验 novel_id 和 action。"""
+        from modules.context.facade import confirm_context, require_confirmation
+
+        novel_id = "00000000-0000-0000-0000-000000000102"
+        created = await confirm_context(
+            db_session,
+            novel_id=novel_id,
+            action="outline.generate",
+            task="生成剧情结构",
+            scope="chapter",
+            chapter_index=1,
+        )
+
+        ok = await require_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="outline.generate",
+            confirmation_id=created.id,
+        )
+        assert ok.id == created.id
+
+        with pytest.raises(ValueError, match="action"):
+            await require_confirmation(
+                db_session,
+                novel_id=novel_id,
+                action="writing.generate",
+                confirmation_id=created.id,
+            )
+
+        with pytest.raises(ValueError, match="novel_id"):
+            await require_confirmation(
+                db_session,
+                novel_id="00000000-0000-0000-0000-000000000103",
+                action="outline.generate",
+                confirmation_id=created.id,
+            )
+
+    @pytest.mark.asyncio
+    async def test_confirmation_result_refs_and_stale_marking(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """确认记录可追踪结果引用，并在相关资产变化时标记为 stale。"""
+        from modules.context.facade import (
+            attach_result_ref,
+            confirm_context,
+            mark_asset_context_changed,
+            require_confirmation,
+        )
+
+        novel_id = "00000000-0000-0000-0000-000000000104"
+        created = await confirm_context(
+            db_session,
+            novel_id=novel_id,
+            action="world.entities.extract",
+            task="补抽世界对象",
+            scope="world",
+            context_mode="working",
+            include_pending_objects=True,
+        )
+
+        await attach_result_ref(
+            db_session,
+            confirmation_id=created.id,
+            result_type="task",
+            result_id="task-1",
+            status="running",
+        )
+        with_ref = await require_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="world.entities.extract",
+            confirmation_id=created.id,
+        )
+        assert with_ref.result_refs == [{"type": "task", "id": "task-1"}]
+        assert with_ref.result_status == "running"
+
+        changed = await mark_asset_context_changed(
+            db_session,
+            novel_id=novel_id,
+            asset_type="world_entities",
+            asset_id="task-1",
+            reason="ignored",
+        )
+        assert changed == 1
+
+        stale = await require_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="world.entities.extract",
+            confirmation_id=created.id,
+        )
+        assert stale.result_status == "stale_context"
+        assert stale.stale_reasons == ["ignored"]
+
+
+# ============================================================
 # 基本导入测试
 # ============================================================
 
