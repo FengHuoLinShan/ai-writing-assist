@@ -573,10 +573,11 @@ class TestPlotStructureGenerateDuplicateRange:
 
     async def test_first_generate_reports_zero_existing_counts(
         self,
-        async_client: AsyncClient,
+        db_session: AsyncSession,
         test_project_id: str,
     ) -> None:
         bundle = _make_bundle(test_project_id)
+        from modules.outline.generator import PlotStructureGenerator
 
         with (
             mock.patch(
@@ -587,17 +588,13 @@ class TestPlotStructureGenerateDuplicateRange:
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
-            resp = await async_client.post(
-                "/api/outline/generate",
-                params={
-                    "novel_id": test_project_id,
-                    "start_chapter": 1,
-                    "end_chapter": 10,
-                },
+            data = await PlotStructureGenerator().generate(
+                db_session,
+                novel_id=test_project_id,
+                start_chapter=1,
+                end_chapter=10,
             )
 
-        assert resp.status_code == 201
-        data = resp.json()
         assert data["total_threads"] == 2
         assert data["total_arcs"] == 2
         assert data["existing_threads_count"] == 0
@@ -605,10 +602,11 @@ class TestPlotStructureGenerateDuplicateRange:
 
     async def test_second_generate_reports_existing_counts_and_warning(
         self,
-        async_client: AsyncClient,
+        db_session: AsyncSession,
         test_project_id: str,
     ) -> None:
         bundle = _make_bundle(test_project_id)
+        from modules.outline.generator import PlotStructureGenerator
 
         with (
             mock.patch(
@@ -619,30 +617,23 @@ class TestPlotStructureGenerateDuplicateRange:
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
-            first = await async_client.post(
-                "/api/outline/generate",
-                params={
-                    "novel_id": test_project_id,
-                    "start_chapter": 1,
-                    "end_chapter": 10,
-                },
+            generator = PlotStructureGenerator()
+            first_data = await generator.generate(
+                db_session,
+                novel_id=test_project_id,
+                start_chapter=1,
+                end_chapter=10,
             )
-            assert first.status_code == 201
-            first_data = first.json()
             first_threads = first_data["total_threads"]
             first_arcs = first_data["total_arcs"]
 
-            second = await async_client.post(
-                "/api/outline/generate",
-                params={
-                    "novel_id": test_project_id,
-                    "start_chapter": 1,
-                    "end_chapter": 10,
-                },
+            second_data = await generator.generate(
+                db_session,
+                novel_id=test_project_id,
+                start_chapter=1,
+                end_chapter=10,
             )
 
-        assert second.status_code == 201
-        second_data = second.json()
         assert second_data["existing_threads_count"] == first_threads
         assert second_data["existing_arcs_count"] == first_arcs
         assert any("已有" in w for w in second_data.get("warnings", []))

@@ -269,6 +269,24 @@ class PlotStructureGenerateResponse(BaseModel):
     warnings: list[str] = []
 
 
+class OutlineAiTaskRequest(BaseModel):
+    """手动大纲 AI 操作请求。"""
+
+    novel_id: str
+    context_confirmation_id: str
+    start_chapter: int | None = Field(None, ge=1)
+    end_chapter: int | None = Field(None, ge=1)
+    chapter_index: int | None = Field(None, ge=1)
+    instruction: str | None = None
+
+
+class OutlineAiTaskResponse(BaseModel):
+    """手动大纲 AI 操作入队响应。"""
+
+    task_id: str
+    status: str = "pending"
+
+
 # ============================================================
 # ForeshadowingPlan
 # ============================================================

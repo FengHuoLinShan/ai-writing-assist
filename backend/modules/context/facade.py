@@ -42,6 +42,11 @@ def render_context_markdown(context: StructureContextBundle) -> str:
     return _render_markdown(context)
 
 
+def render_compiled_context(context: CompiledContext) -> str:
+    """将已编译的上下文 IR 渲染为 Markdown。"""
+    return _render_compiled_context(context)
+
+
 async def compile_structure_context(
     db: AsyncSession,
     novel_id: str,
