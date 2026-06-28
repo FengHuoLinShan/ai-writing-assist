@@ -3,13 +3,28 @@
  */
 
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+  recoverActiveWorkflows,
+} from "../shared/workflowProgress.js"
+import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const generateView = {
-  onLeave() { this._currentType = null },
+  onLeave() {
+    this._currentType = null
+    this._stopActivePolling()
+  },
   _currentType: null,
+  _activePoller: null,
 
   async render() {
-    setTimeout(() => this._bindEvents(), 0)
+    setTimeout(() => {
+      this._bindEvents()
+      this._recoverGenerateWorkflow()
+    }, 0)
     return `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">
         从左侧菜单中选择模块，或使用下方的生成中心统一入口。
@@ -134,6 +149,86 @@ const generateView = {
     })
   },
 
+  _stopActivePolling() {
+    if (this._activePoller?.stop) this._activePoller.stop()
+    this._activePoller = null
+  },
+
+  _workflowTypeFor(type) {
+    return {
+      world_character: "world_entity_extraction",
+      plot: "plot_structure_generate",
+      chapter: "chapter_scene_generate",
+    }[type] || "task"
+  },
+
+  _destinationHintFor(type) {
+    return {
+      world_character: "完成后到 世界 > 候选清洗 查看候选对象。",
+      plot: "完成后到 大纲 查看生成的剧情结构。",
+      chapter: "完成后到 大纲 查看章节与场景结构。",
+    }[type] || "完成后可在对应模块查看结果。"
+  },
+
+  _renderTaskProgress(progress, type) {
+    const resultEl = document.getElementById("generate-result")
+    if (!resultEl || !progress) return
+    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节卡" }
+    resultEl.innerHTML = renderWorkflowCard(progress, {
+      title: `生成${typeNames[type] || "内容"}`,
+      destinationLabel: this._destinationHintFor(type),
+    })
+  },
+
+  _startTaskPolling(taskId, workflowType, type) {
+    this._stopActivePolling()
+    this._activePoller = pollTaskProgress({
+      taskId,
+      workflowType,
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._renderTaskProgress(progress, type)
+        if (progress.done) {
+          this._updateStep(4, "done")
+          this._updateStep(5, "active")
+        } else if (progress.failed || progress.cancelled) {
+          this._updateStep(3, "")
+        } else {
+          this._updateStep(3, "active")
+        }
+      },
+      onDone: () => {
+        clearActiveWorkflow(taskId)
+      },
+      onFailed: () => {
+        clearActiveWorkflow(taskId)
+      },
+    })
+  },
+
+  _recoverGenerateWorkflow() {
+    if (!state.currentProjectId || this._activePoller) return
+    const workflows = recoverActiveWorkflows(state.currentProjectId)
+    const workflow = workflows.find((item) => item.view === "generate")
+    if (!workflow?.taskId) return
+
+    const type = workflow.meta?.type || {
+      world_entity_extraction: "world_character",
+      plot_structure_generate: "plot",
+      chapter_scene_generate: "chapter",
+    }[workflow.workflowType] || this._currentType
+    if (!type) return
+
+    this._currentType = type
+    this._renderTaskProgress(normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: workflow.workflowType,
+      status: "running",
+      meta: workflow.meta || {},
+    }, workflow.workflowType), type)
+    this._startTaskPolling(workflow.taskId, workflow.workflowType, type)
+  },
+
   async _startGenerate() {
     const intent = document.getElementById("generate-intent")?.value
     if (!intent || !intent.trim()) { toast("请输入创作意图描述", "warning"); return }
@@ -163,32 +258,41 @@ const generateView = {
       resultEl.innerHTML = `<div class="loading">步骤 3/6：正在生成${typeNames[this._currentType]}...</div>`
 
       let resp
+      const workflowType = this._workflowTypeFor(this._currentType)
       const apiCalls = {
         world_character: api.generate.worldCharacter,
         plot: api.generate.plotStructure,
-        chapter: api.generate.chapterScene,
+        chapter: (payload) => api.tasks.submit("chapter_scene_generate", payload),
       }
       resp = await apiCalls[this._currentType]({ novel_id: state.currentProjectId, intent, context: {} })
 
       this._updateStep(3, resp ? "done" : "active")
       this._updateStep(4, "active")
 
-      let previewHtml = `<div class="card" style="border-color:var(--accent);">`
       const responseId = resp && (resp.task_id || resp.id)
       if (responseId) {
-        previewHtml += `
-          <p style="color:var(--accent);">&#10003; 任务已提交</p>
-          <p style="color:var(--text-muted);font-size:12px;">任务 ID: ${responseId}<br>类型: ${typeNames[this._currentType]}<br>${resp.status ? `状态: ${resp.status}` : ""}</p>
-          <p style="color:var(--text-dim);font-size:12px;">任务正在后台运行。完成后可以在对应模块查看结果。</p>
-        `
+        persistActiveWorkflow({
+          taskId: responseId,
+          workflowType,
+          projectId: state.currentProjectId,
+          view: "generate",
+          meta: { type: this._currentType, intent },
+        })
+        this._renderTaskProgress(normalizeTaskProgress({
+          ...resp,
+          task_id: responseId,
+          task_type: workflowType,
+          meta: { workflowType },
+        }, workflowType), this._currentType)
+        this._startTaskPolling(responseId, workflowType, this._currentType)
       } else {
-        previewHtml += `
+        resultEl.innerHTML = `
+          <div class="card" style="border-color:var(--accent);">
           <p style="color:var(--accent);">&#10003; 生成请求已发送</p>
           <p style="color:var(--text-muted);font-size:12px;">请在对应模块中查看生成的候选对象。</p>
+          </div>
         `
       }
-      previewHtml += '</div>'
-      resultEl.innerHTML = previewHtml
       this._updateStep(4, "done")
 
       setTimeout(() => { this._updateStep(5, "active"); this._updateStep(6, "") }, 500)

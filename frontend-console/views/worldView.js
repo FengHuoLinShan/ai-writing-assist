@@ -2,6 +2,14 @@
  * 世界对象视图
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+  recoverActiveWorkflows,
+} from "../shared/workflowProgress.js"
+import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const worldView = {
   /** @type {Array} */
@@ -49,6 +57,9 @@ const worldView = {
   _autoExtractTaskId: null,
   _autoExtractStatus: "就绪",
   _autoExtractTimer: null,
+  _autoExtractProgress: null,
+  _autoExtractPoller: null,
+  _autoExtractMeta: null,
 
   async onEnter() {
     this._entities = []
@@ -60,19 +71,9 @@ const worldView = {
       clearInterval(this._autoExtractTimer)
       this._autoExtractTimer = null
     }
+    this._stopAutoExtractPolling()
 
-    // 从 localStorage 恢复抽取任务
-    const saved = localStorage.getItem("novel_world_extract_task")
-    if (saved) {
-      try {
-        const { taskId, status } = JSON.parse(saved)
-        if (taskId && status !== "done" && status !== "failed") {
-          this._autoExtractTaskId = taskId
-          this._autoExtractStatus = status || "运行中"
-          this._pollAutoExtract(taskId)
-        }
-      } catch {}
-    }
+    this._recoverAutoExtractWorkflow()
 
     await this._loadEntities()
     await this._loadCandidates()
@@ -139,6 +140,7 @@ const worldView = {
       clearInterval(this._autoExtractTimer)
       this._autoExtractTimer = null
     }
+    this._stopAutoExtractPolling()
   },
 
   async render() {
@@ -193,20 +195,29 @@ const worldView = {
   },
 
   _renderAutoExtractPanel(taskType, label) {
-    const statusLine = this._autoExtractTaskId
-      ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ${this._autoExtractStatus}`
-      : `状态: ${this._autoExtractStatus}`
+    const isRunning = this._autoExtractTaskId
+      && !this._autoExtractProgress?.terminal
+      && !this._autoExtractProgress?.failed
+    const rangeText = this._autoExtractMeta
+      ? `章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}`
+      : "章节 1-10"
+    const progressHtml = this._autoExtractProgress
+      ? renderWorkflowCard(this._autoExtractProgress, {
+        title: label,
+        destinationLabel: `范围: ${rangeText}。完成后到候选清洗查看抽取结果。`,
+      })
+      : `<div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">状态: ${esc(this._autoExtractStatus)}</div>`
     return `
       <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
         <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
           起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
           结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
-          <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${this._autoExtractTaskId ? "disabled" : ""}>
-            ${this._autoExtractTaskId ? "识别中..." : "开始识别"}
+          <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${isRunning ? "disabled" : ""}>
+            ${isRunning ? "识别中..." : "开始识别"}
           </button>
         </div>
-        <div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">${statusLine}</div>
+        <div id="w-extract-progress" style="margin-top:8px;">${progressHtml}</div>
       </div>
     `
   },
@@ -225,14 +236,24 @@ const worldView = {
       })
       this._autoExtractTaskId = result.task_id
       this._autoExtractStatus = "运行中"
+      this._autoExtractMeta = { start_chapter: start, end_chapter: end }
+      this._autoExtractProgress = normalizeTaskProgress({
+        ...result,
+        task_type: taskType,
+        meta: this._autoExtractMeta,
+      }, taskType)
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: taskType,
+        projectId: state.currentProjectId,
+        view: "world",
+        meta: this._autoExtractMeta,
+      })
       this._updateExtractStatusDOM()
-      try { localStorage.setItem("novel_world_extract_task", JSON.stringify({ taskId: result.task_id, status: "running" })) } catch {}
       toast("识别任务已提交", "info")
       router.navigate("world", state.currentSubView)
 
-      // 启动轮询
-      if (this._autoExtractTimer) clearInterval(this._autoExtractTimer)
-      this._autoExtractTimer = setInterval(() => this._pollAutoExtract(result.task_id), 5000)
+      this._startAutoExtractPolling(result.task_id, taskType)
     } catch (err) {
       this._autoExtractStatus = `失败: ${err.message}`
       this._updateExtractStatusDOM()
@@ -240,38 +261,123 @@ const worldView = {
     }
   },
 
+  _normalizeLegacyAutoExtractStorage() {
+    try {
+      const saved = localStorage.getItem("novel_world_extract_task")
+      if (!saved) return
+      const parsed = JSON.parse(saved)
+      if (parsed?.taskId) {
+        this._autoExtractMeta = {
+          start_chapter: parsed.start_chapter,
+          end_chapter: parsed.end_chapter,
+        }
+        localStorage.setItem("novel_world_extract_task", parsed.taskId)
+      }
+    } catch {
+      // Plain task-id legacy values are handled by recoverActiveWorkflows.
+    }
+  },
+
+  _recoverAutoExtractWorkflow() {
+    this._normalizeLegacyAutoExtractStorage()
+    const workflows = recoverActiveWorkflows(state.currentProjectId)
+    const workflow = workflows.find((item) => item.workflowType === "world_entity_extraction" && item.view === "world")
+      || workflows.find((item) => item.workflowType === "world_entity_extraction")
+    if (!workflow?.taskId) return
+    this._autoExtractTaskId = workflow.taskId
+    this._autoExtractStatus = "运行中"
+    this._autoExtractMeta = workflow.meta || this._autoExtractMeta || null
+    this._autoExtractProgress = normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: "world_entity_extraction",
+      status: "running",
+      meta: workflow.meta || {},
+    }, "world_entity_extraction")
+    this._startAutoExtractPolling(workflow.taskId, "world_entity_extraction")
+  },
+
+  _stopAutoExtractPolling() {
+    if (this._autoExtractPoller?.stop) this._autoExtractPoller.stop()
+    this._autoExtractPoller = null
+  },
+
+  _startAutoExtractPolling(taskId, taskType = "world_entity_extraction") {
+    this._stopAutoExtractPolling()
+    this._autoExtractPoller = pollTaskProgress({
+      taskId,
+      workflowType: taskType,
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._autoExtractProgress = progress
+        this._autoExtractStatus = progress.statusLabel || progress.status || "运行中"
+        this._updateExtractStatusDOM()
+      },
+      onDone: async (progress) => {
+        await this._handleAutoExtractTerminal(progress)
+      },
+      onFailed: async (progress) => {
+        await this._handleAutoExtractTerminal(progress)
+      },
+    })
+  },
+
   async _pollAutoExtract(taskId) {
     try {
-      const data = await api.tasks.getStatus(taskId)
-      this._autoExtractStatus = data.status || "未知"
+      const data = await api.tasks.get(taskId)
+      const progress = normalizeTaskProgress(data, data.task_type || "world_entity_extraction")
+      this._autoExtractProgress = progress
+      this._autoExtractStatus = progress.statusLabel || data.status || "未知"
       this._updateExtractStatusDOM()
 
-      if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
-        if (this._autoExtractTimer) {
-          clearInterval(this._autoExtractTimer)
-          this._autoExtractTimer = null
-        }
-        try { localStorage.removeItem("novel_world_extract_task") } catch {}
-        if (data.status === "done") {
-          toast("识别任务已完成，请查看候选清洗", "success")
-          // 刷新列表
-          await this._reloadWorldLists()
-          try {
-            if (state.currentProjectId) {
-              this._batches = await api.world.listEntityBatches({ novel_id: state.currentProjectId })
-            }
-          } catch {}
-          router.navigate("world", state.currentSubView)
-        } else if (data.status === "failed") {
-          toast(`识别任务失败: ${data.error_message || "未知错误"}`, "error")
-        }
+      if (progress.terminal) {
+        await this._handleAutoExtractTerminal(progress)
       }
     } catch {
       // 轮询失败不中断
     }
   },
 
+  async _handleAutoExtractTerminal(progress) {
+    if (this._autoExtractTimer) {
+      clearInterval(this._autoExtractTimer)
+      this._autoExtractTimer = null
+    }
+    this._stopAutoExtractPolling()
+    clearActiveWorkflow(progress.taskId || this._autoExtractTaskId)
+    try { localStorage.removeItem("novel_world_extract_task") } catch {}
+
+    if (progress.done) {
+      toast("识别任务已完成，请查看候选清洗", "success")
+      this._autoExtractTaskId = null
+      await this._reloadWorldLists()
+      try {
+        if (state.currentProjectId) {
+          this._batches = await api.world.listEntityBatches({ novel_id: state.currentProjectId })
+        }
+      } catch {}
+      router.navigate("world", state.currentSubView)
+      return
+    }
+
+    if (progress.failed || progress.cancelled) {
+      this._autoExtractTaskId = null
+      const message = progress.cancelled ? "识别任务已取消" : `识别任务失败: ${progress.errorMessage || "未知错误"}`
+      toast(message, progress.cancelled ? "warning" : "error")
+    }
+  },
+
   _updateExtractStatusDOM() {
+    const progressEl = document.getElementById("w-extract-progress")
+    if (progressEl && this._autoExtractProgress) {
+      const rangeText = this._autoExtractMeta
+        ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}。完成后到候选清洗查看抽取结果。`
+        : "完成后到候选清洗查看抽取结果。"
+      progressEl.innerHTML = renderWorkflowCard(this._autoExtractProgress, {
+        title: "从章节正文中识别世界对象",
+        destinationLabel: rangeText,
+      })
+      return
+    }
     const el = document.getElementById("w-extract-status")
     if (el) {
       const prefix = this._autoExtractTaskId ? `任务 ${this._autoExtractTaskId.slice(0, 8)}... — ` : "状态: "

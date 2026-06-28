@@ -5,6 +5,8 @@ import { resetState, clearDocument } from "./helpers.js"
 beforeEach(() => {
   resetState()
   clearDocument()
+  localStorage.clear()
+  if (ragView._rebuildPoller?.stop) ragView._rebuildPoller.stop()
   ragView._apiAvailable = true
   ragView._loading = false
   ragView._totalChunks = 0
@@ -12,6 +14,9 @@ beforeEach(() => {
   ragView._statusDegraded = false
   ragView._statusWarnings = []
   ragView._statusItems = []
+  ragView._rebuildPoller = null
+  ragView._rebuildProgress = null
+  ragView._rebuildInfo = null
   vi.clearAllMocks()
 })
 
@@ -181,6 +186,67 @@ describe("ragView", () => {
       for (const toastMessage of expectedToasts) {
         expect(toast).toHaveBeenCalledWith(toastMessage[0], toastMessage[1])
       }
+    })
+
+    it("提交任务后用真实任务进度卡展示完成摘要", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-rebuild-progress"></div>'
+      api.rag.rebuild.mockResolvedValue({ task_id: "task-rag", status: "pending" })
+      api.tasks.get.mockResolvedValue({
+        task_id: "task-rag",
+        task_type: "rag_reindex_novel",
+        status: "done",
+        progress: 1,
+        result: {
+          total_chapters: 3,
+          chunks_created: 18,
+          embedding_failed_count: 1,
+          warnings: ["第 2 章 embedding 降级"],
+        },
+      })
+
+      await ragView._rebuildIndex()
+      await vi.waitFor(() => {
+        const html = document.getElementById("rag-rebuild-progress")?.innerHTML || ""
+        expect(html).toContain("3 章，18 个片段，1 个嵌入失败")
+        expect(html).toContain("第 2 章 embedding 降级")
+      })
+
+      expect(api.tasks.get).toHaveBeenCalledWith("task-rag")
+    })
+
+    it("无任务 ID 且无可处理内容时显示普通空状态", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-rebuild-progress"></div>'
+      api.rag.rebuild.mockResolvedValue({ status: "done", total: 0 })
+
+      await ragView._rebuildIndex()
+
+      expect(api.tasks.get).not.toHaveBeenCalled()
+      expect(document.getElementById("rag-rebuild-progress")?.innerHTML).toContain("暂无可索引草稿")
+    })
+
+    it("onEnter 恢复未完成的 RAG 重建任务", async () => {
+      state.currentProjectId = "p1"
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: "p1:rag_reindex_novel:task-rag-restore",
+        taskId: "task-rag-restore",
+        workflowType: "rag_reindex_novel",
+        projectId: "p1",
+        view: "rag",
+      }]))
+      api.rag.status.mockResolvedValue({ total: 0, items: [] })
+      api.tasks.get.mockResolvedValue({
+        task_id: "task-rag-restore",
+        task_type: "rag_reindex_novel",
+        status: "running",
+        progress: 0.25,
+      })
+
+      await ragView.onEnter()
+
+      expect(api.tasks.get).toHaveBeenCalledWith("task-rag-restore")
+      expect(ragView._rebuildProgress.percent).toBe(25)
     })
   })
 })
