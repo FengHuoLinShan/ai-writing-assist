@@ -4,6 +4,14 @@
  * 子标签：索引状态 | 搜索测试
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+  recoverActiveWorkflows,
+} from "../shared/workflowProgress.js"
+import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const ragView = {
   _totalChunks: null,
@@ -13,6 +21,9 @@ const ragView = {
   _statusItems: [],
   _loading: true,
   _apiAvailable: false,
+  _rebuildProgress: null,
+  _rebuildInfo: null,
+  _rebuildPoller: null,
 
   async onEnter() {
     this._loading = true
@@ -38,10 +49,13 @@ const ragView = {
       this._statusItems = []
       this._apiAvailable = false
     }
+    this._recoverRebuildWorkflow()
     this._loading = false
   },
 
-  onLeave() {},
+  onLeave() {
+    this._stopRebuildPolling()
+  },
 
   async render() {
     const subView = state.currentSubView || "status"
@@ -103,6 +117,7 @@ const ragView = {
             <p style="color:var(--text-dim);font-size:12px;">请先导入正文草稿，然后使用剧情结构提取或深度导入创建索引。</p>
           </div>
         ` : ""}
+        <div id="rag-rebuild-progress">${this._renderRebuildProgress()}</div>
         ${this._renderChunkList()}
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -116,6 +131,81 @@ const ragView = {
         <button class="btn" data-action="nav-search">测试搜索</button>
       </div>
     `
+  },
+
+  _stopRebuildPolling() {
+    if (this._rebuildPoller?.stop) this._rebuildPoller.stop()
+    this._rebuildPoller = null
+  },
+
+  _renderRebuildProgress() {
+    if (this._rebuildProgress) {
+      return renderWorkflowCard(this._rebuildProgress, {
+        title: "重建 RAG 索引",
+        destinationLabel: "完成后本页索引概览会更新，可继续测试搜索。",
+      })
+    }
+    if (this._rebuildInfo) {
+      return `
+        <div class="empty-state">
+          <p style="color:var(--text-dim);font-size:12px;">${esc(this._rebuildInfo)}</p>
+        </div>
+      `
+    }
+    return ""
+  },
+
+  _updateRebuildProgressDOM() {
+    const el = document.getElementById("rag-rebuild-progress")
+    if (el) el.innerHTML = this._renderRebuildProgress()
+  },
+
+  _applyRagRebuildResult(result = {}) {
+    if (result.total_chapters != null) this._totalChunks = result.chunks_created || this._totalChunks
+    if (result.embedding_failed_count != null) this._embeddingFailedCount = result.embedding_failed_count
+    if (Array.isArray(result.warnings)) {
+      this._statusWarnings = result.warnings
+      this._statusDegraded = result.warnings.length > 0 || Boolean(result.embedding_failed_count)
+    }
+  },
+
+  _startRebuildPolling(taskId) {
+    this._stopRebuildPolling()
+    this._rebuildPoller = pollTaskProgress({
+      taskId,
+      workflowType: "rag_reindex_novel",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._rebuildProgress = progress
+        this._rebuildInfo = null
+        this._updateRebuildProgressDOM()
+      },
+      onDone: (progress, task) => {
+        this._applyRagRebuildResult(task?.result || progress.raw?.result || {})
+        clearActiveWorkflow(taskId)
+        this._updateRebuildProgressDOM()
+      },
+      onFailed: () => {
+        clearActiveWorkflow(taskId)
+        this._updateRebuildProgressDOM()
+      },
+    })
+  },
+
+  _recoverRebuildWorkflow() {
+    if (!state.currentProjectId || this._rebuildPoller) return
+    const workflows = recoverActiveWorkflows(state.currentProjectId)
+    const workflow = workflows.find((item) => item.workflowType === "rag_reindex_novel" && item.view === "rag")
+      || workflows.find((item) => item.workflowType === "rag_reindex_novel")
+    if (!workflow?.taskId) return
+    this._rebuildInfo = null
+    this._rebuildProgress = normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: "rag_reindex_novel",
+      status: "running",
+      meta: workflow.meta || {},
+    }, "rag_reindex_novel")
+    this._startRebuildPolling(workflow.taskId)
   },
 
   _renderChunkList() {
@@ -260,15 +350,36 @@ const ragView = {
         payload.end_chapter = endChapter
       }
       const result = await api.rag.rebuild(payload)
-      if (result.task_id || result.total > 0 || (result.task_ids || []).length > 0) {
+      if (result.task_id) {
+        this._rebuildInfo = null
+        this._rebuildProgress = normalizeTaskProgress({
+          ...result,
+          task_type: "rag_reindex_novel",
+        }, "rag_reindex_novel")
+        persistActiveWorkflow({
+          taskId: result.task_id,
+          workflowType: "rag_reindex_novel",
+          projectId: state.currentProjectId,
+          view: "rag",
+          meta: { start_chapter: payload.start_chapter, end_chapter: payload.end_chapter },
+        })
+        this._updateRebuildProgressDOM()
+        this._startRebuildPolling(result.task_id)
+        toast("索引重建任务已提交", "success")
+      } else if (result.total > 0 || (result.task_ids || []).length > 0) {
+        this._rebuildInfo = "索引重建请求已处理。"
+        this._rebuildProgress = null
+        this._updateRebuildProgressDOM()
         toast("索引重建任务已提交", "success")
       } else {
+        this._rebuildProgress = null
+        this._rebuildInfo = "暂无可索引草稿"
+        this._updateRebuildProgressDOM()
         toast("暂无可索引草稿", "info")
       }
       for (const warning of (result.warnings || [])) {
         toast(warning, "warning")
       }
-      await router.refresh()
     } catch (err) {
       toast(err.message || "重建失败", "error")
     }

@@ -15,9 +15,13 @@ beforeEach(() => {
   worldView._total = 0
   worldView._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
   worldView._autoExtractOpen = false
+  if (worldView._autoExtractPoller?.stop) worldView._autoExtractPoller.stop()
   worldView._autoExtractTaskId = null
   worldView._autoExtractStatus = "就绪"
   worldView._autoExtractTimer = null
+  worldView._autoExtractProgress = null
+  worldView._autoExtractPoller = null
+  worldView._autoExtractMeta = null
   localStorage.removeItem("novel_world_extract_task")
   vi.clearAllMocks()
 })
@@ -439,7 +443,7 @@ describe("AI 自动识别", () => {
     it("任务完成时清理定时器并刷新列表", async () => {
       worldView._autoExtractTimer = setInterval(() => {}, 1000)
       state.currentProjectId = "p1"
-      api.tasks.getStatus.mockResolvedValue({ status: "done" })
+      api.tasks.get.mockResolvedValue({ task_id: "t1", task_type: "world_entity_extraction", status: "done" })
       api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "新实体" }] })
 
       await worldView._pollAutoExtract("t1")
@@ -447,6 +451,42 @@ describe("AI 自动识别", () => {
       expect(worldView._autoExtractTimer).toBeNull()
       expect(localStorage.getItem("novel_world_extract_task")).toBeNull()
       expect(api.world.listEntities).toHaveBeenCalled()
+    })
+
+    it("任务失败时保留错误卡片并允许重新提交", async () => {
+      worldView._autoExtractTaskId = "t-fail"
+      api.tasks.get.mockResolvedValue({
+        task_id: "t-fail",
+        task_type: "world_entity_extraction",
+        status: "failed",
+        error_message: "章节范围为空",
+      })
+
+      await worldView._pollAutoExtract("t-fail")
+      const html = worldView._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象")
+
+      expect(html).toContain("章节范围为空")
+      expect(html).toContain("开始识别")
+      expect(html).not.toContain("disabled")
+    })
+
+    it("onEnter 兼容恢复旧 JSON localStorage 任务并用 api.tasks.get 轮询", async () => {
+      state.currentProjectId = "p1"
+      localStorage.setItem("novel_world_extract_task", JSON.stringify({ taskId: "legacy-t", status: "running" }))
+      api.tasks.get.mockResolvedValue({
+        task_id: "legacy-t",
+        task_type: "world_entity_extraction",
+        status: "running",
+        progress: null,
+      })
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+      api.world.listEntityBatches.mockResolvedValue([])
+
+      await worldView.onEnter()
+
+      expect(api.tasks.get).toHaveBeenCalledWith("legacy-t")
+      expect(worldView._autoExtractTaskId).toBe("legacy-t")
+      expect(localStorage.getItem("novel_world_extract_task")).toBeNull()
     })
   })
 })
