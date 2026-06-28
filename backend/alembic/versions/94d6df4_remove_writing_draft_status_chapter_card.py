@@ -18,28 +18,25 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    return column_name in {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)
+    }
+
+
 def upgrade() -> None:
-    op.drop_column("writing_drafts", "status")
-    op.drop_column("writing_drafts", "chapter_card_id")
+    if _column_exists("writing_drafts", "chapter_card_id"):
+        op.drop_column("writing_drafts", "chapter_card_id")
 
 
 def downgrade() -> None:
-    op.add_column(
-        "writing_drafts",
-        sa.Column(
-            "status",
-            sa.String(32),
-            nullable=False,
-            server_default="draft",
-            comment="状态：draft / candidate / canonical / deprecated",
-        ),
-    )
-    op.add_column(
-        "writing_drafts",
-        sa.Column(
-            "chapter_card_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
-            nullable=True,
-            comment="关联的章节卡 ID",
-        ),
-    )
+    if not _column_exists("writing_drafts", "chapter_card_id"):
+        op.add_column(
+            "writing_drafts",
+            sa.Column(
+                "chapter_card_id",
+                sa.dialects.postgresql.UUID(as_uuid=True),
+                nullable=True,
+                comment="关联的章节卡 ID",
+            ),
+        )

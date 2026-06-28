@@ -48,7 +48,7 @@ class Settings:
     database_url: str = field(
         default_factory=lambda: _env(
             "DATABASE_URL",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/novel_engine",
+            "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine",
         )
     )
     pool_size: int = int(_env("POOL_SIZE", "10"))

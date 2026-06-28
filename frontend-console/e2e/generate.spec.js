@@ -35,10 +35,22 @@ test.describe("生成中心模块", () => {
       })
     })
 
-    // Mock 生成任务提交 API
-    await page.route("**/api/tasks", async (route) => {
+    // Mock AI 参考资料确认 API
+    await page.route("**/api/context/confirm", async (route) => {
+      await route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          id: "confirm-generate-e2e",
+          selected_asset_ids: {},
+          warnings: [],
+        }),
+      })
+    })
+
+    // Mock 领域生成任务提交 API
+    await page.route("**/api/outline/generate", async (route) => {
       const postBody = route.request().postDataJSON()
-      if (postBody && postBody.task_type) {
+      if (postBody?.context_confirmation_id) {
         await route.fulfill({
           status: 200,
           body: JSON.stringify({
@@ -46,9 +58,9 @@ test.describe("生成中心模块", () => {
             status: "pending",
           }),
         })
-      } else {
-        await route.continue()
+        return
       }
+      await route.continue()
     })
   })
 
@@ -78,6 +90,8 @@ test.describe("生成中心模块", () => {
 
     await page.locator("#generate-intent").fill("生成测试剧情结构")
     await page.locator('[data-action="start-generate"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("AI 参考资料")
+    await page.getByRole("button", { name: "确认使用" }).click()
 
     // 验证进度步骤显示
     await expect(page.locator("#generate-result")).toContainText("任务已提交", { timeout: 15000 })

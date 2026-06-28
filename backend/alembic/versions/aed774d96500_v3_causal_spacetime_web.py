@@ -18,92 +18,110 @@ from alembic import op
 revision: str = "aed774d96500"
 down_revision: str | None = "aed774d964ff"
 branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = "d967c0547254"
+
+
+def _table_exists(table_name: str) -> bool:
+    return table_name in set(sa.inspect(op.get_bind()).get_table_names())
+
+
+def _column_exists(table_name: str, column_name: str) -> bool:
+    if not _table_exists(table_name):
+        return False
+    return column_name in {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)
+    }
+
+
+def _drop_table_if_exists(table_name: str) -> None:
+    if _table_exists(table_name):
+        op.drop_table(table_name)
 
 
 def upgrade() -> None:
-    # ---------------------------------------------------------------
-    # 0. CharacterKnowledge FK 迁移：character_id → characters.world_entity_id
-    #    先更新 FK 值，再删除旧 FK
-    # ---------------------------------------------------------------
-    op.execute("""
-        UPDATE character_knowledge ck
-        SET character_id = c.world_entity_id
-        FROM characters c
-        WHERE ck.character_id = c.id
-          AND c.world_entity_id IS NOT NULL
-    """)
-    op.drop_constraint(
-        "character_knowledge_character_id_fkey",
-        "character_knowledge",
-        type_="foreignkey",
-    )
-
-    # ---------------------------------------------------------------
-    # 1. world_entities → core_entities (PG 自动更新相关 FK)
-    # ---------------------------------------------------------------
-    op.rename_table("world_entities", "core_entities")
-
-    # ---------------------------------------------------------------
-    # 2. characters：drop id → rename world_entity_id → PK + FK
-    # ---------------------------------------------------------------
-    # 2a. 为 world_entity_id=NULL 的行创建 core_entities 占位记录
-    op.execute("""
-        INSERT INTO core_entities (
-            id, novel_id, entity_type, name, status, created_at, updated_at
+    if _table_exists("world_entities") and _column_exists("characters", "id"):
+        # ---------------------------------------------------------------
+        # 0. CharacterKnowledge FK 迁移：character_id → characters.world_entity_id
+        #    先更新 FK 值，再删除旧 FK
+        # ---------------------------------------------------------------
+        op.execute("""
+            UPDATE character_knowledge ck
+            SET character_id = c.world_entity_id
+            FROM characters c
+            WHERE ck.character_id = c.id
+              AND c.world_entity_id IS NOT NULL
+        """)
+        op.drop_constraint(
+            "character_knowledge_character_id_fkey",
+            "character_knowledge",
+            type_="foreignkey",
         )
-        SELECT
-            gen_random_uuid(), c.novel_id, 'character_ref', c.name,
-            c.status, c.created_at, c.updated_at
-        FROM characters c
-        WHERE c.world_entity_id IS NULL
-    """)
-    op.execute("""
-        UPDATE characters c
-        SET world_entity_id = ce.id
-        FROM core_entities ce
-        WHERE c.world_entity_id IS NULL
-          AND ce.name = c.name
-          AND ce.novel_id = c.novel_id
-          AND ce.entity_type = 'character_ref'
-    """)
 
-    # 2b. 删除旧 PK 和 id 列 (CASCADE 自动丢弃依赖)
-    op.drop_column("characters", "id")
+        # ---------------------------------------------------------------
+        # 1. world_entities → core_entities (PG 自动更新相关 FK)
+        # ---------------------------------------------------------------
+        op.rename_table("world_entities", "core_entities")
 
-    # 2c. 重命名列
-    op.alter_column(
-        "characters",
-        "world_entity_id",
-        new_column_name="entity_id",
-        existing_type=sa.UUID(),
-        nullable=False,
-    )
+        # ---------------------------------------------------------------
+        # 2. characters：drop id → rename world_entity_id → PK + FK
+        # ---------------------------------------------------------------
+        # 2a. 为 world_entity_id=NULL 的行创建 core_entities 占位记录
+        op.execute("""
+            INSERT INTO core_entities (
+                id, novel_id, entity_type, name, status, created_at, updated_at
+            )
+            SELECT
+                gen_random_uuid(), c.novel_id, 'character_ref', c.name,
+                c.status, c.created_at, c.updated_at
+            FROM characters c
+            WHERE c.world_entity_id IS NULL
+        """)
+        op.execute("""
+            UPDATE characters c
+            SET world_entity_id = ce.id
+            FROM core_entities ce
+            WHERE c.world_entity_id IS NULL
+              AND ce.name = c.name
+              AND ce.novel_id = c.novel_id
+              AND ce.entity_type = 'character_ref'
+        """)
 
-    # 2d. 添加新 PK
-    op.create_primary_key("pk_characters", "characters", ["entity_id"])
+        # 2b. 删除旧 PK 和 id 列 (CASCADE 自动丢弃依赖)
+        op.drop_column("characters", "id")
 
-    # 2e. 添加新 FK → core_entities
-    op.create_foreign_key(
-        "fk_characters_entity",
-        "characters",
-        "core_entities",
-        ["entity_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
+        # 2c. 重命名列
+        op.alter_column(
+            "characters",
+            "world_entity_id",
+            new_column_name="entity_id",
+            existing_type=sa.UUID(),
+            nullable=False,
+        )
 
-    # ---------------------------------------------------------------
-    # 3. Re-add character_knowledge FK → characters(entity_id)
-    # ---------------------------------------------------------------
-    op.create_foreign_key(
-        "fk_character_knowledge_character",
-        "character_knowledge",
-        "characters",
-        ["character_id"],
-        ["entity_id"],
-        ondelete="CASCADE",
-    )
+        # 2d. 添加新 PK
+        op.create_primary_key("pk_characters", "characters", ["entity_id"])
+
+        # 2e. 添加新 FK → core_entities
+        op.create_foreign_key(
+            "fk_characters_entity",
+            "characters",
+            "core_entities",
+            ["entity_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
+
+        # ---------------------------------------------------------------
+        # 3. Re-add character_knowledge FK → characters(entity_id)
+        # ---------------------------------------------------------------
+        op.create_foreign_key(
+            "fk_character_knowledge_character",
+            "character_knowledge",
+            "characters",
+            ["character_id"],
+            ["entity_id"],
+            ondelete="CASCADE",
+        )
 
     # ---------------------------------------------------------------
     # 4. 新建 imported_chapters 表（被 events/entity_relations 引用，需先建）
@@ -290,10 +308,10 @@ def upgrade() -> None:
     # ---------------------------------------------------------------
     # 8. 删除废弃表
     # ---------------------------------------------------------------
-    op.drop_table("timeline_events")
-    op.drop_table("relationships")
-    op.drop_table("entity_candidates")
-    op.drop_table("entity_aliases")
+    _drop_table_if_exists("timeline_events")
+    _drop_table_if_exists("relationships")
+    _drop_table_if_exists("entity_candidates")
+    _drop_table_if_exists("entity_aliases")
 
 
 def downgrade() -> None:
