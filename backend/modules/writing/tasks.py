@@ -108,3 +108,42 @@ async def handle_publish_chapter(db, task):
     await db.flush()
 
     return results
+
+
+@task_handler("writing_generate")
+async def handle_writing_generate(db, task):
+    """处理 AI 正文候选草稿生成任务。"""
+    from modules.context.facade import attach_result_ref
+    from modules.writing.services import WritingGenerationService
+
+    meta = task.meta or {}
+    novel_id = meta.get("novel_id", "")
+    chapter_index = int(meta.get("chapter_index", 0))
+    context_confirmation_id = meta.get("context_confirmation_id", "")
+
+    if not novel_id:
+        raise ValueError("novel_id is required for writing_generate")
+    if chapter_index < 1:
+        raise ValueError("chapter_index must be >= 1 for writing_generate")
+    if not context_confirmation_id:
+        raise ValueError("context_confirmation_id is required for writing_generate")
+
+    service = WritingGenerationService()
+    draft = await service.generate_candidate(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        title=meta.get("title"),
+        instruction=meta.get("instruction"),
+        context_confirmation_id=context_confirmation_id,
+    )
+    await attach_result_ref(
+        db,
+        confirmation_id=context_confirmation_id,
+        result_type="writing_draft",
+        result_id=draft.id,
+        status="done",
+    )
+    task.update_progress(1.0)
+    await db.flush()
+    return {"draft_id": draft.id, "chapter_index": draft.chapter_index}

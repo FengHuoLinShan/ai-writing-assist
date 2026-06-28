@@ -49,6 +49,32 @@ class WritingDraftRepository:
         await db.flush()
         return draft
 
+    async def create_with_status(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate,
+        *,
+        status: str,
+    ) -> WritingDraft:
+        """创建指定状态的新草稿版本。"""
+        novel_id = uuid.UUID(hex=data.novel_id)
+        next_version = await self._next_version_number(
+            db,
+            novel_id,
+            data.chapter_index,
+        )
+        draft = WritingDraft(
+            novel_id=novel_id,
+            chapter_index=data.chapter_index,
+            title=data.title,
+            content=data.content,
+            version_number=next_version,
+            status=status,
+        )
+        db.add(draft)
+        await db.flush()
+        return draft
+
     async def get(
         self,
         db: AsyncSession,
