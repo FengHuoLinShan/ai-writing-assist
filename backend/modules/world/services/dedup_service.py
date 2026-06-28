@@ -520,6 +520,27 @@ class EntityDedupService:
         if target.status != "canonical":
             await self._entity_repo.update(db, tid, CoreEntityUpdate(status="canonical"))
 
+        for changed_id, reason in (
+            (str(cid), "candidate_merged"),
+            (str(tid), "entity_merged"),
+        ):
+            try:
+                from modules.context.facade import mark_asset_context_changed
+
+                await mark_asset_context_changed(
+                    db,
+                    novel_id=novel_id,
+                    asset_type="world_entity",
+                    asset_id=changed_id,
+                    reason=reason,
+                )
+            except Exception:
+                logger.warning(
+                    "实体 %s 合并后标记上下文确认失效失败",
+                    changed_id,
+                    exc_info=True,
+                )
+
         await db.flush()
 
         return MergeResult(
