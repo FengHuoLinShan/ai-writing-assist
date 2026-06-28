@@ -2,11 +2,14 @@
 
 ## 定位
 
-动态地图是 `world` 模块的子系统，为小说世界提供空间可视化能力。它不是独立模块，所有后端文件位于 `backend/modules/world/` 内，API 挂载在 `/api/world/maps` 下，前端视图由 `worldView` 的 `map` 子标签承载。
+动态地图是 `world` 模块的子系统，不是独立后端模块。
 
-**读者**：需要理解当前地图功能边界、进行回归/混乱测试、或基于现有接口扩展的 AI Agent / 开发者。
+- 后端文件位于 `backend/modules/world/`
+- API 前缀为 `/api/world/maps`
+- 当前前端主入口是一级路由 `map`（`mapWorkspaceView`）
+- `world` 里的 `map` 子标签只保留兼容跳转
 
-**设计来源**：`docs/PRD-动态地图功能.md`（P0 + P1 + P2 已实现，P3 未实现）。
+**设计来源**：`docs/PRD-动态地图功能.md`；当前代码已覆盖 P0、P1、P2。
 
 ---
 
@@ -14,7 +17,7 @@
 
 | 阶段 | 功能 | 状态 | 后端 | 前端 |
 |------|------|------|------|------|
-| P0 | 世界地图 / 城市 / 区域 / 地下城创建与层级 | ✅ | `MapConfigService` | `mapView.js` |
+| P0 | 世界地图 / 城市 / 区域 / 地下城创建与层级 | ✅ | `MapConfigService` | `mapWorkspaceView.js` + `mapView.js` |
 | P0 | 六边形地形网格初始化与批量编辑 | ✅ | `MapTileService` | 画笔 / 油漆桶 / 应用 |
 | P0 | 地点绑定（location 实体 → 一个或多个 hex） | ✅ | `MapLocationBindingService` | 绑定工具 |
 | P0 | 地图聚合状态（map + breadcrumbs + tiles + bindings） | ✅ | `MapConfigService.get_state` | 主视图 |
@@ -22,6 +25,7 @@
 | P1 | Scene 时间层与动态标记（character/event/item） | ✅ | `MapMarkerService` | Scene 导航 + 标记工具 |
 | P2 | 组织势力范围（territory tiles） | ✅ | `MapTerritoryService` | 势力范围工具 |
 | P2 | 聚焦模式（按组织过滤势力范围） | ✅ | `GET /{map_id}/focus` | 聚焦按钮 |
+| P2 | 写作页 Scene 地图摘要 | ✅ | `GET /scene-summary` | `writingView.js` |
 | P3 | AI 位置建议 | ❌ | 未建表 | 未实现 |
 | P4 | 地图缩略图 / 图片底图 / 伪 3D | ❌ | 未规划 | 未实现 |
 
@@ -123,12 +127,13 @@
 
 统一前缀：`/api/world/maps`
 
-### 地图管理
+### 地图管理与摘要
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/?novel_id={}&parent_map_id={}` | 地图列表；`parent_map_id` 为空表示顶层 |
 | POST | `/?novel_id={}` | 创建地图，同时按模板生成初始 tiles |
+| GET | `/scene-summary?novel_id={}&scene_id={}` | 写作页 Scene 地图摘要 |
 | GET | `/{map_id}?novel_id={}` | 地图详情 |
 | PATCH | `/{map_id}?novel_id={}` | 更新地图配置（name / description / default_center_x / default_center_y / default_zoom / sort_order） |
 | DELETE | `/{map_id}?novel_id={}` | 硬删地图（前端需二次确认） |
@@ -235,12 +240,24 @@
 - `GET /{map_id}/focus` 返回完整 `MapStateResponse`，但 `territories` 只保留指定 `faction_entity_id` 的格。
 - 前端据此将不相关 hex 透明度降为 0.3。
 
+### Scene 地图摘要
+
+- `GET /scene-summary` 返回当前 Scene 对应的主地点、人物、事件、势力和 warning
+- 该接口用于写作页右侧摘要，不返回完整地图状态
+- 接口必须放在 `/{map_id}` 路由前，避免被路径参数捕获
+
 ### 删除地图
 
 - 硬删除（demo 阶段不使用 status 软删除）。
 - 级联删除：`map_tiles`、`map_location_bindings`、`map_markers`、`map_territory_tiles`。
 - 子地图 `parent_map_id` 置 `NULL`，不会级联删除子地图。
 - 前端必须二次确认。
+
+## 前端实现现状
+
+- `mapWorkspaceView`：总览、最近地图、地图树、搜索、图层开关、打开具体地图
+- `mapView`：地图编辑器本体
+- `mapRouteContext.js`：处理从写作页或其他工作流带入的 `map_id` / `scene_id` / `focus_entity_id`
 
 ### 跨 novel 隔离
 

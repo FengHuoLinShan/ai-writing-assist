@@ -193,6 +193,22 @@ modules/<name>/
 
 ---
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues via `gh`; external PRs are not a triage request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five triage roles map to Chinese GitHub labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repo uses a single-context layout: root `CONTEXT.md` plus root `docs/adr/`. See `docs/agents/domain.md`.
+
+---
+
 ## Skills 参考
 
 - `/tdd` — 测试驱动开发（RED→GREEN→REFACTOR）

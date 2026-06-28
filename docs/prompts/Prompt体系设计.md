@@ -2,73 +2,78 @@
 
 ## 1. 设计原则
 
-系统不以多 Agent 为核心。Prompt 是系统调用大模型完成特定结构化任务的模板。
+系统使用一组结构化 Prompt 完成生成、抽取和切分任务，不构建自治多 Agent 运行时。
 
-## 2. Prompt 清单
+统一原则：
 
-| 文件 | 用途 | 实现状态 |
-|------|------|---------|
-| `structure_world_character.md` | 世界与人物结构生成（综合设定 Prompt） | ✅ 已创建 |
-| `structure_plot.md` | 剧情结构生成（剧情线/篇章纲/伏笔/揭示） | ✅ 已创建，被 `outline/services.py` 调用 |
-| `structure_chapter_scene.md` | 章节与场景结构生成 | ✅ 已创建 |
-| `structure_review_memory.md` | 结构复查与状态抽取 | ⚠️ 已废弃（review 模块已移除） |
-| `structure_extraction.md` | 从章节正文抽取世界对象（world 单章候选路径） | ✅ 已创建，被 `world/services/extraction_service.py` 调用 |
-| `scene_entity_extraction.md` | 从 Scene 正文抽取实体/关系/Delta（深度导入 Phase 2） | ✅ 已创建，被 `imports/scene_entity_extraction.py` 调用 |
-| `extract_chapter_scene.md` | 从正文提取章节卡字段 | ✅ 已创建 |
-| `shared_rules.md` | 所有 Prompt 共享规则 | ✅ 已创建 |
-| `scene_segmentation.md` | Scene 切分 | ✅ 已创建，被 `imports/scene_segmentation.py` 调用 |
+- Prompt 输出结构化 JSON，不直接写数据库状态
+- `status` 不应作为 Prompt 契约的一部分
+- 创建/关联/忽略主要通过 `suggested_action` 或调用方路由语义决定
+- reveal、知识边界、候选与正史隔离由调用方服务和上下文编译器共同保证
 
-Prompt 输出结构化 JSON。Prompt 不输出 `status` 字段；系统根据 `suggested_action` 和当前调用流水线决定创建、关联、忽略或保留为候选。
+## 2. 当前活跃 Prompt
 
-## 3. shared_rules.md
+| 文件 | 用途 | 主要调用方 |
+|------|------|-----------|
+| `shared_rules.md` | 所有结构化 Prompt 的共享规则 | 全部结构化 Prompt |
+| `structure_world_character.md` | 创意启动阶段的世界/人物结构生成 | 手动生成流 |
+| `structure_plot.md` | 剧情结构生成 | outline 结构生成 |
+| `structure_chapter_scene.md` | 章节与场景结构生成 | 手动生成流 |
+| `structure_extraction.md` | 从章节正文补抽世界对象 | world 抽取任务 |
+| `scene_segmentation.md` | 深度导入 Phase 1，Scene 切分 | imports |
+| `scene_entity_extraction.md` | 深度导入 Phase 2，Scene 实体/关系/Delta 抽取 | imports |
+| `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
+| `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 
-所有 Prompt 共享规则：
+## 3. 历史 Prompt
 
-```text
+| 文件 | 状态 | 说明 |
+|------|------|------|
+| `structure_review_memory.md` | 已废弃 | `review` 模块已移除，保留文件仅作历史参考 |
+
+## 4. 当前设计约束
+
+### 结构生成类
+
+- `structure_world_character.md`
+- `structure_plot.md`
+- `structure_chapter_scene.md`
+
+这类 Prompt 面向“结构化创作资产生成”，重点是：
+
+- 产出世界对象、人物、剧情线、篇章纲、章节结构等资产
+- 调用方根据当前流水线决定结果是候选、草稿还是直接落目标表
+- 文档不要再把旧版 `entity_candidates` / `geo_candidates` / `timeline_candidates` 当作数据库设计权威
+
+### 抽取类
+
+- `structure_extraction.md`
+- `scene_entity_extraction.md`
+- `extract_character.md`
+
+这类 Prompt 面向“从已有正文中识别长期资产”，重点是：
+
+- 不是 NER，而是长期创作资产识别
+- 别名走关联，不创建重复对象
+- 临时对象优先忽略或标记为临时
+- 深度导入路径会保留 `auto_ingested` 来源元数据
+
+### 切分类
+
+- `scene_segmentation.md`
+- `extract_chapter_scene.md`
+
+这类 Prompt 服务于 Scene 和章节结构整理，不负责正史对象落库策略。
+
+## 5. `shared_rules.md` 的权威地位
+
+共享规则要求：
+
 1. 不直接生成小说正文。
-2. 输出结构化数据，由系统根据 suggested_action 自动路由。
+2. 不输出最终数据库状态。
 3. 不提前揭示隐藏真相。
 4. 不让角色知道不该知道的信息。
 5. 不凭空增加重大设定。
-6. 输出必须符合 JSON schema。
-7. 不重要对象不要升级为正史对象。
-8. 别名不要创建新对象，应标记为 link_to_existing。
-9. 临时对象只标记 temporary_only。
-```
+6. 输出必须符合调用方 schema。
 
-## 4. structure_world_character.md
-
-- 输入：novel_goal / genre / tone / raw_idea / existing_entities / extraction_mode
-- 输出：world_entities / characters / relationships / character_knowledge / entity_candidates / geo_candidates / foreshadowing_candidates / timeline_candidates
-- 说明：`suggested_action=create_new` 的对象由调用方服务按当前流水线创建或保留为候选。
-
-## 5. structure_plot.md
-
-- 输入：world_context / character_context / memory_context / timeline_context / geo_context / user_intent / target_scope
-- 输出：plot_threads / outline_arcs / foreshadowing_plans / reveal_plans / offscreen_progress
-
-## 6. structure_chapter_scene.md
-
-- 输入：arc context + 上下文
-- 输出：chapter_cards（含 scene_cards）
-
-## 7. structure_review_memory.md（已废弃）
-
-- 状态：⚠️ `review` 模块已移除，本 Prompt 不再被调用
-- 历史输出：decision / problems / conflict_warnings / early_reveal_warnings / character_knowledge_warnings / duplicate_entity_warnings / geo_warnings / revision_instructions / memory_update_proposals
-
-## 8. structure_extraction.md（原设计以外新增）
-
-- 用途：从已导入的章节正文中抽取世界对象
-- 定位：不是 NER，而是"小说长期创作资产识别"
-- 输入：章节正文 + 已有对象列表
-- 输出：`entities` 数组（含 `suggested_action` 路由断言）+ `delta_events`
-- 处理逻辑：
-  - `create_new` → 经去重检测后创建为候选对象
-  - `link_to_existing` → 作为已有对象别名处理
-  - `ignore` / `temporary_only` → 跳过不入库
-- 核心规则：
-  - 只抽取对后续创作有价值的对象
-  - 别名标记为 `link_to_existing`
-  - 临时对象标记为 `temporary_only`
-  - 宁可少抽
+Prompt 设计文档的职责是解释“为什么这样分工”，不是逐字复刻每个 Prompt 当前文件里的全部 JSON 字段。

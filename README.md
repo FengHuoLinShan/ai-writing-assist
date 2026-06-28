@@ -2,7 +2,7 @@
 
 > FastAPI 后端 · 零框架前端 · PostgreSQL + pgvector · 异步任务队列
 
-AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记忆管理 → 检索增强 → 上下文编译 → 正文写作**的全链路支持。
+AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记忆与剧情组织 → 检索增强 → 上下文编译 → 正文写作 → 地图工作台**的全链路支持。
 
 ## 架构总览
 
@@ -26,11 +26,13 @@ AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记�
 | **world** | 核心实体、人物、事件、关系、动态地图、AI 实体抽取、状态组装 |
 | **memory** | `memory_events` 事件溯源与 `memory_snapshots` 全景快照 |
 | **outline** | 剧情线、篇章纲、Scene、伏笔计划、揭示计划 |
-| **rag** | 分块 → embedding → 混合检索（向量 + BM25 + 关键词）、三级仲裁 |
-| **context** | 从所有数据模块拉取信息，编译为结构化 LLM 上下文 |
-| **writing** | 草稿 CRUD、publish 自动触发 RAG 索引 + 记忆快照 |
-| **imports** | 外部文件解析、深度导入三阶段工作流、自动触发实体抽取与剧情生成 |
+| **rag** | 分块 → embedding → 混合检索（向量 + 关键词 + 项目词典 + 关系 + 重要性） |
+| **context** | 分层编译 LLM 上下文、管理 AI 参考资料确认记录与结果追踪 |
+| **writing** | 草稿 CRUD、Scene 树写作工作台、发布后触发索引与记忆更新 |
+| **imports** | 外部文件解析、深度导入三阶段工作流、Scene 切分与实体/结构抽取 |
 | **infrastructure/tasks** | PostgreSQL 队列的异步任务调度（enqueuer → worker），不是业务模块 |
+
+前端当前注册 8 个一级路由：`project` / `writing` / `world` / `map` / `rag` / `outline` / `generate` / `context`。地图已升级为侧边栏一级入口，`world` 内的旧地图子入口仅保留兼容跳转。
 
 ## 快速开始
 
@@ -57,5 +59,6 @@ python -m http.server 8080
 - [数据库设计](docs/01_数据库设计.md)
 - [模块文档索引](docs/README.md)
 - [动态地图子系统](docs/modules/15_map.md)
+- [Prompt 体系设计](docs/prompts/Prompt体系设计.md)
 - [CLAUDE.md](CLAUDE.md) — 开发约定与规则
 - [AGENTS.md](AGENTS.md) — Agent 协作约束

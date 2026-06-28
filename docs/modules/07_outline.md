@@ -2,95 +2,110 @@
 
 ## 定位
 
-outline 模块管理剧情计划的结构层：把事实组织成可执行的剧情计划。主干实体包括剧情线（PlotThread）、篇章纲（OutlineArc）、Scene 卡（Scene）、伏笔计划（ForeshadowingPlan）、揭示计划（RevealPlan）。
+outline 模块负责把事实层资产组织成“可执行的剧情计划”。
 
-无 facade 层，API 直接路由到 services。
+当前活跃对象：
 
-## 数据表
+- `plot_threads`：剧情线
+- `outline_arcs`：篇章纲
+- `chapter_cards`：章节卡
+- `scenes`：最小叙事单元
+- `foreshadowing_plans`：伏笔计划
+- `reveal_plans`：揭示计划
 
-| 表 | 职责 |
-|----|------|
-| `plot_threads` | 剧情线：主线/支线/隐藏线，含 visible_goal/hidden_truth 双视角字段 |
-| `outline_arcs` | 篇章纲：按 arc_index 排序，含 arc_goal/core_conflict/climax 等结构字段 |
-| `scenes` | Scene 卡：叙事结构的最小可编辑单元，scene_index 逻辑排序，含 scene_chunks 物理映射 |
-| `foreshadowing_plans` | 伏笔计划：planned_seed→reinforce→payoff 状态链 |
-| `reveal_plans` | 信息揭示计划：分层逐步披露，reveal_stages JSONB |
+## 架构现状
 
-## Services
+- HTTP 入口在 `api.py`
+- 业务逻辑在 `services.py`
+- AI 结构生成拆在 `generation/`
+- 当前**已有** `facade.py`，主要对外提供 Scene 相关稳定接口，供 rag、world/map 等模块跨 seam 调用
 
-- **PlotThreadService** — 剧情线 CRUD
-- **OutlineArcService** — 篇章纲 CRUD
-- **SceneService** — Scene 卡 CRUD + 批量重排（reorder）
-- **PlotStructureGenerator** — AI 剧情结构生成入口；薄协调层，具体逻辑位于 `modules.outline.generation.*`
+## 职责
 
-## AI 生成子模块 (`modules.outline.generation`)
+- 剧情线、篇章纲、Scene、伏笔、揭示计划的 CRUD
+- Scene 顺序重排
+- 按章节查询相关 Scene
+- 根据 AI 参考资料确认记录，发起结构生成任务
+- 为其他模块提供 Scene 查询能力
 
-`PlotStructureGenerator` 只负责串联三个阶段，避免成为“神类”：
+## 关键服务
 
-- **context_builder** — 组装 LLM 所需的 markdown 上下文与名称映射
-- **parser** — 调用 LLM、解析 JSON、重试与逐项降级
-- **persister** — 通过 outline service 层写入 thread/arc/scene/foreshadowing/reveal
-- **models** — 生成流程专用的 Pydantic 中间模型
+- `PlotThreadService`
+- `OutlineArcService`
+- `SceneService`
+- `ForeshadowingPlanService`
+- `RevealPlanService`
+- `PlotStructureGenerator`
 
-持久化层会对 LLM 输出做最小清洗（如 `arc_index` 归一化为 ≥1、`narrative_tag` 截断至 32 字符），以满足 schema/数据库约束。
+## `generation/` 子模块
+
+`PlotStructureGenerator` 不是神类，当前职责被拆为：
+
+- `context_builder`：组装结构生成所需上下文
+- `parser`：调用 LLM、解析 JSON、处理重试/降级
+- `persister`：把结果写入 thread / arc / scene / foreshadowing / reveal
+- `models`：生成流程专用 Pydantic 模型
 
 ## API
 
-```
-# PlotThreads
-POST   /api/outline/threads                     # 创建剧情线
-GET    /api/outline/threads                      # 剧情线列表（分页）
-GET    /api/outline/threads/{id}                 # 剧情线详情
-PATCH  /api/outline/threads/{id}                 # 更新剧情线
-DELETE /api/outline/threads/{id}                 # 删除剧情线
+```http
+POST   /api/outline/threads
+GET    /api/outline/threads
+GET    /api/outline/threads/{thread_id}
+PATCH  /api/outline/threads/{thread_id}
+DELETE /api/outline/threads/{thread_id}
 
-# OutlineArcs
-POST   /api/outline/arcs                         # 创建篇章纲
-GET    /api/outline/arcs                         # 篇章纲列表（分页）
-GET    /api/outline/arcs/{id}                    # 篇章纲详情
-PATCH  /api/outline/arcs/{id}                    # 更新篇章纲
-DELETE /api/outline/arcs/{id}                    # 删除篇章纲
+POST   /api/outline/arcs
+GET    /api/outline/arcs
+GET    /api/outline/arcs/{arc_id}
+PATCH  /api/outline/arcs/{arc_id}
+DELETE /api/outline/arcs/{arc_id}
 
-# Scenes
-POST   /api/outline/scenes                       # 创建 Scene 卡
-GET    /api/outline/scenes                       # Scene 列表（分页）
-GET    /api/outline/scenes/ordered               # 按 scene_index 排序全量获取
-GET    /api/outline/scenes/by-chapter            # 按 chapter_index 查询关联 Scene
-GET    /api/outline/scenes/{id}                  # Scene 详情
-PATCH  /api/outline/scenes/{id}                  # 更新 Scene
-DELETE /api/outline/scenes/{id}                  # 删除 Scene（软删除）
-POST   /api/outline/scenes/reorder              # 批量重排 Scene 顺序
+POST   /api/outline/scenes
+GET    /api/outline/scenes
+GET    /api/outline/scenes/ordered
+GET    /api/outline/scenes/by-chapter
+GET    /api/outline/scenes/{scene_id}
+PATCH  /api/outline/scenes/{scene_id}
+DELETE /api/outline/scenes/{scene_id}
+POST   /api/outline/scenes/reorder
+POST   /api/outline/scenes/split-chapters
 
-# AI Generation
-POST   /api/outline/generate                     # AI 生成剧情结构（plot_threads + outline_arcs）
-```
+POST   /api/outline/foreshadowing
+GET    /api/outline/foreshadowing
+GET    /api/outline/foreshadowing/{plan_id}
+PATCH  /api/outline/foreshadowing/{plan_id}
+DELETE /api/outline/foreshadowing/{plan_id}
 
-## Scene 数据模型
+POST   /api/outline/reveals
+GET    /api/outline/reveals
+GET    /api/outline/reveals/{plan_id}
+PATCH  /api/outline/reveals/{plan_id}
+DELETE /api/outline/reveals/{plan_id}
 
-```python
-class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
-    scene_index: int          # 逻辑顺序（从 0 开始）
-    title: str | None
-    goal: str | None          # 此 Scene 要完成什么
-    core_conflict: str | None
-    emotional_beat: str | None
-    must_happen: str | None
-    must_not_happen: str | None
-    narrative_tag: str        # inciting_incident / rising_action / climax / valley / transition / hook / payoff / draft
-    source: str               # manual / deep_import / ai_generated
-    scene_chunks: list        # 物理映射：Scene → Chapter 位置区间
-    chapter_ids: list         # 关联 Chapter ID 列表
-    pov_character_id: str | None  # POV 人物 ID
+POST   /api/outline/generate
 ```
 
-## Scene 与 Chapter 的 M:N 关系
+## 对外 facade
 
-通过 `scene_chunks` JSONB 实现多对多映射：
-```json
-[
-  {"chapter_id": "uuid", "start_pos": 0, "end_pos": 1500},
-  {"chapter_id": "uuid", "start_pos": 0, "end_pos": 3000}
-]
+跨模块调用优先走 `modules.outline.facade`，当前常用入口包括：
+
+- `get_scene()`
+- `get_scene_contract()`
+- `get_scenes_by_novel()`
+- `get_scenes_by_chapter()`
+
+## Scene 设计要点
+
+- `scenes` 是当前最小叙事单元的权威表
+- `scene_index` 是逻辑顺序
+- `scene_chunks` 保存 Scene 到正文物理区间的映射
+- `chapter_cards.scene_cards` 只保留历史兼容/冗余上下文，不是当前权威来源
+- 写作页、地图摘要、RAG `scene_id` 关联都依赖 `scenes` 表
+
+## 测试
+
+```bash
+cd backend
+pytest modules/outline/tests/ -v
 ```
-
-同一 Chapter 可跨 Scene（如第 5 章前 1500 字属 Scene 1，后 1500 字属 Scene 2），右侧 Scene 卡面板根据光标位置动态切换。

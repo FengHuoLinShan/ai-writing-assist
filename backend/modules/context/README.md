@@ -2,128 +2,68 @@
 
 ## 定位
 
-context 模块是系统最核心的智能模块之一。RAG 负责找资料，Context Compiler 决定哪些资料真正交给模型。
+context 模块决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些确认记录需要在资产变化后标脏。
+
+RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 
 ## 职责
 
-- 按需聚合 project / world / memory / outline / rag 数据
-- 按 scope 选择性加载，不预加载所有数据
-- Context Budget 控制，防止上下文过载
-- Reveal 过滤（author_safe 隐藏 hidden_truth）
-- Markdown 渲染，产出适合 LLM Prompt 的结构化上下文
-- 手动 AI 操作前创建“AI 参考资料”确认记录，保存选择参数、资产引用和结果追踪摘要
+- 按需聚合 `project / world / memory / outline / rag`
+- 基于 `scope`、`scene_id`、`budget_tokens`、`reveal_mode` 进行裁剪
+- 输出兼容 bundle 或分层 `CompiledContext`
+- 手动 AI 操作前创建 `context_confirmations`
+- 在任务完成后把结果引用回写到确认记录
+- 在资产变化后把历史确认记录标记为 stale
 
 ## 不负责
 
-- 不保存完整 rendered context 快照；确认记录只保存摘要、选择参数和资产引用
-- 不负责 RAG 检索（委托 rag 模块）
-- 不负责结构复查（当前无 review 模块，由 outline 和 world 各自管理一致性）
-- 不负责 LLM 调用（委托 infrastructure/llm）
-- 不负责剧情推理
+- 不直接执行 LLM 调用
+- 不直接做 RAG 检索算法
+- 不做剧情推理
+- 不保存完整 Markdown 快照，只保存可重编译摘要
 
-## 核心函数
+## 核心 facade
 
 ```python
-# facade.py
-async def compile_structure_context(db, novel_id, task, scope, ...) -> StructureContextBundle
-def render_context_markdown(context: StructureContextBundle) -> str
-async def confirm_context(db, novel_id, action, task, scope, ...) -> ContextConfirmationContract
-async def require_confirmation(db, novel_id, action, confirmation_id) -> ContextConfirmationContract
+async def compile_structure_context(...) -> StructureContextBundle
+async def compile_with_tiers(...) -> CompiledContext
+async def render_compiled_context_markdown(...) -> str
+async def confirm_context(...) -> ContextConfirmationContract
+async def require_confirmation(...) -> ContextConfirmationContract
+async def attach_result_ref(...) -> ContextConfirmationContract
+async def mark_asset_context_changed(...) -> int
 ```
 
 ## 数据表
 
 | 表 | 说明 |
 |----|------|
-| `context_confirmations` | 手动 AI 操作前的参考资料确认摘要，记录选择参数、资产 ID、warnings、结果引用和 stale 状态 |
+| `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、`selected_asset_ids`、`result_refs`、`stale_reasons` |
 
-## 支持 Scope
+## 主要选项
 
-| Scope | 加载的数据 |
-|-------|-----------|
-| project | 项目元信息 |
-| world | 项目 + 世界对象 |
-| world_character | 项目 + 世界对象 + 人物 |
-| arc | 篇章相关全部（含 RAG） |
-| chapter | 章节相关全部（含 RAG） |
-| full | 全部数据（有限预算） |
-
-## Context Budget
-
-| 分类 | 预算 |
+| 选项 | 含义 |
 |------|------|
-| core_entities | 8 |
-| normal_entities | 8 |
-| characters | 6 |
-| memory | 10 |
-| foreshadowing | 5 |
-| timeline | 8 |
-| geo_relations | 10 |
-| relationship_edges | 12 |
-| rag_chunks | 8 |
+| `scope` | `project / world / world_character / arc / chapter / full` |
+| `scene_id` | Scene-centric 编译入口 |
+| `context_mode` | `canonical` 或 `working` |
+| `include_pending_objects` | 是否纳入待确认对象 |
+| `reveal_mode` | `author_safe / author_full / reader / character` |
+| `budget_tokens` | 总预算，前端默认 4000 |
 
-## Markdown 输出结构
+## 兼容字段说明
 
-```markdown
-# 结构化创作上下文
-## 一、当前任务
-## 二、必须遵守的硬约束
-## 三、当前剧情阶段
-## 四、相关人物
-## 五、相关世界对象
-## 六、相关地理与历史
-## 七、相关剧情线
-## 八、相关 Memory
-## 九、相关伏笔与信息揭示
-## 十、禁止事项
-## 十一、可用创作素材
-## 十二、风险提示
-```
+`StructureContextBundle` 里仍保留一些旧字段名：
 
-## Reveal 处理
+- `memory_records`
+- `timeline_events`
+- `geo_locations`
 
-- `author_safe`（默认）：隐藏 hidden_truth，标注"作者视角信息"
-- `author_full`：显示所有信息，标注作者视角警告
-- `reader`：只显示读者已知信息
+这些名字主要是兼容现有渲染器和测试，不表示系统仍存在同名业务模块或数据表。
 
-## 对外契约
-
-### StructureContextBundle
-
-```python
-@dataclass
-class StructureContextBundle:
-    novel_id: str
-    task: str
-    scope: str
-    chapter_index: int | None
-    arc_id: str | None
-    project: dict | None
-    world_entities: list
-    characters: list
-    geo_locations: list
-    memory_records: list
-    timeline_events: list
-    plot_threads: list
-    outline_arc: dict | None
-    chapter_card: dict | None
-    rag_chunks: list
-    reveal_mode: str
-    budget_used: dict
-    warnings: list
-```
-
-## 测试方式
+## 测试
 
 ```bash
 cd backend
 pytest modules/context/tests/ -v
 ```
-
-## 依赖的模块
-
-- modules/project/facade — get_project_context
-- modules/world/facade — get_world_context, expand_related_entities, get_characters_context, get_character_knowledge_context, get_events_context
-- modules/memory/facade — get_recent_story_memory
-- modules/outline/api — 剧情线/篇章纲/Scene 数据（outline 无 facade，API 层直接提供）
-- modules/rag/facade — retrieve

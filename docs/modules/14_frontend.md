@@ -2,75 +2,75 @@
 
 ## 定位
 
-前端是纯 Vanilla JS 单页面应用（SPA），无前端框架。通过 REST API 与后端通信，提供命令行风格但易用的操作界面。动态地图视口使用 Leaflet（ADR-0003）。
+前端是纯 Vanilla JS SPA，通过 REST API 驱动整个创作工作台。动态地图视口使用 Leaflet，但应用主体仍保持无框架。
 
 ## 架构
 
-SPA 入口 `index.html`，文件职责：`state.js`（Proxy 响应式）、`router.js`（Hash 路由与 KeepAlive）、`api.js`（projects/world/rag/context/writing/imports/tasks API 封装）、`app.js`（生命周期）、`views/`（8 个一级路由视图 + 地图拆分组件）。
+- 入口：`index.html`
+- 全局状态：`state.js`
+- 路由：`router.js`
+- API 封装：`api.js`
+- 视图：`views/*.js`
+- 通用交互：`shared/`、`ui/`
 
-## 核心设计
+当前注册的一级路由为：
 
-- **中文优先**：所有 UI 文本中文，无工程术语
-- **命令行 + 按钮并行**：支持鼠标操作和键盘快捷键
-- **纯文字为主**：表格 / 树 / 卡片 / 折叠面板 / ASCII 地图
-- **低依赖**：Vanilla JS，无框架；地图视口单独使用 Leaflet
-- **响应式状态**：使用 JS Proxy 实现 Observable 模式
-- **二级子视图**：每个 view 可含 subView（如 worldView 有 objects/relations/aliases/map）
+- `project`
+- `writing`
+- `world`
+- `map`
+- `rag`
+- `outline`
+- `generate`
+- `context`
 
-## 视图列表
+## 当前页面职责
 
-| 视图 | 功能 |
-|------|------|
-| projectView | 新建/选择/编辑/删除项目；回收站管理（列出/恢复/永久删除）；文件上传进度条 |
-| writingView | 写作工作台：Scene 树导航、编辑器、Scene 卡面板、版本历史、深度导入入口、章节卡提取、Ctrl+S 保存 |
-| worldView | 实体 / 关系 / 别名 / 地图子标签；人物、地点、事件均通过 world 数据模型承载 |
-| mapWorkspaceView | 地图一级工作台，复用 mapView 并减少从写作流切换上下文 |
-| mapView | 动态地图主视图：层级地图、地形编辑、地点绑定、Scene 标记、势力范围、聚焦模式 |
-| outlineView | 三个子标签：剧情线/篇章纲/Scene。Scene 卡片 CRUD + 拖拽重排 + AI 结构生成 + 章节卡提取 |
-| ragView | 检索 + 索引重建 + 状态 |
-| contextView | 上下文编译 + 渲染 |
-| generateView | 四大 Prompt 生成入口 |
+| 视图 | 当前职责 |
+|------|----------|
+| `projectView` | 项目 CRUD、回收站、导入入口 |
+| `writingView` | Scene 树 + 编辑器 + Scene 面板；版本历史；深度导入；Scene 地图摘要跳转 |
+| `worldView` | 对象库、候选清洗、关系、别名；`map` 子标签现在只做兼容跳转 |
+| `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦 |
+| `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围 |
+| `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
+| `ragView` | 检索、章节索引、索引重建 |
+| `contextView` | 编译上下文、渲染 Markdown、查看 tier 预算/驱逐结果 |
+| `generateView` | 手动 AI 生成入口，走 AI 参考资料确认流程 |
 
-已移除的独立页面：geo / character / timeline / review。相关数据入口已合并到 world / outline / context 等当前模块。
+## 路由与状态特性
 
-## 写作工作台布局
+- `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
+- `writing` 与 `outline` 被标记为 KeepAlive 视图
+- `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
+- `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 
-```
-┌─────────────────┬─────────────────┬──────────────────┐
-│  Scene 树       │  编辑器         │  Scene 卡面板    │
-│                  │                  │                  │
-│ ├─ Scene 1      │  textarea       │  goal: xxx      │
-│ │  ├─ 第1章     │                  │  conflict: xxx  │
-│ │  ├─ 第2章     │                  │  emotional: xxx │
-│ │  └─ 第3章     │                  │  must_happen:   │
-│ ├─ Scene 2      │                  │  must_not:      │
-│ └─ ...          │                  │  tag: rising    │
-└─────────────────┴─────────────────┴──────────────────┘
-```
+## 写作流补充
 
-## 状态保存机制
+`writingView` 当前不只是草稿编辑器，还承担：
 
-- 子标签记忆：`router.js` 维护 `_lastSubViewMap`，切换视图时恢复最后访问的子标签
-- 编辑器内容保持：`state.js` 的 `viewStates` 命名空间独立存储各视图状态，`writingView` 切换时保存/恢复编辑器内容
-- Scene 切换：编辑器内容自动保存到 `viewStates`，加载目标 Scene 的第一个 Chapter
+- Scene 树导航
+- 自动保存与未保存提醒
+- 版本历史/恢复
+- 深度导入进度展示
+- `GET /api/world/maps/scene-summary` 的地图摘要展示
+- 跳转到地图工作台并携带 `scene_id` / `focus_entity_id`
+
+## 地图工作台补充
+
+- `mapWorkspaceView` 保存“最近地图”到本地存储
+- 可按地图名或地点名搜索
+- 支持图层开关
+- 支持从写作流打开最近相关地图
 
 ## API 封装风格
 
-- 统一 `request()` 函数：超时 / 错误映射 / FormData 自动处理
-- 按模块分组：`api.projects.list()` / `api.world.listEntities()` / `api.imports.upload()`
-- 查询字符串：`qs()` 辅助函数
-- AI 抽取：`api.world.extractEntities()` / outline 生成
+- 统一 `request()` 处理超时、错误映射、FormData
+- 按模块分组：`api.projects.*` / `api.world.*` / `api.outline.*` / `api.context.*`
+- 地图接口统一挂在 `api.world.*` 下，后端前缀仍是 `/api/world/maps`
 
-## 深度导入进度轮询
+## 安全与渲染约束
 
-writingView 的深度导入按钮每 3 秒轮询 `GET /api/tasks/{task_id}`，显示三阶段进度条：
-- Phase 1: "Scene 切分: X/Y 批已完成"
-- Phase 2: "实体提取: X/Y 个 Scene"
-- Phase 3: "结构分析..."
-- 降级标记：黄色警告显示降级批次数
-
-## XSS 防护
-
-- 使用 textContent 渲染用户/AI 内容
-- 对所有输出调用 `esc()` 转义
-- 不使用 innerHTML 处理动态内容
+- 动态文本优先走 `textContent`
+- 必须插入 HTML 时先走 `esc()`
+- 不把用户/AI/API 返回的未转义内容直接写入 `innerHTML`

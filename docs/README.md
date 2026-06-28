@@ -52,4 +52,9 @@
 
 ## 当前状态
 
-当前代码注册 8 个业务模块：`project` / `imports` / `world` / `memory` / `outline` / `rag` / `context` / `writing`。`infrastructure/tasks` 提供 PostgreSQL 异步任务队列；动态地图是 `world` 的子系统，API 前缀为 `/api/world/maps`，并有前端一级入口“地图”。
+当前代码注册 8 个业务模块：`project` / `imports` / `world` / `memory` / `outline` / `rag` / `context` / `writing`。
+
+- `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
+- 动态地图是 `world` 的子系统，API 前缀为 `/api/world/maps`
+- 前端一级入口为 `project / writing / world / map / rag / outline / generate / context`
+- `world/map` 旧入口只做兼容跳转

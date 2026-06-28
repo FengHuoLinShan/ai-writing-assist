@@ -273,6 +273,9 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
 - 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
 - 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
 | PUT | `/api/world/characters/{character_id}` | 更新人物 |
 | DELETE | `/api/world/characters/{character_id}` | 删除人物 |
 | GET | `/api/world/characters/{character_id}/knowledge` | 人物知识边界列表 |
@@ -282,7 +285,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/maps` | 地图列表（?parent_map_id，PRD §6.1） |
 | POST | `/api/world/maps` | 创建地图（含初始地形生成） |
 | GET | `/api/world/maps/{map_id}` | 地图详情 |
-| PUT | `/api/world/maps/{map_id}` | 更新地图配置 |
+| GET | `/api/world/maps/scene-summary` | 写作页 Scene 地图摘要 |
+| PATCH | `/api/world/maps/{map_id}` | 更新地图配置 |
 | DELETE | `/api/world/maps/{map_id}` | 删除地图（硬删，前端二次确认） |
 | POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
 | GET | `/api/world/maps/{map_id}/state` | 地图聚合状态（map+面包屑+地形+绑定，PRD §6.2） |

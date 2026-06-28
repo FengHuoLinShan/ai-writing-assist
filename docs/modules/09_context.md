@@ -2,82 +2,97 @@
 
 ## 定位
 
-context 模块是系统核心智能模块。RAG 负责找资料，Context Compiler 决定哪些资料交给模型。
+context 模块决定“这次 AI 操作到底能看到哪些资料”，不是单纯把数据库内容拼起来。
 
-## 聚合来源
+当前有两条能力线：
 
-project / world / memory / outline / rag
+- `compile_structure_context()`：兼容旧调用方的结构化 bundle
+- `compile_with_tiers()`：当前前端和 AI 参考资料确认流程使用的分层编译器
 
-## 架构
+## 数据与来源
 
-ContextCompiler 使用 Loader 策略模式，每个数据源独立一个 Loader 类：
+context 本身不拥有业务事实，但当前**有自己的确认记录表**：
 
-| Loader | 来源 |
-|--------|------|
-| ProjectLoader | project.facade.get_project_context |
-| WorldEntitiesLoader | world.facade.get_world_context |
-| CharactersLoader | world.facade.get_characters_context |
-| EventsLoader | world.facade.get_events_context（v3 新增，替代 TimelineEventsLoader） |
-| MemoryRecordsLoader | memory.facade.get_recent_story_memory |
-| PlotThreadsLoader | outline.api — get_active_threads（outline 无 facade） |
-| OutlineArcLoader | outline.api — get_arc_context |
-| ChapterCardLoader | outline.api — get_chapter_card |
-| RagChunksLoader | rag.facade.retrieve |
-> `TimelineEventsLoader` 和 `GeoLocationsLoader` 已随 timeline/geo 模块移除。
+- `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
 
-## Scene-Centric Compiler v2
+聚合来源仍来自：
 
-**输入**：Scene + POV Character + Delta Stream + Foreshadowing
+- `project`
+- `world`
+- `memory`
+- `outline`
+- `rag`
 
-**输出**：`CompiledContext` IR（非 Markdown），经 `MarkdownRenderer` 转为 LLM Prompt
+## 编译模式
 
-### 9 段 Tier 输出
+### 1. 兼容 bundle
 
-| Tier | 段 | 截断策略 |
-|------|-----|----------|
-| P0 | Writing Objective（任务） | 永不截断 |
-| P0 | Scene Blueprint（Scene 卡） | 永不截断 |
-| P1 | POV Knowledge（知识边界，伪装模式） | 最后截断 |
-| P1 | Delta Timeline（自上一 Scene 后的世界线变化） | 最后截断 |
-| P2 | Open Narrative Obligations（伏笔/揭示义务） | 按条截断 |
-| P2 | Retrieval Evidence Packs（RAG 父子证据包） | 按包截断 |
-| P3 | Style Assets（风格素材） | 优先截断 |
-| P0 | Hard Constraints（约束引擎输出） | 永不截断 |
-| P4 | Compiler Warnings（风险提示） | 最先截断 |
+`StructureContextBundle` 仍然保留一些历史字段名以兼容现有渲染器和测试，例如：
 
-**双模式**：Writing 模式输出 Delta 摘要；Debug 模式输出全量 Snapshot
+- `memory_records`：现在实际承载的是记忆全景/快照视图，不是旧表 `memory_records`
+- `timeline_events`：来源于 `world` 的事件上下文
+- `geo_locations`：当前通常为空，geo 模块已移除
 
-## ConstraintEngine
+### 2. 分层编译器
 
-动态生成硬约束，来源：
+`CompiledContext` 是当前主路径，按 tier 组织内容并做预算裁剪。前端 `contextView`、AI 参考资料确认、outline 生成等都优先使用这一层。
 
-- **StaticConstraints** — 代码写死的项目级约束
-- **KnowledgeConstraints** — CharacterKnowledge 三态：unknown→禁止 / restricted→限制 / misunderstood→按误判表现
-- **ForeshadowingConstraints** — status=seeded 且 payoff_scene > 当前 Scene → 禁止提前揭示
-- **SceneConstraints** — `must_not_happen` 直接列出
+## Loader 架构
 
-**Tier 驱逐顺序**：P4 → P3 → P2（按条）→ P1（Delta 20→15→10）→ P0 不截断
+`ContextCompiler` 使用 loader 策略按需拉取数据。当前主来源可概括为：
 
-## 核心函数
+| Loader | 当前来源 |
+|--------|----------|
+| `ProjectLoader` | `project.facade` |
+| `WorldEntitiesLoader` / `CharactersLoader` | `world.facade` |
+| `EventsLoader` | `world.facade.get_events_context()` |
+| `MemoryRecordsLoader` | `memory` 全景查询 |
+| `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade |
+| `RagChunksLoader` | `rag.facade.retrieve()` |
 
-```python
-async def compile_structure_context(db, novel_id, task, scope, chapter_index=None, arc_id=None, entity_ids=None, character_ids=None, location_ids=None, reveal_mode="author_safe", enable_geo_filter=False, viewpoint_character_id=None) -> StructureContextBundle
-def render_context_markdown(context: StructureContextBundle) -> str
-```
+## AI 参考资料确认
 
-## Context Budget
+手动 AI 操作在 world / outline / writing / generate 等入口发起前，可先创建确认记录：
 
-各分类预算见 `contracts.py` 中的 `CONTEXT_BUDGET` 常量，编译时自动应用。
+- `confirm_context()`：编译并落一条 `context_confirmations`
+- `require_confirmation()`：校验 action / novel_id / confirmation_id 是否匹配
+- `attach_result_ref()`：把后续任务或产物回写到确认记录
+- `mark_asset_context_changed()`：资产变更后把相关确认记录标脏
+
+关键参数：
+
+- `context_mode`：`canonical` / `working`
+- `include_pending_objects`：是否允许待确认对象进入本次上下文
+- `excluded_asset_ids`：显式排除的资产
+- `user_note`：用户对本次 AI 操作的补充提醒
+
+## 预算与裁剪
+
+当前默认总预算由 `CompileOptions.budget_tokens` 控制，前端默认 4000。
+
+分类预算仍由 `CONTEXT_BUDGET` 提供，包括：
+
+- `core_entities`
+- `normal_entities`
+- `characters`
+- `memory`
+- `foreshadowing`
+- `timeline`
+- `geo_relations`
+- `relationship_edges`
+- `rag_chunks`
 
 ## API
 
-```
-POST /api/context/compile    # 编译上下文
-POST /api/context/render     # 渲染 Markdown
+```http
+POST /api/context/compile
+POST /api/context/render
+POST /api/context/confirm
+POST /api/context/recompile
 ```
 
 ## 不做
 
-- 无限上下文塞入
-- 全量世界设定注入
-- 自动剧情推理
+- 不把整个项目全量塞进一次请求
+- 不绕过 reveal / knowledge / pending-object 约束
+- 不负责剧情推理或生成正文

@@ -12,6 +12,12 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## File structure
 
+This repo uses a single-context layout:
+
+- `CONTEXT.md` at the repo root
+- `docs/adr/` at the repo root
+- no root `CONTEXT-MAP.md`
+
 Single-context repo:
 
 ```
