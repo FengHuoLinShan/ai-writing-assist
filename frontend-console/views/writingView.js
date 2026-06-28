@@ -5,6 +5,13 @@
  * 支持暂存、发布、版本切换、整章删除。
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { renderFixedProgress } from "../shared/progressRenderer.js"
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  recoverActiveWorkflows,
+} from "../shared/workflowProgress.js"
 import { buildMapUrl } from "./mapRouteContext.js"
 
 const writingView = {
@@ -137,24 +144,36 @@ const writingView = {
   },
 
   async _recoverDeepImportTask() {
-    let taskId
-    try { taskId = localStorage.getItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+    let workflow = null
+    try {
+      workflow = recoverActiveWorkflows(state.currentProjectId)
+        .find((item) => item.workflowType === "deep_import")
+    } catch {
+      workflow = null
+    }
+    const taskId = workflow?.taskId
     if (!taskId) return
     try {
       const task = await api.tasks.get(taskId)
-      if (!task || task.status === "done" || task.status === "failed") {
-        if (task && task.result) {
+      if (!task || task.status === "done" || task.status === "failed" || task.status === "cancelled") {
+        if (task) {
+          const result = task.result || {}
+          const isFailed = task.status === "failed"
           this._deepImportTaskId = taskId
           this._deepImportProgress = {
-            phase: "done",
-            step: "",
-            message: task.result.message || (task.status === "failed" ? "导入失败" : "导入完成"),
-            percent: 100,
-            stepLabel: (task.status === "failed" ? "失败" : "完成"),
-            degraded: task.result.degraded || false,
+            phase: isFailed ? "failed" : task.status === "cancelled" ? "cancelled" : "done",
+            step: result.current_step || "",
+            message: result.message || (isFailed ? "导入失败" : "导入完成"),
+            percent: isFailed ? 0 : 100,
+            stepLabel: isFailed ? "失败" : task.status === "cancelled" ? "已取消" : "完成",
+            degraded: result.degraded || false,
+            degradedBatches: result.degraded_batches || [],
+            phaseError: result.phase_error || result.error || task.error_message || "",
+            phaseErrors: result.phase_errors || [],
+            qualityStatus: result.quality_status || (result.degraded ? "partial" : "complete"),
           }
         }
-        try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+        this._clearDeepImportWorkflow(taskId)
         await this._rerender()
         return
       }
@@ -168,11 +187,15 @@ const writingView = {
         percent: result.phase === "running" ? 50 : 0,
         stepLabel: result.current_step ? `Phase: ${result.current_step}` : "恢复进度中...",
         degraded: result.degraded || false,
+        degradedBatches: result.degraded_batches || [],
+        phaseError: result.phase_error || result.error || task.error_message || "",
+        phaseErrors: result.phase_errors || [],
+        qualityStatus: result.quality_status || (result.degraded ? "partial" : "pending"),
       }
       await this._rerender()
       this._startDeepImportPolling()
     } catch {
-      try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+      this._clearDeepImportWorkflow(taskId)
       await this._rerender()
     }
   },
@@ -789,23 +812,32 @@ const writingView = {
   _renderPublishBar() {
     if (!this._publishProgress) return ''
 
-    const progress = this._publishProgress
+    const progress = this._normalizePublishProgress()
+    const actionsHtml = progress.failed
+      ? `<button class="btn btn-sm" data-action="dismiss-publish-error" style="font-size:11px;">关闭</button>`
+      : ""
 
-    let html = `
-      <div style="position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--border);padding:8px 16px;z-index:100;font-size:12px;">
-        <div style="display:flex;align-items:center;gap:8px;max-width:900px;margin:0 auto;">
-          <span style="white-space:nowrap;">${progress.message || '发布中...'}</span>
-          <div style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
-            <div id="publish-bar-fill" style="height:100%;width:${Math.round(progress.step * 50)}%;background:var(--accent);transition:width 0.5s;"></div>
-          </div>
-    `
+    return renderFixedProgress(progress, {
+      title: "发布正文",
+      message: progress.message,
+      showTaskId: false,
+      actionsHtml,
+    })
+  },
 
-    if (progress.phase === "failed") {
-      html += `<button class="btn btn-sm" data-action="dismiss-publish-error" style="font-size:11px;">关闭</button>`
-    }
-
-    html += '</div></div>'
-    return html
+  _normalizePublishProgress() {
+    const p = this._publishProgress || {}
+    const status = p.phase === "failed" ? "failed" : p.phase === "done" ? "done" : "running"
+    return normalizeTaskProgress({
+      task_id: this._publishTaskId || "publish_chapter",
+      task_type: "publish_chapter",
+      status,
+      progress: typeof p.step === "number" ? p.step : 0,
+      error_message: status === "failed" ? p.message : null,
+      result: {
+        message: p.message || "发布中...",
+      },
+    }, "publish_chapter")
   },
 
   // ============================================================
@@ -1217,10 +1249,8 @@ const writingView = {
   },
 
   _updatePublishBar() {
-    const bar = document.getElementById("publish-bar-fill")
-    if (bar && this._publishProgress) {
-      bar.style.width = Math.round(this._publishProgress.step * 100) + "%"
-    }
+    const publishBarEl = document.getElementById("writing-publish-bar-container")
+    if (publishBarEl) publishBarEl.innerHTML = this._renderPublishBar()
     const dot = document.getElementById("publish-status-dot")
     if (dot && this._publishProgress && this._publishProgress.phase === "running") {
       dot.style.display = "inline-block"
@@ -1531,8 +1561,11 @@ const writingView = {
       this._deepImportProgress = {
         phase: "running", step: "scene_segmentation",
         message: "正在切分 Scene...", percent: 0,
+        degraded: false, degradedBatches: [], phaseError: "",
+        phaseErrors: [], qualityStatus: "pending",
       }
-      // 持久化 task id，页面刷新后可恢复进度条
+      this._persistDeepImportWorkflow(result.task_id, startChapter, endChapter)
+      // 保留 legacy key，shared workflow recovery 会迁移旧刷新状态。
       try { localStorage.setItem("novel_deepImportTaskId", result.task_id) } catch {} // eslint-disable-line no-empty
       toast("深度导入已启动", "success")
       await this._rerender()
@@ -1580,13 +1613,21 @@ const writingView = {
           percent,
           stepLabel,
           degraded: result.degraded || false,
+          degradedBatches: result.degraded_batches || [],
+          phaseError: result.phase_error || result.error || task.error_message || "",
+          phaseErrors: result.phase_errors || [],
+          qualityStatus: result.quality_status || (result.degraded ? "partial" : "pending"),
         }
 
         if (task.status === "done" || result.phase === "done") {
           this._deepImportProgress.percent = 100
           this._deepImportProgress.phase = "done"
           this._stopDeepImportPolling()
-          toast("深度导入完成！", "success")
+          if (this._deepImportProgress.qualityStatus === "partial") {
+            toast("深度导入部分完成，请查看降级原因", "warning")
+          } else {
+            toast("深度导入完成！", "success")
+          }
           // 深度导入会创建 / 更新 Scene，需要清空 API 缓存和视图 DOM 缓存，
           // 否则 KeepAlive 视图会显示旧数据（看不到新生成的 Scene）。
           api.clearCache()
@@ -1598,6 +1639,9 @@ const writingView = {
         }
         if (task.status === "failed") {
           this._deepImportProgress.phase = "failed"
+          this._deepImportProgress.phaseError = (
+            result.phase_error || result.error || task.error_message || this._deepImportProgress.message
+          )
           this._stopDeepImportPolling()
           toast("深度导入失败", "error")
           setTimeout(() => { this._deepImportProgress = null; this._rerender() }, 5000)
@@ -1614,26 +1658,86 @@ const writingView = {
 
   _stopDeepImportPolling() {
     if (this._deepImportTimer) { clearInterval(this._deepImportTimer); this._deepImportTimer = null }
+    const taskId = this._deepImportTaskId
     this._deepImportTaskId = null
-    try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+    this._clearDeepImportWorkflow(taskId)
   },
 
   _renderDeepImportBar() {
     if (!this._deepImportProgress) return ""
-    const p = this._deepImportProgress
-    return `
-      <div style="position:fixed;bottom:40px;left:0;right:0;background:var(--panel);border-top:1px solid var(--accent);padding:8px 16px;z-index:100;font-size:12px;">
-        <div style="display:flex;align-items:center;gap:8px;max-width:900px;margin:0 auto;">
-          <span style="white-space:nowrap;font-weight:500;">${esc(p.stepLabel || p.message || "深度导入中...")}</span>
-          <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
-            <div style="height:100%;width:${p.percent || 0}%;background:var(--accent);transition:width 0.5s;border-radius:3px;"></div>
-          </div>
-          <span style="font-family:var(--font-mono);font-size:11px;white-space:nowrap;">${p.percent || 0}%</span>
-          ${p.degraded ? '<span style="color:var(--warning);font-size:10px;">(部分降级)</span>' : ""}
-          ${p.phase === "failed" ? `<button class="btn btn-sm" data-action="dismiss-deep-import" style="font-size:11px;">关闭</button>` : ""}
-        </div>
-      </div>
-    `
+    const progress = this._normalizeDeepImportProgress()
+    const actionsHtml = progress.failed
+      ? `<button class="btn btn-sm" data-action="dismiss-deep-import" style="font-size:11px;">关闭</button>`
+      : ""
+    return renderFixedProgress(progress, {
+      offset: 40,
+      title: "深度导入",
+      message: progress.message,
+      showTaskId: false,
+      actionsHtml,
+    })
+  },
+
+  _normalizeDeepImportProgress() {
+    const p = this._deepImportProgress || {}
+    const status = p.phase === "failed"
+      ? "failed"
+      : p.phase === "done"
+        ? "done"
+        : p.phase === "cancelled"
+          ? "cancelled"
+          : "running"
+    const degradedBatches = Array.isArray(p.degradedBatches) ? p.degradedBatches : []
+    const phaseErrors = Array.isArray(p.phaseErrors) ? p.phaseErrors : []
+    const phaseErrorText = phaseErrors
+      .map((item) => item && (item.message || item.error_kind || item.phase || item.error))
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("；")
+    const isPartial = p.qualityStatus === "partial"
+    const warnings = []
+    if (isPartial && !p.degraded) warnings.push("部分完成")
+    if (p.degraded) warnings.push("部分批次降级完成")
+    if (degradedBatches.length > 0) warnings.push(`降级批次：${degradedBatches.join(", ")}`)
+    if (p.phaseError && status !== "failed") warnings.push(`阶段错误：${p.phaseError}`)
+    if (phaseErrorText && status !== "failed") warnings.push(`阶段错误：${phaseErrorText}`)
+
+    return normalizeTaskProgress({
+      task_id: this._deepImportTaskId || "deep_import",
+      task_type: "deep_import",
+      status,
+      progress: typeof p.percent === "number" ? p.percent : null,
+      error_message: status === "failed" ? (p.phaseError || phaseErrorText || p.message || "深度导入失败") : null,
+      result: {
+        message: p.stepLabel || p.message || "深度导入中...",
+        warnings,
+        summary: isPartial ? "部分完成" : p.degraded ? "部分降级完成" : null,
+      },
+    }, "deep_import")
+  },
+
+  _persistDeepImportWorkflow(taskId, startChapter, endChapter) {
+    persistActiveWorkflow({
+      taskId,
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: state.currentProjectId,
+      view: "writing",
+      meta: { startChapter, endChapter },
+    })
+  },
+
+  _clearDeepImportWorkflow(taskId) {
+    clearActiveWorkflow(taskId)
+    try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
+  },
+
+  _dismissDeepImport() {
+    const taskId = this._deepImportTaskId
+    this._deepImportProgress = null
+    this._deepImportTaskId = null
+    this._clearDeepImportWorkflow(taskId)
+    this._rerender()
   },
 
   // ============================================================
@@ -1653,7 +1757,7 @@ const writingView = {
       "dismiss-publish-error": () => this._dismissPublishError(),
       "deep-import": () => this._showDeepImportForm(),
       "open-map": () => this._openMapForCurrentScene(),
-      "dismiss-deep-import": () => { this._deepImportProgress = null; this._rerender() },
+      "dismiss-deep-import": () => this._dismissDeepImport(),
       "open-outline": () => router.navigate("outline", null),
       "split-scene": () => this._showSplitSceneForm(),
       "extract-cards": () => this._extractChapterCards(),

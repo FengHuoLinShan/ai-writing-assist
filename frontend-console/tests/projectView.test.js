@@ -12,6 +12,7 @@ import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
 // 清理全局状态，确保各测试隔离
 beforeEach(() => {
   resetState()
+  projectView._uploadProgress = null
   vi.clearAllMocks()
 })
 
@@ -281,6 +282,24 @@ describe("projectView", () => {
 
       expect(projectView._importSectionOpen).toBe(!initial)
       expect(router.navigate).toHaveBeenCalledWith("project")
+    })
+  })
+
+  describe("upload progress rendering", () => {
+    it("使用 shared progress 样式显示导入阶段和真实百分比", () => {
+      projectView._uploadProgress = {
+        stage: "上传文件",
+        percent: 42,
+        message: "正在上传文件 42%",
+      }
+
+      const html = projectView._renderUploadProgress()
+
+      expect(html).toContain("workflow-progress")
+      expect(html).toContain("导入小说")
+      expect(html).toContain("上传文件")
+      expect(html).toContain("42%")
+      expect(html).toContain('aria-valuenow="42"')
     })
   })
 })
