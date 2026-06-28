@@ -3,11 +3,13 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import writingView from "../views/writingView.js"
+import { workflowProgressStorageKey } from "../shared/workflowProgress.js"
 import { resetState, clearDocument, autoConfirm, stubMethod } from "./helpers.js"
 
 beforeEach(() => {
   resetState()
   clearDocument()
+  localStorage.clear()
   writingView._chapters = {}
   writingView._chapterList = []
   writingView._currentChapter = null
@@ -23,6 +25,10 @@ beforeEach(() => {
   writingView._sceneMapSummaryError = null
   writingView._sceneMapSummarySceneId = null
   writingView._sceneMapSummaryLoading = false
+  writingView._publishTaskId = null
+  writingView._publishProgress = null
+  writingView._deepImportTaskId = null
+  writingView._deepImportProgress = null
   api.world.getMapSceneSummary = vi.fn()
   vi.clearAllMocks()
 })
@@ -327,6 +333,14 @@ describe("_submitDeepImport", () => {
     expect(api.imports.deepImport).toHaveBeenNthCalledWith(2, "p1", 1, 5, true)
     expect(writingView._deepImportTaskId).toBe("task-2")
     expect(writingView._deepImportProgress.phase).toBe("running")
+    expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey))).toEqual([
+      expect.objectContaining({
+        taskId: "task-2",
+        workflowType: "deep_import",
+        projectId: "p1",
+        view: "writing",
+      }),
+    ])
     expect(pollingSpy).toHaveBeenCalled()
 
     pollingSpy.mockRestore()
@@ -371,8 +385,9 @@ describe("_recoverDeepImportTask", () => {
       name: "失败",
       taskId: "task-failed",
       response: { status: "failed", result: { message: "解析失败" } },
-      expectedPhase: "done",
-      expectedPercent: 100,
+      expectedTaskId: "task-failed",
+      expectedPhase: "failed",
+      expectedPercent: 0,
       clearStorage: true,
     },
     {
@@ -405,7 +420,29 @@ describe("_recoverDeepImportTask", () => {
     }
     if (clearStorage) {
       expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+      expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey) || "[]")).toEqual([])
     }
+  })
+
+  it("可从 shared workflow storage 恢复深度导入任务", async () => {
+    localStorage.setItem(workflowProgressStorageKey, JSON.stringify([{
+      id: "p1:deep_import:task-shared",
+      taskId: "task-shared",
+      workflowType: "deep_import",
+      projectId: "p1",
+      view: "writing",
+    }]))
+    state.currentProjectId = "p1"
+    api.tasks.get.mockResolvedValue({
+      status: "running",
+      result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" },
+    })
+
+    await writingView._recoverDeepImportTask()
+
+    expect(api.tasks.get).toHaveBeenCalledWith("task-shared")
+    expect(writingView._deepImportTaskId).toBe("task-shared")
+    expect(writingView._deepImportProgress.phase).toBe("running")
   })
 
   it("onActivate 也会触发恢复", async () => {
@@ -421,6 +458,47 @@ describe("_recoverDeepImportTask", () => {
 
     expect(api.tasks.get).toHaveBeenCalledWith("task-reactivate")
     expect(writingView._deepImportProgress.phase).toBe("running")
+  })
+})
+
+describe("workflow progress rendering", () => {
+  it("renders publish progress with shared fixed renderer", () => {
+    writingView._publishTaskId = "publish-task"
+    writingView._publishProgress = {
+      phase: "running",
+      step: 0.6,
+      message: "正在创建历史状态...",
+    }
+
+    const html = writingView._renderPublishBar()
+
+    expect(html).toContain("workflow-progress-fixed")
+    expect(html).toContain("发布正文")
+    expect(html).toContain("60%")
+    expect(html).toContain("正在创建历史状态")
+  })
+
+  it("renders degraded deep import progress with shared fixed renderer", () => {
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = {
+      phase: "running",
+      percent: 80,
+      stepLabel: "Phase 3/3: 结构分析",
+      degraded: true,
+      degradedBatches: [2],
+      qualityStatus: "partial",
+      phaseErrors: [{ phase: "entity_extraction", message: "LLM 超时" }],
+    }
+
+    const html = writingView._renderDeepImportBar()
+
+    expect(html).toContain("workflow-progress-fixed")
+    expect(html).toContain("bottom:40px")
+    expect(html).toContain("Phase 3/3: 结构分析")
+    expect(html).toContain("部分完成")
+    expect(html).toContain("部分批次降级完成")
+    expect(html).toContain("降级批次")
+    expect(html).toContain("LLM 超时")
   })
 })
 

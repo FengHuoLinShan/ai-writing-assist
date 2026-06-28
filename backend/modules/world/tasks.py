@@ -35,6 +35,8 @@ async def handle_world_entity_extraction(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for world_entity_extraction")
 
+    task.update_progress(0.1)
+
     service = EntityExtractionService()
     result = await service.extract_entities_from_chapters(
         db,
@@ -43,12 +45,14 @@ async def handle_world_entity_extraction(db, task):
         end_chapter=end_chapter,
         batch_size=batch_size,
     )
+    task.update_progress(0.85)
 
     logger.info(
         "Entity extraction complete: %d created, %d skipped",
         result.total_created,
         result.total_skipped,
     )
+    task.update_progress(0.95)
 
     return {
         "total_chapters": result.total_chapters,

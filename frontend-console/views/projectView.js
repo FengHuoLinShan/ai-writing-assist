@@ -6,6 +6,7 @@
  */
 
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { renderInlineProgress } from "../shared/progressRenderer.js"
 
 const projectView = {
   /** @type {Array} 导入记录 */
@@ -16,6 +17,9 @@ const projectView = {
 
   /** @type {boolean} 导入区折叠状态 */
   _importSectionOpen: false,
+
+  /** @type {object|null} 项目导入上传进度 */
+  _uploadProgress: null,
 
   async render() {
     const projects = state.projects
@@ -482,13 +486,35 @@ const projectView = {
           <button class="btn btn-primary" data-action="upload-file" ${this._importUploading || !hasProject ? "disabled" : ""}>
             ${this._importUploading ? "上传中..." : "上传并导入"}
           </button>
-          <div id="pv-upload-progress" style="display:none;margin-top:8px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
-            <div id="pv-upload-bar-fill" style="height:100%;width:0%;background:var(--accent);transition:width 0.2s;border-radius:3px;"></div>
-          </div>
         </div>
+        <div id="pv-upload-progress" style="margin-top:8px;">${this._renderUploadProgress()}</div>
         <div id="pv-import-history" style="margin-top:12px;"></div>
       </div>
     `
+  },
+
+  _renderUploadProgress() {
+    if (!this._uploadProgress) return ""
+    const stage = this._uploadProgress.stage || "上传文件"
+    const percent = Math.max(0, Math.min(100, Math.round(this._uploadProgress.percent || 0)))
+    return renderInlineProgress({
+      label: "导入小说",
+      message: this._uploadProgress.message || stage,
+      status: "running",
+      statusLabel: stage,
+      percent,
+      hasPercent: true,
+      indeterminate: false,
+      warnings: [],
+    }, {
+      showTaskId: false,
+    })
+  },
+
+  _setUploadProgress(stage, percent, message) {
+    this._uploadProgress = { stage, percent, message }
+    const container = document.getElementById("pv-upload-progress")
+    if (container) container.innerHTML = this._renderUploadProgress()
   },
 
   async _loadImportRecords() {
@@ -538,12 +564,9 @@ const projectView = {
       toast("文件大小超过限制（最大 50MB）", "error"); return
     }
     this._importUploading = true
-    this._uploadProgress = 0
+    this._uploadProgress = null
     if (btn) btn.textContent = "上传中 0%"
-
-    // Show progress bar
-    const progressBar = document.getElementById("pv-upload-progress")
-    if (progressBar) progressBar.style.display = "block"
+    this._setUploadProgress("上传文件", 0, "正在上传文件...")
 
     try {
       const result = await new Promise((resolve, reject) => {
@@ -554,15 +577,18 @@ const projectView = {
 
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
-            this._uploadProgress = Math.round((e.loaded / e.total) * 100)
-            if (btn) btn.textContent = `上传中 ${this._uploadProgress}%`
-            const fill = document.getElementById("pv-upload-bar-fill")
-            if (fill) fill.style.width = this._uploadProgress + "%"
+            const percent = Math.round((e.loaded / e.total) * 100)
+            if (btn) btn.textContent = `上传中 ${percent}%`
+            this._setUploadProgress("上传文件", percent, `正在上传文件 ${percent}%`)
+            if (percent >= 100) {
+              this._setUploadProgress("解析章节", 100, "文件已上传，正在解析章节...")
+            }
           }
         }
 
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
+            this._setUploadProgress("解析章节", 100, "章节解析完成")
             resolve(JSON.parse(xhr.responseText))
           } else {
             try {
@@ -578,6 +604,7 @@ const projectView = {
 
       toast(`导入完成：共解析 ${result.total_chapters || 0} 章，成功 ${result.imported_chapters || 0} 章`, "success")
       api.clearCache()
+      this._setUploadProgress("刷新项目", 100, "正在刷新项目...")
       await router.navigate("writing")
       await router.refresh()
       input.value = ""
@@ -600,7 +627,7 @@ const projectView = {
       this._uploadProgress = null
       if (btn) btn.textContent = "上传并导入"
       const progressBar = document.getElementById("pv-upload-progress")
-      if (progressBar) progressBar.style.display = "none"
+      if (progressBar) progressBar.innerHTML = ""
     }
   },
 }
