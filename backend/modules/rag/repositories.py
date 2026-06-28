@@ -131,6 +131,22 @@ class RagChunkRepository:
         chunk.embedding = embedding  # type: ignore[assignment]
         return True
 
+    async def mark_embedding_failed(
+        self,
+        db: AsyncSession,
+        chunk_id: uuid.UUID,
+        error: str,
+    ) -> bool:
+        """标记 chunk embedding 失败并截断错误信息。"""
+        chunk = await self.get(db, chunk_id)
+        if chunk is None:
+            return False
+        chunk.embedding = None
+        chunk.embedding_status = "failed"
+        chunk.embedding_error = error[:1000]
+        chunk.index_warnings = [f"embedding 生成失败: {error[:1000]}"]
+        return True
+
     async def delete(
         self,
         db: AsyncSession,
@@ -481,6 +497,34 @@ class RagChunkRepository:
         result = await db.execute(stmt)
         return (result.scalar_one() or 0) > 0
 
+    async def get_sample_embedding_dim(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> int | None:
+        """读取已索引向量的实际维度，用于诊断配置漂移。"""
+        stmt = (
+            select(RagChunk.embedding)
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.embedding.is_not(None),
+            )
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        embedding = result.scalar_one_or_none()
+        if embedding is None:
+            return None
+        if isinstance(embedding, (str, bytes, bytearray, memoryview)):
+            return None
+        if hasattr(embedding, "shape") and embedding.shape:
+            return int(embedding.shape[0])
+        if hasattr(embedding, "tolist"):
+            embedding = embedding.tolist()
+        if isinstance(embedding, Sequence):
+            return len(embedding)
+        return None
+
     async def count_embedding_failed(
         self,
         db: AsyncSession,
@@ -506,3 +550,72 @@ class RagChunkRepository:
         )
         result = await db.execute(stmt)
         return result.scalar_one() or 0
+
+    def _embedding_retry_conditions(
+        self,
+        novel_id: uuid.UUID,
+        statuses: list[str],
+        start_chapter: int | None,
+        end_chapter: int | None,
+    ) -> list:
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding_status.in_(statuses),
+        ]
+        if start_chapter is not None:
+            conditions.append(RagChunk.chapter_index >= start_chapter)
+        if end_chapter is not None:
+            conditions.append(RagChunk.chapter_index <= end_chapter)
+        return conditions
+
+    async def count_retryable_embeddings(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        statuses: list[str],
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+    ) -> int:
+        """统计可重试向量化的 chunk 数。"""
+        stmt = select(func.count(RagChunk.id)).where(
+            and_(
+                *self._embedding_retry_conditions(
+                    novel_id,
+                    statuses,
+                    start_chapter,
+                    end_chapter,
+                )
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one() or 0
+
+    async def find_embedding_retry_candidates(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        statuses: list[str],
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+        limit: int = 500,
+    ) -> list[RagChunk]:
+        """读取可重试向量化的 chunk，始终按 novel_id 隔离。"""
+        stmt = (
+            select(RagChunk)
+            .where(
+                and_(
+                    *self._embedding_retry_conditions(
+                        novel_id,
+                        statuses,
+                        start_chapter,
+                        end_chapter,
+                    )
+                )
+            )
+            .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())

@@ -188,3 +188,112 @@ class ContextConfirmationResponse(BaseModel):
     stale_reasons: list[str] = Field(default_factory=list)
     compiled_at: str
     created_at: str
+
+
+class ContextSnapshotResponse(BaseModel):
+    """自动 AI 调用上下文快照响应。"""
+
+    id: str
+    novel_id: str
+    task_id: str | None = None
+    workflow_id: str | None = None
+    phase: str
+    operation: str
+    scene_id: str | None = None
+    scene_index: int | None = None
+    chapter_index: int | None = None
+    context_mode: str
+    include_pending_objects: bool
+    status: str
+    attempt: int
+    prompt_hash: str
+    prompt_name: str
+    model: str
+    compile_options: dict = Field(default_factory=dict)
+    included_asset_ids: dict = Field(default_factory=dict)
+    excluded_asset_ids: dict = Field(default_factory=dict)
+    context_summary: dict = Field(default_factory=dict)
+    section_metadata: dict = Field(default_factory=dict)
+    token_metadata: dict = Field(default_factory=dict)
+    rendered_context: str | None = None
+    result_refs: list[dict] = Field(default_factory=list)
+    error_kind: str | None = None
+    error_message: str | None = None
+    rendered_context_expires_at: str | None = None
+    created_at: str
+    updated_at: str | None = None
+
+
+class ContextSnapshotListItemResponse(BaseModel):
+    """上下文快照列表项；不返回完整 rendered_context。"""
+
+    id: str
+    novel_id: str
+    task_id: str | None = None
+    workflow_id: str | None = None
+    phase: str
+    operation: str
+    scene_id: str | None = None
+    scene_index: int | None = None
+    chapter_index: int | None = None
+    context_mode: str
+    include_pending_objects: bool
+    status: str
+    attempt: int
+    prompt_hash: str
+    prompt_name: str
+    model: str
+    compile_options: dict = Field(default_factory=dict)
+    included_asset_ids: dict = Field(default_factory=dict)
+    excluded_asset_ids: dict = Field(default_factory=dict)
+    context_summary: dict = Field(default_factory=dict)
+    section_metadata: dict = Field(default_factory=dict)
+    token_metadata: dict = Field(default_factory=dict)
+    has_rendered_context: bool = False
+    result_refs: list[dict] = Field(default_factory=list)
+    error_kind: str | None = None
+    error_message: str | None = None
+    rendered_context_expires_at: str | None = None
+    created_at: str
+    updated_at: str | None = None
+
+
+class ContextSnapshotListResponse(BaseModel):
+    """上下文快照列表响应。"""
+
+    items: list[ContextSnapshotListItemResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class SnapshotHealthSummaryResponse(BaseModel):
+    """上下文快照健康摘要；不包含正文、prompt 或完整 result refs。"""
+
+    novel_id: str
+    workflow_id: str | None = None
+    total_snapshots: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_phase: dict[str, dict[str, int]] = Field(default_factory=dict)
+    stale_running_count: int = 0
+    retained_rendered_context_count: int = 0
+    latest_failure: dict | None = None
+
+
+class ContextSnapshotMaintenanceRequest(BaseModel):
+    """上下文快照显式维护请求。"""
+
+    novel_id: str = Field(..., description="项目 ID")
+    workflow_id: str | None = Field(None, description="可选 workflow 过滤")
+    running_timeout_minutes: int = Field(default=120, ge=1)
+    prune_rendered_context: bool = Field(default=True)
+    retain_latest_full_context_per_project: int = Field(default=200, ge=0)
+    dry_run: bool = Field(default=True)
+
+
+class ContextSnapshotMaintenanceResponse(BaseModel):
+    """上下文快照维护响应。"""
+
+    snapshot_health_summary: SnapshotHealthSummaryResponse
+    stale_running_count: int = 0
+    pruned_rendered_context_count: int = 0
+    would_change_count: int = 0
+    dry_run: bool = True

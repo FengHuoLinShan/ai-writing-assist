@@ -8,12 +8,14 @@ context 模块决定“这次 AI 操作到底能看到哪些资料”，不是�
 
 - `compile_structure_context()`：兼容旧调用方的结构化 bundle
 - `compile_with_tiers()`：当前前端和 AI 参考资料确认流程使用的分层编译器
+- `context_snapshots` facade：自动 AI 流水线的上下文快照审计记录
 
 ## 数据与来源
 
-context 本身不拥有业务事实，但当前**有自己的确认记录表**：
+context 本身不拥有业务事实，但当前**有自己的确认与审计记录表**：
 
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
+- `context_snapshots`：自动 AI 调用上下文快照，保存 task_id、workflow_id、phase、context_mode、included_asset_ids、摘要、prompt_hash、token/section metadata、result_refs 和错误信息
 
 聚合来源仍来自：
 
@@ -66,6 +68,24 @@ context 本身不拥有业务事实，但当前**有自己的确认记录表**�
 - `excluded_asset_ids`：显式排除的资产
 - `user_note`：用户对本次 AI 操作的补充提醒
 
+## 自动上下文快照
+
+深度导入 Phase 2/Phase 3 的真实 LLM 调用会通过 context facade 创建 `context_snapshots`：
+
+- Phase 2 记录当前实体抽取实际送入 LLM 的 handcrafted context，不重接 context compiler。
+- Phase 3 记录结构分析使用的 working context，并设置 `include_pending_objects=true`。
+- 默认只保存摘要、资产 ID、hash 和 token/section metadata；完整 `rendered_context` 需要调用方显式开启，并由保留策略清理。
+- `context_snapshots` 不替代 `context_confirmations`，也不替代 `memory_snapshots`。
+
+Lifecycle v1 为快照提供显式维护入口：
+
+- `build_snapshot_health_summary()`：按 `novel_id` 和可选 `workflow_id` 聚合快照健康摘要。
+- `mark_stale_running_snapshots()`：把超过运行超时的 `running` 快照标为 `failed/stale_running`，默认 dry-run。
+- `prune_rendered_context()`：只清理完整 `rendered_context` 和过期时间，不删除快照或 provenance metadata。
+- `run_snapshot_maintenance()`：组合超时标记、full context 清理和健康摘要返回。
+
+维护 API 默认 `dry_run=true`；调用方必须显式传 `dry_run=false` 才会修改数据。
+
 ## 预算与裁剪
 
 当前默认总预算由 `CompileOptions.budget_tokens` 控制，前端默认 4000。
@@ -89,6 +109,9 @@ POST /api/context/compile
 POST /api/context/render
 POST /api/context/confirm
 POST /api/context/recompile
+GET  /api/context/snapshots
+GET  /api/context/snapshots/{snapshot_id}
+POST /api/context/snapshots/maintenance
 ```
 
 ## 不做

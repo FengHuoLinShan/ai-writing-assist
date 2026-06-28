@@ -9,6 +9,7 @@ const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   publish_chapter: "发布正文",
   rag_reindex_novel: "重建 RAG 索引",
+  rag_retry_embeddings: "重试失败向量",
   world_entity_extraction: "补抽世界对象",
   plot_structure_generate: "生成剧情结构",
   chapter_card_generation: "生成章节卡",
@@ -90,6 +91,7 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     return "正在创建历史状态"
   }
   if (workflowType === "rag_reindex_novel") return "正在逐章重建索引"
+  if (workflowType === "rag_retry_embeddings") return "正在重试失败向量"
   if (workflowType === "world_entity_extraction") return "正在抽取世界对象"
   if (workflowType === "plot_structure_generate") return "正在生成剧情结构"
   if (workflowType === "chapter_card_generation") return "正在生成章节卡"
@@ -113,6 +115,13 @@ function buildResultSummary(result, workflowType) {
     if (result.total_chapters != null) parts.push(`${result.total_chapters} 章`)
     if (result.chunks_created != null) parts.push(`${result.chunks_created} 个片段`)
     if (result.embedding_failed_count) parts.push(`${result.embedding_failed_count} 个嵌入失败`)
+    return parts.length ? parts.join("，") : null
+  }
+  if (workflowType === "rag_retry_embeddings") {
+    const parts = []
+    if (result.total != null) parts.push(`${result.total} 个片段`)
+    if (result.succeeded != null) parts.push(`${result.succeeded} 个成功`)
+    if (result.failed != null) parts.push(`${result.failed} 个失败`)
     return parts.length ? parts.join("，") : null
   }
   if (workflowType === "world_entity_extraction") {

@@ -27,7 +27,7 @@
 
 - 不把深度导入改成分阶段人工确认流程。
 - 不让用户直接编辑编译后的 Markdown 上下文正文。
-- 不在第一版实现完整上下文快照表、回放系统或审计 UI。
+- 手动 AI 第一版不写入完整上下文快照表、回放系统或审计 UI；深度导入的自动审计快照由 `context_snapshots` 单独承载。
 - 不开放 prompt 模板选择、loader/tier 细节、token 预算调参给普通用户。
 - 不让“AI 参考资料”弹窗替代“上下文”页；上下文页仍是高级预览/调试台。
 
@@ -225,7 +225,7 @@ frontend-console/shared/contextSummaryRenderer.js
 
 ### 8.2 确认记录
 
-第一版新增轻量确认记录，用于支持 `context_confirmation_id` 和未来快照扩展。它不是完整上下文快照表。
+第一版新增轻量确认记录，用于支持 `context_confirmation_id` 和未来手动 AI 快照扩展。它不是完整上下文快照表；深度导入自动审计使用独立的 `context_snapshots`。
 
 建议表名：
 
@@ -253,7 +253,7 @@ context_confirmations
 | `compiled_at` | 编译时间 |
 | `created_at` / `updated_at` | 基础时间戳 |
 
-第一版不保存完整 `rendered_context`。后续如果需要完整审计和回放，可新增上下文快照表或扩展确认记录。
+手动 AI 第一版不保存完整 `rendered_context`。后续如果手动操作需要完整审计和回放，可迁移到 `context_snapshots` 或扩展确认记录。
 
 ### 8.3 API 契约
 
@@ -397,7 +397,7 @@ POST /api/context/confirm
 
 ### 10.2 后续
 
-- 完整上下文快照表。
+- 手动 AI 操作迁移到 `context_snapshots` 或补充回放入口。
 - 上下文回放和审计 UI。
 - 更细粒度资产编辑入口。
 - 自动失效扫描。

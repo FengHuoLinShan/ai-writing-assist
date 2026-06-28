@@ -647,3 +647,175 @@ async def test_rebuild_novel_with_chapter_range(
     assert result["chunks_created"] >= 1
     chapter_indices = [c["chapter_index"] for c in result["chapters"]]
     assert chapter_indices == [2]
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_updates_failed_chunks(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """rag_retry_embeddings 只修复目标项目内的失败向量。"""
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_retry_embeddings
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    retry_chunk = await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="需要重试的片段",
+            embedding_status="failed",
+            embedding_error="old error",
+        ),
+    )
+    skipped_chunk = await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=2,
+            text="范围外失败片段",
+            embedding_status="failed",
+        ),
+    )
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_retry_embeddings",
+        status="running",
+        meta={"novel_id": test_project_id, "start_chapter": 1, "end_chapter": 1},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    fake_embedding = [0.1] * 768
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(return_value=[fake_embedding])
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_retry_embeddings(db_session, task)
+
+    assert result["total"] == 1
+    assert result["succeeded"] == 1
+    assert result["failed"] == 0
+    assert task.progress == 1.0
+    refreshed = await repo.get(db_session, retry_chunk.id)
+    skipped = await repo.get(db_session, skipped_chunk.id)
+    assert refreshed.embedding_status == "succeeded"
+    assert refreshed.embedding is not None
+    assert refreshed.embedding_error is None
+    assert skipped.embedding_status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_processes_more_than_one_batch(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """失败向量超过单批上限时，任务应循环直到无剩余候选。"""
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_retry_embeddings
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    for index in range(501):
+        await repo.create(
+            db_session,
+            nid_uuid,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                chunk_index=index,
+                text=f"失败片段 {index}",
+                embedding_status="failed",
+            ),
+        )
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_retry_embeddings",
+        status="running",
+        meta={"novel_id": test_project_id},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    fake_embedding = [0.1] * 768
+
+    async def _fake_embedding(texts):
+        return [fake_embedding for _ in texts]
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=_fake_embedding)
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_retry_embeddings(db_session, task)
+
+    remaining = await repo.count_retryable_embeddings(
+        db_session,
+        nid_uuid,
+        statuses=["failed", "pending_vectorization"],
+    )
+    assert result["total"] == 501
+    assert result["succeeded"] == 501
+    assert result["failed"] == 0
+    assert result["remaining_retryable_count"] == 0
+    assert remaining == 0
+    assert mock_client.generate_embedding.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_marks_batch_failure(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """批量 embedding 失败时保持 failed 并写入截断错误。"""
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_retry_embeddings
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    chunk = await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="失败片段",
+            embedding_status="failed",
+        ),
+    )
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_retry_embeddings",
+        status="running",
+        meta={"novel_id": test_project_id},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=Exception("x" * 1200))
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_retry_embeddings(db_session, task)
+
+    refreshed = await repo.get(db_session, chunk.id)
+    assert result["total"] == 1
+    assert result["succeeded"] == 0
+    assert result["failed"] == 1
+    assert refreshed.embedding_status == "failed"
+    assert len(refreshed.embedding_error) == 1000

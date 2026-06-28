@@ -7,7 +7,7 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
@@ -16,6 +16,7 @@ from modules.rag.facade import (
     get_index_status,
     get_metrics_status,
     list_chunks,
+    prewarm_embedding_runtime,
     retrieve,
     split_text_into_chunks,
 )
@@ -25,6 +26,7 @@ from modules.rag.schemas import (
     RagQuery,
     RagRebuildRequest,
     RagResult,
+    RagRetryEmbeddingsRequest,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -133,6 +135,18 @@ async def get_rag_metrics() -> dict:
     return await get_metrics_status()
 
 
+@router.post("/prewarm", response_model=dict)
+async def prewarm_rag_embedding() -> dict:
+    """预热 RAG embedding worker。"""
+    try:
+        return await prewarm_embedding_runtime()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="embedding worker prewarm failed",
+        ) from exc
+
+
 @router.post("/rebuild", response_model=dict)
 async def rebuild_rag_index(
     db: DbSession,
@@ -149,6 +163,25 @@ async def rebuild_rag_index(
             "novel_id": request.novel_id,
             "start_chapter": request.start_chapter,
             "end_chapter": request.end_chapter,
+        },
+    )
+    return {"task_id": task_id, "status": "pending"}
+
+
+@router.post("/retry-embeddings", response_model=dict)
+async def retry_embeddings(
+    db: DbSession,
+    request: RagRetryEmbeddingsRequest,
+) -> dict:
+    """提交失败 embedding 重试任务。"""
+    task_id = enqueue_task(
+        db,
+        "rag_retry_embeddings",
+        meta={
+            "novel_id": request.novel_id,
+            "start_chapter": request.start_chapter,
+            "end_chapter": request.end_chapter,
+            "statuses": list(request.statuses),
         },
     )
     return {"task_id": task_id, "status": "pending"}

@@ -90,8 +90,8 @@ POST /api/imports/deep/resume              # 兼容旧候选确认流程，当�
 
 ## 跨模块依赖
 
-- 写入 writing_drafts 通过 `writing.facade.create_draft()`
-- `writing.facade.create_draft()` 会同时提交 `rag_index_chapter` 任务
+- 写入 writing_drafts 通过 `writing.facade.create_draft_only()`
+- 导入后逐章提交 `publish_chapter` 任务，由发布任务统一完成 RAG 索引与 memory 快照
 - Phase 1 通过 scene_segmentation 任务写入 `scenes` 表
 - Phase 2 通过 world facade / 注册服务写入 `core_entities` / 关系数据，通过 memory 模块记录 `delta_log`
 - Phase 3 通过 outline 注册服务写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`

@@ -26,6 +26,9 @@
 | ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。候选对象不再使用独立候选表，改由对应资产表的状态与自动入库元数据表达 |
 | 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
+| 空间连续性地图 | Spatial Continuity Map | `map_*` | 写作伴随的空间连续性工具，用于表达 Scene 中地点、人物/事件位置、势力范围和相邻 Scene 的移动合理性。它是作者校对空间事实的辅助资产，不是自动推演、战棋模拟或地图美术系统 |
+| Scene 级空间连续性 | Scene Spatial Continuity | `scenes` + `map_*` | 单个 Scene 及其相邻 Scene 之间的空间事实一致性，包括主地点、在场人物/事件、所属势力范围和移动跳变是否合理。第一版只提供轻提示，不阻断写作、发布或 AI 生成；它优先服务写作时的事实校对，不替代剧情因果、时间线或路线规划 |
+| 空间连续性提示 | Spatial Continuity Hint | `scenes` + `map_*` | 面向作者的非阻断提示，用于指出 Scene 空间事实缺失或可疑跳变。第一版只基于结构化地图事实，不读正文、不调用 LLM、不推断未记录位置；只覆盖缺少主地点、缺少地图上下文和人物跨地图；主入口在写作页 Scene 面板，地图页用于展开查看和修正 |
 
 ## 2. 状态流转（Status Lifecycle）
 
@@ -104,11 +107,12 @@ core > important > normal > temporary > alias
 
 实现方向：
 1. 近期：在上下文编译入口提供显式模式（如 `context_mode="canonical" | "working"`）。默认使用 canonical；深度导入、批量抽取和结构分析等内部流水线显式请求 working。
-2. 后续：当候选审查、回放和可解释性需求稳定后，引入持久化上下文快照表，记录 task_id、phase、context_mode、included_asset_ids、rendered_context 或摘要、prompt_hash、created_at，用于审计、复现和问题定位。
+2. Deep import snapshot v1：深度导入 Phase 2/Phase 3 的真实 LLM 调用会写入 `context_snapshots`，记录 task_id、workflow_id、phase、context_mode、included_asset_ids、摘要、prompt_hash、token/section metadata、result_refs、created_at，用于审计、复现和问题定位。
 3. 持久化快照只记录当次 AI 调用使用过的上下文视图，不替代正史资产表，也不改变 candidate → canonical 的用户确认语义。
-4. 第一版不新增上下文快照表；用户确认后的 AI 参考资料只在生成结果或任务 `_meta` 中保存摘要与资产 ID（context_mode、scope、range、reveal_mode、included/excluded asset ids、asset_counts、include_pending_objects、user_note、compiled_at），不保存完整 rendered context。
-5. 手动 AI 操作应先创建 AI 参考资料确认记录，再把 `context_confirmation_id` 传给正文生成、手动剧情分析、手动剧情结构生成、手动补抽世界对象等接口。确认记录第一版保存摘要与资产 ID，后续可扩展为持久化上下文快照与回放入口。
-6. `/api/context/confirm` 负责按用户当前选择重新编译上下文并创建确认记录，而不是只保存前端已预览结果；这样可以避免预览与最终执行之间的数据漂移。
+4. `context_snapshots` 默认不保存完整 rendered context；只保存摘要、资产 ID、hash 和 metadata。调用方显式启用 `retain_rendered_context=true` 时才保存完整上下文，并按保留策略清理 `rendered_context` 字段，不删除快照行和 provenance metadata。
+5. Snapshot lifecycle v1：context 模块提供 `snapshot_health_summary` 聚合和显式 maintenance API，默认 dry-run；超时 running 快照标为 `failed/stale_running`，full context 清理只清正文和过期时间。
+6. 手动 AI 操作应先创建 AI 参考资料确认记录，再把 `context_confirmation_id` 传给正文生成、手动剧情分析、手动剧情结构生成、手动补抽世界对象等接口。手动 AI 第一版继续使用 `context_confirmations`；后续可在快照表稳定后迁移或补充回放入口。
+7. `/api/context/confirm` 负责按用户当前选择重新编译上下文并创建确认记录，而不是只保存前端已预览结果；这样可以避免预览与最终执行之间的数据漂移。
 
 用户控制边界：
 - 正文生成、手动剧情分析、手动剧情结构生成、手动补抽世界对象必须先展示并确认“AI 参考资料”，再执行 LLM 调用

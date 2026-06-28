@@ -9,10 +9,22 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.contracts import SceneContract
-from modules.world.map_schemas import MapConfigCreate
-from modules.world.services.map_service import MapConfigService
+from modules.world.map_schemas import (
+    BindingHex,
+    MapConfigCreate,
+    MapLocationBindingCreate,
+    MapMarkerCreate,
+    MapTerritoryCreate,
+    TerritoryHex,
+)
+from modules.world.services.map_service import (
+    MapConfigService,
+    MapLocationBindingService,
+    MapMarkerService,
+    MapTerritoryService,
+)
 from modules.world.services.map_state_assembler import MapStateAssembler
-from modules.world.tests.helpers import _create_project
+from modules.world.tests.helpers import _create_entity, _create_project
 
 
 @pytest.mark.asyncio
@@ -105,3 +117,114 @@ async def test_assemble_missing_scene_keeps_scene_none(
     _, _, kwargs = marker_repo.get_by_map_and_scene.mock_calls[0]
     assert kwargs == {"scene_id": uuid.UUID(hex=scene_id), "scene_index": None}
     assert state.scene is None
+
+
+@pytest.mark.asyncio
+async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_status(
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    created = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="世界", map_type="world", grid_width=4, grid_height=4),
+    )
+    canonical_location = await _create_entity(
+        db_session, nid, entity_type="location", name="正史地点", status="canonical"
+    )
+    candidate_location = await _create_entity(
+        db_session, nid, entity_type="location", name="待确认地点", status="candidate"
+    )
+    canonical_character = await _create_entity(
+        db_session, nid, entity_type="character", name="正史人物", status="canonical"
+    )
+    candidate_character = await _create_entity(
+        db_session, nid, entity_type="character", name="待确认人物", status="candidate"
+    )
+    canonical_faction = await _create_entity(
+        db_session, nid, entity_type="organization", name="正史势力", status="canonical"
+    )
+    candidate_faction = await _create_entity(
+        db_session, nid, entity_type="organization", name="待确认势力", status="candidate"
+    )
+
+    await MapLocationBindingService().batch_create(
+        db_session,
+        nid,
+        created.id,
+        MapLocationBindingCreate(
+            location_entity_id=str(canonical_location.id),
+            hexes=[BindingHex(hex_q=1, hex_r=1, is_center=True)],
+        ),
+    )
+    await MapLocationBindingService().batch_create(
+        db_session,
+        nid,
+        created.id,
+        MapLocationBindingCreate(
+            location_entity_id=str(candidate_location.id),
+            hexes=[BindingHex(hex_q=2, hex_r=1, is_center=True)],
+        ),
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        created.id,
+        MapMarkerCreate(
+            entity_id=str(canonical_character.id),
+            marker_type="character",
+            hex_q=1,
+            hex_r=1,
+            label="正史人物",
+        ),
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        created.id,
+        MapMarkerCreate(
+            entity_id=str(candidate_character.id),
+            marker_type="character",
+            hex_q=2,
+            hex_r=1,
+            label="待确认人物",
+        ),
+    )
+    await MapTerritoryService().create(
+        db_session,
+        nid,
+        created.id,
+        MapTerritoryCreate(
+            faction_entity_id=str(canonical_faction.id),
+            hexes=[TerritoryHex(hex_q=1, hex_r=1)],
+        ),
+    )
+    await MapTerritoryService().create(
+        db_session,
+        nid,
+        created.id,
+        MapTerritoryCreate(
+            faction_entity_id=str(candidate_faction.id),
+            hexes=[TerritoryHex(hex_q=2, hex_r=1)],
+        ),
+    )
+
+    state = await MapStateAssembler().assemble(db_session, nid, created.id)
+
+    assert [b.location_entity_id for b in state.location_bindings] == [
+        str(canonical_location.id)
+    ]
+    assert [b.location_entity_id for b in state.candidate_location_bindings] == [
+        str(candidate_location.id)
+    ]
+    assert [m.entity_id for m in state.markers] == [str(canonical_character.id)]
+    assert [m.entity_id for m in state.candidate_markers] == [
+        str(candidate_character.id)
+    ]
+    assert [t.faction_entity_id for t in state.territories] == [
+        str(canonical_faction.id)
+    ]
+    assert [t.faction_entity_id for t in state.candidate_territories] == [
+        str(candidate_faction.id)
+    ]

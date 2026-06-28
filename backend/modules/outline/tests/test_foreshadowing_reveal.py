@@ -600,6 +600,107 @@ class TestPlotStructureGenerateDuplicateRange:
         assert data["existing_threads_count"] == 0
         assert data["existing_arcs_count"] == 0
 
+    async def test_deep_import_generate_creates_context_snapshot(
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        """深度导入结构分析应为真实 LLM 调用创建 context snapshot。"""
+        bundle = _make_bundle(test_project_id)
+        bundle.warnings = ["RAG 检索降级"]
+        from sqlalchemy import select
+
+        from modules.context.models import ContextSnapshot
+        from modules.outline.generator import PlotStructureGenerator
+        from shared.utils import parse_uuid
+
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+        ):
+            mock_llm.return_value = _mock_llm_return_value()
+            data = await PlotStructureGenerator().generate(
+                db_session,
+                novel_id=test_project_id,
+                start_chapter=1,
+                end_chapter=10,
+                context_mode="working",
+                include_pending_objects=True,
+                workflow_id="wf-structure",
+                audit_context_snapshot=True,
+            )
+
+        stmt = select(ContextSnapshot).where(
+            ContextSnapshot.novel_id == parse_uuid(test_project_id, "novel_id"),
+            ContextSnapshot.workflow_id == "wf-structure",
+        )
+        snapshot = (await db_session.execute(stmt)).scalar_one()
+        assert snapshot.phase == "structure_analysis"
+        assert snapshot.operation == "plot_structure_generation"
+        assert snapshot.context_mode == "working"
+        assert snapshot.include_pending_objects is True
+        assert snapshot.status == "succeeded"
+        assert snapshot.context_summary["chapter_range"] == {"start": 1, "end": 10}
+        assert snapshot.context_summary["warnings_count"] == 1
+        assert snapshot.section_metadata["warnings"] == ["RAG 检索降级"]
+        assert snapshot.result_refs
+        assert any(ref["type"] == "plot_thread" for ref in snapshot.result_refs)
+        assert data["audit_summary"]["structure_analysis"]["snapshot_count"] == 1
+
+    async def test_deep_import_generate_marks_snapshot_failed_on_persist_error(
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        """结构分析解析成功但持久化失败时，snapshot 应标记 failed。"""
+        bundle = _make_bundle(test_project_id)
+        from sqlalchemy import select
+
+        from modules.context.models import ContextSnapshot
+        from modules.outline.generator import PlotStructureGenerator
+        from shared.utils import parse_uuid
+
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+            mock.patch(
+                "modules.outline.generation.persister.PlotStructurePersister.persist",
+                side_effect=RuntimeError("persist failed"),
+            ),
+        ):
+            mock_llm.return_value = _mock_llm_return_value()
+            with pytest.raises(RuntimeError, match="persist failed"):
+                await PlotStructureGenerator().generate(
+                    db_session,
+                    novel_id=test_project_id,
+                    start_chapter=1,
+                    end_chapter=10,
+                    context_mode="working",
+                    include_pending_objects=True,
+                    workflow_id="wf-structure-persist-failed",
+                    audit_context_snapshot=True,
+                )
+
+        await db_session.rollback()
+
+        stmt = select(ContextSnapshot).where(
+            ContextSnapshot.novel_id == parse_uuid(test_project_id, "novel_id"),
+            ContextSnapshot.workflow_id == "wf-structure-persist-failed",
+        )
+        snapshot = (await db_session.execute(stmt)).scalar_one()
+        assert snapshot.phase == "structure_analysis"
+        assert snapshot.status == "failed"
+        assert snapshot.error_kind == "RuntimeError"
+        assert "persist failed" in snapshot.error_message
+
     async def test_second_generate_reports_existing_counts_and_warning(
         self,
         db_session: AsyncSession,

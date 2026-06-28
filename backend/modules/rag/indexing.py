@@ -7,6 +7,7 @@ IndexingService 负责把章节正文处理为 RAG chunk 并生成 embedding，
 
 from __future__ import annotations
 
+import time
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +88,7 @@ class IndexingService:
         chapter_index: int,
     ) -> RagIndexReport:
         """索引指定章节并返回诊断报告。"""
+        started_at = time.monotonic()
         _get_latest_draft = _container_get("writing.get_latest_draft_for_chapter")
 
         draft = await _get_latest_draft(db, str(novel_id), chapter_index)
@@ -194,6 +196,14 @@ class IndexingService:
                     f"本章 {embedding_failed_count}/{len(created_chunks)} "
                     "个片段 embedding 失败，检索将降级为关键词匹配",
                 )
+
+        from modules.rag.metrics import get_metrics
+
+        get_metrics().record_indexing(
+            chunks_created=len(created_chunks),
+            embedding_failed_count=embedding_failed_count,
+            latency_ms=(time.monotonic() - started_at) * 1000,
+        )
 
         return RagIndexReport(
             chapter_index=chapter_index,

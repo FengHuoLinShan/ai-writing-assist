@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 
 from core.config import get_settings
@@ -16,6 +17,8 @@ from infrastructure.embedding.cache import EmbeddingCache
 from infrastructure.embedding.worker import BgeOnnxWorker
 
 logger = logging.getLogger(__name__)
+
+_last_prewarm: dict | None = None
 
 
 class EmbeddingProvider(ABC):
@@ -65,6 +68,31 @@ class BgeEmbeddingClient(EmbeddingProvider):
             if not cls._instance._started:
                 await cls._instance.start()
             return cls._instance
+
+    @classmethod
+    def runtime_snapshot(cls) -> dict:
+        instance = cls._instance
+        snapshot = {
+            "started": False,
+            "healthy": False,
+            "cache_stats": {},
+            "last_prewarm": _last_prewarm,
+        }
+        if instance is None:
+            return snapshot
+        snapshot.update(
+            {
+                "started": instance._started,
+                "healthy": instance.healthy,
+                "cache_stats": instance.cache_stats,
+            }
+        )
+        return snapshot
+
+    @classmethod
+    async def close_instance(cls) -> None:
+        if cls._instance is not None:
+            await cls._instance.close()
 
     async def start(self) -> None:
         if self._started:
@@ -138,3 +166,44 @@ class BgeEmbeddingClient(EmbeddingProvider):
         if is_single:
             return results[0]
         return results
+
+
+async def prewarm_embedding_worker() -> dict:
+    """启动 BGE worker 并执行一次轻量 query embedding。"""
+    global _last_prewarm
+
+    settings = get_settings()
+    started_at = time.monotonic()
+    try:
+        client = await BgeEmbeddingClient.get_instance()
+        embedding = await client.generate_embedding("rag prewarm", is_query=True)
+        if not (
+            isinstance(embedding, list)
+            and embedding
+            and isinstance(embedding[0], float)
+        ):
+            raise ValueError("embedding 返回格式异常")
+        latency_ms = round((time.monotonic() - started_at) * 1000, 1)
+        result = {
+            "status": "ready",
+            "provider": settings.embedding_provider,
+            "model": settings.embedding_model,
+            "embedding_dim": len(embedding),
+            "latency_ms": latency_ms,
+            "cache_stats": client.cache_stats,
+        }
+        _last_prewarm = result.copy()
+        return result
+    except Exception as exc:
+        latency_ms = round((time.monotonic() - started_at) * 1000, 1)
+        result = {
+            "status": "failed",
+            "provider": settings.embedding_provider,
+            "model": settings.embedding_model,
+            "embedding_dim": None,
+            "latency_ms": latency_ms,
+            "cache_stats": {},
+            "warning": str(exc)[:500],
+        }
+        _last_prewarm = result.copy()
+        raise RuntimeError("embedding worker prewarm failed") from exc

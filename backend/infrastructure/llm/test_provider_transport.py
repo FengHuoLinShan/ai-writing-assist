@@ -7,8 +7,12 @@ from unittest.mock import MagicMock, patch
 from infrastructure.llm.providers import OpenAIProvider
 
 
-def test_provider_disables_system_proxy_by_default() -> None:
+def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
     """OpenAI SDK should not implicitly use macOS/system proxies."""
+    from core.config import get_settings
+
+    monkeypatch.delenv("LLM_PROXY_URL", raising=False)
+    get_settings.cache_clear()
     with (
         patch("infrastructure.llm.providers.httpx.AsyncClient") as http_client_cls,
         patch("infrastructure.llm.providers.AsyncOpenAI") as openai_cls,
@@ -27,6 +31,7 @@ def test_provider_disables_system_proxy_by_default() -> None:
     assert kwargs["trust_env"] is False
     assert "proxy" not in kwargs
     assert openai_cls.call_args.kwargs["http_client"] is http_client
+    get_settings.cache_clear()
 
 
 def test_provider_uses_explicit_proxy_when_configured() -> None:

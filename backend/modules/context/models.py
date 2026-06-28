@@ -1,11 +1,21 @@
-"""Context confirmation ORM models."""
+"""Context ORM models."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import CHAR, JSON, Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import (
+    CHAR,
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column
@@ -142,4 +152,77 @@ class ContextConfirmation(Base, TimestampMixin):
         nullable=False,
         default=lambda: datetime.now(UTC),
         comment="确认时重新编译完成时间",
+    )
+
+
+class ContextSnapshot(Base, TimestampMixin):
+    """Automated AI-call context audit snapshot."""
+
+    __tablename__ = "context_snapshots"
+    __table_args__ = (
+        Index(
+            "ix_context_snapshots_novel_workflow_phase",
+            "novel_id",
+            "workflow_id",
+            "phase",
+        ),
+        Index("ix_context_snapshots_novel_created", "novel_id", "created_at"),
+        Index("ix_context_snapshots_status", "status"),
+        Index(
+            "ix_context_snapshots_rendered_expires",
+            "rendered_context_expires_at",
+        ),
+        {"comment": "AI 调用上下文快照审计记录"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    phase: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
+    scene_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    scene_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    context_mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="working",
+    )
+    include_pending_objects: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="running",
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    compile_options: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    included_asset_ids: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    excluded_asset_ids: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    context_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    section_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    token_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    rendered_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    error_kind: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rendered_context_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )

@@ -113,12 +113,12 @@ class TestEntityRevisionService:
         """Happy path: snapshot created and returned as dict."""
         # Arrange
         svc, repo, entity_repo = _make_revision_service()
-        entity = _mock_entity()
+        nid = str(uuid.uuid4())
+        entity = _mock_entity(novel_id=uuid.UUID(nid))
         revision = _mock_revision(entity_id=entity.id)
         entity_repo.get = AsyncMock(return_value=entity)
         repo.create = AsyncMock(return_value=revision)
         db = MagicMock()
-        nid = str(uuid.uuid4())
         eid = str(entity.id)
 
         # Act

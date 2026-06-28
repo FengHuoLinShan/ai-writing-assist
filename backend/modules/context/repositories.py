@@ -1,13 +1,14 @@
-"""Persistence helpers for context confirmations."""
+"""Persistence helpers for context records."""
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.models import ContextConfirmation
+from modules.context.models import ContextConfirmation, ContextSnapshot
 
 
 class ContextConfirmationRepository:
@@ -97,3 +98,171 @@ class ContextConfirmationRepository:
             if any(str(ref.get("id")) == asset_id for ref in result_refs):
                 matched.append(record)
         return matched
+
+
+class ContextSnapshotRepository:
+    """Data access for automated context snapshots."""
+
+    async def create(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        task_id: str | None,
+        workflow_id: str | None,
+        phase: str,
+        operation: str,
+        scene_id: str | None,
+        scene_index: int | None,
+        chapter_index: int | None,
+        context_mode: str,
+        include_pending_objects: bool,
+        attempt: int,
+        prompt_hash: str,
+        prompt_name: str,
+        model: str,
+        compile_options: dict,
+        included_asset_ids: dict,
+        excluded_asset_ids: dict,
+        context_summary: dict,
+        section_metadata: dict,
+        token_metadata: dict,
+        rendered_context: str | None,
+        rendered_context_expires_at: datetime | None,
+    ) -> ContextSnapshot:
+        snapshot = ContextSnapshot(
+            novel_id=novel_id,
+            task_id=task_id,
+            workflow_id=workflow_id,
+            phase=phase,
+            operation=operation,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            chapter_index=chapter_index,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            status="running",
+            attempt=attempt,
+            prompt_hash=prompt_hash,
+            prompt_name=prompt_name,
+            model=model,
+            compile_options=compile_options,
+            included_asset_ids=included_asset_ids,
+            excluded_asset_ids=excluded_asset_ids,
+            context_summary=context_summary,
+            section_metadata=section_metadata,
+            token_metadata=token_metadata,
+            rendered_context=rendered_context,
+            result_refs=[],
+            rendered_context_expires_at=rendered_context_expires_at,
+        )
+        db.add(snapshot)
+        await db.flush()
+        return snapshot
+
+    async def get(
+        self,
+        db: AsyncSession,
+        snapshot_id: uuid.UUID,
+    ) -> ContextSnapshot | None:
+        return await db.get(ContextSnapshot, snapshot_id)
+
+    async def list_for_novel(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        workflow_id: str | None = None,
+        task_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[ContextSnapshot]:
+        stmt = select(ContextSnapshot).where(ContextSnapshot.novel_id == novel_id)
+        if workflow_id is not None:
+            stmt = stmt.where(ContextSnapshot.workflow_id == workflow_id)
+        if task_id is not None:
+            stmt = stmt.where(ContextSnapshot.task_id == task_id)
+        stmt = stmt.order_by(ContextSnapshot.created_at).offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_for_maintenance(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        workflow_id: str | None = None,
+    ) -> list[ContextSnapshot]:
+        stmt = select(ContextSnapshot).where(ContextSnapshot.novel_id == novel_id)
+        if workflow_id is not None:
+            stmt = stmt.where(ContextSnapshot.workflow_id == workflow_id)
+        stmt = stmt.order_by(ContextSnapshot.created_at)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_succeeded(
+        self,
+        db: AsyncSession,
+        snapshot: ContextSnapshot,
+        *,
+        result_refs: list[dict],
+    ) -> ContextSnapshot:
+        snapshot.status = "succeeded"
+        snapshot.result_refs = result_refs
+        snapshot.error_kind = None
+        snapshot.error_message = None
+        await db.flush()
+        return snapshot
+
+    async def mark_failed(
+        self,
+        db: AsyncSession,
+        snapshot: ContextSnapshot,
+        *,
+        error_kind: str,
+        error_message: str,
+    ) -> ContextSnapshot:
+        snapshot.status = "failed"
+        snapshot.error_kind = error_kind
+        snapshot.error_message = error_message
+        await db.flush()
+        return snapshot
+
+    async def prune_rendered_context(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID | None,
+        workflow_id: str | None = None,
+        retain_latest_full_context_per_project: int = 200,
+        dry_run: bool = False,
+    ) -> int:
+        stmt = select(ContextSnapshot).where(
+            ContextSnapshot.rendered_context.is_not(None)
+        )
+        if novel_id is not None:
+            stmt = stmt.where(ContextSnapshot.novel_id == novel_id)
+        stmt = stmt.order_by(ContextSnapshot.novel_id, ContextSnapshot.created_at.desc())
+        result = await db.execute(stmt)
+        snapshots = list(result.scalars().all())
+
+        now = datetime.now(UTC)
+        seen_by_novel: dict[uuid.UUID, int] = {}
+        changed = 0
+        for snapshot in snapshots:
+            seen = seen_by_novel.get(snapshot.novel_id, 0)
+            seen_by_novel[snapshot.novel_id] = seen + 1
+            expires_at = snapshot.rendered_context_expires_at
+            if expires_at is not None and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            expired = expires_at is not None and expires_at <= now
+            outside_latest = seen >= retain_latest_full_context_per_project
+            if expired or outside_latest:
+                changed += 1
+                if not dry_run:
+                    snapshot.rendered_context = None
+                    snapshot.rendered_context_expires_at = None
+
+        if changed and not dry_run:
+            await db.flush()
+        return changed

@@ -13,6 +13,7 @@ const DEFAULT_LAYERS = {
   events: true,
   items: true,
   territories: true,
+  candidate: false,
 }
 
 const mapWorkspaceView = {
@@ -269,6 +270,7 @@ const mapWorkspaceView = {
       events: "事件",
       items: "物品",
       territories: "势力",
+      candidate: "待确认",
     }
     return Object.entries(labels).map(([key, label]) => `
       <label class="map-layer-toggle">

@@ -46,6 +46,11 @@ class RagChunksLoader(Loader):
             top_k=rag_limit,
             reference_chapter_index=options.chapter_index,
         )
+        for warning in getattr(result, "warnings", []) or []:
+            if warning not in bundle.warnings:
+                bundle.warnings.append(warning)
+        if getattr(result, "degraded", False) and "RAG 检索降级" not in bundle.warnings:
+            bundle.warnings.append("RAG 检索降级")
         if result and result.chunks:
             capped = result.chunks[:rag_limit]
             bundle.rag_chunks = [

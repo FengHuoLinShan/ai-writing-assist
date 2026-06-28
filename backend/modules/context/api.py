@@ -7,12 +7,15 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
 
 from core.dependencies import DbSession
 from modules.context.facade import compile_with_tiers
 from modules.context.facade import confirm_context as _confirm_context
+from modules.context.facade import get_context_snapshot as _get_context_snapshot
+from modules.context.facade import list_context_snapshots as _list_context_snapshots
+from modules.context.facade import run_snapshot_maintenance as _run_snapshot_maintenance
 from modules.context.markdown_renderer import render_compiled_context
 from modules.context.schemas import (
     ContextCompileRequest,
@@ -21,6 +24,11 @@ from modules.context.schemas import (
     ContextRenderRequest,
     ContextRenderResponse,
     ContextSectionItem,
+    ContextSnapshotListItemResponse,
+    ContextSnapshotListResponse,
+    ContextSnapshotMaintenanceRequest,
+    ContextSnapshotMaintenanceResponse,
+    ContextSnapshotResponse,
     ContextTierCompileResponse,
 )
 from modules.context.services.compiled_context import CompiledContext
@@ -206,3 +214,74 @@ async def confirm_context(
         user_note=request.user_note,
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
+
+
+@router.get("/snapshots", response_model=ContextSnapshotListResponse)
+async def list_context_snapshots(
+    db: DbSession,
+    novel_id: str,
+    workflow_id: str | None = None,
+    task_id: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> ContextSnapshotListResponse:
+    """按项目和任务/工作流查询自动上下文快照。"""
+    snapshots = await _list_context_snapshots(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        task_id=task_id,
+        limit=limit,
+        offset=offset,
+    )
+    items = [
+        ContextSnapshotListItemResponse(
+            **{
+                **snapshot.__dict__,
+                "has_rendered_context": snapshot.rendered_context is not None,
+            }
+        )
+        for snapshot in snapshots
+    ]
+    return ContextSnapshotListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/snapshots/maintenance",
+    response_model=ContextSnapshotMaintenanceResponse,
+)
+async def maintain_context_snapshots(
+    db: DbSession,
+    request: ContextSnapshotMaintenanceRequest,
+) -> ContextSnapshotMaintenanceResponse:
+    """显式运行上下文快照生命周期维护；默认 dry-run。"""
+    result = await _run_snapshot_maintenance(
+        db,
+        novel_id=request.novel_id,
+        workflow_id=request.workflow_id,
+        running_timeout_minutes=request.running_timeout_minutes,
+        prune_rendered_context=request.prune_rendered_context,
+        retain_latest_full_context_per_project=(
+            request.retain_latest_full_context_per_project
+        ),
+        dry_run=request.dry_run,
+    )
+    return ContextSnapshotMaintenanceResponse(**result)
+
+
+@router.get("/snapshots/{snapshot_id}", response_model=ContextSnapshotResponse)
+async def get_context_snapshot(
+    db: DbSession,
+    snapshot_id: str,
+    novel_id: str,
+) -> ContextSnapshotResponse:
+    """读取单条上下文快照；必须匹配 novel_id。"""
+    try:
+        snapshot = await _get_context_snapshot(
+            db,
+            novel_id=novel_id,
+            snapshot_id=snapshot_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ContextSnapshotResponse(**snapshot.__dict__)

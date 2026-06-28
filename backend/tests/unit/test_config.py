@@ -6,6 +6,8 @@ core/config.py 单元测试
 仅 field(default_factory=...) 字段可在实例化时响应环境变量变化。
 """
 
+import os
+
 import pytest
 
 from core.config import Settings, _env, get_settings
@@ -41,6 +43,9 @@ class TestSettingsEffectiveDefaults:
     def test_effective_reranker(self):
         assert Settings().reranker_enabled is False
 
+    def test_effective_rag_prewarm_on_startup(self):
+        assert Settings().rag_prewarm_on_startup is False
+
     def test_effective_debug(self):
         assert Settings().debug is False
 
@@ -50,7 +55,10 @@ class TestSettingsEffectiveDefaults:
         assert "postgresql+asyncpg" in Settings().database_url
 
     def test_effective_llm_base_url(self):
-        assert Settings().llm_base_url == "https://api.deepseek.com"
+        assert Settings().llm_base_url == os.environ.get(
+            "LLM_BASE_URL",
+            "https://api.deepseek.com",
+        )
 
     def test_effective_llm_model(self):
         assert Settings().llm_model == "deepseek-v4-flash"
@@ -166,6 +174,10 @@ class TestSettingsFromEnvFactoryFields:
     def test_vector_index_type_from_env(self, monkeypatch):
         monkeypatch.setenv("VECTOR_INDEX_TYPE", "ivfflat")
         assert Settings().vector_index_type == "ivfflat"
+
+    def test_rag_prewarm_on_startup_from_env(self, monkeypatch):
+        monkeypatch.setenv("RAG_PREWARM_ON_STARTUP", "true")
+        assert Settings().rag_prewarm_on_startup is True
 
 
 class TestSettingsFrozen:

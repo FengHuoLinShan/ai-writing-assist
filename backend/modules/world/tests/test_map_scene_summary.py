@@ -87,9 +87,101 @@ async def test_scene_summary_without_markers_returns_empty_summary_and_fallback(
         "scene_id": str(scene.id),
         "focus_entity_id": None,
         "fallback_reason": "scene_without_map",
-        "fallback_message": "当前 Scene 暂无地图位置，已回退到最近地图",
+        "fallback_message": "当前 Scene 暂无地图上下文，已回退到最近地图",
     }
+    assert body["warnings"][0]["code"] == "scene_without_map_context"
+    assert body["warnings"][0]["message"] == "当前 Scene 暂无地图上下文"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_ignores_candidate_markers_for_default_context(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    scene = await _create_scene(db_session, nid)
+    map_resp = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    candidate_character = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="待确认人物",
+        status="candidate",
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        map_resp.id,
+        MapMarkerCreate(
+            entity_id=str(candidate_character.id),
+            marker_type="character",
+            hex_q=1,
+            hex_r=1,
+            start_scene_id=str(scene.id),
+            start_scene_index=scene.scene_index,
+            label="待确认人物",
+        ),
+    )
+
+    resp = await async_client.get(
+        "/api/world/maps/scene-summary",
+        params={"novel_id": nid, "scene_id": str(scene.id)},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["characters"] == []
+    assert body["open_target"]["mode"] == "recent"
+    assert body["warnings"][0]["code"] == "scene_without_map_context"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_with_marker_but_no_bound_location_warns_missing_location(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    scene = await _create_scene(db_session, nid)
+    map_resp = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    character = await _create_entity(
+        db_session, nid, entity_type="character", name="沈砚"
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        map_resp.id,
+        MapMarkerCreate(
+            entity_id=str(character.id),
+            marker_type="character",
+            hex_q=1,
+            hex_r=1,
+            start_scene_id=str(scene.id),
+            start_scene_index=scene.scene_index,
+            label="沈砚",
+        ),
+    )
+
+    resp = await async_client.get(
+        "/api/world/maps/scene-summary",
+        params={"novel_id": nid, "scene_id": str(scene.id)},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["open_target"]["mode"] == "map"
+    assert body["primary_location"] is None
     assert body["warnings"][0]["code"] == "scene_without_location"
+    assert body["warnings"][0]["message"] == "当前 Scene 暂无主地点"
 
 
 @pytest.mark.asyncio
@@ -180,6 +272,84 @@ async def test_scene_summary_returns_location_characters_events_and_factions(
     assert [item["name"] for item in body["characters"]] == ["沈砚"]
     assert [item["name"] for item in body["events"]] == ["东门封锁"]
     assert [item["name"] for item in body["factions"]] == ["北府"]
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_warns_when_character_previous_marker_is_on_other_map(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    previous_scene = await _create_scene(
+        db_session, nid, scene_index=6, title="江陵旧事"
+    )
+    current_scene = await _create_scene(
+        db_session, nid, scene_index=7, title="洛阳外城"
+    )
+    old_map = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="江陵", map_type="world", grid_width=5, grid_height=5),
+    )
+    new_map = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="洛阳", map_type="world", grid_width=5, grid_height=5),
+    )
+    character = await _create_entity(
+        db_session, nid, entity_type="character", name="陆青"
+    )
+    location = await _create_entity(
+        db_session, nid, entity_type="location", name="洛阳外城"
+    )
+    await MapLocationBindingService().batch_create(
+        db_session,
+        nid,
+        new_map.id,
+        MapLocationBindingCreate(
+            location_entity_id=str(location.id),
+            hexes=[BindingHex(hex_q=1, hex_r=1, is_center=True)],
+        ),
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        old_map.id,
+        MapMarkerCreate(
+            entity_id=str(character.id),
+            marker_type="character",
+            hex_q=1,
+            hex_r=1,
+            start_scene_id=str(previous_scene.id),
+            start_scene_index=previous_scene.scene_index,
+            label="陆青",
+        ),
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        new_map.id,
+        MapMarkerCreate(
+            entity_id=str(character.id),
+            marker_type="character",
+            hex_q=1,
+            hex_r=1,
+            start_scene_id=str(current_scene.id),
+            start_scene_index=current_scene.scene_index,
+            label="陆青",
+        ),
+    )
+
+    resp = await async_client.get(
+        "/api/world/maps/scene-summary",
+        params={"novel_id": nid, "scene_id": str(current_scene.id)},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["warnings"][0]["code"] == "character_cross_map"
+    assert "陆青上一场在其他地图" in body["warnings"][0]["message"]
 
 
 @pytest.mark.asyncio

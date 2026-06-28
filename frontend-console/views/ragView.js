@@ -16,6 +16,15 @@ import { renderWorkflowCard } from "../shared/progressRenderer.js"
 const ragView = {
   _totalChunks: null,
   _embeddingFailedCount: 0,
+  _embeddingDim: null,
+  _configuredEmbeddingDim: null,
+  _indexedEmbeddingDim: null,
+  _embeddingDimensionMismatch: false,
+  _embeddingRuntime: { started: false, healthy: false, cache_stats: {} },
+  _metrics: null,
+  _retryableEmbeddingCount: 0,
+  _prewarmState: "idle",
+  _prewarmWarning: "",
   _statusWarnings: [],
   _statusDegraded: false,
   _statusItems: [],
@@ -35,15 +44,24 @@ const ragView = {
     }
     try {
       const data = await api.rag.status(state.currentProjectId)
-      this._totalChunks = data.total || 0
-      this._embeddingFailedCount = data.embedding_failed_count || 0
-      this._statusWarnings = data.warnings || []
-      this._statusDegraded = Boolean(data.degraded)
-      this._statusItems = data.items || []
+      this._applyStatus(data)
       this._apiAvailable = true
+      this._refreshMetrics()
+      if (this._totalChunks > 0 && !this._embeddingRuntime?.healthy) {
+        this._prewarm({ background: true })
+      }
     } catch {
       this._totalChunks = null
       this._embeddingFailedCount = 0
+      this._embeddingDim = null
+      this._configuredEmbeddingDim = null
+      this._indexedEmbeddingDim = null
+      this._embeddingDimensionMismatch = false
+      this._embeddingRuntime = { started: false, healthy: false, cache_stats: {} }
+      this._metrics = null
+      this._retryableEmbeddingCount = 0
+      this._prewarmState = "idle"
+      this._prewarmWarning = ""
       this._statusWarnings = []
       this._statusDegraded = false
       this._statusItems = []
@@ -51,6 +69,20 @@ const ragView = {
     }
     this._recoverRebuildWorkflow()
     this._loading = false
+  },
+
+  _applyStatus(data = {}) {
+    this._totalChunks = data.total || 0
+    this._embeddingFailedCount = data.embedding_failed_count || 0
+    this._embeddingDim = data.embedding_dim ?? null
+    this._configuredEmbeddingDim = data.configured_embedding_dim ?? null
+    this._indexedEmbeddingDim = data.indexed_embedding_dim ?? null
+    this._embeddingDimensionMismatch = Boolean(data.embedding_dimension_mismatch)
+    this._embeddingRuntime = data.embedding_runtime || { started: false, healthy: false, cache_stats: {} }
+    this._retryableEmbeddingCount = data.retryable_embedding_count || 0
+    this._statusWarnings = data.warnings || []
+    this._statusDegraded = Boolean(data.degraded)
+    this._statusItems = data.items || []
   },
 
   onLeave() {
@@ -104,6 +136,7 @@ const ragView = {
             <div><span style="font-size:24px;">${statusBadge}</span></div>
           </div>
         </div>
+        <div id="rag-diagnostics">${this._renderDiagnostics()}</div>
         ${this._statusDegraded ? `
           <div class="card" style="margin-bottom:8px;border-color:var(--warning);">
             <div class="card-title" style="font-size:12px;color:var(--warning);">索引不完整</div>
@@ -128,9 +161,103 @@ const ragView = {
           <input class="form-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" style="width:70px;" />
         </div>
         <button class="btn" data-action="rebuild-index">重建索引</button>
+        <button class="btn" data-action="prewarm-rag">预热检索引擎</button>
+        ${this._retryableEmbeddingCount > 0 ? `<button class="btn" data-action="retry-embeddings">重试失败向量</button>` : ""}
         <button class="btn" data-action="nav-search">测试搜索</button>
       </div>
     `
+  },
+
+  _renderDiagnostics() {
+    const runtime = this._embeddingRuntime || {}
+    const metrics = this._metrics || {}
+    const runtimeLabel = this._prewarmState === "running"
+      ? "预热中"
+      : this._prewarmState === "failed"
+        ? "失败"
+        : runtime.healthy
+          ? "ready"
+          : runtime.started
+            ? "未就绪"
+            : "未启动"
+    const actualDim = this._indexedEmbeddingDim ?? this._embeddingDim ?? "-"
+    const configuredDim = this._configuredEmbeddingDim ?? "-"
+    const avg = metrics.avg_latency_ms != null ? `${metrics.avg_latency_ms}ms` : "-"
+    const embeddingAvg = metrics.embedding_avg_ms != null ? `${metrics.embedding_avg_ms}ms` : "-"
+    const degradedRate = metrics.degraded_rate != null ? `${Math.round(metrics.degraded_rate * 100)}%` : "-"
+    const cacheStats = runtime.cache_stats || {}
+    const cacheText = cacheStats.hits != null ? `${cacheStats.hits}/${cacheStats.misses || 0}` : "-"
+    const warning = this._prewarmWarning ? `
+      <p style="margin-top:6px;font-size:12px;color:var(--warning);">${esc(this._prewarmWarning)}</p>
+    ` : ""
+    return `
+      <div class="card" style="margin-bottom:8px;">
+        <div class="card-title">诊断</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:8px;font-size:12px;">
+          <div><strong>${esc(String(actualDim))}</strong><br><span style="color:var(--text-dim);">实际维度</span></div>
+          <div><strong>${esc(String(configuredDim))}</strong><br><span style="color:var(--text-dim);">配置维度</span></div>
+          <div><strong>${esc(runtimeLabel)}</strong><br><span style="color:var(--text-dim);">worker</span></div>
+          <div><strong>${esc(avg)}</strong><br><span style="color:var(--text-dim);">平均检索</span></div>
+          <div><strong>${esc(embeddingAvg)}</strong><br><span style="color:var(--text-dim);">embedding</span></div>
+          <div><strong>${esc(degradedRate)}</strong><br><span style="color:var(--text-dim);">降级率</span></div>
+          <div><strong>${esc(String(this._retryableEmbeddingCount || 0))}</strong><br><span style="color:var(--text-dim);">可重试</span></div>
+          <div><strong>${esc(cacheText)}</strong><br><span style="color:var(--text-dim);">缓存命中/未命中</span></div>
+        </div>
+        ${this._embeddingDimensionMismatch ? `<p style="margin-top:6px;font-size:12px;color:var(--warning);">向量维度配置漂移，请同步配置后重启后端。</p>` : ""}
+        ${warning}
+      </div>
+    `
+  },
+
+  _updateDiagnosticsDOM() {
+    const el = document.getElementById("rag-diagnostics")
+    if (el) el.innerHTML = this._renderDiagnostics()
+  },
+
+  async _refreshMetrics() {
+    if (!api.rag.metrics) return
+    try {
+      const data = await api.rag.metrics()
+      this._metrics = data.metrics || null
+      if (data.embedding_runtime) this._embeddingRuntime = data.embedding_runtime
+      this._updateDiagnosticsDOM()
+    } catch {
+      // Metrics are diagnostic only; status remains useful without them.
+    }
+  },
+
+  async _refreshStatusFromServer() {
+    if (!state.currentProjectId) return
+    try {
+      const data = await api.rag.status(state.currentProjectId)
+      this._applyStatus(data)
+      this._apiAvailable = true
+      this._updateDiagnosticsDOM()
+    } catch {
+      // Retry/rebuild completion remains visible even if the status refresh fails.
+    }
+  },
+
+  async _prewarm() {
+    this._prewarmState = "running"
+    this._prewarmWarning = ""
+    this._updateDiagnosticsDOM()
+    try {
+      const result = await api.rag.prewarm()
+      this._prewarmState = result.status === "ready" ? "ready" : "failed"
+      this._prewarmWarning = result.warning || ""
+      this._embeddingDim = result.embedding_dim ?? this._embeddingDim
+      this._embeddingRuntime = {
+        ...(this._embeddingRuntime || {}),
+        started: true,
+        healthy: result.status === "ready",
+        cache_stats: result.cache_stats || {},
+      }
+    } catch (err) {
+      this._prewarmState = "failed"
+      this._prewarmWarning = err.message || "预热失败"
+    }
+    this._updateDiagnosticsDOM()
   },
 
   _stopRebuildPolling() {
@@ -169,11 +296,11 @@ const ragView = {
     }
   },
 
-  _startRebuildPolling(taskId) {
+  _startRebuildPolling(taskId, workflowType = "rag_reindex_novel") {
     this._stopRebuildPolling()
     this._rebuildPoller = pollTaskProgress({
       taskId,
-      workflowType: "rag_reindex_novel",
+      workflowType,
       apiClient: api,
       onUpdate: (progress) => {
         this._rebuildProgress = progress
@@ -181,9 +308,17 @@ const ragView = {
         this._updateRebuildProgressDOM()
       },
       onDone: (progress, task) => {
-        this._applyRagRebuildResult(task?.result || progress.raw?.result || {})
+        const result = task?.result || progress.raw?.result || {}
+        if (workflowType === "rag_retry_embeddings") {
+          this._retryableEmbeddingCount = result.remaining_retryable_count ?? result.failed ?? 0
+          this._embeddingFailedCount = result.remaining_retryable_count ?? result.failed ?? 0
+          this._refreshStatusFromServer()
+        } else {
+          this._applyRagRebuildResult(result)
+        }
         clearActiveWorkflow(taskId)
         this._updateRebuildProgressDOM()
+        this._updateDiagnosticsDOM()
       },
       onFailed: () => {
         clearActiveWorkflow(taskId)
@@ -195,17 +330,19 @@ const ragView = {
   _recoverRebuildWorkflow() {
     if (!state.currentProjectId || this._rebuildPoller) return
     const workflows = recoverActiveWorkflows(state.currentProjectId)
-    const workflow = workflows.find((item) => item.workflowType === "rag_reindex_novel" && item.view === "rag")
-      || workflows.find((item) => item.workflowType === "rag_reindex_novel")
+    const ragWorkflowTypes = new Set(["rag_reindex_novel", "rag_retry_embeddings"])
+    const workflow = workflows.find((item) => ragWorkflowTypes.has(item.workflowType) && item.view === "rag")
+      || workflows.find((item) => ragWorkflowTypes.has(item.workflowType))
     if (!workflow?.taskId) return
+    const workflowType = workflow.workflowType || "rag_reindex_novel"
     this._rebuildInfo = null
     this._rebuildProgress = normalizeTaskProgress({
       task_id: workflow.taskId,
-      task_type: "rag_reindex_novel",
+      task_type: workflowType,
       status: "running",
       meta: workflow.meta || {},
-    }, "rag_reindex_novel")
-    this._startRebuildPolling(workflow.taskId)
+    }, workflowType)
+    this._startRebuildPolling(workflow.taskId, workflowType)
   },
 
   _renderChunkList() {
@@ -385,6 +522,41 @@ const ragView = {
     }
   },
 
+  async _retryEmbeddings() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    if (!this._retryableEmbeddingCount) {
+      toast("暂无可重试的失败向量", "info")
+      return
+    }
+    try {
+      const result = await api.rag.retryEmbeddings({
+        novel_id: state.currentProjectId,
+        statuses: ["failed", "pending_vectorization"],
+      })
+      if (result.task_id) {
+        this._rebuildInfo = null
+        this._rebuildProgress = normalizeTaskProgress({
+          ...result,
+          task_type: "rag_retry_embeddings",
+        }, "rag_retry_embeddings")
+        persistActiveWorkflow({
+          taskId: result.task_id,
+          workflowType: "rag_retry_embeddings",
+          projectId: state.currentProjectId,
+          view: "rag",
+        })
+        this._updateRebuildProgressDOM()
+        this._startRebuildPolling(result.task_id, "rag_retry_embeddings")
+        toast("失败向量重试任务已提交", "success")
+      }
+    } catch (err) {
+      toast(err.message || "重试失败", "error")
+    }
+  },
+
   _bindEvents() {
     // 搜索输入框的 Enter 快捷键
     const searchInput = document.getElementById("rag-search-input")
@@ -404,6 +576,8 @@ const ragView = {
         if (val) this._doSearch(val)
       },
       "rebuild-index": () => this._rebuildIndex(),
+      "prewarm-rag": () => this._prewarm(),
+      "retry-embeddings": () => this._retryEmbeddings(),
     })
   },
 }

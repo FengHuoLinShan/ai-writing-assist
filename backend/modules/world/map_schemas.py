@@ -247,6 +247,18 @@ class MapStateResponse(BaseModel):
     territories: list = Field(
         default_factory=list, description="P2: MapTerritoryTile[]，P0 恒为空"
     )
+    candidate_location_bindings: list[MapLocationBindingResponse] = Field(
+        default_factory=list,
+        description="待确认地点绑定图层：关联 CoreEntity.status=candidate",
+    )
+    candidate_markers: list = Field(
+        default_factory=list,
+        description="待确认动态标记图层：关联 CoreEntity.status=candidate",
+    )
+    candidate_territories: list = Field(
+        default_factory=list,
+        description="待确认势力范围图层：关联 CoreEntity.status=candidate",
+    )
     scene: dict | None = None  # P1
 
 

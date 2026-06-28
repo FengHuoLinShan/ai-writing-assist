@@ -26,6 +26,7 @@ from modules.world.map_schemas import (
     MapTerritoryResponse,
     MapTileResponse,
 )
+from modules.world.repositories import CoreEntityRepository
 from modules.world.services.helpers import parse_uuid
 from modules.world.services.map_context import MapContext
 
@@ -53,6 +54,7 @@ class MapStateAssembler:
         binding_repo: MapLocationBindingRepository | None = None,
         marker_repo: MapMarkerRepository | None = None,
         territory_repo: MapTerritoryRepository | None = None,
+        entity_repo: CoreEntityRepository | None = None,
         ctx: MapContext | None = None,
         scene_lookup: SceneLookup | None = None,
     ) -> None:
@@ -61,6 +63,7 @@ class MapStateAssembler:
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._marker_repo = marker_repo or MapMarkerRepository()
         self._territory_repo = territory_repo or MapTerritoryRepository()
+        self._entity_repo = entity_repo or CoreEntityRepository()
         self._ctx = ctx or MapContext()
         self._scene_lookup = scene_lookup or _default_scene_lookup
 
@@ -102,15 +105,72 @@ class MapStateAssembler:
         markers = await self._marker_repo.get_by_map_and_scene(
             db, nid, mid, scene_id=sid, scene_index=scene_index
         )
+        statuses = await self._load_entity_statuses(
+            db,
+            nid,
+            [
+                *(b.location_entity_id for b in bindings),
+                *(m.entity_id for m in markers),
+                *(t.faction_entity_id for t in territories),
+            ],
+        )
+        canonical_bindings, candidate_bindings = self._split_by_status(
+            bindings, statuses, "location_entity_id"
+        )
+        canonical_markers, candidate_markers = self._split_by_status(
+            markers, statuses, "entity_id"
+        )
+        canonical_territories, candidate_territories = self._split_by_status(
+            territories, statuses, "faction_entity_id"
+        )
 
         return MapStateResponse(
             map=MapConfigResponse.model_validate(config),
             breadcrumbs=[MapConfigResponse.model_validate(b) for b in breadcrumbs],
             tiles=[MapTileResponse.model_validate(t) for t in tiles],
             location_bindings=[
-                MapLocationBindingResponse.model_validate(b) for b in bindings
+                MapLocationBindingResponse.model_validate(b) for b in canonical_bindings
             ],
-            markers=[MapMarkerResponse.model_validate(m) for m in markers],
-            territories=[MapTerritoryResponse.model_validate(t) for t in territories],
+            markers=[MapMarkerResponse.model_validate(m) for m in canonical_markers],
+            territories=[
+                MapTerritoryResponse.model_validate(t) for t in canonical_territories
+            ],
+            candidate_location_bindings=[
+                MapLocationBindingResponse.model_validate(b) for b in candidate_bindings
+            ],
+            candidate_markers=[
+                MapMarkerResponse.model_validate(m) for m in candidate_markers
+            ],
+            candidate_territories=[
+                MapTerritoryResponse.model_validate(t) for t in candidate_territories
+            ],
             scene=scene_info,
         )
+
+    async def _load_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: Any,
+        entity_ids: list[Any],
+    ) -> dict[Any, str]:
+        unique_ids = [
+            entity_id for entity_id in set(entity_ids) if entity_id is not None
+        ]
+        entities = await self._entity_repo.get_by_ids(db, novel_id, unique_ids)
+        return {entity.id: entity.status for entity in entities}
+
+    def _split_by_status(
+        self,
+        rows: list[Any],
+        statuses: dict[Any, str],
+        entity_attr: str,
+    ) -> tuple[list[Any], list[Any]]:
+        canonical: list[Any] = []
+        candidate: list[Any] = []
+        for row in rows:
+            status = statuses.get(getattr(row, entity_attr))
+            if status == "canonical":
+                canonical.append(row)
+            elif status == "candidate":
+                candidate.append(row)
+        return canonical, candidate

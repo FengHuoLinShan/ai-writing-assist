@@ -7,6 +7,7 @@ RAG 模块测试
 
 from __future__ import annotations
 
+import inspect
 import uuid
 
 import pytest
@@ -18,6 +19,7 @@ from modules.rag.chunking import ChunkingService
 from modules.rag.contracts import RagChunkContract, RagQueryContract, RagResultBundle
 from modules.rag.facade import (
     create_chunk,
+    get_index_status,
     list_chunks,
     retrieve,
     split_text_into_chunks,
@@ -41,10 +43,11 @@ from modules.rag.scoring import (
 
 
 def test_rag_task_handlers_are_registered() -> None:
-    """rag_reindex_novel 和 rag_index_chapter 应在 TaskRegistry 中注册"""
+    """rag_reindex_novel、rag_index_chapter 和 retry 任务应注册"""
     registry = TaskRegistry()
     assert "rag_reindex_novel" in registry
     assert "rag_index_chapter" in registry
+    assert "rag_retry_embeddings" in registry
     handler = registry.get_handler("rag_reindex_novel")
     assert handler is not None
     assert callable(handler)
@@ -227,6 +230,106 @@ class TestRagChunkRepository:
         fake_id = uuid.uuid4()
         deleted = await repo.delete(db_with_project, fake_id)
         assert deleted is False
+
+    @pytest.mark.asyncio
+    async def test_mark_embedding_failed_clears_stale_embedding(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """失败 chunk 不应保留旧向量继续参与向量评分。"""
+        chunk = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="待迁移片段",
+                embedding_status="pending_vectorization",
+            ),
+        )
+        chunk.embedding = [0.1] * 768  # type: ignore[assignment]
+        await db_with_project.flush()
+
+        updated = await repo.mark_embedding_failed(db_with_project, chunk.id, "down")
+        await db_with_project.flush()
+        refreshed = await repo.get(db_with_project, chunk.id)
+
+        assert updated is True
+        assert refreshed.embedding_status == "failed"
+        assert refreshed.embedding is None
+
+    @pytest.mark.asyncio
+    async def test_retryable_embedding_queries_are_scoped_to_novel_and_range(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """失败向量重试候选必须按 novel_id 和章节范围隔离。"""
+        other_novel_id = uuid.uuid4()
+        from modules.project.models import Project
+
+        db_with_project.add(
+            Project(
+                id=other_novel_id,
+                title="另一个项目",
+                genre="玄幻",
+                language="zh",
+            )
+        )
+        await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="第一章失败片段",
+                embedding_status="failed",
+            ),
+        )
+        await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=2,
+                text="第二章待重向量化片段",
+                embedding_status="pending_vectorization",
+            ),
+        )
+        await repo.create(
+            db_with_project,
+            other_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="其他项目失败片段",
+                embedding_status="failed",
+            ),
+        )
+        await db_with_project.flush()
+
+        count = await repo.count_retryable_embeddings(
+            db_with_project,
+            sample_novel_id,
+            statuses=["failed", "pending_vectorization"],
+            start_chapter=2,
+            end_chapter=2,
+        )
+        candidates = await repo.find_embedding_retry_candidates(
+            db_with_project,
+            sample_novel_id,
+            statuses=["failed", "pending_vectorization"],
+            start_chapter=2,
+            end_chapter=2,
+        )
+
+        assert count == 1
+        assert len(candidates) == 1
+        assert candidates[0].novel_id == sample_novel_id
+        assert candidates[0].chapter_index == 2
 
     @pytest.mark.asyncio
     async def test_keyword_search(
@@ -892,6 +995,104 @@ class TestRagFacade:
         assert chunk.character_ids == []
         assert chunk.thread_ids == []
         assert chunk.meta == {}
+
+    @pytest.mark.asyncio
+    async def test_get_index_status_reports_indexed_embedding_dim_when_config_drifts(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """状态页应显示已索引向量实际维度，并提示配置漂移。"""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        repo_local = RagChunkRepository()
+        chunk = await repo_local.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="周明瑞从绯红的梦境中醒来。",
+                embedding_status="succeeded",
+            ),
+        )
+        chunk.embedding = [0.1] * 768  # type: ignore[assignment]
+        await db_with_project.flush()
+
+        settings = SimpleNamespace(
+            embedding_provider="bge_onnx",
+            embedding_model="bge-base-zh-v1.5",
+            embedding_dim=1024,
+        )
+        with patch("core.config.get_settings", return_value=settings):
+            status = await get_index_status(db_with_project, str(sample_novel_id))
+
+        assert status["embedding_dim"] == 768
+        assert status["configured_embedding_dim"] == 1024
+        assert status["indexed_embedding_dim"] == 768
+        assert status["embedding_dimension_mismatch"] is True
+        assert status["degraded"] is True
+        assert any("EMBEDDING_DIM=1024" in warning for warning in status["warnings"])
+
+    @pytest.mark.asyncio
+    async def test_get_index_status_includes_runtime_and_retryable_count(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """状态页诊断应包含 runtime 快照和可重试 embedding 数。"""
+        repo_local = RagChunkRepository()
+        await repo_local.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="失败片段",
+                embedding_status="failed",
+            ),
+        )
+        await db_with_project.flush()
+
+        status = await get_index_status(db_with_project, str(sample_novel_id))
+
+        assert status["retryable_embedding_count"] == 1
+        assert status["embedding_runtime"]["started"] is False
+        assert status["embedding_runtime"]["healthy"] is False
+        assert "cache_stats" in status["embedding_runtime"]
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_endpoint_enqueues_task() -> None:
+    """API 层只校验请求并提交 rag_retry_embeddings 任务。"""
+    from unittest.mock import patch
+
+    from modules.rag.api import retry_embeddings
+    from modules.rag.schemas import RagRetryEmbeddingsRequest
+
+    request = RagRetryEmbeddingsRequest(
+        novel_id="novel-1",
+        start_chapter=1,
+        end_chapter=3,
+        statuses=["failed"],
+    )
+    db = object()
+    assert inspect.iscoroutinefunction(retry_embeddings)
+    with patch("modules.rag.api.enqueue_task", return_value="task-rag-retry") as mocked:
+        result = await retry_embeddings(db, request)
+
+    assert result == {"task_id": "task-rag-retry", "status": "pending"}
+    mocked.assert_called_once_with(
+        db,
+        "rag_retry_embeddings",
+        meta={
+            "novel_id": "novel-1",
+            "start_chapter": 1,
+            "end_chapter": 3,
+            "statuses": ["failed"],
+        },
+    )
 
 
 # ============================================================

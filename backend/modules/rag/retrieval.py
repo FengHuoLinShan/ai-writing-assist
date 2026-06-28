@@ -314,6 +314,9 @@ class RetrievalOrchestrator:
         import time as _time
 
         _t0 = _time.monotonic()
+        _embedding_ms: float | None = None
+        _search_ms: float | None = None
+        _rerank_ms: float | None = None
         top_k = max(1, min(top_k, _MAX_TOP_K))
         warnings: list[str] = []
         degraded = False
@@ -323,7 +326,9 @@ class RetrievalOrchestrator:
         if await self._repo.has_embeddings(db, novel_id):
             if cb.allow_request():
                 try:
+                    _embedding_t0 = _time.monotonic()
                     embedding = await self._embedder_fn(query, is_query=True)
+                    _embedding_ms = (_time.monotonic() - _embedding_t0) * 1000
                     if (
                         isinstance(embedding, list)
                         and embedding
@@ -336,6 +341,8 @@ class RetrievalOrchestrator:
                         degraded = True
                         warnings.append("embedding 返回格式异常，已降级")
                 except Exception as exc:
+                    if _embedding_ms is None:
+                        _embedding_ms = (_time.monotonic() - _embedding_t0) * 1000
                     cb.record_failure()
                     degraded = True
                     warnings.append(
@@ -345,6 +352,7 @@ class RetrievalOrchestrator:
                 degraded = True
                 warnings.append("BGE 服务熔断中，本次检索已降级为关键词匹配")
 
+        _search_t0 = _time.monotonic()
         scored_chunks = await self.hybrid_search(
             db,
             novel_id,
@@ -359,19 +367,25 @@ class RetrievalOrchestrator:
             top_k=top_k,
             reference_chapter_index=reference_chapter_index,
         )
+        _search_ms = (_time.monotonic() - _search_t0) * 1000
 
         deduped_chunks = self._deduplicate_by_embedding(scored_chunks, threshold=0.9)
 
         rerank_enabled = _is_rerank_enabled(mode)
         if rerank_enabled and len(deduped_chunks) > top_k:
             try:
+                _rerank_t0 = _time.monotonic()
                 deduped_chunks = await self._reranker_fn(
                     query,
                     deduped_chunks,
                     top_k=top_k,
                 )
+                _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
             except Exception as exc:
+                _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
                 warnings.append(f"重排序失败，使用原始排序: {exc}")
+        else:
+            _rerank_ms = 0.0
 
         deduped_chunks = deduped_chunks[:top_k]
 
@@ -394,6 +408,9 @@ class RetrievalOrchestrator:
             latency_ms=_latency_ms,
             degraded=degraded,
             empty=len(chunk_contracts) == 0,
+            embedding_ms=_embedding_ms,
+            search_ms=_search_ms,
+            rerank_ms=_rerank_ms,
         )
 
         return RagResultBundle(

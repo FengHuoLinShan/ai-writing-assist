@@ -15,6 +15,10 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from modules.imports.context_snapshot_helpers import (
+    build_phase2_snapshot_payload,
+    build_result_ref,
+)
 from modules.imports.llm_schemas import (
     DeltaEvent,
     ExtractedEntity,
@@ -134,6 +138,16 @@ class SceneEntityExtractionService:
                 await on_scene_progress(scene_idx + 1, total_scenes)
 
         await db.flush()
+        audit_summary = await self._phase2_audit_summary(
+            db,
+            novel_id,
+            workflow_id=workflow_id,
+        )
+        snapshot_health_summary = await self._phase2_snapshot_health_summary(
+            db,
+            novel_id,
+            workflow_id=workflow_id,
+        )
         return {
             "total_created": total_created,
             "total_relations": total_relations,
@@ -146,6 +160,8 @@ class SceneEntityExtractionService:
             "completed_scenes": completed_scenes,
             "skipped_scenes": skipped_scenes,
             "stopped_early": stopped_early,
+            "audit_summary": audit_summary,
+            "snapshot_health_summary": snapshot_health_summary,
         }
 
     # ------------------------------------------------------------------
@@ -200,34 +216,87 @@ class SceneEntityExtractionService:
             }
 
         memory_context = self._build_memory_context(accumulated_memory)
-        extraction = await self._call_llm_extraction(
-            chapters_text,
-            existing_context,
-            memory_context,
-        )
+        snapshot_id: str | None = None
+        try:
+            snapshot = await self._create_phase2_snapshot(
+                db,
+                nid,
+                scene,
+                source_chapter_index,
+                chapters_text,
+                existing_context,
+                memory_context,
+                accumulated_memory,
+                workflow_id=workflow_id,
+            )
+            snapshot_id = snapshot.id
+            extraction = await self._call_llm_extraction(
+                chapters_text,
+                existing_context,
+                memory_context,
+            )
+        except Exception as exc:
+            if snapshot_id is not None:
+                from modules.context.facade import mark_context_snapshot_failed
 
-        created_count = await self._persist_entities(
-            db,
-            nid,
-            extraction.entities,
-            scene_index=scene_index,
-            source_chapter_index=source_chapter_index,
-            seen_entity_keys=seen_entity_keys,
-            workflow_id=workflow_id,
-        )
-        relation_count = await self._persist_relations(
-            db,
-            nid,
-            extraction.relations,
-            scene_index=scene_index,
-            workflow_id=workflow_id,
-        )
-        delta_count = await self._record_deltas(
-            db,
-            nid,
-            extraction.delta_events,
-            scene_index=scene_index,
-        )
+                await mark_context_snapshot_failed(
+                    db,
+                    snapshot_id=snapshot_id,
+                    error_kind=self._error_kind(exc),
+                    error_message=str(exc)[:300],
+                )
+            raise
+
+        result_refs: list[dict[str, str]] = []
+        context_snapshot_id = snapshot_id
+        try:
+            created_count = await self._persist_entities(
+                db,
+                nid,
+                extraction.entities,
+                scene_index=scene_index,
+                source_chapter_index=source_chapter_index,
+                seen_entity_keys=seen_entity_keys,
+                workflow_id=workflow_id,
+                context_snapshot_id=context_snapshot_id,
+                result_refs=result_refs,
+            )
+            relation_count = await self._persist_relations(
+                db,
+                nid,
+                extraction.relations,
+                scene_index=scene_index,
+                workflow_id=workflow_id,
+                context_snapshot_id=context_snapshot_id,
+                result_refs=result_refs,
+            )
+            delta_count = await self._record_deltas(
+                db,
+                nid,
+                extraction.delta_events,
+                scene_index=scene_index,
+                context_snapshot_id=context_snapshot_id,
+                result_refs=result_refs,
+            )
+            if snapshot_id is not None:
+                from modules.context.facade import mark_context_snapshot_succeeded
+
+                await mark_context_snapshot_succeeded(
+                    db,
+                    snapshot_id=snapshot_id,
+                    result_refs=result_refs,
+                )
+        except Exception as exc:
+            if snapshot_id is not None:
+                from modules.context.facade import mark_context_snapshot_failed
+
+                await mark_context_snapshot_failed(
+                    db,
+                    snapshot_id=snapshot_id,
+                    error_kind=self._error_kind(exc),
+                    error_message=str(exc)[:300],
+                )
+            raise
 
         new_names = [
             e.name for e in extraction.entities if e.suggested_action == "create_new"
@@ -270,6 +339,119 @@ class SceneEntityExtractionService:
             "updated_context": updated_context,
             "updated_memory": updated_memory,
         }
+
+    async def _create_phase2_snapshot(
+        self,
+        db: AsyncSession,
+        nid,
+        scene: dict[str, Any],
+        source_chapter_index: int,
+        chapters_text: str,
+        existing_context: str,
+        memory_context: str,
+        accumulated_memory: list[dict],
+        workflow_id: str | None = None,
+    ):
+        from core.config import get_settings
+        from modules.context.facade import create_context_snapshot
+
+        settings = get_settings()
+        max_tokens = 16384
+        temperature = 0.3
+        payload = build_phase2_snapshot_payload(
+            scene=scene,
+            source_chapter_index=source_chapter_index,
+            existing_context=existing_context,
+            memory_context=memory_context,
+            chapters_text=chapters_text,
+            accumulated_memory=accumulated_memory,
+            model=settings.llm_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return await create_context_snapshot(
+            db,
+            novel_id=str(nid),
+            task_id=workflow_id,
+            workflow_id=workflow_id,
+            phase="entity_extraction",
+            operation="scene_entity_extraction",
+            scene_id=payload["scene_id"],
+            scene_index=payload["scene_index"],
+            chapter_index=payload["chapter_index"],
+            context_mode="working",
+            include_pending_objects=True,
+            attempt=1,
+            prompt_name="scene_entity_extraction",
+            model=settings.llm_model,
+            compile_options=payload["compile_options"],
+            included_asset_ids=payload["included_asset_ids"],
+            context_summary=payload["context_summary"],
+            section_metadata=payload["section_metadata"],
+            token_metadata=payload["token_metadata"],
+            rendered_context=payload["rendered_context"],
+            retain_rendered_context=False,
+        )
+
+    async def _phase2_audit_summary(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        workflow_id: str | None,
+    ) -> dict[str, Any]:
+        if not workflow_id:
+            return {}
+        from modules.context.facade import list_context_snapshots
+
+        snapshots = await list_context_snapshots(
+            db,
+            novel_id=novel_id,
+            workflow_id=workflow_id,
+            limit=200,
+        )
+        phase_snapshots = [
+            item for item in snapshots if item.phase == "entity_extraction"
+        ]
+        failed_scenes = [
+            item.scene_index
+            for item in phase_snapshots
+            if item.status == "failed" and item.scene_index is not None
+        ]
+        retained_expirations = [
+            item.rendered_context_expires_at
+            for item in phase_snapshots
+            if item.rendered_context is not None
+        ]
+        return {
+            "entity_extraction": {
+                "snapshot_count": len(phase_snapshots),
+                "succeeded": sum(
+                    1 for item in phase_snapshots if item.status == "succeeded"
+                ),
+                "failed": sum(1 for item in phase_snapshots if item.status == "failed"),
+                "failed_scenes": failed_scenes,
+                "retained_rendered_context_count": len(retained_expirations),
+                "rendered_context_expires_at": retained_expirations,
+            }
+        }
+
+    async def _phase2_snapshot_health_summary(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        workflow_id: str | None,
+    ) -> dict[str, Any]:
+        if not workflow_id:
+            return {}
+        from modules.context.facade import build_snapshot_health_summary
+
+        return await build_snapshot_health_summary(
+            db,
+            novel_id=novel_id,
+            workflow_id=workflow_id,
+        )
 
     @staticmethod
     def _scene_source_chapter_index(scene: dict[str, Any]) -> int:
@@ -357,6 +539,8 @@ class SceneEntityExtractionService:
         source_chapter_index: int,
         seen_entity_keys: set[tuple[str, str]] | None = None,
         workflow_id: str | None = None,
+        context_snapshot_id: str | None = None,
+        result_refs: list[dict[str, str]] | None = None,
     ) -> int:
         from modules.world.facade import create_entity, find_similar_entities
 
@@ -397,6 +581,8 @@ class SceneEntityExtractionService:
                 },
                 "aliases": ent.aliases or [],
             }
+            if context_snapshot_id:
+                content_json["_meta"]["context_snapshot_id"] = context_snapshot_id
             if action == "temporary_only":
                 content_json["_meta"]["temporary"] = True
             entity_payload = {
@@ -412,9 +598,13 @@ class SceneEntityExtractionService:
             }
             try:
                 async with db.begin_nested():
-                    await create_entity(db, str(nid), entity_payload)
+                    created_entity = await create_entity(db, str(nid), entity_payload)
                 created += 1
                 seen_entity_keys.add(entity_key)
+                if result_refs is not None and created_entity.get("id"):
+                    result_refs.append(
+                        build_result_ref("core_entity", created_entity["id"])
+                    )
             except Exception as exc:
                 logger.warning(
                     "Failed to create entity '%s': %s",
@@ -435,6 +625,8 @@ class SceneEntityExtractionService:
         relations: list[ExtractedRelation],
         scene_index: int,
         workflow_id: str | None = None,
+        context_snapshot_id: str | None = None,
+        result_refs: list[dict[str, str]] | None = None,
     ) -> int:
         from modules.world.facade import create_relation, find_entity_id_by_name
 
@@ -450,7 +642,7 @@ class SceneEntityExtractionService:
                 )
                 continue
             try:
-                await create_relation(
+                relation = await create_relation(
                     db,
                     str(nid),
                     {
@@ -464,6 +656,9 @@ class SceneEntityExtractionService:
                     },
                 )
                 created += 1
+                relation_id = getattr(relation, "id", None)
+                if result_refs is not None and relation_id:
+                    result_refs.append(build_result_ref("entity_relation", relation_id))
             except Exception as exc:
                 logger.warning(
                     "Failed to create relation %s -> %s: %s",
@@ -479,12 +674,14 @@ class SceneEntityExtractionService:
         nid,
         delta_events: list[DeltaEvent],
         scene_index: int,
+        context_snapshot_id: str | None = None,
+        result_refs: list[dict[str, str]] | None = None,
     ) -> int:
         from modules.memory.facade import create_delta_log
 
         count = 0
         for event in delta_events or []:
-            await create_delta_log(
+            delta = await create_delta_log(
                 db,
                 str(nid),
                 scene_index=scene_index,
@@ -493,7 +690,16 @@ class SceneEntityExtractionService:
                 old_value=json.dumps(event.old) if event.old is not None else None,
                 new_value=json.dumps(event.new) if event.new is not None else None,
                 source="ai_extraction",
-                meta=event.meta,
+                meta={
+                    **(event.meta or {}),
+                    **(
+                        {"context_snapshot_id": context_snapshot_id}
+                        if context_snapshot_id
+                        else {}
+                    ),
+                },
             )
             count += 1
+            if result_refs is not None and delta.get("id"):
+                result_refs.append(build_result_ref("delta_log", delta["id"]))
         return count

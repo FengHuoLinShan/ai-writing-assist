@@ -17,6 +17,10 @@ import {
   drawPendingTerrain,
   drawPendingBindings,
   drawHoverHighlight,
+  drawCandidateBindings,
+  drawCandidateMarkers,
+  drawCandidateTerritories,
+  drawContextHighlights,
   drawMarkers,
   drawTerritories,
   hashColor,
@@ -105,7 +109,10 @@ const mapView = {
         this._loadScenes(),
       ])
       if (context.sceneId) setCurrentScene(context.sceneId)
-      if (context.focusEntityId) await this._loadFocusState(context.focusEntityId)
+      if (context.focusEntityId && this._focusEntityHasTerritory(context.focusEntityId)) {
+        setFocusMode(true, context.focusEntityId)
+        await this._loadFocusState(context.focusEntityId)
+      }
     } else {
       await this._loadScenes()
     }
@@ -532,6 +539,11 @@ const mapView = {
     if (this._isLayerEnabled("territories")) {
       drawTerritories(this._ctx, this._state.territories, size, 0, 0, mapState.factionColors, getHexOpacity)
     }
+    if (this._isLayerEnabled("candidate")) {
+      drawCandidateBindings(this._ctx, this._state.candidate_location_bindings || [], size, 0, 0, getHexOpacity)
+      drawCandidateMarkers(this._ctx, this._candidateMarkers(), size, 0, 0)
+      drawCandidateTerritories(this._ctx, this._state.candidate_territories || [], size, 0, 0, mapState.factionColors, getHexOpacity)
+    }
 
     // 待应用变更叠加在基础地形之上
     if (this._isLayerEnabled("terrain")) {
@@ -540,6 +552,8 @@ const mapView = {
     if (this._isLayerEnabled("locations")) {
       drawPendingBindings(this._ctx, mapState.pendingBindings, size, 0, 0, getHexOpacity)
     }
+
+    drawContextHighlights(this._ctx, this._contextHighlightHexes(), size, 0, 0, getHexOpacity)
 
     // 悬停高亮
     if (mapState.hoveredHex) {
@@ -1433,6 +1447,7 @@ const mapView = {
 
   _isLayerEnabled(layer) {
     const layers = this._mountContext?.layers || {}
+    if (layer === "candidate") return layers.candidate === true
     return layers[layer] !== false
   },
 
@@ -1442,6 +1457,74 @@ const mapView = {
       if (marker.marker_type === "item") return this._isLayerEnabled("items")
       return this._isLayerEnabled("markers")
     })
+  },
+
+  _candidateMarkers() {
+    if (!this._isLayerEnabled("candidate")) return []
+    return (this._state?.candidate_markers || []).filter((marker) => marker.visible !== false)
+  },
+
+  _focusEntityHasTerritory(entityId) {
+    return (this._state?.territories || []).some((t) => t.faction_entity_id === entityId)
+  },
+
+  _contextHighlightHexes() {
+    if (!this._state) return []
+    const context = this._mountContext || {}
+    const sceneId = context.sceneId || mapState.currentSceneId
+    if (sceneId) {
+      const sceneMarkers = (this._state.markers || []).filter((marker) => (
+        marker.visible !== false
+      ))
+      const markerHighlights = sceneMarkers.map((marker) => ({
+        hex_q: marker.hex_q,
+        hex_r: marker.hex_r,
+        kind: "scene",
+      }))
+      const locationHighlights = []
+      for (const marker of sceneMarkers) {
+        const binding = (this._state.location_bindings || []).find((b) => (
+          b.hex_q === marker.hex_q && b.hex_r === marker.hex_r && b.is_center
+        ))
+        if (binding) {
+          locationHighlights.push({
+            hex_q: binding.hex_q,
+            hex_r: binding.hex_r,
+            kind: "primary_location",
+          })
+        }
+      }
+      return this._dedupeHighlights([...locationHighlights, ...markerHighlights])
+    }
+
+    const focusEntityId = context.focusEntityId
+    if (!focusEntityId) return []
+    const bindingHighlights = (this._state.location_bindings || [])
+      .filter((b) => b.location_entity_id === focusEntityId)
+      .map((b) => ({ hex_q: b.hex_q, hex_r: b.hex_r, kind: "focus" }))
+    if (bindingHighlights.length > 0) return this._dedupeHighlights(bindingHighlights)
+
+    const markerHighlights = (this._state.markers || [])
+      .filter((m) => m.entity_id === focusEntityId && m.visible !== false)
+      .map((m) => ({ hex_q: m.hex_q, hex_r: m.hex_r, kind: "focus" }))
+    if (markerHighlights.length > 0) return this._dedupeHighlights(markerHighlights)
+
+    const territoryHighlights = (this._state.territories || [])
+      .filter((t) => t.faction_entity_id === focusEntityId)
+      .map((t) => ({ hex_q: t.hex_q, hex_r: t.hex_r, kind: "territory" }))
+    return this._dedupeHighlights(territoryHighlights)
+  },
+
+  _dedupeHighlights(highlights) {
+    const seen = new Set()
+    const result = []
+    for (const h of highlights || []) {
+      const key = `${h.hex_q},${h.hex_r},${h.kind}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push(h)
+    }
+    return result
   },
 
   _notifyMapOpened() {

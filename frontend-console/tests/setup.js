@@ -97,11 +97,15 @@ globalThis.api = {
     search: vi.fn(),
     rebuild: vi.fn(),
     status: vi.fn(),
+    prewarm: vi.fn(),
+    retryEmbeddings: vi.fn(),
   },
   context: {
     compile: vi.fn(),
     render: vi.fn(),
     confirm: vi.fn(),
+    listSnapshots: vi.fn(),
+    getSnapshot: vi.fn(),
   },
   generate: {
     worldCharacter: vi.fn(),

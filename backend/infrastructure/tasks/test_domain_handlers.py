@@ -39,7 +39,7 @@ async def test_world_entity_extraction_reports_coarse_progress() -> None:
 
         await handle_world_entity_extraction(AsyncMock(), task)
 
-    assert task.progress_updates == [0.1, 0.85, 0.95]
+    assert task.progress_updates == [0.1, 0.85, 0.95, 1.0]
 
 
 @pytest.mark.asyncio

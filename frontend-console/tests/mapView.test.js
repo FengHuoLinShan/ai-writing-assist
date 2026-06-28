@@ -23,6 +23,9 @@ import {
   drawPendingTerrain,
   drawPendingBindings,
   drawHoverHighlight,
+  drawCandidateBindings,
+  drawCandidateMarkers,
+  drawContextHighlights,
   drawMarkers,
   drawTerritories,
   hashColor,
@@ -1151,6 +1154,74 @@ describe("mapView P2 势力范围", () => {
 
     expect(mapView._filteredMarkers().map((m) => m.id)).toEqual(["mk1"])
   })
+
+  it("待确认图层默认关闭，打开后才返回 candidate marker", () => {
+    mapView._mountContext = { layers: {} }
+    mapView._state = {
+      candidate_markers: [
+        { id: "candidate-1", marker_type: "character", visible: true },
+      ],
+    }
+
+    expect(mapView._candidateMarkers()).toEqual([])
+
+    mapView._mountContext = { layers: { candidate: true } }
+    expect(mapView._candidateMarkers().map((m) => m.id)).toEqual(["candidate-1"])
+  })
+
+  it("Scene 高亮优先于 focusEntityId", () => {
+    mapView._mountContext = { sceneId: "s1", focusEntityId: "loc1" }
+    mapView._state = {
+      location_bindings: [{ location_entity_id: "loc1", hex_q: 3, hex_r: 3 }],
+      markers: [
+        { entity_id: "c1", marker_type: "character", start_scene_id: "s1", hex_q: 1, hex_r: 1, visible: true },
+      ],
+      territories: [],
+    }
+
+    expect(mapView._contextHighlightHexes()).toEqual([
+      { hex_q: 1, hex_r: 1, kind: "scene" },
+    ])
+  })
+
+  it("Scene 高亮包含后端已过滤出的持续可见 marker", () => {
+    mapView._mountContext = { sceneId: "s2" }
+    mapView._state = {
+      location_bindings: [{ location_entity_id: "loc1", hex_q: 2, hex_r: 2, is_center: true }],
+      markers: [
+        {
+          entity_id: "c1",
+          marker_type: "character",
+          start_scene_id: "s1",
+          start_scene_index: 1,
+          end_scene_id: null,
+          end_scene_index: null,
+          hex_q: 2,
+          hex_r: 2,
+          visible: true,
+        },
+      ],
+      territories: [],
+    }
+
+    expect(mapView._contextHighlightHexes()).toEqual([
+      { hex_q: 2, hex_r: 2, kind: "primary_location" },
+      { hex_q: 2, hex_r: 2, kind: "scene" },
+    ])
+  })
+
+  it("无 Scene 时使用 focusEntityId 高亮地点", () => {
+    mapView._mountContext = { focusEntityId: "loc1" }
+    mapView._state = {
+      location_bindings: [{ location_entity_id: "loc1", hex_q: 3, hex_r: 3 }],
+      markers: [],
+      territories: [],
+    }
+
+    expect(mapView._contextHighlightHexes()).toEqual([
+      { hex_q: 3, hex_r: 3, kind: "focus" },
+    ])
+  })
 })
 
 describe("mapHexRenderer P2 drawTerritories", () => {
@@ -1176,5 +1247,41 @@ describe("mapHexRenderer P2 drawTerritories", () => {
     const c2 = hashColor("org-1")
     expect(c1).toBe(c2)
     expect(c1).toMatch(/^#[0-9A-Fa-f]{6}$/)
+  })
+})
+
+describe("mapHexRenderer candidate and context layers", () => {
+  it("drawCandidateMarkers uses weakened style and pending label", () => {
+    const ctx = createCanvasMock({ recordCalls: true })
+
+    drawCandidateMarkers(ctx, [
+      { hex_q: 1, hex_r: 1, marker_type: "character", label: "候选人物", visible: true },
+    ], 30, 0, 0)
+
+    expect(ctx._calls.arc).toBe(1)
+    expect(ctx._calls.fillText.some(([text]) => text === "待确认")).toBe(true)
+  })
+
+  it("drawCandidateBindings uses dashed pending outline", () => {
+    const ctx = createCanvasMock({ recordCalls: true })
+
+    drawCandidateBindings(ctx, [
+      { hex_q: 1, hex_r: 1, is_center: true },
+    ], 30, 0, 0)
+
+    expect(ctx._calls.beginPath).toBeGreaterThan(0)
+    expect(ctx._calls.setLineDash).toContainEqual([5, 4])
+    expect(ctx._calls.fillText.some(([text]) => text === "待")).toBe(true)
+  })
+
+  it("drawContextHighlights draws one outline per highlight", () => {
+    const ctx = createCanvasMock({ recordCalls: true })
+
+    drawContextHighlights(ctx, [
+      { hex_q: 1, hex_r: 1, kind: "scene" },
+      { hex_q: 2, hex_r: 1, kind: "focus" },
+    ], 30, 0, 0)
+
+    expect(ctx._calls.beginPath).toBe(2)
   })
 })

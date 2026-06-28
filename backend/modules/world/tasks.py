@@ -6,6 +6,7 @@ World 任务处理器
 
 from __future__ import annotations
 
+import inspect
 import logging
 
 from infrastructure.tasks.registry import task_handler
@@ -85,7 +86,11 @@ async def handle_world_entity_extraction(db, task):
             )
 
     task.update_progress(1.0)
-    await db.flush()
+    flush = getattr(db, "flush", None)
+    if flush is not None:
+        result_flush = flush()
+        if inspect.isawaitable(result_flush):
+            await result_flush
     return {
         "total_chapters": result.total_chapters,
         "total_created": result.total_created,

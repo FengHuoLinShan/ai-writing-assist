@@ -125,7 +125,11 @@ class TestRebuildIndexFirst10Chapters:
         # 索引后状态
         status_after = await get_index_status(db_session, project_id)
         assert status_after["total"] > 0
-        assert status_after["degraded"] == (status_after["embedding_failed_count"] > 0)
+        assert status_after["degraded"] == (
+            status_after["embedding_failed_count"] > 0
+            or status_after["pending_vectorization"] > 0
+            or status_after["embedding_dimension_mismatch"]
+        )
         print(
             f"\n索引状态: total={status_after['total']}, "
             f"embedding_failed={status_after['embedding_failed_count']}, "

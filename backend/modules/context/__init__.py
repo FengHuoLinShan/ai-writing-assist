@@ -1,7 +1,7 @@
 # modules/context — 上下文编译模块
 # Context Compiler 是系统最核心的智能模块之一。
 # RAG 负责找资料，Context Compiler 决定哪些资料真正交给模型。
-# 本模块没有自己的数据表，它是纯组合层。
+# 本模块同时拥有 AI 参考资料确认和自动上下文快照审计记录。
 
 from __future__ import annotations
 

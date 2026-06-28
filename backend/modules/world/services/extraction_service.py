@@ -200,6 +200,22 @@ class EntityExtractionService:
                     total_skipped += 1
                     continue
 
+                if suggested_action == "link_to_existing":
+                    existing_name = extracted.suggested_existing_entity_name
+                    if existing_name:
+                        from modules.world.facade import find_entity_id_by_name
+
+                        existing_id = await find_entity_id_by_name(
+                            db,
+                            novel_id,
+                            existing_name,
+                        )
+                        if existing_id:
+                            total_skipped += 1
+                            continue
+                    total_skipped += 1
+                    continue
+
                 if suggested_action == "create_new":
                     # --- Layer 1: Name embedding dedup ---
                     name_embedding = await self._generate_embedding(

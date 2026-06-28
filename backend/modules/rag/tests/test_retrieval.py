@@ -128,3 +128,81 @@ class TestRetrievalOrchestratorInjected:
         assert len(bundle.chunks) == 1
         # embedding 不可用，embedder 不应被调用
         embedder.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_records_stage_latency_metrics(self) -> None:
+        fake_chunk = type(
+            "Chunk",
+            (),
+            {
+                "id": uuid.uuid4(),
+                "novel_id": uuid.uuid4(),
+                "source_type": "chapter_text",
+                "source_id": None,
+                "chapter_index": 1,
+                "chunk_index": 0,
+                "start_offset": 0,
+                "end_offset": 10,
+                "char_count": 10,
+                "text": "灰雾中的测试文本",
+                "summary": None,
+                "entity_ids": [],
+                "character_ids": [],
+                "thread_ids": [],
+                "visibility": "author_only",
+                "importance": 0.5,
+                "index_version": "cn-novel-v1",
+                "embedding_status": "succeeded",
+                "embedding_error": None,
+                "index_warnings": [],
+                "meta": {},
+                "embedding": [0.1, 0.2],
+            },
+        )()
+
+        repo = type(
+            "Repo",
+            (),
+            {
+                "has_embeddings": AsyncMock(return_value=True),
+                "keyword_search": AsyncMock(return_value=[fake_chunk]),
+            },
+        )()
+
+        class _Metrics:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def record(self, **kwargs) -> None:
+                self.calls.append(kwargs)
+
+        metrics = _Metrics()
+
+        async def _fake_expand(db, novel_id, query, **kwargs):
+            return query
+
+        expander = QueryExpander(term_loader=lambda db, nid: [])
+        expander.expand = _fake_expand  # type: ignore[method-assign]
+
+        orch = RetrievalOrchestrator(
+            repo=repo,  # type: ignore[arg-type]
+            query_expander=expander,
+            embedder_fn=AsyncMock(return_value=[0.1, 0.2]),
+            metrics=lambda: metrics,
+            circuit_breaker=lambda: type(
+                "CB",
+                (),
+                {
+                    "allow_request": lambda self: True,
+                    "record_success": lambda self: None,
+                    "record_failure": lambda self: None,
+                },
+            )(),
+        )
+
+        await orch.retrieve(None, uuid.uuid4(), "灰雾")  # type: ignore[arg-type]
+
+        call = metrics.calls[-1]
+        assert call["embedding_ms"] >= 0
+        assert call["search_ms"] >= 0
+        assert call["rerank_ms"] >= 0

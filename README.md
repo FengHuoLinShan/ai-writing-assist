@@ -27,7 +27,7 @@ AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记�
 | **memory** | `memory_events` 事件溯源与 `memory_snapshots` 全景快照 |
 | **outline** | 剧情线、篇章纲、Scene、伏笔计划、揭示计划 |
 | **rag** | 分块 → embedding → 混合检索（向量 + 关键词 + 项目词典 + 关系 + 重要性） |
-| **context** | 分层编译 LLM 上下文、管理 AI 参考资料确认记录与结果追踪 |
+| **context** | 分层编译 LLM 上下文、管理 AI 参考资料确认记录与自动上下文快照审计 |
 | **writing** | 草稿 CRUD、Scene 树写作工作台、发布后触发索引与记忆更新 |
 | **imports** | 外部文件解析、深度导入三阶段工作流、Scene 切分与实体/结构抽取 |
 | **infrastructure/tasks** | PostgreSQL 队列的异步任务调度（enqueuer → worker），不是业务模块 |

@@ -9,6 +9,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 - 文本分块（按段落 / 按长度 / 中文小说分块）
 - Embedding 生成（可降级）
+- Embedding worker 预热与运行时诊断
 - 关键词检索（SQL LIKE 文本匹配）
 - 项目词典检索（人物别名、世界对象别名、剧情线名称）
 - 混合检索（关键词 + 项目词典 + 关系 + 重要性 + 向量）
@@ -65,7 +66,7 @@ score = 0.45 × vector_score
       + 0.10 × importance_score
 ```
 
-索引版本 `cn-novel-v1` 使用正文 offset、chunk_index 和 embedding_status 记录索引质量。embedding 失败不阻塞索引，但会写入 warnings 并让前端提示“结果可能不准确”。
+索引版本 `cn-novel-v1` 使用正文 offset、chunk_index 和 embedding_status 记录索引质量。embedding 失败不阻塞索引，但会写入 warnings 并让前端提示“结果可能不准确”。失败或待重新向量化的 chunk 可通过 `rag_retry_embeddings` 任务重试 embedding；该任务不重新切段、不删除 chunk，也不修改来源元数据。
 
 ## 对外契约
 
@@ -82,6 +83,10 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
   - 核心混合检索接口
 - `index_chapter_with_report(db, novel_id, chapter_index) -> RagIndexReport`
   - 索引章节并返回 chunk/embedding 诊断
+- `get_index_status(db, novel_id) -> dict`
+  - 返回索引统计、配置/实际向量维度、可重试 embedding 数、worker runtime 快照
+- `prewarm_embedding_runtime() -> dict`
+  - 预热本地 embedding worker 并返回维度、耗时和缓存统计
 - `get_ordered_chapter_chunks(db, novel_id, start_chapter, end_chapter=None) -> list[RagChunkContract]`
   - 给抽取链路提供有序正文材料
 - `split_text_into_chunks(text, method, **kwargs) -> list[str]`
@@ -93,14 +98,19 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
 POST /api/rag/chunks?novel_id=xxx       — 创建片段
 GET  /api/rag/chunks?novel_id=xxx        — 片段列表
 POST /api/rag/retrieve?novel_id=xxx      — 混合检索
+GET  /api/rag/metrics                    — 检索/索引/重试指标与 worker 状态
+POST /api/rag/prewarm                   — 预热 embedding worker
 POST /api/rag/rebuild                   — 按章节范围重建索引
+POST /api/rag/retry-embeddings          — 重试失败/待重向量化 chunk 的 embedding
 POST /api/rag/chunks/split               — 文本分割工具
 ```
 
 `/api/rag/rebuild` 接收 `novel_id`、`start_chapter`、`end_chapter`（后两者可选），
 入队 `rag_reindex_novel` 异步任务，返回 `{task_id, status}`。
 
-`retrieve` 响应包含 `warnings` 与 `degraded`；`chunks` 列表响应额外包含 `embedding_failed_count`。
+`/api/rag/retry-embeddings` 接收 `novel_id`、`start_chapter`、`end_chapter`、`statuses`（默认 `failed` 与 `pending_vectorization`），入队 `rag_retry_embeddings` 异步任务，返回 `{task_id, status}`。
+
+`retrieve` 响应包含 `warnings` 与 `degraded`；`chunks` 列表响应额外包含 `embedding_failed_count`、`retryable_embedding_count`、`configured_embedding_dim`、`indexed_embedding_dim`、`embedding_dimension_mismatch` 与 `embedding_runtime`。
 
 ## 模块职责
 

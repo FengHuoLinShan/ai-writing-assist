@@ -1,10 +1,8 @@
 """
 Context 对外契约
 
-定义 Context Compiler 的数据结构契约。
+定义 Context Compiler、确认记录和自动快照的数据结构契约。
 其他模块只能导入 contracts.py 和 facade.py，禁止直接导入 services/renderer。
-
-Context 模块没有自己的数据表，它是组合层，从所有其他模块拉取数据。
 """
 
 from __future__ import annotations
@@ -67,6 +65,41 @@ class ContextConfirmationContract:
     stale_reasons: list[str]
     compiled_at: str
     created_at: str
+
+
+@dataclass
+class ContextSnapshotContract:
+    """Automated AI-call context snapshot contract."""
+
+    id: str
+    novel_id: str
+    task_id: str | None
+    workflow_id: str | None
+    phase: str
+    operation: str
+    scene_id: str | None
+    scene_index: int | None
+    chapter_index: int | None
+    context_mode: str
+    include_pending_objects: bool
+    status: str
+    attempt: int
+    prompt_hash: str
+    prompt_name: str
+    model: str
+    compile_options: dict
+    included_asset_ids: dict
+    excluded_asset_ids: dict
+    context_summary: dict
+    section_metadata: dict
+    token_metadata: dict
+    rendered_context: str | None
+    result_refs: list[dict]
+    error_kind: str | None
+    error_message: str | None
+    rendered_context_expires_at: str | None
+    created_at: str
+    updated_at: str | None
 
 
 @dataclass

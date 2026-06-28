@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.context.contracts import (
     CompileOptions,
     ContextConfirmationContract,
+    ContextSnapshotContract,
     StructureContextBundle,
 )
 from modules.context.markdown_renderer import (
@@ -20,11 +21,16 @@ from modules.context.markdown_renderer import (
 from modules.context.markdown_renderer import (
     render_context_markdown as _render_markdown,
 )
-from modules.context.services import ContextCompiler, ContextConfirmationService
+from modules.context.services import (
+    ContextCompiler,
+    ContextConfirmationService,
+    ContextSnapshotService,
+)
 from modules.context.services.compiled_context import CompiledContext
 
 _compiler = ContextCompiler()
 _confirmation_service = ContextConfirmationService()
+_snapshot_service = ContextSnapshotService()
 
 
 def render_context_markdown(context: StructureContextBundle) -> str:
@@ -264,4 +270,189 @@ async def mark_asset_context_changed(
         asset_type=asset_type,
         asset_id=asset_id,
         reason=reason,
+    )
+
+
+async def create_context_snapshot(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task_id: str | None = None,
+    workflow_id: str | None = None,
+    phase: str,
+    operation: str,
+    scene_id: str | None = None,
+    scene_index: int | None = None,
+    chapter_index: int | None = None,
+    context_mode: str = "working",
+    include_pending_objects: bool = True,
+    attempt: int = 1,
+    prompt_name: str,
+    model: str,
+    compile_options: dict,
+    included_asset_ids: dict,
+    excluded_asset_ids: dict | None = None,
+    context_summary: dict,
+    section_metadata: dict,
+    token_metadata: dict,
+    rendered_context: str | None = None,
+    retain_rendered_context: bool = False,
+) -> ContextSnapshotContract:
+    return await _snapshot_service.create_context_snapshot(
+        db,
+        novel_id=novel_id,
+        task_id=task_id,
+        workflow_id=workflow_id,
+        phase=phase,
+        operation=operation,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        chapter_index=chapter_index,
+        context_mode=context_mode,
+        include_pending_objects=include_pending_objects,
+        attempt=attempt,
+        prompt_name=prompt_name,
+        model=model,
+        compile_options=compile_options,
+        included_asset_ids=included_asset_ids,
+        excluded_asset_ids=excluded_asset_ids,
+        context_summary=context_summary,
+        section_metadata=section_metadata,
+        token_metadata=token_metadata,
+        rendered_context=rendered_context,
+        retain_rendered_context=retain_rendered_context,
+    )
+
+
+async def mark_context_snapshot_succeeded(
+    db: AsyncSession,
+    *,
+    snapshot_id: str,
+    result_refs: list[dict],
+) -> ContextSnapshotContract:
+    return await _snapshot_service.mark_context_snapshot_succeeded(
+        db,
+        snapshot_id=snapshot_id,
+        result_refs=result_refs,
+    )
+
+
+async def mark_context_snapshot_failed(
+    db: AsyncSession,
+    *,
+    snapshot_id: str,
+    error_kind: str,
+    error_message: str,
+) -> ContextSnapshotContract:
+    return await _snapshot_service.mark_context_snapshot_failed(
+        db,
+        snapshot_id=snapshot_id,
+        error_kind=error_kind,
+        error_message=error_message,
+    )
+
+
+async def get_context_snapshot(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    snapshot_id: str,
+) -> ContextSnapshotContract:
+    return await _snapshot_service.get_context_snapshot(
+        db,
+        novel_id=novel_id,
+        snapshot_id=snapshot_id,
+    )
+
+
+async def list_context_snapshots(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    workflow_id: str | None = None,
+    task_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[ContextSnapshotContract]:
+    return await _snapshot_service.list_context_snapshots(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        task_id=task_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def build_snapshot_health_summary(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    workflow_id: str | None = None,
+    running_timeout_minutes: int = 120,
+) -> dict:
+    return await _snapshot_service.build_snapshot_health_summary(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        running_timeout_minutes=running_timeout_minutes,
+    )
+
+
+async def mark_stale_running_snapshots(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    workflow_id: str | None = None,
+    running_timeout_minutes: int = 120,
+    dry_run: bool = True,
+) -> int:
+    return await _snapshot_service.mark_stale_running_snapshots(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        running_timeout_minutes=running_timeout_minutes,
+        dry_run=dry_run,
+    )
+
+
+async def prune_rendered_context(
+    db: AsyncSession,
+    *,
+    novel_id: str | None = None,
+    workflow_id: str | None = None,
+    retain_latest_full_context_per_project: int | None = None,
+    dry_run: bool = False,
+    older_than_days: int | None = None,
+    keep_latest_per_project: int | None = None,
+) -> int:
+    return await _snapshot_service.prune_rendered_context(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        retain_latest_full_context_per_project=retain_latest_full_context_per_project,
+        dry_run=dry_run,
+        older_than_days=older_than_days,
+        keep_latest_per_project=keep_latest_per_project,
+    )
+
+
+async def run_snapshot_maintenance(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    workflow_id: str | None = None,
+    running_timeout_minutes: int = 120,
+    prune_rendered_context: bool = True,
+    retain_latest_full_context_per_project: int = 200,
+    dry_run: bool = True,
+) -> dict:
+    return await _snapshot_service.run_snapshot_maintenance(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        running_timeout_minutes=running_timeout_minutes,
+        prune_rendered_context=prune_rendered_context,
+        retain_latest_full_context_per_project=retain_latest_full_context_per_project,
+        dry_run=dry_run,
     )

@@ -46,6 +46,34 @@ _CONTAINER_GET_PATCHES = [
 ]
 
 
+def test_plot_structure_context_markdown_includes_rag_evidence_and_warnings() -> None:
+    """结构分析 prompt 应包含 RAG 检索证据和降级提示。"""
+    from modules.context.contracts import StructureContextBundle
+    from modules.outline.generation.context_builder import PlotStructureContextBuilder
+
+    bundle = StructureContextBundle(
+        novel_id="00000000-0000-0000-0000-000000000499",
+        task="生成剧情结构",
+        scope="full",
+        project={"title": "测试项目"},
+        rag_chunks=[
+            {
+                "text": "克莱恩在廷根醒来，发现自己处于陌生世界。",
+                "source_type": "chapter_text",
+                "chapter_index": 1,
+            }
+        ],
+        warnings=["RAG 检索降级"],
+    )
+
+    markdown = PlotStructureContextBuilder()._render_bundle_to_markdown(bundle)
+
+    assert "## RAG 检索证据" in markdown
+    assert "克莱恩在廷根醒来" in markdown
+    assert "## 上下文警告" in markdown
+    assert "RAG 检索降级" in markdown
+
+
 @pytest.mark.asyncio
 async def test_plot_threads_loaded_in_arc_scope(
     db_session: AsyncSession,

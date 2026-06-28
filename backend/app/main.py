@@ -8,6 +8,7 @@ AI 长篇小说结构化创作引擎 v2.0
 
 from __future__ import annotations  # noqa: I001
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -21,6 +22,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from core.config import get_settings
 from core.container import register as _register
 from core.database import get_manager
+from infrastructure.embedding.client import (
+    BgeEmbeddingClient,
+    prewarm_embedding_worker,
+)
 
 from modules.context.facade import (
     compile_structure_context as _ctx_compile,
@@ -147,12 +152,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
     # --- 启动完成 ---
+    if settings.rag_prewarm_on_startup:
+        async def _background_prewarm() -> None:
+            try:
+                await prewarm_embedding_worker()
+            except Exception:
+                logger.exception("RAG embedding prewarm failed")
+
+        asyncio.create_task(_background_prewarm())
+
     logger.info("Application startup complete.")
 
     yield  # <-- 应用运行期间
 
     # --- 关闭清理 ---
     logger.info("Shutting down — closing database connections...")
+    await BgeEmbeddingClient.close_instance()
     await manager.close()
     logger.info("Application shutdown complete.")
 

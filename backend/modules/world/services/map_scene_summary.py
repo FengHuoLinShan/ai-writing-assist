@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -74,6 +75,12 @@ class MapSceneSummaryService:
         markers = await self._marker_repo.get_by_scene(
             db, nid, scene_id=sid, scene_index=scene_index
         )
+        marker_statuses = await self._load_entity_statuses(
+            db, nid, [m.entity_id for m in markers]
+        )
+        markers = [
+            m for m in markers if marker_statuses.get(m.entity_id) == "canonical"
+        ]
         selected_map_id = self._select_map_id(markers, sid)
         entity_names = await self._load_entity_names(db, nid, markers)
         warnings: list[MapSceneSummaryWarning] = []
@@ -81,8 +88,8 @@ class MapSceneSummaryService:
         if selected_map_id is None:
             warnings.append(
                 MapSceneSummaryWarning(
-                    code="scene_without_location",
-                    message="当前 Scene 暂无地图位置",
+                    code="scene_without_map_context",
+                    message="当前 Scene 暂无地图上下文",
                 )
             )
             return MapSceneSummaryResponse(
@@ -96,7 +103,7 @@ class MapSceneSummaryService:
                     mode="recent",
                     scene_id=str(sid),
                     fallback_reason="scene_without_map",
-                    fallback_message="当前 Scene 暂无地图位置，已回退到最近地图",
+                    fallback_message="当前 Scene 暂无地图上下文，已回退到最近地图",
                 ),
             )
 
@@ -108,7 +115,7 @@ class MapSceneSummaryService:
             warnings.append(
                 MapSceneSummaryWarning(
                     code="scene_without_location",
-                    message="当前 Scene 暂无地图位置",
+                    message="当前 Scene 暂无主地点",
                 )
             )
 
@@ -158,6 +165,16 @@ class MapSceneSummaryService:
         entities = await self._entity_repo.get_by_ids(db, novel_id, ids)
         return {e.id: e.name for e in entities}
 
+    async def _load_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_ids: list[Any],
+    ) -> dict[uuid.UUID, str]:
+        ids = list({entity_id for entity_id in entity_ids if entity_id is not None})
+        entities = await self._entity_repo.get_by_ids(db, novel_id, ids)
+        return {e.id: e.status for e in entities}
+
     def _marker_items(
         self,
         markers: list[MapMarker],
@@ -193,6 +210,14 @@ class MapSceneSummaryService:
         markers: list[MapMarker],
     ) -> MapSceneSummaryItem | None:
         bindings = await self._binding_repo.get_by_map(db, novel_id, map_id)
+        binding_statuses = await self._load_entity_statuses(
+            db, novel_id, [b.location_entity_id for b in bindings]
+        )
+        bindings = [
+            b
+            for b in bindings
+            if binding_statuses.get(b.location_entity_id) == "canonical"
+        ]
         by_hex: dict[tuple[int, int], list[MapLocationBinding]] = {}
         for binding in bindings:
             by_hex.setdefault((binding.hex_q, binding.hex_r), []).append(binding)
@@ -231,10 +256,13 @@ class MapSceneSummaryService:
             territory_rows.extend(rows)
         entity_ids = [t.faction_entity_id for t in territory_rows]
         entities = await self._entity_repo.get_by_ids(db, novel_id, entity_ids)
+        statuses = {e.id: e.status for e in entities}
         names = {e.id: e.name for e in entities}
 
         items: list[MapSceneSummaryItem] = []
         for territory in territory_rows:
+            if statuses.get(territory.faction_entity_id) != "canonical":
+                continue
             if territory.faction_entity_id in seen:
                 continue
             seen.add(territory.faction_entity_id)

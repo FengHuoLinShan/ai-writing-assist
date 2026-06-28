@@ -15,11 +15,13 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 提交并编排深度导入任务（基于 async_tasks）
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
+- 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
 
 ## 不负责
 
 - 直接实现世界对象、记忆或大纲的业务规则
 - 绕过各模块 facade 直接写跨模块内部模型
+- 直接 import context 模块内部的 models / repositories / services
 - 文本改写或格式转换导出
 
 ## 数据表
@@ -27,12 +29,30 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - import_records：导入操作记录（元信息，不存正文）
 - async_tasks：深度导入任务载体，运行中写入 progress/result 供前端轮询
 
+`context_snapshots` 由 context 模块拥有。imports 只通过 facade 创建、标记成功/失败和回写 result refs，不直接访问 context 内部表或 repository。
+
 ## 跨模块依赖
 
 - writing.facade.create_draft — 写入解析后的章节正文
 - outline facade / DI handler — 深度导入 Phase 1/3
 - world facade / DI handler — 深度导入 Phase 2
+- context.facade — Phase 2/3 LLM 调用上下文快照审计
 - memory.facade.capture_snapshot — Phase 2 后记录记忆快照
+
+## 上下文快照边界
+
+- Phase 2 保持当前 handcrafted prompt/context 构造，不重接 context compiler；快照记录实际送入实体抽取 LLM 的上下文摘要、prompt hash、section/token metadata 和生成对象 refs。
+- Phase 3 结构分析由深度导入调用时传入 `workflow_id` / `task_id` 并开启 `audit_context_snapshot=True`；手动 AI 操作默认不创建 snapshot。
+- Phase 3 快照使用 `context_mode="working"` 和 `include_pending_objects=true`，记录结构上下文的 section/token metadata。若当前编译结果未暴露完整 asset ids，只记录可见资产并在 metadata 中说明。
+- 默认不保存完整 rendered context；调用方显式开启保留时才落库，并由 context 模块按保留策略清理。
+
+## 快照健康摘要兼容
+
+深度导入任务结果现在优先返回 `snapshot_health_summary`，用于展示快照数量、状态分布、超时 running、保留 full context 数和最近失败摘要。
+
+`audit_summary` 暂时保留为兼容 alias，旧前端或旧测试仍可读取；新代码应优先读取 `snapshot_health_summary`，再回退到 `audit_summary`。前端只展示“快照健康摘要 / 快照状态”的轻量信息，不新增审计工作台。
+
+快照维护入口由 context 模块提供：`POST /api/context/snapshots/maintenance`，默认 `dry_run=true`，imports 不直接访问 `context_snapshots` 表。
 
 ## Facade
 

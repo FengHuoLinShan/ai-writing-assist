@@ -77,7 +77,7 @@ class ImportService:
                 if total == 0:
                     raise _NoEffectiveChaptersError()
 
-                # 逐章创建 WritingDraft + 排 RAG 索引任务
+                # 逐章创建 WritingDraft + 排发布任务；发布任务统一负责 RAG 索引。
                 imported = 0
                 for idx, ch in enumerate(chapters, start=1):
                     _draft = await create_draft_only(
@@ -92,11 +92,6 @@ class ImportService:
                     enqueue_task(
                         db,
                         "publish_chapter",
-                        meta={"novel_id": novel_id, "chapter_index": idx},
-                    )
-                    enqueue_task(
-                        db,
-                        "rag_index_chapter",
                         meta={"novel_id": novel_id, "chapter_index": idx},
                     )
 

@@ -139,7 +139,7 @@ class TestMapHTTPAPI:
         loc_resp = await async_client.post(
             "/api/world/entities",
             params={"novel_id": nid},
-            json={"entity_type": "location", "name": "洛阳"},
+            json={"entity_type": "location", "name": "洛阳", "status": "canonical"},
         )
         loc_id = loc_resp.json()["id"]
         # 建绑定

@@ -194,6 +194,42 @@ class RagRebuildRequest(BaseModel):
         return self
 
 
+class RagRetryEmbeddingsRequest(BaseModel):
+    """失败 embedding 重试请求"""
+
+    novel_id: str = Field(
+        ...,
+        min_length=1,
+        description="小说项目 ID (UUID hex string)",
+    )
+    start_chapter: int | None = Field(
+        None,
+        ge=1,
+        description="起始章节索引（从 1 开始，包含）",
+    )
+    end_chapter: int | None = Field(
+        None,
+        ge=1,
+        description="结束章节索引（从 1 开始，包含）",
+    )
+    statuses: list[Literal["failed", "pending_vectorization"]] = Field(
+        default_factory=lambda: ["failed", "pending_vectorization"],
+        description="需要重试的 embedding 状态",
+    )
+
+    @model_validator(mode="after")
+    def check_retry_request(self) -> RagRetryEmbeddingsRequest:
+        if (
+            self.start_chapter is not None
+            and self.end_chapter is not None
+            and self.end_chapter < self.start_chapter
+        ):
+            raise ValueError("end_chapter 必须大于等于 start_chapter")
+        if not self.statuses:
+            raise ValueError("statuses 不能为空")
+        return self
+
+
 class RagChunkResponse(BaseModel):
     """RAG 片段响应"""
 

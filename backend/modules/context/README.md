@@ -12,6 +12,7 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 - 基于 `scope`、`scene_id`、`budget_tokens`、`reveal_mode` 进行裁剪
 - 输出兼容 bundle 或分层 `CompiledContext`
 - 手动 AI 操作前创建 `context_confirmations`
+- 为自动 AI 流水线创建 `context_snapshots` 审计记录
 - 在任务完成后把结果引用回写到确认记录
 - 在资产变化后把历史确认记录标记为 stale
 
@@ -20,7 +21,7 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 - 不直接执行 LLM 调用
 - 不直接做 RAG 检索算法
 - 不做剧情推理
-- 不保存完整 Markdown 快照，只保存可重编译摘要
+- 不默认保存完整 Markdown；完整 `rendered_context` 只能由调用方显式开启并受保留策略清理
 
 ## 核心 facade
 
@@ -32,6 +33,13 @@ async def confirm_context(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
 async def attach_result_ref(...) -> ContextConfirmationContract
 async def mark_asset_context_changed(...) -> int
+async def create_context_snapshot(...) -> ContextSnapshotContract
+async def mark_context_snapshot_succeeded(...) -> ContextSnapshotContract
+async def mark_context_snapshot_failed(...) -> ContextSnapshotContract
+async def build_snapshot_health_summary(...) -> dict
+async def mark_stale_running_snapshots(...) -> int
+async def prune_rendered_context(...) -> int
+async def run_snapshot_maintenance(...) -> dict
 ```
 
 ## 数据表
@@ -39,6 +47,41 @@ async def mark_asset_context_changed(...) -> int
 | 表 | 说明 |
 |----|------|
 | `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、`selected_asset_ids`、`result_refs`、`stale_reasons` |
+| `context_snapshots` | 自动 AI 调用上下文审计记录，保存 `task_id`、`workflow_id`、`phase`、`context_mode`、`included_asset_ids`、摘要、`prompt_hash`、token/section metadata、`result_refs`、错误信息和可选 `rendered_context` |
+
+`context_confirmations` 和 `context_snapshots` 是两套语义：
+
+- `context_confirmations` 面向手动 AI 操作，表示用户确认过的参考资料选择。
+- `context_snapshots` 面向自动流水线审计，表示一次真实 LLM 调用使用过的上下文视图。
+
+默认只保存可复现摘要和 metadata；`retain_rendered_context=True` 时才保存完整上下文并设置过期时间。清理任务只清空 `rendered_context` 和 `rendered_context_expires_at`，不删除快照行、hash、资产 ID、结果引用或 metadata。
+
+## 快照生命周期维护
+
+`context_snapshots` 的生命周期治理由 context 模块拥有，入口是 facade 和只读/维护 API：
+
+```http
+GET  /api/context/snapshots?novel_id=...&workflow_id=...
+GET  /api/context/snapshots/{snapshot_id}?novel_id=...
+POST /api/context/snapshots/maintenance
+```
+
+维护 API 默认 `dry_run=true`，只返回会变更的数量；调用方必须显式传 `dry_run=false` 才会修改数据库。请求字段包括：
+
+- `novel_id` 必填
+- `workflow_id` 可选
+- `running_timeout_minutes` 默认 120
+- `prune_rendered_context` 默认 true
+- `retain_latest_full_context_per_project` 默认 200
+- `dry_run` 默认 true
+
+维护规则：
+
+- 超时 `running` 快照会在执行模式下转为 `status="failed"`、`error_kind="stale_running"`。
+- 完整 `rendered_context` 按过期时间和每项目最近保留上限清理。
+- 维护不改 `result_refs`、hash、asset ids、section/token metadata 或快照行本身。
+
+`SnapshotHealthSummary` 是轻量聚合，只包含数量、状态/phase 分布、超时 running、保留 full context 数和最近失败摘要；不返回完整 prompt、`rendered_context` 或完整 result refs。
 
 ## 主要选项
 

@@ -20,6 +20,12 @@ from modules.imports.llm_schemas import (
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 
 
+async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
+    from modules.context.facade import list_context_snapshots
+
+    return await list_context_snapshots(db_session, novel_id=novel_id)
+
+
 @pytest.fixture
 async def novel_with_drafts(db_session: AsyncSession):
     """创建一个项目并写入第 1、2 章 draft。"""
@@ -93,6 +99,179 @@ async def test_persist_entities_writes_auto_ingested_meta(
     assert meta.get("source_chapter_index") == 1
     assert meta.get("batch_id") == "wf-test-1"
     assert meta.get("suggested_action") == "create_new"
+
+
+@pytest.mark.asyncio
+async def test_process_scene_creates_context_snapshot_and_links_entity_meta(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """每次成功 Scene LLM 调用应创建 snapshot 并写入实体元数据。"""
+    svc = SceneEntityExtractionService()
+    scene = {
+        "id": "scene-1",
+        "novel_id": novel_with_drafts,
+        "scene_index": 7,
+        "chapter_ids": ["1"],
+    }
+    extraction = Mock()
+    extraction.entities = [
+        ExtractedEntity(
+            name="奥黛丽",
+            entity_type="character",
+            suggested_action="create_new",
+        )
+    ]
+    extraction.relations = []
+    extraction.delta_events = []
+
+    with (
+        patch.object(svc, "_call_llm_extraction", new_callable=AsyncMock) as llm_call,
+        patch(
+            "modules.world.facade.find_similar_entities",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch("modules.memory.facade.capture_snapshot", new_callable=AsyncMock),
+    ):
+        llm_call.return_value = extraction
+        result = await svc._process_scene(
+            db_session,
+            novel_with_drafts,
+            scene,
+            0,
+            "无已有对象",
+            [],
+            set(),
+            workflow_id="wf-phase2",
+        )
+
+    assert result["created"] == 1
+    snapshots = await _snapshot_rows(db_session, novel_with_drafts)
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot.workflow_id == "wf-phase2"
+    assert snapshot.phase == "entity_extraction"
+    assert snapshot.operation == "scene_entity_extraction"
+    assert snapshot.status == "succeeded"
+    assert snapshot.scene_index == 7
+    assert snapshot.chapter_index == 1
+    assert snapshot.context_summary["scene_index"] == 7
+    assert len(snapshot.result_refs) == 1
+    assert snapshot.result_refs[0]["type"] == "core_entity"
+    assert snapshot.result_refs[0]["id"]
+
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    stmt = select(CoreEntity).where(
+        CoreEntity.novel_id == parse_uuid(novel_with_drafts, "novel_id"),
+        CoreEntity.name == "奥黛丽",
+    )
+    entity = (await db_session.execute(stmt)).scalar_one()
+    meta = (entity.content_json or {}).get("_meta", {})
+    assert meta["context_snapshot_id"] == str(snapshot.id)
+
+
+@pytest.mark.asyncio
+async def test_process_scene_creates_failed_context_snapshot_on_llm_error(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """失败的 Scene LLM 调用也应留下 failed snapshot。"""
+    svc = SceneEntityExtractionService()
+    scene = {
+        "id": "scene-2",
+        "novel_id": novel_with_drafts,
+        "scene_index": 8,
+        "chapter_ids": ["1"],
+    }
+
+    with patch.object(
+        svc,
+        "_call_llm_extraction",
+        new_callable=AsyncMock,
+        side_effect=LLMConnectionError("connection dropped"),
+    ):
+        with pytest.raises(LLMConnectionError):
+            await svc._process_scene(
+                db_session,
+                novel_with_drafts,
+                scene,
+                0,
+                "无已有对象",
+                [],
+                set(),
+                workflow_id="wf-failed-phase2",
+            )
+
+    snapshots = await _snapshot_rows(db_session, novel_with_drafts)
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot.status == "failed"
+    assert snapshot.error_kind == "connection_error"
+    assert "connection dropped" in snapshot.error_message
+    assert snapshot.phase == "entity_extraction"
+
+
+@pytest.mark.asyncio
+async def test_process_scene_marks_snapshot_failed_on_persist_error(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """LLM 成功后持久化失败也应把 snapshot 标记为 failed。"""
+    svc = SceneEntityExtractionService()
+    scene = {
+        "id": "scene-3",
+        "novel_id": novel_with_drafts,
+        "scene_index": 9,
+        "chapter_ids": ["1"],
+    }
+    extraction = Mock()
+    extraction.entities = [
+        ExtractedEntity(
+            name="佛尔思",
+            entity_type="character",
+            suggested_action="create_new",
+        )
+    ]
+    extraction.relations = []
+    extraction.delta_events = []
+
+    with (
+        patch.object(
+            svc,
+            "_call_llm_extraction",
+            new_callable=AsyncMock,
+            return_value=extraction,
+        ),
+        patch.object(
+            svc,
+            "_persist_entities",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("entity persist failed"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="entity persist failed"):
+            await svc._process_scene(
+                db_session,
+                novel_with_drafts,
+                scene,
+                0,
+                "无已有对象",
+                [],
+                set(),
+                workflow_id="wf-persist-failed-phase2",
+            )
+
+    snapshots = await _snapshot_rows(db_session, novel_with_drafts)
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot.status == "failed"
+    assert snapshot.error_kind == "RuntimeError"
+    assert "entity persist failed" in snapshot.error_message
 
 
 @pytest.mark.asyncio

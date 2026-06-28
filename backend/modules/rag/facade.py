@@ -77,14 +77,33 @@ async def list_chunks(
 async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     """获取 RAG 索引诊断状态。"""
     from core.config import get_settings
+    from infrastructure.embedding.client import BgeEmbeddingClient
 
     nid = uuid.UUID(hex=novel_id)
     total = await _repo.count_by_novel(db, nid)
     embedding_failed_count = await _repo.count_embedding_failed(db, nid)
     pending_vectorization = await _repo.count_pending_vectorization(db, nid)
+    retryable_embedding_count = await _repo.count_retryable_embeddings(
+        db,
+        nid,
+        statuses=["failed", "pending_vectorization"],
+    )
+    indexed_embedding_dim = await _repo.get_sample_embedding_dim(db, nid)
     settings = get_settings()
+    configured_embedding_dim = settings.embedding_dim
+    effective_embedding_dim = indexed_embedding_dim or configured_embedding_dim
+    embedding_dimension_mismatch = (
+        indexed_embedding_dim is not None
+        and indexed_embedding_dim != configured_embedding_dim
+    )
 
     warnings = []
+    if embedding_dimension_mismatch:
+        warnings.append(
+            f"已索引向量维度为 {indexed_embedding_dim}，"
+            f"但配置 EMBEDDING_DIM={configured_embedding_dim}，"
+            "请同步配置后重启后端",
+        )
     if pending_vectorization:
         warnings.append(
             f"有 {pending_vectorization} 个片段待重新向量化（维度迁移后），"
@@ -101,10 +120,19 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
         "total": total,
         "embedding_provider": settings.embedding_provider,
         "embedding_model": settings.embedding_model,
-        "embedding_dim": settings.embedding_dim,
+        "embedding_dim": effective_embedding_dim,
+        "configured_embedding_dim": configured_embedding_dim,
+        "indexed_embedding_dim": indexed_embedding_dim,
+        "embedding_dimension_mismatch": embedding_dimension_mismatch,
         "embedding_failed_count": embedding_failed_count,
         "pending_vectorization": pending_vectorization,
-        "degraded": embedding_failed_count > 0 or pending_vectorization > 0,
+        "retryable_embedding_count": retryable_embedding_count,
+        "embedding_runtime": BgeEmbeddingClient.runtime_snapshot(),
+        "degraded": (
+            embedding_failed_count > 0
+            or pending_vectorization > 0
+            or embedding_dimension_mismatch
+        ),
         "warnings": warnings,
         "circuit_breaker": get_circuit_breaker().status["state"],
     }
@@ -256,10 +284,19 @@ async def split_text_into_chunks(
 
 async def get_metrics_status() -> dict:
     """获取 RAG 检索运行时指标与熔断器状态。"""
+    from infrastructure.embedding.client import BgeEmbeddingClient
     from modules.rag.circuit_breaker import get_circuit_breaker
     from modules.rag.metrics import get_metrics
 
     return {
         "metrics": get_metrics().snapshot,
         "circuit_breaker": get_circuit_breaker().status,
+        "embedding_runtime": BgeEmbeddingClient.runtime_snapshot(),
     }
+
+
+async def prewarm_embedding_runtime() -> dict:
+    """预热 embedding worker，供 API 和状态页调用。"""
+    from infrastructure.embedding.client import prewarm_embedding_worker
+
+    return await prewarm_embedding_worker()

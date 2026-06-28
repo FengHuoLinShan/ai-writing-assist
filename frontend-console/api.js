@@ -7,6 +7,8 @@
 
 const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api"
 const API_TIMEOUT = 15000
+const RAG_SEARCH_TIMEOUT = 60000
+const RAG_PREWARM_TIMEOUT = 75000
 const API_CACHE_TTL = 30000
 
 const _apiCache = new Map()
@@ -498,6 +500,7 @@ const api = {
       return request(`/rag/retrieve${buildQueryString({ novel_id: novelId })}`, {
         method: "POST",
         body: JSON.stringify(payload),
+        timeout: RAG_SEARCH_TIMEOUT,
       })
     },
 
@@ -511,9 +514,33 @@ const api = {
       })
     },
 
+    /** 预热 RAG embedding worker */
+    async prewarm() {
+      return request("/rag/prewarm", {
+        method: "POST",
+        body: JSON.stringify({}),
+        timeout: RAG_PREWARM_TIMEOUT,
+      })
+    },
+
+    /** 重试失败 embedding */
+    async retryEmbeddings(payload) {
+      const { novel_id, start_chapter, end_chapter, statuses } = payload || {}
+      if (!novel_id) throw new Error("重试失败向量需要先选择项目")
+      return request("/rag/retry-embeddings", {
+        method: "POST",
+        body: JSON.stringify({ novel_id, start_chapter, end_chapter, statuses }),
+      })
+    },
+
     /** 获取索引状态 */
     async status(projectId) {
       return request("/rag/chunks" + buildQueryString({ novel_id: projectId }))
+    },
+
+    /** 获取 RAG 运行指标 */
+    async metrics() {
+      return request("/rag/metrics")
     },
   },
 
@@ -543,6 +570,16 @@ const api = {
         method: "POST",
         body: JSON.stringify(payload),
       })
+    },
+
+    /** 列出上下文快照审计记录 */
+    async listSnapshots(params = {}) {
+      return request("/context/snapshots" + buildQueryString(params))
+    },
+
+    /** 获取上下文快照审计详情 */
+    async getSnapshot(snapshotId, params = {}) {
+      return request(`/context/snapshots/${snapshotId}` + buildQueryString(params))
     },
   },
 

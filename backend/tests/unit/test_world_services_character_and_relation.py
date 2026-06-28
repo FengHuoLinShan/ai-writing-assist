@@ -1088,6 +1088,11 @@ class TestEntityRelationServiceUpsert:
         )
         svc.repo = AsyncMock()
         svc.repo.upsert.return_value = rel
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.side_effect = [
+            SimpleNamespace(id=uuid.UUID(sid), novel_id=uuid.UUID(nid)),
+            SimpleNamespace(id=uuid.UUID(tid), novel_id=uuid.UUID(nid)),
+        ]
 
         # Act
         result = await svc.upsert(

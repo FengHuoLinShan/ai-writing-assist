@@ -200,6 +200,8 @@ async def submit_deep_import_sync(
         "quality_status": progress.quality_status,
         "phase_errors": progress.phase_errors,
         "llm_health": progress.llm_health,
+        "snapshot_health_summary": progress.snapshot_health_summary,
+        "audit_summary": progress.audit_summary,
     }
 
 

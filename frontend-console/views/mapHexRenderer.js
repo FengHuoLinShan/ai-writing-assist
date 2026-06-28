@@ -274,6 +274,28 @@ export function drawPendingBindings(ctx, pendingBindings, size, offsetX, offsetY
 }
 
 /**
+ * 绘制待确认地点绑定（独立图层，弱化虚线 + 待确认标识）。
+ */
+export function drawCandidateBindings(ctx, bindings, size, offsetX, offsetY, getOpacity = null) {
+  for (const binding of bindings || []) {
+    const opacity = getOpacity ? getOpacity(binding.hex_q, binding.hex_r) * 0.75 : 0.75
+    drawHexCell(ctx, binding.hex_q, binding.hex_r, size, {
+      stroke: "rgba(179, 157, 219, 0.9)",
+      lineWidth: binding.is_center ? 2.5 : 1.5,
+      lineDash: [5, 4],
+    }, offsetX, offsetY, opacity)
+    if (binding.is_center) {
+      const [cx, cy] = hexToPixel(binding.hex_q, binding.hex_r, size)
+      ctx.fillStyle = "rgba(179, 157, 219, 0.95)"
+      ctx.font = "10px sans-serif"
+      ctx.textAlign = "center"
+      ctx.textBaseline = "middle"
+      ctx.fillText("待", cx + offsetX, cy + offsetY)
+    }
+  }
+}
+
+/**
  * 悬停 hex 白色描边高亮。
  */
 export function drawHoverHighlight(ctx, q, r, size, offsetX, offsetY, opacity = 1) {
@@ -314,6 +336,33 @@ export function drawMarkers(ctx, markers, size, offsetX, offsetY) {
       const displayLabel = marker.label.length > 4 ? marker.label.slice(0, 4) : marker.label
       ctx.fillText(displayLabel, x, y - style.radius - 2)
     }
+  }
+}
+
+export function drawCandidateMarkers(ctx, markers, size, offsetX, offsetY) {
+  if (!markers || markers.length === 0) return
+  for (const marker of markers) {
+    if (!marker.visible) continue
+    const style = MARKER_STYLES[marker.marker_type] || MARKER_STYLES.character
+    const [hx, hy] = hexToPixel(marker.hex_q, marker.hex_r, size)
+    const x = hx + offsetX + (marker.offset_x || 0) * size
+    const y = hy + offsetY + (marker.offset_y || 0) * size
+
+    ctx.beginPath()
+    ctx.arc(x, y, Math.max(5, style.radius - 2), 0, Math.PI * 2)
+    ctx.fillStyle = "rgba(179, 157, 219, 0.55)"
+    ctx.fill()
+    ctx.strokeStyle = "rgba(126, 87, 194, 0.9)"
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([5, 4])
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)"
+    ctx.font = "10px sans-serif"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "bottom"
+    ctx.fillText("待确认", x, y - style.radius - 2)
   }
 }
 
@@ -359,5 +408,45 @@ export function drawTerritories(ctx, territories, size, offsetX, offsetY, factio
         lineWidth: 1,
       }, offsetX, offsetY, opacity)
     }
+  }
+}
+
+export function drawCandidateTerritories(ctx, territories, size, offsetX, offsetY, factionColors, getOpacity = null) {
+  if (!territories || territories.length === 0) return
+  const colors = factionColors || {}
+  for (const t of territories) {
+    const color = colors[t.faction_id] || colors[t.faction_entity_id] || hashColor(t.faction_id || t.faction_entity_id || "candidate")
+    const hexes = t.hexes || [t]
+    for (const h of hexes) {
+      const opacity = getOpacity ? getOpacity(h.hex_q, h.hex_r) * 0.65 : 0.65
+      drawHexCell(ctx, h.hex_q, h.hex_r, size, {
+        fill: color + "22",
+        stroke: "rgba(179, 157, 219, 0.85)",
+        lineWidth: 1.5,
+        lineDash: [5, 4],
+      }, offsetX, offsetY, opacity)
+    }
+  }
+}
+
+export function drawContextHighlights(ctx, highlights, size, offsetX, offsetY, getOpacity = null) {
+  const styles = {
+    scene: { stroke: "#00E5FF", lineWidth: 3 },
+    primary_location: { stroke: "#FFD600", lineWidth: 3 },
+    focus: { stroke: "#FFFFFF", lineWidth: 3, lineDash: [2, 2] },
+    territory: { stroke: "#69F0AE", lineWidth: 2.5 },
+  }
+  for (const h of highlights || []) {
+    const opacity = getOpacity ? getOpacity(h.hex_q, h.hex_r) : 1
+    drawHexCell(
+      ctx,
+      h.hex_q,
+      h.hex_r,
+      size,
+      styles[h.kind] || styles.focus,
+      offsetX,
+      offsetY,
+      opacity,
+    )
   }
 }

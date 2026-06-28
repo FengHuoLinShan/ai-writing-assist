@@ -65,3 +65,11 @@ class DeepImportProgress(BaseModel):
         default=None,
         description="启动前 LLM 健康检查摘要（不含 API key）",
     )
+    audit_summary: dict = Field(
+        default_factory=dict,
+        description="深度导入上下文快照审计摘要",
+    )
+    snapshot_health_summary: dict = Field(
+        default_factory=dict,
+        description="深度导入上下文快照健康摘要（audit_summary 兼容 alias）",
+    )

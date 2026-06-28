@@ -172,6 +172,8 @@ const writingView = {
             phaseError: result.phase_error || result.error || task.error_message || "",
             phaseErrors: result.phase_errors || [],
             qualityStatus: result.quality_status || (result.degraded ? "partial" : "complete"),
+            auditSummary: result.audit_summary || result.auditSummary || {},
+            snapshotHealthSummary: result.snapshot_health_summary || result.snapshotHealthSummary || result.audit_summary || result.auditSummary || {},
           }
         }
         this._clearDeepImportWorkflow(taskId)
@@ -192,6 +194,8 @@ const writingView = {
         phaseError: result.phase_error || result.error || task.error_message || "",
         phaseErrors: result.phase_errors || [],
         qualityStatus: result.quality_status || (result.degraded ? "partial" : "pending"),
+        auditSummary: result.audit_summary || result.auditSummary || {},
+        snapshotHealthSummary: result.snapshot_health_summary || result.snapshotHealthSummary || result.audit_summary || result.auditSummary || {},
       }
       await this._rerender()
       this._startDeepImportPolling()
@@ -732,7 +736,7 @@ const writingView = {
       `
     }
     const warnings = (summary.warnings || []).map((warning) => `
-      <div style="margin-top:4px;color:var(--warning);">${esc(warning.message || warning)}</div>
+      <div style="margin-top:4px;color:var(--warning);">${esc(this._mapWarningMessage(warning))}</div>
     `).join("")
     return `
       <div class="writing-map-summary">
@@ -744,6 +748,18 @@ const writingView = {
         ${warnings}
       </div>
     `
+  },
+
+  _mapWarningMessage(warning) {
+    if (typeof warning === "string") return warning
+    if (!warning || typeof warning !== "object") return ""
+    if (warning.message) return warning.message
+    const messages = {
+      scene_without_map_context: "当前 Scene 暂无地图上下文",
+      scene_without_location: "当前 Scene 暂无主地点",
+      character_cross_map: "人物上一场在其他地图，需确认移动合理性",
+    }
+    return messages[warning.code] || "地图空间连续性需复核"
   },
 
   _scheduleSceneMapSummaryLoad(currentScene) {
@@ -1614,7 +1630,7 @@ const writingView = {
         phase: "running", step: "scene_segmentation",
         message: "正在切分 Scene...", percent: 0,
         degraded: false, degradedBatches: [], phaseError: "",
-        phaseErrors: [], qualityStatus: "pending",
+        phaseErrors: [], qualityStatus: "pending", auditSummary: {}, snapshotHealthSummary: {},
       }
       this._persistDeepImportWorkflow(result.task_id, startChapter, endChapter)
       // 保留 legacy key，shared workflow recovery 会迁移旧刷新状态。
@@ -1669,6 +1685,8 @@ const writingView = {
           phaseError: result.phase_error || result.error || task.error_message || "",
           phaseErrors: result.phase_errors || [],
           qualityStatus: result.quality_status || (result.degraded ? "partial" : "pending"),
+          auditSummary: result.audit_summary || result.auditSummary || {},
+          snapshotHealthSummary: result.snapshot_health_summary || result.snapshotHealthSummary || result.audit_summary || result.auditSummary || {},
         }
 
         if (task.status === "done" || result.phase === "done") {
@@ -1726,8 +1744,48 @@ const writingView = {
       title: "深度导入",
       message: progress.message,
       showTaskId: false,
-      actionsHtml,
+      actionsHtml: [this._renderDeepImportAuditSummary(), actionsHtml].filter(Boolean).join(""),
     })
+  },
+
+  _renderDeepImportAuditSummary() {
+    const summary = this._deepImportProgress?.snapshotHealthSummary
+      || this._deepImportProgress?.auditSummary
+      || {}
+    if (summary && typeof summary.total_snapshots === "number") {
+      const byStatus = summary.by_status || {}
+      const total = summary.total_snapshots || 0
+      if (total <= 0) return ""
+      const succeeded = byStatus.succeeded || 0
+      const failed = byStatus.failed || 0
+      const running = byStatus.running || 0
+      const stale = summary.stale_running_count || 0
+      const runningText = running > 0 ? ` · 运行中 ${running}` : ""
+      const staleText = stale > 0 ? ` · 超时 ${stale}` : ""
+      return `
+        <span style="font-size:11px;color:var(--text-dim);margin-right:8px;">
+          快照健康摘要：共 ${total} 条 · 成功 ${succeeded} · 失败 ${failed}${runningText}${staleText}
+        </span>
+        <button class="btn btn-sm" data-action="view-deep-import-audit" style="font-size:11px;">查看快照状态</button>
+      `
+    }
+
+    const phaseSummaries = Object.values(summary).filter((item) => item && typeof item === "object")
+    if (phaseSummaries.length === 0) return ""
+    const total = phaseSummaries.reduce((sum, item) => sum + (item.snapshot_count || 0), 0)
+    if (total <= 0) return ""
+    const succeeded = phaseSummaries.reduce((sum, item) => sum + (item.succeeded || 0), 0)
+    const failed = phaseSummaries.reduce((sum, item) => sum + (item.failed || 0), 0)
+    const failedScenes = phaseSummaries
+      .flatMap((item) => Array.isArray(item.failed_scenes) ? item.failed_scenes : [])
+      .filter((item) => item !== null && item !== undefined)
+    const failedSceneText = failedScenes.length > 0 ? ` · 失败 Scene：${failedScenes.join(", ")}` : ""
+    return `
+      <span style="font-size:11px;color:var(--text-dim);margin-right:8px;">
+        快照健康摘要：共 ${total} 条 · 成功 ${succeeded} · 失败 ${failed}${esc(failedSceneText)}
+      </span>
+      <button class="btn btn-sm" data-action="view-deep-import-audit" style="font-size:11px;">查看快照状态</button>
+    `
   },
 
   _normalizeDeepImportProgress() {
@@ -1792,6 +1850,64 @@ const writingView = {
     this._rerender()
   },
 
+  _showDeepImportAuditDetails() {
+    const summary = this._deepImportProgress?.snapshotHealthSummary
+      || this._deepImportProgress?.auditSummary
+      || {}
+    const phaseLabels = {
+      entity_extraction: "Phase 2 实体提取",
+      structure_analysis: "Phase 3 结构分析",
+    }
+    if (summary && typeof summary.total_snapshots === "number") {
+      const byPhase = summary.by_phase || {}
+      const latestFailure = summary.latest_failure
+      const failureHtml = latestFailure
+        ? `<div style="color:var(--warning);font-size:11px;margin-top:8px;">最近失败：${esc(latestFailure.phase || "unknown")} · ${esc(latestFailure.error_kind || "failed")}</div>`
+        : ""
+      const retainedHtml = summary.retained_rendered_context_count
+        ? `<div style="color:var(--text-dim);font-size:11px;margin-top:8px;">完整上下文保留：${summary.retained_rendered_context_count} 条</div>`
+        : ""
+      const rows = Object.entries(byPhase)
+        .filter(([, item]) => item && typeof item === "object")
+        .map(([phase, item]) => `
+          <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+            <div style="font-weight:600;margin-bottom:4px;">${esc(phaseLabels[phase] || phase)}</div>
+            <div style="font-size:12px;color:var(--text-dim);">
+              快照 ${(item.running || 0) + (item.succeeded || 0) + (item.failed || 0)} 条 · 成功 ${item.succeeded || 0} · 失败 ${item.failed || 0} · 运行中 ${item.running || 0}
+            </div>
+          </div>
+        `).join("")
+      showModal(
+        "深度导入快照状态",
+        rows || failureHtml || retainedHtml
+          ? `${rows}${failureHtml}${retainedHtml}`
+          : '<p style="color:var(--text-dim);">暂无快照健康摘要</p>',
+      )
+      return
+    }
+    const rows = Object.entries(summary)
+      .filter(([, item]) => item && typeof item === "object")
+      .map(([phase, item]) => {
+        const failedScenes = Array.isArray(item.failed_scenes) && item.failed_scenes.length > 0
+          ? `<div style="color:var(--warning);font-size:11px;margin-top:4px;">失败 Scene：${esc(item.failed_scenes.join(", "))}</div>`
+          : ""
+        const retention = item.retained_rendered_context_count
+          ? `<div style="color:var(--text-dim);font-size:11px;margin-top:4px;">完整上下文保留：${item.retained_rendered_context_count} 条</div>`
+          : ""
+        return `
+          <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+            <div style="font-weight:600;margin-bottom:4px;">${esc(phaseLabels[phase] || phase)}</div>
+            <div style="font-size:12px;color:var(--text-dim);">
+              快照 ${item.snapshot_count || 0} 条 · 成功 ${item.succeeded || 0} · 失败 ${item.failed || 0}
+            </div>
+            ${failedScenes}
+            ${retention}
+          </div>
+        `
+      }).join("")
+    showModal("深度导入快照状态", rows || '<p style="color:var(--text-dim);">暂无快照健康摘要</p>')
+  },
+
   // ============================================================
   // 事件绑定
   // ============================================================
@@ -1811,6 +1927,7 @@ const writingView = {
       "deep-import": () => this._showDeepImportForm(),
       "open-map": () => this._openMapForCurrentScene(),
       "dismiss-deep-import": () => this._dismissDeepImport(),
+      "view-deep-import-audit": () => this._showDeepImportAuditDetails(),
       "open-outline": () => router.navigate("outline", null),
       "split-scene": () => this._showSplitSceneForm(),
       "extract-cards": () => this._extractChapterCards(),

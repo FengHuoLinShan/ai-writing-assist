@@ -4,8 +4,7 @@
 三个深度模块串起来。实际逻辑分别位于 `modules.outline.generation.*`。
 """
 
-from __future__ import annotations
-
+import hashlib
 import logging
 from typing import Any
 
@@ -56,6 +55,8 @@ class PlotStructureGenerator:
         *,
         context_mode: str = "canonical",
         include_pending_objects: bool = False,
+        workflow_id: str | None = None,
+        audit_context_snapshot: bool = False,
     ) -> dict[str, Any]:
         """为指定章节范围生成剧情结构并持久化。
 
@@ -75,17 +76,56 @@ class PlotStructureGenerator:
 
         parser = PlotStructureParser(context)
         settings = get_settings()
-        parsed = await parser.parse(
-            self._llm_client,
-            settings.llm_model,
-            start_chapter,
-            end_chapter,
-        )
+        snapshot_id: str | None = None
+        if audit_context_snapshot:
+            snapshot_id = await self._create_structure_snapshot(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+                context.markdown,
+                warnings=context.warnings,
+                model=settings.llm_model,
+                workflow_id=workflow_id,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+            )
+        try:
+            parsed = await parser.parse(
+                self._llm_client,
+                settings.llm_model,
+                start_chapter,
+                end_chapter,
+            )
+        except Exception as exc:
+            if snapshot_id is not None:
+                await self._mark_structure_snapshot_failed(db, snapshot_id, exc)
+                await db.commit()
+            raise
 
         if parsed is None:
+            if snapshot_id is not None:
+                from modules.context.facade import mark_context_snapshot_failed
+
+                await mark_context_snapshot_failed(
+                    db,
+                    snapshot_id=snapshot_id,
+                    error_kind="empty_output",
+                    error_message="LLM returned empty structure output",
+                )
             logger.error(
                 "All generation attempts returned empty or failed for novel %s",
                 novel_id,
+            )
+            audit_summary = self._audit_summary(
+                snapshot_count=1 if snapshot_id else 0,
+                succeeded=0,
+                failed=1 if snapshot_id else 0,
+            )
+            snapshot_health_summary = await self._snapshot_health_summary(
+                db,
+                novel_id,
+                workflow_id=workflow_id,
             )
             return {
                 "total_threads": 0,
@@ -98,15 +138,204 @@ class PlotStructureGenerator:
                 "scenes": [],
                 "extra_sections": {},
                 "warnings": ["LLM 多次返回空结果，请重试"],
+                "audit_summary": audit_summary,
+                "snapshot_health_summary": snapshot_health_summary,
             }
 
-        result = await self._persister.persist(
+        try:
+            if snapshot_id is not None:
+                async with db.begin_nested():
+                    result = await self._persister.persist(
+                        db,
+                        nid,
+                        start_chapter,
+                        end_chapter,
+                        parsed,
+                        entity_name_to_id=context.entity_name_to_id,
+                        character_name_to_id=context.character_name_to_id,
+                    )
+            else:
+                result = await self._persister.persist(
+                    db,
+                    nid,
+                    start_chapter,
+                    end_chapter,
+                    parsed,
+                    entity_name_to_id=context.entity_name_to_id,
+                    character_name_to_id=context.character_name_to_id,
+                )
+            data = result.to_dict()
+            if snapshot_id is not None:
+                refs = self._result_refs(data)
+                from modules.context.facade import mark_context_snapshot_succeeded
+
+                await mark_context_snapshot_succeeded(
+                    db,
+                    snapshot_id=snapshot_id,
+                    result_refs=refs,
+                )
+                data["audit_summary"] = self._audit_summary(
+                    snapshot_count=1,
+                    succeeded=1,
+                    failed=0,
+                )
+                data["snapshot_health_summary"] = await self._snapshot_health_summary(
+                    db,
+                    novel_id,
+                    workflow_id=workflow_id,
+                )
+        except Exception as exc:
+            if snapshot_id is not None:
+                await self._mark_structure_snapshot_failed(db, snapshot_id, exc)
+                await db.commit()
+            raise
+        return data
+
+    async def _create_structure_snapshot(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        markdown: str,
+        *,
+        warnings: list[str],
+        model: str,
+        workflow_id: str | None,
+        context_mode: str,
+        include_pending_objects: bool,
+    ) -> str:
+        from modules.context.facade import create_context_snapshot
+
+        token_estimate = max(1, len(markdown) // 4) if markdown else 0
+        snapshot = await create_context_snapshot(
             db,
-            nid,
-            start_chapter,
-            end_chapter,
-            parsed,
-            entity_name_to_id=context.entity_name_to_id,
-            character_name_to_id=context.character_name_to_id,
+            novel_id=novel_id,
+            task_id=workflow_id,
+            workflow_id=workflow_id,
+            phase="structure_analysis",
+            operation="plot_structure_generation",
+            chapter_index=start_chapter,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            attempt=1,
+            prompt_name="structure_plot",
+            model=model,
+            compile_options={
+                "source": "deep_import_phase3_structure_context",
+                "scope": "full",
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+                "context_mode": context_mode,
+                "include_pending_objects": include_pending_objects,
+            },
+            included_asset_ids={
+                "context_sections": ["structure_context"],
+                "chapters": [str(i) for i in range(start_chapter, end_chapter + 1)],
+            },
+            context_summary={
+                "chapter_range": {"start": start_chapter, "end": end_chapter},
+                "context_mode": context_mode,
+                "include_pending_objects": include_pending_objects,
+                "section_count": 1,
+                "total_tokens": token_estimate,
+                "evicted": [],
+                "truncated": [],
+                "warnings_count": len(warnings),
+            },
+            section_metadata={
+                "asset_id_visibility": (
+                    "current structure context does not expose complete asset ids"
+                ),
+                "warnings": warnings,
+                "sections": [
+                    {
+                        "key": "structure_context",
+                        "tier": 0,
+                        "token_count": token_estimate,
+                        "truncated": False,
+                        "hash": hashlib.sha256(
+                            markdown.encode("utf-8")
+                        ).hexdigest(),
+                    }
+                ],
+                "evicted": [],
+                "truncated": [],
+            },
+            token_metadata={
+                "total_tokens": token_estimate,
+                "budget_tokens": None,
+                "sections": {"structure_context": token_estimate},
+            },
+            rendered_context=markdown,
+            retain_rendered_context=False,
         )
-        return result.to_dict()
+        return snapshot.id
+
+    @staticmethod
+    async def _mark_structure_snapshot_failed(
+        db: AsyncSession,
+        snapshot_id: str,
+        exc: Exception,
+    ) -> None:
+        from modules.context.facade import mark_context_snapshot_failed
+
+        await mark_context_snapshot_failed(
+            db,
+            snapshot_id=snapshot_id,
+            error_kind=exc.__class__.__name__,
+            error_message=str(exc)[:300],
+        )
+
+    @staticmethod
+    def _result_refs(data: dict[str, Any]) -> list[dict[str, str]]:
+        refs: list[dict[str, str]] = []
+        for item in data.get("threads", []):
+            if item.get("id"):
+                refs.append({"type": "plot_thread", "id": str(item["id"])})
+        for item in data.get("arcs", []):
+            if item.get("id"):
+                refs.append({"type": "outline_arc", "id": str(item["id"])})
+        for item in data.get("scenes", []):
+            if item.get("id"):
+                refs.append({"type": "scene", "id": str(item["id"])})
+        extra = data.get("extra_sections", {}) or {}
+        for item in extra.get("foreshadowing_plans", []):
+            if item.get("id"):
+                refs.append({"type": "foreshadowing_plan", "id": str(item["id"])})
+        for item in extra.get("reveal_plans", []):
+            if item.get("id"):
+                refs.append({"type": "reveal_plan", "id": str(item["id"])})
+        return refs
+
+    @staticmethod
+    def _audit_summary(
+        *,
+        snapshot_count: int,
+        succeeded: int,
+        failed: int,
+    ) -> dict[str, Any]:
+        return {
+            "structure_analysis": {
+                "snapshot_count": snapshot_count,
+                "succeeded": succeeded,
+                "failed": failed,
+            }
+        }
+
+    async def _snapshot_health_summary(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        workflow_id: str | None,
+    ) -> dict[str, Any]:
+        if not workflow_id:
+            return {}
+        from modules.context.facade import build_snapshot_health_summary
+
+        return await build_snapshot_health_summary(
+            db,
+            novel_id=novel_id,
+            workflow_id=workflow_id,
+        )

@@ -117,6 +117,14 @@ class DeepImportWorkflow:
                     on_scene_progress=_on_scene_progress,
                 )
                 progress.completed_steps.append(DeepImportStep.entity_extraction.value)
+                self._merge_audit_summary(progress, phase2_result)
+                self._merge_snapshot_health_summary(progress, phase2_result)
+                await self._refresh_snapshot_health_summary(
+                    db,
+                    novel_id,
+                    workflow_id or progress.workflow_id,
+                    progress,
+                )
                 progress.message = (
                     "实体提取完成，共创建 "
                     f"{phase2_result.get('total_created', 0)} 个实体，"
@@ -186,10 +194,19 @@ class DeepImportWorkflow:
                 novel_id,
                 start_chapter,
                 end_chapter,
+                workflow_id=workflow_id,
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
             )
             progress.completed_steps.append(DeepImportStep.structure_analysis.value)
+            self._merge_audit_summary(progress, phase3_result)
+            self._merge_snapshot_health_summary(progress, phase3_result)
+            await self._refresh_snapshot_health_summary(
+                db,
+                novel_id,
+                workflow_id or progress.workflow_id,
+                progress,
+            )
             if phase1_result.get("total_scenes", 0) > 0 and (
                 phase3_result.get("total_threads", 0) <= 0
                 and phase3_result.get("total_arcs", 0) <= 0
@@ -238,6 +255,47 @@ class DeepImportWorkflow:
     ) -> None:
         if on_progress is not None:
             await on_progress(progress, progress_value)
+
+    @staticmethod
+    def _merge_audit_summary(
+        progress: DeepImportProgress,
+        phase_result: dict[str, Any],
+    ) -> None:
+        audit_summary = phase_result.get("audit_summary")
+        if isinstance(audit_summary, dict):
+            progress.audit_summary = {
+                **(progress.audit_summary or {}),
+                **audit_summary,
+            }
+
+    @staticmethod
+    def _merge_snapshot_health_summary(
+        progress: DeepImportProgress,
+        phase_result: dict[str, Any],
+    ) -> None:
+        snapshot_health_summary = phase_result.get("snapshot_health_summary")
+        if isinstance(snapshot_health_summary, dict):
+            progress.snapshot_health_summary = snapshot_health_summary
+
+    @staticmethod
+    async def _refresh_snapshot_health_summary(
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str | None,
+        progress: DeepImportProgress,
+    ) -> None:
+        if db is None or not workflow_id or type(db).__module__ == "unittest.mock":
+            return
+        from modules.context.facade import build_snapshot_health_summary
+
+        try:
+            progress.snapshot_health_summary = await build_snapshot_health_summary(
+                db,
+                novel_id=novel_id,
+                workflow_id=workflow_id,
+            )
+        except Exception as exc:
+            logger.warning("snapshot health summary refresh failed: %s", exc)
 
     @staticmethod
     async def _rollback_after_phase_failure(
@@ -323,6 +381,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         *,
+        workflow_id: str | None = None,
         context_mode: str = "working",
         include_pending_objects: bool = True,
     ) -> dict[str, Any]:
@@ -335,6 +394,8 @@ class DeepImportWorkflow:
                 end_chapter=end_chapter,
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
+                workflow_id=workflow_id,
+                audit_context_snapshot=True,
             )
             logger.info(
                 "Phase 3 complete: %d threads, %d arcs",

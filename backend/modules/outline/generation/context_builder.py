@@ -6,7 +6,7 @@ Markdown 上下文，并输出名称→ID 映射表供后续解析使用。
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,10 +21,13 @@ class PlotStructureContext:
     markdown: str
     """注入 prompt 的 Markdown 文本。"""
 
-    entity_name_to_id: dict[str, str]
+    warnings: list[str] = field(default_factory=list)
+    """构建上下文时产生的警告。"""
+
+    entity_name_to_id: dict[str, str] = field(default_factory=dict)
     """世界对象名称 → entity_id (UUID hex)。"""
 
-    character_name_to_id: dict[str, str]
+    character_name_to_id: dict[str, str] = field(default_factory=dict)
     """人物名称 → character_id (UUID hex)。"""
 
 
@@ -89,6 +92,7 @@ class PlotStructureContextBuilder:
 
         return PlotStructureContext(
             markdown=context_md,
+            warnings=list(bundle.warnings or []),
             entity_name_to_id=entity_name_to_id,
             character_name_to_id=character_name_to_id,
         )
@@ -112,6 +116,23 @@ class PlotStructureContextBuilder:
                     f"- {c.get('name', '?')} ({c.get('role', '?')}): "
                     f"{c.get('desire', '')}\n"
                 )
+        if bundle.rag_chunks:
+            context_md += "\n## RAG 检索证据\n"
+            for chunk in bundle.rag_chunks:
+                if isinstance(chunk, dict):
+                    source = chunk.get("source_type", "?")
+                    chapter = chunk.get("chapter_index")
+                    prefix = f"- [{source}"
+                    if chapter is not None:
+                        prefix += f" / 第{chapter}章"
+                    text = str(chunk.get("text", "")).strip()
+                    context_md += f"{prefix}] {text}\n"
+                else:
+                    context_md += f"- {chunk}\n"
+        if bundle.warnings:
+            context_md += "\n## 上下文警告\n"
+            for warning in bundle.warnings:
+                context_md += f"- {warning}\n"
         return context_md
 
     async def _load_chapter_texts(

@@ -233,6 +233,33 @@ describe("writingView map integration", () => {
     openSpy.mockRestore()
   })
 
+  it("opens fallback map target in a new tab and shows fallback message", () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
+    state.currentProjectId = "p1"
+    writingView._scenes = [{ id: "s1", chapter_ids: ["1"] }]
+    writingView._currentChapter = 1
+    writingView._sceneMapSummary = {
+      open_target: {
+        mode: "recent",
+        scene_id: "s1",
+        fallback_message: "当前 Scene 暂无地图上下文，已回退到最近地图",
+      },
+    }
+
+    writingView._openMapForCurrentScene()
+
+    expect(toast).toHaveBeenCalledWith(
+      "当前 Scene 暂无地图上下文，已回退到最近地图",
+      "warning",
+    )
+    expect(openSpy).toHaveBeenCalledWith(
+      "#workbench/p1/map?scene_id=s1&mode=recent",
+      "_blank",
+      "noopener"
+    )
+    openSpy.mockRestore()
+  })
+
   it("renders compact Scene map summary", () => {
     state.currentProjectId = "p1"
     writingView._currentChapter = 1
@@ -253,6 +280,29 @@ describe("writingView map integration", () => {
     expect(html).toContain("东门封锁")
     expect(html).toContain("北府")
     expect(html).toContain("陆青上一场")
+  })
+
+  it("renders stable copy for spatial continuity warning codes", () => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 1
+    writingView._scenes = [{ id: "s1", chapter_ids: ["1"], title: "旧城门" }]
+    writingView._sceneMapSummary = {
+      primary_location: null,
+      characters: [],
+      events: [],
+      factions: [],
+      warnings: [
+        { code: "scene_without_map_context" },
+        { code: "scene_without_location" },
+        { code: "character_cross_map", message: "陆青上一场在其他地图，需确认移动合理性" },
+      ],
+    }
+
+    const html = writingView._renderScenePanel()
+
+    expect(html).toContain("当前 Scene 暂无地图上下文")
+    expect(html).toContain("当前 Scene 暂无主地点")
+    expect(html).toContain("陆青上一场在其他地图")
   })
 
   it("shows summary fallback text when scene-summary fails", async () => {
@@ -590,6 +640,52 @@ describe("workflow progress rendering", () => {
     expect(html).toContain("部分批次降级完成")
     expect(html).toContain("降级批次")
     expect(html).toContain("LLM 超时")
+  })
+
+  it("renders deep import snapshot health summary when completed", () => {
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = {
+      phase: "done",
+      percent: 100,
+      stepLabel: "深度导入完成",
+      qualityStatus: "complete",
+      snapshotHealthSummary: {
+        total_snapshots: 3,
+        by_status: {
+          running: 0,
+          succeeded: 2,
+          failed: 1,
+        },
+        by_phase: {
+          entity_extraction: {
+            running: 0,
+            succeeded: 1,
+            failed: 1,
+          },
+          structure_analysis: {
+            running: 0,
+            succeeded: 1,
+            failed: 0,
+          },
+        },
+        stale_running_count: 1,
+        retained_rendered_context_count: 1,
+        latest_failure: {
+          phase: "entity_extraction",
+          scene_index: 8,
+          error_kind: "llm_timeout",
+        },
+      },
+    }
+
+    const html = writingView._renderDeepImportBar()
+
+    expect(html).toContain("快照健康摘要")
+    expect(html).toContain("共 3 条")
+    expect(html).toContain("成功 2")
+    expect(html).toContain("失败 1")
+    expect(html).toContain("超时 1")
+    expect(html).toContain("查看快照状态")
   })
 })
 

@@ -98,6 +98,126 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase_errors == []
 
     @pytest.mark.asyncio
+    async def test_run_step_merges_snapshot_health_summary_and_audit_alias(self):
+        """Phase 2/3 的快照摘要应进入 workflow progress 并保留兼容 alias。"""
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress()
+
+        workflow._segment_scenes = AsyncMock(
+            return_value={
+                "total_scenes": 1,
+                "failed_batches": [],
+                "degraded": False,
+            }
+        )
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 1,
+                "total_relations": 0,
+                "total_deltas": 0,
+                "audit_summary": {
+                    "entity_extraction": {
+                        "snapshot_count": 1,
+                        "succeeded": 1,
+                        "failed": 0,
+                    }
+                },
+                "snapshot_health_summary": {
+                    "novel_id": "novel-1",
+                    "workflow_id": "wf-1",
+                    "total_snapshots": 1,
+                    "by_status": {"running": 0, "succeeded": 1, "failed": 0},
+                    "by_phase": {
+                        "entity_extraction": {
+                            "running": 0,
+                            "succeeded": 1,
+                            "failed": 0,
+                        }
+                    },
+                    "stale_running_count": 0,
+                    "retained_rendered_context_count": 0,
+                    "latest_failure": None,
+                },
+            }
+        )
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 1,
+                "total_arcs": 1,
+                "audit_summary": {
+                    "structure_analysis": {
+                        "snapshot_count": 1,
+                        "succeeded": 1,
+                        "failed": 0,
+                    }
+                },
+                "snapshot_health_summary": {
+                    "novel_id": "novel-1",
+                    "workflow_id": "wf-1",
+                    "total_snapshots": 2,
+                    "by_status": {"running": 0, "succeeded": 2, "failed": 0},
+                    "by_phase": {
+                        "entity_extraction": {
+                            "running": 0,
+                            "succeeded": 1,
+                            "failed": 0,
+                        },
+                        "structure_analysis": {
+                            "running": 0,
+                            "succeeded": 1,
+                            "failed": 0,
+                        },
+                    },
+                    "stale_running_count": 0,
+                    "retained_rendered_context_count": 0,
+                    "latest_failure": None,
+                },
+            }
+        )
+
+        result = await workflow.run_step(
+            db=None,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=1,
+            progress=progress,
+        )
+
+        assert result.audit_summary == {
+            "entity_extraction": {
+                "snapshot_count": 1,
+                "succeeded": 1,
+                "failed": 0,
+            },
+            "structure_analysis": {
+                "snapshot_count": 1,
+                "succeeded": 1,
+                "failed": 0,
+            },
+        }
+        assert result.snapshot_health_summary == {
+            "novel_id": "novel-1",
+            "workflow_id": "wf-1",
+            "total_snapshots": 2,
+            "by_status": {"running": 0, "succeeded": 2, "failed": 0},
+            "by_phase": {
+                "entity_extraction": {
+                    "running": 0,
+                    "succeeded": 1,
+                    "failed": 0,
+                },
+                "structure_analysis": {
+                    "running": 0,
+                    "succeeded": 1,
+                    "failed": 0,
+                },
+            },
+            "stale_running_count": 0,
+            "retained_rendered_context_count": 0,
+            "latest_failure": None,
+        }
+
+    @pytest.mark.asyncio
     async def test_health_failure_stops_before_scene_segmentation(self):
         """LLM preflight failure should fail the workflow before writing assets."""
         from infrastructure.llm.health import LLMHealthResult
@@ -503,6 +623,8 @@ class TestDeepImportOrchestrator:
                 }
             ],
             "llm_health": {"ok": True, "model": "deepseek-v4-flash"},
+            "snapshot_health_summary": {},
+            "audit_summary": {},
         }
 
     @pytest.mark.asyncio
@@ -535,6 +657,7 @@ class TestDeepImportOrchestrator:
                 "novel-1",
                 1,
                 3,
+                workflow_id="wf-structure",
             )
 
         generate.assert_awaited_once_with(
@@ -544,6 +667,8 @@ class TestDeepImportOrchestrator:
             end_chapter=3,
             context_mode="working",
             include_pending_objects=True,
+            workflow_id="wf-structure",
+            audit_context_snapshot=True,
         )
 
 

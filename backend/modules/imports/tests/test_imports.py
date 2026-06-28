@@ -266,14 +266,14 @@ class TestImportService:
         assert resp.file_type == "txt"
 
     @pytest.mark.asyncio
-    async def test_upload_and_import_enqueues_rag_index_tasks(
+    async def test_upload_and_import_enqueues_publish_tasks_only(
         self,
         service,
         db_session: AsyncSession,
         test_project_id: str,
         sample_txt_content: bytes,
     ):
-        """导入章节后应排 RAG 索引任务，供人物档案抽取检索正文。"""
+        """导入章节后只排发布任务，由发布任务统一负责 RAG 索引。"""
         resp = await service.upload_and_import(
             db_session,
             test_project_id,
@@ -282,13 +282,18 @@ class TestImportService:
         )
 
         result = await db_session.execute(
-            select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
+            select(AsyncTask).where(AsyncTask.task_type == "publish_chapter")
         )
         tasks = list(result.scalars().all())
 
         assert len(tasks) == resp.imported_chapters
         assert {task.meta["chapter_index"] for task in tasks} == {1, 2, 3, 4}
         assert all(task.meta["novel_id"] == test_project_id for task in tasks)
+
+        rag_result = await db_session.execute(
+            select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
+        )
+        assert list(rag_result.scalars().all()) == []
 
     @pytest.mark.asyncio
     async def test_upload_unsupported_type(

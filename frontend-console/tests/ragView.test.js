@@ -14,6 +14,11 @@ beforeEach(() => {
   ragView._statusDegraded = false
   ragView._statusWarnings = []
   ragView._statusItems = []
+  ragView._embeddingRuntime = { started: false, healthy: false, cache_stats: {} }
+  ragView._metrics = null
+  ragView._retryableEmbeddingCount = 0
+  ragView._prewarmState = "idle"
+  ragView._prewarmWarning = ""
   ragView._rebuildPoller = null
   ragView._rebuildProgress = null
   ragView._rebuildInfo = null
@@ -23,6 +28,21 @@ beforeEach(() => {
 describe("ragView", () => {
   describe("ragView render", () => {
     it.each([
+      {
+        name: "status 子视图显示维度、worker 和 metrics 诊断",
+        subView: "status",
+        setup: () => {
+          ragView._totalChunks = 26
+          ragView._embeddingDim = 768
+          ragView._configuredEmbeddingDim = 1024
+          ragView._indexedEmbeddingDim = 768
+          ragView._embeddingDimensionMismatch = true
+          ragView._embeddingRuntime = { started: true, healthy: true, cache_stats: { hits: 3, misses: 2 } }
+          ragView._metrics = { avg_latency_ms: 123.4, embedding_avg_ms: 50, degraded_rate: 0.25 }
+          ragView._retryableEmbeddingCount = 2
+        },
+        expected: ["诊断", "实际维度", "768", "配置维度", "1024", "ready", "123.4ms", "重试失败向量"],
+      },
       {
         name: "status 子视图包含索引状态",
         subView: "status",
@@ -247,6 +267,100 @@ describe("ragView", () => {
 
       expect(api.tasks.get).toHaveBeenCalledWith("task-rag-restore")
       expect(ragView._rebuildProgress.percent).toBe(25)
+    })
+
+    it("onEnter 后台预热 worker 且不阻塞状态渲染", async () => {
+      state.currentProjectId = "p1"
+      api.rag.status.mockResolvedValue({
+        total: 3,
+        items: [],
+        embedding_runtime: { started: false, healthy: false, cache_stats: {} },
+      })
+      api.rag.prewarm.mockResolvedValue({
+        status: "ready",
+        embedding_dim: 768,
+        latency_ms: 12,
+        cache_stats: { hits: 0, misses: 1 },
+      })
+
+      await ragView.onEnter()
+      expect(ragView._totalChunks).toBe(3)
+      expect(api.rag.prewarm).toHaveBeenCalled()
+      await vi.waitFor(() => {
+        expect(ragView._prewarmState).toBe("ready")
+      })
+    })
+
+    it("预热失败时显示 warning 且保留索引列表", async () => {
+      document.body.innerHTML = '<div id="rag-diagnostics"></div>'
+      ragView._statusItems = [{ text: "保留片段", source_type: "chapter_text" }]
+      api.rag.prewarm.mockRejectedValue(new Error("worker down"))
+
+      await ragView._prewarm()
+
+      expect(ragView._prewarmState).toBe("failed")
+      expect(ragView._prewarmWarning).toContain("worker down")
+      expect(ragView._statusItems[0].text).toBe("保留片段")
+    })
+
+    it("重试失败向量提交任务并复用任务轮询", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-rebuild-progress"></div>'
+      ragView._retryableEmbeddingCount = 2
+      api.rag.retryEmbeddings.mockResolvedValue({ task_id: "task-retry", status: "pending" })
+      api.rag.status.mockResolvedValue({ total: 10, embedding_failed_count: 0, retryable_embedding_count: 0, items: [] })
+      api.tasks.get.mockResolvedValue({
+        task_id: "task-retry",
+        task_type: "rag_retry_embeddings",
+        status: "done",
+        progress: 1,
+        result: { total: 2, succeeded: 2, failed: 0, warnings: [] },
+      })
+
+      await ragView._retryEmbeddings()
+
+      expect(api.rag.retryEmbeddings).toHaveBeenCalledWith({
+        novel_id: "p1",
+        statuses: ["failed", "pending_vectorization"],
+      })
+      expect(api.tasks.get).toHaveBeenCalledWith("task-retry")
+      await vi.waitFor(() => {
+        expect(api.rag.status).toHaveBeenCalledWith("p1")
+      })
+    })
+
+    it("onEnter 恢复未完成的 RAG 向量重试任务", async () => {
+      state.currentProjectId = "p1"
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: "p1:rag_retry_embeddings:task-rag-retry-restore",
+        taskId: "task-rag-retry-restore",
+        workflowType: "rag_retry_embeddings",
+        projectId: "p1",
+        view: "rag",
+      }]))
+      api.rag.status.mockResolvedValue({ total: 3, items: [] })
+      api.tasks.get.mockResolvedValue({
+        task_id: "task-rag-retry-restore",
+        task_type: "rag_retry_embeddings",
+        status: "running",
+        progress: 0.5,
+      })
+
+      await ragView.onEnter()
+
+      expect(api.tasks.get).toHaveBeenCalledWith("task-rag-retry-restore")
+      expect(ragView._rebuildProgress.workflowType).toBe("rag_retry_embeddings")
+      expect(ragView._rebuildProgress.percent).toBe(50)
+    })
+
+    it("无可重试向量时不提交重试任务", async () => {
+      state.currentProjectId = "p1"
+      ragView._retryableEmbeddingCount = 0
+
+      await ragView._retryEmbeddings()
+
+      expect(api.rag.retryEmbeddings).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith("暂无可重试的失败向量", "info")
     })
   })
 })

@@ -9,7 +9,7 @@
 - LLM_API_KEY: LLM 服务 API 密钥
 - LLM_BASE_URL: LLM 服务基础地址
 - LLM_MODEL: 默认模型名称
-- EMBEDDING_DIM: embedding 向量维度（默认 1024）
+- EMBEDDING_DIM: embedding 向量维度（默认 768）
 - POOL_SIZE: 数据库连接池大小（默认 10）
 - MAX_OVERFLOW: 数据库连接池最大溢出（默认 20）
 - LOG_LEVEL: 日志级别（默认 INFO）
@@ -93,6 +93,9 @@ class Settings:
     llm_proxy_url: str = field(default_factory=lambda: _env("LLM_PROXY_URL", ""))
     llm_health_required: bool = field(
         default_factory=lambda: _env_bool("LLM_HEALTH_REQUIRED", True)
+    )
+    rag_prewarm_on_startup: bool = field(
+        default_factory=lambda: _env_bool("RAG_PREWARM_ON_STARTUP", False)
     )
     llm_retry_max_attempts: int = field(
         default_factory=lambda: _env_int("LLM_RETRY_MAX_ATTEMPTS", 3)

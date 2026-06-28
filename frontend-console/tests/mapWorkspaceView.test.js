@@ -119,6 +119,21 @@ describe("mapWorkspaceView overview", () => {
     expect(mapWorkspaceView._layers.markers).toBe(false)
   })
 
+  it("keeps candidate layer off by default and renders an explicit toggle", () => {
+    const html = mapWorkspaceView._renderLayerToggles()
+
+    expect(mapWorkspaceView._layers.candidate).toBe(false)
+    expect(html).toContain('data-layer="candidate"')
+    expect(html).toContain("待确认")
+    expect(html).not.toMatch(/data-layer="candidate"[\s\S]*?checked/)
+  })
+
+  it("can enable the candidate layer from the workspace context", () => {
+    mapWorkspaceView._setLayer("candidate", true)
+
+    expect(mapWorkspaceView._layers.candidate).toBe(true)
+  })
+
   it("opens a searched location on its detail map", () => {
     const root = document.createElement("div")
     root.id = "workspace-content"

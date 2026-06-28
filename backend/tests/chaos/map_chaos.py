@@ -24,6 +24,10 @@ import requests
 
 BASE_URL = "http://localhost:8000"
 
+# 与 ideal-user-paths-chaos-matrix.json 对齐的主路径编号。
+# 本文件主要承接 M1-M6 的 API chaos；M7 仍是 spec_only，不在这里实现。
+MATRIX_ALIGNED_PATHS = ("M1", "M2", "M3", "M4", "M5", "M6")
+
 # ============================================================
 # 测试结果收集
 # ============================================================

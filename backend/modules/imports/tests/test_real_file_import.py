@@ -185,14 +185,14 @@ class TestRealFileImportService:
             )
 
     @pytest.mark.asyncio
-    async def test_rag_index_tasks_enqueued(
+    async def test_publish_tasks_enqueued_without_duplicate_rag_index_tasks(
         self,
         service: ImportService,
         db_session: AsyncSession,
         real_project: str,
         real_file_bytes: bytes,
     ):
-        """导入后应为每章节创建 RAG 索引任务"""
+        """导入后应为每章节创建发布任务，避免重复 RAG 索引任务。"""
         await service.upload_and_import(
             db_session,
             real_project,
@@ -201,17 +201,20 @@ class TestRealFileImportService:
         )
 
         result = await db_session.execute(
-            select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
+            select(AsyncTask).where(AsyncTask.task_type == "publish_chapter")
         )
         tasks = list(result.scalars().all())
 
-        assert len(tasks) == EXPECTED_CHAPTER_COUNT, (
-            f"期望 {EXPECTED_CHAPTER_COUNT} 个 RAG 任务，实际 {len(tasks)}"
-        )
+        assert len(tasks) == EXPECTED_CHAPTER_COUNT
         chapter_indices = {
             task.meta.get("chapter_index", -1) for task in tasks if task.meta
         }
         assert chapter_indices == set(range(1, EXPECTED_CHAPTER_COUNT + 1))
+
+        rag_result = await db_session.execute(
+            select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
+        )
+        assert list(rag_result.scalars().all()) == []
 
     @pytest.mark.asyncio
     async def test_import_record_persisted_correctly(

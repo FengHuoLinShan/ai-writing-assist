@@ -29,7 +29,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 ## 章节自动索引
 
-通过 writing API 或 writing facade 保存/创建草稿时自动触发 `rag_index_chapter` 任务。流程：读取正文 → `cn-novel-v1` 分块策略 → 词典匹配标注 → 替换旧 chunk → 生成 embedding。
+通过 `publish_chapter` 发布任务自动触发章节索引；手动重建仍可直接提交 RAG 索引任务。流程：读取正文 → `cn-novel-v1` 分块策略 → 词典匹配标注 → 替换旧 chunk → 生成 embedding。
 
 ### Facade
 
@@ -46,7 +46,7 @@ async def split_text_into_chunks(text, method="paragraph", **kwargs) -> list[str
 
 ### 任务
 
-- `rag_index_chapter` — 由 writing API 保存草稿、更新正文，以及 writing facade 创建草稿时自动触发
+- `rag_index_chapter` — 单章 RAG 索引任务，供发布任务和手动维护入口复用
 - `rag_reindex_novel` — 全量/范围重建项目章节索引，返回每章 chunk 数与 embedding warnings
 
 ## API
