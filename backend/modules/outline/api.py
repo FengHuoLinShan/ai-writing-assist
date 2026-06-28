@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
 
 from core.dependencies import DbSession
+from infrastructure.tasks.enqueuer import enqueue_task
+from modules.context.facade import attach_result_ref, require_confirmation
 from modules.outline.schemas import (
     ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
     ForeshadowingPlanResponse,
     ForeshadowingPlanUpdate,
+    OutlineAiTaskRequest,
+    OutlineAiTaskResponse,
     OutlineArcCreate,
     OutlineArcListResponse,
     OutlineArcResponse,
     OutlineArcUpdate,
-    PlotStructureGenerateResponse,
     PlotThreadCreate,
     PlotThreadListResponse,
     PlotThreadResponse,
@@ -33,7 +36,6 @@ from modules.outline.schemas import (
 from modules.outline.services import (
     ForeshadowingPlanService,
     OutlineArcService,
-    PlotStructureGenerator,
     PlotThreadService,
     RevealPlanService,
     SceneService,
@@ -45,9 +47,38 @@ router = APIRouter(prefix="/api/outline", tags=["outline"])
 _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
 _scene_service = SceneService()
-_generator = PlotStructureGenerator()
 _foreshadowing_service = ForeshadowingPlanService()
 _reveal_service = RevealPlanService()
+
+
+async def _enqueue_confirmed_outline_task(
+    db: DbSession,
+    data: OutlineAiTaskRequest,
+    *,
+    action: str,
+    task_type: str,
+) -> OutlineAiTaskResponse:
+    try:
+        await require_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action=action,
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    meta = data.model_dump(exclude_none=True)
+    task_id = enqueue_task(db, task_type, meta=meta)
+    await attach_result_ref(
+        db,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
+    )
+    await db.flush()
+    return OutlineAiTaskResponse(task_id=task_id)
 
 
 # ============================================================
@@ -265,18 +296,54 @@ async def api_split_chapters(
 
 
 @router.post(
+    "/analyze",
+    response_model=OutlineAiTaskResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_analyze_outline(
+    data: OutlineAiTaskRequest,
+    db: DbSession,
+) -> OutlineAiTaskResponse:
+    return await _enqueue_confirmed_outline_task(
+        db,
+        data,
+        action="outline.analyze",
+        task_type="outline_analyze",
+    )
+
+
+@router.post(
     "/generate",
-    response_model=PlotStructureGenerateResponse,
+    response_model=OutlineAiTaskResponse,
     status_code=http_status.HTTP_201_CREATED,
 )
 async def api_generate_plot_structure(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
-    start_chapter: int = Query(1, ge=1, description="起始章节"),
-    end_chapter: int = Query(10, ge=1, description="结束章节"),
-):
-    result = await _generator.generate(db, novel_id, start_chapter, end_chapter)
-    return result
+    data: OutlineAiTaskRequest,
+) -> OutlineAiTaskResponse:
+    return await _enqueue_confirmed_outline_task(
+        db,
+        data,
+        action="outline.generate",
+        task_type="outline_generate",
+    )
+
+
+@router.post(
+    "/chapter-scenes/extract",
+    response_model=OutlineAiTaskResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_extract_chapter_scenes(
+    data: OutlineAiTaskRequest,
+    db: DbSession,
+) -> OutlineAiTaskResponse:
+    return await _enqueue_confirmed_outline_task(
+        db,
+        data,
+        action="outline.chapter_scenes.extract",
+        task_type="outline_chapter_scenes_extract",
+    )
 
 
 # ============================================================
