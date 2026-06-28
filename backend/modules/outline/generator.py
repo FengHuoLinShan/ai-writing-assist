@@ -53,6 +53,9 @@ class PlotStructureGenerator:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        *,
+        context_mode: str = "canonical",
+        include_pending_objects: bool = False,
     ) -> dict[str, Any]:
         """为指定章节范围生成剧情结构并持久化。
 
@@ -62,7 +65,12 @@ class PlotStructureGenerator:
         nid = parse_uuid(novel_id, "novel_id")
 
         context = await self._context_builder.build(
-            db, novel_id, start_chapter, end_chapter
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
         )
 
         parser = PlotStructureParser(context)

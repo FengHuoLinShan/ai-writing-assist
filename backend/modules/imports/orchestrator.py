@@ -44,7 +44,14 @@ class DeepImportOrchestrator:
         if force:
             await self._deprecate_derived_data(db, novel_id, start_chapter, end_chapter)
 
-        task_id = self._enqueue_deep_import(db, novel_id, start_chapter, end_chapter)
+        task_id = self._enqueue_deep_import(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            context_mode="working",
+            include_pending_objects=True,
+        )
         await db.flush()
         return {
             "workflow_id": str(task_id),
@@ -59,6 +66,8 @@ class DeepImportOrchestrator:
         novel_id = meta.get("novel_id", "")
         start_chapter = int(meta.get("start_chapter", 1))
         end_chapter = int(meta.get("end_chapter", 5))
+        context_mode = meta.get("context_mode", "working")
+        include_pending_objects = bool(meta.get("include_pending_objects", True))
         if not novel_id:
             raise ValueError("novel_id is required for deep_import")
 
@@ -79,6 +88,8 @@ class DeepImportOrchestrator:
             end_chapter=end_chapter,
             progress=progress,
             workflow_id=str(task.id),
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
             on_progress=_record_progress,
         )
         return self._result_from_progress(progress)
@@ -158,6 +169,9 @@ class DeepImportOrchestrator:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        *,
+        context_mode: str = "working",
+        include_pending_objects: bool = True,
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -168,6 +182,8 @@ class DeepImportOrchestrator:
                 "novel_id": novel_id,
                 "start_chapter": start_chapter,
                 "end_chapter": end_chapter,
+                "context_mode": context_mode,
+                "include_pending_objects": include_pending_objects,
             },
         )
 

@@ -121,6 +121,7 @@ async def _mock_analyze(
     novel_id: str,
     start_chapter: int,
     end_chapter: int,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """DeepImportWorkflow Phase 3 mock（成功）。"""
     return {

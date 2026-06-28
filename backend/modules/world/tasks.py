@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from infrastructure.tasks.registry import task_handler
+from modules.context import facade as context_facade
 from modules.world.services.extraction_service import EntityExtractionService
 
 logger = logging.getLogger(__name__)
@@ -31,9 +32,17 @@ async def handle_world_entity_extraction(db, task):
     start_chapter = int(meta.get("start_chapter", 1))
     end_chapter = int(meta.get("end_chapter", 10))
     batch_size = int(meta.get("batch_size", 5))
+    context_confirmation_id = str(meta.get("context_confirmation_id") or "")
 
     if not novel_id:
         raise ValueError("novel_id is required for world_entity_extraction")
+    if context_confirmation_id:
+        await context_facade.compile_from_confirmation(
+            db,
+            novel_id=novel_id,
+            action="world.entities.extract",
+            confirmation_id=context_confirmation_id,
+        )
 
     service = EntityExtractionService()
     result = await service.extract_entities_from_chapters(
@@ -50,6 +59,29 @@ async def handle_world_entity_extraction(db, task):
         result.total_skipped,
     )
 
+    if context_confirmation_id:
+        for item in result.items:
+            entity_id = str(item.get("id") or "")
+            if not entity_id:
+                continue
+            await context_facade.attach_result_ref(
+                db,
+                confirmation_id=context_confirmation_id,
+                result_type="world_entity",
+                result_id=entity_id,
+                status="done",
+            )
+        if not result.items:
+            await context_facade.attach_result_ref(
+                db,
+                confirmation_id=context_confirmation_id,
+                result_type="world_entity_extraction",
+                result_id=str(task.id),
+                status="done",
+            )
+
+    task.update_progress(1.0)
+    await db.flush()
     return {
         "total_chapters": result.total_chapters,
         "total_created": result.total_created,
