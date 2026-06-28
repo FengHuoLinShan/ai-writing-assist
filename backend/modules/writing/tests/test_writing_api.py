@@ -6,8 +6,14 @@ Writing API 层测试
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.tasks.models import AsyncTask
 
 
 @pytest.fixture
@@ -63,3 +69,79 @@ async def test_update_draft_conflict_on_stale_updated_at(
         },
     )
     assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_missing_context_confirmation(
+    async_client: AsyncClient,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "AI 生成确认项目"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/writing/generate",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 1,
+            "instruction": "写一个克制的开场",
+            "context_confirmation_id": "00000000-0000-0000-0000-000000009999",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "context_confirmation_id" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_generate_enqueues_domain_task_after_context_confirmation(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "AI 生成入队项目"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    confirmation_resp = await async_client.post(
+        "/api/context/confirm",
+        json={
+            "novel_id": novel_id,
+            "action": "writing.generate",
+            "task": "生成第 2 章候选正文",
+            "scope": "chapter",
+            "chapter_index": 2,
+        },
+    )
+    assert confirmation_resp.status_code == 201
+    confirmation_id = confirmation_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/writing/generate",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 2,
+            "title": "第二章",
+            "instruction": "保持悬疑感",
+            "context_confirmation_id": confirmation_id,
+        },
+    )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["task_id"]
+    assert data["status"] == "pending"
+
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(data["task_id"]))
+    )
+    task = result.scalar_one()
+    assert task.task_type == "writing_generate"
+    assert task.meta["novel_id"] == novel_id
+    assert task.meta["chapter_index"] == 2
+    assert task.meta["context_confirmation_id"] == confirmation_id
