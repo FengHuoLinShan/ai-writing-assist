@@ -48,13 +48,23 @@ describe("generateView", () => {
         <div id="generate-result"></div>
         <select id="generate-scope"><option value="arc">篇章</option></select>
         <input id="generate-related" />
+        <div id="modal-overlay" class="hidden">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
       `
-      api.context.compile.mockResolvedValue({})
+      api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
       api.generate.chapterScene.mockResolvedValue({ id: "task-1", status: "running" })
 
-      await generateView._startGenerate()
+      const promise = generateView._startGenerate()
+      await Promise.resolve()
+      document.querySelectorAll("#modal-footer button")[1].click()
+      await promise
 
-      expect(api.generate.chapterScene).toHaveBeenCalled()
+      expect(api.generate.chapterScene).toHaveBeenCalledWith(expect.objectContaining({
+        context_confirmation_id: "confirm-1",
+      }))
       const result = document.getElementById("generate-result")
       expect(result?.innerHTML).toContain("任务已提交")
     })

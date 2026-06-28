@@ -65,6 +65,54 @@ describe("writingView render", () => {
     expect(html).toContain('data-action="open-map"')
     expect(html).toContain("打开地图")
   })
+
+  it("编辑器工具栏显示 AI 生成草稿按钮", async () => {
+    state.currentProjectId = "p1"
+    writingView._loading = false
+    writingView._chapterList = [1]
+    writingView._currentChapter = 1
+    writingView._chapters = { 1: { draftCount: 0 } }
+
+    const html = await writingView.render()
+
+    expect(html).toContain('data-action="ai-generate-draft"')
+    expect(html).toContain("AI 生成草稿")
+  })
+})
+
+describe("writingView AI generation", () => {
+  it("确认 AI 参考资料后提交正文生成任务", async () => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 2
+    writingView._currentTitle = "夜访王都"
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+        <div id="modal-footer"></div>
+      </div>
+    `
+    api.context.confirm.mockResolvedValue({
+      id: "confirm-1",
+      user_note: "保持克制",
+      selected_asset_ids: {},
+      warnings: [],
+    })
+    api.writing.generate.mockResolvedValue({ task_id: "task-1", status: "pending" })
+
+    const promise = writingView._generateDraft()
+    await Promise.resolve()
+    document.querySelectorAll("#modal-footer button")[1].click()
+    await promise
+
+    expect(api.writing.generate).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 2,
+      title: "夜访王都",
+      instruction: "保持克制",
+      context_confirmation_id: "confirm-1",
+    })
+  })
 })
 
 describe("writingView onEnter", () => {

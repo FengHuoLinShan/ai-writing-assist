@@ -4,6 +4,7 @@
  * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
  */
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { confirmAiReference } from "../shared/aiReferenceModal.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
@@ -1007,8 +1008,21 @@ const outlineView = {
 
   async _generateStructure(startChapter, endChapter) {
     try {
-      const result = await api.outline.generate(state.currentProjectId, startChapter, endChapter)
-      toast("结构生成完成", "success")
+      const confirmation = await confirmAiReference({
+        novel_id: state.currentProjectId,
+        action: "outline.generate",
+        task: "剧情结构生成",
+        scope: "full",
+        chapter_index: startChapter,
+        include_pending_objects: true,
+      })
+      const result = await api.outline.generate({
+        novel_id: state.currentProjectId,
+        context_confirmation_id: confirmation.id,
+        start_chapter: startChapter,
+        end_chapter: endChapter,
+      })
+      toast("剧情结构生成任务已提交", "success")
       await this.onEnter?.()
       router.refresh()
       return result
@@ -1069,14 +1083,8 @@ const outlineView = {
         }
 
         try {
-          const result = await this._generateStructure(start, end)
-          if (result && (result.existing_threads_count != null || result.existing_arcs_count != null)) {
-            this._generateOverlap = {
-              threadCount: result.existing_threads_count || 0,
-              arcCount: result.existing_arcs_count || 0,
-              rangeKey: `${start}-${end}`,
-            }
-          }
+          closeModal()
+          setTimeout(() => this._generateStructure(start, end), 0)
         } catch (err) { toast(err.message || "生成失败", "error") }
       },
     }])

@@ -282,6 +282,14 @@ const api = {
       })
     },
 
+    /** 提交世界对象补抽任务 */
+    async extractEntities(payload) {
+      return request("/world/entities/extract", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
     /** 删除世界对象 */
     async deleteEntity(id, novelId) {
       return request(`/world/entities/${id}${buildQueryString({ novel_id: novelId })}`, { method: "DELETE" })
@@ -528,6 +536,14 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+
+    /** 确认 AI 参考资料 */
+    async confirm(payload) {
+      return request("/context/confirm", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
   },
 
   // ============================================================
@@ -591,6 +607,14 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+
+    /** 提交 AI 正文候选草稿生成任务 */
+    async generate(payload) {
+      return request("/writing/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
   },
 
   // ============================================================
@@ -599,25 +623,25 @@ const api = {
   generate: {
     /** 生成世界与人物结构 */
     async worldCharacter(payload) {
-      return request("/tasks", {
+      return request("/world/entities/extract", {
         method: "POST",
-        body: JSON.stringify({ task_type: "world_entity_extraction", meta: payload }),
+        body: JSON.stringify(payload),
       })
     },
 
     /** 生成剧情结构 */
     async plotStructure(payload) {
-      return request("/tasks", {
+      return request("/outline/generate", {
         method: "POST",
-        body: JSON.stringify({ task_type: "plot_structure_generate", meta: payload }),
+        body: JSON.stringify(payload),
       })
     },
 
     /** 生成章节与场景结构 */
     async chapterScene(payload) {
-      return request("/tasks", {
+      return request("/outline/chapter-scenes/extract", {
         method: "POST",
-        body: JSON.stringify({ task_type: "chapter_card_extraction", meta: payload }),
+        body: JSON.stringify(payload),
       })
     },
   },
@@ -736,11 +760,27 @@ const api = {
       })
     },
 
-    /** 生成剧情结构（LLM 调用可能较慢，使用 180s 超时） */
-    async generate(novelId, startChapter, endChapter) {
-      return request("/outline/generate" + buildQueryString({ novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter }), {
+    /** 提交剧情分析任务 */
+    async analyze(payload) {
+      return request("/outline/analyze", {
         method: "POST",
-        timeout: 180000,
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 提交剧情结构生成任务 */
+    async generate(payload) {
+      return request("/outline/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 提交章节/Scene 卡提取任务 */
+    async extractChapterScenes(payload) {
+      return request("/outline/chapter-scenes/extract", {
+        method: "POST",
+        body: JSON.stringify(payload),
       })
     },
 

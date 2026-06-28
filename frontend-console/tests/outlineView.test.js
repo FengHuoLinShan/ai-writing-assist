@@ -161,13 +161,29 @@ describe("helpers", () => {
 
   it("generates structure from outline view", async () => {
     state.currentProjectId = "p1"
-    api.outline.generate.mockResolvedValue({ plot_threads: [], outline_arcs: [] })
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+        <div id="modal-footer"></div>
+      </div>
+    `
+    api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
+    api.outline.generate.mockResolvedValue({ task_id: "task-1", status: "pending" })
 
-    const result = await outlineView._generateStructure(1, 5)
+    const promise = outlineView._generateStructure(1, 5)
+    await Promise.resolve()
+    document.querySelectorAll("#modal-footer button")[1].click()
+    const result = await promise
 
-    expect(api.outline.generate).toHaveBeenCalledWith("p1", 1, 5)
-    expect(toast).toHaveBeenCalledWith("结构生成完成", "success")
-    expect(result).toEqual({ plot_threads: [], outline_arcs: [] })
+    expect(api.outline.generate).toHaveBeenCalledWith({
+      novel_id: "p1",
+      context_confirmation_id: "confirm-1",
+      start_chapter: 1,
+      end_chapter: 5,
+    })
+    expect(toast).toHaveBeenCalledWith("剧情结构生成任务已提交", "success")
+    expect(result).toEqual({ task_id: "task-1", status: "pending" })
   })
 
   it("reorders scenes up correctly", async () => {
@@ -208,9 +224,23 @@ describe("helpers", () => {
     },
     {
       name: "generate structure",
-      setup: () => {},
+      setup: () => {
+        document.body.innerHTML = `
+          <div id="modal-overlay" class="hidden">
+            <div id="modal-title"></div>
+            <div id="modal-body"></div>
+            <div id="modal-footer"></div>
+          </div>
+        `
+        api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
+      },
       mockApi: () => api.outline.generate.mockRejectedValue(new Error("llm fail")),
-      call: () => outlineView._generateStructure(1, 5),
+      call: async () => {
+        const promise = outlineView._generateStructure(1, 5)
+        await Promise.resolve()
+        document.querySelectorAll("#modal-footer button")[1].click()
+        return promise
+      },
       expectedError: "llm fail",
       rejects: true,
     },
