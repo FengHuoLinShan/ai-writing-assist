@@ -2,6 +2,7 @@
  * 地图一级工作台。
  */
 import mapView from "./mapView.js"
+import { buildMapLayout } from "./mapLayoutEngine.js"
 import { parseMapRouteContext } from "./mapRouteContext.js"
 
 const RECENT_PREFIX = "novel_map_recent:"
@@ -24,7 +25,26 @@ const mapWorkspaceView = {
   _activeMapId: null,
   _activeSceneId: null,
   _focusEntityId: null,
+  _viewMode: "dashboard",
+  _lowMotion: false,
   _layers: { ...DEFAULT_LAYERS },
+  _dynamicSummary: {
+    mapId: null,
+    loading: false,
+    loaded: false,
+    dashboard: null,
+    observations: [],
+    facts: [],
+    error: null,
+  },
+  _playback: {
+    loading: false,
+    loaded: false,
+    playback: null,
+    error: null,
+    playing: false,
+    activeIndex: 0,
+  },
   _pendingTimers: new Set(),
 
   async onEnter() {
@@ -171,6 +191,7 @@ const mapWorkspaceView = {
     this._activeMapId = mapId
     this._activeSceneId = sceneId
     this._focusEntityId = focusEntityId
+    this._resetDynamicSummary()
     const map = this._maps.find((m) => m.id === mapId)
     if (map) this._saveRecentMap(map)
     router.refresh?.()
@@ -191,6 +212,55 @@ const mapWorkspaceView = {
     if (this._mode === "map") {
       mapView._mountContext = { ...(mapView._mountContext || {}), layers: this._layers }
       mapView._redraw?.()
+    }
+  },
+
+  _setViewMode(viewMode) {
+    if (!["dashboard", "live", "lens"].includes(viewMode)) return
+    this._viewMode = viewMode
+    if (this._mode === "map") {
+      mapView._mountContext = {
+        ...(mapView._mountContext || {}),
+        viewMode: this._viewMode,
+        lowMotion: this._lowMotion,
+      }
+      router.refresh?.()
+    }
+  },
+
+  _setLowMotion(enabled) {
+    this._lowMotion = Boolean(enabled)
+    if (this._mode === "map") {
+      mapView._mountContext = {
+        ...(mapView._mountContext || {}),
+        viewMode: this._viewMode,
+        lowMotion: this._lowMotion,
+      }
+      this._updateWorkspaceLayoutDom()
+    }
+  },
+
+  _resetDynamicSummary(mapId = null) {
+    this._dynamicSummary = {
+      mapId,
+      loading: false,
+      loaded: false,
+      dashboard: null,
+      observations: [],
+      facts: [],
+      error: null,
+    }
+    this._resetPlayback()
+  },
+
+  _resetPlayback() {
+    this._playback = {
+      loading: false,
+      loaded: false,
+      playback: null,
+      error: null,
+      playing: false,
+      activeIndex: 0,
     }
   },
 
@@ -286,9 +356,229 @@ const mapWorkspaceView = {
       <div class="map-workspace map-workspace-active">
         <div class="map-toolbar">
           <button class="btn" data-action="map-overview">返回总览</button>
+          ${this._renderViewModeControls()}
           ${this._renderLayerToggles()}
         </div>
-        <div id="map-root" class="map-root"></div>
+        <div class="map-workspace-body">
+          <main class="map-workspace-main">
+            <div id="map-semantic-band" class="map-semantic-band">
+              ${this._renderSemanticBand()}
+            </div>
+            <div id="map-root" class="map-root"></div>
+          </main>
+          <aside id="map-dynamic-summary" class="map-dynamic-panel">
+            ${this._renderDynamicSummary()}
+          </aside>
+        </div>
+      </div>
+    `
+  },
+
+  _renderViewModeControls() {
+    const modes = [
+      ["dashboard", "世界动态总控台"],
+      ["live", "活地图"],
+      ["lens", "叙事透镜"],
+    ]
+    return `
+      <div class="map-view-controls" role="group" aria-label="地图视图">
+        ${modes.map(([mode, label]) => `
+          <button class="btn btn-sm map-view-mode${this._viewMode === mode ? " is-active" : ""}"
+            data-action="map-view-mode" data-view-mode="${mode}">
+            ${esc(label)}
+          </button>
+        `).join("")}
+        <label class="map-low-motion-toggle">
+          <input type="checkbox" data-action="map-low-motion-toggle" ${this._lowMotion ? "checked" : ""} />
+          低动效
+        </label>
+      </div>
+    `
+  },
+
+  _buildLayout() {
+    const dashboard = this._dynamicSummary?.dashboard
+    return buildMapLayout({
+      dashboard: dashboard || {},
+      viewport: {
+        width: Math.max(320, Math.min(960, window.innerWidth || 720)),
+        height: 360,
+      },
+      viewMode: this._viewMode,
+      focusEntityId: this._focusEntityId,
+      sceneId: this._activeSceneId,
+      lowMotion: this._lowMotion,
+    })
+  },
+
+  _renderSemanticBand() {
+    const dashboard = this._dynamicSummary?.dashboard
+    if (!dashboard) return ""
+    const layout = this._buildLayout()
+    const bubbles = layout.semanticBubbles || []
+    if (!bubbles.length) return ""
+    return `
+      <div class="map-semantic-bubbles ${layout.motion === "low" ? "is-low-motion" : ""}">
+        ${bubbles.map((bubble) => `
+          <button class="map-semantic-bubble" data-action="map-open-dynamic-item" data-id="${esc(bubble.itemId)}"
+            style="left:${bubble.box.x}px;top:${bubble.box.y}px;width:${bubble.box.width}px;">
+            <span>${esc(bubble.label)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderDynamicSummary() {
+    const summary = this._dynamicSummary || {}
+    if (summary.loading) {
+      return `<p class="muted">正在加载世界动态...</p>`
+    }
+    if (summary.error) {
+      return `<div class="alert alert-warning">${esc(summary.error)}</div>`
+    }
+    const dashboard = summary.dashboard
+    if (!dashboard) {
+      return `<p class="muted">暂无世界动态</p>`
+    }
+    const queue = dashboard.dynamic_queue || []
+    const candidateCount = queue.filter((item) => item.item_kind === "observation" && item.review_state === "candidate").length
+    const factCount = queue.filter((item) => item.item_kind === "fact").length
+    return `
+      <div class="map-dynamic-header">
+        <h3>${esc(dashboard.title || "世界动态总控台")}</h3>
+        <span>${candidateCount} 待确认 · ${factCount} 已确认</span>
+      </div>
+      ${this._renderFirstVisualLayer(dashboard.first_visual_layer || {})}
+      ${this._renderPlaybackPanel()}
+      ${queue.length
+        ? `<div class="map-dynamic-section">
+            <h4>动态队列</h4>
+            ${queue.slice(0, 8).map((item) => this._renderQueueItem(item)).join("")}
+          </div>`
+        : `<p class="muted">暂无动态队列</p>`}
+      ${this._renderInspector(dashboard.inspector)}
+      ${this._renderBatchGroups(dashboard.batch_groups || [])}
+    `
+  },
+
+  _renderFirstVisualLayer(layer) {
+    const risks = layer.top_risks || []
+    const characters = layer.main_characters || []
+    return `
+      <section class="map-dashboard-priority">
+        <div>
+          <span>主线危机</span>
+          <strong>${esc(layer.main_crisis || "暂无主线危机")}</strong>
+        </div>
+        <div>
+          <span>主要对象</span>
+          <strong>${esc(characters.length ? characters.join("、") : "暂无焦点对象")}</strong>
+        </div>
+        <div>
+          <span>最重要风险</span>
+          <strong>${esc(risks.length ? risks.join("；") : "暂无高风险")}</strong>
+        </div>
+      </section>
+    `
+  },
+
+  _renderQueueItem(item) {
+    const canReview = item.item_kind === "observation" && item.review_state === "candidate"
+    const riskClass = item.risk_level === "danger" ? " is-danger" : item.risk_level === "warning" ? " is-warning" : ""
+    return `
+      <article class="map-dynamic-item${riskClass}" data-action="map-open-dynamic-item" data-id="${esc(item.item_id)}">
+        <div class="map-dynamic-title">${esc(item.title || "地图事实")}</div>
+        <div class="map-dynamic-meta">
+          ${esc(item.time_label || "时间待确认")} · ${esc(item.status_label || "待判断")}
+          ${item.confidence !== null && item.confidence !== undefined ? ` · 置信度 ${Math.round(item.confidence * 100)}%` : ""}
+        </div>
+        <div class="map-dynamic-source">${esc(item.source_summary || "来源待确认")}</div>
+        ${canReview
+          ? `<div class="map-dynamic-actions">
+              <button class="btn btn-sm btn-primary" data-action="map-confirm-observation" data-id="${esc(item.item_id)}">确认</button>
+              <button class="btn btn-sm" data-action="map-ignore-observation" data-id="${esc(item.item_id)}">忽略</button>
+            </div>`
+          : ""}
+      </article>
+    `
+  },
+
+  _renderInspector(inspector) {
+    if (!inspector) return ""
+    const candidates = inspector.ai_candidates || []
+    const facts = inspector.map_facts || []
+    const conflicts = inspector.conflicts || []
+    const evidence = inspector.source_evidence || []
+    return `
+      <div class="map-dynamic-section map-inspector">
+        <h4>检查器</h4>
+        <article class="map-dynamic-item">
+          <div class="map-dynamic-title">${esc(inspector.title || "暂无世界动态")}</div>
+          <div class="map-dynamic-meta">${esc(inspector.status_label || "待判断")}</div>
+          <div class="map-dynamic-source">${esc(inspector.summary || "")}</div>
+          <div class="map-inspector-counts">
+            <span>候选 ${candidates.length}</span>
+            <span>事实 ${facts.length}</span>
+            <span>冲突 ${conflicts.length}</span>
+          </div>
+          ${evidence.length
+            ? `<ul class="map-evidence-list">${evidence.slice(0, 3).map((text) => `<li>${esc(text)}</li>`).join("")}</ul>`
+            : ""}
+        </article>
+      </div>
+    `
+  },
+
+  _renderBatchGroups(groups) {
+    if (!groups.length) return ""
+    return `
+      <div class="map-dynamic-section">
+        <h4>批量修改</h4>
+        ${groups.slice(0, 6).map((group) => `
+          <div class="map-batch-row">
+            <span>${esc(group.group_label)}</span>
+            <strong>${group.count}</strong>
+            <small>${group.candidate_count} 待确认 · ${group.confirmed_count} 已确认</small>
+          </div>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderPlaybackPanel() {
+    const playbackState = this._playback || {}
+    if (playbackState.loading) {
+      return `<div class="map-dynamic-section"><h4>电影化播放</h4><p class="muted">正在加载播放事件...</p></div>`
+    }
+    if (playbackState.error) {
+      return `<div class="map-dynamic-section"><h4>电影化播放</h4><div class="alert alert-warning">${esc(playbackState.error)}</div></div>`
+    }
+    const playback = playbackState.playback
+    if (!playback) return ""
+    const events = playback.events || []
+    const tracks = playback.tracks || []
+    const active = events[playbackState.activeIndex] || events[0]
+    return `
+      <div class="map-dynamic-section map-playback-panel">
+        <div class="map-playback-header">
+          <h4>电影化播放</h4>
+          <button class="btn btn-sm" data-action="${playbackState.playing ? "map-playback-stop" : "map-playback-start"}">
+            ${playbackState.playing ? "停止" : "播放"}
+          </button>
+        </div>
+        ${tracks.length
+          ? `<div class="map-playback-tracks">
+              ${tracks.map((track) => `<span>${esc(track.label)} ${track.count}</span>`).join("")}
+            </div>`
+          : `<p class="muted">暂无可播放动态</p>`}
+        ${active
+          ? `<article class="map-dynamic-item ${active.risk_level === "danger" ? "is-danger" : active.risk_level === "warning" ? "is-warning" : ""}" data-action="map-open-dynamic-item" data-id="${esc(active.event_id)}">
+              <div class="map-dynamic-title">${esc(active.title)}</div>
+              <div class="map-dynamic-meta">${esc(active.time_label)} · ${esc(active.status_label)}</div>
+              <div class="map-dynamic-source">${esc(active.change_summary || active.source_summary || "")}</div>
+            </article>`
+          : ""}
       </div>
     `
   },
@@ -298,11 +588,230 @@ const mapWorkspaceView = {
       mapId: this._activeMapId,
       sceneId: this._activeSceneId,
       focusEntityId: this._focusEntityId,
+      viewMode: this._viewMode,
+      lowMotion: this._lowMotion,
       mode: this._activeMapId ? "map" : "overview",
       layers: this._layers,
       onMapOpened: (map) => this._saveRecentMap(map),
     })
+    this._loadDynamicSummary()
     this._bindEvents()
+  },
+
+  async _loadDynamicSummary({ force = false } = {}) {
+    if (!state.currentProjectId || !this._activeMapId) return
+    if (!force && this._dynamicSummary?.mapId === this._activeMapId && this._dynamicSummary?.loaded) {
+      return
+    }
+    const mapId = this._activeMapId
+    this._dynamicSummary = {
+      mapId,
+      loading: true,
+      loaded: false,
+      dashboard: null,
+      observations: [],
+      facts: [],
+      error: null,
+    }
+    this._playback = {
+      loading: true,
+      loaded: false,
+      playback: null,
+      error: null,
+      playing: false,
+      activeIndex: 0,
+    }
+    this._updateDynamicSummaryDom()
+    try {
+      const [dashboard, playback] = await Promise.all([
+        api.world.getMapDashboard(
+          mapId,
+          state.currentProjectId,
+          this._activeSceneId,
+          this._focusEntityId,
+        ),
+        api.world.getMapPlayback(
+          mapId,
+          state.currentProjectId,
+          this._activeSceneId,
+          this._focusEntityId,
+          true,
+        ),
+      ])
+      if (this._activeMapId !== mapId) return
+      this._dynamicSummary = {
+        mapId,
+        loading: false,
+        loaded: true,
+        dashboard,
+        observations: (dashboard.dynamic_queue || [])
+          .filter((item) => item.item_kind === "observation"),
+        facts: (dashboard.dynamic_queue || [])
+          .filter((item) => item.item_kind === "fact"),
+        error: null,
+      }
+      this._playback = {
+        loading: false,
+        loaded: true,
+        playback,
+        error: null,
+        playing: false,
+        activeIndex: 0,
+      }
+    } catch (err) {
+      if (this._activeMapId !== mapId) return
+      this._dynamicSummary = {
+        mapId,
+        loading: false,
+        loaded: true,
+        dashboard: null,
+        observations: [],
+        facts: [],
+        error: "地图动态事实暂不可用",
+      }
+      this._playback = {
+        loading: false,
+        loaded: true,
+        playback: null,
+        error: "世界动态播放暂不可用",
+        playing: false,
+        activeIndex: 0,
+      }
+      toast(`地图动态事实暂不可用：${err.message || "加载失败"}`, "warning")
+    }
+    this._updateDynamicSummaryDom()
+  },
+
+  _updateDynamicSummaryDom() {
+    this._updateWorkspaceLayoutDom()
+  },
+
+  _updateWorkspaceLayoutDom() {
+    const el = document.getElementById("map-dynamic-summary")
+    if (el) el.innerHTML = this._renderDynamicSummary()
+    const band = document.getElementById("map-semantic-band")
+    if (band) band.innerHTML = this._renderSemanticBand()
+  },
+
+  async _confirmObservation(id) {
+    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const name = item?.title || item?.target_name || "地图映射"
+    return confirmAction(`确认地图映射「${name}」为正式事实？`, async () => {
+      try {
+        await api.world.confirmMapObservation(this._activeMapId, id, state.currentProjectId)
+        toast("地图事实已确认", "success")
+        await this._loadDynamicSummary({ force: true })
+      } catch (err) {
+        toast(`确认失败：${err.message || "未知错误"}`, "error")
+      }
+    })
+  },
+
+  async _ignoreObservation(id) {
+    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const name = item?.title || item?.target_name || "地图映射"
+    return confirmAction(`忽略地图映射「${name}」？`, async () => {
+      try {
+        await api.world.ignoreMapObservation(this._activeMapId, id, state.currentProjectId)
+        toast("地图映射已忽略", "success")
+        await this._loadDynamicSummary({ force: true })
+      } catch (err) {
+        toast(`忽略失败：${err.message || "未知错误"}`, "error")
+      }
+    })
+  },
+
+  _startPlayback() {
+    const events = this._playback?.playback?.events || []
+    if (!events.length) {
+      toast("暂无可播放动态", "info")
+      return
+    }
+    this._playback = {
+      ...this._playback,
+      playing: true,
+      activeIndex: 0,
+    }
+    this._updateWorkspaceLayoutDom()
+    this._schedulePlaybackAdvance()
+  },
+
+  _stopPlayback() {
+    this._playback = {
+      ...this._playback,
+      playing: false,
+    }
+    this._updateWorkspaceLayoutDom()
+  },
+
+  _findDynamicItem(id) {
+    const queueItem = (this._dynamicSummary?.dashboard?.dynamic_queue || [])
+      .find((item) => item.item_id === id)
+    if (queueItem) return queueItem
+    return (this._playback?.playback?.events || [])
+      .find((event) => event.event_id === id)
+  },
+
+  _showDynamicObjectInfo(id) {
+    const item = this._findDynamicItem(id)
+    if (!item) return
+    const title = item.title || "地图对象"
+    const status = item.status_label || "待判断"
+    const time = item.time_label || "时间待确认"
+    const summary = item.change_summary || item.source_summary || "暂无来源摘要"
+    const body = `
+      <div class="map-object-info">
+        <div class="map-detail-section">
+          <div class="map-detail-label">时间</div>
+          <div class="map-detail-value">${esc(time)}</div>
+        </div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">状态</div>
+          <div class="map-detail-value">${esc(status)}</div>
+        </div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">来源</div>
+          <div class="map-detail-value">${esc(summary)}</div>
+        </div>
+      </div>
+    `
+    showModal(esc(title), body, [
+      {
+        text: "修改",
+        class: "btn-primary",
+        handler: () => {
+          closeModal()
+          toast("请在右侧检查器或动态队列中修改该地图事实", "info")
+        },
+      },
+      {
+        text: "打开检查器",
+        class: "btn",
+        handler: () => {
+          closeModal()
+          this._updateWorkspaceLayoutDom()
+          toast("检查器已在右侧显示", "info")
+        },
+      },
+    ])
+  },
+
+  _schedulePlaybackAdvance() {
+    const delay = this._lowMotion ? 1600 : 2200
+    const timer = setTimeout(() => {
+      this._pendingTimers.delete(timer)
+      if (!this._playback?.playing) return
+      const events = this._playback.playback?.events || []
+      const nextIndex = this._playback.activeIndex + 1
+      if (nextIndex >= events.length) {
+        this._playback = { ...this._playback, playing: false }
+      } else {
+        this._playback = { ...this._playback, activeIndex: nextIndex }
+        this._schedulePlaybackAdvance()
+      }
+      this._updateWorkspaceLayoutDom()
+    }, delay)
+    this._pendingTimers.add(timer)
   },
 
   _bindEvents() {
@@ -316,15 +825,27 @@ const mapWorkspaceView = {
       if (action === "map-open") this._openMap(target.dataset.id)
       if (action === "map-search-location") this._openLocation(target.dataset.id)
       if (action === "map-create-world") this._showCreateWorldForm()
+      if (action === "map-confirm-observation") this._confirmObservation(target.dataset.id)
+      if (action === "map-ignore-observation") this._ignoreObservation(target.dataset.id)
+      if (action === "map-view-mode") this._setViewMode(target.dataset.viewMode)
+      if (action === "map-playback-start") this._startPlayback()
+      if (action === "map-playback-stop") this._stopPlayback()
+      if (action === "map-open-dynamic-item") {
+        this._showDynamicObjectInfo(target.dataset.id)
+      }
       if (action === "map-overview") {
         this._mode = "overview"
         this._activeMapId = null
+        this._resetDynamicSummary()
         mapView.unmount()
         router.refresh?.()
       }
     }
     root.querySelectorAll("[data-action='map-layer-toggle']").forEach((input) => {
       input.onchange = () => this._setLayer(input.dataset.layer, input.checked)
+    })
+    root.querySelectorAll("[data-action='map-low-motion-toggle']").forEach((input) => {
+      input.onchange = () => this._setLowMotion(input.checked)
     })
     const search = root.querySelector("#map-workspace-search")
     if (search) {

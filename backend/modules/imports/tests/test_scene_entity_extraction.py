@@ -516,6 +516,18 @@ async def test_record_deltas_creates_delta_log(
     assert len(items) == 1
     assert items[0].category == "ENTITY_CREATED"
 
+    from modules.world.map_models import MapObservation
+
+    obs_stmt = select(MapObservation).where(MapObservation.novel_id == nid)
+    obs_result = await db_session.execute(obs_stmt)
+    observations = obs_result.scalars().all()
+    assert len(observations) == 1
+    assert observations[0].review_state == "candidate"
+    assert observations[0].dynamic_type == "entity_created"
+    assert observations[0].scene_index == 2
+    assert observations[0].source_ref["source"] == "deep_import_delta_event"
+    assert observations[0].source_ref["delta_log_id"] == str(items[0].id)
+
 
 @pytest.mark.asyncio
 async def test_process_scene_captures_memory_snapshot(

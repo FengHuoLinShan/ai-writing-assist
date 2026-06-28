@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.map_models import (
     MapConfig,
+    MapFact,
     MapLocationBinding,
     MapMarker,
+    MapObservation,
     MapTerritoryTile,
     MapTile,
 )
@@ -636,3 +638,167 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount
+
+
+# ============================================================
+# MapObservationRepository（世界动态 P0）
+# ============================================================
+
+
+class MapObservationRepository:
+    """地图观察事实数据访问。"""
+
+    async def get(
+        self,
+        db: AsyncSession,
+        observation_id: uuid.UUID,
+    ) -> MapObservation | None:
+        stmt = select(MapObservation).where(MapObservation.id == observation_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID | None = None,
+        review_state: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[MapObservation], int]:
+        conditions: list[Any] = [MapObservation.novel_id == novel_id]
+        if map_id is not None:
+            conditions.append(MapObservation.map_id == map_id)
+        if review_state:
+            conditions.append(MapObservation.review_state == review_state)
+
+        count_stmt = select(func.count(MapObservation.id)).where(*conditions)
+        total = (await db.execute(count_stmt)).scalar() or 0
+
+        stmt = (
+            select(MapObservation)
+            .where(*conditions)
+            .order_by(MapObservation.scene_index.nulls_last(), MapObservation.created_at)
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def list_for_dashboard(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        limit: int = 100,
+    ) -> list[MapObservation]:
+        """列出总控台候选：当前地图 + 尚未归属具体地图的观察事实。"""
+        stmt = (
+            select(MapObservation)
+            .where(
+                MapObservation.novel_id == novel_id,
+                or_(MapObservation.map_id == map_id, MapObservation.map_id.is_(None)),
+                MapObservation.review_state.in_(
+                    ["candidate", "conflicted", "confirmed"]
+                ),
+            )
+            .order_by(
+                MapObservation.review_state,
+                MapObservation.scene_index.nulls_last(),
+                MapObservation.created_at.desc(),
+            )
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapObservation:
+        observation = MapObservation(novel_id=novel_id, **values)
+        db.add(observation)
+        await db.flush()
+        return observation
+
+    async def update_review_state(
+        self,
+        db: AsyncSession,
+        observation_id: uuid.UUID,
+        review_state: str,
+    ) -> MapObservation | None:
+        stmt = (
+            update(MapObservation)
+            .where(MapObservation.id == observation_id)
+            .values(review_state=review_state)
+        )
+        await db.execute(stmt)
+        await db.flush()
+        return await self.get(db, observation_id)
+
+
+# ============================================================
+# MapFactRepository（世界动态 P0）
+# ============================================================
+
+
+class MapFactRepository:
+    """已确认地图事实数据访问。"""
+
+    async def get(self, db: AsyncSession, fact_id: uuid.UUID) -> MapFact | None:
+        stmt = select(MapFact).where(MapFact.id == fact_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_observation(
+        self,
+        db: AsyncSession,
+        observation_id: uuid.UUID,
+    ) -> MapFact | None:
+        stmt = select(MapFact).where(MapFact.observation_id == observation_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID | None = None,
+        fact_status: str | None = "confirmed",
+        skip: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[MapFact], int]:
+        conditions: list[Any] = [MapFact.novel_id == novel_id]
+        if map_id is not None:
+            conditions.append(MapFact.map_id == map_id)
+        if fact_status:
+            conditions.append(MapFact.fact_status == fact_status)
+
+        count_stmt = select(func.count(MapFact.id)).where(*conditions)
+        total = (await db.execute(count_stmt)).scalar() or 0
+
+        stmt = (
+            select(MapFact)
+            .where(*conditions)
+            .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapFact:
+        fact = MapFact(novel_id=novel_id, **values)
+        db.add(fact)
+        await db.flush()
+        return fact

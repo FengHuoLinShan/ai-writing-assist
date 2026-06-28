@@ -49,3 +49,6 @@ from modules.world.event_facade import (  # noqa: F401
     rollback_to_revision,
     run_entity_extraction,
 )
+from modules.world.map_facade import (  # noqa: F401
+    create_map_observation_from_delta_event,
+)

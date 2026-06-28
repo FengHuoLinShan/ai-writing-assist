@@ -20,7 +20,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
-- `map_configs` / `map_tiles` / `map_location_bindings` / `map_markers` / `map_territory_tiles` — 动态地图子系统表，详见 `docs/modules/15_map.md`
+- `map_configs` / `map_tiles` / `map_location_bindings` / `map_markers` / `map_territory_tiles` / `map_observations` / `map_facts` — 动态地图子系统表，详见 `docs/modules/15_map.md`
 - ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB

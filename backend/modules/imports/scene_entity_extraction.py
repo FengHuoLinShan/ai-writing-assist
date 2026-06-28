@@ -678,6 +678,7 @@ class SceneEntityExtractionService:
         result_refs: list[dict[str, str]] | None = None,
     ) -> int:
         from modules.memory.facade import create_delta_log
+        from modules.world.facade import create_map_observation_from_delta_event
 
         count = 0
         for event in delta_events or []:
@@ -700,6 +701,26 @@ class SceneEntityExtractionService:
                 },
             )
             count += 1
+            delta_log_id = delta.get("id")
             if result_refs is not None and delta.get("id"):
-                result_refs.append(build_result_ref("delta_log", delta["id"]))
+                result_refs.append(build_result_ref("delta_log", delta_log_id))
+            try:
+                observation = await create_map_observation_from_delta_event(
+                    db,
+                    str(nid),
+                    event=event.model_dump(),
+                    scene_index=scene_index,
+                    context_snapshot_id=context_snapshot_id,
+                    delta_log_id=delta_log_id,
+                )
+                if result_refs is not None:
+                    result_refs.append(
+                        build_result_ref("map_observation", observation["id"])
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to create map observation for delta event %s: %s",
+                    event.category,
+                    exc,
+                )
         return count

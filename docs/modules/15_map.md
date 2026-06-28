@@ -22,10 +22,17 @@
 | P0 | 地点绑定（location 实体 → 一个或多个 hex） | ✅ | `MapLocationBindingService` | 绑定工具 |
 | P0 | 地图聚合状态（map + breadcrumbs + tiles + bindings） | ✅ | `MapConfigService.get_state` | 主视图 |
 | P0 | 详图快速生成（中心 city + 外 road） | ✅ | `MapConfigService.generate` | 编辑工具栏 |
+| P0 | 地图观察事实候选与正式事实底座 | ✅ | `MapDynamicFactService` | 工作台动态事实摘要 |
+| P1 | 世界动态总控台（首屏层 / 动态队列 / 检查器 / 批量分组） | ✅ | `MapDynamicFactService.get_dashboard` | 工作台右侧总控台 |
 | P1 | Scene 时间层与动态标记（character/event/item） | ✅ | `MapMarkerService` | Scene 导航 + 标记工具 |
 | P2 | 组织势力范围（territory tiles） | ✅ | `MapTerritoryService` | 势力范围工具 |
 | P2 | 聚焦模式（按组织过滤势力范围） | ✅ | `GET /{map_id}/focus` | 聚焦按钮 |
 | P2 | 写作页 Scene 地图摘要 | ✅ | `GET /scene-summary` | `writingView.js` |
+| P2 | 自动布局、避让、聚合簇 | ✅ | 复用 dashboard / state 契约 | `mapLayoutEngine.js` + `mapView.js` |
+| P2 | 总控台 / 活地图 / 叙事透镜三视图 | ✅ | 同一套地图事实 | `mapWorkspaceView.js` |
+| P2 | 上方语义气泡带与低动效模式 | ✅ | 同一套动态队列 | `mapWorkspaceView.js` + `mapLayoutEngine.js` |
+| P3 | typed observations 播放派生 | ✅ | `GET /{map_id}/playback` | 电影化播放面板 |
+| P3 | 人物旅程 / 势力变化 / 危机推进 / 资源控制 / 状态变化轨道 | ✅ | `MapDynamicFactService.get_playback` | 播放轨道列表 |
 | P3 | AI 位置建议 | ❌ | 未建表 | 未实现 |
 | P4 | 地图缩略图 / 图片底图 / 伪 3D | ❌ | 未规划 | 未实现 |
 
@@ -121,6 +128,43 @@
 
 **约束**：`UNIQUE(map_id, faction_entity_id, hex_q, hex_r)`。
 
+### `map_observations` — 地图观察事实候选（世界动态 P0）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | UUID PK | |
+| `novel_id` | UUID FK → projects | 项目隔离 |
+| `map_id` | UUID FK → map_configs, nullable | 未解析空间时可为空 |
+| `target_entity_id` | UUID FK → core_entities, nullable | 未消歧时可为空；不得存入跨 novel 引用 |
+| `target_entity_type` / `target_name` | VARCHAR | 作者界面优先显示名称和类型文案 |
+| `dynamic_type` | VARCHAR(64) | `location` / `status` / `boundary` / `crisis` / `resource` / `semantic` / `delta_event` 等 |
+| `time_anchor` / `spatial_anchor` | JSONB | Scene/章节/地图/hex/地点等锚点 |
+| `value_json` | JSONB | 观察到的候选状态或值 |
+| `confidence` | FLOAT | 置信度 0~1 |
+| `review_state` | VARCHAR(32) | `candidate` / `confirmed` / `ignored` / `conflicted` |
+| `source_ref` | JSONB | 来源引用，如 `delta_log_id`、`context_snapshot_id` |
+| `evidence_text` | TEXT | 可读来源证据摘要 |
+| `scene_id` / `scene_index` / `source_chapter_index` | UUID / INT | 来源时间锚点 |
+
+`deep import` Phase 2 仍写 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations`，默认 `review_state="candidate"`，不直接写正式事实。
+
+### `map_facts` — 已确认时间化地图事实（世界动态 P0）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | UUID PK | |
+| `novel_id` | UUID FK → projects | 项目隔离 |
+| `observation_id` | UUID FK → map_observations, nullable | 来源 observation |
+| `map_id` / `target_entity_id` | UUID FK, nullable | 关联地图和对象 |
+| `target_entity_type` / `target_name` | VARCHAR | 作者界面显示文案 |
+| `dynamic_type` | VARCHAR(64) | 与 observation 一致 |
+| `time_anchor` / `spatial_anchor` / `value_json` | JSONB | 已确认事实内容 |
+| `confidence` | FLOAT | 来源置信度 |
+| `fact_status` | VARCHAR(32) | `confirmed` / `rolled_back` / `deprecated` |
+| `source_ref` / `evidence_text` | JSONB / TEXT | 来源引用和证据摘要 |
+
+确认 observation 会生成或复用 `map_facts`；忽略 observation 只更新审查状态，不硬删除候选。
+
 ---
 
 ## API 契约
@@ -139,6 +183,8 @@
 | DELETE | `/{map_id}?novel_id={}` | 硬删地图（前端需二次确认） |
 | POST | `/{map_id}/generate?novel_id={}` | 快速生成详图地形（仅 `city/region/dungeon`） |
 | GET | `/{map_id}/state?novel_id={}&scene_id={}&filter_types={}` | 聚合状态 |
+| GET | `/{map_id}/dashboard?novel_id={}&scene_id={}&focus_entity_id={}` | 世界动态总控台：首屏层、动态队列、检查器、批量分组 |
+| GET | `/{map_id}/playback?novel_id={}&scene_id={}&focus_entity_id={}&include_candidates={}` | 世界动态播放：typed observation 轨道和播放事件 |
 | GET | `/{map_id}/focus?novel_id={}&faction_entity_id={}` | 聚焦模式（仅返回该组织势力范围） |
 
 ### 地形编辑
@@ -173,6 +219,17 @@
 | PATCH | `/{map_id}/territories/{territory_id}?novel_id={}` | 更新单格样式 |
 | DELETE | `/{map_id}/territories/{territory_id}?novel_id={}` | 删除单格 |
 | DELETE | `/{map_id}/territories?novel_id={}&faction_entity_id={}` | 按组织删除全部势力范围 |
+
+### 世界动态事实（P0）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/{map_id}/observations?novel_id={}&review_state={}` | 地图观察事实候选列表 |
+| POST | `/{map_id}/observations?novel_id={}` | 创建地图观察事实候选 |
+| PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 更新 observation 审查状态 |
+| POST | `/{map_id}/observations/{observation_id}/confirm?novel_id={}` | 确认 observation 并生成/复用 `map_facts` |
+| POST | `/{map_id}/observations/{observation_id}/ignore?novel_id={}` | 忽略 observation，不生成正式事实 |
+| GET | `/{map_id}/facts?novel_id={}&fact_status={}` | 已确认地图事实列表 |
 
 ### `MapStateResponse` 结构
 
@@ -255,8 +312,9 @@
 
 ## 前端实现现状
 
-- `mapWorkspaceView`：总览、最近地图、地图树、搜索、图层开关、打开具体地图
-- `mapView`：地图编辑器本体
+- `mapWorkspaceView`：总览、最近地图、地图树、搜索、图层开关、打开具体地图；具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框。
+- `mapView`：地图编辑器本体；浏览模式下地点中心标签消费布局引擎，密集时自动偏移、缩短、图标化或聚合。
+- `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、候选/正式状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
 - `mapRouteContext.js`：处理从写作页或其他工作流带入的 `map_id` / `scene_id` / `focus_entity_id`
 
 ### 跨 novel 隔离
@@ -372,16 +430,19 @@
 
 | 文件 | 职责 |
 |------|------|
-| `backend/modules/world/map_models.py` | ORM 模型（4 张表） |
-| `backend/modules/world/map_schemas.py` | Pydantic Schema / 白名单 |
+| `backend/modules/world/map_models.py` | ORM 模型（地图基础表 + 动态事实表） |
+| `backend/modules/world/map_schemas.py` | Pydantic Schema / 白名单（含 dashboard / playback 派生响应） |
 | `backend/modules/world/map_repositories.py` | 数据访问层 |
-| `backend/modules/world/services/map_service.py` | 业务服务（Config / Tile / Binding / Marker / Territory） |
+| `backend/modules/world/services/map_service.py` | 业务服务（Config / Tile / Binding / Marker / Territory / DynamicFact） |
 | `backend/modules/world/services/map_context.py` | 共享上下文守卫（novel 隔离 / hex 越界 / entity 类型校验） |
 | `backend/modules/world/map_api.py` | FastAPI 路由 |
+| `backend/modules/world/map_facade.py` | 跨模块地图动态入口（deep import delta → observation） |
 | `backend/modules/world/tests/test_map_*.py` | 测试套件 |
 | `backend/alembic/versions/20260614_add_map_tables.py` | P0 + P1 表迁移 |
 | `backend/alembic/versions/20260622_add_territory_tables.py` | P2 势力范围表迁移 |
+| `backend/alembic/versions/20260629_add_map_dynamic_fact_tables.py` | P0 世界动态 observation/fact 表迁移 |
 | `frontend-console/views/mapView.js` | 主视图 |
+| `frontend-console/views/mapLayoutEngine.js` | P2 自动布局、避让、聚合簇、语义气泡带派生 |
 | `frontend-console/views/mapState.js` | 前端会话状态 |
 | `frontend-console/views/mapHexRenderer.js` | 六边形 Canvas 渲染 |
 | `frontend-console/views/mapEditPanel.js` | 编辑侧边栏 |

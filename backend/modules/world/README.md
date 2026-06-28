@@ -60,6 +60,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | `map_tiles` | 六边形地形网格（轴向坐标 q,r，PRD §4.2） |
 | `map_location_bindings` | 地点绑定（core_entities.entity_type=location → hex，PRD §4.3） |
 | `map_markers` | 动态标记（P1 预留：character/event/item，按 Scene 时间层显隐，PRD §4.5） |
+| `map_territory_tiles` | 势力范围（组织控制区域，可与地形/地点/标记叠加） |
+| `map_observations` | 地图观察事实候选（来源证据、置信度、审查状态；默认不污染正式事实） |
+| `map_facts` | 已确认时间化地图事实（由 observation 确认生成，供世界动态地图消费） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
@@ -116,6 +119,14 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `POST /api/world/entities/{entity_id}/rollback` 是当前活跃的版本回滚路由，请求体：`{ "target_scene_index": 12 }`；由 `EntityRevisionService.rollback_to_scene_index` 实现，优先使用 `TextArchive`，无归档时回退到最近 `EntityRevision`
 - `POST /api/world/entities/{entity_id}/rollback-by-revision` 是 `entity_revisions` 的兼容路由，按显式 `revision_id` 回滚
 - `EntityRevisionService` 同时承担活跃回滚实现与 legacy 兼容，不应再被描述为仅 read/compat
+
+### map_observations / map_facts 表
+
+- `map_observations` 是世界动态地图的证据层：deep import `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。
+- observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
+- `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
+- 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
+- 深度导入仍保留 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations` 候选流；该接入不自动写正式 `map_facts`。
 
 ## 对外契约（contracts.py）
 
@@ -218,6 +229,9 @@ async def create_event(db, novel_id, data: dict) -> dict
 async def get_events_context(db, novel_id, limit=50) -> EventsContextBundle
 async def get_full_state(db, novel_id) -> dict
 
+# ---- Map dynamic facts ----
+async def create_map_observation_from_delta_event(db, novel_id, *, event: dict, scene_index: int, ...) -> dict
+
 # ---- EntityRevision (legacy rollback by revision_id) ----
 async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict
 async def rollback_to_revision(db, novel_id, entity_id, revision_id) -> dict
@@ -290,6 +304,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | DELETE | `/api/world/maps/{map_id}` | 删除地图（硬删，前端二次确认） |
 | POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
 | GET | `/api/world/maps/{map_id}/state` | 地图聚合状态（map+面包屑+地形+绑定，PRD §6.2） |
+| GET | `/api/world/maps/{map_id}/dashboard` | 世界动态总控台派生状态（首屏层、动态队列、检查器、批量分组） |
+| GET | `/api/world/maps/{map_id}/playback` | 世界动态播放派生状态（typed observation 轨道和事件） |
 | PATCH | `/api/world/maps/{map_id}/tiles` | 批量编辑地形（PRD §6.3） |
 | POST | `/api/world/maps/{map_id}/location-bindings` | 批量创建地点绑定（PRD §6.4） |
 | PATCH | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 更新地点绑定 |
@@ -304,6 +320,12 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | DELETE | `/api/world/maps/{map_id}/territories/{territory_id}` | 删除单格势力范围（P2） |
 | DELETE | `/api/world/maps/{map_id}/territories` | 按组织删除全部势力范围（P2） |
 | GET | `/api/world/maps/{map_id}/focus` | 聚焦模式：仅返回指定组织势力范围（P2） |
+| GET | `/api/world/maps/{map_id}/observations` | 地图观察事实候选列表，可按 `review_state` 过滤 |
+| POST | `/api/world/maps/{map_id}/observations` | 创建地图观察事实候选 |
+| PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 更新观察事实审查状态 |
+| POST | `/api/world/maps/{map_id}/observations/{observation_id}/confirm` | 确认 observation 并生成/复用正式 `map_facts` |
+| POST | `/api/world/maps/{map_id}/observations/{observation_id}/ignore` | 忽略 observation，不生成正式事实 |
+| GET | `/api/world/maps/{map_id}/facts` | 已确认地图事实列表，可按 `fact_status` 过滤 |
 
 ## 依赖
 

@@ -30,6 +30,7 @@ import {
   TERRAIN_COLORS,
 } from "./mapHexRenderer.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
+import { buildMapLayout } from "./mapLayoutEngine.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import {
   mapState,
@@ -585,21 +586,70 @@ const mapView = {
 
     const cfg = this._state.map
     const size = cfg.hex_size || 30
-    for (const b of this._state.location_bindings) {
-      if (!b.is_center) continue
-      const [x, y] = hexToPixel(b.hex_q, b.hex_r, size)
-      // latLng: CRS.Simple 中 y 是 lat，x 是 lng
+    const centers = (this._state.location_bindings || []).filter((binding) => binding.is_center)
+    const layoutItems = centers.map((binding, index) => {
+      const [x, y] = hexToPixel(binding.hex_q, binding.hex_r, size)
       const latlng = window.L.latLng(y, x)
-      const label = b.label_override || this._locationName(b.location_entity_id)
+      const point = this._leaflet.latLngToContainerPoint(latlng)
+      const label = binding.label_override || this._locationName(binding.location_entity_id)
+      return {
+        item_id: binding.location_entity_id || `location-${index}`,
+        item_kind: "fact",
+        fact_status: "confirmed",
+        title: label,
+        object_type: "location",
+        dynamic_type: "location",
+        priority: this._hasDetailMap(binding.location_entity_id) ? 82 : 56,
+        target_entity_id: binding.location_entity_id,
+        anchor: { x: point.x, y: point.y },
+      }
+    })
+    const container = this._leaflet.getContainer?.()
+    const layout = buildMapLayout({
+      dashboard: { dynamic_queue: layoutItems },
+      viewport: {
+        width: container?.clientWidth || this._canvas?.width || 640,
+        height: container?.clientHeight || this._canvas?.height || 420,
+      },
+      viewMode: this._mountContext?.viewMode || "dashboard",
+      focusEntityId: this._mountContext?.focusEntityId || null,
+      sceneId: mapState.currentSceneId,
+      lowMotion: Boolean(this._mountContext?.lowMotion),
+    })
+    const labelById = new Map(layout.labels.map((label) => [label.itemId, label]))
+    for (const b of centers) {
+      const [x, y] = hexToPixel(b.hex_q, b.hex_r, size)
+      const latlng = window.L.latLng(y, x)
+      const point = this._leaflet.latLngToContainerPoint(latlng)
+      const labelLayout = labelById.get(b.location_entity_id)
+      if (!labelLayout) continue
+      const label = labelLayout.title
       const hasDetail = this._hasDetailMap(b.location_entity_id)
+      const iconWidth = labelLayout.box.width
+      const iconHeight = labelLayout.box.height
       const icon = window.L.divIcon({
-        className: "map-center-marker",
+        className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel}`,
         html: `<div class="map-center-label" data-action="map-click-center" data-id="${esc(b.location_entity_id)}">
-                 <span class="map-center-name">${esc(label)}</span>
+                 <span class="map-center-name">${esc(labelLayout.label || label)}</span>
                  <span class="map-center-drill ${hasDetail ? "has-detail" : ""}">${hasDetail ? "▾" : "·"}</span>
                </div>`,
-        iconSize: [80, 24],
-        iconAnchor: [40, 12],
+        iconSize: [iconWidth, iconHeight],
+        iconAnchor: [point.x - labelLayout.box.x, point.y - labelLayout.box.y],
+      })
+      const marker = window.L.marker(latlng, { icon })
+      marker._isMapLabel = true
+      marker.addTo(this._leaflet)
+    }
+    for (const cluster of layout.clusters) {
+      const latlng = this._leaflet.containerPointToLatLng([
+        cluster.box.x + cluster.box.width / 2,
+        cluster.box.y + cluster.box.height / 2,
+      ])
+      const icon = window.L.divIcon({
+        className: "map-center-marker map-layout-marker is-cluster",
+        html: `<div class="map-center-label map-center-cluster"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
+        iconSize: [cluster.box.width, cluster.box.height],
+        iconAnchor: [cluster.box.width / 2, cluster.box.height / 2],
       })
       const marker = window.L.marker(latlng, { icon })
       marker._isMapLabel = true

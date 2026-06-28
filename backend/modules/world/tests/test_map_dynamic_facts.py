@@ -1,0 +1,264 @@
+"""Map dynamic fact P0 tests."""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.world.tests.helpers import _create_entity, _create_project
+
+
+@pytest.mark.asyncio
+async def test_map_observation_confirm_flow_keeps_candidate_until_confirmed(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    character = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="沈砚",
+        status="canonical",
+    )
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 8, "grid_height": 8},
+    )
+    map_id = map_resp.json()["id"]
+
+    create_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_id": str(character.id),
+            "target_entity_type": "character",
+            "target_name": "沈砚",
+            "dynamic_type": "location",
+            "time_anchor": {"scene_index": 42},
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "value_json": {"state": "arrived"},
+            "confidence": 0.82,
+            "source_ref": {"source": "deep_import", "chapter_index": 12},
+            "evidence_text": "沈砚穿过东门。",
+            "scene_index": 42,
+            "source_chapter_index": 12,
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    observation = create_resp.json()
+    assert observation["review_state"] == "candidate"
+    assert observation["target_name"] == "沈砚"
+    assert observation["source_ref"]["source"] == "deep_import"
+
+    facts_before = await async_client.get(
+        f"/api/world/maps/{map_id}/facts",
+        params={"novel_id": nid},
+    )
+    assert facts_before.status_code == 200
+    assert facts_before.json()["total"] == 0
+
+    confirm_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/{observation['id']}/confirm",
+        params={"novel_id": nid},
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    fact = confirm_resp.json()
+    assert fact["observation_id"] == observation["id"]
+    assert fact["target_name"] == "沈砚"
+    assert fact["dynamic_type"] == "location"
+    assert fact["fact_status"] == "confirmed"
+
+    observations = await async_client.get(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid, "review_state": "confirmed"},
+    )
+    assert observations.status_code == 200
+    assert observations.json()["total"] == 1
+    assert observations.json()["items"][0]["review_state"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_map_observation_can_be_ignored_without_creating_fact(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+    create_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_name": "可疑封锁",
+            "dynamic_type": "crisis",
+            "confidence": 0.3,
+            "source_ref": {"source": "draft_analysis"},
+        },
+    )
+    observation_id = create_resp.json()["id"]
+
+    ignore_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/{observation_id}/ignore",
+        params={"novel_id": nid},
+    )
+    assert ignore_resp.status_code == 200
+    assert ignore_resp.json()["review_state"] == "ignored"
+
+    facts = await async_client.get(
+        f"/api/world/maps/{map_id}/facts",
+        params={"novel_id": nid},
+    )
+    assert facts.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        nid,
+        event={
+            "category": "CRISIS_SPREAD",
+            "field": "city_state",
+            "old": "open",
+            "new": "blocked",
+            "meta": {
+                "dynamic_type": "crisis",
+                "target_name": "洛阳外城",
+                "target_entity_type": "location",
+                "confidence": 0.41,
+                "evidence_text": "城门忽然封闭。",
+            },
+        },
+        scene_index=12,
+        context_snapshot_id="snapshot-1",
+        delta_log_id="delta-1",
+    )
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "dashboard"
+    assert body["title"] == "世界动态总控台"
+    assert body["dynamic_queue"][0]["title"] == "洛阳外城"
+    assert body["dynamic_queue"][0]["item_kind"] == "observation"
+    assert body["dynamic_queue"][0]["status_label"] == "待确认"
+    assert body["dynamic_queue"][0]["risk_level"] == "danger"
+    assert body["first_visual_layer"]["main_crisis"] == "洛阳外城"
+    assert body["inspector"]["ai_candidates"][0]["title"] == "洛阳外城"
+    assert body["batch_groups"][0]["group_label"] == "地点"
+    assert body["risk_summary"] == ["洛阳外城：待确认"]
+
+    facts = await async_client.get(
+        f"/api/world/maps/{map_id}/facts",
+        params={"novel_id": nid},
+    )
+    assert facts.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_playback_derives_typed_tracks_from_facts_and_candidates(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    character = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="沈砚",
+        status="canonical",
+    )
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+
+    position_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_id": str(character.id),
+            "target_entity_type": "character",
+            "target_name": "沈砚",
+            "dynamic_type": "position_change",
+            "value_json": {"field": "位置", "old": "东门", "new": "内城"},
+            "spatial_anchor": {"hex_q": 2, "hex_r": 2},
+            "confidence": 0.9,
+            "scene_index": 1,
+            "source_ref": {"source": "deep_import"},
+            "evidence_text": "沈砚进入内城。",
+        },
+    )
+    assert position_resp.status_code == 201, position_resp.text
+    await async_client.post(
+        f"/api/world/maps/{map_id}/observations/{position_resp.json()['id']}/confirm",
+        params={"novel_id": nid},
+    )
+
+    crisis_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_type": "location",
+            "target_name": "洛阳外城",
+            "dynamic_type": "crisis_spread",
+            "value_json": {"field": "封锁", "old": "无", "new": "扩散"},
+            "confidence": 0.42,
+            "scene_index": 2,
+            "source_ref": {"source": "deep_import"},
+            "evidence_text": "封锁向外城扩散。",
+        },
+    )
+    assert crisis_resp.status_code == 201, crisis_resp.text
+
+    playback = await async_client.get(
+        f"/api/world/maps/{map_id}/playback",
+        params={"novel_id": nid},
+    )
+    assert playback.status_code == 200, playback.text
+    body = playback.json()
+    assert [track["track"] for track in body["tracks"]] == ["journey", "crisis"]
+    assert body["events"][0]["typed_observation"] == "position_change"
+    assert body["events"][0]["track"] == "journey"
+    assert body["events"][0]["change_summary"] == "位置：东门 → 内城"
+    assert body["events"][1]["typed_observation"] == "crisis_spread"
+    assert body["events"][1]["track"] == "crisis"
+    assert body["events"][1]["status_label"] == "待确认"
+
+    confirmed_only = await async_client.get(
+        f"/api/world/maps/{map_id}/playback",
+        params={"novel_id": nid, "include_candidates": False},
+    )
+    assert confirmed_only.status_code == 200
+    assert [event["track"] for event in confirmed_only.json()["events"]] == ["journey"]

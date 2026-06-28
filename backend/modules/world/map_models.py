@@ -1,11 +1,13 @@
 """
 World 动态地图 ORM 模型 — PRD docs/PRD-动态地图功能.md
 
-4 张表（P0 实现 3 张 + P1 数据层预留 1 张）：
+地图基础表 + 世界动态 P0 事实底座：
 - map_configs: 地图配置（世界地图 / 城市 / 区域 / 地下城，自引用树）
 - map_tiles: 六边形地形网格（轴向坐标 q,r）
 - map_location_bindings: 地点绑定（core_entities.entity_type=location → hex）
 - map_markers: 动态标记（P1 预留，character/event/item，按 Scene 时间层显隐）
+- map_observations: 地图观察事实候选（来源证据、置信度、审查状态）
+- map_facts: 已确认的时间化地图事实
 
 约定（与 world/models.py 一致）：
 - Base + UUIDMixin + TimestampMixin + NovelMixin
@@ -368,4 +370,162 @@ class MapTerritoryTile(Base, UUIDMixin, TimestampMixin, NovelMixin):
         return (
             f"<MapTerritoryTile map={self.map_id} "
             f"faction={self.faction_entity_id} q={self.hex_q} r={self.hex_r}>"
+        )
+
+
+# ============================================================
+# MapObservation — 地图观察事实候选（世界动态 P0）
+# ============================================================
+
+
+class MapObservation(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """地图观察事实。
+
+    Observation 是 deep import、即时分析或人工编辑提供的证据层。它默认
+    进入 candidate review_state，不直接污染正式地图事实；用户确认后再生成
+    MapFact。
+    """
+
+    __tablename__ = "map_observations"
+    __table_args__ = (
+        Index("ix_map_observation_map_review", "map_id", "review_state"),
+        Index("ix_map_observation_target", "target_entity_id", "dynamic_type"),
+        Index("ix_map_observation_scene", "scene_id", "scene_index"),
+        {"comment": "地图观察事实候选"},
+    )
+
+    map_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="关联地图；未解析空间时可为空",
+    )
+    target_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="目标实体；候选未消歧时可为空",
+    )
+    target_entity_type: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="目标实体类型文案"
+    )
+    target_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="目标对象名称（作者界面优先显示）"
+    )
+    dynamic_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        comment="动态类型：location/status/boundary/crisis/resource/semantic/delta_event",
+    )
+    time_anchor: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=dict, comment="章节/Scene/时间范围锚点"
+    )
+    spatial_anchor: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=dict, comment="地图/hex/地点/文本空间锚点"
+    )
+    value_json: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=dict, comment="观察到的状态或候选值"
+    )
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.5, comment="来源置信度 0~1"
+    )
+    review_state: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="candidate",
+        index=True,
+        comment="candidate / confirmed / ignored / conflicted",
+    )
+    source_ref: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=dict, comment="来源引用：snapshot/delta/source ids"
+    )
+    evidence_text: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="可读来源证据摘要"
+    )
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=True, index=True, comment="来源 Scene ID"
+    )
+    scene_index: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, index=True, comment="来源 Scene 序号"
+    )
+    source_chapter_index: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="来源章节序号"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<MapObservation type={self.dynamic_type} target={self.target_name!r} "
+            f"state={self.review_state}>"
+        )
+
+
+# ============================================================
+# MapFact — 已确认时间化地图事实（世界动态 P0）
+# ============================================================
+
+
+class MapFact(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """已确认地图事实。
+
+    Fact 是 Observation 经用户确认或可信流水线确认后的正式地图动态底座。
+    """
+
+    __tablename__ = "map_facts"
+    __table_args__ = (
+        Index("ix_map_fact_map_status", "map_id", "fact_status"),
+        Index("ix_map_fact_target", "target_entity_id", "dynamic_type"),
+        Index("ix_map_fact_scene", "scene_id", "scene_index"),
+        {"comment": "已确认时间化地图事实"},
+    )
+
+    observation_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_observations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="来源观察事实",
+    )
+    map_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="关联地图",
+    )
+    target_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="目标实体",
+    )
+    target_entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dynamic_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    time_anchor: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    spatial_anchor: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    value_json: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    fact_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="confirmed",
+        index=True,
+        comment="confirmed / rolled_back / deprecated",
+    )
+    source_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    evidence_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=True
+    )
+    scene_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<MapFact type={self.dynamic_type} target={self.target_name!r} "
+            f"status={self.fact_status}>"
         )

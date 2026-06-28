@@ -412,6 +412,19 @@ const api = {
       if (sceneId) params.scene_id = sceneId
       return request(`/world/maps/${mapId}/state${buildQueryString(params)}`)
     },
+    async getMapDashboard(mapId, novelId, sceneId = null, focusEntityId = null) {
+      const params = { novel_id: novelId, scene_id: sceneId, focus_entity_id: focusEntityId }
+      return request(`/world/maps/${mapId}/dashboard${buildQueryString(params)}`)
+    },
+    async getMapPlayback(mapId, novelId, sceneId = null, focusEntityId = null, includeCandidates = true) {
+      const params = {
+        novel_id: novelId,
+        scene_id: sceneId,
+        focus_entity_id: focusEntityId,
+        include_candidates: includeCandidates,
+      }
+      return request(`/world/maps/${mapId}/playback${buildQueryString(params)}`)
+    },
     /** 获取写作页 Scene 地图摘要 */
     async getMapSceneSummary(novelId, sceneId) {
       return request("/world/maps/scene-summary" + buildQueryString({
@@ -484,6 +497,22 @@ const api = {
       return request(`/world/maps/${mapId}/territories${buildQueryString({ novel_id: novelId, faction_entity_id: factionEntityId })}`, {
         method: "DELETE",
       })
+    },
+    async listMapObservations(mapId, novelId, reviewState = null) {
+      return request(`/world/maps/${mapId}/observations${buildQueryString({ novel_id: novelId, review_state: reviewState })}`)
+    },
+    async confirmMapObservation(mapId, observationId, novelId) {
+      return request(`/world/maps/${mapId}/observations/${observationId}/confirm${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+      })
+    },
+    async ignoreMapObservation(mapId, observationId, novelId) {
+      return request(`/world/maps/${mapId}/observations/${observationId}/ignore${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+      })
+    },
+    async listMapFacts(mapId, novelId, factStatus = "confirmed") {
+      return request(`/world/maps/${mapId}/facts${buildQueryString({ novel_id: novelId, fact_status: factStatus })}`)
     },
   },
 

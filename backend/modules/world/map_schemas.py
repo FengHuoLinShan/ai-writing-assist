@@ -446,3 +446,222 @@ class MapTerritoryResponse(BaseModel):
     @classmethod
     def _coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
+
+
+# ============================================================
+# MapObservation / MapFact — 世界动态 P0 可信事实底座
+# ============================================================
+
+MAP_REVIEW_STATES: tuple[str, ...] = (
+    "candidate",
+    "confirmed",
+    "ignored",
+    "conflicted",
+)
+MAP_FACT_STATUSES: tuple[str, ...] = ("confirmed", "rolled_back", "deprecated")
+
+
+class MapObservationCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    target_entity_id: str | None = Field(None, description="目标实体 ID，可为空")
+    target_entity_type: str | None = Field(None, max_length=64)
+    target_name: str | None = Field(None, max_length=255)
+    dynamic_type: str = Field(..., min_length=1, max_length=64)
+    time_anchor: dict | None = Field(default_factory=dict)
+    spatial_anchor: dict | None = Field(default_factory=dict)
+    value_json: dict | None = Field(default_factory=dict)
+    confidence: float = Field(0.5, ge=0.0, le=1.0)
+    review_state: Literal["candidate", "confirmed", "ignored", "conflicted"] = Field(
+        "candidate"
+    )
+    source_ref: dict | None = Field(default_factory=dict)
+    evidence_text: str | None = None
+    scene_id: str | None = None
+    scene_index: int | None = Field(None, ge=0)
+    source_chapter_index: int | None = Field(None, ge=0)
+
+    @field_validator("target_entity_id", "scene_id")
+    @classmethod
+    def _coerce_optional_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return str(uuid.UUID(v))
+
+
+class MapObservationReviewUpdate(BaseModel):
+    review_state: Literal["candidate", "confirmed", "ignored", "conflicted"]
+
+
+class MapObservationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str | None = None
+    target_entity_id: str | None = None
+    target_entity_type: str | None = None
+    target_name: str | None = None
+    dynamic_type: str
+    time_anchor: dict | None = None
+    spatial_anchor: dict | None = None
+    value_json: dict | None = None
+    confidence: float
+    review_state: str
+    source_ref: dict | None = None
+    evidence_text: str | None = None
+    scene_id: str | None = None
+    scene_index: int | None = None
+    source_chapter_index: int | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+    @field_validator("map_id", "target_entity_id", "scene_id", mode="before")
+    @classmethod
+    def _coerce_optional_uuid(cls, v: object) -> str | None:
+        return _optional_uuid_validator(v)
+
+
+class MapObservationListResponse(BaseModel):
+    items: list[MapObservationResponse]
+    total: int
+
+
+class MapFactResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    observation_id: str | None = None
+    map_id: str | None = None
+    target_entity_id: str | None = None
+    target_entity_type: str | None = None
+    target_name: str | None = None
+    dynamic_type: str
+    time_anchor: dict | None = None
+    spatial_anchor: dict | None = None
+    value_json: dict | None = None
+    confidence: float
+    fact_status: str
+    source_ref: dict | None = None
+    evidence_text: str | None = None
+    scene_id: str | None = None
+    scene_index: int | None = None
+    source_chapter_index: int | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+    @field_validator(
+        "observation_id",
+        "map_id",
+        "target_entity_id",
+        "scene_id",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_optional_uuid(cls, v: object) -> str | None:
+        return _optional_uuid_validator(v)
+
+
+class MapFactListResponse(BaseModel):
+    items: list[MapFactResponse]
+    total: int
+
+
+# ============================================================
+# MapDashboard — 世界动态总控台（P1）
+# ============================================================
+
+
+class MapDashboardQueueItem(BaseModel):
+    item_id: str
+    item_kind: Literal["observation", "fact"]
+    title: str
+    object_type: str | None = None
+    dynamic_type: str
+    time_label: str
+    status_label: str
+    source_summary: str
+    priority: int
+    risk_level: Literal["info", "warning", "danger"] = "info"
+    confidence: float | None = None
+    review_state: str | None = None
+    fact_status: str | None = None
+
+
+class MapDashboardInspector(BaseModel):
+    title: str
+    status_label: str
+    summary: str | None = None
+    map_facts: list[MapDashboardQueueItem] = Field(default_factory=list)
+    ai_candidates: list[MapDashboardQueueItem] = Field(default_factory=list)
+    conflicts: list[MapDashboardQueueItem] = Field(default_factory=list)
+    source_evidence: list[str] = Field(default_factory=list)
+    related_dynamics: list[MapDashboardQueueItem] = Field(default_factory=list)
+
+
+class MapDashboardBatchGroup(BaseModel):
+    group_key: str
+    group_label: str
+    count: int
+    candidate_count: int
+    confirmed_count: int
+    first_joined_label: str
+
+
+class MapDashboardResponse(BaseModel):
+    map_id: str
+    mode: Literal["dashboard"] = "dashboard"
+    title: str = "世界动态总控台"
+    first_visual_layer: dict = Field(default_factory=dict)
+    dynamic_queue: list[MapDashboardQueueItem] = Field(default_factory=list)
+    inspector: MapDashboardInspector
+    batch_groups: list[MapDashboardBatchGroup] = Field(default_factory=list)
+    risk_summary: list[str] = Field(default_factory=list)
+
+
+# ============================================================
+# MapPlayback — 世界动态 P3 电影化播放派生视图
+# ============================================================
+
+
+class MapPlaybackEvent(BaseModel):
+    event_id: str
+    event_kind: Literal["observation", "fact"]
+    typed_observation: str
+    track: Literal["journey", "territory", "crisis", "resource", "status", "world"]
+    title: str
+    time_label: str
+    status_label: str
+    change_summary: str
+    source_summary: str
+    spatial_anchor: dict = Field(default_factory=dict)
+    scene_index: int | None = None
+    source_chapter_index: int | None = None
+    risk_level: Literal["info", "warning", "danger"] = "info"
+    confidence: float | None = None
+
+
+class MapPlaybackTrack(BaseModel):
+    track: Literal["journey", "territory", "crisis", "resource", "status", "world"]
+    label: str
+    count: int
+    first_time_label: str
+
+
+class MapPlaybackResponse(BaseModel):
+    map_id: str
+    title: str = "世界动态播放"
+    events: list[MapPlaybackEvent] = Field(default_factory=list)
+    tracks: list[MapPlaybackTrack] = Field(default_factory=list)
+    low_motion_recommended: bool = False

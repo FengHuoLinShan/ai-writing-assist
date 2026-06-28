@@ -15,12 +15,20 @@ from modules.world.map_schemas import (
     MapConfigListResponse,
     MapConfigResponse,
     MapConfigUpdate,
+    MapDashboardResponse,
+    MapFactListResponse,
+    MapFactResponse,
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
     MapMarkerCreate,
     MapMarkerResponse,
     MapMarkerUpdate,
+    MapObservationCreate,
+    MapObservationListResponse,
+    MapObservationResponse,
+    MapObservationReviewUpdate,
+    MapPlaybackResponse,
     MapSceneSummaryResponse,
     MapStateResponse,
     MapTerritoryCreate,
@@ -32,6 +40,7 @@ from modules.world.map_schemas import (
 from modules.world.services.map_scene_summary import MapSceneSummaryService
 from modules.world.services.map_service import (
     MapConfigService,
+    MapDynamicFactService,
     MapLocationBindingService,
     MapMarkerService,
     MapTerritoryService,
@@ -46,6 +55,7 @@ _map_binding_service = MapLocationBindingService()
 _marker_service = MapMarkerService()
 _territory_service = MapTerritoryService()
 _scene_summary_service = MapSceneSummaryService()
+_dynamic_fact_service = MapDynamicFactService()
 
 
 # ============================================================
@@ -134,6 +144,42 @@ async def get_map_state(
 ) -> MapStateResponse:
     return await _map_config_service.get_state(
         db, novel_id, map_id, filter_types=filter_types, scene_id=scene_id
+    )
+
+
+@router.get("/{map_id}/dashboard", response_model=MapDashboardResponse)
+async def get_map_dashboard(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    scene_id: str | None = Query(None, description="Scene ID"),
+    focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
+) -> MapDashboardResponse:
+    return await _dynamic_fact_service.get_dashboard(
+        db,
+        novel_id,
+        map_id=map_id,
+        scene_id=scene_id,
+        focus_entity_id=focus_entity_id,
+    )
+
+
+@router.get("/{map_id}/playback", response_model=MapPlaybackResponse)
+async def get_map_playback(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    scene_id: str | None = Query(None, description="Scene ID"),
+    focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
+    include_candidates: bool = Query(True, description="是否包含候选观察"),
+) -> MapPlaybackResponse:
+    return await _dynamic_fact_service.get_playback(
+        db,
+        novel_id,
+        map_id=map_id,
+        scene_id=scene_id,
+        focus_entity_id=focus_entity_id,
+        include_candidates=include_candidates,
     )
 
 
@@ -325,3 +371,113 @@ async def get_focus_mode(
     fid = parse_uuid(faction_entity_id, "faction_entity_id")
     state.territories = [t for t in state.territories if t.faction_entity_id == str(fid)]
     return state
+
+
+# ============================================================
+# 世界动态事实底座（P0）
+# ============================================================
+
+
+@router.get("/{map_id}/observations", response_model=MapObservationListResponse)
+async def list_map_observations(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    review_state: str | None = Query(None, description="candidate / confirmed / ignored"),
+) -> MapObservationListResponse:
+    return await _dynamic_fact_service.list_observations(
+        db,
+        novel_id,
+        map_id=map_id,
+        review_state=review_state,
+    )
+
+
+@router.post(
+    "/{map_id}/observations",
+    response_model=MapObservationResponse,
+    status_code=201,
+)
+async def create_map_observation(
+    db: DbSession,
+    map_id: str,
+    data: MapObservationCreate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapObservationResponse:
+    return await _dynamic_fact_service.create_observation(
+        db,
+        novel_id,
+        map_id=map_id,
+        data=data,
+    )
+
+
+@router.patch(
+    "/{map_id}/observations/{observation_id}",
+    response_model=MapObservationResponse,
+)
+async def update_map_observation_review(
+    db: DbSession,
+    map_id: str,
+    observation_id: str,
+    data: MapObservationReviewUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapObservationResponse:
+    del map_id
+    return await _dynamic_fact_service.update_observation_review(
+        db,
+        novel_id,
+        observation_id,
+        data,
+    )
+
+
+@router.post(
+    "/{map_id}/observations/{observation_id}/confirm",
+    response_model=MapFactResponse,
+)
+async def confirm_map_observation(
+    db: DbSession,
+    map_id: str,
+    observation_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapFactResponse:
+    return await _dynamic_fact_service.confirm_observation(
+        db,
+        novel_id,
+        map_id=map_id,
+        observation_id=observation_id,
+    )
+
+
+@router.post(
+    "/{map_id}/observations/{observation_id}/ignore",
+    response_model=MapObservationResponse,
+)
+async def ignore_map_observation(
+    db: DbSession,
+    map_id: str,
+    observation_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapObservationResponse:
+    del map_id
+    return await _dynamic_fact_service.ignore_observation(
+        db,
+        novel_id,
+        observation_id,
+    )
+
+
+@router.get("/{map_id}/facts", response_model=MapFactListResponse)
+async def list_map_facts(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    fact_status: str | None = Query("confirmed", description="confirmed / rolled_back"),
+) -> MapFactListResponse:
+    return await _dynamic_fact_service.list_facts(
+        db,
+        novel_id,
+        map_id=map_id,
+        fact_status=fact_status,
+    )
