@@ -10,6 +10,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 - 对象抽取不是 NER，而是长期创作资产识别
 - AI 抽取对象默认以 `status="candidate"` 入库，等待用户确认后再进入正史
+- 手动 AI 补抽必须先通过 `POST /api/context/confirm` 确认“AI 参考资料”，再调用 `POST /api/world/entities/extract`
+- AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - 对象分级：core / important / normal / temporary
@@ -59,7 +61,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | `map_location_bindings` | 地点绑定（core_entities.entity_type=location → hex，PRD §4.3） |
 | `map_markers` | 动态标记（P1 预留：character/event/item，按 Scene 时间层显隐，PRD §4.5） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
-| ~~`entity_candidates`~~ | 已废弃，AI 抽取候选直接落在 `core_entities.status="candidate"` |
+| ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
 
 ### core_entities 表核心字段
@@ -240,6 +242,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 |------|------|------|
 | GET | `/api/world/entities` | 世界对象列表 |
 | POST | `/api/world/entities` | 创建世界对象 |
+| POST | `/api/world/entities/extract` | 手动世界对象补抽；必须携带 `context_confirmation_id` |
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
@@ -264,6 +267,12 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/characters` | 人物列表 |
 | POST | `/api/world/characters` | 创建人物 |
 | GET | `/api/world/characters/{character_id}` | 人物详情 |
+
+### AI 参考资料确认
+
+- `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
+- 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
+- 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
 | PUT | `/api/world/characters/{character_id}` | 更新人物 |
 | DELETE | `/api/world/characters/{character_id}` | 删除人物 |
 | GET | `/api/world/characters/{character_id}/knowledge` | 人物知识边界列表 |

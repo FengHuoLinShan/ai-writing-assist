@@ -101,6 +101,7 @@ globalThis.api = {
   context: {
     compile: vi.fn(),
     render: vi.fn(),
+    confirm: vi.fn(),
   },
   generate: {
     worldCharacter: vi.fn(),
@@ -125,6 +126,8 @@ globalThis.api = {
     updateArc: vi.fn(),
     deleteArc: vi.fn(),
     generate: vi.fn(),
+    analyze: vi.fn(),
+    extractChapterScenes: vi.fn(),
     listForeshadowing: vi.fn(),
     createForeshadowing: vi.fn(),
     updateForeshadowing: vi.fn(),
@@ -146,6 +149,7 @@ globalThis.api = {
     deleteDraft: vi.fn(),
     deleteChapter: vi.fn(),
     splitChapter: vi.fn(),
+    generate: vi.fn(),
   },
   world: {
     listEntities: vi.fn(),
@@ -155,6 +159,7 @@ globalThis.api = {
     createEntity: vi.fn(),
     updateEntity: vi.fn(),
     promoteEntity: vi.fn(),
+    extractEntities: vi.fn(),
     deleteEntity: vi.fn(),
     createRelationship: vi.fn(),
     deleteRelationship: vi.fn(),

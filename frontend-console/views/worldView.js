@@ -10,6 +10,7 @@ import {
   recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
+import { confirmAiReference } from "../shared/aiReferenceModal.js"
 
 const worldView = {
   /** @type {Array} */
@@ -230,8 +231,17 @@ const worldView = {
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
 
     try {
-      const result = await api.tasks.submit(taskType, {
+      const confirmation = await confirmAiReference({
         novel_id: state.currentProjectId,
+        action: "world.entities.extract",
+        task: "世界对象补抽",
+        scope: "chapter",
+        chapter_index: start,
+        include_pending_objects: true,
+      })
+      const result = await api.world.extractEntities({
+        novel_id: state.currentProjectId,
+        context_confirmation_id: confirmation.id,
         start_chapter: start,
         end_chapter: end,
       })

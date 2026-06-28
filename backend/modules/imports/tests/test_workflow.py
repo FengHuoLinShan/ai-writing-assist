@@ -433,7 +433,14 @@ class TestDeepImportOrchestrator:
         )
 
         orchestrator._deprecate_derived_data.assert_awaited_once_with(db, "novel-1", 1, 3)
-        orchestrator._enqueue_deep_import.assert_called_once_with(db, "novel-1", 1, 3)
+        orchestrator._enqueue_deep_import.assert_called_once_with(
+            db,
+            "novel-1",
+            1,
+            3,
+            context_mode="working",
+            include_pending_objects=True,
+        )
         db.flush.assert_awaited_once()
         assert result == {
             "workflow_id": str(task_id),
@@ -513,6 +520,31 @@ class TestDeepImportOrchestrator:
         _, kwargs = orchestrator.workflow.run_step.await_args
         assert kwargs["start_chapter"] == 1
         assert kwargs["end_chapter"] == 5
+        assert kwargs["context_mode"] == "working"
+        assert kwargs["include_pending_objects"] is True
+
+    @pytest.mark.asyncio
+    async def test_analyze_structure_uses_working_context_mode(self):
+        workflow = DeepImportWorkflow()
+        generate = AsyncMock(return_value={"total_threads": 0, "total_arcs": 0})
+        db = AsyncMock()
+
+        with patch("modules.imports.workflow._container_get", return_value=generate):
+            await workflow._analyze_structure(
+                db,
+                "novel-1",
+                1,
+                3,
+            )
+
+        generate.assert_awaited_once_with(
+            db,
+            "novel-1",
+            start_chapter=1,
+            end_chapter=3,
+            context_mode="working",
+            include_pending_objects=True,
+        )
 
 
 class TestSceneSegmentationProgress:

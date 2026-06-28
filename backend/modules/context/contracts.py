@@ -36,6 +36,37 @@ class CompileOptions:
     """总 token 预算，默认 4000"""
     top_k: int = 8
     """RAG 检索上限"""
+    context_mode: str = "canonical"
+    """上下文模式：canonical / working"""
+    include_pending_objects: bool = False
+    """是否包含待确认对象"""
+    excluded_asset_ids: dict[str, list[str]] = field(default_factory=dict)
+    """本次编译显式排除的资产 ID"""
+    user_note: str | None = None
+    """用户本次 AI 操作的额外注意事项"""
+
+
+@dataclass
+class ContextConfirmationContract:
+    """AI 参考资料确认记录对外契约。"""
+
+    id: str
+    novel_id: str
+    action: str
+    task: str
+    scope: str
+    context_mode: str
+    include_pending_objects: bool
+    excluded_asset_ids: dict[str, list[str]]
+    selected_asset_ids: dict[str, list[str]]
+    user_note: str | None
+    compile_options: dict
+    warnings: list[str]
+    result_refs: list[dict[str, str]]
+    result_status: str
+    stale_reasons: list[str]
+    compiled_at: str
+    created_at: str
 
 
 @dataclass

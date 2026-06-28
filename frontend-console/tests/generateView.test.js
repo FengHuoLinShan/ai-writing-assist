@@ -55,19 +55,25 @@ describe("generateView", () => {
         <div id="generate-result"></div>
         <select id="generate-scope"><option value="arc">篇章</option></select>
         <input id="generate-related" />
+        <div id="modal-overlay" class="hidden">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
       `
-      api.context.compile.mockResolvedValue({})
-      api.tasks.submit.mockResolvedValue({ task_id: "task-1", status: "running" })
+      api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
+      api.generate.chapterScene.mockResolvedValue({ id: "task-1", status: "running" })
       api.tasks.get.mockResolvedValue({ task_id: "task-1", task_type: "chapter_scene_generate", status: "running" })
 
-      await generateView._startGenerate()
+      const promise = generateView._startGenerate()
+      await Promise.resolve()
+      document.querySelectorAll("#modal-footer button")[1].click()
+      await promise
 
-      expect(api.tasks.submit).toHaveBeenCalledWith("chapter_scene_generate", {
-        novel_id: "p1",
-        intent: "生成章节卡",
-        context: {},
-      })
-      expect(api.generate.chapterScene).not.toHaveBeenCalled()
+      expect(api.generate.chapterScene).toHaveBeenCalledWith(expect.objectContaining({
+        context_confirmation_id: "confirm-1",
+      }))
+      expect(api.tasks.submit).not.toHaveBeenCalled()
       const result = document.getElementById("generate-result")
       expect(result?.innerHTML).toContain("生成章节卡")
       expect(result?.innerHTML).toContain("任务 task-1")
@@ -81,8 +87,13 @@ describe("generateView", () => {
         <div id="generate-result"></div>
         <select id="generate-scope"><option value="arc">篇章</option></select>
         <input id="generate-related" />
+        <div id="modal-overlay" class="hidden">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
       `
-      api.context.compile.mockResolvedValue({})
+      api.context.confirm.mockResolvedValue({ id: "confirm-plot", selected_asset_ids: {}, warnings: [] })
       api.generate.plotStructure.mockResolvedValue({ task_id: "task-fail", status: "running" })
       api.tasks.get.mockResolvedValue({
         task_id: "task-fail",
@@ -91,7 +102,10 @@ describe("generateView", () => {
         error_message: "LLM 配额不足",
       })
 
-      await generateView._startGenerate()
+      const promise = generateView._startGenerate()
+      await Promise.resolve()
+      document.querySelectorAll("#modal-footer button")[1].click()
+      await promise
       await vi.waitFor(() => {
         expect(document.getElementById("generate-result")?.innerHTML).toContain("LLM 配额不足")
       })

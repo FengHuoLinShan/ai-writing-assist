@@ -214,6 +214,8 @@ def upgrade() -> None:
             sa.ForeignKey("projects.id", ondelete="CASCADE"),
             nullable=False,
         ),
+        sa.Column("name", sa.String(255), nullable=False),
+        sa.Column("aliases", sa.JSON(), nullable=False, server_default=sa.text("'[]'")),
         sa.Column("role", sa.String(64), nullable=True),
         sa.Column("appearance", sa.Text(), nullable=True),
         sa.Column("personality", sa.Text(), nullable=True),
@@ -248,6 +250,13 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             server_default=sa.func.now(),
             nullable=True,
+        ),
+        sa.Column(
+            "status",
+            sa.String(32),
+            nullable=False,
+            server_default="draft",
+            index=True,
         ),
         sa.PrimaryKeyConstraint("entity_id"),
         comment="人物档案扩展表",
@@ -399,14 +408,16 @@ def upgrade() -> None:
     op.execute(
         sa.text("""
         INSERT INTO characters_new (
-            entity_id, novel_id, role, appearance, personality,
+            entity_id, novel_id, name, aliases, role, appearance, personality,
             desire, fear, secret, weakness, current_goal, current_state,
             current_emotion, stance, voice_style, behavior_rules,
-            relationship_summary, meta, created_at, updated_at
+            relationship_summary, meta, created_at, updated_at, status
         )
         SELECT
             COALESCE(c.world_entity_id, c.id),
             c.novel_id,
+            c.name,
+            COALESCE(c.aliases, '[]'::json),
             c.role,
             c.appearance,
             c.personality,
@@ -423,7 +434,8 @@ def upgrade() -> None:
             c.relationship_summary,
             COALESCE(c.meta, '{}'::json),
             c.created_at,
-            c.updated_at
+            c.updated_at,
+            c.status
         FROM characters c
     """)
     )

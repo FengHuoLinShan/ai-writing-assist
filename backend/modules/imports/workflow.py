@@ -34,6 +34,8 @@ class DeepImportWorkflow:
         progress: DeepImportProgress,
         *,
         workflow_id: str | None = None,
+        context_mode: str = "working",
+        include_pending_objects: bool = True,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
@@ -184,6 +186,8 @@ class DeepImportWorkflow:
                 novel_id,
                 start_chapter,
                 end_chapter,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
             )
             progress.completed_steps.append(DeepImportStep.structure_analysis.value)
             if phase1_result.get("total_scenes", 0) > 0 and (
@@ -318,6 +322,9 @@ class DeepImportWorkflow:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        *,
+        context_mode: str = "working",
+        include_pending_objects: bool = True,
     ) -> dict[str, Any]:
         _generate = _container_get("outline.generate_structure")
         try:
@@ -326,6 +333,8 @@ class DeepImportWorkflow:
                 novel_id,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
             )
             logger.info(
                 "Phase 3 complete: %d threads, %d arcs",

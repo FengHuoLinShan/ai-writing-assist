@@ -429,13 +429,28 @@ describe("AI 自动识别", () => {
 
     it("提交抽取任务", async () => {
       state.currentProjectId = "p1"
-      document.body.innerHTML = '<input id="w-extract-start" value="1"/> <input id="w-extract-end" value="5"/>'
-      api.tasks.submit.mockResolvedValue({ task_id: "t1" })
+      document.body.innerHTML = `
+        <input id="w-extract-start" value="1"/>
+        <input id="w-extract-end" value="5"/>
+        <div id="modal-overlay" class="hidden">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
+      `
+      api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
+      api.world.extractEntities.mockResolvedValue({ task_id: "t1" })
 
-      await worldView._submitAutoExtract("world_entity_extraction")
+      const promise = worldView._submitAutoExtract("world_entity_extraction")
+      await Promise.resolve()
+      document.querySelectorAll("#modal-footer button")[1].click()
+      await promise
 
-      expect(api.tasks.submit).toHaveBeenCalledWith("world_entity_extraction", {
-        novel_id: "p1", start_chapter: 1, end_chapter: 5,
+      expect(api.world.extractEntities).toHaveBeenCalledWith({
+        novel_id: "p1",
+        context_confirmation_id: "confirm-1",
+        start_chapter: 1,
+        end_chapter: 5,
       })
       expect(worldView._autoExtractTaskId).toBe("t1")
     })

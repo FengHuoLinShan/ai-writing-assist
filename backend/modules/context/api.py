@@ -8,12 +8,16 @@ API 层不写复杂业务逻辑，仅做参数校验和路由分发。
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi import status as http_status
 
 from core.dependencies import DbSession
 from modules.context.facade import compile_with_tiers
+from modules.context.facade import confirm_context as _confirm_context
 from modules.context.markdown_renderer import render_compiled_context
 from modules.context.schemas import (
     ContextCompileRequest,
+    ContextConfirmationResponse,
+    ContextConfirmRequest,
     ContextRenderRequest,
     ContextRenderResponse,
     ContextSectionItem,
@@ -64,7 +68,7 @@ def _build_tier_compile_response(
 
 
 def _validate_scope(
-    request: ContextCompileRequest | ContextRenderRequest,
+    request: ContextCompileRequest | ContextRenderRequest | ContextConfirmRequest,
 ) -> None:
     """scope 必须是受支持的取值之一。"""
     if request.scope not in _VALID_SCOPES:
@@ -78,7 +82,7 @@ def _validate_scope(
 
 
 def _validate_character_reveal_mode(
-    request: ContextCompileRequest | ContextRenderRequest,
+    request: ContextCompileRequest | ContextRenderRequest | ContextConfirmRequest,
 ) -> None:
     """character 揭示模式必须提供 viewpoint_character_id。"""
     if request.reveal_mode == "character" and not request.viewpoint_character_id:
@@ -115,6 +119,10 @@ async def compile_context(
         reveal_mode=request.reveal_mode,
         enable_geo_filter=request.enable_geo_filter,
         viewpoint_character_id=request.viewpoint_character_id,
+        context_mode=request.context_mode,
+        include_pending_objects=request.include_pending_objects,
+        excluded_asset_ids=request.excluded_asset_ids,
+        user_note=request.user_note,
     )
 
     return _build_tier_compile_response(request, ctx)
@@ -148,6 +156,10 @@ async def render_context(
         reveal_mode=request.reveal_mode,
         enable_geo_filter=request.enable_geo_filter,
         viewpoint_character_id=request.viewpoint_character_id,
+        context_mode=request.context_mode,
+        include_pending_objects=request.include_pending_objects,
+        excluded_asset_ids=request.excluded_asset_ids,
+        user_note=request.user_note,
     )
 
     markdown = render_compiled_context(ctx)
@@ -157,3 +169,40 @@ async def render_context(
         markdown=markdown,
         compile_info=compile_info,
     )
+
+
+@router.post(
+    "/confirm",
+    response_model=ContextConfirmationResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def confirm_context(
+    db: DbSession,
+    request: ContextConfirmRequest,
+) -> ContextConfirmationResponse:
+    """确认一次手动 AI 操作使用的参考资料摘要。"""
+    _validate_scope(request)
+    _validate_character_reveal_mode(request)
+
+    confirmation = await _confirm_context(
+        db,
+        novel_id=request.novel_id,
+        action=request.action,
+        task=request.task,
+        scope=request.scope,
+        chapter_index=request.chapter_index,
+        scene_id=request.scene_id,
+        arc_id=request.arc_id,
+        entity_ids=request.entity_ids,
+        character_ids=request.character_ids,
+        location_ids=request.location_ids,
+        reveal_mode=request.reveal_mode,
+        enable_geo_filter=request.enable_geo_filter,
+        viewpoint_character_id=request.viewpoint_character_id,
+        budget_tokens=request.budget_tokens,
+        context_mode=request.context_mode,
+        include_pending_objects=request.include_pending_objects,
+        excluded_asset_ids=request.excluded_asset_ids,
+        user_note=request.user_note,
+    )
+    return ContextConfirmationResponse(**confirmation.__dict__)

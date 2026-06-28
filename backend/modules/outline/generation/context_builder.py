@@ -37,6 +37,9 @@ class PlotStructureContextBuilder:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        *,
+        context_mode: str = "canonical",
+        include_pending_objects: bool = False,
     ) -> PlotStructureContext:
         """加载并组装上下文。
 
@@ -56,6 +59,8 @@ class PlotStructureContextBuilder:
             scope="full",
             chapter_index=start_chapter,
             reveal_mode="author_only",
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
         )
 
         context_md = self._render_bundle_to_markdown(bundle)

@@ -11,6 +11,7 @@ import {
   recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
+import { confirmAiReference } from "../shared/aiReferenceModal.js"
 
 const generateView = {
   onLeave() {
@@ -241,30 +242,32 @@ const generateView = {
 
     this._updateStep(1, "done")
     this._updateStep(2, "active")
-    resultEl.innerHTML = '<div class="loading">步骤 2/6：正在编译上下文...</div>'
+    resultEl.innerHTML = '<div class="loading">步骤 2/6：正在确认 AI 参考资料...</div>'
 
     try {
       const scope = document.getElementById("generate-scope")?.value || "arc"
       const related = document.getElementById("generate-related")?.value || ""
       const relatedIds = related ? related.split(",").map((s) => s.trim()).filter((s) => s) : undefined
 
-      await api.context.compile({
-        novel_id: state.currentProjectId, task: intent, scope,
-        reveal_mode: "author_safe", entity_ids: relatedIds, character_ids: relatedIds,
+      const config = this._actionConfig(intent, scope)
+      const confirmation = await confirmAiReference({
+        novel_id: state.currentProjectId,
+        action: config.action,
+        task: config.task,
+        scope: config.scope,
+        chapter_index: config.chapterIndex,
+        include_pending_objects: true,
+        entity_ids: relatedIds,
+        character_ids: relatedIds,
+        user_note: intent,
       })
 
       this._updateStep(2, "done")
       this._updateStep(3, "active")
       resultEl.innerHTML = `<div class="loading">步骤 3/6：正在生成${typeNames[this._currentType]}...</div>`
 
-      let resp
       const workflowType = this._workflowTypeFor(this._currentType)
-      const apiCalls = {
-        world_character: api.generate.worldCharacter,
-        plot: api.generate.plotStructure,
-        chapter: (payload) => api.tasks.submit("chapter_scene_generate", payload),
-      }
-      resp = await apiCalls[this._currentType]({ novel_id: state.currentProjectId, intent, context: {} })
+      const resp = await config.submit(confirmation.id, intent)
 
       this._updateStep(3, resp ? "done" : "active")
       this._updateStep(4, "active")
@@ -308,6 +311,55 @@ const generateView = {
         </div>
       `
       toast(`生成失败：${err.message}`, "error")
+    }
+  },
+
+  _actionConfig(intent, scope) {
+    const start = 1
+    const end = 10
+    if (this._currentType === "world_character") {
+      return {
+        action: "world.entities.extract",
+        task: intent || "世界对象补抽",
+        scope: scope === "full" ? "full" : "chapter",
+        chapterIndex: start,
+        submit: (confirmationId) => api.generate.worldCharacter({
+          novel_id: state.currentProjectId,
+          context_confirmation_id: confirmationId,
+          start_chapter: start,
+          end_chapter: end,
+          instruction: intent,
+        }),
+      }
+    }
+    if (this._currentType === "chapter") {
+      return {
+        action: "outline.chapter_scenes.extract",
+        task: intent || "章节/Scene 卡提取",
+        scope: "chapter",
+        chapterIndex: start,
+        submit: (confirmationId) => api.generate.chapterScene({
+          novel_id: state.currentProjectId,
+          context_confirmation_id: confirmationId,
+          chapter_index: start,
+          start_chapter: start,
+          end_chapter: end,
+          instruction: intent,
+        }),
+      }
+    }
+    return {
+      action: "outline.generate",
+      task: intent || "剧情结构生成",
+      scope: scope === "chapter" ? "chapter" : "full",
+      chapterIndex: start,
+      submit: (confirmationId) => api.generate.plotStructure({
+        novel_id: state.currentProjectId,
+        context_confirmation_id: confirmationId,
+        start_chapter: start,
+        end_chapter: end,
+        instruction: intent,
+      }),
     }
   },
 }

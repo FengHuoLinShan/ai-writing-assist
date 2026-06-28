@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
 from modules.outline.repositories import SceneRepository
 from modules.outline.schemas import SceneCreate
@@ -65,6 +66,11 @@ def update_data() -> WritingDraftUpdate:
         title="更新后的标题",
         content="更新后的正文内容。",
     )
+
+
+class FakeLLMClient:
+    async def generate(self, request):
+        return LLMCallResponse(content="这是 AI 生成的候选正文。")
 
 
 # ============================================================
@@ -1171,6 +1177,43 @@ class TestWritingPublishApi:
         assert response.status_code == 409
         detail = response.json()["detail"]
         assert "v2" in detail or "2" in detail
+
+
+@pytest.mark.asyncio
+async def test_writing_generation_creates_candidate_without_publish_task(
+    db_session: AsyncSession,
+) -> None:
+    """AI 正文生成只创建 candidate 草稿，不自动发布/RAG。"""
+    from modules.context.facade import confirm_context
+    from modules.writing.services import WritingGenerationService
+
+    novel_id = "00000000-0000-0000-0000-00000000a201"
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="生成第 3 章候选正文",
+        scope="chapter",
+        chapter_index=3,
+    )
+    service = WritingGenerationService(llm_client=FakeLLMClient())
+
+    draft = await service.generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=3,
+        title="第三章",
+        instruction="压低信息密度",
+        context_confirmation_id=confirmation.id,
+    )
+
+    assert draft.status == "candidate"
+    assert draft.chapter_index == 3
+    assert draft.title == "第三章"
+    assert draft.content == "这是 AI 生成的候选正文。"
+
+    tasks_result = await db_session.execute(select(AsyncTask))
+    assert tasks_result.scalars().all() == []
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,7 @@ import {
   persistActiveWorkflow,
   recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
+import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { buildMapUrl } from "./mapRouteContext.js"
 
 const writingView = {
@@ -543,6 +544,7 @@ const writingView = {
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
+            <button class="btn btn-sm" data-action="ai-generate-draft" ${hasSelection && !this._isReadonly ? '' : 'disabled'} style="font-size:11px;color:var(--accent);">AI 生成草稿</button>
             ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map" style="font-size:11px;">打开地图</button>` : ''}
             ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import" style="font-size:11px;color:var(--accent);">深度导入</button>` : ''}
           </div>
@@ -1495,16 +1497,58 @@ const writingView = {
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         closeModal()
         try {
-          toast("正在 AI 分析中，请稍候...", "info")
-          await api.outline.generate(state.currentProjectId, start, end)
+          const confirmation = await confirmAiReference({
+            novel_id: state.currentProjectId,
+            action: "outline.chapter_scenes.extract",
+            task: "章节/Scene 卡提取",
+            scope: "chapter",
+            chapter_index: start,
+            include_pending_objects: true,
+          })
+          toast("章节/Scene 卡提取任务已提交", "info")
+          await api.outline.extractChapterScenes({
+            novel_id: state.currentProjectId,
+            context_confirmation_id: confirmation.id,
+            chapter_index: start,
+            start_chapter: start,
+            end_chapter: end,
+          })
           this._scenes = await api.outline.listScenesOrdered(state.currentProjectId) || []
-          toast("章节卡提取完成", "success")
+          toast("章节/Scene 卡提取已进入后台", "success")
           await this._rerender()
         } catch (err) {
           toast(err.message || "提取失败", "error")
         }
       },
     }])
+  },
+
+  async _generateDraft() {
+    if (!state.currentProjectId || !this._currentChapter) {
+      toast("请先选择章节", "warning")
+      return
+    }
+    try {
+      const confirmation = await confirmAiReference({
+        novel_id: state.currentProjectId,
+        action: "writing.generate",
+        task: "生成正文候选草稿",
+        scope: "chapter",
+        chapter_index: this._currentChapter,
+        include_pending_objects: true,
+      })
+      const result = await api.writing.generate({
+        novel_id: state.currentProjectId,
+        chapter_index: this._currentChapter,
+        title: this._currentTitle || `第 ${this._currentChapter} 章`,
+        instruction: confirmation.user_note || "",
+        context_confirmation_id: confirmation.id,
+      })
+      toast(`AI 生成草稿任务已提交：${result.task_id || result.id || ""}`, "success")
+    } catch (err) {
+      if (err.message && err.message.includes("取消")) return
+      toast(err.message || "AI 生成草稿失败", "error")
+    }
   },
 
   // ============================================================
@@ -1759,6 +1803,7 @@ const writingView = {
       "delete-chapter": (_e, t) => this._deleteChapter(parseInt(t.getAttribute("data-chapter"), 10)),
       "autosave": () => this._autosave(),
       "publish": () => this._publish(),
+      "ai-generate-draft": () => this._generateDraft(),
       "restore-from-version": () => this._restoreFromVersion(),
       "version-history": () => this._showVersionHistory(),
       "delete-version": () => this._deleteVersion(),

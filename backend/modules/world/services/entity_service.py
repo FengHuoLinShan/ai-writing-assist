@@ -153,7 +153,34 @@ class WorldEntityService(
             # snapshot 创建失败不应阻断编辑主流程，但需要记录日志便于排障
             logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
 
-        return await super().update(db, id, data, novel_id=novel_id)
+        result = await super().update(db, id, data, novel_id=novel_id)
+        changed = data.model_dump(exclude_unset=True)
+        stale_reasons: list[str] = []
+        if "name" in changed:
+            stale_reasons.append("entity_renamed")
+        if changed.get("status") == "ignored":
+            stale_reasons.append("entity_ignored")
+        elif changed.get("status") == "deprecated":
+            stale_reasons.append("entity_deprecated")
+
+        for reason in stale_reasons:
+            try:
+                from modules.context.facade import mark_asset_context_changed
+
+                await mark_asset_context_changed(
+                    db,
+                    novel_id=novel_id,
+                    asset_type="world_entity",
+                    asset_id=id,
+                    reason=reason,
+                )
+            except Exception:
+                logger.warning(
+                    "实体 %s 更新后标记上下文确认失效失败",
+                    id,
+                    exc_info=True,
+                )
+        return result
 
     # ============================================================
     # Promote: 将草稿/候选实体提升为正史
@@ -197,6 +224,22 @@ class WorldEntityService(
         updated = await self.repo.update(db, rid, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
+        try:
+            from modules.context.facade import mark_asset_context_changed
+
+            await mark_asset_context_changed(
+                db,
+                novel_id=novel_id,
+                asset_type="world_entity",
+                asset_id=entity_id,
+                reason="candidate_promoted",
+            )
+        except Exception:
+            logger.warning(
+                "实体 %s 提升后标记上下文确认复核失败",
+                entity_id,
+                exc_info=True,
+            )
 
         return EntityPromoteResponse(
             entity_id=str(updated.id),

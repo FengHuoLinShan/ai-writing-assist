@@ -13,6 +13,9 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.client import LLMClient
+from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from modules.context.markdown_renderer import render_compiled_context
 from modules.outline.facade import split_scene_chunk_to_new_chapter
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.repositories import WritingDraftRepository
@@ -314,6 +317,85 @@ class WritingDraftService:
             new_draft=WritingDraftResponse.model_validate(new_draft),
             scenes=scenes,
         )
+
+
+class WritingGenerationService:
+    """AI 正文候选草稿生成服务。"""
+
+    def __init__(
+        self,
+        repo: WritingDraftRepository | None = None,
+        llm_client: LLMClient | None = None,
+    ) -> None:
+        self._repo = repo or WritingDraftRepository()
+        self._llm = llm_client or LLMClient()
+
+    async def generate_candidate(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        title: str | None,
+        instruction: str | None,
+        context_confirmation_id: str,
+    ) -> WritingDraftResponse:
+        from modules.context.facade import compile_from_confirmation
+
+        compiled_context = await compile_from_confirmation(
+            db,
+            novel_id=novel_id,
+            action="writing.generate",
+            confirmation_id=context_confirmation_id,
+        )
+        context_markdown = render_compiled_context(compiled_context)
+        prompt = _build_writing_generation_prompt(
+            chapter_index=chapter_index,
+            instruction=instruction,
+            context_markdown=context_markdown,
+        )
+        response = await self._llm.generate(
+            LLMCallRequest(
+                model=getattr(self._llm, "model_name", "gpt-4o"),
+                messages=[
+                    LLMMessage(
+                        role="system",
+                        content=(
+                            "你是小说正文生成助手。输出正文候选稿本身，"
+                            "不要添加解释、标题栏或 Markdown 围栏。"
+                        ),
+                    ),
+                    LLMMessage(role="user", content=prompt),
+                ],
+                temperature=0.7,
+                max_tokens=4096,
+            )
+        )
+        draft = await self._repo.create_with_status(
+            db,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=chapter_index,
+                title=title or f"第{chapter_index}章 AI 候选",
+                content=response.content.strip(),
+            ),
+            status="candidate",
+        )
+        return WritingDraftResponse.model_validate(draft)
+
+
+def _build_writing_generation_prompt(
+    *,
+    chapter_index: int,
+    instruction: str | None,
+    context_markdown: str,
+) -> str:
+    note = instruction.strip() if instruction else "无额外要求"
+    return (
+        f"请基于以下已确认的 AI 参考资料，生成第 {chapter_index} 章的正文候选稿。\n\n"
+        f"本次额外要求：{note}\n\n"
+        f"## AI 参考资料\n\n{context_markdown}"
+    )
 
 
 def _as_utc_aware(dt: datetime) -> datetime:

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
+from modules.context.facade import attach_result_ref, require_confirmation
 from modules.writing.facade import create_draft_only as _create_draft_only
 from modules.writing.schemas import (
     ChapterSplitRequest,
@@ -19,6 +20,8 @@ from modules.writing.schemas import (
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
+    WritingGenerateRequest,
+    WritingGenerateResponse,
 )
 from modules.writing.services import WritingDraftService
 
@@ -45,6 +48,50 @@ class DeleteChapterResponse(BaseModel):
 
 router = APIRouter(prefix="/api/writing", tags=["writing"])
 _service = WritingDraftService()
+
+
+@router.post(
+    "/generate",
+    response_model=WritingGenerateResponse,
+    status_code=201,
+)
+async def generate_writing_candidate(
+    db: DbSession,
+    data: WritingGenerateRequest,
+) -> WritingGenerateResponse:
+    """提交 AI 正文候选草稿生成任务。"""
+    try:
+        await require_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="writing.generate",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    task_id = enqueue_task(
+        db,
+        "writing_generate",
+        meta={
+            "novel_id": data.novel_id,
+            "chapter_index": data.chapter_index,
+            "title": data.title,
+            "instruction": data.instruction,
+            "context_confirmation_id": data.context_confirmation_id,
+        },
+    )
+    await attach_result_ref(
+        db,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
+    )
+    await db.flush()
+    return WritingGenerateResponse(task_id=task_id, status="pending")
 
 
 @router.post("/drafts", response_model=PublishResponse, status_code=201)

@@ -16,7 +16,15 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    return column_name in {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)
+    }
+
+
 def upgrade() -> None:
+    if _column_exists("writing_drafts", "status"):
+        return
     op.add_column(
         "writing_drafts",
         sa.Column(
@@ -30,4 +38,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("writing_drafts", "status")
+    if _column_exists("writing_drafts", "status"):
+        op.drop_column("writing_drafts", "status")

@@ -106,6 +106,27 @@ class ExtractionOutput(BaseModel):
     )
 
 
+class WorldEntityExtractRequest(BaseModel):
+    """手动世界对象补抽请求。"""
+
+    novel_id: str
+    context_confirmation_id: str
+    start_chapter: int = Field(..., ge=1)
+    end_chapter: int = Field(..., ge=1)
+    batch_size: int = Field(default=5, ge=1, le=50)
+    instruction: str | None = Field(
+        default=None,
+        description="本次补抽额外注意事项；确认记录仍是权威参考资料来源",
+    )
+
+
+class WorldEntityExtractResponse(BaseModel):
+    """手动世界对象补抽入队响应。"""
+
+    task_id: str
+    status: str = "pending"
+
+
 # ============================================================
 # CoreEntity Schema
 # ============================================================

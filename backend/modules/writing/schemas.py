@@ -149,6 +149,23 @@ class ChapterSplitRequest(BaseModel):
     )
 
 
+class WritingGenerateRequest(BaseModel):
+    """AI 正文候选草稿生成请求。"""
+
+    novel_id: str = Field(..., description="小说项目 ID")
+    chapter_index: int = Field(..., ge=1, description="章节索引")
+    title: str | None = Field(None, max_length=500, description="候选草稿标题")
+    instruction: str | None = Field(None, max_length=4000, description="生成要求")
+    context_confirmation_id: str = Field(..., description="AI 参考资料确认 ID")
+
+
+class WritingGenerateResponse(BaseModel):
+    """AI 正文生成入队响应。"""
+
+    task_id: str
+    status: str = "pending"
+
+
 class SceneSplitItem(BaseModel):
     """章节切分后同步更新的 Scene 项"""
 

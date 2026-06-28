@@ -53,6 +53,7 @@ from modules.world.facade import (
 )
 
 # 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
+import modules.context.models  # noqa: F401, I001
 import modules.project.models  # noqa: F401, I001
 import modules.world.map_models  # noqa: F401, I001
 import modules.world.models  # noqa: F401, I001

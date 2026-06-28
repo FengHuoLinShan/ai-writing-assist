@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, Query
 
 from core.config import get_settings
 from core.dependencies import DbSession
+from infrastructure.tasks.enqueuer import enqueue_task
+from modules.context.facade import attach_result_ref, require_confirmation
 from modules.world.schemas import (
     CharacterCreate,
     CharacterKnowledgeCreate,
@@ -41,6 +43,8 @@ from modules.world.schemas import (
     EventUpdate,
     TextArchiveSeedRequest,
     TextArchiveSeedResponse,
+    WorldEntityExtractRequest,
+    WorldEntityExtractResponse,
 )
 from modules.world.services import (
     CharacterKnowledgeService,
@@ -106,6 +110,42 @@ async def create_entity(
     data: CoreEntityCreate = ...,
 ) -> CoreEntityResponse:
     return await _entity_service.create(db, novel_id, data)
+
+
+@router.post(
+    "/entities/extract",
+    response_model=WorldEntityExtractResponse,
+    status_code=201,
+)
+async def extract_entities(
+    db: DbSession,
+    data: WorldEntityExtractRequest,
+) -> WorldEntityExtractResponse:
+    """提交确认后的手动世界对象补抽任务。"""
+    try:
+        await require_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="world.entities.extract",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    task_id = enqueue_task(
+        db,
+        "world_entity_extraction",
+        meta=data.model_dump(exclude_none=True),
+    )
+    await attach_result_ref(
+        db,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
+    )
+    await db.flush()
+    return WorldEntityExtractResponse(task_id=task_id)
 
 
 @router.get("/entities/{entity_id}", response_model=CoreEntityResponse)
