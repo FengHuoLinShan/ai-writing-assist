@@ -95,7 +95,7 @@ POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题
 
 - 通过 `outline.facade.get_scene_contract` 读取当前 Scene 的目标、必须发生、禁止发生和核心冲突。
 - 通过 `world.map_facade.summarize_scene_map_for_writing` 读取写作页地图摘要，默认不纳入待确认对象。
-- 通过 `memory.facade.get_memory_panorama` 探测前后章节记忆来源；来源不可用时写入 `summary_json.degraded_sources`。
+- 通过 `memory.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。
 - 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，之后问题状态变化不会改写该发布快照。
 
 Phase 2 AI 能力是显式追加，不影响规则层检查：
