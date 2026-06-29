@@ -770,6 +770,33 @@ class MapObservationRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_for_scene_summary(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        limit: int = 100,
+    ) -> list[MapObservation]:
+        stmt = (
+            select(MapObservation)
+            .where(
+                MapObservation.novel_id == novel_id,
+                or_(MapObservation.map_id == map_id, MapObservation.map_id.is_(None)),
+                MapObservation.scene_id == scene_id,
+                MapObservation.review_state.in_(["candidate", "conflicted"]),
+            )
+            .order_by(
+                MapObservation.review_state,
+                MapObservation.scene_index.nulls_last(),
+                MapObservation.created_at.desc(),
+            )
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def find_map_for_scene(
         self,
         db: AsyncSession,
@@ -890,6 +917,30 @@ class MapFactRepository:
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_for_scene_summary(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        fact_status: str = "confirmed",
+        limit: int = 100,
+    ) -> list[MapFact]:
+        stmt = (
+            select(MapFact)
+            .where(
+                MapFact.novel_id == novel_id,
+                MapFact.map_id == map_id,
+                MapFact.scene_id == scene_id,
+                MapFact.fact_status == fact_status,
+            )
+            .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def create(
         self,

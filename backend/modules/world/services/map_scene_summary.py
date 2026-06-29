@@ -315,24 +315,27 @@ class MapSceneSummaryService:
         *,
         include_candidates: bool,
     ) -> tuple[list[MapSceneSummaryItem], list[MapSceneSummaryWarning]]:
-        facts, _ = await self._fact_repo.list(
+        facts = await self._fact_repo.list_for_scene_summary(
             db,
             novel_id,
             map_id=map_id,
+            scene_id=scene_id,
             fact_status="confirmed",
             limit=80,
         )
-        observations = await self._observation_repo.list_for_dashboard(
-            db,
-            novel_id,
-            map_id=map_id,
-            limit=80,
-        )
+        observations = []
+        if include_candidates:
+            observations = await self._observation_repo.list_for_scene_summary(
+                db,
+                novel_id,
+                map_id=map_id,
+                scene_id=scene_id,
+                limit=80,
+            )
         crises: list[MapSceneSummaryItem] = []
         risks: list[MapSceneSummaryWarning] = []
+        confirmed_fact_keys: set[tuple[str, str | None, int | None, int | None]] = set()
         for fact in facts:
-            if fact.scene_id != scene_id:
-                continue
             if fact.dynamic_type not in {
                 "crisis",
                 "crisis_spread",
@@ -340,6 +343,7 @@ class MapSceneSummaryService:
                 "conflict",
             }:
                 continue
+            confirmed_fact_keys.add(self._dynamic_summary_key(fact))
             anchor = fact.spatial_anchor or {}
             title = fact.target_name or fact.target_entity_type or "地图风险"
             open_target = {
@@ -374,8 +378,6 @@ class MapSceneSummaryService:
                 )
             )
         for observation in observations:
-            if observation.scene_id != scene_id:
-                continue
             is_candidate_dependent = observation.review_state in {
                 "candidate",
                 "conflicted",
@@ -388,6 +390,8 @@ class MapSceneSummaryService:
                 "risk",
                 "conflict",
             }:
+                continue
+            if self._dynamic_summary_key(observation) in confirmed_fact_keys:
                 continue
             anchor = observation.spatial_anchor or {}
             title = (
@@ -435,6 +439,24 @@ class MapSceneSummaryService:
                 )
             )
         return crises, risks
+
+    def _dynamic_summary_key(
+        self,
+        item: Any,
+    ) -> tuple[str, str | None, int | None, int | None]:
+        anchor = getattr(item, "spatial_anchor", None) or {}
+        target_entity_id = getattr(item, "target_entity_id", None)
+        target = str(target_entity_id) if target_entity_id else getattr(
+            item,
+            "target_name",
+            None,
+        )
+        return (
+            getattr(item, "dynamic_type"),
+            target,
+            anchor.get("hex_q"),
+            anchor.get("hex_r"),
+        )
 
     def _status_label(self, status: str | None) -> str:
         return {

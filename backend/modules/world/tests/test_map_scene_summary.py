@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.outline.repositories import SceneRepository
 from modules.outline.schemas import SceneCreate
 from modules.world.map_facade import summarize_scene_map_for_writing
+from modules.world.map_repositories import MapFactRepository
 from modules.world.map_schemas import (
     BindingHex,
     MapConfigCreate,
@@ -275,6 +276,127 @@ async def test_scene_summary_includes_confirmed_dynamic_fact_by_default(
     assert summary["risks"][0]["depends_on_candidate"] is False
     assert summary["risks"][0]["candidate_review_state"] is None
     assert summary["risks"][0]["evidence_excerpt"] == "粮仓火势正在扩大"
+    assert summary["risks"][0]["open_target"]["observation_id"] == observation_id
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_queries_confirmed_facts_by_scene_before_limit(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    other_scene = await _create_scene(db_session, novel_id, scene_index=1)
+    scene = await _create_scene(db_session, novel_id, scene_index=99)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    fact_repo = MapFactRepository()
+    nid = uuid.UUID(hex=novel_id)
+    map_id = uuid.UUID(map_resp.id)
+    for index in range(81):
+        await fact_repo.create(
+            db_session,
+            nid,
+            {
+                "map_id": map_id,
+                "target_name": f"其他风险 {index}",
+                "target_entity_type": "event",
+                "dynamic_type": "risk",
+                "spatial_anchor": {"hex_q": index % 5, "hex_r": index % 7},
+                "fact_status": "confirmed",
+                "evidence_text": f"其他场景证据 {index}",
+                "scene_id": other_scene.id,
+                "scene_index": other_scene.scene_index,
+            },
+        )
+    await fact_repo.create(
+        db_session,
+        nid,
+        {
+            "map_id": map_id,
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "fact_status": "confirmed",
+            "evidence_text": "粮仓火势正在扩大",
+            "scene_id": scene.id,
+            "scene_index": scene.scene_index,
+        },
+    )
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=False,
+    )
+
+    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已确认"]
+    assert summary["risks"][0]["evidence_excerpt"] == "粮仓火势正在扩大"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_suppresses_candidate_duplicate_of_confirmed_fact(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    scene = await _create_scene(db_session, novel_id, scene_index=1)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    confirmed_observation_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations",
+        params={"novel_id": novel_id},
+        json={
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "review_state": "candidate",
+            "scene_id": str(scene.id),
+            "scene_index": 1,
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "evidence_text": "粮仓火势正在扩大",
+        },
+    )
+    assert confirmed_observation_resp.status_code == 201
+    observation_id = confirmed_observation_resp.json()["id"]
+    confirm_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations/{observation_id}/confirm",
+        params={"novel_id": novel_id},
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    duplicate_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations",
+        params={"novel_id": novel_id},
+        json={
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "review_state": "candidate",
+            "scene_id": str(scene.id),
+            "scene_index": 1,
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "evidence_text": "候选重复证据",
+        },
+    )
+    assert duplicate_resp.status_code == 201, duplicate_resp.text
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=True,
+    )
+
+    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已确认"]
+    assert summary["risks"][0]["depends_on_candidate"] is False
     assert summary["risks"][0]["open_target"]["observation_id"] == observation_id
 
 
