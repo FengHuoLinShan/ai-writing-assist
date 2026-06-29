@@ -33,6 +33,27 @@ from infrastructure.llm.schemas import (
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+_TRUNCATION_RETRY_MAX_TOKENS = 40000
+_TOKEN_LIMIT_PROXIMITY = 0.95
+
+
+def _looks_truncated_response(
+    *,
+    finish_reason: str,
+    completion_tokens: int,
+    max_tokens: int | None,
+) -> bool:
+    if finish_reason == "length":
+        return True
+    if max_tokens is None or max_tokens <= 0:
+        return False
+    return completion_tokens >= int(max_tokens * _TOKEN_LIMIT_PROXIMITY)
+
+
+def _expanded_token_budget(max_tokens: int | None) -> int:
+    if max_tokens is None or max_tokens <= 0:
+        return _TRUNCATION_RETRY_MAX_TOKENS
+    return min(max_tokens * 2, _TRUNCATION_RETRY_MAX_TOKENS)
 
 
 class LLMClient:
@@ -182,39 +203,80 @@ class LLMClient:
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
                 raw_content = response.content if locals().get("response") else ""
+                finish_reason = getattr(response, "finish_reason", "")
+                completion_tokens = getattr(response.usage, "completion_tokens", 0)
+                max_tokens = req.max_tokens
+                error_kind = (
+                    "truncated_json"
+                    if _looks_truncated_response(
+                        finish_reason=finish_reason,
+                        completion_tokens=completion_tokens,
+                        max_tokens=max_tokens,
+                    )
+                    else "invalid_json"
+                )
                 last_error = LLMInvalidResponseError(
-                    f"Invalid JSON response (attempt {attempt + 1}): {e}",
+                    (
+                        f"Invalid JSON response (attempt {attempt + 1}, "
+                        f"kind={error_kind}): {e}"
+                    ),
                     provider=self._provider.name,
                     raw_response=raw_content,
                 )
                 logger.warning(
-                    "JSON decode failed, attempt %d/%d: %s",
+                    (
+                        "JSON decode failed, attempt %d/%d: %s "
+                        "finish_reason=%s completion_tokens=%s max_tokens=%s "
+                        "error_kind=%s"
+                    ),
                     attempt + 1,
                     max_fix_attempts + 1,
                     e,
+                    finish_reason,
+                    completion_tokens,
+                    max_tokens,
+                    error_kind,
                 )
             except ValidationError as e:
+                error_kind = "schema_validation"
                 last_error = LLMInvalidResponseError(
                     f"Schema validation failed (attempt {attempt + 1}): {e}",
                     provider=self._provider.name,
                 )
                 logger.warning(
-                    "Schema validation failed, attempt %d/%d: %s",
+                    "Schema validation failed, attempt %d/%d: %s error_kind=%s",
                     attempt + 1,
                     max_fix_attempts + 1,
                     e,
+                    error_kind,
                 )
 
             if attempt < max_fix_attempts:
-                # 修复模式：追加错误信息，让模型修正输出
-                fix_msg = fix_prompt or (
-                    f"Your previous response failed validation. Error: {last_error}\n"
-                    f"Please output valid JSON matching this schema: "
-                    f"{schema.model_json_schema()}"
-                )
-                req.messages.append(
-                    LLMMessage(role="assistant", content=response.content)
-                )
+                if error_kind == "truncated_json":
+                    original_budget = req.max_tokens
+                    req.max_tokens = _expanded_token_budget(req.max_tokens)
+                    fix_msg = (
+                        "上一轮输出被截断，JSON 未完整闭合。请从头重新输出完整 JSON，"
+                        "不要继续上一段，不要输出 Markdown 或解释。"
+                        f"输出必须匹配这个 schema: {schema.model_json_schema()}"
+                    )
+                    logger.warning(
+                        "Retrying truncated structured output with larger budget: "
+                        "from=%s to=%s",
+                        original_budget,
+                        req.max_tokens,
+                    )
+                else:
+                    # 修复模式：追加错误信息，让模型修正输出
+                    fix_msg = fix_prompt or (
+                        f"Your previous response failed validation. Error: "
+                        f"{last_error}\n"
+                        f"Please output valid JSON matching this schema: "
+                        f"{schema.model_json_schema()}"
+                    )
+                    req.messages.append(
+                        LLMMessage(role="assistant", content=response.content)
+                    )
                 req.messages.append(LLMMessage(role="user", content=fix_msg))
 
         raise LLMInvalidResponseError(

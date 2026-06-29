@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 AI_REVIEW_ACTION = "writing.conflict_check.ai_review"
 AI_SUGGESTION_ACTION = "writing.conflict_check.ai_suggestion"
+WRITING_CONFLICT_AI_MAX_TOKENS = 20000
 
 
 class ConflictCheckAiReviewService:
@@ -109,7 +110,7 @@ class ConflictCheckAiReviewService:
                         ),
                     ],
                     temperature=0.2,
-                    max_tokens=2048,
+                    max_tokens=WRITING_CONFLICT_AI_MAX_TOKENS,
                 ),
                 WritingConflictAiReviewRawOutput,
             )
@@ -269,7 +270,7 @@ class ConflictSuggestionService:
                         ),
                     ],
                     temperature=0.3,
-                    max_tokens=2048,
+                    max_tokens=WRITING_CONFLICT_AI_MAX_TOKENS,
                 ),
                 WritingConflictSuggestionOutput,
             )
@@ -452,6 +453,9 @@ def _build_ai_review_prompt(
         "- severity: high, medium, low\n"
         "- confidence: 0 到 1 之间的数字\n"
         "- depends_on_pending_objects: true 或 false\n"
+        "最多输出 2 条 issues。\n"
+        "summary/evidence/rationale 各限制 1-2 句。\n"
+        "不要展开长段解释；无法确定时输出 {\"issues\": []}。\n"
         "如果没有可报告的软冲突，输出 {\"issues\": []}。"
     )
 
@@ -478,7 +482,10 @@ def _build_ai_suggestion_prompt(
         f"{context_markdown}\n\n"
         "只输出 JSON，格式为 {\"suggestion\": {\"strategy\": ..., "
         "\"suggested_text\": ..., \"rationale\": ..., "
-        "\"constraints\": [], \"risk_notes\": []}}。"
+        "\"constraints\": [], \"risk_notes\": []}}。\n"
+        "strategy/rationale 各 1-2 句。\n"
+        "suggested_text 控制在 300-600 字以内。\n"
+        "constraints/risk_notes 每项不超过 3 条。"
     )
 
 

@@ -651,6 +651,46 @@ async def test_ai_review_valid_output_adds_ai_judgment_items(
 
 
 @pytest.mark.asyncio
+async def test_ai_review_uses_large_budget_and_concise_prompt_constraints(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    check = await _create_check(async_client, novel_id, scene["id"])
+    confirmation_id = await _create_context_confirmation(
+        async_client,
+        novel_id,
+        action="writing.conflict_check.ai_review",
+        scene_id=scene["id"],
+    )
+
+    async def fake_generate_structured(_self, request, schema, **_kwargs):
+        assert request.max_tokens == 20000
+        prompt = request.messages[-1].content
+        assert "最多输出 2 条 issues" in prompt
+        assert "summary/evidence/rationale 各限制 1-2 句" in prompt
+        assert "不要展开长段解释" in prompt
+        return schema.model_validate({"issues": []})
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.LLMClient.generate_structured",
+        fake_generate_structured,
+    )
+
+    resp = await async_client.post(
+        f"/api/writing/conflict-checks/{check['id']}/ai-review",
+        json={
+            "novel_id": novel_id,
+            "context_confirmation_id": confirmation_id,
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ai_review_status"] == "done"
+
+
+@pytest.mark.asyncio
 async def test_ai_review_rejects_wrong_confirmation_action(
     async_client: AsyncClient,
 ) -> None:
@@ -869,6 +909,56 @@ async def test_ai_suggestion_stores_manual_suggestion_without_mutating_draft(
     )
     assert fetched.status_code == 200
     assert fetched.json()["content"] == "原始正文"
+
+
+@pytest.mark.asyncio
+async def test_ai_suggestion_uses_large_budget_and_concise_prompt_constraints(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id)
+    check = await _create_check(async_client, novel_id, scene["id"])
+    item_id = check["items"][0]["id"]
+    confirmation_id = await _create_context_confirmation(
+        async_client,
+        novel_id,
+        action="writing.conflict_check.ai_suggestion",
+        scene_id=scene["id"],
+    )
+
+    async def fake_generate_structured(_self, request, schema, **_kwargs):
+        assert request.max_tokens == 20000
+        prompt = request.messages[-1].content
+        assert "strategy/rationale 各 1-2 句" in prompt
+        assert "suggested_text 控制在 300-600 字以内" in prompt
+        assert "constraints/risk_notes 每项不超过 3 条" in prompt
+        return schema.model_validate(
+            {
+                "suggestion": {
+                    "strategy": "补动机",
+                    "suggested_text": "他想起旧约，才勉强点头。",
+                    "rationale": "补足心理来源。",
+                    "constraints": [],
+                    "risk_notes": [],
+                }
+            }
+        )
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.LLMClient.generate_structured",
+        fake_generate_structured,
+    )
+
+    resp = await async_client.post(
+        f"/api/writing/conflict-check-items/{item_id}/ai-suggestion",
+        json={
+            "novel_id": novel_id,
+            "context_confirmation_id": confirmation_id,
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.asyncio
