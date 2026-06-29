@@ -368,7 +368,15 @@ describe("writingView conflict checks", () => {
     })
     api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
 
-    await writingView._runConflictCheck()
+    const pending = writingView._runConflictCheck()
+    await Promise.resolve()
+    expect(showModal).toHaveBeenCalledWith(
+      "剧情设定冲突检查",
+      expect.stringContaining("writing-conflict-include-candidates"),
+      expect.any(Array),
+    )
+    showModal.mock.calls[0][2][1].handler()
+    await pending
 
     expect(api.writing.autosave.mock.invocationCallOrder[0]).toBeLessThan(
       api.writing.createConflictCheck.mock.invocationCallOrder[0],
@@ -384,10 +392,38 @@ describe("writingView conflict checks", () => {
     })
   })
 
+  it("passes include_candidates true when conflict check options include candidates", async () => {
+    api.writing.autosave.mockResolvedValue({
+      id: "d1",
+      version_number: 2,
+      updated_at: "2026-06-29T00:00:01Z",
+    })
+    api.writing.createConflictCheck.mockResolvedValue({
+      id: "c1",
+      items: [],
+      summary_json: { total: 0 },
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+
+    const pending = writingView._runConflictCheck()
+    await Promise.resolve()
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    document.getElementById("writing-conflict-include-candidates").checked = true
+    showModal.mock.calls[0][2][1].handler()
+    await pending
+
+    expect(api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
+      include_candidates: true,
+    }))
+  })
+
   it("does not create a conflict check when autosave fails", async () => {
     api.writing.autosave.mockRejectedValue(new Error("save failed"))
 
-    await writingView._runConflictCheck()
+    const pending = writingView._runConflictCheck()
+    await Promise.resolve()
+    showModal.mock.calls[0][2][1].handler()
+    await pending
 
     expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("save failed", "error")
@@ -551,6 +587,74 @@ describe("writingView conflict checks", () => {
     expect(editor.selectionStart).toBe(0)
     expect(editor.selectionEnd).toBe(4)
     expect(toast).not.toHaveBeenCalledWith("该问题暂无正文定位", "info")
+  })
+
+  it("opens map sources from map_object open target", () => {
+    const openMapSpy = stubMethod(writingView, "_openMapForCurrentScene")
+
+    writingView._openConflictSource(
+      {
+        items: [
+          {
+            id: "i1",
+            location_json: {
+              open_target: { kind: "map_object", object_id: "obj1" },
+            },
+          },
+        ],
+      },
+      "i1",
+    )
+
+    expect(openMapSpy).toHaveBeenCalled()
+    openMapSpy.mockRestore()
+  })
+
+  it("opens outline sources from outline_scene open target with location hint", () => {
+    writingView._openConflictSource(
+      {
+        items: [
+          {
+            id: "i1",
+            location_json: {
+              open_target: { kind: "outline_scene", scene_id: "s1" },
+              source: { label: "东门 Scene" },
+            },
+          },
+        ],
+      },
+      "i1",
+    )
+
+    expect(router.navigate).toHaveBeenCalledWith("outline", null)
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("东门 Scene"), "info")
+  })
+
+  it("shows memory chapter source modal from memory_chapter open target", () => {
+    writingView._openConflictSource(
+      {
+        items: [
+          {
+            id: "i1",
+            location_json: {
+              open_target: {
+                kind: "memory_chapter",
+                chapter_index: 4,
+                character_id: "char-1",
+              },
+            },
+          },
+        ],
+      },
+      "i1",
+    )
+
+    expect(showModal).toHaveBeenCalledWith(
+      "记忆来源",
+      expect.stringContaining("char-1"),
+      expect.any(Array),
+    )
+    expect(showModal.mock.calls[0][1]).toContain("第 4 章")
   })
 })
 

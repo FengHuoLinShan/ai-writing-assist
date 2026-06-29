@@ -87,6 +87,64 @@ describe("writingConflictModal", () => {
     expect(body).toContain("缺少动机过渡")
   })
 
+  it("renders escaped structured evidence drawer and keeps source action", () => {
+    showWritingConflictModal({
+      check: {
+        id: "c1",
+        items: [
+          {
+            id: "i1",
+            kind: "map_risk",
+            severity: "medium",
+            source_module: "world",
+            evidence_summary: "<script>alert(1)</script>",
+            status: "open",
+            location_json: {
+              source: {
+                module: "world",
+                label: "地图<script>alert(2)</script>",
+                field: "location",
+                type: "map_object",
+                excerpt: "旧城<script>alert(3)</script>",
+              },
+              open_target: {
+                kind: "map_object",
+                object_id: "obj1",
+              },
+              needs_review_reason: "依赖待确认地图观察",
+            },
+          },
+        ],
+      },
+      novelId: "p1",
+    })
+
+    const body = showModal.mock.calls[0][1]
+    expect(body).toContain("writing-conflict-evidence-drawer")
+    expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+    expect(body).toContain("地图&lt;script&gt;alert(2)&lt;/script&gt;")
+    expect(body).toContain("旧城&lt;script&gt;alert(3)&lt;/script&gt;")
+    expect(body).toContain("依赖待确认地图观察")
+    expect(body).toContain("map_object")
+    expect(body).toContain('data-conflict-open-source="i1"')
+    expect(body).not.toContain("<script>")
+  })
+
+  it("uses precise include candidates copy without broad review wording", () => {
+    showWritingConflictModal({
+      check: {
+        id: "c1",
+        include_candidates: true,
+        items: [],
+      },
+      novelId: "p1",
+    })
+
+    const body = showModal.mock.calls[0][1]
+    expect(body).toContain("本次检查包含待确认对象")
+    expect(body).not.toContain("结果需复核")
+  })
+
   it("runs AI review after AI reference confirmation", async () => {
     confirmAiReference.mockResolvedValue({ id: "confirm-ai" })
     api.writing.runConflictAiReview.mockResolvedValue({

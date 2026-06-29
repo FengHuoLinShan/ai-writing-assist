@@ -1232,6 +1232,8 @@ const writingView = {
     }
     const editor = document.getElementById("writing-editor")
     if (!editor) return
+    const options = await this._confirmConflictCheckOptions()
+    if (!options) return
     this._checkingConflicts = true
     try {
       await this._saveDraftForConflictCheck()
@@ -1243,7 +1245,7 @@ const writingView = {
         draft_id: this._currentDraftId,
         version_number: this._currentVersionNumber,
         content: editor.value,
-        include_candidates: false,
+        include_candidates: options.includeCandidates,
       })
       await this._refreshConflictChecks()
       this._openConflictCheck(check)
@@ -1253,6 +1255,41 @@ const writingView = {
     } finally {
       this._checkingConflicts = false
     }
+  },
+
+  _confirmConflictCheckOptions() {
+    return new Promise((resolve) => {
+      const body = `
+        <div class="writing-conflict-options">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input id="writing-conflict-include-candidates" type="checkbox" />
+            <span>包含待确认对象</span>
+          </label>
+          <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6;">
+            包含后，依赖待确认对象的检查结果会标记为需复核；不会修改正文、Scene、地图或正史。
+          </p>
+        </div>
+      `
+      showModal("剧情设定冲突检查", body, [
+        {
+          text: "取消",
+          class: "btn-ghost",
+          handler: () => {
+            closeModal()
+            resolve(null)
+          },
+        },
+        {
+          text: "开始检查",
+          class: "btn-primary",
+          handler: () => {
+            const checkbox = document.getElementById("writing-conflict-include-candidates")
+            closeModal()
+            resolve({ includeCandidates: Boolean(checkbox?.checked) })
+          },
+        },
+      ])
+    })
   },
 
   async _refreshConflictChecks() {
@@ -1324,6 +1361,30 @@ const writingView = {
 
   _openConflictSource(check, itemId) {
     const item = (check.items || []).find((entry) => entry.id === itemId)
+    const location = item?.location_json || {}
+    const openTarget = location.open_target || {}
+    const openTargetKind = openTarget.kind
+    if (openTargetKind === "map_scene" || openTargetKind === "map_object") {
+      this._openMapForCurrentScene()
+      return
+    }
+    if (openTargetKind === "outline_scene") {
+      router.navigate("outline", null)
+      const hint = location.source?.label || openTarget.scene_id || "Scene"
+      toast(`已打开大纲：${hint}`, "info")
+      return
+    }
+    if (openTargetKind === "memory_chapter") {
+      const chapterIndex = openTarget.chapter_index || location.source?.chapter_index || "-"
+      const characterId = openTarget.character_id || location.source?.character_id || "-"
+      showModal("记忆来源", `
+        <div class="writing-conflict-source-modal">
+          <p><strong>章节</strong>：第 ${esc(chapterIndex)} 章</p>
+          <p><strong>角色</strong>：${esc(characterId)}</p>
+        </div>
+      `, [{ text: "关闭", class: "btn-ghost", handler: closeModal }])
+      return
+    }
     if (item?.source_module === "world") {
       this._openMapForCurrentScene()
       return

@@ -69,7 +69,7 @@ function renderConflictGroup(title, items) {
 function renderAiReviewGroup(check, items) {
   const status = check?.ai_review_status || "not_requested"
   const pendingCopy = check?.include_candidates
-    ? '<span class="pill pill-warning">包含待确认对象，结果需复核</span>'
+    ? '<span class="pill pill-warning">本次检查包含待确认对象</span>'
     : ""
   return `
     <section class="writing-conflict-group writing-conflict-group--ai">
@@ -110,6 +110,7 @@ function renderConflictItem(item) {
       </div>
       <p class="writing-conflict-evidence">${esc(item.evidence_summary || "")}</p>
       ${item.llm_rationale ? `<p class="writing-conflict-rationale">${esc(item.llm_rationale)}</p>` : ""}
+      ${renderEvidence(item)}
       <div class="writing-conflict-actions">
         <button class="btn btn-sm" data-conflict-locate="${esc(item.id)}">定位</button>
         <button class="btn btn-sm" data-conflict-open-source="${esc(item.id)}">来源</button>
@@ -120,6 +121,35 @@ function renderConflictItem(item) {
       </div>
       ${renderSuggestion(item)}
     </div>
+  `
+}
+
+function renderEvidence(item) {
+  const location = item.location_json || {}
+  const source = location.source || null
+  const openTarget = location.open_target || null
+  const needsReviewReason = location.needs_review_reason || item.needs_review_reason || ""
+  if (!source && !openTarget && !needsReviewReason) return ""
+
+  const sourceModule = source?.module || item.source_module || "-"
+  const sourceLabel = source?.label || "-"
+  const sourceField = source?.field || "-"
+  const sourceType = source?.type || "-"
+  const sourceExcerpt = source?.excerpt || "-"
+  const openTargetKind = openTarget?.kind || "-"
+  return `
+    <details class="writing-conflict-evidence-drawer">
+      <summary>证据</summary>
+      <div class="writing-conflict-evidence-drawer__grid">
+        <span>模块</span><strong>${esc(sourceModule)}</strong>
+        <span>来源</span><strong>${esc(sourceLabel)}</strong>
+        <span>字段</span><strong>${esc(sourceField)}</strong>
+        <span>类型</span><strong>${esc(sourceType)}</strong>
+        <span>摘录</span><strong>${esc(sourceExcerpt)}</strong>
+        <span>复核</span><strong>${esc(needsReviewReason || "-")}</strong>
+        <span>打开</span><strong>${esc(openTargetKind)}</strong>
+      </div>
+    </details>
   `
 }
 
