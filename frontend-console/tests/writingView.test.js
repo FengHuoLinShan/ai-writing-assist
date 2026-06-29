@@ -355,6 +355,52 @@ describe("writingView conflict checks", () => {
     `
   })
 
+  it("does not autosave or create a conflict check when options modal is cancelled", async () => {
+    const pending = writingView._runConflictCheck()
+    await Promise.resolve()
+    showModal.mock.calls[0][2][0].handler()
+    await pending
+
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
+    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
+    expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
+  })
+
+  it("treats global modal close as conflict check cancellation", async () => {
+    document.body.insertAdjacentHTML("beforeend", `
+      <button id="modal-close">x</button>
+      <div id="modal-overlay"></div>
+    `)
+
+    const pending = writingView._runConflictCheck()
+    await Promise.resolve()
+    document.getElementById("modal-close").click()
+    await pending
+
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
+    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
+    expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
+  })
+
+  it("ignores repeated conflict check triggers while options modal is active", async () => {
+    const first = writingView._runConflictCheck()
+    const second = writingView._runConflictCheck()
+    await Promise.resolve()
+
+    expect(showModal).toHaveBeenCalledTimes(1)
+
+    showModal.mock.calls[0][2][0].handler()
+    await first
+    await second
+
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
+    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
+    expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
+  })
+
   it("autosaves before creating a conflict check", async () => {
     api.writing.autosave.mockResolvedValue({
       id: "d1",

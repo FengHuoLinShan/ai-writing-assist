@@ -556,7 +556,7 @@ const writingView = {
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
-            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>剧情设定冲突检查</button>
+            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly && !this._checkingConflicts ? '' : 'disabled'}>剧情设定冲突检查</button>
             ${this._renderEditorToolsMenu(hasSelection)}
           </div>
         </div>
@@ -1226,16 +1226,17 @@ const writingView = {
   },
 
   async _runConflictCheck() {
+    if (this._checkingConflicts) return
     if (!state.currentProjectId || !this._currentChapter) {
       toast("请先选择章节", "warning")
       return
     }
     const editor = document.getElementById("writing-editor")
     if (!editor) return
-    const options = await this._confirmConflictCheckOptions()
-    if (!options) return
     this._checkingConflicts = true
     try {
+      const options = await this._confirmConflictCheckOptions()
+      if (!options) return
       await this._saveDraftForConflictCheck()
       const currentScene = this._findCurrentScene()
       const check = await api.writing.createConflictCheck({
@@ -1259,6 +1260,35 @@ const writingView = {
 
   _confirmConflictCheckOptions() {
     return new Promise((resolve) => {
+      let settled = false
+      let observer = null
+      const modalClose = document.getElementById("modal-close")
+      const modalOverlay = document.getElementById("modal-overlay")
+      const cleanup = () => {
+        modalClose?.removeEventListener("click", onCloseClick)
+        modalOverlay?.removeEventListener("click", onOverlayClick)
+        document.removeEventListener("keydown", onKeyDown, true)
+        observer?.disconnect()
+      }
+      const settle = (value) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(value)
+      }
+      const cancel = () => {
+        closeModal()
+        settle(null)
+      }
+      const onCloseClick = cancel
+      const onOverlayClick = (event) => {
+        if (event.target === event.currentTarget) cancel()
+      }
+      const onKeyDown = (event) => {
+        if (event.key === "Escape") {
+          cancel()
+        }
+      }
       const body = `
         <div class="writing-conflict-options">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
@@ -1274,10 +1304,7 @@ const writingView = {
         {
           text: "取消",
           class: "btn-ghost",
-          handler: () => {
-            closeModal()
-            resolve(null)
-          },
+          handler: cancel,
         },
         {
           text: "开始检查",
@@ -1285,10 +1312,19 @@ const writingView = {
           handler: () => {
             const checkbox = document.getElementById("writing-conflict-include-candidates")
             closeModal()
-            resolve({ includeCandidates: Boolean(checkbox?.checked) })
+            settle({ includeCandidates: Boolean(checkbox?.checked) })
           },
         },
       ])
+      modalClose?.addEventListener("click", onCloseClick)
+      modalOverlay?.addEventListener("click", onOverlayClick)
+      document.addEventListener("keydown", onKeyDown, true)
+      if (modalOverlay && typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(() => {
+          if (modalOverlay.classList.contains("hidden")) settle(null)
+        })
+        observer.observe(modalOverlay, { attributes: true, attributeFilter: ["class"] })
+      }
     })
   },
 
