@@ -472,9 +472,7 @@ class MapObservationCreate(BaseModel):
     spatial_anchor: dict | None = Field(default_factory=dict)
     value_json: dict | None = Field(default_factory=dict)
     confidence: float = Field(0.5, ge=0.0, le=1.0)
-    review_state: Literal["candidate", "confirmed", "ignored", "conflicted"] = Field(
-        "candidate"
-    )
+    review_state: Literal["candidate", "conflicted"] = Field("candidate")
     source_ref: dict | None = Field(default_factory=dict)
     evidence_text: str | None = None
     scene_id: str | None = None
@@ -491,6 +489,16 @@ class MapObservationCreate(BaseModel):
 
 class MapObservationReviewUpdate(BaseModel):
     review_state: Literal["candidate", "confirmed", "ignored", "conflicted"]
+
+
+class MapObservationBatchReviewRequest(BaseModel):
+    observation_ids: list[str] = Field(..., min_length=1, max_length=100)
+    action: Literal["confirm", "ignore", "conflict"]
+
+    @field_validator("observation_ids")
+    @classmethod
+    def _coerce_observation_ids(cls, values: list[str]) -> list[str]:
+        return [str(uuid.UUID(value)) for value in values]
 
 
 class MapObservationResponse(BaseModel):
@@ -578,6 +586,19 @@ class MapFactListResponse(BaseModel):
     total: int
 
 
+class MapFactStatusUpdate(BaseModel):
+    fact_status: Literal["confirmed", "rolled_back", "deprecated"]
+
+
+class MapObservationBatchReviewResponse(BaseModel):
+    action: Literal["confirm", "ignore", "conflict"]
+    requested_count: int
+    updated_count: int
+    created_fact_count: int
+    observations: list[MapObservationResponse] = Field(default_factory=list)
+    facts: list[MapFactResponse] = Field(default_factory=list)
+
+
 # ============================================================
 # MapDashboard — 世界动态总控台（P1）
 # ============================================================
@@ -587,6 +608,7 @@ class MapDashboardQueueItem(BaseModel):
     item_id: str
     item_kind: Literal["observation", "fact"]
     title: str
+    target_entity_id: str | None = None
     object_type: str | None = None
     dynamic_type: str
     time_label: str
@@ -603,6 +625,11 @@ class MapDashboardInspector(BaseModel):
     title: str
     status_label: str
     summary: str | None = None
+    focus_entity_id: str | None = None
+    object_type: str | None = None
+    object_name: str | None = None
+    timeline: list[MapDashboardQueueItem] = Field(default_factory=list)
+    available_actions: list[str] = Field(default_factory=list)
     map_facts: list[MapDashboardQueueItem] = Field(default_factory=list)
     ai_candidates: list[MapDashboardQueueItem] = Field(default_factory=list)
     conflicts: list[MapDashboardQueueItem] = Field(default_factory=list)

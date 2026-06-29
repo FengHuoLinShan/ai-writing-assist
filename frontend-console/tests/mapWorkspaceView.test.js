@@ -15,6 +15,7 @@ beforeEach(() => {
   mapWorkspaceView._activeMapId = null
   mapWorkspaceView._activeSceneId = null
   mapWorkspaceView._focusEntityId = null
+  mapWorkspaceView._focusedDynamicItemId = null
   mapWorkspaceView._resetDynamicSummary?.()
   mapWorkspaceView._resetPlayback?.()
   mapWorkspaceView._clearPendingTimers?.()
@@ -322,13 +323,17 @@ describe("mapWorkspaceView overview", () => {
   })
 
   it("opens dynamic object info with edit and inspector actions", () => {
+    mapWorkspaceView._activeMapId = "m1"
     mapWorkspaceView._dynamicSummary = {
       dashboard: {
         dynamic_queue: [{
           item_id: "technical-object-id",
+          item_kind: "observation",
           title: "沈砚入城",
+          target_entity_id: "char-1",
           time_label: "Scene 1",
           status_label: "待确认",
+          review_state: "candidate",
           source_summary: "deep_import · 沈砚进入内城。",
         }],
       },
@@ -342,7 +347,191 @@ describe("mapWorkspaceView overview", () => {
     expect(body).toContain("Scene 1")
     expect(body).toContain("待确认")
     expect(body).not.toContain("technical-object-id")
-    expect(actions.map((action) => action.text)).toEqual(["修改", "打开检查器"])
+    expect(actions.map((action) => action.text)).toEqual([
+      "确认",
+      "忽略",
+      "标记冲突",
+      "打开检查器",
+    ])
+  })
+
+  it("updates observation review and fact status from object info actions", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: {
+        dynamic_queue: [
+          {
+            item_id: "obs1",
+            item_kind: "observation",
+            title: "沈砚入城",
+            review_state: "candidate",
+            status_label: "待确认",
+          },
+          {
+            item_id: "fact1",
+            item_kind: "fact",
+            title: "林照据守",
+            fact_status: "confirmed",
+            status_label: "已确认",
+          },
+        ],
+      },
+      observations: [{ item_id: "obs1", title: "沈砚入城" }],
+      facts: [{ item_id: "fact1", title: "林照据守" }],
+    }
+    api.world.updateMapObservationReview.mockResolvedValue({ id: "obs1" })
+    api.world.updateMapFactStatus.mockResolvedValue({ id: "fact1" })
+    api.world.getMapDashboard.mockResolvedValue({
+      dynamic_queue: [{
+        item_id: "obs1",
+        item_kind: "observation",
+        title: "沈砚",
+        target_entity_id: "char-1",
+        object_type: "character",
+        review_state: "candidate",
+      }],
+      batch_groups: [{
+        group_key: "character",
+        group_label: "人物",
+        count: 1,
+        candidate_count: 1,
+        confirmed_count: 0,
+      }],
+    })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+
+    await mapWorkspaceView._markObservationConflict("obs1")
+    await mapWorkspaceView._updateFactStatus("fact1", "rolled_back")
+
+    expect(api.world.updateMapObservationReview).toHaveBeenCalledWith(
+      "m1",
+      "obs1",
+      "p1",
+      "conflicted",
+    )
+    expect(api.world.updateMapFactStatus).toHaveBeenCalledWith(
+      "m1",
+      "fact1",
+      "p1",
+      "rolled_back",
+    )
+  })
+
+  it("opens focused inspector and batch reviews candidate groups", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: {
+        dynamic_queue: [{
+          item_id: "obs1",
+          item_kind: "observation",
+          title: "沈砚",
+          target_entity_id: "char-1",
+          object_type: "character",
+          review_state: "candidate",
+        }],
+        batch_groups: [{
+          group_key: "character",
+          group_label: "人物",
+          count: 1,
+          candidate_count: 1,
+          confirmed_count: 0,
+        }],
+      },
+      observations: [{ item_id: "obs1", title: "沈砚" }],
+      facts: [],
+    }
+    api.world.getMapDashboard.mockResolvedValue({
+      dynamic_queue: [{
+        item_id: "obs1",
+        item_kind: "observation",
+        title: "沈砚",
+        target_entity_id: "char-1",
+        object_type: "character",
+        review_state: "candidate",
+      }],
+      batch_groups: [{
+        group_key: "character",
+        group_label: "人物",
+        count: 1,
+        candidate_count: 1,
+        confirmed_count: 0,
+      }],
+    })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+    api.world.batchReviewMapObservations.mockResolvedValue({ updated_count: 1 })
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+
+    await mapWorkspaceView._openFocusedInspector("char-1")
+    await mapWorkspaceView._batchReviewGroup("character", "confirm")
+
+    expect(api.world.getMapDashboard).toHaveBeenCalledWith("m1", "p1", null, "char-1")
+    expect(api.world.batchReviewMapObservations).toHaveBeenCalledWith(
+      "m1",
+      ["obs1"],
+      "confirm",
+      "p1",
+    )
+  })
+
+  it("locally focuses inspector for dynamic items without entity ids", () => {
+    mapWorkspaceView._focusedDynamicItemId = "obs1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: {
+        dynamic_queue: [
+          {
+            item_id: "obs1",
+            item_kind: "observation",
+            title: "东门密道",
+            object_type: "location",
+            dynamic_type: "secret",
+            review_state: "candidate",
+            status_label: "待确认",
+            source_summary: "沈砚发现墙后暗门。",
+          },
+          {
+            item_id: "fact1",
+            item_kind: "fact",
+            title: "东门密道",
+            object_type: "location",
+            dynamic_type: "secret",
+            fact_status: "confirmed",
+            status_label: "已确认",
+            source_summary: "地图上存在旧暗门。",
+          },
+          {
+            item_id: "other1",
+            item_kind: "observation",
+            title: "西市码头",
+            object_type: "location",
+            dynamic_type: "location_state",
+            review_state: "candidate",
+            status_label: "待确认",
+          },
+        ],
+        inspector: {
+          title: "总控台",
+          status_label: "全局",
+          ai_candidates: [],
+          map_facts: [],
+          conflicts: [],
+          source_evidence: [],
+        },
+      },
+      observations: [],
+      facts: [],
+    }
+
+    const html = mapWorkspaceView._renderDynamicSummary()
+    const container = document.createElement("div")
+    container.innerHTML = html
+    const inspector = container.querySelector(".map-inspector")
+
+    expect(inspector.textContent).toContain("东门密道")
+    expect(inspector.textContent).toContain("候选 1")
+    expect(inspector.textContent).toContain("事实 1")
+    expect(inspector.textContent).not.toContain("西市码头")
+    expect(inspector.textContent).not.toContain("obs1")
   })
 
   it("confirms a map observation and refreshes summary", async () => {

@@ -323,9 +323,11 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/maps/{map_id}/observations` | 地图观察事实候选列表，可按 `review_state` 过滤 |
 | POST | `/api/world/maps/{map_id}/observations` | 创建地图观察事实候选 |
 | PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 更新观察事实审查状态 |
+| POST | `/api/world/maps/{map_id}/observations/batch-review` | 批量确认、忽略或标记冲突候选 observation |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/confirm` | 确认 observation 并生成/复用正式 `map_facts` |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/ignore` | 忽略 observation，不生成正式事实 |
 | GET | `/api/world/maps/{map_id}/facts` | 已确认地图事实列表，可按 `fact_status` 过滤 |
+| PATCH | `/api/world/maps/{map_id}/facts/{fact_id}` | 软更新地图事实状态（confirmed / rolled_back / deprecated） |
 
 ## 依赖
 

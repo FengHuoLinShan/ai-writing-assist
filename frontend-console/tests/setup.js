@@ -196,9 +196,12 @@ globalThis.api = {
     createTerritories: vi.fn(),
     deleteTerritoriesByFaction: vi.fn(),
     listMapObservations: vi.fn(),
+    updateMapObservationReview: vi.fn(),
+    batchReviewMapObservations: vi.fn(),
     confirmMapObservation: vi.fn(),
     ignoreMapObservation: vi.fn(),
     listMapFacts: vi.fn(),
+    updateMapFactStatus: vi.fn(),
   },
   tasks: {
     submit: vi.fn(),

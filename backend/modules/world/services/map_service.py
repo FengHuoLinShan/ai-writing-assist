@@ -44,12 +44,15 @@ from modules.world.map_schemas import (
     MapDashboardResponse,
     MapFactListResponse,
     MapFactResponse,
+    MapFactStatusUpdate,
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
     MapMarkerCreate,
     MapMarkerResponse,
     MapMarkerUpdate,
+    MapObservationBatchReviewRequest,
+    MapObservationBatchReviewResponse,
     MapObservationCreate,
     MapObservationListResponse,
     MapObservationResponse,
@@ -865,13 +868,19 @@ class MapDynamicFactService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        map_id: str,
         observation_id: str,
         data: MapObservationReviewUpdate,
     ) -> MapObservationResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        await self._ctx.require_map(db, novel_id, map_id)
         oid = parse_uuid(observation_id, "observation_id")
         observation = await self._observation_repo.get(db, oid)
         self._assert_observation_in_novel(observation, observation_id, nid)
+        assert observation is not None
+        self._assert_observation_in_map(observation, observation_id, mid)
         updated = await self._observation_repo.update_review_state(
             db, oid, data.review_state
         )
@@ -882,13 +891,16 @@ class MapDynamicFactService:
         self,
         db: AsyncSession,
         novel_id: str,
+        *,
+        map_id: str,
         observation_id: str,
     ) -> MapObservationResponse:
         return await self.update_observation_review(
             db,
             novel_id,
-            observation_id,
-            MapObservationReviewUpdate(review_state="ignored"),
+            map_id=map_id,
+            observation_id=observation_id,
+            data=MapObservationReviewUpdate(review_state="ignored"),
         )
 
     async def confirm_observation(
@@ -907,11 +919,7 @@ class MapDynamicFactService:
         observation = await self._observation_repo.get(db, oid)
         self._assert_observation_in_novel(observation, observation_id, nid)
         assert observation is not None
-        if observation.map_id is not None and observation.map_id != mid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapObservation {observation_id} not found",
-            )
+        self._assert_observation_in_map(observation, observation_id, mid)
 
         existing = await self._fact_repo.get_by_observation(db, oid)
         if existing is not None:
@@ -943,6 +951,68 @@ class MapDynamicFactService:
         await self._observation_repo.update_review_state(db, oid, "confirmed")
         return MapFactResponse.model_validate(fact)
 
+    async def batch_review_observations(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        map_id: str,
+        data: MapObservationBatchReviewRequest,
+    ) -> MapObservationBatchReviewResponse:
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        observations = []
+        for observation_id in data.observation_ids:
+            oid = parse_uuid(observation_id, "observation_id")
+            observation = await self._observation_repo.get(db, oid)
+            self._assert_observation_in_novel(observation, observation_id, nid)
+            assert observation is not None
+            self._assert_observation_in_map(observation, observation_id, mid)
+            observations.append(observation)
+
+        updated_observations = []
+        facts = []
+        created_fact_count = 0
+        if data.action == "confirm":
+            for observation in observations:
+                existing = await self._fact_repo.get_by_observation(db, observation.id)
+                fact = await self.confirm_observation(
+                    db,
+                    novel_id,
+                    map_id=map_id,
+                    observation_id=str(observation.id),
+                )
+                if existing is None:
+                    created_fact_count += 1
+                facts.append(fact)
+                refreshed = await self._observation_repo.get(db, observation.id)
+                if refreshed is not None:
+                    updated_observations.append(
+                        MapObservationResponse.model_validate(refreshed)
+                    )
+        else:
+            next_state = "ignored" if data.action == "ignore" else "conflicted"
+            for observation in observations:
+                updated = await self._observation_repo.update_review_state(
+                    db,
+                    observation.id,
+                    next_state,
+                )
+                assert updated is not None
+                updated_observations.append(
+                    MapObservationResponse.model_validate(updated)
+                )
+
+        return MapObservationBatchReviewResponse(
+            action=data.action,
+            requested_count=len(data.observation_ids),
+            updated_count=len(updated_observations),
+            created_fact_count=created_fact_count,
+            observations=updated_observations,
+            facts=facts,
+        )
+
     async def list_facts(
         self,
         db: AsyncSession,
@@ -970,6 +1040,25 @@ class MapDynamicFactService:
             items=[MapFactResponse.model_validate(item) for item in items],
             total=total,
         )
+
+    async def update_fact_status(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        map_id: str,
+        fact_id: str,
+        data: MapFactStatusUpdate,
+    ) -> MapFactResponse:
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        fid = parse_uuid(fact_id, "fact_id")
+        fact = await self._fact_repo.get(db, fid)
+        self._assert_fact_access(fact, fact_id, nid, mid)
+        updated = await self._fact_repo.update_status(db, fid, data.fact_status)
+        assert updated is not None
+        return MapFactResponse.model_validate(updated)
 
     async def get_dashboard(
         self,
@@ -1003,28 +1092,38 @@ class MapDynamicFactService:
             fact_status="confirmed",
             limit=120,
         )
+        active_observations = [
+            item
+            for item in observations
+            if item.review_state in {"candidate", "conflicted"}
+        ]
         queue = [
-            *(self._queue_item_from_observation(item) for item in observations),
+            *(self._queue_item_from_observation(item) for item in active_observations),
             *(self._queue_item_from_fact(item) for item in facts),
         ]
         queue.sort(key=lambda item: (-item.priority, item.time_label, item.title))
         queue = queue[:80]
+        dashboard_queue = (
+            self._filter_queue_for_focus(queue, str(focus_id))
+            if focus_id
+            else queue
+        )
 
         inspector = self._build_dashboard_inspector(
-            queue,
+            dashboard_queue,
             focus_entity_id=str(focus_id) if focus_id else None,
         )
-        risk_summary = self._build_risk_summary(queue)
+        risk_summary = self._build_risk_summary(dashboard_queue)
         return MapDashboardResponse(
             map_id=map_id,
             first_visual_layer=self._build_first_visual_layer(
-                queue,
+                dashboard_queue,
                 scene_id=scene_id,
                 risk_summary=risk_summary,
             ),
-            dynamic_queue=queue,
+            dynamic_queue=dashboard_queue,
             inspector=inspector,
-            batch_groups=self._build_batch_groups(queue),
+            batch_groups=self._build_batch_groups(dashboard_queue),
             risk_summary=risk_summary,
         )
 
@@ -1186,6 +1285,9 @@ class MapDynamicFactService:
             item_id=str(item.id),
             item_kind="observation",
             title=title,
+            target_entity_id=(
+                str(item.target_entity_id) if item.target_entity_id else None
+            ),
             object_type=item.target_entity_type,
             dynamic_type=item.dynamic_type,
             time_label=self._time_label(item),
@@ -1208,6 +1310,9 @@ class MapDynamicFactService:
             item_id=str(item.id),
             item_kind="fact",
             title=title,
+            target_entity_id=(
+                str(item.target_entity_id) if item.target_entity_id else None
+            ),
             object_type=item.target_entity_type,
             dynamic_type=item.dynamic_type,
             time_label=self._time_label(item),
@@ -1234,7 +1339,6 @@ class MapDynamicFactService:
         *,
         focus_entity_id: str | None,
     ) -> MapDashboardInspector:
-        del focus_entity_id  # P1 数据项不默认向作者展示技术 ID。
         primary = queue[0] if queue else None
         candidates = [
             item
@@ -1253,6 +1357,11 @@ class MapDynamicFactService:
                 evidence.append(item.source_summary)
             if len(evidence) >= 5:
                 break
+        available_actions = []
+        if candidates:
+            available_actions.extend(["confirm", "ignore", "conflict"])
+        if facts:
+            available_actions.extend(["rollback", "deprecated"])
         return MapDashboardInspector(
             title=primary.title if primary else "暂无世界动态",
             status_label=primary.status_label if primary else "等待地图事实",
@@ -1261,6 +1370,11 @@ class MapDynamicFactService:
                 if queue
                 else "暂无可检查的地图事实。"
             ),
+            focus_entity_id=focus_entity_id,
+            object_type=primary.object_type if primary else None,
+            object_name=primary.title if primary else None,
+            timeline=sorted(queue, key=lambda item: (item.time_label, item.title))[:12],
+            available_actions=available_actions,
             map_facts=facts[:5],
             ai_candidates=candidates[:5],
             conflicts=conflicts[:5],
@@ -1279,7 +1393,7 @@ class MapDynamicFactService:
         characters = [
             item.title
             for item in queue
-            if item.object_type == "character" or item.dynamic_type == "location"
+            if item.object_type == "character"
         ][:5]
         scene_events = [
             item.title
@@ -1287,7 +1401,7 @@ class MapDynamicFactService:
             if scene_id and item.time_label.startswith("Scene")
         ][:5]
         return {
-            "current_storyline": "依据地图事实队列排序",
+            "current_storyline": self._storyline_label(queue, scene_id=scene_id),
             "main_crisis": crisis.title if crisis else "暂无主线危机",
             "main_characters": characters,
             "current_scene_events": scene_events,
@@ -1337,6 +1451,29 @@ class MapDynamicFactService:
             if len(risks) >= 5:
                 break
         return risks
+
+    def _filter_queue_for_focus(
+        self,
+        queue: list[MapDashboardQueueItem],
+        focus_entity_id: str,
+    ) -> list[MapDashboardQueueItem]:
+        return [
+            item
+            for item in queue
+            if item.target_entity_id == focus_entity_id
+        ]
+
+    def _storyline_label(
+        self,
+        queue: list[MapDashboardQueueItem],
+        *,
+        scene_id: str | None,
+    ) -> str:
+        if scene_id:
+            return "当前 Scene 相关动态"
+        if queue:
+            return f"围绕 {queue[0].time_label} 的地图动态"
+        return "暂无当前剧情线"
 
     def _playback_event_from_item(
         self,
@@ -1541,6 +1678,31 @@ class MapDynamicFactService:
                 detail=f"MapObservation {observation_id} not found",
             )
 
+    def _assert_observation_in_map(
+        self,
+        observation: Any,
+        observation_id: str,
+        map_id: uuid.UUID,
+    ) -> None:
+        if observation.map_id is not None and observation.map_id != map_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapObservation {observation_id} not found",
+            )
+
+    def _assert_fact_access(
+        self,
+        fact: Any,
+        fact_id: str,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> None:
+        if fact is None or fact.novel_id != novel_id or fact.map_id != map_id:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"MapFact {fact_id} not found",
+            )
+
     def _assert_spatial_anchor_in_bounds(self, config: Any, spatial_anchor: dict) -> None:
         if "hex_q" not in spatial_anchor or "hex_r" not in spatial_anchor:
             return
@@ -1561,7 +1723,7 @@ class MapDynamicFactService:
         try:
             config = await self._ctx.require_map(db, novel_id, str(raw_map_id))
             return config.id
-        except Exception:
+        except (HTTPException, TypeError, ValueError):
             logger.warning("Ignoring invalid map_id in map observation: %r", raw_map_id)
             return None
 

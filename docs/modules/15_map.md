@@ -9,7 +9,7 @@
 - 当前前端主入口是一级路由 `map`（`mapWorkspaceView`）
 - `world` 里的 `map` 子标签只保留兼容跳转
 
-**设计来源**：`docs/PRD-动态地图功能.md`；当前代码已覆盖 P0、P1、P2。
+**设计来源**：`docs/PRD-动态地图功能.md`；当前代码已覆盖地图基础 P0-P2、世界动态 P0/P1，并提供世界动态 P2/P3 的前端与只读派生脚手架。
 
 ---
 
@@ -28,11 +28,11 @@
 | P2 | 组织势力范围（territory tiles） | ✅ | `MapTerritoryService` | 势力范围工具 |
 | P2 | 聚焦模式（按组织过滤势力范围） | ✅ | `GET /{map_id}/focus` | 聚焦按钮 |
 | P2 | 写作页 Scene 地图摘要 | ✅ | `GET /scene-summary` | `writingView.js` |
-| P2 | 自动布局、避让、聚合簇 | ✅ | 复用 dashboard / state 契约 | `mapLayoutEngine.js` + `mapView.js` |
-| P2 | 总控台 / 活地图 / 叙事透镜三视图 | ✅ | 同一套地图事实 | `mapWorkspaceView.js` |
-| P2 | 上方语义气泡带与低动效模式 | ✅ | 同一套动态队列 | `mapWorkspaceView.js` + `mapLayoutEngine.js` |
-| P3 | typed observations 播放派生 | ✅ | `GET /{map_id}/playback` | 电影化播放面板 |
-| P3 | 人物旅程 / 势力变化 / 危机推进 / 资源控制 / 状态变化轨道 | ✅ | `MapDynamicFactService.get_playback` | 播放轨道列表 |
+| P2 | 自动布局、避让、聚合簇 | 部分实现 | 复用 dashboard / state 契约 | `mapLayoutEngine.js` + `mapView.js`；仍缺少路线/危机区等高级避让 |
+| P2 | 总控台 / 活地图 / 叙事透镜三视图 | 部分实现 | 同一套地图事实 | `mapWorkspaceView.js`；当前是视图模式入口和焦点权重 |
+| P2 | 上方语义气泡带与低动效模式 | 部分实现 | 同一套动态队列 | `mapWorkspaceView.js` + `mapLayoutEngine.js` |
+| P3 | typed observations 播放派生 | 部分实现 | `GET /{map_id}/playback` | 电影化播放面板；当前基于 observation/fact 的只读派生 |
+| P3 | 人物旅程 / 势力变化 / 危机推进 / 资源控制 / 状态变化轨道 | 部分实现 | `MapDynamicFactService.get_playback` | 轨道归类列表；仍缺少完整差分模型 |
 | P3 | AI 位置建议 | ❌ | 未建表 | 未实现 |
 | P4 | 地图缩略图 / 图片底图 / 伪 3D | ❌ | 未规划 | 未实现 |
 
@@ -227,9 +227,11 @@
 | GET | `/{map_id}/observations?novel_id={}&review_state={}` | 地图观察事实候选列表 |
 | POST | `/{map_id}/observations?novel_id={}` | 创建地图观察事实候选 |
 | PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 更新 observation 审查状态 |
+| POST | `/{map_id}/observations/batch-review?novel_id={}` | 批量确认、忽略或标记冲突 observation |
 | POST | `/{map_id}/observations/{observation_id}/confirm?novel_id={}` | 确认 observation 并生成/复用 `map_facts` |
 | POST | `/{map_id}/observations/{observation_id}/ignore?novel_id={}` | 忽略 observation，不生成正式事实 |
 | GET | `/{map_id}/facts?novel_id={}&fact_status={}` | 已确认地图事实列表 |
+| PATCH | `/{map_id}/facts/{fact_id}?novel_id={}` | 软更新 fact 状态：`confirmed` / `rolled_back` / `deprecated` |
 
 ### `MapStateResponse` 结构
 

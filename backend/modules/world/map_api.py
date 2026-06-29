@@ -18,12 +18,15 @@ from modules.world.map_schemas import (
     MapDashboardResponse,
     MapFactListResponse,
     MapFactResponse,
+    MapFactStatusUpdate,
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
     MapMarkerCreate,
     MapMarkerResponse,
     MapMarkerUpdate,
+    MapObservationBatchReviewRequest,
+    MapObservationBatchReviewResponse,
     MapObservationCreate,
     MapObservationListResponse,
     MapObservationResponse,
@@ -423,12 +426,30 @@ async def update_map_observation_review(
     data: MapObservationReviewUpdate,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> MapObservationResponse:
-    del map_id
     return await _dynamic_fact_service.update_observation_review(
         db,
         novel_id,
-        observation_id,
-        data,
+        map_id=map_id,
+        observation_id=observation_id,
+        data=data,
+    )
+
+
+@router.post(
+    "/{map_id}/observations/batch-review",
+    response_model=MapObservationBatchReviewResponse,
+)
+async def batch_review_map_observations(
+    db: DbSession,
+    map_id: str,
+    data: MapObservationBatchReviewRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapObservationBatchReviewResponse:
+    return await _dynamic_fact_service.batch_review_observations(
+        db,
+        novel_id,
+        map_id=map_id,
+        data=data,
     )
 
 
@@ -460,11 +481,11 @@ async def ignore_map_observation(
     observation_id: str,
     novel_id: str = Query(..., description="项目 ID"),
 ) -> MapObservationResponse:
-    del map_id
     return await _dynamic_fact_service.ignore_observation(
         db,
         novel_id,
-        observation_id,
+        map_id=map_id,
+        observation_id=observation_id,
     )
 
 
@@ -480,4 +501,21 @@ async def list_map_facts(
         novel_id,
         map_id=map_id,
         fact_status=fact_status,
+    )
+
+
+@router.patch("/{map_id}/facts/{fact_id}", response_model=MapFactResponse)
+async def update_map_fact_status(
+    db: DbSession,
+    map_id: str,
+    fact_id: str,
+    data: MapFactStatusUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapFactResponse:
+    return await _dynamic_fact_service.update_fact_status(
+        db,
+        novel_id,
+        map_id=map_id,
+        fact_id=fact_id,
+        data=data,
     )

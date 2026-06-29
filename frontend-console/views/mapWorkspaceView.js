@@ -25,6 +25,7 @@ const mapWorkspaceView = {
   _activeMapId: null,
   _activeSceneId: null,
   _focusEntityId: null,
+  _focusedDynamicItemId: null,
   _viewMode: "dashboard",
   _lowMotion: false,
   _layers: { ...DEFAULT_LAYERS },
@@ -241,6 +242,7 @@ const mapWorkspaceView = {
   },
 
   _resetDynamicSummary(mapId = null) {
+    this._focusedDynamicItemId = null
     this._dynamicSummary = {
       mapId,
       loading: false,
@@ -398,10 +400,13 @@ const mapWorkspaceView = {
 
   _buildLayout() {
     const dashboard = this._dynamicSummary?.dashboard
+    const bandRect = document.getElementById("map-semantic-band")?.getBoundingClientRect?.()
+    const rootRect = document.getElementById("map-root")?.getBoundingClientRect?.()
+    const measuredWidth = bandRect?.width || rootRect?.width || window.innerWidth || 720
     return buildMapLayout({
       dashboard: dashboard || {},
       viewport: {
-        width: Math.max(320, Math.min(960, window.innerWidth || 720)),
+        width: Math.max(320, Math.min(960, measuredWidth)),
         height: 360,
       },
       viewMode: this._viewMode,
@@ -442,6 +447,7 @@ const mapWorkspaceView = {
       return `<p class="muted">暂无世界动态</p>`
     }
     const queue = dashboard.dynamic_queue || []
+    const inspector = this._focusedInspector(dashboard)
     const candidateCount = queue.filter((item) => item.item_kind === "observation" && item.review_state === "candidate").length
     const factCount = queue.filter((item) => item.item_kind === "fact").length
     return `
@@ -457,7 +463,7 @@ const mapWorkspaceView = {
             ${queue.slice(0, 8).map((item) => this._renderQueueItem(item)).join("")}
           </div>`
         : `<p class="muted">暂无动态队列</p>`}
-      ${this._renderInspector(dashboard.inspector)}
+      ${this._renderInspector(inspector)}
       ${this._renderBatchGroups(dashboard.batch_groups || [])}
     `
   },
@@ -510,6 +516,8 @@ const mapWorkspaceView = {
     const facts = inspector.map_facts || []
     const conflicts = inspector.conflicts || []
     const evidence = inspector.source_evidence || []
+    const timeline = inspector.timeline || []
+    const actions = inspector.available_actions || []
     return `
       <div class="map-dynamic-section map-inspector">
         <h4>检查器</h4>
@@ -525,9 +533,66 @@ const mapWorkspaceView = {
           ${evidence.length
             ? `<ul class="map-evidence-list">${evidence.slice(0, 3).map((text) => `<li>${esc(text)}</li>`).join("")}</ul>`
             : ""}
+          ${timeline.length
+            ? `<div class="map-inspector-timeline">
+                ${timeline.slice(0, 4).map((item) => `
+                  <button class="link-button" data-action="map-open-dynamic-item" data-id="${esc(item.item_id)}">
+                    ${esc(item.time_label || "时间待确认")} · ${esc(item.title || "地图对象")}
+                  </button>
+                `).join("")}
+              </div>`
+            : ""}
+          ${actions.length
+            ? `<div class="map-inspector-actions">
+                ${actions.map((action) => `<span>${esc(this._actionLabel(action))}</span>`).join("")}
+              </div>`
+            : ""}
         </article>
       </div>
     `
+  },
+
+  _focusedInspector(dashboard) {
+    if (!dashboard) return null
+    if (!this._focusedDynamicItemId || this._focusEntityId) {
+      return dashboard.inspector
+    }
+    const queue = dashboard.dynamic_queue || []
+    const focus = queue.find((item) => item.item_id === this._focusedDynamicItemId)
+    if (!focus) return dashboard.inspector
+    const objectKey = this._dynamicObjectKey(focus)
+    const timeline = queue.filter((item) => this._dynamicObjectKey(item) === objectKey)
+    const candidates = timeline.filter((item) => item.item_kind === "observation")
+    const facts = timeline.filter((item) => item.item_kind === "fact")
+    const conflicts = candidates.filter((item) => item.review_state === "conflicted")
+    const evidence = timeline
+      .map((item) => item.source_summary)
+      .filter(Boolean)
+      .slice(0, 5)
+    const availableActions = []
+    if (candidates.length) availableActions.push("confirm", "ignore", "conflict")
+    if (facts.length) availableActions.push("rollback", "deprecated")
+    return {
+      title: focus.title || "地图对象",
+      status_label: focus.status_label || "待判断",
+      summary: focus.change_summary || focus.source_summary || dashboard.inspector?.summary,
+      object_type: focus.object_type || null,
+      object_name: focus.title || null,
+      timeline,
+      available_actions: availableActions,
+      map_facts: facts,
+      ai_candidates: candidates,
+      conflicts,
+      source_evidence: evidence,
+    }
+  },
+
+  _dynamicObjectKey(item) {
+    if (item.target_entity_id) return `entity:${item.target_entity_id}`
+    return [
+      item.title || "",
+      item.object_type || item.dynamic_type || "unknown",
+    ].join("|")
   },
 
   _renderBatchGroups(groups) {
@@ -540,10 +605,20 @@ const mapWorkspaceView = {
             <span>${esc(group.group_label)}</span>
             <strong>${group.count}</strong>
             <small>${group.candidate_count} 待确认 · ${group.confirmed_count} 已确认</small>
+            <div class="map-batch-actions">
+              ${this._renderBatchButton(group, "confirm", "确认候选")}
+              ${this._renderBatchButton(group, "ignore", "忽略候选")}
+              ${this._renderBatchButton(group, "conflict", "标记冲突")}
+            </div>
           </div>
         `).join("")}
       </div>
     `
+  },
+
+  _renderBatchButton(group, action, label) {
+    const disabled = group.candidate_count > 0 ? "" : "disabled"
+    return `<button class="btn btn-sm" data-action="map-batch-review" data-group="${esc(group.group_key)}" data-review-action="${esc(action)}" ${disabled}>${esc(group.candidate_count > 0 ? label : "无待处理候选")}</button>`
   },
 
   _renderPlaybackPanel() {
@@ -752,6 +827,16 @@ const mapWorkspaceView = {
       .find((event) => event.event_id === id)
   },
 
+  _actionLabel(action) {
+    return {
+      confirm: "可确认",
+      ignore: "可忽略",
+      conflict: "可标记冲突",
+      rollback: "可回滚",
+      deprecated: "可废弃",
+    }[action] || action
+  },
+
   _showDynamicObjectInfo(id) {
     const item = this._findDynamicItem(id)
     if (!item) return
@@ -759,6 +844,7 @@ const mapWorkspaceView = {
     const status = item.status_label || "待判断"
     const time = item.time_label || "时间待确认"
     const summary = item.change_summary || item.source_summary || "暂无来源摘要"
+    const actions = this._dynamicObjectActions(item)
     const body = `
       <div class="map-object-info">
         <div class="map-detail-section">
@@ -776,24 +862,151 @@ const mapWorkspaceView = {
       </div>
     `
     showModal(esc(title), body, [
-      {
-        text: "修改",
-        class: "btn-primary",
-        handler: () => {
-          closeModal()
-          toast("请在右侧检查器或动态队列中修改该地图事实", "info")
-        },
-      },
+      ...actions,
       {
         text: "打开检查器",
         class: "btn",
         handler: () => {
           closeModal()
-          this._updateWorkspaceLayoutDom()
-          toast("检查器已在右侧显示", "info")
+          this._openFocusedInspector(item.target_entity_id || null, item.item_id || item.event_id)
         },
       },
     ])
+  },
+
+  _dynamicObjectActions(item) {
+    if (item.item_kind === "observation") {
+      return [
+        {
+          text: "确认",
+          class: "btn-primary",
+          handler: () => {
+            closeModal()
+            this._confirmObservation(item.item_id)
+          },
+        },
+        {
+          text: "忽略",
+          class: "btn",
+          handler: () => {
+            closeModal()
+            this._ignoreObservation(item.item_id)
+          },
+        },
+        {
+          text: "标记冲突",
+          class: "btn",
+          handler: () => {
+            closeModal()
+            this._markObservationConflict(item.item_id)
+          },
+        },
+      ]
+    }
+    if (item.item_kind === "fact") {
+      return [
+        {
+          text: "回滚",
+          class: "btn",
+          handler: () => {
+            closeModal()
+            this._updateFactStatus(item.item_id, "rolled_back")
+          },
+        },
+        {
+          text: "废弃",
+          class: "btn",
+          handler: () => {
+            closeModal()
+            this._updateFactStatus(item.item_id, "deprecated")
+          },
+        },
+        {
+          text: "恢复确认",
+          class: "btn-primary",
+          handler: () => {
+            closeModal()
+            this._updateFactStatus(item.item_id, "confirmed")
+          },
+        },
+      ]
+    }
+    return []
+  },
+
+  async _markObservationConflict(id) {
+    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const name = item?.title || item?.target_name || "地图映射"
+    return confirmAction(`标记地图映射「${name}」为冲突？`, async () => {
+      try {
+        await api.world.updateMapObservationReview(this._activeMapId, id, state.currentProjectId, "conflicted")
+        toast("地图映射已标记为冲突", "success")
+        await this._loadDynamicSummary({ force: true })
+      } catch (err) {
+        toast(`标记失败：${err.message || "未知错误"}`, "error")
+      }
+    })
+  },
+
+  async _updateFactStatus(id, factStatus) {
+    const item = (this._dynamicSummary?.facts || []).find((fact) => (fact.item_id || fact.id) === id)
+    const name = item?.title || item?.target_name || "地图事实"
+    const label = this._factStatusLabel(factStatus)
+    return confirmAction(`将地图事实「${name}」设为${label}？`, async () => {
+      try {
+        await api.world.updateMapFactStatus(this._activeMapId, id, state.currentProjectId, factStatus)
+        toast(`地图事实已设为${label}`, "success")
+        await this._loadDynamicSummary({ force: true })
+      } catch (err) {
+        toast(`更新失败：${err.message || "未知错误"}`, "error")
+      }
+    })
+  },
+
+  _factStatusLabel(status) {
+    return {
+      confirmed: "已确认",
+      rolled_back: "已回滚",
+      deprecated: "已废弃",
+    }[status] || "待判断"
+  },
+
+  async _openFocusedInspector(focusEntityId, dynamicItemId = null) {
+    this._focusedDynamicItemId = dynamicItemId
+    if (!focusEntityId) {
+      this._updateWorkspaceLayoutDom()
+      toast("检查器已在右侧显示", "info")
+      return
+    }
+    this._focusEntityId = focusEntityId
+    await this._loadDynamicSummary({ force: true })
+    toast("检查器已按对象聚焦", "info")
+  },
+
+  _candidateIdsForGroup(groupKey) {
+    return (this._dynamicSummary?.dashboard?.dynamic_queue || [])
+      .filter((item) => item.item_kind === "observation")
+      .filter((item) => item.review_state === "candidate")
+      .filter((item) => (item.object_type || item.dynamic_type || "unknown") === groupKey)
+      .map((item) => item.item_id)
+  },
+
+  async _batchReviewGroup(groupKey, action) {
+    const ids = this._candidateIdsForGroup(groupKey)
+    if (!ids.length) {
+      toast("该分组暂无待处理候选", "info")
+      return
+    }
+    const label = { confirm: "确认", ignore: "忽略", conflict: "标记冲突" }[action] || "处理"
+    return confirmAction(`${label}该分组的 ${ids.length} 条地图候选？`, async () => {
+      try {
+        await api.world.batchReviewMapObservations(this._activeMapId, ids, action, state.currentProjectId)
+        toast("批量修改已完成", "success")
+        await this._loadDynamicSummary({ force: true })
+      } catch (err) {
+        toast(`批量修改失败：${err.message || "未知错误"}`, "error")
+      }
+    })
   },
 
   _schedulePlaybackAdvance() {
@@ -830,6 +1043,7 @@ const mapWorkspaceView = {
       if (action === "map-view-mode") this._setViewMode(target.dataset.viewMode)
       if (action === "map-playback-start") this._startPlayback()
       if (action === "map-playback-stop") this._stopPlayback()
+      if (action === "map-batch-review") this._batchReviewGroup(target.dataset.group, target.dataset.reviewAction)
       if (action === "map-open-dynamic-item") {
         this._showDynamicObjectInfo(target.dataset.id)
       }

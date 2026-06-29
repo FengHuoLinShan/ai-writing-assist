@@ -48,3 +48,4 @@ backend/data/dedup_training/*.jsonl
 chaos-*.png
 chaos_test_*.py
 click-*.json
+.superpowers/brainstorm/*/state/

@@ -501,6 +501,18 @@ const api = {
     async listMapObservations(mapId, novelId, reviewState = null) {
       return request(`/world/maps/${mapId}/observations${buildQueryString({ novel_id: novelId, review_state: reviewState })}`)
     },
+    async updateMapObservationReview(mapId, observationId, novelId, reviewState) {
+      return request(`/world/maps/${mapId}/observations/${observationId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify({ review_state: reviewState }),
+      })
+    },
+    async batchReviewMapObservations(mapId, observationIds, action, novelId) {
+      return request(`/world/maps/${mapId}/observations/batch-review${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify({ observation_ids: observationIds, action }),
+      })
+    },
     async confirmMapObservation(mapId, observationId, novelId) {
       return request(`/world/maps/${mapId}/observations/${observationId}/confirm${buildQueryString({ novel_id: novelId })}`, {
         method: "POST",
@@ -513,6 +525,12 @@ const api = {
     },
     async listMapFacts(mapId, novelId, factStatus = "confirmed") {
       return request(`/world/maps/${mapId}/facts${buildQueryString({ novel_id: novelId, fact_status: factStatus })}`)
+    },
+    async updateMapFactStatus(mapId, factId, novelId, factStatus) {
+      return request(`/world/maps/${mapId}/facts/${factId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify({ fact_status: factStatus }),
+      })
     },
   },
 

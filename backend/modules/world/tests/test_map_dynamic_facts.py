@@ -184,6 +184,269 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
 
 
 @pytest.mark.asyncio
+async def test_dashboard_deduplicates_confirmed_observations_and_main_characters(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    character = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="沈砚",
+        status="canonical",
+    )
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+
+    character_obs = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_id": str(character.id),
+            "target_entity_type": "character",
+            "target_name": "沈砚",
+            "dynamic_type": "position_change",
+            "confidence": 0.82,
+            "scene_index": 1,
+        },
+    )
+    assert character_obs.status_code == 201, character_obs.text
+    await async_client.post(
+        f"/api/world/maps/{map_id}/observations/{character_obs.json()['id']}/confirm",
+        params={"novel_id": nid},
+    )
+
+    location_obs = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_type": "location",
+            "target_name": "洛阳外城",
+            "dynamic_type": "location",
+            "confidence": 0.7,
+            "scene_index": 2,
+        },
+    )
+    assert location_obs.status_code == 201, location_obs.text
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    queue = body["dynamic_queue"]
+    assert [item["title"] for item in queue].count("沈砚") == 1
+    assert next(item for item in queue if item["title"] == "沈砚")["item_kind"] == "fact"
+    assert "沈砚" in body["first_visual_layer"]["main_characters"]
+    assert "洛阳外城" not in body["first_visual_layer"]["main_characters"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_focus_entity_scopes_inspector(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    shen = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="沈砚",
+        status="canonical",
+    )
+    lin = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="林照",
+        status="canonical",
+    )
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+
+    for entity, name in [(shen, "沈砚"), (lin, "林照")]:
+        resp = await async_client.post(
+            f"/api/world/maps/{map_id}/observations",
+            params={"novel_id": nid},
+            json={
+                "target_entity_id": str(entity.id),
+                "target_entity_type": "character",
+                "target_name": name,
+                "dynamic_type": "position_change",
+                "confidence": 0.72,
+                "scene_index": 3,
+                "evidence_text": f"{name}进入内城。",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+
+    focused = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid, "focus_entity_id": str(shen.id)},
+    )
+    assert focused.status_code == 200, focused.text
+    inspector = focused.json()["inspector"]
+    assert inspector["focus_entity_id"] == str(shen.id)
+    assert inspector["object_name"] == "沈砚"
+    assert [item["title"] for item in inspector["related_dynamics"]] == ["沈砚"]
+    assert inspector["timeline"][0]["title"] == "沈砚"
+    assert "林照" not in focused.text
+
+
+@pytest.mark.asyncio
+async def test_observation_review_rejects_cross_map_and_public_confirmed_create(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_a = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_b = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "北境", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_a_id = map_a.json()["id"]
+    map_b_id = map_b.json()["id"]
+
+    rejected = await async_client.post(
+        f"/api/world/maps/{map_a_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_name": "直接确认",
+            "dynamic_type": "location",
+            "review_state": "confirmed",
+        },
+    )
+    assert rejected.status_code == 422
+
+    created = await async_client.post(
+        f"/api/world/maps/{map_a_id}/observations",
+        params={"novel_id": nid},
+        json={"target_name": "沈砚", "dynamic_type": "location"},
+    )
+    assert created.status_code == 201, created.text
+    observation_id = created.json()["id"]
+
+    patch_resp = await async_client.patch(
+        f"/api/world/maps/{map_b_id}/observations/{observation_id}",
+        params={"novel_id": nid},
+        json={"review_state": "conflicted"},
+    )
+    assert patch_resp.status_code == 404
+
+    ignore_resp = await async_client.post(
+        f"/api/world/maps/{map_b_id}/observations/{observation_id}/ignore",
+        params={"novel_id": nid},
+    )
+    assert ignore_resp.status_code == 404
+
+    confirm_resp = await async_client.post(
+        f"/api/world/maps/{map_b_id}/observations/{observation_id}/confirm",
+        params={"novel_id": nid},
+    )
+    assert confirm_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_batch_review_and_fact_status_soft_updates_dashboard_and_playback(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+    created_ids = []
+    for name in ["沈砚", "林照"]:
+        resp = await async_client.post(
+            f"/api/world/maps/{map_id}/observations",
+            params={"novel_id": nid},
+            json={
+                "target_name": name,
+                "target_entity_type": "character",
+                "dynamic_type": "position_change",
+                "confidence": 0.8,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        created_ids.append(resp.json()["id"])
+
+    batch = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/batch-review",
+        params={"novel_id": nid},
+        json={"observation_ids": created_ids, "action": "confirm"},
+    )
+    assert batch.status_code == 200, batch.text
+    batch_body = batch.json()
+    assert batch_body["requested_count"] == 2
+    assert batch_body["updated_count"] == 2
+    assert batch_body["created_fact_count"] == 2
+    fact_id = batch_body["facts"][0]["id"]
+
+    dashboard = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+    assert [item["item_kind"] for item in dashboard.json()["dynamic_queue"]] == [
+        "fact",
+        "fact",
+    ]
+
+    rolled_back = await async_client.patch(
+        f"/api/world/maps/{map_id}/facts/{fact_id}",
+        params={"novel_id": nid},
+        json={"fact_status": "rolled_back"},
+    )
+    assert rolled_back.status_code == 200, rolled_back.text
+    assert rolled_back.json()["fact_status"] == "rolled_back"
+
+    dashboard_after = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+    dashboard_ids = [
+        item["item_id"] for item in dashboard_after.json()["dynamic_queue"]
+    ]
+    assert fact_id not in dashboard_ids
+
+    playback_after = await async_client.get(
+        f"/api/world/maps/{map_id}/playback",
+        params={"novel_id": nid, "include_candidates": False},
+    )
+    assert fact_id not in [event["event_id"] for event in playback_after.json()["events"]]
+
+    restored = await async_client.patch(
+        f"/api/world/maps/{map_id}/facts/{fact_id}",
+        params={"novel_id": nid},
+        json={"fact_status": "confirmed"},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["fact_status"] == "confirmed"
+
+
+@pytest.mark.asyncio
 async def test_playback_derives_typed_tracks_from_facts_and_candidates(
     async_client: AsyncClient,
     db_session: AsyncSession,

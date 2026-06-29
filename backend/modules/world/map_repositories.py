@@ -700,9 +700,7 @@ class MapObservationRepository:
             .where(
                 MapObservation.novel_id == novel_id,
                 or_(MapObservation.map_id == map_id, MapObservation.map_id.is_(None)),
-                MapObservation.review_state.in_(
-                    ["candidate", "conflicted", "confirmed"]
-                ),
+                MapObservation.review_state.in_(["candidate", "conflicted"]),
             )
             .order_by(
                 MapObservation.review_state,
@@ -802,3 +800,18 @@ class MapFactRepository:
         db.add(fact)
         await db.flush()
         return fact
+
+    async def update_status(
+        self,
+        db: AsyncSession,
+        fact_id: uuid.UUID,
+        fact_status: str,
+    ) -> MapFact | None:
+        stmt = (
+            update(MapFact)
+            .where(MapFact.id == fact_id)
+            .values(fact_status=fact_status)
+        )
+        await db.execute(stmt)
+        await db.flush()
+        return await self.get(db, fact_id)
