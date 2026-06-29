@@ -36,38 +36,13 @@ async def get_continuity_evidence_for_writing(
     current_location_name: str | None = None,
 ) -> MemoryContinuityEvidenceContract | None:
     """Return previous-location evidence for writing continuity checks."""
-    if not pov_character_id or not current_location_id or chapter_index <= 1:
-        return None
-    previous_chapter = chapter_index - 1
-    panorama = await get_memory_panorama(db, novel_id, previous_chapter)
-    character_locations = getattr(panorama, "character_locations", None) or {}
-    if not isinstance(character_locations, dict):
-        return None
-    previous_location = character_locations.get(pov_character_id)
-    if previous_location is None:
-        return None
-    previous_location_id = getattr(previous_location, "location_id", None)
-    if previous_location_id is None and isinstance(previous_location, dict):
-        previous_location_id = previous_location.get("location_id")
-    if not previous_location_id or previous_location_id == current_location_id:
-        return None
-    previous_text = getattr(previous_location, "text_state", None)
-    if previous_text is None and isinstance(previous_location, dict):
-        previous_text = previous_location.get("text_state")
-    previous_text = previous_text or str(previous_location_id)
-    current_text = current_location_name or current_location_id
-    return MemoryContinuityEvidenceContract(
-        source_module="memory",
-        source_type="memory.character_location",
-        source_id=pov_character_id,
-        source_label=f"章节记忆：第 {previous_chapter} 章",
-        source_field="角色位置",
-        source_excerpt=f"上一章 {previous_text}，当前 {current_text}",
-        open_target={
-            "kind": "memory_chapter",
-            "chapter_index": previous_chapter,
-            "character_id": pov_character_id,
-        },
+    return await _memory.get_continuity_evidence_for_writing(
+        db,
+        novel_id,
+        chapter_index,
+        pov_character_id=pov_character_id,
+        current_location_id=current_location_id,
+        current_location_name=current_location_name,
     )
 
 

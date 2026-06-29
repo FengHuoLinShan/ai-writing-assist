@@ -37,7 +37,13 @@ GET  /api/novels/{novel_id}/memories/status
 ```python
 async def get_memory_panorama(db, novel_id, chapter_index)
 async def get_continuity_evidence_for_writing(
-    db, novel_id, chapter_index, *, pov_character_id, current_location_id
+    db,
+    novel_id,
+    chapter_index,
+    *,
+    pov_character_id,
+    current_location_id,
+    current_location_name=None,
 )
 async def capture_snapshot(db, novel_id, chapter_index)
 async def create_delta_log(db, novel_id, **kwargs)
