@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.schemas import EventType
 from modules.memory.services import MemoryService
@@ -547,3 +548,95 @@ class TestGetStatus:
 
         assert result.has_stale is True
         assert result.stale_from_chapter == 10
+
+
+@pytest.mark.asyncio
+async def test_continuity_evidence_for_writing_returns_memory_chapter_target(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.memory.facade import get_continuity_evidence_for_writing
+    from modules.memory.models import MemoryEvent
+
+    character_id = uuid.uuid4()
+    character_id_text = str(character_id)
+    db_session.add(
+        MemoryEvent(
+            novel_id=sample_novel_id,
+            chapter_index=2,
+            sequence=1,
+            event_type="entity_moved",
+            entity_id=character_id,
+            entity_type="character",
+            snapshot_before={},
+            snapshot_after={
+                "location_id": "loc-old",
+                "text_state": "上一章在旧城门",
+                "chapter_index": 2,
+            },
+            source="manual_edit",
+        )
+    )
+    await db_session.flush()
+
+    evidence = await get_continuity_evidence_for_writing(
+        db_session,
+        novel_id=str(sample_novel_id),
+        chapter_index=3,
+        pov_character_id=character_id_text,
+        current_location_id="loc-new",
+        current_location_name="王城内门",
+    )
+
+    assert evidence is not None
+    assert evidence.source_module == "memory"
+    assert evidence.source_type == "memory.character_location"
+    assert evidence.source_id == character_id_text
+    assert evidence.source_label == "章节记忆：第 2 章"
+    assert evidence.source_field == "角色位置"
+    assert "上一章在旧城门" in evidence.source_excerpt
+    assert evidence.open_target == {
+        "kind": "memory_chapter",
+        "chapter_index": 2,
+        "character_id": character_id_text,
+    }
+
+
+@pytest.mark.asyncio
+async def test_continuity_evidence_for_writing_returns_none_for_same_location(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.memory.facade import get_continuity_evidence_for_writing
+    from modules.memory.models import MemoryEvent
+
+    character_id = uuid.uuid4()
+    character_id_text = str(character_id)
+    db_session.add(
+        MemoryEvent(
+            novel_id=sample_novel_id,
+            chapter_index=2,
+            sequence=1,
+            event_type="entity_moved",
+            entity_id=character_id,
+            entity_type="character",
+            snapshot_before={},
+            snapshot_after={
+                "location_id": "loc-old",
+                "text_state": "上一章在旧城门",
+                "chapter_index": 2,
+            },
+            source="manual_edit",
+        )
+    )
+    await db_session.flush()
+
+    evidence = await get_continuity_evidence_for_writing(
+        db_session,
+        novel_id=str(sample_novel_id),
+        chapter_index=3,
+        pov_character_id=character_id_text,
+        current_location_id="loc-old",
+    )
+
+    assert evidence is None

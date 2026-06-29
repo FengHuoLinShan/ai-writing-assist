@@ -32,3 +32,16 @@ class ChapterPanoramaContract:
     relations: list[dict[str, Any]] = field(default_factory=list)
     character_locations: dict[str, dict[str, Any]] = field(default_factory=dict)
     character_knowledge: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MemoryContinuityEvidenceContract:
+    """Stable memory continuity evidence for writing conflict checks."""
+
+    source_module: str
+    source_type: str
+    source_id: str
+    source_label: str
+    source_field: str
+    source_excerpt: str
+    open_target: dict[str, Any]
