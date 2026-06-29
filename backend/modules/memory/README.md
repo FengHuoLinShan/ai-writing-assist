@@ -36,9 +36,14 @@ GET  /api/novels/{novel_id}/memories/status
 
 ```python
 async def get_memory_panorama(db, novel_id, chapter_index)
+async def get_continuity_evidence_for_writing(
+    db, novel_id, chapter_index, *, pov_character_id, current_location_id
+)
 async def capture_snapshot(db, novel_id, chapter_index)
 async def create_delta_log(db, novel_id, **kwargs)
 ```
+
+`get_continuity_evidence_for_writing(...)` 返回写作冲突检查可消费的上一章角色位置证据；它只暴露来源摘要和 `memory_chapter` 打开目标，不要求 writing 读取 memory 内部事件结构。
 
 ## 测试
 
