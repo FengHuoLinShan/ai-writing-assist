@@ -80,8 +80,20 @@ export async function createDraft(novelId, chapterIndex, title, content) {
   })
 }
 
+export async function getLatestDraft(novelId, chapterIndex) {
+  return request(`/writing/chapters/${chapterIndex}/draft?novel_id=${encodeURIComponent(novelId)}`)
+}
+
 export async function listChapters(novelId) {
   return request(`/writing/chapters?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function listConflictChecks(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) query.set(key, String(value))
+  }
+  return request(`/writing/conflict-checks?${query.toString()}`)
 }
 
 // ---- Outline helpers ----

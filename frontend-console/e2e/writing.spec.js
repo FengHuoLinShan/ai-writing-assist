@@ -3,8 +3,16 @@ import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   createProject, cleanupProject, waitForBackend,
-  createDraft, createScene,
+  createDraft, createScene, getLatestDraft,
 } from "./helpers/api-client.js"
+
+async function confirmPublishIfPrompted(page) {
+  const continueButton = page.locator("#modal-footer").getByRole("button", { name: "继续发布" })
+  try {
+    await expect(continueButton).toBeVisible({ timeout: 3000 })
+    await continueButton.click()
+  } catch {}
+}
 
 test.describe("写作台模块", () => {
   let testProjectId = null
@@ -69,6 +77,7 @@ test.describe("写作台模块", () => {
 
     await page.locator("#writing-editor").fill("初始发布内容。")
     await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
 
     await page.locator("#writing-title-input").fill("第一章 测试")
@@ -92,6 +101,7 @@ test.describe("写作台模块", () => {
     await page.locator("#writing-title-input").fill("第一章 发布测试")
     await page.locator("#writing-editor").fill("这是发布测试的内容。")
     await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
   })
 
@@ -197,6 +207,7 @@ test.describe("写作台模块", () => {
     // 编辑后保存 — 由于 restore 模式，autosave 走发布流程
     await page.locator("#writing-editor").fill("基于 v1 的新内容")
     await page.locator('[data-action="autosave"]').click()
+    await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
   })
 
@@ -239,6 +250,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-tree-container")).toContainText("第 2 章")
 
     // 点击断章按钮
+    await page.locator(".writing-tools-menu summary").click()
     await page.locator('[data-action="split-scene"]').click()
     await expect(page.locator("#modal-overlay")).toBeVisible({ timeout: 5000 })
     await expect(page.locator("#modal-overlay")).toContainText("断章")
@@ -300,6 +312,216 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
 
+  test("剧情设定冲突检查流程、状态更新和发布快照归档", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章", "旧稿")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "宫门对峙",
+      narrative_tag: "draft",
+      chapter_ids: ["1"],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 20 }],
+      must_happen: "王后签字",
+      must_not_happen: "主角死亡",
+    })
+
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-scene"]').first().click()
+    await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
+
+    await page.locator("#writing-title-input").fill("第一章 冲突检查")
+    await page.locator("#writing-editor").fill("主角死亡。城门仍未开启。")
+    await page.locator('[data-action="run-conflict-check"]').click()
+
+    await expect(page.locator("#modal-overlay")).toContainText("剧情设定冲突检查", { timeout: 10000 })
+    await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
+    await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" })).toBeVisible()
+
+    let aiReviewDone = false
+    const mockedAiCheck = {
+      id: "mock-check-ai",
+      novel_id: testProjectId,
+      chapter_index: 1,
+      scene_id: null,
+      draft_id: null,
+      version_number: 1,
+      scope: {},
+      include_candidates: false,
+      status: "completed",
+      summary_json: {
+        total: 3,
+        open_high_count: 1,
+        ai_review: { status: "done", item_count: 1, discarded_count: 0 },
+      },
+      ai_review_enabled: true,
+      ai_review_status: "done",
+      ai_review_confirmation_id: "00000000-0000-0000-0000-0000000000a1",
+      ai_review_model: "mock",
+      ai_review_error: null,
+      items: [
+        {
+          id: "mock-high",
+          check_id: "mock-check-ai",
+          novel_id: testProjectId,
+          kind: "forbidden_present",
+          severity: "high",
+          source_module: "outline",
+          evidence_summary: "正文出现 Scene 禁止发生项：主角死亡",
+          is_ai_judgment: false,
+          needs_review: false,
+          status: "open",
+          suggestion_status: "not_requested",
+        },
+        {
+          id: "mock-required",
+          check_id: "mock-check-ai",
+          novel_id: testProjectId,
+          kind: "required_missing",
+          severity: "medium",
+          source_module: "outline",
+          evidence_summary: "正文尚未覆盖 Scene 必须发生项：王后签字",
+          is_ai_judgment: false,
+          needs_review: false,
+          status: "open",
+          suggestion_status: "not_requested",
+        },
+        {
+          id: "mock-ai-item",
+          check_id: "mock-check-ai",
+          novel_id: testProjectId,
+          kind: "motivation_gap",
+          severity: "medium",
+          source_module: "ai",
+          evidence_summary: "主角突然接受守卫条件",
+          is_ai_judgment: true,
+          needs_review: false,
+          status: "open",
+          confidence: 0.72,
+          llm_rationale: "前文没有建立信任动机",
+          suggestion_status: "not_requested",
+        },
+      ],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    await page.route("**/api/context/confirm", async (route) => {
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "00000000-0000-0000-0000-0000000000a1",
+          novel_id: testProjectId,
+          action: "writing.conflict_check.ai_review",
+          selected_asset_ids: {},
+          warnings: [],
+        }),
+      })
+    })
+    await page.route("**/api/writing/conflict-checks/*/ai-review", async (route) => {
+      aiReviewDone = true
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mockedAiCheck),
+      })
+    })
+    await page.route("**/api/writing/conflict-checks?**", async (route) => {
+      if (!aiReviewDone) {
+        await route.continue()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [mockedAiCheck], total: 1 }),
+      })
+    })
+    await page.route("**/api/writing/conflict-check-items/*/ai-suggestion", async (route) => {
+      const updatedAiItem = {
+        ...mockedAiCheck.items[2],
+        suggestion_status: "done",
+        ai_suggestion: JSON.stringify({
+          strategy: "补动机过渡",
+          suggested_text: "他想起旧约，才勉强点头。",
+          rationale: "让接受条件有心理来源。",
+          constraints: ["不能提前揭示守卫真相"],
+          risk_notes: ["保持守卫仍不可信"],
+        }),
+      }
+      mockedAiCheck.items = mockedAiCheck.items.map((item) => (
+        item.id === updatedAiItem.id ? updatedAiItem : item
+      ))
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(updatedAiItem),
+      })
+    })
+    await page.route("**/api/writing/conflict-check-items/mock-required?**", async (route) => {
+      const updatedRequiredItem = {
+        ...mockedAiCheck.items[1],
+        status: "later",
+      }
+      mockedAiCheck.items = mockedAiCheck.items.map((item) => (
+        item.id === updatedRequiredItem.id ? updatedRequiredItem : item
+      ))
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(updatedRequiredItem),
+      })
+    })
+
+    await page.getByRole("button", { name: "补充 AI 软冲突判断" }).click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
+    await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 判断", { timeout: 10000 })
+    await expect(page.locator("#modal-overlay")).toContainText("主角突然接受守卫条件")
+
+    await page
+      .locator(".writing-conflict-item", { hasText: "主角突然接受守卫条件" })
+      .getByRole("button", { name: "生成 AI 修复建议" })
+      .click()
+    await expect(page.locator("#modal-overlay")).toContainText("AI 参考资料", { timeout: 10000 })
+    await page.locator("#modal-footer").getByRole("button", { name: "确认使用" }).click()
+    await expect(page.locator("#modal-overlay")).toContainText("补动机过渡", { timeout: 10000 })
+
+    await page
+      .locator(".writing-conflict-item", { hasText: "必须发生项缺失" })
+      .getByRole("button", { name: "稍后" })
+      .click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("状态已更新", { timeout: 10000 })
+    await page.locator("#modal-footer").getByRole("button", { name: "关闭" }).click()
+
+    await page.locator('[data-action="publish"]').click()
+    await expect(page.locator("#modal-overlay")).toContainText("未处理高严重度问题", { timeout: 10000 })
+    await page.locator("#modal-footer").getByRole("button", { name: "继续发布" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
+
+    const latestDraft = await getLatestDraft(testProjectId, 1)
+    expect(latestDraft.conflict_check_snapshot_json?.items?.length).toBeGreaterThanOrEqual(2)
+    expect(latestDraft.conflict_check_snapshot_json.items.some((item) => item.kind === "forbidden_present")).toBe(true)
+  })
+
+  test("写作台响应式宽度不出现页面级横向溢出", async ({ page }) => {
+    await createDraft(testProjectId, 1, "响应式章节", "响应式正文")
+
+    for (const width of [1280, 900, 600, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await reloadWorkbench(page, "writing")
+      await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+      await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+      await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
+      await expect(page.locator("#btn-conflict-check")).toBeVisible()
+
+      const overflow = await page.evaluate(() => {
+        const doc = document.documentElement
+        return Math.ceil(doc.scrollWidth - window.innerWidth)
+      })
+      expect(overflow).toBeLessThanOrEqual(2)
+    }
+  })
+
   // ============================================================
   // AI 提取章节卡
   // ============================================================
@@ -310,6 +532,7 @@ test.describe("写作台模块", () => {
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
 
     // 验证"AI 提取章节卡"按钮存在
+    await page.locator(".writing-tools-menu summary").click()
     await expect(page.locator('[data-action="extract-cards"]')).toBeVisible()
 
     // 点击按钮打开对话框

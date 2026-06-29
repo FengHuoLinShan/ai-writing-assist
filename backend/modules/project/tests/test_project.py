@@ -14,8 +14,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
 from modules.project.contracts import ProjectContext
 from modules.project.facade import get_project_context
 from modules.project.repositories import ProjectRepository
@@ -360,6 +362,35 @@ class TestProjectCrud:
         result = await _repo.permanent_delete(db_session, created.id)
         assert result is False
 
+    @pytest.mark.asyncio
+    async def test_permanent_delete_project_removes_async_tasks(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        """永久删除项目时清理 JSON meta.novel_id 关联的异步任务。"""
+        created = await _repo.create(db_session, sample_create_data)
+        other_project_id = uuid.uuid4()
+        task_for_project = AsyncTask(
+            task_type="publish_chapter",
+            status="pending",
+            meta={"novel_id": str(created.id), "chapter_index": 1},
+        )
+        task_for_other_project = AsyncTask(
+            task_type="publish_chapter",
+            status="pending",
+            meta={"novel_id": str(other_project_id), "chapter_index": 1},
+        )
+        db_session.add_all([task_for_project, task_for_other_project])
+        await _repo.soft_delete(db_session, created.id)
+        await db_session.flush()
+
+        await ProjectService().permanent_delete_project(db_session, str(created.id))
+
+        result = await db_session.execute(select(AsyncTask))
+        tasks = result.scalars().all()
+        assert [task.id for task in tasks] == [task_for_other_project.id]
+
 
 # ============================================================
 # Service 测试
@@ -497,6 +528,7 @@ class TestProjectService:
         project_id = str(uuid.uuid4())
         repo = MagicMock()
         repo.permanent_delete = AsyncMock(return_value=True)
+        repo.delete_async_tasks_for_project = AsyncMock(return_value=1)
         service = ProjectService(repo=repo)
         db = MagicMock()
 
@@ -504,6 +536,10 @@ class TestProjectService:
 
         assert result is None
         repo.permanent_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
+        repo.delete_async_tasks_for_project.assert_awaited_once_with(
+            db,
+            uuid.UUID(project_id),
+        )
 
     @pytest.mark.asyncio
     async def test_get_project_context(self) -> None:

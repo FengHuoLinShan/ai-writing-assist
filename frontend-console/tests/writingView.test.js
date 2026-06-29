@@ -338,6 +338,198 @@ describe("writingView map integration", () => {
   })
 })
 
+describe("writingView conflict checks", () => {
+  beforeEach(() => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 1
+    writingView._currentDraftId = "d1"
+    writingView._currentVersionNumber = 2
+    writingView._currentUpdatedAt = "2026-06-29T00:00:00Z"
+    writingView._currentTitle = "第一章"
+    writingView._currentContent = "旧正文"
+    writingView._scenes = [{ id: "s1", title: "东门", chapter_ids: ["1"] }]
+    writingView._currentSceneId = "s1"
+    document.body.innerHTML = `
+      <input id="writing-title-input" value="第一章" />
+      <textarea id="writing-editor">新正文</textarea>
+    `
+  })
+
+  it("autosaves before creating a conflict check", async () => {
+    api.writing.autosave.mockResolvedValue({
+      id: "d1",
+      version_number: 2,
+      updated_at: "2026-06-29T00:00:01Z",
+    })
+    api.writing.createConflictCheck.mockResolvedValue({
+      id: "c1",
+      items: [],
+      summary_json: { total: 0 },
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+
+    await writingView._runConflictCheck()
+
+    expect(api.writing.autosave.mock.invocationCallOrder[0]).toBeLessThan(
+      api.writing.createConflictCheck.mock.invocationCallOrder[0],
+    )
+    expect(api.writing.createConflictCheck).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: "s1",
+      draft_id: "d1",
+      version_number: 2,
+      content: "新正文",
+      include_candidates: false,
+    })
+  })
+
+  it("does not create a conflict check when autosave fails", async () => {
+    api.writing.autosave.mockRejectedValue(new Error("save failed"))
+
+    await writingView._runConflictCheck()
+
+    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("save failed", "error")
+  })
+
+  it("refreshes conflict history after AI review completes in the modal", async () => {
+    const rerenderStub = stubMethod(writingView, "_rerender")
+    const initialCheck = {
+      id: "c1",
+      chapter_index: 1,
+      include_candidates: false,
+      items: [],
+    }
+    const updatedCheck = {
+      ...initialCheck,
+      ai_review_status: "done",
+      items: [{ id: "i1", is_ai_judgment: true, kind: "motivation_gap" }],
+    }
+    writingView._conflictChecks = [initialCheck]
+    api.context.confirm.mockResolvedValue({
+      id: "confirm-ai",
+      selected_asset_ids: {},
+      warnings: [],
+    })
+    api.writing.runConflictAiReview.mockResolvedValue(updatedCheck)
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [updatedCheck],
+      total: 1,
+    })
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+        <div id="modal-footer"></div>
+      </div>
+    `
+
+    writingView._openConflictCheck("c1")
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    document.querySelector("[data-conflict-ai-review]").click()
+    await Promise.resolve()
+    document.querySelectorAll("#modal-footer button")[1].click()
+    for (let i = 0; i < 6; i += 1) await Promise.resolve()
+
+    expect(api.writing.listConflictChecks).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: "s1",
+      limit: 10,
+    })
+    expect(writingView._latestConflictCheck).toEqual(updatedCheck)
+    rerenderStub.mockRestore()
+  })
+
+  it("warns before publishing unresolved high severity checks", async () => {
+    autoConfirm()
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [
+        {
+          id: "c1",
+          summary_json: { open_high_count: 1 },
+          items: [{ severity: "high", status: "open" }],
+        },
+      ],
+      total: 1,
+    })
+    api.writing.publish.mockResolvedValue({
+      draft: {
+        id: "d2",
+        version_number: 3,
+        title: "第一章",
+        content: "新正文",
+      },
+    })
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "d2", version_number: 3, title: "第一章", word_count: 3 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "d2",
+      version_number: 3,
+      title: "第一章",
+      content: "新正文",
+    })
+
+    await writingView._publish()
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("未处理高严重度问题"),
+      expect.any(Function),
+      "继续发布",
+    )
+    expect(api.writing.publish).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: "s1",
+      title: "第一章",
+      content: "新正文",
+    })
+  })
+
+  it("does not warn on publish when high severity items are already resolved", async () => {
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [
+        {
+          id: "c1",
+          summary_json: { open_high_count: 1 },
+          items: [{ severity: "high", status: "resolved" }],
+        },
+      ],
+      total: 1,
+    })
+    api.writing.publish.mockResolvedValue({
+      draft: {
+        id: "d2",
+        version_number: 3,
+        title: "第一章",
+        content: "新正文",
+      },
+    })
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "d2", version_number: 3, title: "第一章", word_count: 3 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "d2",
+      version_number: 3,
+      title: "第一章",
+      content: "新正文",
+    })
+
+    await writingView._publish()
+
+    expect(confirmAction).not.toHaveBeenCalled()
+    expect(api.writing.publish).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: "s1",
+      title: "第一章",
+      content: "新正文",
+    })
+  })
+})
+
 describe("_updateCurrentScene", () => {
   it("updates _currentSceneId to the matched scene id", () => {
     writingView._currentChapter = 2

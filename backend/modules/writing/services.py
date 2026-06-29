@@ -7,6 +7,7 @@ Writing 业务逻辑层
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
@@ -17,12 +18,26 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.context.markdown_renderer import render_compiled_context
 from modules.outline.facade import split_scene_chunk_to_new_chapter
+from modules.writing.conflict_ai import (
+    ConflictCheckAiReviewService,
+    ConflictSuggestionService,
+)
 from modules.writing.contracts import WritingDraftContract
-from modules.writing.repositories import WritingDraftRepository
+from modules.writing.repositories import (
+    WritingConflictCheckRepository,
+    WritingDraftRepository,
+)
 from modules.writing.schemas import (
     ChapterSplitResponse,
     DraftListItem,
     VersionHistoryResponse,
+    WritingConflictAiReviewRequest,
+    WritingConflictAiSuggestionRequest,
+    WritingConflictCheckCreate,
+    WritingConflictCheckListResponse,
+    WritingConflictCheckResponse,
+    WritingConflictItemResponse,
+    WritingConflictItemUpdate,
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
@@ -205,6 +220,23 @@ class WritingDraftService:
             total=len(items),
         )
 
+    async def set_conflict_check_snapshot(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        novel_id: str,
+        snapshot: dict,
+    ) -> WritingDraftResponse:
+        did = parse_uuid(draft_id, "draft")
+        nid = parse_uuid(novel_id, "novel")
+        draft = await self._repo.get(db, did)
+        if draft is None or draft.novel_id != nid:
+            raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+        updated = await self._repo.set_conflict_check_snapshot(db, did, snapshot)
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+        return WritingDraftResponse.model_validate(updated)
+
     async def get_draft_contract(
         self,
         db: AsyncSession,
@@ -319,6 +351,388 @@ class WritingDraftService:
         )
 
 
+class WritingConflictCheckService:
+    """Rule-based Scene conflict checks for the writing workbench."""
+
+    def __init__(
+        self,
+        repo: WritingConflictCheckRepository | None = None,
+        draft_repo: WritingDraftRepository | None = None,
+    ) -> None:
+        self._repo = repo or WritingConflictCheckRepository()
+        self._draft_repo = draft_repo or WritingDraftRepository()
+        self._ai_review_service = ConflictCheckAiReviewService(self._repo)
+        self._suggestion_service = ConflictSuggestionService(self._repo)
+
+    async def create_check(
+        self,
+        db: AsyncSession,
+        data: WritingConflictCheckCreate,
+    ) -> WritingConflictCheckResponse:
+        nid = parse_uuid(data.novel_id, "novel_id")
+        scene_uuid = parse_uuid(data.scene_id, "scene_id") if data.scene_id else None
+        draft_uuid = parse_uuid(data.draft_id, "draft_id") if data.draft_id else None
+        if draft_uuid is not None:
+            draft = await self._draft_repo.get(db, draft_uuid)
+            if draft is None or draft.novel_id != nid:
+                raise HTTPException(status_code=404, detail="Draft not found")
+
+        items: list[dict] = []
+        degraded_sources: list[str] = []
+        if data.scene_id:
+            scene = await self._load_scene(db, data.novel_id, data.scene_id)
+            if scene is None:
+                degraded_sources.append("outline")
+            else:
+                items.extend(self._scene_rule_items(scene, data.content or ""))
+
+            map_items, map_degraded, map_summary = await self._map_rule_items(
+                db,
+                data.novel_id,
+                data.scene_id,
+                include_candidates=data.include_candidates,
+            )
+            items.extend(map_items)
+            degraded_sources.extend(map_degraded)
+        else:
+            scene = None
+            map_summary = None
+
+        memory_items, memory_degraded = await self._memory_rule_items(
+            db,
+            data.novel_id,
+            data.chapter_index,
+            scene=scene,
+            map_summary=map_summary,
+        )
+        items.extend(memory_items)
+        degraded_sources.extend(memory_degraded)
+
+        if data.include_candidates:
+            for item in items:
+                item["needs_review"] = True
+
+        status = "degraded" if degraded_sources else "completed"
+        summary_json = self._summary(items, degraded_sources)
+        check, created_items = await self._repo.create_check(
+            db,
+            novel_id=nid,
+            chapter_index=data.chapter_index,
+            scene_id=scene_uuid,
+            draft_id=draft_uuid,
+            version_number=data.version_number,
+            scope={
+                "chapter_index": data.chapter_index,
+                "scene_id": data.scene_id,
+                "draft_id": data.draft_id,
+                "version_number": data.version_number,
+                "content_excerpt": (data.content or "")[:4000],
+                "content_char_count": len(data.content or ""),
+                "sources": ["outline", "world.map", "memory"],
+            },
+            include_candidates=data.include_candidates,
+            status=status,
+            summary_json=summary_json,
+            items=items,
+        )
+        return self._to_check_response(check, created_items)
+
+    async def list_checks(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        scene_id: str | None,
+        limit: int,
+    ) -> WritingConflictCheckListResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+        pairs, total = await self._repo.list_checks(
+            db,
+            novel_id=nid,
+            chapter_index=chapter_index,
+            scene_id=sid,
+            limit=limit,
+        )
+        return WritingConflictCheckListResponse(
+            items=[self._to_check_response(check, items) for check, items in pairs],
+            total=total,
+        )
+
+    async def get_check(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        check_id: str,
+    ) -> WritingConflictCheckResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        cid = parse_uuid(check_id, "check_id")
+        result = await self._repo.get_check(db, cid, nid)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Conflict check not found")
+        check, items = result
+        return self._to_check_response(check, items)
+
+    async def update_item(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        item_id: str,
+        data: WritingConflictItemUpdate,
+    ) -> WritingConflictItemResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        iid = parse_uuid(item_id, "item_id")
+        item = await self._repo.update_item_status(
+            db,
+            item_id=iid,
+            novel_id=nid,
+            status=data.status,
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Conflict item not found")
+        return WritingConflictItemResponse.model_validate(item)
+
+    async def run_ai_review(
+        self,
+        db: AsyncSession,
+        *,
+        check_id: str,
+        data: WritingConflictAiReviewRequest,
+    ) -> WritingConflictCheckResponse:
+        check, items = await self._ai_review_service.run(
+            db,
+            novel_id=data.novel_id,
+            check_id=check_id,
+            context_confirmation_id=data.context_confirmation_id,
+        )
+        return self._to_check_response(check, items)
+
+    async def generate_ai_suggestion(
+        self,
+        db: AsyncSession,
+        *,
+        item_id: str,
+        data: WritingConflictAiSuggestionRequest,
+    ) -> WritingConflictItemResponse:
+        item = await self._suggestion_service.generate(
+            db,
+            novel_id=data.novel_id,
+            item_id=item_id,
+            context_confirmation_id=data.context_confirmation_id,
+        )
+        return WritingConflictItemResponse.model_validate(item)
+
+    async def latest_snapshot(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        scene_id: str | None,
+    ) -> dict | None:
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+        return await self._repo.build_latest_snapshot(
+            db,
+            novel_id=nid,
+            chapter_index=chapter_index,
+            scene_id=sid,
+        )
+
+    async def _load_scene(self, db: AsyncSession, novel_id: str, scene_id: str):
+        try:
+            from modules.outline.facade import get_scene_contract
+
+            return await get_scene_contract(db, novel_id, scene_id)
+        except Exception:
+            logger.exception("Failed to load scene for conflict check")
+            return None
+
+    def _scene_rule_items(self, scene: object, content: str) -> list[dict]:
+        items = []
+        scene_id = getattr(scene, "id", None)
+        for phrase in _split_rule_phrases(getattr(scene, "must_not_happen", None)):
+            if phrase in content:
+                items.append(
+                    {
+                        "kind": "forbidden_present",
+                        "severity": "high",
+                        "source_module": "outline",
+                        "source_type": "scene.must_not_happen",
+                        "source_id": scene_id,
+                        "evidence_summary": f"正文出现 Scene 禁止发生项：{phrase}",
+                        "location_json": _locate_phrase(content, phrase),
+                    }
+                )
+        for phrase in _split_rule_phrases(getattr(scene, "must_happen", None)):
+            if phrase not in content:
+                items.append(
+                    {
+                        "kind": "required_missing",
+                        "severity": "medium",
+                        "source_module": "outline",
+                        "source_type": "scene.must_happen",
+                        "source_id": scene_id,
+                        "evidence_summary": f"正文尚未覆盖 Scene 必须发生项：{phrase}",
+                        "location_json": {"target": "scene.must_happen"},
+                    }
+                )
+        return items
+
+    async def _map_rule_items(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        *,
+        include_candidates: bool,
+    ) -> tuple[list[dict], list[str], object | None]:
+        try:
+            from modules.world.map_facade import summarize_scene_map_for_writing
+
+            summary = await summarize_scene_map_for_writing(
+                db,
+                novel_id,
+                scene_id,
+                include_candidates=include_candidates,
+            )
+        except Exception:
+            logger.exception("Failed to load map summary for conflict check")
+            return [], ["world.map"], None
+
+        items = []
+        risks = _read_field(summary, "risks", []) or []
+        warnings = _read_field(summary, "warnings", []) or []
+        for warning in [*risks, *warnings]:
+            message = (
+                _read_field(warning, "message")
+                or _read_field(warning, "code")
+                or "地图状态需复核"
+            )
+            severity = "medium" if _read_field(warning, "level") == "warning" else "low"
+            items.append(
+                {
+                    "kind": "map_risk",
+                    "severity": severity,
+                    "source_module": "world",
+                    "source_type": "map.scene_summary",
+                    "source_id": scene_id,
+                    "evidence_summary": message,
+                    "location_json": {"target": "scene_map_summary"},
+                    "needs_review": include_candidates,
+                }
+            )
+        return items, [], summary
+
+    async def _memory_rule_items(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        *,
+        scene: object | None,
+        map_summary: object | None,
+    ) -> tuple[list[dict], list[str]]:
+        try:
+            from modules.memory.facade import get_memory_panorama
+
+            previous = None
+            if chapter_index > 1:
+                previous = await get_memory_panorama(db, novel_id, chapter_index - 1)
+            await get_memory_panorama(db, novel_id, chapter_index)
+        except Exception:
+            logger.exception("Failed to load memory panorama for conflict check")
+            return [], ["memory"]
+
+        if scene is None or previous is None or map_summary is None:
+            return [], []
+
+        pov_character_id = getattr(scene, "pov_character_id", None)
+        primary_location = _read_field(map_summary, "primary_location")
+        current_location_id = _read_field(primary_location, "entity_id")
+        if not pov_character_id or not current_location_id:
+            return [], []
+
+        character_locations = _read_field(previous, "character_locations", {}) or {}
+        if not isinstance(character_locations, dict):
+            return [], []
+        previous_location = character_locations.get(pov_character_id)
+        previous_location_id = _read_field(previous_location, "location_id")
+        if not previous_location_id or previous_location_id == current_location_id:
+            return [], []
+
+        previous_label = (
+            _read_field(previous_location, "text_state") or previous_location_id
+        )
+        current_label = _read_field(primary_location, "name") or current_location_id
+        return [
+            {
+                "kind": "continuity_location_mismatch",
+                "severity": "medium",
+                "source_module": "memory",
+                "source_type": "memory.character_location",
+                "source_id": pov_character_id,
+                "evidence_summary": (
+                    "POV 上一章位置与当前 Scene 地图主地点不一致："
+                    f"上一章 {previous_label}，当前 {current_label}"
+                ),
+                "location_json": {
+                    "previous_location_id": previous_location_id,
+                    "current_location_id": current_location_id,
+                    "current_location_name": current_label,
+                },
+            }
+        ], []
+
+    def _summary(self, items: list[dict], degraded_sources: list[str]) -> dict:
+        by_severity: dict[str, int] = {}
+        open_high = 0
+        for item in items:
+            severity = item["severity"]
+            by_severity[severity] = by_severity.get(severity, 0) + 1
+            if severity == "high" and item.get("status", "open") == "open":
+                open_high += 1
+        return {
+            "total": len(items),
+            "open_high_count": open_high,
+            "by_severity": by_severity,
+            "degraded_sources": sorted(set(degraded_sources)),
+        }
+
+    def _to_check_response(
+        self,
+        check: object,
+        items: list[object],
+    ) -> WritingConflictCheckResponse:
+        return WritingConflictCheckResponse.model_validate(
+            {
+                "id": check.id,
+                "novel_id": check.novel_id,
+                "chapter_index": check.chapter_index,
+                "scene_id": check.scene_id,
+                "draft_id": check.draft_id,
+                "version_number": check.version_number,
+                "scope": check.scope,
+                "include_candidates": check.include_candidates,
+                "status": check.status,
+                "summary_json": check.summary_json,
+                "ai_review_enabled": check.ai_review_enabled,
+                "ai_review_status": check.ai_review_status,
+                "ai_review_confirmation_id": check.ai_review_confirmation_id,
+                "ai_review_model": check.ai_review_model,
+                "ai_review_error": check.ai_review_error,
+                "items": [
+                    WritingConflictItemResponse.model_validate(item) for item in items
+                ],
+                "created_at": check.created_at,
+                "updated_at": check.updated_at,
+            }
+        )
+
+
 class WritingGenerationService:
     """AI 正文候选草稿生成服务。"""
 
@@ -396,6 +810,36 @@ def _build_writing_generation_prompt(
         f"本次额外要求：{note}\n\n"
         f"## AI 参考资料\n\n{context_markdown}"
     )
+
+
+def _split_rule_phrases(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [
+        part.strip()
+        for part in re.split(r"[；;，,\n。]+", value)
+        if part.strip()
+    ]
+
+
+def _locate_phrase(content: str, phrase: str) -> dict:
+    index = content.find(phrase)
+    if index < 0:
+        return {"target": "editor"}
+    return {
+        "target": "editor",
+        "start": index,
+        "end": index + len(phrase),
+        "quote": phrase,
+    }
+
+
+def _read_field(value: object, field: str, default: object | None = None) -> object:
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return value.get(field, default)
+    return getattr(value, field, default)
 
 
 def _as_utc_aware(dt: datetime) -> datetime:

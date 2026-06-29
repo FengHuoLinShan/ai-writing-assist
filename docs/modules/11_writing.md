@@ -60,4 +60,4 @@ writingView（frontend-console/views/writingView.js）扩展为手动工作台�
 - **右侧 Scene 卡面板**：当前 Scene 卡详情（goal / core_conflict / emotional_beat / must_happen / must_not_happen / narrative_tag）
 - **版本历史**：模态框列出所有版本，支持预览和恢复
 - **深度导入按钮**：触发三阶段进度条（40%/40%/20%），每 3 秒轮询进度
-- **章节卡提取**：批量调用 LLM 从正文提取 Scene 卡字段
+- **章节 / Scene 提取**：批量调用 LLM 从正文提取 Scene 卡字段；UI 里历史“章节卡提取”入口不表示恢复独立 ChapterCard 主模型，当前权威结构对象仍是 `scenes`

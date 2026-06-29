@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.repositories import SceneRepository
 from modules.outline.schemas import SceneCreate
+from modules.world.map_facade import summarize_scene_map_for_writing
 from modules.world.map_schemas import (
     BindingHex,
     MapConfigCreate,
@@ -138,6 +139,50 @@ async def test_scene_summary_ignores_candidate_markers_for_default_context(
     assert body["characters"] == []
     assert body["open_target"]["mode"] == "recent"
     assert body["warnings"][0]["code"] == "scene_without_map_context"
+
+
+@pytest.mark.asyncio
+async def test_writing_map_facade_excludes_candidate_markers_by_default(
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    scene = await _create_scene(db_session, nid)
+    map_resp = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    candidate_character = await _create_entity(
+        db_session,
+        nid,
+        entity_type="character",
+        name="待确认人物",
+        status="candidate",
+    )
+    await MapMarkerService().create(
+        db_session,
+        nid,
+        map_resp.id,
+        MapMarkerCreate(
+            entity_id=str(candidate_character.id),
+            marker_type="character",
+            hex_q=1,
+            hex_r=1,
+            start_scene_id=str(scene.id),
+            start_scene_index=scene.scene_index,
+            label="待确认人物",
+        ),
+    )
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        nid,
+        str(scene.id),
+    )
+
+    assert summary["characters"] == []
+    assert summary["open_target"]["mode"] == "recent"
 
 
 @pytest.mark.asyncio

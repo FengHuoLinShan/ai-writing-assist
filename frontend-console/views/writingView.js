@@ -14,6 +14,8 @@ import {
 } from "../shared/workflowProgress.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { buildMapUrl } from "./mapRouteContext.js"
+import { renderSceneCockpitPanel, saveSceneCockpitOrder } from "./sceneCockpitPanel.js"
+import { showWritingConflictModal } from "./writingConflictModal.js"
 
 const writingView = {
   _chapters: {},
@@ -50,6 +52,9 @@ const writingView = {
   _sceneMapSummaryError: null,
   _sceneMapSummarySceneId: null,
   _sceneMapSummaryLoading: false,
+  _conflictChecks: [],
+  _latestConflictCheck: null,
+  _checkingConflicts: false,
 
   // ============================================================
   // 生命周期
@@ -93,6 +98,9 @@ const writingView = {
     this._sceneMapSummaryError = null
     this._sceneMapSummarySceneId = null
     this._sceneMapSummaryLoading = false
+    this._conflictChecks = []
+    this._latestConflictCheck = null
+    this._checkingConflicts = false
 
     // beforeunload 处理：有未保存内容时弹出确认
     this._beforeUnloadHandler = (e) => {
@@ -544,15 +552,16 @@ const writingView = {
             </span>
             <span id="writing-version-info" style="color:var(--text-dim);font-size:11px;">${esc(draftLabel)}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;" id="writing-editor-buttons">
+          <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
-            <button class="btn btn-sm" data-action="ai-generate-draft" ${hasSelection && !this._isReadonly ? '' : 'disabled'} style="font-size:11px;color:var(--accent);">AI 生成草稿</button>
-            ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map" style="font-size:11px;">打开地图</button>` : ''}
-            ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import" style="font-size:11px;color:var(--accent);">深度导入</button>` : ''}
+            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>剧情设定冲突检查</button>
+            ${this._renderEditorToolsMenu(hasSelection)}
           </div>
         </div>
+
+        ${this._renderConflictCheckStrip()}
 
         ${this._renderVersionSelector()}
     `
@@ -578,6 +587,62 @@ const writingView = {
 
     html += '</div>'
     return html
+  },
+
+  _renderEditorToolsMenu(hasSelection) {
+    const disabled = hasSelection && !this._isReadonly ? "" : "disabled"
+    return `
+      <details class="writing-tools-menu">
+        <summary class="btn btn-sm">AI 工具 · 待定</summary>
+        <div class="writing-tools-menu__body">
+          <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled}>AI 生成草稿</button>
+          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map">打开地图</button>` : ""}
+          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import">深度导入</button>` : ""}
+          ${this._findCurrentScene() && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene">断章至此</button>` : ""}
+          ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">AI 提取章节卡</button>` : ""}
+        </div>
+      </details>
+    `
+  },
+
+  _renderConflictCheckStrip() {
+    if (!this._currentChapter) return ""
+    const latest = this._latestConflictCheck || this._conflictChecks[0]
+    const history = this._conflictChecks.slice(1)
+    const latestHtml = latest
+      ? `<button class="writing-conflict-latest" data-action="open-conflict-check" data-check-id="${esc(latest.id)}">
+          ${esc(this._formatConflictCheckSummary(latest))}
+        </button>`
+      : '<span class="writing-conflict-empty-inline">暂无检查记录</span>'
+    const historyHtml = history.length
+      ? `
+        <details class="writing-conflict-history">
+          <summary>历史 ▾</summary>
+          <div class="writing-conflict-history__list">
+            ${history.map((item) => `
+              <button data-action="open-conflict-check" data-check-id="${esc(item.id)}">
+                ${esc(this._formatConflictCheckSummary(item))}
+              </button>
+            `).join("")}
+          </div>
+        </details>
+      `
+      : ""
+    return `
+      <div class="writing-conflict-strip" id="writing-conflict-strip">
+        ${latestHtml}
+        ${historyHtml}
+      </div>
+    `
+  },
+
+  _formatConflictCheckSummary(check) {
+    const created = check?.created_at ? new Date(check.created_at) : null
+    const time = created && !Number.isNaN(created.getTime())
+      ? created.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+      : "刚刚"
+    const total = check?.summary_json?.total ?? (check?.items || []).length
+    return `${time} · 发现 ${total} 个冲突`
   },
 
   _renderVersionSelector() {
@@ -646,55 +711,12 @@ const writingView = {
   _renderScenePanel() {
     const currentScene = this._findCurrentScene()
     this._scheduleSceneMapSummaryLoad(currentScene)
-
-    let html = `
-      <div class="card" style="max-height:600px;overflow-y:auto;font-size:12px;">
-        <div style="font-size:13px;font-weight:bold;margin-bottom:8px;">当前 Scene</div>
-    `
-
-    if (currentScene) {
-      const s = currentScene
-      const tagLabels = {
-        inciting_incident: "激励事件", rising_action: "冲突升级",
-        climax: "阶段高潮", valley: "低谷", transition: "过渡",
-        hook: "钩子", payoff: "爽点", draft: "草稿",
-      }
-      const tagLabel = tagLabels[s.narrative_tag] || s.narrative_tag || "草稿"
-      const tagClass = `narrative-tag-${esc(s.narrative_tag || "draft")}`
-
-      html += `
-        <div style="margin-bottom:10px;">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-            <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;">#${esc(s.scene_index)}</span>
-            <span class="narrative-tag ${tagClass}">${esc(tagLabel)}</span>
-          </div>
-          <div style="font-size:14px;font-weight:500;margin-bottom:8px;">${esc(s.title || "未命名 Scene")}</div>
-          ${s.goal ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">目标</div><div style="color:var(--text);">${esc(s.goal)}</div></div>` : ''}
-          ${s.core_conflict ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">冲突</div><div style="color:var(--text);">${esc(s.core_conflict)}</div></div>` : ''}
-          ${s.emotional_beat ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">情感</div><div style="color:var(--text);">${esc(s.emotional_beat)}</div></div>` : ''}
-          ${s.must_happen ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">必须发生</div><div style="color:var(--text);">${esc(s.must_happen)}</div></div>` : ''}
-          ${s.must_not_happen ? `<div style="margin-bottom:6px;"><div style="color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">禁止发生</div><div style="color:var(--text);">${esc(s.must_not_happen)}</div></div>` : ''}
-        </div>
-      `
-    } else {
-      html += `
-        <div style="color:var(--text-dim);font-size:11px;margin-bottom:8px;">
-          当前章节未关联 Scene。${this._scenes.length > 0 ? '请选择左侧 Scene 节点。' : '请先在大纲视图中创建 Scene 卡。'}
-        </div>
-      `
-    }
-
-    html += this._renderMapSummary(currentScene)
-
-    html += `
-      <hr style="border:none;border-top:1px solid var(--border);margin:8px 0;">
-      ${currentScene && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene" style="font-size:11px;width:100%;margin-bottom:4px;">断章至此</button>` : ''}
-      ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards" style="font-size:11px;width:100%;margin-bottom:4px;color:var(--accent);">AI 提取章节卡</button>` : ''}
-      <button class="btn btn-sm" data-action="open-outline" style="font-size:11px;width:100%;">管理大纲</button>
-    `
-
-    html += '</div>'
-    return html
+    return renderSceneCockpitPanel({
+      projectId: state.currentProjectId,
+      scene: currentScene,
+      mapSummaryHtml: this._renderMapSummary(currentScene),
+      compact: typeof window !== "undefined" && window.innerHeight < 760,
+    })
   },
 
   _renderMapSummary(currentScene) {
@@ -923,6 +945,7 @@ const writingView = {
       this._loadOutlineData(chapterIndex),
     ])
     this._updateCurrentScene()
+    await this._refreshConflictChecks()
     await this._rerender()
   },
 
@@ -1162,6 +1185,155 @@ const writingView = {
     }
   },
 
+  async _saveDraftForConflictCheck() {
+    this._clearAutoSaveTimer()
+    const editor = document.getElementById("writing-editor")
+    const titleInput = document.getElementById("writing-title-input")
+    if (!editor || !this._currentChapter) throw new Error("请先选择章节")
+    const content = editor.value
+    const title = titleInput ? titleInput.value.trim() : ""
+    if (this._currentDraftId) {
+      const result = await api.writing.autosave(
+        this._currentDraftId,
+        {
+          title,
+          content,
+          expected_version: this._currentVersionNumber,
+          expected_updated_at: this._currentUpdatedAt,
+        },
+        state.currentProjectId,
+      )
+      this._currentContent = content
+      this._currentTitle = title
+      this._currentVersionNumber = result.version_number
+      this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
+      this._lastSavedContent = content
+      return result
+    }
+    const created = await api.writing.autosaveDraftOnly({
+      novel_id: state.currentProjectId,
+      chapter_index: this._currentChapter,
+      title: title || `第 ${this._currentChapter} 章`,
+      content,
+    })
+    this._currentDraftId = created.id
+    this._currentContent = content
+    this._currentTitle = created.title || title
+    this._currentVersionNumber = created.version_number
+    this._currentUpdatedAt = created.updated_at || null
+    this._lastSavedContent = content
+    return created
+  },
+
+  async _runConflictCheck() {
+    if (!state.currentProjectId || !this._currentChapter) {
+      toast("请先选择章节", "warning")
+      return
+    }
+    const editor = document.getElementById("writing-editor")
+    if (!editor) return
+    this._checkingConflicts = true
+    try {
+      await this._saveDraftForConflictCheck()
+      const currentScene = this._findCurrentScene()
+      const check = await api.writing.createConflictCheck({
+        novel_id: state.currentProjectId,
+        chapter_index: this._currentChapter,
+        scene_id: currentScene?.id || null,
+        draft_id: this._currentDraftId,
+        version_number: this._currentVersionNumber,
+        content: editor.value,
+        include_candidates: false,
+      })
+      await this._refreshConflictChecks()
+      this._openConflictCheck(check)
+      await this._rerender()
+    } catch (err) {
+      toast(err.message || "剧情设定冲突检查失败", "error")
+    } finally {
+      this._checkingConflicts = false
+    }
+  },
+
+  async _refreshConflictChecks() {
+    if (!state.currentProjectId || !this._currentChapter) {
+      this._conflictChecks = []
+      this._latestConflictCheck = null
+      return
+    }
+    try {
+      const currentScene = this._findCurrentScene()
+      const result = await api.writing.listConflictChecks({
+        novel_id: state.currentProjectId,
+        chapter_index: this._currentChapter,
+        scene_id: currentScene?.id || null,
+        limit: 10,
+      })
+      this._conflictChecks = result.items || []
+      this._latestConflictCheck = this._conflictChecks[0] || null
+    } catch {
+      this._conflictChecks = []
+      this._latestConflictCheck = null
+    }
+  },
+
+  _openConflictCheck(checkOrId) {
+    const check = typeof checkOrId === "string"
+      ? this._conflictChecks.find((item) => item.id === checkOrId)
+      : checkOrId
+    if (!check) {
+      toast("检查记录暂不可用", "warning")
+      return
+    }
+    showWritingConflictModal({
+      check,
+      novelId: state.currentProjectId,
+      onStatusChanged: async () => {
+        await this._refreshConflictChecks()
+        await this._rerender()
+      },
+      onAiReviewComplete: async (updatedCheck) => {
+        await this._refreshConflictChecks()
+        await this._rerender()
+        const refreshed = this._conflictChecks.find((item) => item.id === updatedCheck?.id) || updatedCheck
+        if (refreshed) this._openConflictCheck(refreshed)
+      },
+      onSuggestionComplete: async (updatedItem) => {
+        await this._refreshConflictChecks()
+        await this._rerender()
+        const refreshed = this._conflictChecks.find((item) => item.id === updatedItem?.check_id) || check
+        if (refreshed) this._openConflictCheck(refreshed)
+      },
+      onLocate: (itemId) => this._locateConflictItem(check, itemId),
+      onOpenSource: (itemId) => this._openConflictSource(check, itemId),
+    })
+  },
+
+  _locateConflictItem(check, itemId) {
+    const item = (check.items || []).find((entry) => entry.id === itemId)
+    const editor = document.getElementById("writing-editor")
+    const location = item?.location_json || {}
+    if (!editor || typeof location.start !== "number") {
+      toast("该问题暂无正文定位", "info")
+      return
+    }
+    editor.focus()
+    editor.setSelectionRange(location.start, location.end || location.start)
+  },
+
+  _openConflictSource(check, itemId) {
+    const item = (check.items || []).find((entry) => entry.id === itemId)
+    if (item?.source_module === "world") {
+      this._openMapForCurrentScene()
+      return
+    }
+    if (item?.source_module === "outline") {
+      router.navigate("outline", null)
+      return
+    }
+    toast("该来源暂无可打开视图", "info")
+  },
+
   async _publish() {
     const editor = document.getElementById("writing-editor")
     const titleInput = document.getElementById("writing-title-input")
@@ -1170,6 +1342,9 @@ const writingView = {
     const content = editor.value.trim()
     if (!content) { toast("草稿内容不能为空", "warning"); return }
     const title = titleInput ? titleInput.value.trim() : `第 ${this._currentChapter} 章`
+    const currentScene = this._findCurrentScene()
+    const canPublish = await this._confirmBeforePublish(currentScene)
+    if (!canPublish) return
 
     const btnPublish = document.getElementById("btn-publish")
     const btnAutosave = document.getElementById("btn-autosave")
@@ -1180,6 +1355,7 @@ const writingView = {
       const result = await api.writing.publish({
         novel_id: state.currentProjectId,
         chapter_index: this._currentChapter,
+        scene_id: currentScene?.id || null,
         title,
         content,
       })
@@ -1215,6 +1391,49 @@ const writingView = {
       if (btnPublish) btnPublish.disabled = false
       if (btnAutosave) btnAutosave.disabled = false
     }
+  },
+
+  async _confirmBeforePublish(currentScene) {
+    if (!state.currentProjectId || !this._currentChapter) return true
+    let latest = null
+    try {
+      const result = await api.writing.listConflictChecks({
+        novel_id: state.currentProjectId,
+        chapter_index: this._currentChapter,
+        scene_id: currentScene?.id || null,
+        limit: 1,
+      })
+      latest = result.items?.[0] || null
+    } catch {
+      return true
+    }
+    if (!latest) {
+      return await this._confirmAsync(
+        "当前章节还没有剧情设定冲突检查记录。可以继续发布，也可以先运行检查。",
+        "继续发布",
+      )
+    }
+    const latestItems = Array.isArray(latest.items) ? latest.items : []
+    const openHighCount = latestItems.length
+      ? latestItems.filter((item) => item.severity === "high" && item.status === "open").length
+      : (latest.summary_json?.open_high_count ?? 0)
+    if (openHighCount > 0) {
+      return await this._confirmAsync(
+        `最近一次检查仍有 ${openHighCount} 个未处理高严重度问题。确认继续发布？`,
+        "继续发布",
+      )
+    }
+    return true
+  },
+
+  _confirmAsync(message, confirmText) {
+    return new Promise((resolve) => {
+      confirmAction(message, () => resolve(true), confirmText)
+      setTimeout(() => {
+        const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
+        if (cancelBtn) cancelBtn.onclick = () => resolve(false)
+      }, 50)
+    })
   },
 
   _startPublishPolling() {
@@ -1913,6 +2132,32 @@ const writingView = {
     showModal("深度导入快照状态", rows || '<p style="color:var(--text-dim);">暂无快照健康摘要</p>')
   },
 
+  _bindCockpitDrag() {
+    const panel = document.querySelector(".scene-cockpit")
+    if (!panel || !state.currentProjectId) return
+    let draggingKey = null
+    panel.querySelectorAll(".scene-cockpit-module").forEach((module) => {
+      module.ondragstart = (event) => {
+        draggingKey = module.getAttribute("data-cockpit-module")
+        event.dataTransfer?.setData("text/plain", draggingKey || "")
+      }
+      module.ondragover = (event) => event.preventDefault()
+      module.ondrop = (event) => {
+        event.preventDefault()
+        const targetKey = module.getAttribute("data-cockpit-module")
+        if (!draggingKey || !targetKey || draggingKey === targetKey) return
+        const modules = [...panel.querySelectorAll(".scene-cockpit-module")]
+        const order = modules.map((el) => el.getAttribute("data-cockpit-module"))
+        const from = order.indexOf(draggingKey)
+        const to = order.indexOf(targetKey)
+        if (from < 0 || to < 0) return
+        order.splice(to, 0, order.splice(from, 1)[0])
+        saveSceneCockpitOrder(state.currentProjectId, order.filter(Boolean))
+        this._rerender()
+      }
+    })
+  },
+
   // ============================================================
   // 事件绑定
   // ============================================================
@@ -1929,6 +2174,8 @@ const writingView = {
       "version-history": () => this._showVersionHistory(),
       "delete-version": () => this._deleteVersion(),
       "dismiss-publish-error": () => this._dismissPublishError(),
+      "run-conflict-check": () => this._runConflictCheck(),
+      "open-conflict-check": (_e, t) => this._openConflictCheck(t.getAttribute("data-check-id")),
       "deep-import": () => this._showDeepImportForm(),
       "open-map": () => this._openMapForCurrentScene(),
       "dismiss-deep-import": () => this._dismissDeepImport(),
@@ -1937,6 +2184,10 @@ const writingView = {
       "split-scene": () => this._showSplitSceneForm(),
       "extract-cards": () => this._extractChapterCards(),
       "select-scene": (_e, t) => this._selectScene(t.getAttribute("data-scene-id")),
+      "toggle-cockpit-module": (_e, t) => {
+        const module = t.closest(".scene-cockpit-module")
+        if (module) module.classList.toggle("is-collapsed")
+      },
       "toggle-scene-group": (_e, t) => {
         const chapters = t.parentElement.querySelector(".scene-tree-chapters")
         const icon = t.querySelector(".toggle-icon")
@@ -1947,6 +2198,8 @@ const writingView = {
         }
       },
     })
+
+    this._bindCockpitDrag()
 
     const versionSelector = document.getElementById("version-selector")
     if (versionSelector) {
@@ -2016,6 +2269,9 @@ const writingView = {
 
     const deepImportBarEl = document.getElementById("writing-deep-import-bar-container")
     if (deepImportBarEl) deepImportBarEl.innerHTML = this._renderDeepImportBar()
+
+    const conflictStripEl = document.getElementById("writing-conflict-strip")
+    if (conflictStripEl) conflictStripEl.outerHTML = this._renderConflictCheckStrip()
 
     // 更新编辑器元信息（版本号、按钮、只读状态等），但保留 textarea 内容
     this._updateEditorMeta()

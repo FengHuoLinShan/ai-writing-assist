@@ -664,6 +664,14 @@ const api = {
       })
     },
 
+    /** 创建纯草稿版本，不触发发布任务 */
+    async autosaveDraftOnly(payload) {
+      return request("/writing/drafts/autosave", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
     /** 获取章节最新草稿 */
     async getDraft(chapterIndex, novelId) {
       return request(`/writing/chapters/${chapterIndex}/draft${buildQueryString({ novel_id: novelId })}`)
@@ -709,6 +717,44 @@ const api = {
     /** 提交 AI 正文候选草稿生成任务 */
     async generate(payload) {
       return request("/writing/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 创建剧情设定冲突检查 */
+    async createConflictCheck(payload) {
+      return request("/writing/conflict-checks", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 获取冲突检查历史 */
+    async listConflictChecks(params = {}) {
+      return request("/writing/conflict-checks" + buildQueryString(params))
+    },
+
+    async getConflictCheck(checkId, novelId) {
+      return request(`/writing/conflict-checks/${checkId}${buildQueryString({ novel_id: novelId })}`)
+    },
+
+    async updateConflictItem(itemId, novelId, payload) {
+      return request(`/writing/conflict-check-items/${itemId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    async runConflictAiReview(checkId, payload) {
+      return request(`/writing/conflict-checks/${checkId}/ai-review`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    async requestConflictAiSuggestion(itemId, payload) {
+      return request(`/writing/conflict-check-items/${itemId}/ai-suggestion`, {
         method: "POST",
         body: JSON.stringify(payload),
       })

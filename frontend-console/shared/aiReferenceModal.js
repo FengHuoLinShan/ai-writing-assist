@@ -132,6 +132,7 @@ function buildPayload(options) {
     user_note: document.getElementById("ai-ref-user-note")?.value || undefined,
   }
   if (chapter) payload.chapter_index = chapter
+  if (options.scene_id) payload.scene_id = options.scene_id
   if (options.arc_id) payload.arc_id = options.arc_id
   if (options.entity_ids) payload.entity_ids = options.entity_ids
   if (options.character_ids) payload.character_ids = options.character_ids

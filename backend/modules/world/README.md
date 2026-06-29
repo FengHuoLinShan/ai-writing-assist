@@ -231,6 +231,7 @@ async def get_full_state(db, novel_id) -> dict
 
 # ---- Map dynamic facts ----
 async def create_map_observation_from_delta_event(db, novel_id, *, event: dict, scene_index: int, ...) -> dict
+async def summarize_scene_map_for_writing(db, novel_id, scene_id, *, include_candidates=False) -> dict
 
 # ---- EntityRevision (legacy rollback by revision_id) ----
 async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict

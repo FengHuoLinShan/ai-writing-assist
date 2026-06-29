@@ -54,6 +54,7 @@ describe("aiReferenceModal", () => {
       task: "世界对象补抽",
       scope: "chapter",
       chapter_index: 1,
+      scene_id: "scene-1",
       include_pending_objects: true,
     }).catch(() => {})
 
@@ -68,6 +69,7 @@ describe("aiReferenceModal", () => {
       novel_id: "p1",
       action: "world.entities.extract",
       context_mode: "working",
+      scene_id: "scene-1",
       include_pending_objects: true,
       user_note: "只补抽长期资产",
     }))

@@ -33,3 +33,24 @@ async def create_map_observation_from_delta_event(
         delta_log_id=delta_log_id,
     )
     return observation.model_dump()
+
+
+async def summarize_scene_map_for_writing(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    include_candidates: bool = False,
+) -> dict[str, Any]:
+    """Return a Scene map summary for writing conflict checks.
+
+    V1 checks default to canonical map context. The underlying scene summary already
+    excludes candidate markers from its default context; include_candidates is kept
+    in the stable seam so later candidate-aware summaries can mark dependent
+    results as needs_review without changing writing.
+    """
+    from modules.world.services.map_scene_summary import MapSceneSummaryService
+
+    _ = include_candidates
+    summary = await MapSceneSummaryService().summarize(db, novel_id, scene_id)
+    return summary.model_dump()
