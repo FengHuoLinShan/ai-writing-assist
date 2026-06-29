@@ -528,6 +528,30 @@ describe("writingView conflict checks", () => {
       content: "新正文",
     })
   })
+
+  it("locates conflict items with nested evidence text ranges", () => {
+    document.body.innerHTML = '<textarea id="writing-editor">主角死亡。王后沉默。</textarea>'
+    const editor = document.getElementById("writing-editor")
+
+    writingView._locateConflictItem(
+      {
+        items: [
+          {
+            id: "i1",
+            location_json: {
+              text_range: { start: 0, end: 4 },
+              source: { module: "outline" },
+            },
+          },
+        ],
+      },
+      "i1",
+    )
+
+    expect(editor.selectionStart).toBe(0)
+    expect(editor.selectionEnd).toBe(4)
+    expect(toast).not.toHaveBeenCalledWith("该问题暂无正文定位", "info")
+  })
 })
 
 describe("_updateCurrentScene", () => {

@@ -146,6 +146,10 @@ async def test_conflict_check_persists_rule_hits_and_summary(
         item["location_json"]["open_target"]["kind"] == "outline_scene"
         for item in required_items
     )
+    required_location = required_items[0]["location_json"]
+    assert required_location["source"]["type"] == "scene.must_happen"
+    assert required_location["source"]["field"] == "必须发生"
+    assert required_location["source"]["excerpt"] in {"主角拿到令牌", "王后签字"}
     assert kinds["required_missing"]["status"] == "open"
 
 

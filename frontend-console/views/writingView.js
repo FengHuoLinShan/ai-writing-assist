@@ -1313,12 +1313,13 @@ const writingView = {
     const item = (check.items || []).find((entry) => entry.id === itemId)
     const editor = document.getElementById("writing-editor")
     const location = item?.location_json || {}
-    if (!editor || typeof location.start !== "number") {
+    const textRange = location.text_range || location
+    if (!editor || typeof textRange.start !== "number") {
       toast("该问题暂无正文定位", "info")
       return
     }
     editor.focus()
-    editor.setSelectionRange(location.start, location.end || location.start)
+    editor.setSelectionRange(textRange.start, textRange.end || textRange.start)
   },
 
   _openConflictSource(check, itemId) {
