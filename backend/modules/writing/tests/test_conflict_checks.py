@@ -117,6 +117,21 @@ async def test_conflict_check_persists_rule_hits_and_summary(
     assert kinds["forbidden_present"]["severity"] == "high"
     assert kinds["forbidden_present"]["source_module"] == "outline"
     assert "主角死亡" in kinds["forbidden_present"]["evidence_summary"]
+    forbidden_location = kinds["forbidden_present"]["location_json"]
+    assert forbidden_location["source"] == {
+        "module": "outline",
+        "type": "scene.must_not_happen",
+        "id": scene["id"],
+        "label": "Scene：东门交涉",
+        "field": "禁止发生",
+        "excerpt": "主角死亡",
+    }
+    assert forbidden_location["open_target"] == {
+        "kind": "outline_scene",
+        "scene_id": scene["id"],
+    }
+    assert forbidden_location["text_range"]["start"] == 0
+    assert forbidden_location["needs_review_reason"] is None
     assert kinds["required_missing"]["severity"] == "medium"
     required_summaries = [
         item["evidence_summary"]
@@ -124,6 +139,13 @@ async def test_conflict_check_persists_rule_hits_and_summary(
         if item["kind"] == "required_missing"
     ]
     assert any("主角拿到令牌" in summary for summary in required_summaries)
+    required_items = [
+        item for item in body["items"] if item["kind"] == "required_missing"
+    ]
+    assert all(
+        item["location_json"]["open_target"]["kind"] == "outline_scene"
+        for item in required_items
+    )
     assert kinds["required_missing"]["status"] == "open"
 
 

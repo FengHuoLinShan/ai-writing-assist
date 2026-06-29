@@ -22,6 +22,7 @@ from modules.writing.conflict_ai import (
     ConflictCheckAiReviewService,
     ConflictSuggestionService,
 )
+from modules.writing.conflict_evidence import evidence_location
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.repositories import (
     WritingConflictCheckRepository,
@@ -554,7 +555,10 @@ class WritingConflictCheckService:
     def _scene_rule_items(self, scene: object, content: str) -> list[dict]:
         items = []
         scene_id = getattr(scene, "id", None)
+        title = getattr(scene, "title", None) or "未命名 Scene"
+        scene_label = f"Scene：{title}"
         for phrase in _split_rule_phrases(getattr(scene, "must_not_happen", None)):
+            text_range = _locate_phrase(content, phrase)
             if phrase in content:
                 items.append(
                     {
@@ -564,7 +568,19 @@ class WritingConflictCheckService:
                         "source_type": "scene.must_not_happen",
                         "source_id": scene_id,
                         "evidence_summary": f"正文出现 Scene 禁止发生项：{phrase}",
-                        "location_json": _locate_phrase(content, phrase),
+                        "location_json": evidence_location(
+                            source_module="outline",
+                            source_type="scene.must_not_happen",
+                            source_id=scene_id,
+                            source_label=scene_label,
+                            source_field="禁止发生",
+                            source_excerpt=phrase,
+                            open_target={
+                                "kind": "outline_scene",
+                                "scene_id": scene_id,
+                            },
+                            text_range=text_range,
+                        ),
                     }
                 )
         for phrase in _split_rule_phrases(getattr(scene, "must_happen", None)):
@@ -577,7 +593,18 @@ class WritingConflictCheckService:
                         "source_type": "scene.must_happen",
                         "source_id": scene_id,
                         "evidence_summary": f"正文尚未覆盖 Scene 必须发生项：{phrase}",
-                        "location_json": {"target": "scene.must_happen"},
+                        "location_json": evidence_location(
+                            source_module="outline",
+                            source_type="scene.must_happen",
+                            source_id=scene_id,
+                            source_label=scene_label,
+                            source_field="必须发生",
+                            source_excerpt=phrase,
+                            open_target={
+                                "kind": "outline_scene",
+                                "scene_id": scene_id,
+                            },
+                        ),
                     }
                 )
         return items
