@@ -217,6 +217,14 @@ class MemoryService:
         if not pov_character_id or not current_location_id or chapter_index <= 1:
             return None
         previous_chapter = chapter_index - 1
+        nid = parse_uuid(novel_id)
+        nearest = await self._snapshot_repo.get_nearest(db, nid, previous_chapter)
+        if not nearest:
+            events = await self._event_repo.get_by_chapter_range(
+                db, nid, 1, previous_chapter
+            )
+            if not events:
+                return None
         panorama = await self.get_panorama(db, novel_id, previous_chapter)
         character_locations = getattr(panorama, "character_locations", None) or {}
         if not isinstance(character_locations, dict):

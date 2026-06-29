@@ -553,7 +553,7 @@ class TestGetStatus:
 @pytest.mark.asyncio
 async def test_continuity_evidence_for_writing_returns_memory_chapter_target(
     db_session: AsyncSession,
-    sample_novel_id: str,
+    sample_novel_id: uuid.UUID,
 ) -> None:
     from modules.memory.facade import get_continuity_evidence_for_writing
     from modules.memory.models import MemoryEvent
@@ -605,7 +605,7 @@ async def test_continuity_evidence_for_writing_returns_memory_chapter_target(
 @pytest.mark.asyncio
 async def test_continuity_evidence_for_writing_returns_none_for_same_location(
     db_session: AsyncSession,
-    sample_novel_id: str,
+    sample_novel_id: uuid.UUID,
 ) -> None:
     from modules.memory.facade import get_continuity_evidence_for_writing
     from modules.memory.models import MemoryEvent
@@ -637,6 +637,45 @@ async def test_continuity_evidence_for_writing_returns_none_for_same_location(
         chapter_index=3,
         pov_character_id=character_id_text,
         current_location_id="loc-old",
+    )
+
+    assert evidence is None
+
+
+@pytest.mark.asyncio
+async def test_continuity_evidence_for_writing_ignores_world_fallback_without_history(
+    db_session: AsyncSession,
+    sample_novel_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.memory.facade import get_continuity_evidence_for_writing
+
+    character_id_text = str(uuid.uuid4())
+
+    async def fake_get_full_state(
+        db: AsyncSession, novel_id: str
+    ) -> dict[str, object]:
+        return {
+            "entities": [],
+            "relations": [],
+            "character_locations": {
+                character_id_text: {
+                    "location_id": "loc-old",
+                    "text_state": "世界当前状态里的旧位置",
+                    "chapter_index": 1,
+                }
+            },
+            "character_knowledge": [],
+        }
+
+    monkeypatch.setattr("modules.world.facade.get_full_state", fake_get_full_state)
+
+    evidence = await get_continuity_evidence_for_writing(
+        db_session,
+        novel_id=str(sample_novel_id),
+        chapter_index=2,
+        pov_character_id=character_id_text,
+        current_location_id="loc-new",
     )
 
     assert evidence is None
