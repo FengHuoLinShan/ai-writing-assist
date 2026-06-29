@@ -278,6 +278,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
                 scene_chunks=s.scene_chunks or [],
                 chapter_ids=s.chapter_ids or [],
                 pov_character_id=s.pov_character_id,
+                structure_meta=s.structure_meta or {},
                 status=s.status,
             )
             for s in scenes
@@ -307,6 +308,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
                 scene_chunks=s.scene_chunks or [],
                 chapter_ids=s.chapter_ids or [],
                 pov_character_id=s.pov_character_id,
+                structure_meta=s.structure_meta or {},
                 status=s.status,
             )
             for s in scenes
@@ -410,6 +412,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
                 scene_chunks=s.scene_chunks or [],
                 chapter_ids=s.chapter_ids or [],
                 pov_character_id=s.pov_character_id,
+                structure_meta=s.structure_meta or {},
                 status=s.status,
             )
             for s in scenes

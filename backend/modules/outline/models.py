@@ -119,6 +119,12 @@ class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         nullable=True,
         comment="POV 人物 ID（可选，指向 core_entities）",
     )
+    structure_meta: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
+        default=dict,
+        comment="Scene 结构整理元信息",
+    )
 
     def __repr__(self) -> str:
         return (

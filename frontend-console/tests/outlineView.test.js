@@ -80,16 +80,15 @@ describe("outlineView onEnter", () => {
     expect(outlineView._loading).toBe(false)
   })
 
-  it("加载 scenes 子标签数据", async () => {
+  it("scenes 子标签不再加载旧 Scene 管理数据", async () => {
     state.currentProjectId = "p1"
     state.currentSubView = "scenes"
-    // scenes subView also loads threads
-    api.outline.listScenes.mockResolvedValue({ items: [{ id: "s1" }] })
     api.outline.listThreads.mockResolvedValue({ items: [] })
 
     await outlineView.onEnter()
 
-    expect(outlineView._scenes.length).toBe(1)
+    expect(api.outline.listScenes).not.toHaveBeenCalled()
+    expect(outlineView._scenes.length).toBe(0)
   })
 })
 
@@ -100,16 +99,13 @@ describe("outlineView render", () => {
     expect(html).toContain("加载中")
   })
 
-  it("有 Scene 数据时渲染卡片", async () => {
+  it("scenes 子标签渲染场景工作台跳转页", async () => {
     outlineView._loading = false
     state.currentSubView = "scenes"
     state.currentProjectId = "p1"
-    outlineView._scenes = [{
-      id: "s1", scene_index: 0, title: "开篇", narrative_tag: "hook",
-      goal: "引入主角", core_conflict: "身份危机", status: "draft", source: "manual",
-    }]
     const html = await outlineView.render()
-    expect(html).toContain("开篇")
+    expect(html).toContain("Scene 管理已迁移到场景工作台")
+    expect(html).toContain("data-action=\"open-scene-workbench\"")
   })
 
   it.each([
@@ -258,17 +254,15 @@ describe("helpers", () => {
 })
 
 describe("render buttons", () => {
-  it("renders generate structure and move buttons", async () => {
+  it("renders scene workbench jump instead of legacy scene management buttons", async () => {
     outlineView._loading = false
     state.currentSubView = "scenes"
     state.currentProjectId = "p1"
-    outlineView._scenes = [
-      { id: "s1", scene_index: 0, title: "A", narrative_tag: "hook", status: "draft", source: "manual" },
-    ]
     const html = await outlineView.render()
-    expect(html).toContain('data-action="generate-structure"')
-    expect(html).toContain('data-action="move-scene-up"')
-    expect(html).toContain('data-action="move-scene-down"')
+    expect(html).toContain('data-action="open-scene-workbench"')
+    expect(html).not.toContain('data-action="generate-structure"')
+    expect(html).not.toContain('data-action="move-scene-up"')
+    expect(html).not.toContain('data-action="move-scene-down"')
   })
 
   it("renders foreshadowing and reveal create buttons and delete actions", async () => {

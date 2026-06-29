@@ -16,6 +16,7 @@ const routes = {
   rag: { title: "RAG 检索", subViews: ["status", "search"] },
   context: { title: "上下文", subViews: [] },
   outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"] },
+  scene: { title: "场景", subViews: [] },
   writing: { title: "写作台", subViews: [] },
   map: { title: "地图", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
@@ -82,7 +83,7 @@ const _lastSubViewMap = {}
 const _viewDomCache = {}
 
 /** @type {Set<string>} 标记为 KeepAlive 的视图 */
-const _keepAliveViews = new Set(["writing", "outline"])
+const _keepAliveViews = new Set(["writing", "outline", "scene"])
 
 /**
  * 根据当前是否选择了项目，构造路由 hash

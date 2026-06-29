@@ -60,4 +60,5 @@ class SceneContract:
     scene_chunks: list = field(default_factory=list)
     chapter_ids: list = field(default_factory=list)
     pov_character_id: str | None = None
+    structure_meta: dict = field(default_factory=dict)
     status: str = "draft"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -183,6 +183,7 @@ class SceneCreate(BaseModel):
     scene_chunks: list[dict] = []
     chapter_ids: list[str] = []
     pov_character_id: str | None = None
+    structure_meta: dict[str, Any] = {}
     status: str = "draft"
 
 
@@ -199,6 +200,7 @@ class SceneUpdate(BaseModel):
     scene_chunks: Annotated[list[dict] | None, Field(None)]
     chapter_ids: Annotated[list[str] | None, Field(None)]
     pov_character_id: Annotated[str | None, Field(None)]
+    structure_meta: Annotated[dict[str, Any] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
@@ -219,6 +221,7 @@ class SceneResponse(BaseModel):
     scene_chunks: list = []
     chapter_ids: list = []
     pov_character_id: str | None = None
+    structure_meta: dict[str, Any] = {}
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -252,6 +255,63 @@ class SplitChaptersRequest(BaseModel):
     target_scene_id: str | None = Field(
         None, description="目标 Scene ID，为空则新建 Scene"
     )
+
+
+class SceneHealthSummary(BaseModel):
+    key: str
+    label: str
+    count: int = 0
+
+
+class SceneWorkbenchItem(BaseModel):
+    kind: str = "scene"
+    scene: SceneResponse
+    new_scene: SceneResponse | None = None
+    health: list[str] = []
+    chapter_range: str = "未关联章节"
+    summary: str | None = None
+
+
+class SceneWorkbenchResponse(BaseModel):
+    health: dict[str, SceneHealthSummary]
+    items: list[SceneWorkbenchItem]
+    unassigned_chapters: list[int] = []
+    selected_scene_id: str | None = None
+
+
+class SceneMappingUpdate(BaseModel):
+    chapter_ids: list[str] | None = None
+    scene_chunks: list[dict] | None = None
+    structure_meta: dict[str, Any] | None = None
+    status: str | None = Field(None, max_length=32)
+
+
+class SceneMergeRequest(BaseModel):
+    target_scene_id: str
+    source_scene_ids: list[str] = Field(..., min_length=1)
+    confirmed: bool = False
+
+
+class SceneSplitRequest(BaseModel):
+    source_scene_id: str
+    split_chapter_index: int = Field(..., ge=1)
+    split_pos: int | None = Field(None, ge=1)
+    new_scene_title: str | None = Field(None, max_length=255)
+    new_scene_status: str = Field("draft", max_length=32)
+    confirmed: bool = False
+
+
+class SceneImpactPreview(BaseModel):
+    operation: str
+    chapter_mapping_change: dict[str, Any]
+    field_changes: dict[str, Any] = {}
+    related_threads: dict[str, Any] = {}
+    related_foreshadowing: dict[str, Any] = {}
+    related_reveals: dict[str, Any] = {}
+    map_summary_impact: dict[str, Any] = {}
+    warnings: list[str] = []
+    scene: SceneResponse | None = None
+    new_scene: dict[str, Any] | None = None
 
 
 class PlotStructureGenerateResponse(BaseModel):

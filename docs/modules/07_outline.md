@@ -33,6 +33,7 @@ outline 模块负责把事实层资产组织成“可执行的剧情计划”。
 - `PlotThreadService`
 - `OutlineArcService`
 - `SceneService`
+- `SceneWorkbenchService`
 - `ForeshadowingPlanService`
 - `RevealPlanService`
 - `PlotStructureGenerator`
@@ -69,7 +70,14 @@ GET    /api/outline/scenes/{scene_id}
 PATCH  /api/outline/scenes/{scene_id}
 DELETE /api/outline/scenes/{scene_id}
 POST   /api/outline/scenes/reorder
-POST   /api/outline/scenes/split-chapters
+POST   /api/outline/scenes/split
+
+GET    /api/outline/scene-workbench
+PATCH  /api/outline/scene-workbench/scenes/{scene_id}/mapping
+POST   /api/outline/scene-workbench/merge/preview
+POST   /api/outline/scene-workbench/merge
+POST   /api/outline/scene-workbench/split/preview
+POST   /api/outline/scene-workbench/split
 
 POST   /api/outline/foreshadowing
 GET    /api/outline/foreshadowing
@@ -100,8 +108,26 @@ POST   /api/outline/generate
 - `scenes` 是当前最小叙事单元的权威表
 - `scene_index` 是逻辑顺序
 - `scene_chunks` 保存 Scene 到正文物理区间的映射
+- `structure_meta` 保存结构整理元信息，如 `needs_organize`、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
 - `chapter_cards.scene_cards` 只保留历史兼容/冗余上下文，不是当前权威来源
 - 写作页、地图摘要、RAG `scene_id` 关联都依赖 `scenes` 表
+
+## Scene 工作台
+
+Scene 工作台是 Scene 管理、章节映射和结构整理的主入口；大纲页旧“场景卡”
+子标签只保留跳转页，不再承载创建、编辑、排序、删除等完整管理 UI。
+
+第一版健康项固定为：
+
+- `未复核`：导入 / AI 生成来源仍处于草稿或候选，且缺少人工复核标记
+- `未关联章节`：Scene 没有关联章节，或存在有正文草稿但未归入任何 Scene 的章节
+- `缺设定`：目标、核心冲突、必须发生、禁止发生等关键字段缺失
+- `待整理`：人工标记、重复章节映射、chunk/chapter 不一致等结构整理信号
+
+跨多章 Scene 是正常创作形态，不作为默认风险。合并 / 拆分必须先请求影响预览，
+再二次确认执行；预览只提示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，
+不自动阻断。合并来源 Scene 标记为 `deprecated` 而不是硬删除；拆分只调整映射并
+创建新 Scene，不修改正文内容。
 
 ## 测试
 

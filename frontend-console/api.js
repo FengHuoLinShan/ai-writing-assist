@@ -983,6 +983,53 @@ const api = {
         body: JSON.stringify({ chapter_index: chapterIndex, target_scene_id: targetSceneId || null }),
       })
     },
+    /** 场景工作台聚合数据 */
+    async getSceneWorkbench(novelId, selectedSceneId = null) {
+      return request("/outline/scene-workbench" + buildQueryString({
+        novel_id: novelId,
+        selected_scene_id: selectedSceneId,
+      }))
+    },
+    /** 调整 Scene 章节映射 */
+    async updateSceneWorkbenchMapping(novelId, sceneId, data) {
+      return request(`/outline/scene-workbench/scenes/${sceneId}/mapping${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 预览 Scene 合并影响 */
+    async previewSceneMerge(novelId, data) {
+      return request(`/outline/scene-workbench/merge/preview${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 确认执行 Scene 合并 */
+    async mergeScenes(novelId, data) {
+      return request(`/outline/scene-workbench/merge${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 预览 Scene 拆分影响 */
+    async previewSceneSplit(novelId, data) {
+      return request(`/outline/scene-workbench/split/preview${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 确认执行 Scene 拆分 */
+    async splitScene(novelId, data) {
+      return request(`/outline/scene-workbench/split${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
 
     /** 列出伏笔计划 */
     async listForeshadowing(novelId) {

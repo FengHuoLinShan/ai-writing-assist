@@ -352,6 +352,7 @@ class SceneRepository:
             scene_chunks=data.scene_chunks or [],
             chapter_ids=data.chapter_ids or [],
             pov_character_id=data.pov_character_id,
+            structure_meta=data.structure_meta or {},
             status=data.status or "draft",
         )
         db.add(scene)
@@ -450,6 +451,7 @@ class SceneRepository:
             return None
 
         update_values: dict[str, Any] = {}
+        fields_set = data.model_fields_set
         for field in (
             "scene_index",
             "title",
@@ -463,13 +465,18 @@ class SceneRepository:
             "pov_character_id",
             "status",
         ):
-            value = getattr(data, field, None)
-            if value is not None:
+            if field in fields_set:
+                value = getattr(data, field)
+                if (
+                    field in {"scene_index", "narrative_tag", "source", "status"}
+                    and value is None
+                ):
+                    continue
                 update_values[field] = value
 
-        for json_field in ("scene_chunks", "chapter_ids"):
-            value = getattr(data, json_field, None)
-            if value is not None:
+        for json_field in ("scene_chunks", "chapter_ids", "structure_meta"):
+            if json_field in fields_set:
+                value = getattr(data, json_field)
                 update_values[json_field] = value
 
         if update_values:

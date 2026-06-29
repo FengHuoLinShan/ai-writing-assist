@@ -61,13 +61,15 @@ export function renderSceneCockpitPanel({
 
   return `
     <div class="scene-cockpit" data-scene-cockpit-project="${esc(projectId || "")}">
-      <div class="scene-cockpit__title">Scene 驾驶舱</div>
+      <div class="scene-cockpit__title">
+        <span>Scene 驾驶舱</span>
+        <button class="btn btn-sm scene-cockpit-organize" data-action="open-scene-workbench">整理</button>
+      </div>
       ${scene ? modules : `
         <div class="scene-cockpit-empty">
-          当前章节未关联 Scene。${projectId ? "请从左侧选择 Scene 或到大纲管理。" : ""}
+          当前章节未关联 Scene。${projectId ? "请从左侧选择 Scene 或到场景工作台整理。" : ""}
         </div>
       `}
-      <button class="btn btn-sm scene-cockpit-outline" data-action="open-outline">管理大纲</button>
     </div>
   `
 }

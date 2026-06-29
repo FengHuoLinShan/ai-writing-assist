@@ -6,6 +6,7 @@ from fastapi import status as http_status
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_confirmation
+from modules.outline.scene_workbench import SceneWorkbenchService
 from modules.outline.schemas import (
     ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
@@ -26,11 +27,17 @@ from modules.outline.schemas import (
     RevealPlanResponse,
     RevealPlanUpdate,
     SceneCreate,
+    SceneImpactPreview,
     SceneListResponse,
+    SceneMappingUpdate,
+    SceneMergeRequest,
     SceneReorderRequest,
     SceneReorderResponse,
     SceneResponse,
+    SceneSplitRequest,
     SceneUpdate,
+    SceneWorkbenchItem,
+    SceneWorkbenchResponse,
     SplitChaptersRequest,
 )
 from modules.outline.services import (
@@ -47,8 +54,19 @@ router = APIRouter(prefix="/api/outline", tags=["outline"])
 _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
 _scene_service = SceneService()
+_scene_workbench_service = SceneWorkbenchService()
 _foreshadowing_service = ForeshadowingPlanService()
 _reveal_service = RevealPlanService()
+
+
+def _workbench_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, LookupError):
+        return HTTPException(status_code=404, detail=str(exc) or "Not found")
+    if isinstance(exc, PermissionError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
 
 
 async def _enqueue_confirmed_outline_task(
@@ -194,6 +212,97 @@ async def api_delete_arc(
 # ============================================================
 # Scenes
 # ============================================================
+
+
+@router.get("/scene-workbench", response_model=SceneWorkbenchResponse)
+async def api_get_scene_workbench(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    selected_scene_id: str | None = Query(None, description="当前选中的 Scene ID"),
+):
+    try:
+        return await _scene_workbench_service.get_workbench(
+            db,
+            novel_id,
+            selected_scene_id=selected_scene_id,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.patch(
+    "/scene-workbench/scenes/{scene_id}/mapping",
+    response_model=SceneResponse,
+)
+async def api_update_scene_workbench_mapping(
+    scene_id: str,
+    data: SceneMappingUpdate,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.update_mapping(
+            db,
+            novel_id,
+            scene_id,
+            data,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/merge/preview",
+    response_model=SceneImpactPreview,
+)
+async def api_preview_scene_merge(
+    data: SceneMergeRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.preview_merge(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post("/scene-workbench/merge", response_model=SceneWorkbenchItem)
+async def api_merge_scene(
+    data: SceneMergeRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.merge(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/split/preview",
+    response_model=SceneImpactPreview,
+)
+async def api_preview_scene_split(
+    data: SceneSplitRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.preview_split(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post("/scene-workbench/split", response_model=SceneWorkbenchItem)
+async def api_split_scene(
+    data: SceneSplitRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.split(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
 
 
 @router.post(

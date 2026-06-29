@@ -18,6 +18,7 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 - `PlotThreadService`
 - `OutlineArcService`
 - `SceneService`
+- `SceneWorkbenchService`
 - `ForeshadowingPlanService`
 - `RevealPlanService`
 - `PlotStructureGenerator`
@@ -28,10 +29,44 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 POST/GET/PATCH/DELETE /api/outline/threads...
 POST/GET/PATCH/DELETE /api/outline/arcs...
 POST/GET/PATCH/DELETE /api/outline/scenes...
+GET/PATCH/POST /api/outline/scene-workbench...
 POST/GET/PATCH/DELETE /api/outline/foreshadowing...
 POST/GET/PATCH/DELETE /api/outline/reveals...
 POST /api/outline/generate
 ```
+
+## Scene 工作台
+
+Scene 工作台是 Scene 管理、章节映射和结构整理的主入口。旧大纲页
+“场景卡”子标签只保留跳转，不再维护第二套管理 UI。
+
+工作台 API：
+
+```http
+GET   /api/outline/scene-workbench
+PATCH /api/outline/scene-workbench/scenes/{scene_id}/mapping
+POST  /api/outline/scene-workbench/merge/preview
+POST  /api/outline/scene-workbench/merge
+POST  /api/outline/scene-workbench/split/preview
+POST  /api/outline/scene-workbench/split
+```
+
+`scenes.structure_meta` 保存结构整理元信息，例如：
+
+- `needs_organize`
+- `reviewed_at`
+- `merged_into_scene_id`
+- `merged_from_scene_ids`
+- `split_from_scene_id`
+- `split_at_chapter_index`
+
+健康项由 `SceneWorkbenchService` 派生，固定为 `未复核`、`未关联章节`、
+`缺设定`、`待整理`。跨多章 Scene 是正常形态，不作为默认风险。
+
+合并 / 拆分都必须先走 preview；执行请求必须包含 `confirmed: true`。
+preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，不修改数据，
+也不因存在关联资产自动阻断。合并不硬删除来源 Scene，只把来源 Scene 标记为
+`deprecated` 并保留可追踪 meta。拆分不修改正文内容，只调整 Scene 映射并创建新 Scene。
 
 ## Facade
 

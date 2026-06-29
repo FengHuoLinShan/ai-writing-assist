@@ -261,6 +261,7 @@ def _scene_to_dict(scene) -> dict[str, Any]:
         "scene_chunks": scene.scene_chunks or [],
         "chapter_ids": scene.chapter_ids or [],
         "pov_character_id": scene.pov_character_id,
+        "structure_meta": scene.structure_meta or {},
         "status": scene.status,
     }
 
@@ -282,5 +283,6 @@ def _scene_to_contract(scene) -> SceneContract:
         scene_chunks=scene.scene_chunks or [],
         chapter_ids=scene.chapter_ids or [],
         pov_character_id=scene.pov_character_id,
+        structure_meta=scene.structure_meta or {},
         status=scene.status,
     )

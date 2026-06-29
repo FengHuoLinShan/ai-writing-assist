@@ -56,13 +56,6 @@ const outlineView = {
           .catch(() => { this._arcs = [] })
       )
     }
-    if (subView === "scenes") {
-      promises.push(
-        api.outline.listScenes(state.currentProjectId)
-          .then((data) => { this._scenes = data.items || data || [] })
-          .catch(() => { this._scenes = [] })
-      )
-    }
     if (fetchForeshadowing) {
       promises.push(
         api.outline.listForeshadowing(state.currentProjectId)
@@ -143,65 +136,14 @@ const outlineView = {
     if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
     }
-
-    let html = `
-      <div style="margin-bottom:8px;">
-        <button class="btn btn-primary" data-action="create-scene">新建 Scene</button>
-        <button class="btn btn-sm" data-action="generate-structure">AI 生成结构</button>
+    return `
+      <div class="empty-state">
+        <div class="empty-icon">&#128209;</div>
+        <p>Scene 管理已迁移到场景工作台</p>
+        <p style="color:var(--text-dim);font-size:12px;">这里保留为旧路径跳转页。</p>
+        <button class="btn btn-primary" data-action="open-scene-workbench">打开场景工作台</button>
       </div>
     `
-
-    if (!this._scenes || this._scenes.length === 0) {
-      return html + `
-        <div class="empty-state">
-          <div class="empty-icon">&#128209;</div>
-          <p>暂无 Scene 卡。</p>
-          <p style="color:var(--text-dim);font-size:12px;">Scene 是叙事结构的最小单元。通过深度导入自动生成，或手动创建。</p>
-        </div>
-      `
-    }
-
-    const sorted = [...this._scenes].sort(
-      (a, b) => (a.scene_index || 0) - (b.scene_index || 0)
-    )
-
-    html += '<div class="scene-card-list">'
-    const allowedTags = SCENE_ALLOWED_TAGS
-    const allowedStatuses = ENTITY_ALLOWED_STATUSES
-
-    for (const s of sorted) {
-      const tagLabel = this._narrativeTagLabel(s.narrative_tag)
-      const safeTag = allowedTags.has(s.narrative_tag) ? s.narrative_tag : "draft"
-      const tagClass = `narrative-tag-${safeTag}`
-      const sourceLabel = s.source === "deep_import" ? "AI导入"
-        : s.source === "ai_generated" ? "AI生成" : "手动"
-      const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
-      const safeStatus = allowedStatuses.has(s.status) ? s.status : "draft"
-      const statusClass = `badge-${safeStatus}`
-
-      html += `
-        <div class="scene-card" data-id="${esc(s.id)}">
-          <div class="scene-card-header">
-            <span class="scene-index">#${esc(s.scene_index)}</span>
-            <span class="narrative-tag ${tagClass}">${esc(tagLabel)}</span>
-            <span class="badge ${statusClass}">${statusMap[safeStatus] || esc(s.status)}</span>
-            <span class="scene-source">${sourceLabel}</span>
-          </div>
-          <div class="scene-card-title">${esc(s.title || "未命名 Scene")}</div>
-          ${s.goal ? `<div class="scene-card-field"><span class="field-label">目标</span>${esc(s.goal)}</div>` : ""}
-          ${s.core_conflict ? `<div class="scene-card-field"><span class="field-label">冲突</span>${esc(s.core_conflict)}</div>` : ""}
-          ${s.emotional_beat ? `<div class="scene-card-field"><span class="field-label">情感</span>${esc(s.emotional_beat)}</div>` : ""}
-          <div class="scene-card-actions">
-            <button class="btn btn-sm" data-action="move-scene-up" data-id="${esc(s.id)}">上移</button>
-            <button class="btn btn-sm" data-action="move-scene-down" data-id="${esc(s.id)}">下移</button>
-            <button class="btn btn-sm" data-action="edit-scene" data-id="${esc(s.id)}">编辑</button>
-            <button class="btn btn-sm btn-danger" data-action="delete-scene" data-id="${esc(s.id)}">删除</button>
-          </div>
-        </div>
-      `
-    }
-    html += '</div>'
-    return html
   },
 
   _narrativeTagLabel(tag) {
@@ -1182,6 +1124,7 @@ const outlineView = {
       "nav-arcs": () => router.navigate("outline", "arcs"),
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
+      "open-scene-workbench": () => router.navigate("scene", null),
       "create-thread": () => this._showCreateThreadForm(),
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),

@@ -2283,6 +2283,10 @@ const writingView = {
       "dismiss-deep-import": () => this._dismissDeepImport(),
       "view-deep-import-audit": () => this._showDeepImportAuditDetails(),
       "open-outline": () => router.navigate("outline", null),
+      "open-scene-workbench": () => {
+        const scene = this._findCurrentScene()
+        router.navigate("scene", scene?.id || null)
+      },
       "split-scene": () => this._showSplitSceneForm(),
       "extract-cards": () => this._extractChapterCards(),
       "select-scene": (_e, t) => this._selectScene(t.getAttribute("data-scene-id")),

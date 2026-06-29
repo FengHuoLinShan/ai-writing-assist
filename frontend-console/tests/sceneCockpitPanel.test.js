@@ -31,6 +31,8 @@ describe("sceneCockpitPanel", () => {
     expect(firstMustNot).toBeGreaterThan(-1)
     expect(firstMustNot).toBeLessThan(secondGoal)
     expect(secondGoal).toBeLessThan(thirdTitle)
+    expect(html).toContain("data-action=\"open-scene-workbench\"")
+    expect(html).toContain("整理")
     expect(html).not.toContain("<script>alert")
   })
 
