@@ -7,6 +7,8 @@ writing 模块不是核心 AI 正文生成模块，而是人工正文草稿和�
 ## 数据表
 
 - `writing_drafts` — chapter_index / title / content / version_number（UniqueConstraint: novel_id + chapter_index + version_number）
+- `writing_conflict_checks` — Scene 写作冲突检查记录，保存规则层结果、AI 软冲突状态和 `include_candidates`
+- `writing_conflict_items` — 单条检查问题，保存来源模块、证据摘要、可打开来源和处理状态
 
 ## 版本管理
 
@@ -38,6 +40,12 @@ GET    /api/writing/chapters/{index}/draft              # 按章节索引获取�
 GET    /api/writing/chapters/{index}/versions           # 章节版本历史
 GET    /api/writing/chapters                            # 列出有草稿的章节索引
 POST   /api/writing/chapters/{chapter_index}/split     # 断章：在 split_pos 处切分当前章，生成下一章草稿
+POST   /api/writing/conflict-checks                    # 创建剧情设定冲突检查
+GET    /api/writing/conflict-checks                    # 获取章节/Scene 检查历史
+GET    /api/writing/conflict-checks/{id}               # 获取检查详情
+POST   /api/writing/conflict-checks/{id}/ai-review     # 追加 AI 软冲突判断
+PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状态
+POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 生成单条 AI 修复建议
 ```
 
 `POST /api/writing/chapters/{chapter_index}/split?novel_id=...` splits the latest draft at `split_pos`, creates the next chapter draft, shifts later chapter indices, and delegates Scene chunk remapping to outline facade. It does not enqueue `publish_chapter`; RAG indexing waits for an explicit save/publish.
@@ -49,7 +57,25 @@ POST   /api/writing/chapters/{chapter_index}/split     # 断章：在 split_pos 
 ## 多 Tab 冲突检测
 
 `PUT /drafts/{id}` 支持 `expected_version` 字段；当传入期望版本与当前最新版本不一致时，后端返回 409。
-当前 `writing.spec.js` 仅验证了草稿被删除后的 404；基于 409 的预期版本冲突 E2E 仍待补充。
+前端 E2E 覆盖了其他会话发布新版本、其他 Tab 暂存同一草稿两类 409 用户路径。
+
+## 剧情设定冲突检查
+
+`POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项确认，默认不包含待确认对象；用户勾选“包含待确认对象”后，后端以 `include_candidates=true` 纳入候选地图观察等证据，依赖候选对象的问题会标记 `needs_review=true`。
+
+规则层检查聚合三类跨模块证据：
+
+- `outline.facade.get_scene_contract`：Scene 的目标、必须发生、禁止发生和核心冲突，命中项带 `outline_scene` 打开目标或正文 `text_range`。
+- `world.map_facade.summarize_scene_map_for_writing`：当前 Scene 的地图摘要、风险和待确认观察，地图项带 `map_scene` / `map_object` 打开目标。
+- `memory.facade.get_continuity_evidence_for_writing`：上一章角色位置连续性证据，连续性问题带 `memory_chapter` 打开目标。
+
+问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
+
+AI 能力是显式追加流程，不替代规则层结果：
+
+- `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
+- `ai-suggestion` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
+- AI 软冲突和建议只写入检查项，不修改正文、Scene、地图、世界对象、记忆或正史资产。
 
 ## 手动工作台
 
@@ -59,5 +85,18 @@ writingView（frontend-console/views/writingView.js）扩展为手动工作台�
 - **中间编辑器**：textarea + 保存/上一章/下一章/导出
 - **右侧 Scene 卡面板**：当前 Scene 卡详情（goal / core_conflict / emotional_beat / must_happen / must_not_happen / narrative_tag）
 - **版本历史**：模态框列出所有版本，支持预览和恢复
+- **剧情设定冲突检查**：检查前确认是否包含待确认对象；检查结果按规则命中和 AI 判断分组，支持证据抽屉、来源打开、正文定位、状态更新和复制 AI 修复建议
 - **深度导入按钮**：触发三阶段进度条（40%/40%/20%），每 3 秒轮询进度
 - **章节 / Scene 提取**：批量调用 LLM 从正文提取 Scene 卡字段；UI 里历史“章节卡提取”入口不表示恢复独立 ChapterCard 主模型，当前权威结构对象仍是 `scenes`
+
+## 真实 LLM 验收
+
+真实 LLM 写作冲突检查默认跳过，不进入常规 CI。手动验收覆盖规则层冲突、跨模块地图/记忆证据、AI 软冲突、AI 修复建议、状态更新和发布快照归档：
+
+```bash
+cd backend
+RUN_REAL_LLM_TESTS=1 pytest modules/writing/tests/test_conflict_checks_real_llm.py -q -s
+
+cd frontend-console
+ENABLE_REAL_LLM=1 npx playwright test e2e/writing-conflict-real-llm.spec.js --reporter=list --timeout=300000
+```

@@ -127,6 +127,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
 - 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
 - 深度导入仍保留 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations` 候选流；该接入不自动写正式 `map_facts`。
+- 写作冲突检查通过 `summarize_scene_map_for_writing(..., include_candidates=False)` 消费 Scene 地图摘要，默认只返回已确认事实；用户在写作页显式勾选包含待确认对象时才会纳入 candidate observation，并在 writing 问题项标记 `needs_review`。
 
 ## 对外契约（contracts.py）
 
@@ -250,6 +251,8 @@ async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
 async def get_character_location_id(db, novel_id, character_id) -> str | None
 async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | None
 ```
+
+`summarize_scene_map_for_writing` 返回写作模块可消费的轻量 Scene 地图摘要，包括主地点、角色/事件/势力/风险、打开地图目标和候选支持状态。它是 world → writing 的稳定边界；writing 不直接读取 `map_observations` / `map_facts` 内部表。
 
 ## API 路由
 

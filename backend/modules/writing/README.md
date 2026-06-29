@@ -91,12 +91,13 @@ POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题
 
 `POST /api/writing/chapters/{chapter_index}/split` 将最新草稿在 `split_pos` 处切分为两章，生成下一章草稿并位移后续章节索引，同时委托 outline facade 完成 Scene chunk 重映射。该操作不入队 `publish_chapter`，RAG 索引需等待显式保存/发布。
 
-`POST /api/writing/conflict-checks` 默认只做规则层检查：
+`POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 
 - 通过 `outline.facade.get_scene_contract` 读取当前 Scene 的目标、必须发生、禁止发生和核心冲突。
-- 通过 `world.map_facade.summarize_scene_map_for_writing` 读取写作页地图摘要，默认不纳入待确认对象。
+- 通过 `world.map_facade.summarize_scene_map_for_writing` 读取写作页地图摘要，默认不纳入待确认对象；`include_candidates=true` 时会纳入候选 observation，相关问题标记 `needs_review=true` 并写入复核原因。
 - 通过 `memory.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。
-- 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，之后问题状态变化不会改写该发布快照。
+- 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `map_scene` / `map_object` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。
+- 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，不保留正文 `text_range`，之后问题状态变化不会改写该发布快照。
 
 Phase 2 AI 能力是显式追加，不影响规则层检查：
 
