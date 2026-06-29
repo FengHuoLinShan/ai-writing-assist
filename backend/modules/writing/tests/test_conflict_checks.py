@@ -378,6 +378,59 @@ async def test_confirmed_map_evidence_is_not_marked_for_review(
 
 
 @pytest.mark.asyncio
+async def test_candidate_support_degradation_preserves_confirmed_map_evidence(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(
+        async_client,
+        novel_id,
+        must_happen="",
+        must_not_happen="",
+    )
+
+    async def fake_map_summary(_db, _novel_id, _scene_id, *, include_candidates=False):
+        assert include_candidates is True
+        return {
+            "candidate_support": "unsupported",
+            "primary_location": None,
+            "risks": [
+                {
+                    "level": "warning",
+                    "message": "城门封锁",
+                    "depends_on_candidate": False,
+                    "evidence_excerpt": "城门已经封锁",
+                    "open_target": {
+                        "kind": "map_object",
+                        "map_id": "map-1",
+                        "object_id": "gate-1",
+                    },
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+
+    body = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        content="城门前挤满人群。",
+        include_candidates=True,
+    )
+
+    assert body["status"] == "degraded"
+    assert "world.map.candidates" in body["summary_json"]["degraded_sources"]
+    map_item = next(item for item in body["items"] if item["kind"] == "map_risk")
+    assert map_item["needs_review"] is False
+
+
+@pytest.mark.asyncio
 async def test_continuity_location_mismatch_uses_memory_evidence_contract(
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

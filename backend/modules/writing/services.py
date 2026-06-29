@@ -626,11 +626,12 @@ class WritingConflictCheckService:
             logger.exception("Failed to load map summary for conflict check")
             return [], ["world.map"], None
 
+        degraded = []
         if (
             include_candidates
             and _read_field(summary, "candidate_support") == "unsupported"
         ):
-            return [], ["world.map.candidates"], summary
+            degraded.append("world.map.candidates")
 
         items = []
         risks = _read_field(summary, "risks", []) or []
@@ -674,7 +675,7 @@ class WritingConflictCheckService:
                     "needs_review": depends_on_candidate,
                 }
             )
-        return items, [], summary
+        return items, degraded, summary
 
     async def _memory_rule_items(
         self,
