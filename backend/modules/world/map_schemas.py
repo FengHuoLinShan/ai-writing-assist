@@ -274,6 +274,7 @@ class MapOpenTarget(BaseModel):
     map_id: str | None = None
     scene_id: str | None = None
     focus_entity_id: str | None = None
+    observation_id: str | None = None
     fallback_reason: str | None = None
     fallback_message: str | None = None
 
@@ -286,6 +287,10 @@ class MapSceneSummaryItem(BaseModel):
     map_id: str
     hex_q: int | None = None
     hex_r: int | None = None
+    depends_on_candidate: bool = False
+    candidate_review_state: str | None = None
+    evidence_excerpt: str | None = None
+    open_target: dict | None = None
 
 
 class MapSceneSummaryWarning(BaseModel):
@@ -294,6 +299,10 @@ class MapSceneSummaryWarning(BaseModel):
     level: Literal["info", "warning"] = "info"
     code: str
     message: str
+    depends_on_candidate: bool = False
+    candidate_review_state: str | None = None
+    evidence_excerpt: str | None = None
+    open_target: dict | None = None
 
 
 class MapSceneSummaryResponse(BaseModel):
@@ -308,6 +317,7 @@ class MapSceneSummaryResponse(BaseModel):
     risks: list[MapSceneSummaryWarning] = Field(default_factory=list)
     warnings: list[MapSceneSummaryWarning] = Field(default_factory=list)
     open_target: MapOpenTarget
+    candidate_support: Literal["supported", "unsupported"] = "supported"
 
 
 # ============================================================

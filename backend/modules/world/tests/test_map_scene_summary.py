@@ -87,6 +87,7 @@ async def test_scene_summary_without_markers_returns_empty_summary_and_fallback(
         "map_id": None,
         "scene_id": str(scene.id),
         "focus_entity_id": None,
+        "observation_id": None,
         "fallback_reason": "scene_without_map",
         "fallback_message": "当前 Scene 暂无地图上下文，已回退到最近地图",
     }
@@ -183,6 +184,88 @@ async def test_writing_map_facade_excludes_candidate_markers_by_default(
 
     assert summary["characters"] == []
     assert summary["open_target"]["mode"] == "recent"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_excludes_candidate_observations_by_default(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    scene = await _create_scene(db_session, novel_id, scene_index=1)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations",
+        params={"novel_id": novel_id},
+        json={
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "review_state": "candidate",
+            "scene_id": str(scene.id),
+            "scene_index": 1,
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "evidence_text": "粮仓火势正在扩大",
+        },
+    )
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=False,
+    )
+
+    assert summary["candidate_support"] == "supported"
+    assert summary["risks"] == []
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_marks_candidate_observation_evidence(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    scene = await _create_scene(db_session, novel_id, scene_index=1)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    observation_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations",
+        params={"novel_id": novel_id},
+        json={
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "review_state": "candidate",
+            "scene_id": str(scene.id),
+            "scene_index": 1,
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "evidence_text": "粮仓火势正在扩大",
+        },
+    )
+    observation_id = observation_resp.json()["id"]
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=True,
+    )
+
+    assert summary["candidate_support"] == "supported"
+    assert summary["risks"][0]["depends_on_candidate"] is True
+    assert summary["risks"][0]["candidate_review_state"] == "candidate"
+    assert summary["risks"][0]["evidence_excerpt"] == "粮仓火势正在扩大"
+    assert summary["risks"][0]["open_target"]["observation_id"] == observation_id
 
 
 @pytest.mark.asyncio
@@ -322,7 +405,7 @@ async def test_scene_summary_returns_location_characters_events_and_factions(
 
 
 @pytest.mark.asyncio
-async def test_scene_summary_exposes_crises_and_risks_from_map_observations(
+async def test_scene_summary_exposes_candidate_crises_when_facade_includes_candidates(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -360,6 +443,7 @@ async def test_scene_summary_exposes_crises_and_risks_from_map_observations(
         },
     )
     assert crisis_resp.status_code == 201, crisis_resp.text
+    observation_id = crisis_resp.json()["id"]
 
     resp = await async_client.get(
         "/api/world/maps/scene-summary",
@@ -368,14 +452,23 @@ async def test_scene_summary_exposes_crises_and_risks_from_map_observations(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert [item["name"] for item in body["crises"]] == ["东门封锁"]
-    assert body["risks"] == [
-        {
-            "level": "warning",
-            "code": "map_dynamic_risk",
-            "message": "东门封锁：待确认",
-        }
-    ]
+    assert body["crises"] == []
+    assert body["risks"] == []
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        nid,
+        str(scene.id),
+        include_candidates=True,
+    )
+
+    assert [item["name"] for item in summary["crises"]] == ["东门封锁"]
+    assert summary["crises"][0]["depends_on_candidate"] is True
+    assert summary["crises"][0]["candidate_review_state"] == "candidate"
+    assert summary["crises"][0]["open_target"]["observation_id"] == observation_id
+    assert summary["risks"][0]["level"] == "warning"
+    assert summary["risks"][0]["code"] == "map_dynamic_risk"
+    assert summary["risks"][0]["message"] == "东门封锁：待确认"
 
 
 @pytest.mark.asyncio

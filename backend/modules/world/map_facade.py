@@ -44,13 +44,15 @@ async def summarize_scene_map_for_writing(
 ) -> dict[str, Any]:
     """Return a Scene map summary for writing conflict checks.
 
-    V1 checks default to canonical map context. The underlying scene summary already
-    excludes candidate markers from its default context; include_candidates is kept
-    in the stable seam so later candidate-aware summaries can mark dependent
-    results as needs_review without changing writing.
+    V1 checks default to canonical map context. include_candidates lets writing
+    conflict checks opt into candidate/conflicted map observation evidence.
     """
     from modules.world.services.map_scene_summary import MapSceneSummaryService
 
-    _ = include_candidates
-    summary = await MapSceneSummaryService().summarize(db, novel_id, scene_id)
+    summary = await MapSceneSummaryService().summarize(
+        db,
+        novel_id,
+        scene_id,
+        include_candidates=include_candidates,
+    )
     return summary.model_dump()

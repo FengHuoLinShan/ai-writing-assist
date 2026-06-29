@@ -64,6 +64,8 @@ class MapSceneSummaryService:
         db: AsyncSession,
         novel_id: str,
         scene_id: str,
+        *,
+        include_candidates: bool = False,
     ) -> MapSceneSummaryResponse:
         scene = await self._scene_lookup(db, novel_id, scene_id)
         if scene is None:
@@ -131,7 +133,13 @@ class MapSceneSummaryService:
         characters = self._marker_items(map_markers, entity_names, "character", limit=5)
         events = self._marker_items(map_markers, entity_names, "event", limit=3)
         factions = await self._faction_items(db, nid, selected_map_id, map_markers)
-        crises, risks = await self._dynamic_scene_items(db, nid, selected_map_id, sid)
+        crises, risks = await self._dynamic_scene_items(
+            db,
+            nid,
+            selected_map_id,
+            sid,
+            include_candidates=include_candidates,
+        )
         warnings.extend(
             await self._cross_map_warnings(
                 db, nid, map_markers, scene_index, entity_names
@@ -295,6 +303,8 @@ class MapSceneSummaryService:
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
         scene_id: uuid.UUID,
+        *,
+        include_candidates: bool,
     ) -> tuple[list[MapSceneSummaryItem], list[MapSceneSummaryWarning]]:
         observations = await self._observation_repo.list_for_dashboard(
             db,
@@ -306,6 +316,12 @@ class MapSceneSummaryService:
         risks: list[MapSceneSummaryWarning] = []
         for observation in observations:
             if observation.scene_id != scene_id:
+                continue
+            is_candidate_dependent = observation.review_state in {
+                "candidate",
+                "conflicted",
+            }
+            if is_candidate_dependent and not include_candidates:
                 continue
             if observation.dynamic_type not in {
                 "crisis",
@@ -320,6 +336,17 @@ class MapSceneSummaryService:
                 or observation.target_entity_type
                 or "地图风险"
             )
+            open_target = {
+                "kind": "map_object",
+                "map_id": str(observation.map_id or map_id),
+                "scene_id": str(scene_id),
+                "observation_id": str(observation.id),
+                "focus_entity_id": (
+                    str(observation.target_entity_id)
+                    if observation.target_entity_id
+                    else None
+                ),
+            }
             crises.append(
                 MapSceneSummaryItem(
                     entity_id=str(observation.target_entity_id or observation.id),
@@ -327,6 +354,12 @@ class MapSceneSummaryService:
                     map_id=str(observation.map_id or map_id),
                     hex_q=anchor.get("hex_q"),
                     hex_r=anchor.get("hex_r"),
+                    depends_on_candidate=is_candidate_dependent,
+                    candidate_review_state=(
+                        observation.review_state if is_candidate_dependent else None
+                    ),
+                    evidence_excerpt=observation.evidence_text,
+                    open_target=open_target,
                 )
             )
             risks.append(
@@ -334,6 +367,12 @@ class MapSceneSummaryService:
                     level="warning",
                     code="map_dynamic_risk",
                     message=f"{title}：{self._status_label(observation.review_state)}",
+                    depends_on_candidate=is_candidate_dependent,
+                    candidate_review_state=(
+                        observation.review_state if is_candidate_dependent else None
+                    ),
+                    evidence_excerpt=observation.evidence_text,
+                    open_target=open_target,
                 )
             )
         return crises, risks
