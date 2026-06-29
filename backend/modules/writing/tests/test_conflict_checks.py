@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.tasks.models import AsyncTask
-from modules.memory.schemas import ChapterPanorama, CharacterLocationInPanorama
+from modules.memory.contracts import MemoryContinuityEvidenceContract
 
 
 async def _create_project(async_client: AsyncClient, title: str = "冲突检查项目") -> str:
@@ -59,6 +59,7 @@ async def _create_check(
     *,
     content: str = "主角死亡。王后沉默。",
     chapter_index: int = 1,
+    include_candidates: bool = False,
 ) -> dict:
     resp = await async_client.post(
         "/api/writing/conflict-checks",
@@ -67,7 +68,7 @@ async def _create_check(
             "chapter_index": chapter_index,
             "scene_id": scene_id,
             "content": content,
-            "include_candidates": False,
+            "include_candidates": include_candidates,
         },
     )
     assert resp.status_code == 201, resp.text
@@ -249,6 +250,10 @@ async def test_publish_archives_latest_conflict_check_snapshot(
     snapshot = published.json()["draft"]["conflict_check_snapshot_json"]
     assert snapshot["check_id"] == check["id"]
     assert snapshot["open_high_count"] == 1
+    first_snapshot_item = snapshot["items"][0]
+    assert first_snapshot_item["location_json"]["source"]
+    assert first_snapshot_item["location_json"]["open_target"]
+    assert "text_range" not in first_snapshot_item["location_json"]
 
     status_resp = await async_client.patch(
         f"/api/writing/conflict-check-items/{item_id}?novel_id={novel_id}",
@@ -266,7 +271,114 @@ async def test_publish_archives_latest_conflict_check_snapshot(
 
 
 @pytest.mark.asyncio
-async def test_continuity_location_mismatch_uses_previous_memory_and_current_map(
+async def test_candidate_map_evidence_marks_item_for_review(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(
+        async_client,
+        novel_id,
+        must_happen="",
+        must_not_happen="",
+    )
+
+    async def fake_map_summary(_db, _novel_id, _scene_id, *, include_candidates=False):
+        assert include_candidates is True
+        return {
+            "primary_location": None,
+            "risks": [
+                {
+                    "level": "warning",
+                    "message": "粮仓失火",
+                    "depends_on_candidate": True,
+                    "candidate_review_state": "candidate",
+                    "evidence_excerpt": "粮仓火势正在扩大",
+                    "open_target": {
+                        "kind": "map_object",
+                        "map_id": "map-1",
+                        "observation_id": "obs-1",
+                    },
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+
+    body = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        content="粮仓火光照亮城墙。",
+        include_candidates=True,
+    )
+
+    map_item = next(item for item in body["items"] if item["kind"] == "map_risk")
+    assert map_item["needs_review"] is True
+    location = map_item["location_json"]
+    assert location["needs_review_reason"] == "依赖待确认地图观察"
+    assert location["source"]["field"] == "地图风险"
+    assert location["source"]["excerpt"] == "粮仓火势正在扩大"
+    assert location["open_target"]["observation_id"] == "obs-1"
+
+
+@pytest.mark.asyncio
+async def test_confirmed_map_evidence_is_not_marked_for_review(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(
+        async_client,
+        novel_id,
+        must_happen="",
+        must_not_happen="",
+    )
+
+    async def fake_map_summary(_db, _novel_id, _scene_id, *, include_candidates=False):
+        assert include_candidates is True
+        return {
+            "primary_location": None,
+            "risks": [
+                {
+                    "level": "warning",
+                    "message": "城门封锁",
+                    "depends_on_candidate": False,
+                    "evidence_excerpt": "城门已经封锁",
+                    "open_target": {
+                        "kind": "map_object",
+                        "map_id": "map-1",
+                        "object_id": "gate-1",
+                    },
+                }
+            ],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+
+    body = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        content="城门前挤满人群。",
+        include_candidates=True,
+    )
+
+    map_item = next(item for item in body["items"] if item["kind"] == "map_risk")
+    assert map_item["needs_review"] is False
+    assert map_item["location_json"]["needs_review_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_continuity_location_mismatch_uses_memory_evidence_contract(
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -281,20 +393,6 @@ async def test_continuity_location_mismatch_uses_previous_memory_and_current_map
         pov_character_id=pov_character_id,
     )
 
-    async def fake_memory_panorama(_db, _novel_id, chapter_index):
-        if chapter_index == 1:
-            return ChapterPanorama(
-                novel_id=_novel_id,
-                chapter_index=1,
-                character_locations={
-                    pov_character_id: CharacterLocationInPanorama(
-                        location_id="loc-previous",
-                        text_state="仍在旧城",
-                    )
-                },
-            )
-        return ChapterPanorama(novel_id=_novel_id, chapter_index=chapter_index)
-
     async def fake_map_summary(_db, _novel_id, _scene_id, *, include_candidates=False):
         return {
             "primary_location": {
@@ -305,7 +403,37 @@ async def test_continuity_location_mismatch_uses_previous_memory_and_current_map
             "warnings": [],
         }
 
-    monkeypatch.setattr("modules.memory.facade.get_memory_panorama", fake_memory_panorama)
+    async def fake_continuity_evidence(
+        _db,
+        _novel_id,
+        chapter_index,
+        *,
+        pov_character_id,
+        current_location_id,
+        current_location_name=None,
+    ):
+        assert chapter_index == 2
+        assert pov_character_id == "pov-character-1"
+        assert current_location_id == "loc-current"
+        assert current_location_name == "新城"
+        return MemoryContinuityEvidenceContract(
+            source_module="memory",
+            source_type="memory.character_location",
+            source_id="pov-character-1",
+            source_label="章节记忆：第 1 章",
+            source_field="角色位置",
+            source_excerpt="上一章 仍在旧城，当前 新城",
+            open_target={
+                "kind": "memory_chapter",
+                "chapter_index": 1,
+                "character_id": "pov-character-1",
+            },
+        )
+
+    monkeypatch.setattr(
+        "modules.memory.facade.get_continuity_evidence_for_writing",
+        fake_continuity_evidence,
+    )
     monkeypatch.setattr(
         "modules.world.map_facade.summarize_scene_map_for_writing",
         fake_map_summary,
@@ -326,8 +454,63 @@ async def test_continuity_location_mismatch_uses_previous_memory_and_current_map
     item = continuity_items[0]
     assert item["severity"] == "medium"
     assert item["source_module"] == "memory"
-    assert "旧城" in item["evidence_summary"]
-    assert "新城" in item["evidence_summary"]
+    assert item["evidence_summary"] == "上一章 仍在旧城，当前 新城"
+    assert item["location_json"]["source"] == {
+        "module": "memory",
+        "type": "memory.character_location",
+        "id": "pov-character-1",
+        "label": "章节记忆：第 1 章",
+        "field": "角色位置",
+        "excerpt": "上一章 仍在旧城，当前 新城",
+    }
+    assert item["location_json"]["open_target"] == {
+        "kind": "memory_chapter",
+        "chapter_index": 1,
+        "character_id": "pov-character-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_continuity_check_without_memory_history_has_no_mismatch(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(
+        async_client,
+        novel_id,
+        chapter_index=2,
+        must_happen="",
+        must_not_happen="",
+        pov_character_id="pov-character-1",
+    )
+
+    async def fake_map_summary(_db, _novel_id, _scene_id, *, include_candidates=False):
+        return {
+            "primary_location": {
+                "entity_id": "loc-current",
+                "name": "新城",
+            },
+            "risks": [],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+
+    body = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        chapter_index=2,
+        content="主角抵达新城。",
+    )
+
+    assert [
+        item for item in body["items"] if item["kind"] == "continuity_location_mismatch"
+    ] == []
 
 
 @pytest.mark.asyncio

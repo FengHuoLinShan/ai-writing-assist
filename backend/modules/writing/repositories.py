@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.writing.conflict_evidence import snapshot_location
 from modules.writing.models import WritingConflictCheck, WritingConflictItem, WritingDraft
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 
@@ -625,6 +626,7 @@ class WritingConflictCheckRepository:
                     "status": item.status,
                     "source_module": item.source_module,
                     "evidence_summary": item.evidence_summary,
+                    "location_json": snapshot_location(item.location_json),
                     "is_ai_judgment": item.is_ai_judgment,
                     "needs_review": item.needs_review,
                     "suggestion_status": item.suggestion_status,

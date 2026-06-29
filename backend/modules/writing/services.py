@@ -409,10 +409,6 @@ class WritingConflictCheckService:
         items.extend(memory_items)
         degraded_sources.extend(memory_degraded)
 
-        if data.include_candidates:
-            for item in items:
-                item["needs_review"] = True
-
         status = "degraded" if degraded_sources else "completed"
         summary_json = self._summary(items, degraded_sources)
         check, created_items = await self._repo.create_check(
@@ -630,6 +626,12 @@ class WritingConflictCheckService:
             logger.exception("Failed to load map summary for conflict check")
             return [], ["world.map"], None
 
+        if (
+            include_candidates
+            and _read_field(summary, "candidate_support") == "unsupported"
+        ):
+            return [], ["world.map.candidates"], summary
+
         items = []
         risks = _read_field(summary, "risks", []) or []
         warnings = _read_field(summary, "warnings", []) or []
@@ -638,6 +640,17 @@ class WritingConflictCheckService:
                 _read_field(warning, "message")
                 or _read_field(warning, "code")
                 or "地图状态需复核"
+            )
+            depends_on_candidate = bool(
+                _read_field(warning, "depends_on_candidate")
+            )
+            evidence_excerpt = _read_field(warning, "evidence_excerpt") or message
+            open_target = _read_field(warning, "open_target") or {
+                "kind": "map_scene",
+                "scene_id": scene_id,
+            }
+            needs_review_reason = (
+                "依赖待确认地图观察" if depends_on_candidate else None
             )
             severity = "medium" if _read_field(warning, "level") == "warning" else "low"
             items.append(
@@ -648,8 +661,17 @@ class WritingConflictCheckService:
                     "source_type": "map.scene_summary",
                     "source_id": scene_id,
                     "evidence_summary": message,
-                    "location_json": {"target": "scene_map_summary"},
-                    "needs_review": include_candidates,
+                    "location_json": evidence_location(
+                        source_module="world",
+                        source_type="map.scene_summary",
+                        source_id=scene_id,
+                        source_label="地图摘要",
+                        source_field="地图风险",
+                        source_excerpt=str(evidence_excerpt),
+                        open_target=open_target,
+                        needs_review_reason=needs_review_reason,
+                    ),
+                    "needs_review": depends_on_candidate,
                 }
             )
         return items, [], summary
@@ -663,54 +685,49 @@ class WritingConflictCheckService:
         scene: object | None,
         map_summary: object | None,
     ) -> tuple[list[dict], list[str]]:
-        try:
-            from modules.memory.facade import get_memory_panorama
-
-            previous = None
-            if chapter_index > 1:
-                previous = await get_memory_panorama(db, novel_id, chapter_index - 1)
-            await get_memory_panorama(db, novel_id, chapter_index)
-        except Exception:
-            logger.exception("Failed to load memory panorama for conflict check")
-            return [], ["memory"]
-
-        if scene is None or previous is None or map_summary is None:
+        if scene is None or map_summary is None:
             return [], []
 
         pov_character_id = getattr(scene, "pov_character_id", None)
         primary_location = _read_field(map_summary, "primary_location")
         current_location_id = _read_field(primary_location, "entity_id")
-        if not pov_character_id or not current_location_id:
-            return [], []
-
-        character_locations = _read_field(previous, "character_locations", {}) or {}
-        if not isinstance(character_locations, dict):
-            return [], []
-        previous_location = character_locations.get(pov_character_id)
-        previous_location_id = _read_field(previous_location, "location_id")
-        if not previous_location_id or previous_location_id == current_location_id:
-            return [], []
-
-        previous_label = (
-            _read_field(previous_location, "text_state") or previous_location_id
-        )
         current_label = _read_field(primary_location, "name") or current_location_id
+
+        try:
+            from modules.memory.facade import get_continuity_evidence_for_writing
+
+            evidence = await get_continuity_evidence_for_writing(
+                db,
+                novel_id,
+                chapter_index,
+                pov_character_id=pov_character_id,
+                current_location_id=current_location_id,
+                current_location_name=current_label,
+            )
+        except Exception:
+            logger.exception("Failed to load memory evidence for conflict check")
+            return [], ["memory"]
+
+        if evidence is None:
+            return [], []
+
         return [
             {
                 "kind": "continuity_location_mismatch",
                 "severity": "medium",
-                "source_module": "memory",
-                "source_type": "memory.character_location",
-                "source_id": pov_character_id,
-                "evidence_summary": (
-                    "POV 上一章位置与当前 Scene 地图主地点不一致："
-                    f"上一章 {previous_label}，当前 {current_label}"
+                "source_module": evidence.source_module,
+                "source_type": evidence.source_type,
+                "source_id": evidence.source_id,
+                "evidence_summary": evidence.source_excerpt,
+                "location_json": evidence_location(
+                    source_module=evidence.source_module,
+                    source_type=evidence.source_type,
+                    source_id=evidence.source_id,
+                    source_label=evidence.source_label,
+                    source_field=evidence.source_field,
+                    source_excerpt=evidence.source_excerpt,
+                    open_target=evidence.open_target,
                 ),
-                "location_json": {
-                    "previous_location_id": previous_location_id,
-                    "current_location_id": current_location_id,
-                    "current_location_name": current_label,
-                },
             }
         ], []
 
