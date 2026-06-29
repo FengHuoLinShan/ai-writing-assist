@@ -223,6 +223,8 @@ async def test_scene_summary_excludes_candidate_observations_by_default(
 
     assert summary["candidate_support"] == "supported"
     assert summary["risks"] == []
+    assert summary["open_target"]["mode"] == "recent"
+    assert summary["open_target"]["map_id"] is None
 
 
 @pytest.mark.asyncio

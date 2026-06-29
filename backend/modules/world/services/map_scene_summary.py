@@ -87,7 +87,7 @@ class MapSceneSummaryService:
             m for m in markers if marker_statuses.get(m.entity_id) == "canonical"
         ]
         selected_map_id = self._select_map_id(markers, sid)
-        if selected_map_id is None:
+        if selected_map_id is None and include_candidates:
             selected_map_id = await self._observation_repo.find_map_for_scene(
                 db,
                 nid,
