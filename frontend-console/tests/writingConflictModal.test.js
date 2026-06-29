@@ -11,6 +11,10 @@ import { clearDocument, resetState } from "./helpers.js"
 beforeEach(() => {
   resetState({ currentProjectId: "p1" })
   clearDocument()
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: undefined,
+  })
   vi.clearAllMocks()
 })
 
@@ -261,6 +265,45 @@ describe("writingConflictModal", () => {
     expect(document.body.innerHTML).toContain("&lt;img")
     expect(document.body.innerHTML).not.toContain("<img src=x")
     expect(document.body.textContent).toContain("补动机")
+  })
+
+  it("copies AI suggestion text and shows success toast", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    })
+
+    showWritingConflictModal({
+      check: {
+        id: "c1",
+        chapter_index: 1,
+        scene_id: "scene-1",
+        items: [
+          {
+            id: "i1",
+            kind: "required_missing",
+            severity: "medium",
+            source_module: "ai",
+            evidence_summary: "缺少动机",
+            status: "open",
+            ai_suggestion: JSON.stringify({
+              strategy: "补动机",
+              suggested_text: "在离开前补一段主角犹豫的心理描写。",
+              rationale: "减少跳变",
+            }),
+          },
+        ],
+      },
+      novelId: "p1",
+    })
+
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.querySelector('[data-conflict-copy-suggestion="i1"]').click()
+    await Promise.resolve()
+
+    expect(writeText).toHaveBeenCalledWith("在离开前补一段主角犹豫的心理描写。")
+    expect(toast).toHaveBeenCalledWith("已复制 AI 修复建议", "success")
   })
 
   it("shows failed toast when AI suggestion API returns failed status", async () => {

@@ -656,6 +656,30 @@ describe("writingView conflict checks", () => {
     openMapSpy.mockRestore()
   })
 
+  it("locates text range sources from text_range open target", () => {
+    document.body.innerHTML = '<textarea id="writing-editor">主角死亡。王后沉默。</textarea>'
+    const editor = document.getElementById("writing-editor")
+
+    writingView._openConflictSource(
+      {
+        items: [
+          {
+            id: "i1",
+            location_json: {
+              open_target: { kind: "text_range" },
+              text_range: { start: 5, end: 9 },
+            },
+          },
+        ],
+      },
+      "i1",
+    )
+
+    expect(editor.selectionStart).toBe(5)
+    expect(editor.selectionEnd).toBe(9)
+    expect(toast).not.toHaveBeenCalledWith("该来源暂无可打开视图", "info")
+  })
+
   it("opens outline sources from outline_scene open target with location hint", () => {
     writingView._openConflictSource(
       {

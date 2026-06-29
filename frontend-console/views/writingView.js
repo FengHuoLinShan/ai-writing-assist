@@ -1400,6 +1400,10 @@ const writingView = {
     const location = item?.location_json || {}
     const openTarget = location.open_target || {}
     const openTargetKind = openTarget.kind
+    if (openTargetKind === "text_range") {
+      this._locateConflictItem(check, itemId)
+      return
+    }
     if (openTargetKind === "map_scene" || openTargetKind === "map_object") {
       this._openMapForCurrentScene()
       return
