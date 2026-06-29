@@ -41,7 +41,7 @@ def test_snapshot_location_keeps_lightweight_evidence() -> None:
         source_field="地图风险",
         source_excerpt="粮仓起火：待确认",
         open_target={"kind": "map_object", "map_id": "map-1", "observation_id": "obs-1"},
-        text_range=None,
+        text_range={"start": 1, "end": 9},
         needs_review_reason="依赖待确认地图观察",
     )
 
