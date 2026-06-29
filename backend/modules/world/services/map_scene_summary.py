@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.map_models import MapLocationBinding, MapMarker
 from modules.world.map_repositories import (
+    MapFactRepository,
     MapLocationBindingRepository,
     MapMarkerRepository,
     MapObservationRepository,
@@ -49,6 +50,7 @@ class MapSceneSummaryService:
         binding_repo: MapLocationBindingRepository | None = None,
         territory_repo: MapTerritoryRepository | None = None,
         observation_repo: MapObservationRepository | None = None,
+        fact_repo: MapFactRepository | None = None,
         entity_repo: CoreEntityRepository | None = None,
         scene_lookup: SceneLookup | None = None,
     ) -> None:
@@ -56,6 +58,7 @@ class MapSceneSummaryService:
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._territory_repo = territory_repo or MapTerritoryRepository()
         self._observation_repo = observation_repo or MapObservationRepository()
+        self._fact_repo = fact_repo or MapFactRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
         self._scene_lookup = scene_lookup or _default_scene_lookup
 
@@ -87,6 +90,12 @@ class MapSceneSummaryService:
             m for m in markers if marker_statuses.get(m.entity_id) == "canonical"
         ]
         selected_map_id = self._select_map_id(markers, sid)
+        if selected_map_id is None:
+            selected_map_id = await self._fact_repo.find_map_for_scene(
+                db,
+                nid,
+                sid,
+            )
         if selected_map_id is None and include_candidates:
             selected_map_id = await self._observation_repo.find_map_for_scene(
                 db,
@@ -306,6 +315,13 @@ class MapSceneSummaryService:
         *,
         include_candidates: bool,
     ) -> tuple[list[MapSceneSummaryItem], list[MapSceneSummaryWarning]]:
+        facts, _ = await self._fact_repo.list(
+            db,
+            novel_id,
+            map_id=map_id,
+            fact_status="confirmed",
+            limit=80,
+        )
         observations = await self._observation_repo.list_for_dashboard(
             db,
             novel_id,
@@ -314,6 +330,49 @@ class MapSceneSummaryService:
         )
         crises: list[MapSceneSummaryItem] = []
         risks: list[MapSceneSummaryWarning] = []
+        for fact in facts:
+            if fact.scene_id != scene_id:
+                continue
+            if fact.dynamic_type not in {
+                "crisis",
+                "crisis_spread",
+                "risk",
+                "conflict",
+            }:
+                continue
+            anchor = fact.spatial_anchor or {}
+            title = fact.target_name or fact.target_entity_type or "地图风险"
+            open_target = {
+                "kind": "map_object",
+                "map_id": str(fact.map_id or map_id),
+                "scene_id": str(scene_id),
+                "observation_id": (
+                    str(fact.observation_id) if fact.observation_id else None
+                ),
+                "focus_entity_id": (
+                    str(fact.target_entity_id) if fact.target_entity_id else None
+                ),
+            }
+            crises.append(
+                MapSceneSummaryItem(
+                    entity_id=str(fact.target_entity_id or fact.id),
+                    name=title,
+                    map_id=str(fact.map_id or map_id),
+                    hex_q=anchor.get("hex_q"),
+                    hex_r=anchor.get("hex_r"),
+                    evidence_excerpt=fact.evidence_text,
+                    open_target=open_target,
+                )
+            )
+            risks.append(
+                MapSceneSummaryWarning(
+                    level="warning",
+                    code="map_dynamic_risk",
+                    message=f"{title}：{self._status_label(fact.fact_status)}",
+                    evidence_excerpt=fact.evidence_text,
+                    open_target=open_target,
+                )
+            )
         for observation in observations:
             if observation.scene_id != scene_id:
                 continue

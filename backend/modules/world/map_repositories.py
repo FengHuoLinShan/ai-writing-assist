@@ -869,6 +869,28 @@ class MapFactRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all()), total
 
+    async def find_map_for_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        *,
+        fact_status: str = "confirmed",
+    ) -> uuid.UUID | None:
+        stmt = (
+            select(MapFact.map_id)
+            .where(
+                MapFact.novel_id == novel_id,
+                MapFact.scene_id == scene_id,
+                MapFact.map_id.isnot(None),
+                MapFact.fact_status == fact_status,
+            )
+            .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         db: AsyncSession,

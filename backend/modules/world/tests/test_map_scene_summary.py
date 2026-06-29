@@ -199,7 +199,7 @@ async def test_scene_summary_excludes_candidate_observations_by_default(
         novel_id,
         MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
     )
-    await async_client.post(
+    observation_resp = await async_client.post(
         f"/api/world/maps/{map_resp.id}/observations",
         params={"novel_id": novel_id},
         json={
@@ -213,6 +213,7 @@ async def test_scene_summary_excludes_candidate_observations_by_default(
             "evidence_text": "粮仓火势正在扩大",
         },
     )
+    assert observation_resp.status_code == 201, observation_resp.text
 
     summary = await summarize_scene_map_for_writing(
         db_session,
@@ -225,6 +226,56 @@ async def test_scene_summary_excludes_candidate_observations_by_default(
     assert summary["risks"] == []
     assert summary["open_target"]["mode"] == "recent"
     assert summary["open_target"]["map_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_includes_confirmed_dynamic_fact_by_default(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    scene = await _create_scene(db_session, novel_id, scene_index=1)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    observation_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations",
+        params={"novel_id": novel_id},
+        json={
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "review_state": "candidate",
+            "scene_id": str(scene.id),
+            "scene_index": 1,
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "evidence_text": "粮仓火势正在扩大",
+        },
+    )
+    assert observation_resp.status_code == 201, observation_resp.text
+    observation_id = observation_resp.json()["id"]
+    confirm_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations/{observation_id}/confirm",
+        params={"novel_id": novel_id},
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=False,
+    )
+
+    assert summary["open_target"]["mode"] == "map"
+    assert summary["open_target"]["map_id"] == map_resp.id
+    assert summary["risks"][0]["depends_on_candidate"] is False
+    assert summary["risks"][0]["candidate_review_state"] is None
+    assert summary["risks"][0]["evidence_excerpt"] == "粮仓火势正在扩大"
+    assert summary["risks"][0]["open_target"]["observation_id"] == observation_id
 
 
 @pytest.mark.asyncio
