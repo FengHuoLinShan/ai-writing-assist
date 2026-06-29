@@ -198,7 +198,48 @@ describe("对象库", () => {
       expect(html).toContain("location")
       expect(html).toContain("正史")
       expect(html).toContain('data-action="edit-entity"')
+      expect(html).toContain('data-action="open-entity-map"')
       expect(html).toContain('data-action="delete-entity"')
+    })
+
+    it("对象行打开地图时使用 open-target 并携带 focus_entity_id", async () => {
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
+      state.currentProjectId = "p1"
+      api.world.getMapOpenTarget.mockResolvedValue({
+        mode: "dashboard",
+        map_id: "m1",
+        focus_entity_id: "e1",
+      })
+
+      await worldView._openEntityMap("e1")
+
+      expect(api.world.getMapOpenTarget).toHaveBeenCalledWith("p1", { focusEntityId: "e1" })
+      expect(openSpy).toHaveBeenCalledWith(
+        "#workbench/p1/map?map_id=m1&focus_entity_id=e1&mode=dashboard",
+        "_blank",
+        "noopener",
+      )
+      openSpy.mockRestore()
+    })
+
+    it("对象找不到地图上下文时显示 fallback 文案", async () => {
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
+      state.currentProjectId = "p1"
+      api.world.getMapOpenTarget.mockResolvedValue({
+        mode: "overview",
+        focus_entity_id: "e1",
+        fallback_message: "该对象尚未绑定地图，已打开地图总览",
+      })
+
+      await worldView._openEntityMap("e1")
+
+      expect(toast).toHaveBeenCalledWith("该对象尚未绑定地图，已打开地图总览", "warning")
+      expect(openSpy).toHaveBeenCalledWith(
+        "#workbench/p1/map?focus_entity_id=e1&mode=overview",
+        "_blank",
+        "noopener",
+      )
+      openSpy.mockRestore()
     })
 
     it("自动识别面板展开时显示", () => {

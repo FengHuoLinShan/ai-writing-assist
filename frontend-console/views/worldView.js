@@ -11,6 +11,7 @@ import {
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
+import { buildMapUrl } from "./mapRouteContext.js"
 
 const worldView = {
   /** @type {Array} */
@@ -560,6 +561,7 @@ const worldView = {
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
+            <button class="btn btn-sm" data-action="open-entity-map" data-id="${esc(e.id || e.entity_id)}">打开地图</button>
             ${canPromote ? `<button class="btn btn-sm btn-primary" data-action="promote-entity" data-id="${esc(e.id || e.entity_id)}">提升为正史</button>` : ""}
             ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(e.id || e.entity_id)}">合并</button>` : ""}
             <button class="btn btn-sm" data-action="rollback-entity" data-id="${esc(e.id || e.entity_id)}">回滚</button>
@@ -1005,6 +1007,7 @@ const worldView = {
       "toggle-extract": () => this._toggleAutoExtract(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
+      "open-entity-map": (_e, _t, ctx) => ctx.id && this._openEntityMap(ctx.id),
       "delete-entity": (_e, _t, ctx) => ctx.id && this.deleteEntity(ctx.id),
       "accept-candidate": (_e, _t, ctx) => ctx.id && this.acceptCandidate(ctx.id),
       "ignore-candidate": (_e, _t, ctx) => ctx.id && this.ignoreCandidate(ctx.id),
@@ -1023,6 +1026,29 @@ const worldView = {
     })
 
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+  },
+
+  async _openEntityMap(entityId) {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      const target = await api.world.getMapOpenTarget(state.currentProjectId, { focusEntityId: entityId })
+      const url = buildMapUrl({
+        projectId: state.currentProjectId,
+        mapId: target.map_id,
+        sceneId: target.scene_id,
+        focusEntityId: target.focus_entity_id || entityId,
+        mode: target.mode || (target.map_id ? "dashboard" : "overview"),
+      })
+      if (target.fallback_message) {
+        toast(target.fallback_message, "warning")
+      }
+      window.open(url, "_blank", "noopener")
+    } catch (err) {
+      toast(`打开地图失败：${err.message || "未知错误"}`, "error")
+    }
   },
 
   _showCreateForm() {

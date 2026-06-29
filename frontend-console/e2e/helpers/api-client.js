@@ -160,6 +160,43 @@ export async function getMapState(novelId, mapId, sceneId = null) {
   return request(`/world/maps/${mapId}/state?${params.toString()}`)
 }
 
+export async function getMapDashboard(novelId, mapId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  if (params.sceneId) query.set("scene_id", params.sceneId)
+  if (params.focusEntityId) query.set("focus_entity_id", params.focusEntityId)
+  return request(`/world/maps/${mapId}/dashboard?${query.toString()}`)
+}
+
+export async function getMapPlayback(novelId, mapId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  if (params.sceneId) query.set("scene_id", params.sceneId)
+  if (params.focusEntityId) query.set("focus_entity_id", params.focusEntityId)
+  if (params.includeCandidates !== undefined) {
+    query.set("include_candidates", String(params.includeCandidates))
+  }
+  return request(`/world/maps/${mapId}/playback?${query.toString()}`)
+}
+
+export async function createMapObservation(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/observations?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function confirmMapObservation(novelId, mapId, observationId) {
+  return request(`/world/maps/${mapId}/observations/${observationId}/confirm?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+  })
+}
+
+export async function runMapBatchAction(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/batch-actions?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
 export async function generateMap(novelId, mapId) {
   return request(`/world/maps/${mapId}/generate?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",

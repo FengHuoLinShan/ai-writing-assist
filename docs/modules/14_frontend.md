@@ -53,7 +53,7 @@
 - 自动保存与未保存提醒
 - 版本历史/恢复
 - 深度导入进度展示
-- `GET /api/world/maps/scene-summary` 的地图摘要展示
+- `GET /api/world/maps/scene-summary` 的地图摘要展示，包括危机、风险和空间 warning
 - 跳转到地图工作台并携带 `scene_id` / `focus_entity_id`
 
 ## 地图工作台补充
@@ -62,10 +62,12 @@
 - 可按地图名或地点名搜索
 - 支持图层开关
 - 右侧消费 `GET /api/world/maps/{map_id}/dashboard`，展示世界动态总控台、动态队列、检查器和批量分组
+- 默认进入地图页时通过 `GET /api/world/maps/open-target` 打开最近/可用地图；世界对象行也通过该接口生成带 `focus_entity_id` 的地图 URL
 - 地图工作台消费同一套 dashboard / map state，支持“世界动态总控台 / 活地图 / 叙事透镜”三视图、上方语义气泡带、低动效模式
 - 地图工作台同时消费 `GET /api/world/maps/{map_id}/playback`，按 typed observation 展示人物旅程、势力变化、危机推进、资源控制和状态变化播放轨道
-- 动态队列、语义气泡和播放事件可打开对象信息框；observation 支持确认、忽略、标记冲突，fact 支持回滚、废弃、恢复确认，并保持技术 ID 不进入可见文本
-- 批量修改分组可对候选 observation 执行批量确认、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
+- 动态队列、语义气泡和播放事件可打开对象信息框；信息框展示名称、类型、时间、状态、来源、地点/空间锚点，并提供修改和打开检查器
+- observation 支持确认、忽略、标记冲突，fact 支持回滚、废弃、恢复确认，并保持技术 ID 不进入可见文本
+- 批量修改分组按对象类型和地图时间展示，可通过 `batch-actions` 对候选 observation 执行批量确认、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
 - `mapLayoutEngine.js` 负责前端自动布局、标签避让、聚合簇和语义气泡排队；`mapView` 浏览态地点中心标签使用该布局结果避免高密度重叠
 - 支持从写作流打开最近相关地图
 

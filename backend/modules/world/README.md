@@ -300,6 +300,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | POST | `/api/world/maps` | 创建地图（含初始地形生成） |
 | GET | `/api/world/maps/{map_id}` | 地图详情 |
 | GET | `/api/world/maps/scene-summary` | 写作页 Scene 地图摘要 |
+| GET | `/api/world/maps/open-target` | 统一地图打开目标（scene / focus entity / fallback） |
 | PATCH | `/api/world/maps/{map_id}` | 更新地图配置 |
 | DELETE | `/api/world/maps/{map_id}` | 删除地图（硬删，前端二次确认） |
 | POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
@@ -324,6 +325,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | POST | `/api/world/maps/{map_id}/observations` | 创建地图观察事实候选 |
 | PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 更新观察事实审查状态 |
 | POST | `/api/world/maps/{map_id}/observations/batch-review` | 批量确认、忽略或标记冲突候选 observation |
+| POST | `/api/world/maps/{map_id}/batch-actions` | 批量动作入口：候选确认/忽略/冲突、fact 状态、图层可见性 patch |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/confirm` | 确认 observation 并生成/复用正式 `map_facts` |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/ignore` | 忽略 observation，不生成正式事实 |
 | GET | `/api/world/maps/{map_id}/facts` | 已确认地图事实列表，可按 `fact_status` 过滤 |

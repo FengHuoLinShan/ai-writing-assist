@@ -110,6 +110,7 @@ class ProjectService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Project {project_id} not found in recycle bin",
             )
+        await self._repo.delete_async_tasks_for_project(db, pid)
 
     async def list_deleted_projects(
         self,

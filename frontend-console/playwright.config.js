@@ -15,13 +15,13 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "cd ../backend && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      command: "cd ../backend && APP_ENV=test python -m alembic upgrade head && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
       url: "http://localhost:8000/api/health",
       timeout: 60000,
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: "python3 -m http.server 8080",
+      command: "python -m http.server 8080",
       url: "http://localhost:8080",
       timeout: 60000,
       reuseExistingServer: !process.env.CI,

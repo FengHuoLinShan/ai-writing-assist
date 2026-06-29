@@ -346,6 +346,25 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def find_any_for_entity(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        location_entity_id: uuid.UUID,
+    ) -> MapLocationBinding | None:
+        """查询地点在任意地图中的代表绑定。"""
+        stmt = (
+            select(MapLocationBinding)
+            .where(
+                MapLocationBinding.novel_id == novel_id,
+                MapLocationBinding.location_entity_id == location_entity_id,
+            )
+            .order_by(MapLocationBinding.is_center.desc(), MapLocationBinding.created_at)
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def clear_center(
         self,
         db: AsyncSession,
@@ -514,6 +533,26 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def find_any_for_entity(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+    ) -> MapMarker | None:
+        """查询实体在任意地图中的代表标记。"""
+        stmt = (
+            select(MapMarker)
+            .where(
+                MapMarker.novel_id == novel_id,
+                MapMarker.entity_id == entity_id,
+                MapMarker.visible.is_(True),
+            )
+            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_latest_before_scene_for_entities(
         self,
         db: AsyncSession,
@@ -599,6 +638,25 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def find_any_for_faction(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        faction_entity_id: uuid.UUID,
+    ) -> MapTerritoryTile | None:
+        """查询组织在任意地图中的代表势力格。"""
+        stmt = (
+            select(MapTerritoryTile)
+            .where(
+                MapTerritoryTile.novel_id == novel_id,
+                MapTerritoryTile.faction_entity_id == faction_entity_id,
+            )
+            .order_by(MapTerritoryTile.created_at)
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def create_batch(
         self,
@@ -711,6 +769,27 @@ class MapObservationRepository:
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def find_map_for_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        """Find a map referenced by active observations for a scene."""
+        stmt = (
+            select(MapObservation.map_id)
+            .where(
+                MapObservation.novel_id == novel_id,
+                MapObservation.scene_id == scene_id,
+                MapObservation.map_id.isnot(None),
+                MapObservation.review_state.in_(["candidate", "conflicted"]),
+            )
+            .order_by(MapObservation.scene_index.nulls_last(), MapObservation.created_at)
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def create(
         self,

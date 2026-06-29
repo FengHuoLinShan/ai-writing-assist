@@ -304,6 +304,8 @@ class MapSceneSummaryResponse(BaseModel):
     characters: list[MapSceneSummaryItem] = Field(default_factory=list)
     events: list[MapSceneSummaryItem] = Field(default_factory=list)
     factions: list[MapSceneSummaryItem] = Field(default_factory=list)
+    crises: list[MapSceneSummaryItem] = Field(default_factory=list)
+    risks: list[MapSceneSummaryWarning] = Field(default_factory=list)
     warnings: list[MapSceneSummaryWarning] = Field(default_factory=list)
     open_target: MapOpenTarget
 
@@ -599,6 +601,35 @@ class MapObservationBatchReviewResponse(BaseModel):
     facts: list[MapFactResponse] = Field(default_factory=list)
 
 
+class MapBatchActionRequest(BaseModel):
+    action: Literal[
+        "confirm_observations",
+        "ignore_observations",
+        "mark_conflicted",
+        "update_fact_status",
+        "update_layer_visibility",
+    ]
+    observation_ids: list[str] = Field(default_factory=list, max_length=100)
+    fact_ids: list[str] = Field(default_factory=list, max_length=100)
+    patch: dict = Field(default_factory=dict)
+    confirmation_text: str | None = Field(None, max_length=64)
+
+    @field_validator("observation_ids", "fact_ids")
+    @classmethod
+    def _coerce_ids(cls, values: list[str]) -> list[str]:
+        return [str(uuid.UUID(value)) for value in values]
+
+
+class MapBatchActionResponse(BaseModel):
+    action: str
+    requested_count: int
+    updated_count: int
+    created_fact_count: int = 0
+    observations: list[MapObservationResponse] = Field(default_factory=list)
+    facts: list[MapFactResponse] = Field(default_factory=list)
+    layer_visibility: dict = Field(default_factory=dict)
+
+
 # ============================================================
 # MapDashboard — 世界动态总控台（P1）
 # ============================================================
@@ -610,10 +641,14 @@ class MapDashboardQueueItem(BaseModel):
     title: str
     target_entity_id: str | None = None
     object_type: str | None = None
+    type_label: str | None = None
     dynamic_type: str
     time_label: str
     status_label: str
     source_summary: str
+    location_label: str | None = None
+    spatial_anchor_label: str | None = None
+    debug_ref: dict = Field(default_factory=dict)
     priority: int
     risk_level: Literal["info", "warning", "danger"] = "info"
     confidence: float | None = None
@@ -627,7 +662,11 @@ class MapDashboardInspector(BaseModel):
     summary: str | None = None
     focus_entity_id: str | None = None
     object_type: str | None = None
+    type_label: str | None = None
     object_name: str | None = None
+    location_label: str | None = None
+    spatial_anchor_label: str | None = None
+    debug_ref: dict = Field(default_factory=dict)
     timeline: list[MapDashboardQueueItem] = Field(default_factory=list)
     available_actions: list[str] = Field(default_factory=list)
     map_facts: list[MapDashboardQueueItem] = Field(default_factory=list)

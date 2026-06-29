@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
 from modules.project.models import Project
 from modules.project.schemas import ProjectCreate, ProjectUpdate
 
@@ -161,3 +162,16 @@ class ProjectRepository:
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
+
+    async def delete_async_tasks_for_project(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> int:
+        """删除以 JSON meta.novel_id 关联到项目的异步任务。"""
+        stmt = delete(AsyncTask).where(
+            AsyncTask.meta["novel_id"].as_string() == str(project_id),
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount or 0

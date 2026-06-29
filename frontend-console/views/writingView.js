@@ -738,6 +738,9 @@ const writingView = {
     const warnings = (summary.warnings || []).map((warning) => `
       <div style="margin-top:4px;color:var(--warning);">${esc(this._mapWarningMessage(warning))}</div>
     `).join("")
+    const risks = (summary.risks || []).map((risk) => `
+      <div style="margin-top:4px;color:var(--warning);">${esc(this._mapWarningMessage(risk))}</div>
+    `).join("")
     return `
       <div class="writing-map-summary">
         <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
@@ -745,6 +748,8 @@ const writingView = {
         ${row("人物", summary.characters)}
         ${row("事件", summary.events)}
         ${row("势力", summary.factions)}
+        ${row("危机", summary.crises)}
+        ${risks}
         ${warnings}
       </div>
     `

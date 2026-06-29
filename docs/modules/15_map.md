@@ -24,6 +24,9 @@
 | P0 | 详图快速生成（中心 city + 外 road） | ✅ | `MapConfigService.generate` | 编辑工具栏 |
 | P0 | 地图观察事实候选与正式事实底座 | ✅ | `MapDynamicFactService` | 工作台动态事实摘要 |
 | P1 | 世界动态总控台（首屏层 / 动态队列 / 检查器 / 批量分组） | ✅ | `MapDynamicFactService.get_dashboard` | 工作台右侧总控台 |
+| P1 | 统一地图打开目标（写作页 / 世界对象页 / 默认地图入口） | ✅ | `GET /open-target` | `writingView.js` / `worldView.js` / `mapWorkspaceView.js` |
+| P1 | 对象信息框与检查器聚焦 | ✅ | dashboard queue / inspector 扩展字段 | 动态队列、语义气泡、播放事件统一打开信息框 |
+| P1 | 候选批量动作与事实状态修改 | ✅ | `POST /{map_id}/batch-actions` | 批量确认、忽略、标记冲突、软更新 fact 状态 |
 | P1 | Scene 时间层与动态标记（character/event/item） | ✅ | `MapMarkerService` | Scene 导航 + 标记工具 |
 | P2 | 组织势力范围（territory tiles） | ✅ | `MapTerritoryService` | 势力范围工具 |
 | P2 | 聚焦模式（按组织过滤势力范围） | ✅ | `GET /{map_id}/focus` | 聚焦按钮 |
@@ -178,6 +181,7 @@
 | GET | `/?novel_id={}&parent_map_id={}` | 地图列表；`parent_map_id` 为空表示顶层 |
 | POST | `/?novel_id={}` | 创建地图，同时按模板生成初始 tiles |
 | GET | `/scene-summary?novel_id={}&scene_id={}` | 写作页 Scene 地图摘要 |
+| GET | `/open-target?novel_id={}&scene_id={}&focus_entity_id={}` | 统一地图打开目标；返回 `map_id` / `scene_id` / `focus_entity_id` 和 fallback 文案 |
 | GET | `/{map_id}?novel_id={}` | 地图详情 |
 | PATCH | `/{map_id}?novel_id={}` | 更新地图配置（name / description / default_center_x / default_center_y / default_zoom / sort_order） |
 | DELETE | `/{map_id}?novel_id={}` | 硬删地图（前端需二次确认） |
@@ -228,6 +232,7 @@
 | POST | `/{map_id}/observations?novel_id={}` | 创建地图观察事实候选 |
 | PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 更新 observation 审查状态 |
 | POST | `/{map_id}/observations/batch-review?novel_id={}` | 批量确认、忽略或标记冲突 observation |
+| POST | `/{map_id}/batch-actions?novel_id={}` | 新批量动作入口：确认/忽略/冲突候选、更新 fact 状态、记录图层可见性 patch |
 | POST | `/{map_id}/observations/{observation_id}/confirm?novel_id={}` | 确认 observation 并生成/复用 `map_facts` |
 | POST | `/{map_id}/observations/{observation_id}/ignore?novel_id={}` | 忽略 observation，不生成正式事实 |
 | GET | `/{map_id}/facts?novel_id={}&fact_status={}` | 已确认地图事实列表 |
@@ -301,9 +306,17 @@
 
 ### Scene 地图摘要
 
-- `GET /scene-summary` 返回当前 Scene 对应的主地点、人物、事件、势力和 warning
+- `GET /scene-summary` 返回当前 Scene 对应的主地点、人物、事件、势力、危机、风险和 warning
 - 该接口用于写作页右侧摘要，不返回完整地图状态
 - 接口必须放在 `/{map_id}` 路由前，避免被路径参数捕获
+- Scene 无 marker 但有该 Scene 的 active observation 时，会用 observation 中的 `map_id` 作为地图上下文，并返回可见风险/危机摘要。
+
+### 地图打开目标
+
+- `GET /open-target` 是写作页、世界对象页和地图默认入口共用的公开能力。
+- 传 `scene_id` 时复用 Scene 地图摘要的 `open_target`，确保写作页和地图工作台一致。
+- 传 `focus_entity_id` 时按地点绑定、动态 marker、组织势力范围查找代表地图；找不到时返回 `mode="recent"` 与可见 fallback 文案。
+- 不传上下文时返回首个可用地图；项目没有地图时返回 `mode="overview"` 与空状态文案。
 
 ### 删除地图
 
@@ -315,6 +328,8 @@
 ## 前端实现现状
 
 - `mapWorkspaceView`：总览、最近地图、地图树、搜索、图层开关、打开具体地图；具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框。
+- `worldView`：人物、地点、组织、事件等对象行提供“打开地图”，通过 `open-target` 生成含 `focus_entity_id` 的地图 URL；无地图上下文时显示 fallback。
+- `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
 - `mapView`：地图编辑器本体；浏览模式下地点中心标签消费布局引擎，密集时自动偏移、缩短、图标化或聚合。
 - `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、候选/正式状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
 - `mapRouteContext.js`：处理从写作页或其他工作流带入的 `map_id` / `scene_id` / `focus_entity_id`
@@ -422,6 +437,7 @@
 - **标记与势力范围**：前端即时创建，非 stage→apply 模式。
 - **Scene 时间轴 UI**：简化为前后导航按钮 + 下拉选择器，无连续滑块。
 - **聚焦模式**：仅按组织过滤势力范围；人物 / 事件聚焦未实现。
+- **世界动态持久层**：P3 的 `MapDelta` / `WorldDynamic` 持久表未实现；当前 playback 仍由 observation/fact 只读派生。
 - **AI 位置建议**：P3 未实现，`map_position_suggestions` 表未建。
 - **hex_s**：后端不存储，第三坐标由前端计算。
 - **前端安全**：所有动态文本经 `esc()` 转义后入 DOM，不直接写入 `innerHTML`。

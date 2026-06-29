@@ -211,6 +211,76 @@ describe("mapWorkspaceView overview", () => {
     expect(container.textContent).not.toContain("fact-technical-id")
   })
 
+  it("hides UUID debug refs from dashboard and object info default text", () => {
+    const observationId = "123e4567-e89b-12d3-a456-426614174000"
+    const entityId = "123e4567-e89b-12d3-a456-426614174001"
+    mapWorkspaceView._dynamicSummary = {
+      mapId: "m1",
+      loading: false,
+      loaded: true,
+      dashboard: {
+        title: "世界动态总控台",
+        first_visual_layer: {
+          main_crisis: "洛阳封锁",
+          main_characters: ["沈砚"],
+          top_risks: ["洛阳封锁：有冲突"],
+        },
+        dynamic_queue: [{
+          item_id: observationId,
+          item_kind: "observation",
+          target_entity_id: entityId,
+          title: "洛阳封锁",
+          type_label: "地点动态",
+          location_label: "洛阳外城",
+          spatial_anchor_label: "坐标 2,2",
+          time_label: "Scene 3",
+          status_label: "冲突",
+          source_summary: "第 1 章 · 城门忽然封闭。",
+          confidence: 0.66,
+          review_state: "conflicted",
+          risk_level: "danger",
+          debug_ref: {
+            id: observationId,
+            scene_id: "123e4567-e89b-12d3-a456-426614174002",
+          },
+        }],
+        inspector: {
+          title: "洛阳封锁",
+          status_label: "冲突",
+          type_label: "地点动态",
+          location_label: "洛阳外城",
+          spatial_anchor_label: "坐标 2,2",
+          summary: "右侧检查器显示作者可读摘要。",
+          ai_candidates: [{ title: "洛阳封锁" }],
+          map_facts: [],
+          conflicts: [{ title: "洛阳封锁" }],
+          source_evidence: ["第 1 章 · 城门忽然封闭。"],
+          debug_ref: { id: observationId },
+        },
+        batch_groups: [],
+      },
+      observations: [],
+      facts: [],
+      error: null,
+    }
+
+    const html = mapWorkspaceView._renderDynamicSummary()
+    const container = document.createElement("div")
+    container.innerHTML = html
+    expect(container.textContent).toContain("洛阳封锁")
+    expect(container.textContent).toContain("洛阳外城")
+    expect(container.textContent).not.toContain(observationId)
+    expect(container.textContent).not.toContain(entityId)
+    expect(container.textContent).not.toContain("scene_id")
+
+    mapWorkspaceView._showDynamicObjectInfo(observationId)
+    const [, body] = showModal.mock.calls.at(-1)
+    expect(body).toContain("洛阳外城")
+    expect(body).toContain("坐标 2,2")
+    expect(body).not.toContain(observationId)
+    expect(body).not.toContain(entityId)
+  })
+
   it("renders three map modes, low motion toggle, and semantic bubble band", () => {
     mapWorkspaceView._mode = "map"
     mapWorkspaceView._activeMapId = "m1"
@@ -333,6 +403,9 @@ describe("mapWorkspaceView overview", () => {
           target_entity_id: "char-1",
           time_label: "Scene 1",
           status_label: "待确认",
+          type_label: "人物动态",
+          location_label: "洛阳内城",
+          spatial_anchor_label: "东门",
           review_state: "candidate",
           source_summary: "deep_import · 沈砚进入内城。",
         }],
@@ -346,8 +419,12 @@ describe("mapWorkspaceView overview", () => {
     expect(title).toContain("沈砚入城")
     expect(body).toContain("Scene 1")
     expect(body).toContain("待确认")
+    expect(body).toContain("人物动态")
+    expect(body).toContain("洛阳内城")
+    expect(body).toContain("东门")
     expect(body).not.toContain("technical-object-id")
     expect(actions.map((action) => action.text)).toEqual([
+      "修改",
       "确认",
       "忽略",
       "标记冲突",
@@ -396,6 +473,13 @@ describe("mapWorkspaceView overview", () => {
         count: 1,
         candidate_count: 1,
         confirmed_count: 0,
+        time_groups: [{
+          time_key: "scene-1",
+          time_label: "Scene 1",
+          count: 1,
+          candidate_count: 1,
+          confirmed_count: 0,
+        }],
       }],
     })
     api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
@@ -456,22 +540,51 @@ describe("mapWorkspaceView overview", () => {
         count: 1,
         candidate_count: 1,
         confirmed_count: 0,
+        time_groups: [{
+          time_key: "scene-1",
+          time_label: "Scene 1",
+          count: 1,
+          candidate_count: 1,
+          confirmed_count: 0,
+        }],
       }],
     })
     api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
-    api.world.batchReviewMapObservations.mockResolvedValue({ updated_count: 1 })
+    api.world.runMapBatchAction.mockResolvedValue({ updated_count: 1 })
     confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
 
     await mapWorkspaceView._openFocusedInspector("char-1")
     await mapWorkspaceView._batchReviewGroup("character", "confirm")
 
     expect(api.world.getMapDashboard).toHaveBeenCalledWith("m1", "p1", null, "char-1")
-    expect(api.world.batchReviewMapObservations).toHaveBeenCalledWith(
+    expect(api.world.runMapBatchAction).toHaveBeenCalledWith(
       "m1",
-      ["obs1"],
-      "confirm",
       "p1",
+      {
+        action: "confirm_observations",
+        observation_ids: ["obs1"],
+      },
     )
+  })
+
+  it("renders batch groups with object type and map time hierarchy", () => {
+    const html = mapWorkspaceView._renderBatchGroups([{
+      group_key: "character",
+      group_label: "人物",
+      count: 3,
+      candidate_count: 2,
+      confirmed_count: 1,
+      first_joined_label: "Scene 1",
+      time_groups: [
+        { time_key: "scene-1", time_label: "Scene 1", count: 2, candidate_count: 1, confirmed_count: 1 },
+        { time_key: "scene-2", time_label: "Scene 2", count: 1, candidate_count: 1, confirmed_count: 0 },
+      ],
+    }])
+
+    expect(html).toContain("人物")
+    expect(html).toContain("Scene 1")
+    expect(html).toContain("Scene 2")
+    expect(html).toContain("2 待确认")
   })
 
   it("locally focuses inspector for dynamic items without entity ids", () => {

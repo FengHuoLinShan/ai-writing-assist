@@ -272,6 +272,65 @@ async def test_scene_summary_returns_location_characters_events_and_factions(
     assert [item["name"] for item in body["characters"]] == ["沈砚"]
     assert [item["name"] for item in body["events"]] == ["东门封锁"]
     assert [item["name"] for item in body["factions"]] == ["北府"]
+    assert body["crises"] == []
+    assert body["risks"] == []
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_exposes_crises_and_risks_from_map_observations(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    scene = await _create_scene(db_session, nid)
+    map_resp = await MapConfigService().create(
+        db_session,
+        nid,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    location = await _create_entity(
+        db_session, nid, entity_type="location", name="洛阳外城"
+    )
+    await MapLocationBindingService().batch_create(
+        db_session,
+        nid,
+        map_resp.id,
+        MapLocationBindingCreate(
+            location_entity_id=str(location.id),
+            hexes=[BindingHex(hex_q=1, hex_r=1, is_center=True)],
+        ),
+    )
+    crisis_resp = await async_client.post(
+        f"/api/world/maps/{map_resp.id}/observations",
+        params={"novel_id": nid},
+        json={
+            "scene_id": str(scene.id),
+            "target_entity_type": "event",
+            "target_name": "东门封锁",
+            "dynamic_type": "crisis",
+            "confidence": 0.39,
+            "scene_index": scene.scene_index,
+            "source_ref": {"source": "deep_import"},
+        },
+    )
+    assert crisis_resp.status_code == 201, crisis_resp.text
+
+    resp = await async_client.get(
+        "/api/world/maps/scene-summary",
+        params={"novel_id": nid, "scene_id": str(scene.id)},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [item["name"] for item in body["crises"]] == ["东门封锁"]
+    assert body["risks"] == [
+        {
+            "level": "warning",
+            "code": "map_dynamic_risk",
+            "message": "东门封锁：待确认",
+        }
+    ]
 
 
 @pytest.mark.asyncio

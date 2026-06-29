@@ -269,6 +269,8 @@ describe("writingView map integration", () => {
       characters: [{ name: "沈砚" }],
       events: [{ name: "东门封锁" }],
       factions: [{ name: "北府" }],
+      crises: [{ name: "粮仓起火" }],
+      risks: [{ message: "陆青跨图移动需复核" }],
       warnings: [{ message: "陆青上一场在江陵，需确认移动合理性" }],
     }
 
@@ -279,6 +281,8 @@ describe("writingView map integration", () => {
     expect(html).toContain("沈砚")
     expect(html).toContain("东门封锁")
     expect(html).toContain("北府")
+    expect(html).toContain("粮仓起火")
+    expect(html).toContain("陆青跨图移动需复核")
     expect(html).toContain("陆青上一场")
   })
 

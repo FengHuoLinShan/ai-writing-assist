@@ -425,6 +425,14 @@ const api = {
       }
       return request(`/world/maps/${mapId}/playback${buildQueryString(params)}`)
     },
+    /** 获取统一地图打开目标 */
+    async getMapOpenTarget(novelId, { sceneId = null, focusEntityId = null } = {}) {
+      return request("/world/maps/open-target" + buildQueryString({
+        novel_id: novelId,
+        scene_id: sceneId,
+        focus_entity_id: focusEntityId,
+      }))
+    },
     /** 获取写作页 Scene 地图摘要 */
     async getMapSceneSummary(novelId, sceneId) {
       return request("/world/maps/scene-summary" + buildQueryString({
@@ -511,6 +519,12 @@ const api = {
       return request(`/world/maps/${mapId}/observations/batch-review${buildQueryString({ novel_id: novelId })}`, {
         method: "POST",
         body: JSON.stringify({ observation_ids: observationIds, action }),
+      })
+    },
+    async runMapBatchAction(mapId, novelId, payload) {
+      return request(`/world/maps/${mapId}/batch-actions${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
       })
     },
     async confirmMapObservation(mapId, observationId, novelId) {

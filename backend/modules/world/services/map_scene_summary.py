@@ -14,6 +14,7 @@ from modules.world.map_models import MapLocationBinding, MapMarker
 from modules.world.map_repositories import (
     MapLocationBindingRepository,
     MapMarkerRepository,
+    MapObservationRepository,
     MapTerritoryRepository,
 )
 from modules.world.map_schemas import (
@@ -47,12 +48,14 @@ class MapSceneSummaryService:
         marker_repo: MapMarkerRepository | None = None,
         binding_repo: MapLocationBindingRepository | None = None,
         territory_repo: MapTerritoryRepository | None = None,
+        observation_repo: MapObservationRepository | None = None,
         entity_repo: CoreEntityRepository | None = None,
         scene_lookup: SceneLookup | None = None,
     ) -> None:
         self._marker_repo = marker_repo or MapMarkerRepository()
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._territory_repo = territory_repo or MapTerritoryRepository()
+        self._observation_repo = observation_repo or MapObservationRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
         self._scene_lookup = scene_lookup or _default_scene_lookup
 
@@ -82,6 +85,12 @@ class MapSceneSummaryService:
             m for m in markers if marker_statuses.get(m.entity_id) == "canonical"
         ]
         selected_map_id = self._select_map_id(markers, sid)
+        if selected_map_id is None:
+            selected_map_id = await self._observation_repo.find_map_for_scene(
+                db,
+                nid,
+                sid,
+            )
         entity_names = await self._load_entity_names(db, nid, markers)
         warnings: list[MapSceneSummaryWarning] = []
 
@@ -122,6 +131,7 @@ class MapSceneSummaryService:
         characters = self._marker_items(map_markers, entity_names, "character", limit=5)
         events = self._marker_items(map_markers, entity_names, "event", limit=3)
         factions = await self._faction_items(db, nid, selected_map_id, map_markers)
+        crises, risks = await self._dynamic_scene_items(db, nid, selected_map_id, sid)
         warnings.extend(
             await self._cross_map_warnings(
                 db, nid, map_markers, scene_index, entity_names
@@ -134,6 +144,8 @@ class MapSceneSummaryService:
             characters=characters,
             events=events,
             factions=factions[:3],
+            crises=crises[:3],
+            risks=risks[:3],
             warnings=warnings[:2],
             open_target=MapOpenTarget(
                 mode="map",
@@ -276,6 +288,63 @@ class MapSceneSummaryService:
                 )
             )
         return items
+
+    async def _dynamic_scene_items(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        scene_id: uuid.UUID,
+    ) -> tuple[list[MapSceneSummaryItem], list[MapSceneSummaryWarning]]:
+        observations = await self._observation_repo.list_for_dashboard(
+            db,
+            novel_id,
+            map_id=map_id,
+            limit=80,
+        )
+        crises: list[MapSceneSummaryItem] = []
+        risks: list[MapSceneSummaryWarning] = []
+        for observation in observations:
+            if observation.scene_id != scene_id:
+                continue
+            if observation.dynamic_type not in {
+                "crisis",
+                "crisis_spread",
+                "risk",
+                "conflict",
+            }:
+                continue
+            anchor = observation.spatial_anchor or {}
+            title = (
+                observation.target_name
+                or observation.target_entity_type
+                or "地图风险"
+            )
+            crises.append(
+                MapSceneSummaryItem(
+                    entity_id=str(observation.target_entity_id or observation.id),
+                    name=title,
+                    map_id=str(observation.map_id or map_id),
+                    hex_q=anchor.get("hex_q"),
+                    hex_r=anchor.get("hex_r"),
+                )
+            )
+            risks.append(
+                MapSceneSummaryWarning(
+                    level="warning",
+                    code="map_dynamic_risk",
+                    message=f"{title}：{self._status_label(observation.review_state)}",
+                )
+            )
+        return crises, risks
+
+    def _status_label(self, status: str | None) -> str:
+        return {
+            "candidate": "待确认",
+            "confirmed": "已确认",
+            "ignored": "已忽略",
+            "conflicted": "有冲突",
+        }.get(status or "", "待判断")
 
     async def _cross_map_warnings(
         self,

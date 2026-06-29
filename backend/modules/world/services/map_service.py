@@ -34,6 +34,8 @@ from modules.world.map_repositories import (
     MapTileRepository,
 )
 from modules.world.map_schemas import (
+    MapBatchActionRequest,
+    MapBatchActionResponse,
     MapConfigCreate,
     MapConfigListResponse,
     MapConfigResponse,
@@ -57,6 +59,7 @@ from modules.world.map_schemas import (
     MapObservationListResponse,
     MapObservationResponse,
     MapObservationReviewUpdate,
+    MapOpenTarget,
     MapPlaybackEvent,
     MapPlaybackResponse,
     MapPlaybackTrack,
@@ -811,11 +814,19 @@ class MapDynamicFactService:
         fact_repo: MapFactRepository | None = None,
         context: MapContext | None = None,
         entity_repo: CoreEntityRepository | None = None,
+        map_repo: MapConfigRepository | None = None,
+        binding_repo: MapLocationBindingRepository | None = None,
+        marker_repo: MapMarkerRepository | None = None,
+        territory_repo: MapTerritoryRepository | None = None,
     ) -> None:
         self._observation_repo = observation_repo or MapObservationRepository()
         self._fact_repo = fact_repo or MapFactRepository()
         self._ctx = context or MapContext()
         self._entity_repo = entity_repo or CoreEntityRepository()
+        self._map_repo = map_repo or MapConfigRepository()
+        self._binding_repo = binding_repo or MapLocationBindingRepository()
+        self._marker_repo = marker_repo or MapMarkerRepository()
+        self._territory_repo = territory_repo or MapTerritoryRepository()
 
     async def list_observations(
         self,
@@ -1060,6 +1071,125 @@ class MapDynamicFactService:
         assert updated is not None
         return MapFactResponse.model_validate(updated)
 
+    async def get_open_target(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        scene_id: str | None = None,
+        focus_entity_id: str | None = None,
+    ) -> MapOpenTarget:
+        nid = parse_uuid(novel_id, "novel_id")
+        if scene_id:
+            from modules.world.services.map_scene_summary import MapSceneSummaryService
+
+            summary = await MapSceneSummaryService().summarize(db, novel_id, scene_id)
+            return summary.open_target
+
+        if focus_entity_id:
+            fid = parse_uuid(focus_entity_id, "focus_entity_id")
+            entity = await self._entity_repo.get(db, fid)
+            if entity is None or entity.novel_id != nid:
+                raise HTTPException(
+                    status_code=http_status.HTTP_404_NOT_FOUND,
+                    detail=f"CoreEntity {focus_entity_id} not found",
+                )
+            map_id = await self._map_id_for_entity_focus(db, nid, fid, entity.entity_type)
+            if map_id is not None:
+                return MapOpenTarget(
+                    mode="map",
+                    map_id=str(map_id),
+                    focus_entity_id=str(fid),
+                )
+            return MapOpenTarget(
+                mode="recent",
+                focus_entity_id=str(fid),
+                fallback_reason="focus_without_map",
+                fallback_message="该对象暂无地图位置，已回退到最近地图",
+            )
+
+        maps, _ = await self._map_repo.get_by_novel(db, nid, limit=1)
+        if maps:
+            return MapOpenTarget(mode="map", map_id=str(maps[0].id))
+        return MapOpenTarget(
+            mode="overview",
+            fallback_reason="no_map",
+            fallback_message="当前项目暂无地图，请先创建世界地图",
+        )
+
+    async def run_batch_action(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        map_id: str,
+        data: MapBatchActionRequest,
+    ) -> MapBatchActionResponse:
+        await self._ctx.require_map(db, novel_id, map_id)
+        if data.action in {
+            "confirm_observations",
+            "ignore_observations",
+            "mark_conflicted",
+        }:
+            action_map = {
+                "confirm_observations": "confirm",
+                "ignore_observations": "ignore",
+                "mark_conflicted": "conflict",
+            }
+            batch = await self.batch_review_observations(
+                db,
+                novel_id,
+                map_id=map_id,
+                data=MapObservationBatchReviewRequest(
+                    observation_ids=data.observation_ids,
+                    action=action_map[data.action],
+                ),
+            )
+            return MapBatchActionResponse(
+                action=data.action,
+                requested_count=batch.requested_count,
+                updated_count=batch.updated_count,
+                created_fact_count=batch.created_fact_count,
+                observations=batch.observations,
+                facts=batch.facts,
+            )
+
+        if data.action == "update_fact_status":
+            next_status = data.patch.get("fact_status")
+            if next_status not in {"confirmed", "rolled_back", "deprecated"}:
+                raise HTTPException(
+                    status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "patch.fact_status must be confirmed, rolled_back, "
+                        "or deprecated"
+                    ),
+                )
+            facts = []
+            for fact_id in data.fact_ids:
+                facts.append(
+                    await self.update_fact_status(
+                        db,
+                        novel_id,
+                        map_id=map_id,
+                        fact_id=fact_id,
+                        data=MapFactStatusUpdate(fact_status=next_status),
+                    )
+                )
+            return MapBatchActionResponse(
+                action=data.action,
+                requested_count=len(data.fact_ids),
+                updated_count=len(facts),
+                facts=facts,
+            )
+
+        visibility = data.patch.get("layer_visibility") or {}
+        return MapBatchActionResponse(
+            action=data.action,
+            requested_count=0,
+            updated_count=0,
+            layer_visibility=visibility,
+        )
+
     async def get_dashboard(
         self,
         db: AsyncSession,
@@ -1103,6 +1233,8 @@ class MapDynamicFactService:
         ]
         queue.sort(key=lambda item: (-item.priority, item.time_label, item.title))
         queue = queue[:80]
+        if scene_id:
+            queue = self._filter_queue_for_scene(queue, scene_id)
         dashboard_queue = (
             self._filter_queue_for_focus(queue, str(focus_id))
             if focus_id
@@ -1126,6 +1258,29 @@ class MapDynamicFactService:
             batch_groups=self._build_batch_groups(dashboard_queue),
             risk_summary=risk_summary,
         )
+
+    async def _map_id_for_entity_focus(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+        entity_type: str,
+    ) -> uuid.UUID | None:
+        binding = await self._binding_repo.find_any_for_entity(db, novel_id, entity_id)
+        if binding is not None:
+            return binding.map_id
+        marker = await self._marker_repo.find_any_for_entity(db, novel_id, entity_id)
+        if marker is not None:
+            return marker.map_id
+        if entity_type in {"organization", "faction"}:
+            territory = await self._territory_repo.find_any_for_faction(
+                db,
+                novel_id,
+                entity_id,
+            )
+            if territory is not None:
+                return territory.map_id
+        return None
 
     async def get_playback(
         self,
@@ -1289,10 +1444,20 @@ class MapDynamicFactService:
                 str(item.target_entity_id) if item.target_entity_id else None
             ),
             object_type=item.target_entity_type,
+            type_label=self._object_type_label(
+                item.target_entity_type or item.dynamic_type
+            ),
             dynamic_type=item.dynamic_type,
             time_label=self._time_label(item),
             status_label=status_label,
             source_summary=self._source_summary(item),
+            location_label=self._location_label(item),
+            spatial_anchor_label=self._spatial_anchor_label(item),
+            debug_ref={
+                "kind": "observation",
+                "id": str(item.id),
+                "scene_id": str(item.scene_id) if item.scene_id else None,
+            },
             priority=self._priority_score(
                 dynamic_type=item.dynamic_type,
                 status=item.review_state,
@@ -1314,10 +1479,20 @@ class MapDynamicFactService:
                 str(item.target_entity_id) if item.target_entity_id else None
             ),
             object_type=item.target_entity_type,
+            type_label=self._object_type_label(
+                item.target_entity_type or item.dynamic_type
+            ),
             dynamic_type=item.dynamic_type,
             time_label=self._time_label(item),
             status_label=self._status_label(item.fact_status),
             source_summary=self._source_summary(item),
+            location_label=self._location_label(item),
+            spatial_anchor_label=self._spatial_anchor_label(item),
+            debug_ref={
+                "kind": "fact",
+                "id": str(item.id),
+                "scene_id": str(item.scene_id) if item.scene_id else None,
+            },
             priority=self._priority_score(
                 dynamic_type=item.dynamic_type,
                 status=item.fact_status,
@@ -1372,7 +1547,11 @@ class MapDynamicFactService:
             ),
             focus_entity_id=focus_entity_id,
             object_type=primary.object_type if primary else None,
+            type_label=primary.type_label if primary else None,
             object_name=primary.title if primary else None,
+            location_label=primary.location_label if primary else None,
+            spatial_anchor_label=primary.spatial_anchor_label if primary else None,
+            debug_ref=primary.debug_ref if primary else {},
             timeline=sorted(queue, key=lambda item: (item.time_label, item.title))[:12],
             available_actions=available_actions,
             map_facts=facts[:5],
@@ -1463,6 +1642,17 @@ class MapDynamicFactService:
             if item.target_entity_id == focus_entity_id
         ]
 
+    def _filter_queue_for_scene(
+        self,
+        queue: list[MapDashboardQueueItem],
+        scene_id: str,
+    ) -> list[MapDashboardQueueItem]:
+        return [
+            item
+            for item in queue
+            if item.debug_ref.get("scene_id") == scene_id
+        ]
+
     def _storyline_label(
         self,
         queue: list[MapDashboardQueueItem],
@@ -1470,6 +1660,9 @@ class MapDynamicFactService:
         scene_id: str | None,
     ) -> str:
         if scene_id:
+            for item in queue:
+                if item.time_label.startswith("Scene "):
+                    return item.time_label
             return "当前 Scene 相关动态"
         if queue:
             return f"围绕 {queue[0].time_label} 的地图动态"
@@ -1623,6 +1816,20 @@ class MapDynamicFactService:
         if evidence:
             return f"{source} · {evidence}"
         return str(source)
+
+    def _location_label(self, item: Any) -> str | None:
+        anchor = item.spatial_anchor or {}
+        name = anchor.get("location_name") or anchor.get("map_name")
+        return str(name) if name else None
+
+    def _spatial_anchor_label(self, item: Any) -> str | None:
+        anchor = item.spatial_anchor or {}
+        q = anchor.get("hex_q")
+        r = anchor.get("hex_r")
+        if q is not None and r is not None:
+            return f"坐标 {q},{r}"
+        name = anchor.get("location_name") or anchor.get("map_name")
+        return str(name) if name else None
 
     def _object_type_label(self, key: str) -> str:
         return {

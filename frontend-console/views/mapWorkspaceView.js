@@ -63,15 +63,20 @@ const mapWorkspaceView = {
     if (context.projectId && !state.currentProjectId) {
       state.currentProjectId = context.projectId
     }
-    if (context.mode === "map" && context.mapId) {
+    if (context.mapId && context.mode !== "recent" && context.mode !== "overview") {
       this._mode = "map"
       this._activeMapId = context.mapId
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
+      this._viewMode = ["dashboard", "live", "lens"].includes(context.mode) ? context.mode : "dashboard"
     } else if (context.mode === "recent") {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
       this._defer(() => this._openRecentMap())
+    } else if (context.projectId && !context.mapId) {
+      this._activeSceneId = context.sceneId
+      this._focusEntityId = context.focusEntityId
+      this._defer(() => this._openDefaultTarget())
     }
 
     if (this._mode === "map" && this._activeMapId) {
@@ -187,6 +192,25 @@ const mapWorkspaceView = {
     }
   },
 
+  async _openDefaultTarget() {
+    if (!state.currentProjectId) return
+    try {
+      const target = await api.world.getMapOpenTarget(state.currentProjectId, {
+        sceneId: this._activeSceneId,
+        focusEntityId: this._focusEntityId,
+      })
+      if (target.fallback_message) toast(target.fallback_message, "warning")
+      if (target.map_id) {
+        this._openMap(target.map_id, {
+          sceneId: target.scene_id || this._activeSceneId,
+          focusEntityId: target.focus_entity_id || this._focusEntityId,
+        })
+      }
+    } catch {
+      await this._openRecentMap()
+    }
+  },
+
   _openMap(mapId, { sceneId = null, focusEntityId = null } = {}) {
     this._mode = "map"
     this._activeMapId = mapId
@@ -225,7 +249,9 @@ const mapWorkspaceView = {
         viewMode: this._viewMode,
         lowMotion: this._lowMotion,
       }
-      router.refresh?.()
+      mapView._redraw?.()
+      this._updateViewModeControlsDom()
+      this._updateWorkspaceLayoutDom()
     }
   },
 
@@ -383,7 +409,7 @@ const mapWorkspaceView = {
       ["lens", "叙事透镜"],
     ]
     return `
-      <div class="map-view-controls" role="group" aria-label="地图视图">
+      <div id="map-view-controls" class="map-view-controls" role="group" aria-label="地图视图">
         ${modes.map(([mode, label]) => `
           <button class="btn btn-sm map-view-mode${this._viewMode === mode ? " is-active" : ""}"
             data-action="map-view-mode" data-view-mode="${mode}">
@@ -524,6 +550,11 @@ const mapWorkspaceView = {
         <article class="map-dynamic-item">
           <div class="map-dynamic-title">${esc(inspector.title || "暂无世界动态")}</div>
           <div class="map-dynamic-meta">${esc(inspector.status_label || "待判断")}</div>
+          ${inspector.type_label || inspector.location_label || inspector.spatial_anchor_label
+            ? `<div class="map-dynamic-meta">
+                ${[inspector.type_label, inspector.location_label, inspector.spatial_anchor_label].filter(Boolean).map((text) => esc(text)).join(" · ")}
+              </div>`
+            : ""}
           <div class="map-dynamic-source">${esc(inspector.summary || "")}</div>
           <div class="map-inspector-counts">
             <span>候选 ${candidates.length}</span>
@@ -578,6 +609,9 @@ const mapWorkspaceView = {
       summary: focus.change_summary || focus.source_summary || dashboard.inspector?.summary,
       object_type: focus.object_type || null,
       object_name: focus.title || null,
+      type_label: focus.type_label || null,
+      location_label: focus.location_label || null,
+      spatial_anchor_label: focus.spatial_anchor_label || null,
       timeline,
       available_actions: availableActions,
       map_facts: facts,
@@ -605,12 +639,24 @@ const mapWorkspaceView = {
             <span>${esc(group.group_label)}</span>
             <strong>${group.count}</strong>
             <small>${group.candidate_count} 待确认 · ${group.confirmed_count} 已确认</small>
+            ${this._renderBatchTimeGroups(group.time_groups || [])}
             <div class="map-batch-actions">
               ${this._renderBatchButton(group, "confirm", "确认候选")}
               ${this._renderBatchButton(group, "ignore", "忽略候选")}
               ${this._renderBatchButton(group, "conflict", "标记冲突")}
             </div>
           </div>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderBatchTimeGroups(timeGroups) {
+    if (!timeGroups.length) return ""
+    return `
+      <div class="map-batch-times">
+        ${timeGroups.slice(0, 4).map((timeGroup) => `
+          <small>${esc(timeGroup.time_label || "时间待确认")} · ${esc(timeGroup.candidate_count || 0)} 待确认 · ${esc(timeGroup.confirmed_count || 0)} 已确认</small>
         `).join("")}
       </div>
     `
@@ -768,6 +814,27 @@ const mapWorkspaceView = {
     if (band) band.innerHTML = this._renderSemanticBand()
   },
 
+  _updateViewModeControlsDom() {
+    const el = document.getElementById("map-view-controls")
+    if (!el) return
+    el.querySelectorAll("[data-view-mode]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.viewMode === this._viewMode)
+    })
+    const lowMotionInput = el.querySelector("[data-action='map-low-motion-toggle']")
+    if (lowMotionInput) lowMotionInput.checked = this._lowMotion
+    this._bindViewModeControls()
+  },
+
+  _bindViewModeControls() {
+    document.querySelectorAll("[data-action='map-view-mode']").forEach((button) => {
+      button.onclick = (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        this._setViewMode(button.dataset.viewMode)
+      }
+    })
+  },
+
   async _confirmObservation(id) {
     const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
     const name = item?.title || item?.target_name || "地图映射"
@@ -845,8 +912,17 @@ const mapWorkspaceView = {
     const time = item.time_label || "时间待确认"
     const summary = item.change_summary || item.source_summary || "暂无来源摘要"
     const actions = this._dynamicObjectActions(item)
+    const detailLine = [item.type_label, item.location_label, item.spatial_anchor_label]
+      .filter(Boolean)
+      .join(" · ")
     const body = `
       <div class="map-object-info">
+        ${detailLine
+          ? `<div class="map-detail-section">
+              <div class="map-detail-label">对象</div>
+              <div class="map-detail-value">${esc(detailLine)}</div>
+            </div>`
+          : ""}
         <div class="map-detail-section">
           <div class="map-detail-label">时间</div>
           <div class="map-detail-value">${esc(time)}</div>
@@ -862,6 +938,14 @@ const mapWorkspaceView = {
       </div>
     `
     showModal(esc(title), body, [
+      {
+        text: "修改",
+        class: "btn-primary",
+        handler: () => {
+          closeModal()
+          this._showDynamicEditForm(item)
+        },
+      },
       ...actions,
       {
         text: "打开检查器",
@@ -872,6 +956,47 @@ const mapWorkspaceView = {
         },
       },
     ])
+  },
+
+  _showDynamicEditForm(item) {
+    if (!item) return
+    const isFact = item.item_kind === "fact"
+    const statusValue = isFact ? (item.fact_status || "confirmed") : (item.review_state || "candidate")
+    const formHtml = `
+      <div class="form-group">
+        <label>对象</label>
+        <input class="form-input" value="${esc(item.title || "地图对象")}" disabled />
+      </div>
+      <div class="form-group">
+        <label>${isFact ? "事实状态" : "候选状态"}</label>
+        <select class="form-select" id="map-object-edit-status">
+          ${isFact
+            ? ["confirmed", "rolled_back", "deprecated"].map((value) => `<option value="${value}" ${value === statusValue ? "selected" : ""}>${esc(this._factStatusLabel(value))}</option>`).join("")
+            : [
+                ["candidate", "待确认"],
+                ["ignored", "已忽略"],
+                ["conflicted", "冲突"],
+              ].map(([value, label]) => `<option value="${value}" ${value === statusValue ? "selected" : ""}>${esc(label)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>空间锚点/说明</label>
+        <textarea class="form-textarea" rows="3" disabled>${esc(item.spatial_anchor_label || item.location_label || item.source_summary || "")}</textarea>
+      </div>
+    `
+    showModal("修改地图对象", formHtml, [{
+      text: "保存",
+      class: "btn-primary",
+      handler: async () => {
+        const nextStatus = document.getElementById("map-object-edit-status")?.value
+        closeModal()
+        if (isFact) {
+          await this._updateFactStatus(item.item_id, nextStatus)
+        } else {
+          await this._updateObservationReview(item.item_id, nextStatus)
+        }
+      },
+    }])
   },
 
   _dynamicObjectActions(item) {
@@ -948,6 +1073,20 @@ const mapWorkspaceView = {
     })
   },
 
+  async _updateObservationReview(id, reviewState) {
+    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const name = item?.title || item?.target_name || "地图映射"
+    return confirmAction(`将地图映射「${name}」设为${reviewState}？`, async () => {
+      try {
+        await api.world.updateMapObservationReview(this._activeMapId, id, state.currentProjectId, reviewState)
+        toast("地图映射已更新", "success")
+        await this._loadDynamicSummary({ force: true })
+      } catch (err) {
+        toast(`更新失败：${err.message || "未知错误"}`, "error")
+      }
+    })
+  },
+
   async _updateFactStatus(id, factStatus) {
     const item = (this._dynamicSummary?.facts || []).find((fact) => (fact.item_id || fact.id) === id)
     const name = item?.title || item?.target_name || "地图事实"
@@ -1000,7 +1139,15 @@ const mapWorkspaceView = {
     const label = { confirm: "确认", ignore: "忽略", conflict: "标记冲突" }[action] || "处理"
     return confirmAction(`${label}该分组的 ${ids.length} 条地图候选？`, async () => {
       try {
-        await api.world.batchReviewMapObservations(this._activeMapId, ids, action, state.currentProjectId)
+        const apiAction = {
+          confirm: "confirm_observations",
+          ignore: "ignore_observations",
+          conflict: "mark_conflicted",
+        }[action]
+        await api.world.runMapBatchAction(this._activeMapId, state.currentProjectId, {
+          action: apiAction,
+          observation_ids: ids,
+        })
         toast("批量修改已完成", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
@@ -1030,6 +1177,7 @@ const mapWorkspaceView = {
   _bindEvents() {
     const root = document.getElementById("workspace-content")
     if (!root) return
+    this._bindViewModeControls()
     root.onclick = (e) => {
       const target = e.target.closest("[data-action]")
       if (!target) return

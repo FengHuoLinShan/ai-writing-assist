@@ -97,4 +97,40 @@ describe("mapLayoutEngine", () => {
     expect(layout.labels[0].itemId).toBe("focus-candidate")
     expect(layout.layoutHint).toContain("叙事透镜")
   })
+
+  it("keeps chaos density deterministic and degrades in the documented order", () => {
+    const queue = Array.from({ length: 42 }, (_, index) => item({
+      item_id: `chaos-${index}`,
+      title: `密集对象${index}`,
+      object_type: index % 3 === 0 ? "character" : index % 3 === 1 ? "event" : "resource",
+      dynamic_type: index % 5 === 0 ? "crisis" : "location",
+      priority: index < 4 ? 120 - index : 40 - index,
+      risk_level: index < 2 ? "danger" : index < 6 ? "warning" : "info",
+      anchor: {
+        x: 150 + (index % 7) * 4,
+        y: 120 + Math.floor(index / 7) * 4,
+      },
+    }))
+
+    const input = {
+      dashboard: { dynamic_queue: queue },
+      viewport: { width: 390, height: 260 },
+      viewMode: "dashboard",
+    }
+    const first = buildMapLayout(input)
+    const second = buildMapLayout(input)
+
+    expect(first).toEqual(second)
+    expect(first.labels.length).toBeGreaterThan(0)
+    expect(first.clusters.length + first.hiddenCount).toBeGreaterThan(0)
+    const allowedLevels = ["full", "short", "icon"]
+    expect(first.labels.every((label) => allowedLevels.includes(label.displayLevel))).toBe(true)
+    expect(first.labels.some((label) => label.displayLevel === "full")).toBe(true)
+    expect(first.clusters.every((cluster) => /人物|事件|资源|危机|对象/.test(cluster.label))).toBe(true)
+    for (let i = 0; i < first.labels.length; i += 1) {
+      for (let j = i + 1; j < first.labels.length; j += 1) {
+        expect(boxesOverlap(first.labels[i].box, first.labels[j].box)).toBe(false)
+      }
+    }
+  })
 })

@@ -11,6 +11,8 @@ from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.world.map_schemas import (
+    MapBatchActionRequest,
+    MapBatchActionResponse,
     MapConfigCreate,
     MapConfigListResponse,
     MapConfigResponse,
@@ -31,6 +33,7 @@ from modules.world.map_schemas import (
     MapObservationListResponse,
     MapObservationResponse,
     MapObservationReviewUpdate,
+    MapOpenTarget,
     MapPlaybackResponse,
     MapSceneSummaryResponse,
     MapStateResponse,
@@ -92,6 +95,22 @@ async def get_scene_summary(
 ) -> MapSceneSummaryResponse:
     """写作页 Scene 地图摘要。"""
     return await _scene_summary_service.summarize(db, novel_id, scene_id)
+
+
+@router.get("/open-target", response_model=MapOpenTarget)
+async def get_map_open_target(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    scene_id: str | None = Query(None, description="Scene ID"),
+    focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
+) -> MapOpenTarget:
+    """为写作页和世界对象页生成稳定地图打开目标。"""
+    return await _dynamic_fact_service.get_open_target(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        focus_entity_id=focus_entity_id,
+    )
 
 
 @router.get("/{map_id}", response_model=MapConfigResponse)
@@ -486,6 +505,21 @@ async def ignore_map_observation(
         novel_id,
         map_id=map_id,
         observation_id=observation_id,
+    )
+
+
+@router.post("/{map_id}/batch-actions", response_model=MapBatchActionResponse)
+async def run_map_batch_action(
+    db: DbSession,
+    map_id: str,
+    data: MapBatchActionRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapBatchActionResponse:
+    return await _dynamic_fact_service.run_batch_action(
+        db,
+        novel_id,
+        map_id=map_id,
+        data=data,
     )
 
 
