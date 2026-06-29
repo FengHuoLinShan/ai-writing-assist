@@ -28,6 +28,12 @@ from modules.world.repositories import CoreEntityRepository
 from modules.world.services.helpers import parse_uuid
 
 SceneLookup = Callable[[AsyncSession, str, str], Awaitable[object | None]]
+SUMMARY_DYNAMIC_TYPES: tuple[str, ...] = (
+    "crisis",
+    "crisis_spread",
+    "risk",
+    "conflict",
+)
 
 
 async def _default_scene_lookup(
@@ -320,6 +326,7 @@ class MapSceneSummaryService:
             novel_id,
             map_id=map_id,
             scene_id=scene_id,
+            dynamic_types=SUMMARY_DYNAMIC_TYPES,
             fact_status="confirmed",
             limit=80,
         )
@@ -330,6 +337,7 @@ class MapSceneSummaryService:
                 novel_id,
                 map_id=map_id,
                 scene_id=scene_id,
+                dynamic_types=SUMMARY_DYNAMIC_TYPES,
                 limit=80,
             )
         crises: list[MapSceneSummaryItem] = []

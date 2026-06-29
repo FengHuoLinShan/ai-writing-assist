@@ -339,6 +339,63 @@ async def test_scene_summary_queries_confirmed_facts_by_scene_before_limit(
 
 
 @pytest.mark.asyncio
+async def test_scene_summary_queries_dynamic_facts_before_limit(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    scene = await _create_scene(db_session, novel_id, scene_index=1)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="九州世界", map_type="world", grid_width=5, grid_height=5),
+    )
+    fact_repo = MapFactRepository()
+    nid = uuid.UUID(hex=novel_id)
+    map_id = uuid.UUID(map_resp.id)
+    for index in range(81):
+        await fact_repo.create(
+            db_session,
+            nid,
+            {
+                "map_id": map_id,
+                "target_name": f"地点变化 {index}",
+                "target_entity_type": "location",
+                "dynamic_type": "location",
+                "spatial_anchor": {"hex_q": index % 5, "hex_r": index % 7},
+                "fact_status": "confirmed",
+                "evidence_text": f"地点变化证据 {index}",
+                "scene_id": scene.id,
+                "scene_index": scene.scene_index,
+            },
+        )
+    await fact_repo.create(
+        db_session,
+        nid,
+        {
+            "map_id": map_id,
+            "target_name": "粮仓起火",
+            "target_entity_type": "event",
+            "dynamic_type": "risk",
+            "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "fact_status": "confirmed",
+            "evidence_text": "粮仓火势正在扩大",
+            "scene_id": scene.id,
+            "scene_index": scene.scene_index,
+        },
+    )
+
+    summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=False,
+    )
+
+    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已确认"]
+
+
+@pytest.mark.asyncio
 async def test_scene_summary_suppresses_candidate_duplicate_of_confirmed_fact(
     async_client: AsyncClient,
     db_session: AsyncSession,

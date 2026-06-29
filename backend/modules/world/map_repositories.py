@@ -777,6 +777,7 @@ class MapObservationRepository:
         *,
         map_id: uuid.UUID,
         scene_id: uuid.UUID,
+        dynamic_types: set[str] | tuple[str, ...],
         limit: int = 100,
     ) -> list[MapObservation]:
         stmt = (
@@ -786,6 +787,7 @@ class MapObservationRepository:
                 or_(MapObservation.map_id == map_id, MapObservation.map_id.is_(None)),
                 MapObservation.scene_id == scene_id,
                 MapObservation.review_state.in_(["candidate", "conflicted"]),
+                MapObservation.dynamic_type.in_(tuple(dynamic_types)),
             )
             .order_by(
                 MapObservation.review_state,
@@ -925,6 +927,7 @@ class MapFactRepository:
         *,
         map_id: uuid.UUID,
         scene_id: uuid.UUID,
+        dynamic_types: set[str] | tuple[str, ...],
         fact_status: str = "confirmed",
         limit: int = 100,
     ) -> list[MapFact]:
@@ -935,6 +938,7 @@ class MapFactRepository:
                 MapFact.map_id == map_id,
                 MapFact.scene_id == scene_id,
                 MapFact.fact_status == fact_status,
+                MapFact.dynamic_type.in_(tuple(dynamic_types)),
             )
             .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
             .limit(limit)
