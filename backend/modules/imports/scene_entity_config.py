@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 MAX_PHASE2_SCENE_RETRIES = 3
 MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES = 3
 PHASE2_SCENE_TIMEOUT_GRACE_SECONDS = 15
@@ -22,3 +24,29 @@ PHASE2_SMALL_SAMPLE_TARGET_ENTITIES = 29
 PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS = 90
 PHASE2_SMALL_SAMPLE_SUPPLEMENT_CHAPTER_CHAR_LIMIT = 4200
 PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT = 36000
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def phase2_batch_size_scenes() -> int:
+    return _positive_int_env("PHASE2_BATCH_SIZE_SCENES", PHASE2_BATCH_SIZE_SCENES)
+
+
+def phase2_batch_concurrency() -> int:
+    return _positive_int_env("PHASE2_BATCH_CONCURRENCY", PHASE2_BATCH_CONCURRENCY)
+
+
+def phase2_batch_tuning_group() -> str:
+    configured = os.getenv("PHASE2_BATCH_TUNING_GROUP")
+    if configured and configured.strip():
+        return configured.strip()
+    return f"{phase2_batch_size_scenes()}x{phase2_batch_concurrency()}"

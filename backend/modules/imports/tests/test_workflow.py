@@ -3044,19 +3044,48 @@ class TestSceneSegmentationProgress:
 class TestSceneEntityExtractionProgress:
     """测试实体提取服务的细粒度进度回调"""
 
-    def test_phase2_splits_scenes_into_fixed_size_batches(self):
+    def test_phase2_splits_scenes_into_fixed_size_batches(self, monkeypatch):
+        monkeypatch.delenv("PHASE2_BATCH_SIZE_SCENES", raising=False)
         service = SceneEntityExtractionService()
         scenes = [
             {"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 31)
         ]
 
-        batches = service._split_scene_batches(scenes, batch_size=12)
+        batches = service._split_scene_batches(scenes)
 
         assert [[scene["scene_index"] for scene in batch] for batch in batches] == [
             list(range(1, 13)),
             list(range(13, 25)),
             list(range(25, 31)),
         ]
+        assert service._phase2_batch_size_scenes() == 12
+        assert service._phase2_batch_concurrency() == 6
+
+    def test_phase2_batch_config_uses_env_override(self, monkeypatch):
+        monkeypatch.setenv("PHASE2_BATCH_SIZE_SCENES", "8")
+        monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "8")
+        service = SceneEntityExtractionService()
+        scenes = [
+            {"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 18)
+        ]
+
+        batches = service._split_scene_batches(scenes)
+
+        assert [[scene["scene_index"] for scene in batch] for batch in batches] == [
+            list(range(1, 9)),
+            list(range(9, 17)),
+            [17],
+        ]
+        assert service._phase2_batch_size_scenes() == 8
+        assert service._phase2_batch_concurrency() == 8
+
+    def test_phase2_batch_config_invalid_env_falls_back(self, monkeypatch):
+        monkeypatch.setenv("PHASE2_BATCH_SIZE_SCENES", "nope")
+        monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "0")
+        service = SceneEntityExtractionService()
+
+        assert service._phase2_batch_size_scenes() == 12
+        assert service._phase2_batch_concurrency() == 6
 
     def test_phase2_boundary_windows_use_adjacent_batch_edges_only(self):
         service = SceneEntityExtractionService()
@@ -3127,7 +3156,10 @@ class TestSceneEntityExtractionProgress:
     async def test_phase2_runs_batches_in_parallel_but_scenes_serial_within_batch(
         self,
         mock_ctx,
+        monkeypatch,
     ):
+        monkeypatch.delenv("PHASE2_BATCH_SIZE_SCENES", raising=False)
+        monkeypatch.delenv("PHASE2_BATCH_CONCURRENCY", raising=False)
         mock_ctx.return_value = Mock(entities=[])
         service = SceneEntityExtractionService()
         service._get_scenes = AsyncMock(
@@ -3231,6 +3263,75 @@ class TestSceneEntityExtractionProgress:
         assert result["phase2_batch_concurrency"] == 6
         assert progress_calls[0] == (0, 24)
         assert progress_calls[-1] == (24, 24)
+
+    @pytest.mark.asyncio
+    @patch("modules.world.facade.get_world_context", new_callable=AsyncMock)
+    async def test_phase2_batched_result_reports_env_override(
+        self,
+        mock_ctx,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("PHASE2_BATCH_SIZE_SCENES", "8")
+        monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "8")
+        mock_ctx.return_value = Mock(entities=[])
+        service = SceneEntityExtractionService()
+        service._get_scenes = AsyncMock(
+            return_value=[
+                {"id": f"scene-{idx}", "scene_index": idx, "chapter_ids": [str(idx)]}
+                for idx in range(1, 18)
+            ]
+        )
+        service._process_scene = AsyncMock(
+            return_value={
+                "created": 0,
+                "relations": 0,
+                "deltas": 0,
+                "updated_context": "",
+                "updated_memory": [],
+            }
+        )
+        service._run_boundary_supplements = AsyncMock(
+            return_value={
+                "phase2_boundary_windows_total": 2,
+                "phase2_boundary_windows_completed": 2,
+                "phase2_boundary_supplement_counts": {
+                    "created": 0,
+                    "aliases": 0,
+                    "relations": 0,
+                    "link_suggestions": 0,
+                    "conflicts": 0,
+                    "failed": 0,
+                },
+                "degraded": False,
+                "error_kind": None,
+                "error_message": None,
+            }
+        )
+        service._run_alias_relation_phase = AsyncMock(
+            return_value={
+                "total_aliases": 0,
+                "total_relations": 0,
+                "alias_relation_scenes": 0,
+                "alias_relation_failed_scenes": [],
+                "checkpoints": {"phase2b": {"scenes": []}},
+            }
+        )
+        service._phase2_audit_summary = AsyncMock(return_value={})
+        service._phase2_snapshot_health_summary = AsyncMock(return_value={})
+
+        result = await service.extract_by_scenes(
+            AsyncMock(),
+            str(uuid.uuid4()),
+            workflow_id="wf",
+            existing_checkpoints={},
+        )
+        stats = DeepImportWorkflow._phase2_quality_stats(result)
+
+        assert result["phase2_batch_size_scenes"] == 8
+        assert result["phase2_batch_concurrency"] == 8
+        assert result["phase2_batches_total"] == 3
+        assert stats["phase2_batch_size_scenes"] == 8
+        assert stats["phase2_batch_concurrency"] == 8
 
     @pytest.mark.asyncio
     async def test_phase2_boundary_supplement_receives_only_adjacent_edges(self):

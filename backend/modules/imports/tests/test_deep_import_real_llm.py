@@ -29,6 +29,11 @@ from core.config import get_settings
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.parsers import parse_txt
+from modules.imports.scene_entity_config import (
+    phase2_batch_concurrency,
+    phase2_batch_size_scenes,
+    phase2_batch_tuning_group,
+)
 from modules.imports.services import ImportService
 from modules.outline.models import (
     ForeshadowingPlan,
@@ -101,6 +106,14 @@ def _llm_config_log_payload() -> dict[str, Any]:
         "llm_retry_base_delay": settings.llm_retry_base_delay,
         "llm_retry_max_delay": settings.llm_retry_max_delay,
         "llm_health_required": settings.llm_health_required,
+    }
+
+
+def _phase2_batch_runtime_payload() -> dict[str, Any]:
+    return {
+        "phase2_batch_tuning_group": phase2_batch_tuning_group(),
+        "phase2_batch_size_scenes": phase2_batch_size_scenes(),
+        "phase2_batch_concurrency": phase2_batch_concurrency(),
     }
 
 
@@ -337,6 +350,7 @@ def _checkpoint_summary(checkpoints: dict[str, Any] | None) -> dict[str, Any]:
 
 def _phase2_diagnostics_payload(phase2_stats: dict[str, Any]) -> dict[str, Any]:
     return {
+        "phase2_batch_tuning": _phase2_batch_runtime_payload(),
         "phase2_batches": {
             "total": phase2_stats.get("phase2_batches_total"),
             "completed": phase2_stats.get("phase2_batches_completed"),
@@ -356,7 +370,88 @@ def _phase2_diagnostics_payload(phase2_stats: dict[str, Any]) -> dict[str, Any]:
         },
         "phase2_actions": phase2_stats.get("phase2_action_counts"),
         "phase2_dedup": phase2_stats.get("phase2_dedup_counts"),
+        "phase2_low_confidence": phase2_stats.get("phase2_low_confidence"),
+        "phase2_linked_to_existing": phase2_stats.get("phase2_linked_to_existing"),
+        "phase2_ignored": phase2_stats.get("phase2_ignored"),
+        "phase2_temporary_only": phase2_stats.get("phase2_temporary_only"),
     }
+
+
+def _phase2_summary_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict | list):
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    else:
+        text = str(value)
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _phase2_batch_tuning_summary_path(log_path: Path) -> Path:
+    configured = os.getenv("PHASE2_BATCH_TUNING_SUMMARY_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    stamp = log_path.stem.rsplit("_", 1)[-1]
+    return log_path.parent / f"phase2_batch_tuning_{stamp}.md"
+
+
+def _write_phase2_batch_tuning_summary(
+    *,
+    log_path: Path,
+    wall_clock_s: float,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    issues: list[str],
+) -> Path:
+    summary_path = _phase2_batch_tuning_summary_path(log_path)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    phase2_stats = (result.get("quality_stats") or {}).get("phase2") or {}
+    row = {
+        "group": phase2_batch_tuning_group(),
+        "chapters": EXPECTED_CHAPTER_COUNT,
+        "wall_clock_s": round(wall_clock_s, 2),
+        "phase": result.get("phase"),
+        "quality": result.get("quality_status"),
+        "batch_size": phase2_stats.get("phase2_batch_size_scenes")
+        or phase2_batch_size_scenes(),
+        "concurrency": phase2_stats.get("phase2_batch_concurrency")
+        or phase2_batch_concurrency(),
+        "completed_scenes": phase2_stats.get("completed_scenes"),
+        "failed_scene_count": phase2_stats.get("failed_scene_count"),
+        "entities": output_counts.get("entity_count"),
+        "aliases": output_counts.get("total_alias_count"),
+        "relations": output_counts.get("relation_count"),
+        "low_confidence": phase2_stats.get("phase2_low_confidence"),
+        "boundary": phase2_stats.get("phase2_boundary_supplement_counts"),
+        "actions": phase2_stats.get("phase2_action_counts"),
+        "dedup": phase2_stats.get("phase2_dedup_counts"),
+        "degraded": phase2_stats.get("degraded"),
+        "error_kind": phase2_stats.get("error_kind"),
+        "issues": "; ".join(issues),
+        "log": str(log_path),
+    }
+    headers = list(row)
+    if not summary_path.exists():
+        summary_path.write_text(
+            "# Phase 2 Batch Tuning Summary\n\n"
+            + "| "
+            + " | ".join(headers)
+            + " |\n| "
+            + " | ".join("---" for _ in headers)
+            + " |\n",
+            encoding="utf-8",
+        )
+    with summary_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "| "
+            + " | ".join(
+                _phase2_summary_value(row[key]).replace("\n", " ")
+                for key in headers
+            )
+            + " |\n"
+        )
+    return summary_path
 
 
 def _result_log_payload(result: dict[str, Any]) -> dict[str, Any]:
@@ -563,6 +658,53 @@ async def test_real_llm_log_output_counts_include_phase2b_alias_relations(
     assert output_counts["needs_review_alias_count"] == 1
 
 
+def test_phase2_batch_tuning_summary_writes_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "phase2_batch_tuning.md"
+    log_path = tmp_path / "deep_import_60_8x8.jsonl"
+    monkeypatch.setenv("PHASE2_BATCH_TUNING_GROUP", "8x8")
+    monkeypatch.setenv("PHASE2_BATCH_TUNING_SUMMARY_PATH", str(summary_path))
+    result = {
+        "phase": "done",
+        "quality_status": "complete",
+        "quality_stats": {
+            "phase2": {
+                "phase2_batch_size_scenes": 8,
+                "phase2_batch_concurrency": 8,
+                "completed_scenes": 24,
+                "failed_scene_count": 0,
+                "phase2_low_confidence": 2,
+                "phase2_boundary_supplement_counts": {"created": 1},
+                "phase2_action_counts": {"create_new": 10},
+                "phase2_dedup_counts": {"checked": 10, "skipped": 1},
+                "degraded": False,
+                "error_kind": None,
+            }
+        },
+    }
+    output_counts = {
+        "entity_count": 10,
+        "total_alias_count": 3,
+        "relation_count": 2,
+    }
+
+    written = _write_phase2_batch_tuning_summary(
+        log_path=log_path,
+        wall_clock_s=12.34,
+        result=result,
+        output_counts=output_counts,
+        issues=[],
+    )
+
+    assert written == summary_path
+    text = summary_path.read_text(encoding="utf-8")
+    assert "Phase 2 Batch Tuning Summary" in text
+    assert "| 8x8 |" in text
+    assert "| group | chapters | wall_clock_s |" in text
+
+
 @pytest.mark.asyncio
 @pytest.mark.real_llm
 @real_llm_required
@@ -578,6 +720,7 @@ async def test_deep_import_real_llm_acceptance(
         expected_chapter_count=EXPECTED_CHAPTER_COUNT,
         expected_phase_shape=expected_phase_shape,
         llm_config=_llm_config_log_payload(),
+        phase2_batch_tuning=_phase2_batch_runtime_payload(),
     )
     assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
     file_bytes = REAL_FILE_PATH.read_bytes()
@@ -784,8 +927,17 @@ async def test_deep_import_real_llm_acceptance(
             checks=acceptance_rule_results,
             issues=acceptance_issues,
         )
+        summary_path = _write_phase2_batch_tuning_summary(
+            log_path=log.path,
+            wall_clock_s=time.monotonic() - log.started_at,
+            result=result,
+            output_counts=output_counts,
+            issues=acceptance_issues,
+        )
         log.write(
             "final_summary",
+            wall_clock_s=round(time.monotonic() - log.started_at, 2),
+            phase2_batch_tuning_summary_path=str(summary_path),
             project_id=str(project_id),
             task_id=str(task.id),
             issues=acceptance_issues,
@@ -1041,8 +1193,17 @@ async def test_deep_import_real_llm_acceptance(
         checks=acceptance_rule_results,
         issues=acceptance_issues,
     )
+    summary_path = _write_phase2_batch_tuning_summary(
+        log_path=log.path,
+        wall_clock_s=time.monotonic() - log.started_at,
+        result=result,
+        output_counts=output_counts,
+        issues=acceptance_issues,
+    )
     log.write(
         "final_summary",
+        wall_clock_s=round(time.monotonic() - log.started_at, 2),
+        phase2_batch_tuning_summary_path=str(summary_path),
         project_id=str(project_id),
         task_id=str(task.id),
         issues=acceptance_issues,

@@ -593,15 +593,23 @@ class SceneEntityExtractionService:
             return int(scene.get("scene_index") or 0)
         return int(getattr(scene, "scene_index", 0) or 0)
 
+    @staticmethod
+    def _phase2_batch_size_scenes() -> int:
+        return _phase2_config.phase2_batch_size_scenes()
+
+    @staticmethod
+    def _phase2_batch_concurrency() -> int:
+        return _phase2_config.phase2_batch_concurrency()
+
     @classmethod
     def _split_scene_batches(
         cls,
         scenes: list[dict[str, Any]],
         *,
-        batch_size: int = PHASE2_BATCH_SIZE_SCENES,
+        batch_size: int | None = None,
     ) -> list[list[dict[str, Any]]]:
         ordered = sorted(scenes, key=cls._scene_index_value)
-        size = max(1, int(batch_size or PHASE2_BATCH_SIZE_SCENES))
+        size = max(1, int(batch_size or _phase2_config.phase2_batch_size_scenes()))
         return [ordered[index : index + size] for index in range(0, len(ordered), size)]
 
     @staticmethod
@@ -755,8 +763,10 @@ class SceneEntityExtractionService:
         workflow_id: str | None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
     ) -> dict[str, Any]:
-        batches = self._split_scene_batches(scenes)
-        semaphore = asyncio.Semaphore(PHASE2_BATCH_CONCURRENCY)
+        batch_size = self._phase2_batch_size_scenes()
+        batch_concurrency = self._phase2_batch_concurrency()
+        batches = self._split_scene_batches(scenes, batch_size=batch_size)
+        semaphore = asyncio.Semaphore(batch_concurrency)
         progress_lock = asyncio.Lock()
         db_lock = asyncio.Lock()
         completed_counter = {"value": 0}
@@ -886,8 +896,8 @@ class SceneEntityExtractionService:
             "checkpoints": {"phase2": {"scenes": scene_checkpoints}},
             "phase2_batches_total": len(batches),
             "phase2_batches_completed": len(batches) - len(failed_batches),
-            "phase2_batch_size_scenes": PHASE2_BATCH_SIZE_SCENES,
-            "phase2_batch_concurrency": PHASE2_BATCH_CONCURRENCY,
+            "phase2_batch_size_scenes": batch_size,
+            "phase2_batch_concurrency": batch_concurrency,
             "phase2_failed_batches": failed_batches,
             "phase2_degraded_batches": degraded_batches,
             "phase2_boundary_windows_total": boundary_result[
