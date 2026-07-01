@@ -17,6 +17,10 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入 Scene 阶段执行 Phase 0 双轮预取、Phase 1a 正文补强、Phase 1b 融合提交，并记录质量统计
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
+- 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
+- Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；每个 batch 保留局部 rolling context
+- Phase 2 只对相邻 batch 边界执行补充抽取：前批最后 2 个 Scene + 后批最前 2 个 Scene；不做全局对象融合扫描
+- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
 

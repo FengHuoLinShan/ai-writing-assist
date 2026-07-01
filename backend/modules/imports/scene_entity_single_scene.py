@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _optional_lock(lock):
+    if lock is None:
+        yield
+        return
+    async with lock:
+        yield
 
 
 class SingleSceneEntityExtractor:
@@ -27,13 +37,16 @@ class SingleSceneEntityExtractor:
         accumulated_memory: list[dict],
         seen_entity_keys: set[tuple[str, str]],
         workflow_id: str | None = None,
+        persistence_stats: dict[str, Any] | None = None,
+        db_lock=None,
     ) -> dict[str, Any]:
         service = self.service
         scene_index = scene["scene_index"]
         scene_id = service._scene_id(scene)
         scene_provenance_key = service._scene_provenance_key(workflow_id, scene)
         source_chapter_index = service._scene_source_chapter_index(scene)
-        chapters_text = await service._load_scene_chapters(db, scene)
+        async with _optional_lock(db_lock):
+            chapters_text = await service._load_scene_chapters(db, scene)
         if not chapters_text:
             return {
                 "created": 0,
@@ -49,17 +62,18 @@ class SingleSceneEntityExtractor:
         memory_context = service._build_memory_context(accumulated_memory)
         snapshot_id: str | None = None
         try:
-            snapshot = await service._create_phase2_snapshot(
-                db,
-                nid,
-                scene,
-                source_chapter_index,
-                chapters_text,
-                existing_context,
-                memory_context,
-                accumulated_memory,
-                workflow_id=workflow_id,
-            )
+            async with _optional_lock(db_lock):
+                snapshot = await service._create_phase2_snapshot(
+                    db,
+                    nid,
+                    scene,
+                    source_chapter_index,
+                    chapters_text,
+                    existing_context,
+                    memory_context,
+                    accumulated_memory,
+                    workflow_id=workflow_id,
+                )
             snapshot_id = snapshot.id
             extraction = await asyncio.wait_for(
                 service._call_llm_extraction(
@@ -73,60 +87,64 @@ class SingleSceneEntityExtractor:
             if snapshot_id is not None:
                 from modules.context.facade import mark_context_snapshot_failed
 
-                await mark_context_snapshot_failed(
-                    db,
-                    snapshot_id=snapshot_id,
-                    error_kind=service._error_kind(exc),
-                    error_message=str(exc)[:300],
-                )
+                async with _optional_lock(db_lock):
+                    await mark_context_snapshot_failed(
+                        db,
+                        snapshot_id=snapshot_id,
+                        error_kind=service._error_kind(exc),
+                        error_message=str(exc)[:300],
+                    )
             raise
 
         result_refs: list[dict[str, str]] = []
         context_snapshot_id = snapshot_id
         try:
-            created_count = await service._persist_entities(
-                db,
-                nid,
-                extraction.entities,
-                scene_index=scene_index,
-                source_chapter_index=source_chapter_index,
-                seen_entity_keys=seen_entity_keys,
-                workflow_id=workflow_id,
-                scene_id=scene_id,
-                scene_provenance_key=scene_provenance_key,
-                context_snapshot_id=context_snapshot_id,
-                result_refs=result_refs,
-            )
-            relation_count = 0
-            delta_count = await service._record_deltas(
-                db,
-                nid,
-                extraction.delta_events,
-                scene_index=scene_index,
-                workflow_id=workflow_id,
-                scene_id=scene_id,
-                scene_provenance_key=scene_provenance_key,
-                context_snapshot_id=context_snapshot_id,
-                result_refs=result_refs,
-            )
-            if snapshot_id is not None:
-                from modules.context.facade import mark_context_snapshot_succeeded
-
-                await mark_context_snapshot_succeeded(
+            async with _optional_lock(db_lock):
+                created_count = await service._persist_entities(
                     db,
-                    snapshot_id=snapshot_id,
+                    nid,
+                    extraction.entities,
+                    scene_index=scene_index,
+                    source_chapter_index=source_chapter_index,
+                    seen_entity_keys=seen_entity_keys,
+                    workflow_id=workflow_id,
+                    scene_id=scene_id,
+                    scene_provenance_key=scene_provenance_key,
+                    context_snapshot_id=context_snapshot_id,
+                    result_refs=result_refs,
+                    persistence_stats=persistence_stats,
+                )
+                relation_count = 0
+                delta_count = await service._record_deltas(
+                    db,
+                    nid,
+                    extraction.delta_events,
+                    scene_index=scene_index,
+                    workflow_id=workflow_id,
+                    scene_id=scene_id,
+                    scene_provenance_key=scene_provenance_key,
+                    context_snapshot_id=context_snapshot_id,
                     result_refs=result_refs,
                 )
+                if snapshot_id is not None:
+                    from modules.context.facade import mark_context_snapshot_succeeded
+
+                    await mark_context_snapshot_succeeded(
+                        db,
+                        snapshot_id=snapshot_id,
+                        result_refs=result_refs,
+                    )
         except Exception as exc:
             if snapshot_id is not None:
                 from modules.context.facade import mark_context_snapshot_failed
 
-                await mark_context_snapshot_failed(
-                    db,
-                    snapshot_id=snapshot_id,
-                    error_kind=service._error_kind(exc),
-                    error_message=str(exc)[:300],
-                )
+                async with _optional_lock(db_lock):
+                    await mark_context_snapshot_failed(
+                        db,
+                        snapshot_id=snapshot_id,
+                        error_kind=service._error_kind(exc),
+                        error_message=str(exc)[:300],
+                    )
             raise
 
         new_names = [
@@ -151,11 +169,12 @@ class SingleSceneEntityExtractor:
         try:
             from modules.memory.facade import capture_snapshot
 
-            await capture_snapshot(
-                db,
-                str(nid),
-                chapter_index=source_chapter_index,
-            )
+            async with _optional_lock(db_lock):
+                await capture_snapshot(
+                    db,
+                    str(nid),
+                    chapter_index=source_chapter_index,
+                )
         except Exception as exc:
             logger.warning(
                 "Memory snapshot after scene %d failed: %s",

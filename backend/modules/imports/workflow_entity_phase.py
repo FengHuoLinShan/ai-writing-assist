@@ -350,6 +350,41 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "supplemental_error_kind": phase2_result.get("supplemental_error_kind"),
         "parallel_llm_fallback": bool(phase2_result.get("parallel_llm_fallback")),
         "bulk_error_kind": phase2_result.get("bulk_error_kind"),
+        "phase2_batches_total": int(
+            phase2_result.get("phase2_batches_total", 0) or 0
+        ),
+        "phase2_batches_completed": int(
+            phase2_result.get("phase2_batches_completed", 0) or 0
+        ),
+        "phase2_batch_size_scenes": int(
+            phase2_result.get("phase2_batch_size_scenes", 0) or 0
+        ),
+        "phase2_batch_concurrency": int(
+            phase2_result.get("phase2_batch_concurrency", 0) or 0
+        ),
+        "phase2_boundary_windows_total": int(
+            phase2_result.get("phase2_boundary_windows_total", 0) or 0
+        ),
+        "phase2_boundary_windows_completed": int(
+            phase2_result.get("phase2_boundary_windows_completed", 0) or 0
+        ),
+        "phase2_action_counts": phase2_result.get("phase2_action_counts") or {},
+        "phase2_dedup_counts": phase2_result.get("phase2_dedup_counts") or {},
+        "phase2_boundary_supplement_counts": (
+            phase2_result.get("phase2_boundary_supplement_counts") or {}
+        ),
+        "phase2_failed_batches": phase2_result.get("phase2_failed_batches") or [],
+        "phase2_degraded_batches": phase2_result.get("phase2_degraded_batches") or [],
+        "phase2_linked_to_existing": int(
+            phase2_result.get("phase2_linked_to_existing", 0) or 0
+        ),
+        "phase2_ignored": int(phase2_result.get("phase2_ignored", 0) or 0),
+        "phase2_temporary_only": int(
+            phase2_result.get("phase2_temporary_only", 0) or 0
+        ),
+        "phase2_low_confidence": int(
+            phase2_result.get("phase2_low_confidence", 0) or 0
+        ),
         "degraded": bool(phase2_result.get("degraded")),
         "error_kind": phase2_result.get("error_kind"),
         "checkpoint_status_counts": status_counts,

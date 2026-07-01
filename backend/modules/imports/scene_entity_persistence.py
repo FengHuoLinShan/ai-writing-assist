@@ -134,6 +134,7 @@ class SceneEntityPersistenceGateway:
         scene_provenance_key: str | None = None,
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
+        persistence_stats: dict[str, Any] | None = None,
     ) -> int:
         service = self.service
         from modules.world.facade import create_entity, find_similar_entities
@@ -143,6 +144,25 @@ class SceneEntityPersistenceGateway:
 
         for ent in entities:
             action = ent.suggested_action
+            if persistence_stats is not None:
+                persistence_stats.setdefault("action_counts", {}).setdefault(action, 0)
+                persistence_stats["action_counts"][action] += 1
+                if ent.confidence < 0.6:
+                    persistence_stats["low_confidence"] = (
+                        int(persistence_stats.get("low_confidence", 0) or 0) + 1
+                    )
+                if action == "link_to_existing":
+                    persistence_stats["linked_to_existing"] = (
+                        int(persistence_stats.get("linked_to_existing", 0) or 0) + 1
+                    )
+                if action == "ignore":
+                    persistence_stats["ignored"] = (
+                        int(persistence_stats.get("ignored", 0) or 0) + 1
+                    )
+                if action == "temporary_only":
+                    persistence_stats["temporary_only"] = (
+                        int(persistence_stats.get("temporary_only", 0) or 0) + 1
+                    )
             if action == "ignore":
                 continue
 
@@ -154,9 +174,39 @@ class SceneEntityPersistenceGateway:
                 continue
 
             if action == "create_new":
-                similar = await find_similar_entities(db, str(nid), ent.name)
-                if similar and similar.get("score", 0) >= 0.88:
+                try:
+                    similar = await find_similar_entities(
+                        db,
+                        str(nid),
+                        ent.name,
+                        aliases=[
+                            alias.get("alias", "")
+                            for alias in (ent.aliases or [])
+                            if isinstance(alias, dict)
+                        ],
+                        entity_type=ent.entity_type,
+                    )
+                    if persistence_stats is not None:
+                        persistence_stats["dedup_counts"]["checked"] += 1
+                except Exception:
+                    similar = []
+                    if persistence_stats is not None:
+                        persistence_stats["dedup_counts"]["degraded"] += 1
+                similar_items = similar if isinstance(similar, list) else [similar]
+                high_confidence_duplicate = any(
+                    (
+                        item.get("similarity_score", item.get("score", 0))
+                        if isinstance(item, dict)
+                        else getattr(item, "similarity_score", 0)
+                    )
+                    >= 0.88
+                    for item in similar_items
+                    if item
+                )
+                if high_confidence_duplicate:
                     seen_entity_keys.add(entity_key)
+                    if persistence_stats is not None:
+                        persistence_stats["dedup_counts"]["skipped"] += 1
                     continue
 
             content_json: dict[str, Any] = {
@@ -353,4 +403,3 @@ class SceneEntityPersistenceGateway:
                     exc,
                 )
         return count
-

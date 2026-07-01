@@ -305,6 +305,7 @@ def _progress_log_payload(progress, progress_value: float) -> dict[str, Any]:
                 "alias_relation_failed_scenes",
             ),
         },
+        **_phase2_diagnostics_payload(phase2_stats),
         "last_error": progress.last_error,
         "quality_status": progress.quality_status,
         "degraded": progress.degraded,
@@ -334,6 +335,30 @@ def _checkpoint_summary(checkpoints: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _phase2_diagnostics_payload(phase2_stats: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "phase2_batches": {
+            "total": phase2_stats.get("phase2_batches_total"),
+            "completed": phase2_stats.get("phase2_batches_completed"),
+            "batch_size_scenes": phase2_stats.get("phase2_batch_size_scenes"),
+            "concurrency": phase2_stats.get("phase2_batch_concurrency"),
+            "failed_batches": phase2_stats.get("phase2_failed_batches"),
+            "degraded_batches": phase2_stats.get("phase2_degraded_batches"),
+        },
+        "phase2_boundary": {
+            "windows_total": phase2_stats.get("phase2_boundary_windows_total"),
+            "windows_completed": phase2_stats.get(
+                "phase2_boundary_windows_completed",
+            ),
+            "supplement_counts": phase2_stats.get(
+                "phase2_boundary_supplement_counts",
+            ),
+        },
+        "phase2_actions": phase2_stats.get("phase2_action_counts"),
+        "phase2_dedup": phase2_stats.get("phase2_dedup_counts"),
+    }
+
+
 def _result_log_payload(result: dict[str, Any]) -> dict[str, Any]:
     phase2_stats = (result.get("quality_stats") or {}).get("phase2") or {}
     return {
@@ -357,6 +382,7 @@ def _result_log_payload(result: dict[str, Any]) -> dict[str, Any]:
                 "alias_relation_failed_scenes",
             ),
         },
+        **_phase2_diagnostics_payload(phase2_stats),
         "last_error": result.get("last_error"),
         "message": result.get("message"),
         "quality_stats": result.get("quality_stats"),
@@ -881,6 +907,27 @@ async def test_deep_import_real_llm_acceptance(
             "phase_error_count": len(phase_errors),
         },
         message="Phase 2b alias/relation extraction was not attempted or explained",
+    )
+    _record_acceptance_check(
+        acceptance_rule_results,
+        acceptance_issues,
+        name="phase2_batch_diagnostics_recorded",
+        ok=(
+            phase2_stats.get("phase2_batches_total") is not None
+            and phase2_stats.get("phase2_boundary_windows_total") is not None
+            and phase2_stats.get("phase2_action_counts") is not None
+            and phase2_stats.get("phase2_dedup_counts") is not None
+        ),
+        expected="phase2 batch/boundary/action/dedup diagnostics present",
+        actual={
+            "phase2_batches": phase2_stats.get("phase2_batches_total") is not None,
+            "phase2_boundary": (
+                phase2_stats.get("phase2_boundary_windows_total") is not None
+            ),
+            "phase2_actions": phase2_stats.get("phase2_action_counts") is not None,
+            "phase2_dedup": phase2_stats.get("phase2_dedup_counts") is not None,
+        },
+        message="phase2 quality_stats missing batch diagnostics",
     )
     phase2b_output_fields = {
         "relation_count",

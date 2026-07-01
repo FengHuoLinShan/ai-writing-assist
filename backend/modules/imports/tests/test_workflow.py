@@ -15,7 +15,12 @@ from sqlalchemy import select
 
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.deep_import_retry import DeepImportRetryResult
-from modules.imports.llm_schemas import SceneChunk, SceneItem, SceneSegmentationOutput
+from modules.imports.llm_schemas import (
+    ExtractedEntity,
+    SceneChunk,
+    SceneItem,
+    SceneSegmentationOutput,
+)
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.scene_candidates import (
     SceneCandidate,
@@ -627,6 +632,47 @@ class TestDeepImportSchema:
 
 class TestDeepImportWorkflowAutoRun:
     """测试全自动三步流程"""
+
+    def test_phase2_quality_stats_include_batch_boundary_and_action_counts(self):
+        workflow = DeepImportWorkflow()
+        stats = workflow._phase2_quality_stats(
+            {
+                "total_created": 3,
+                "total_relations": 2,
+                "total_aliases": 1,
+                "total_deltas": 4,
+                "total_scenes": 24,
+                "completed_scenes": 24,
+                "phase2_batches_total": 2,
+                "phase2_batches_completed": 2,
+                "phase2_batch_size_scenes": 12,
+                "phase2_batch_concurrency": 6,
+                "phase2_boundary_windows_total": 1,
+                "phase2_boundary_windows_completed": 1,
+                "phase2_action_counts": {"create_new": 3, "ignore": 1},
+                "phase2_dedup_counts": {"checked": 3, "skipped": 1},
+                "phase2_boundary_supplement_counts": {
+                    "created": 1,
+                    "aliases": 1,
+                    "relations": 0,
+                    "link_suggestions": 1,
+                    "conflicts": 0,
+                    "failed": 0,
+                },
+                "phase2_failed_batches": [],
+                "phase2_degraded_batches": [],
+            }
+        )
+
+        assert stats["phase2_batches_total"] == 2
+        assert stats["phase2_batches_completed"] == 2
+        assert stats["phase2_batch_size_scenes"] == 12
+        assert stats["phase2_batch_concurrency"] == 6
+        assert stats["phase2_boundary_windows_total"] == 1
+        assert stats["phase2_boundary_windows_completed"] == 1
+        assert stats["phase2_action_counts"]["create_new"] == 3
+        assert stats["phase2_dedup_counts"]["skipped"] == 1
+        assert stats["phase2_boundary_supplement_counts"]["created"] == 1
 
     @pytest.mark.asyncio
     async def test_pending_to_done(self):
@@ -2998,6 +3044,42 @@ class TestSceneSegmentationProgress:
 class TestSceneEntityExtractionProgress:
     """测试实体提取服务的细粒度进度回调"""
 
+    def test_phase2_splits_scenes_into_fixed_size_batches(self):
+        service = SceneEntityExtractionService()
+        scenes = [
+            {"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 31)
+        ]
+
+        batches = service._split_scene_batches(scenes, batch_size=12)
+
+        assert [[scene["scene_index"] for scene in batch] for batch in batches] == [
+            list(range(1, 13)),
+            list(range(13, 25)),
+            list(range(25, 31)),
+        ]
+
+    def test_phase2_boundary_windows_use_adjacent_batch_edges_only(self):
+        service = SceneEntityExtractionService()
+        batches = [
+            [{"scene_index": idx} for idx in range(1, 13)],
+            [{"scene_index": idx} for idx in range(13, 25)],
+            [{"scene_index": idx} for idx in range(25, 31)],
+        ]
+
+        windows = service._phase2_boundary_windows(batches, boundary_size=2)
+
+        assert [
+            [scene["scene_index"] for scene in window["scenes"]]
+            for window in windows
+        ] == [
+            [11, 12, 13, 14],
+            [23, 24, 25, 26],
+        ]
+        assert windows[0]["left_batch_index"] == 0
+        assert windows[0]["right_batch_index"] == 1
+        assert windows[1]["left_batch_index"] == 1
+        assert windows[1]["right_batch_index"] == 2
+
     @pytest.mark.asyncio
     @patch(
         "modules.world.facade.get_world_context",
@@ -3039,6 +3121,263 @@ class TestSceneEntityExtractionProgress:
         assert progress_calls == [(0, 2), (1, 2), (2, 2)]
         assert result["total_scenes"] == 2
         assert "total_relations" in result
+
+    @pytest.mark.asyncio
+    @patch("modules.world.facade.get_world_context", new_callable=AsyncMock)
+    async def test_phase2_runs_batches_in_parallel_but_scenes_serial_within_batch(
+        self,
+        mock_ctx,
+    ):
+        mock_ctx.return_value = Mock(entities=[])
+        service = SceneEntityExtractionService()
+        service._get_scenes = AsyncMock(
+            return_value=[
+                {"id": f"scene-{idx}", "scene_index": idx, "chapter_ids": [str(idx)]}
+                for idx in range(1, 25)
+            ]
+        )
+        service._run_alias_relation_phase = AsyncMock(
+            return_value={
+                "total_aliases": 0,
+                "total_relations": 0,
+                "alias_relation_scenes": 0,
+                "alias_relation_failed_scenes": [],
+                "checkpoints": {"phase2b": {"scenes": []}},
+            }
+        )
+        service._run_boundary_supplements = AsyncMock(
+            return_value={
+                "phase2_boundary_windows_total": 1,
+                "phase2_boundary_windows_completed": 1,
+                "phase2_boundary_supplement_counts": {
+                    "created": 0,
+                    "aliases": 0,
+                    "relations": 0,
+                    "link_suggestions": 0,
+                    "conflicts": 0,
+                    "failed": 0,
+                },
+                "degraded": False,
+                "error_kind": None,
+                "error_message": None,
+            }
+        )
+        service._phase2_audit_summary = AsyncMock(return_value={})
+        service._phase2_snapshot_health_summary = AsyncMock(return_value={})
+
+        active_batches: set[int] = set()
+        max_active_batches = 0
+        scene_order_by_batch: dict[int, list[int]] = {}
+
+        async def fake_process_scene(
+            db,
+            nid,
+            scene,
+            scene_idx,
+            existing_context,
+            accumulated_memory,
+            seen_entity_keys,
+            workflow_id=None,
+            persistence_stats=None,
+            db_lock=None,
+        ):
+            nonlocal max_active_batches
+            batch_index = (int(scene["scene_index"]) - 1) // 12
+            active_batches.add(batch_index)
+            max_active_batches = max(max_active_batches, len(active_batches))
+            scene_order_by_batch.setdefault(batch_index, []).append(
+                int(scene["scene_index"])
+            )
+            await asyncio.sleep(0)
+            active_batches.discard(batch_index)
+            return {
+                "created": 0,
+                "relations": 0,
+                "deltas": 0,
+                "updated_context": existing_context,
+                "updated_memory": accumulated_memory,
+                "checkpoint": service._build_scene_checkpoint(
+                    scene,
+                    status="done",
+                    workflow_id="wf",
+                    scene_provenance_key=f"wf:scene:{scene['scene_index']}",
+                    retry_count=0,
+                ),
+                "created_entity_ids": [],
+                "created_relation_ids": [],
+                "created_delta_ids": [],
+            }
+
+        service._process_scene = fake_process_scene
+        progress_calls = []
+
+        async def on_progress(completed, total):
+            progress_calls.append((completed, total))
+
+        result = await service.extract_by_scenes(
+            AsyncMock(),
+            str(uuid.uuid4()),
+            workflow_id="wf",
+            on_scene_progress=on_progress,
+            existing_checkpoints={},
+        )
+
+        assert max_active_batches > 1
+        assert scene_order_by_batch[0] == list(range(1, 13))
+        assert scene_order_by_batch[1] == list(range(13, 25))
+        assert result["phase2_batches_total"] == 2
+        assert result["phase2_batches_completed"] == 2
+        assert result["phase2_batch_size_scenes"] == 12
+        assert result["phase2_batch_concurrency"] == 6
+        assert progress_calls[0] == (0, 24)
+        assert progress_calls[-1] == (24, 24)
+
+    @pytest.mark.asyncio
+    async def test_phase2_boundary_supplement_receives_only_adjacent_edges(self):
+        service = SceneEntityExtractionService()
+        batches = [
+            [{"scene_index": idx, "id": f"scene-{idx}"} for idx in range(1, 13)],
+            [{"scene_index": idx, "id": f"scene-{idx}"} for idx in range(13, 25)],
+        ]
+        seen_windows = []
+
+        async def fake_process_boundary(db, nid, window, workflow_id=None):
+            seen_windows.append([scene["scene_index"] for scene in window["scenes"]])
+            return {
+                "created": 1,
+                "aliases": 1,
+                "relations": 1,
+                "link_suggestions": 1,
+                "conflicts": 0,
+                "failed": False,
+            }
+
+        service._process_boundary_window = fake_process_boundary
+
+        result = await service._run_boundary_supplements(
+            AsyncMock(),
+            uuid.uuid4(),
+            batches,
+            workflow_id="wf",
+        )
+
+        assert seen_windows == [[11, 12, 13, 14]]
+        assert result["phase2_boundary_windows_total"] == 1
+        assert result["phase2_boundary_windows_completed"] == 1
+        assert result["phase2_boundary_supplement_counts"] == {
+            "created": 1,
+            "aliases": 1,
+            "relations": 1,
+            "link_suggestions": 1,
+            "conflicts": 0,
+            "failed": 0,
+        }
+
+    @pytest.mark.asyncio
+    async def test_phase2_boundary_failure_degrades_without_rollback(self):
+        service = SceneEntityExtractionService()
+        batches = [
+            [{"scene_index": idx, "id": f"scene-{idx}"} for idx in range(1, 13)],
+            [{"scene_index": idx, "id": f"scene-{idx}"} for idx in range(13, 25)],
+        ]
+
+        async def fail_boundary(db, nid, window, workflow_id=None):
+            raise RuntimeError("boundary llm failed")
+
+        service._process_boundary_window = fail_boundary
+
+        result = await service._run_boundary_supplements(
+            AsyncMock(),
+            uuid.uuid4(),
+            batches,
+            workflow_id="wf",
+        )
+
+        assert result["phase2_boundary_windows_total"] == 1
+        assert result["phase2_boundary_windows_completed"] == 0
+        assert result["phase2_boundary_supplement_counts"]["failed"] == 1
+        assert result["degraded"] is True
+        assert result["error_kind"] == "RuntimeError"
+
+    @pytest.mark.asyncio
+    @patch("modules.world.facade.find_similar_entities", new_callable=AsyncMock)
+    @patch("modules.world.facade.create_entity", new_callable=AsyncMock)
+    async def test_phase2_persist_entities_collects_action_and_dedup_stats(
+        self,
+        mock_create,
+        mock_find_similar,
+    ):
+        service = SceneEntityExtractionService()
+        mock_find_similar.return_value = [
+            Mock(similarity_score=0.96, match_method="exact_name")
+        ]
+        mock_create.return_value = {"id": str(uuid.uuid4())}
+        stats = service._empty_phase2_persistence_stats()
+
+        class FakeSavepoint:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeDb:
+            def begin_nested(self):
+                return FakeSavepoint()
+
+        entities = [
+            ExtractedEntity(
+                name="克莱恩",
+                entity_type="character",
+                summary="主角",
+                suggested_action="create_new",
+                confidence=0.92,
+            ),
+            ExtractedEntity(
+                name="廷根市",
+                entity_type="location",
+                summary="城市",
+                suggested_action="link_to_existing",
+                suggested_existing_entity_name="廷根",
+                confidence=0.76,
+            ),
+            ExtractedEntity(
+                name="路人甲",
+                entity_type="character",
+                summary="一次性人物",
+                suggested_action="ignore",
+                confidence=0.3,
+            ),
+            ExtractedEntity(
+                name="普通晚餐",
+                entity_type="item",
+                summary="临时道具",
+                suggested_action="temporary_only",
+                confidence=0.52,
+            ),
+        ]
+
+        created = await service._persist_entities(
+            FakeDb(),
+            uuid.uuid4(),
+            entities,
+            scene_index=1,
+            source_chapter_index=1,
+            persistence_stats=stats,
+        )
+
+        assert created == 2
+        assert stats["action_counts"] == {
+            "create_new": 1,
+            "link_to_existing": 1,
+            "ignore": 1,
+            "temporary_only": 1,
+        }
+        assert stats["dedup_counts"]["skipped"] == 1
+        assert stats["linked_to_existing"] == 1
+        assert stats["ignored"] == 1
+        assert stats["temporary_only"] == 1
+        assert stats["low_confidence"] == 2
 
 
 class TestHandleDeepImportTaskResult:
