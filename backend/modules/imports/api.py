@@ -129,6 +129,73 @@ async def submit_deep_import(
     return result
 
 
+async def _submit_stage(
+    db: DbSession,
+    body: dict,
+    *,
+    stage: str,
+) -> dict:
+    from modules.imports.facade import start_deep_import_stage as _start_stage
+
+    novel_id = body.get("novel_id", "")
+    start_chapter = int(body.get("start_chapter", 1))
+    end_chapter = int(body.get("end_chapter", 0))
+    force = bool(body.get("force", False))
+
+    if not novel_id:
+        raise HTTPException(400, detail="novel_id is required")
+
+    if end_chapter == 0:
+        from modules.writing.facade import list_chapter_indices
+
+        indices = await list_chapter_indices(db, novel_id)
+        if not indices:
+            raise HTTPException(
+                400,
+                detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
+            )
+        end_chapter = max(indices)
+
+    if end_chapter < start_chapter:
+        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
+
+    return await _start_stage(
+        db,
+        novel_id,
+        start_chapter,
+        end_chapter,
+        stage=stage,
+        force=force,
+    )
+
+
+@router.post("/stages/scenes", status_code=201)
+async def submit_scene_auto_extraction(
+    db: DbSession,
+    body: dict = Body(..., description="场景自动提取参数"),
+) -> dict:
+    """提交场景（scene）自动提取任务。"""
+    return await _submit_stage(db, body, stage="scenes")
+
+
+@router.post("/stages/world-objects", status_code=201)
+async def submit_world_object_auto_extraction(
+    db: DbSession,
+    body: dict = Body(..., description="世界对象与别名/关系自动提取参数"),
+) -> dict:
+    """提交世界对象与别名/关系自动提取任务。"""
+    return await _submit_stage(db, body, stage="world_objects")
+
+
+@router.post("/stages/plot-structure", status_code=201)
+async def submit_plot_structure_auto_extraction(
+    db: DbSession,
+    body: dict = Body(..., description="剧情线自动提取参数"),
+) -> dict:
+    """提交剧情线自动提取任务。"""
+    return await _submit_stage(db, body, stage="plot_structure")
+
+
 @router.post("/deep/sync", status_code=201)
 async def submit_deep_import_sync(
     db: DbSession,

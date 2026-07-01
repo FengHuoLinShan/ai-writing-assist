@@ -15,10 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.contracts import TaskNotFoundError
 from modules.imports.workflow import DeepImportWorkflow
-from modules.imports.workflow_schemas import DeepImportProgress
+from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from shared.utils import parse_uuid as _parse_uuid
 
 ProgressObserver = Callable[[DeepImportProgress, float, Any], Awaitable[None]]
+
+STAGE_TASK_TYPES = {
+    "scenes": "scene_auto_extraction",
+    "world_objects": "world_object_auto_extraction",
+    "plot_structure": "plot_structure_auto_extraction",
+}
 
 
 class DeepImportOrchestrator:
@@ -74,6 +80,58 @@ class DeepImportOrchestrator:
             "message": f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）",
         }
 
+    async def start_stage(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        *,
+        stage: str,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        if stage not in STAGE_TASK_TYPES:
+            raise ValueError(f"unsupported deep import stage: {stage}")
+
+        if stage == "scenes":
+            warning = await self._check_duplicate_import(
+                db, novel_id, start_chapter, end_chapter
+            )
+            if warning and not force:
+                return {
+                    "workflow_id": None,
+                    "task_id": None,
+                    "status": "requires_confirmation",
+                    "requires_confirmation": True,
+                    "warning": warning,
+                    "message": warning,
+                }
+            if force:
+                await self._deprecate_derived_data(
+                    db, novel_id, start_chapter, end_chapter
+                )
+
+        task_id = self._enqueue_stage_task(
+            db,
+            task_type=STAGE_TASK_TYPES[stage],
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            stage=stage,
+            context_mode="working",
+            include_pending_objects=True,
+        )
+        await db.flush()
+        return {
+            "workflow_id": str(task_id),
+            "task_id": str(task_id),
+            "status": "pending",
+            "requires_confirmation": False,
+            "workflow_type": STAGE_TASK_TYPES[stage],
+            "stage": stage,
+            "message": self._stage_pending_message(stage, start_chapter, end_chapter),
+        }
+
     async def run_task(self, db: AsyncSession, task: Any) -> dict[str, Any]:
         meta = task.meta or {}
         novel_id = meta.get("novel_id", "")
@@ -109,10 +167,86 @@ class DeepImportOrchestrator:
         )
         return self._result_from_progress(progress)
 
+    async def run_stage_task(
+        self,
+        db: AsyncSession,
+        task: Any,
+        *,
+        stage: str,
+    ) -> dict[str, Any]:
+        meta = task.meta or {}
+        novel_id = meta.get("novel_id", "")
+        start_chapter = int(meta.get("start_chapter", 1))
+        end_chapter = int(meta.get("end_chapter", 5))
+        context_mode = meta.get("context_mode", "working")
+        include_pending_objects = bool(meta.get("include_pending_objects", True))
+        if not novel_id:
+            raise ValueError(f"novel_id is required for {task.task_type}")
+
+        progress = self._progress_from_task(task)
+        progress.workflow_type = str(task.task_type)
+        progress.stage = stage
+        progress.total_steps = 1
+
+        async def _record_progress(
+            updated: DeepImportProgress,
+            progress_value: float,
+        ) -> None:
+            updated.workflow_type = str(task.task_type)
+            updated.stage = stage
+            task.result = updated.model_dump(mode="json")
+            task.update_progress(progress_value)
+            await db.commit()
+            if self.progress_observer is not None:
+                await self.progress_observer(updated, progress_value, task)
+
+        if stage == "scenes":
+            progress = await self.workflow.run_step(
+                db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=str(task.id),
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+                on_progress=_record_progress,
+                stop_after=DeepImportStep.scene_segmentation,
+            )
+        elif stage == "world_objects":
+            progress = await self.workflow.run_entity_extraction_only(
+                db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=str(task.id),
+                on_progress=_record_progress,
+            )
+        elif stage == "plot_structure":
+            progress = await self.workflow.run_structure_analysis_only(
+                db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=str(task.id),
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+                on_progress=_record_progress,
+            )
+        else:
+            raise ValueError(f"unsupported deep import stage: {stage}")
+        return self._result_from_progress(progress)
+
     def _progress_from_task(self, task: Any) -> DeepImportProgress:
         result_data = task.result if isinstance(task.result, dict) else {}
         if not result_data:
-            return DeepImportProgress(workflow_id=str(task.id))
+            return DeepImportProgress(
+                workflow_id=str(task.id),
+                workflow_type=str(getattr(task, "task_type", "deep_import")),
+                stage=(task.meta or {}).get("stage") if task.meta else None,
+            )
 
         try:
             progress = DeepImportProgress.model_validate(result_data)
@@ -120,6 +254,12 @@ class DeepImportOrchestrator:
             progress = DeepImportProgress(workflow_id=str(task.id))
 
         progress.workflow_id = progress.workflow_id or str(task.id)
+        progress.workflow_type = progress.workflow_type or str(
+            getattr(task, "task_type", "deep_import")
+        )
+        progress.stage = progress.stage or (
+            (task.meta or {}).get("stage") if getattr(task, "meta", None) else None
+        )
         progress.interrupted = False
         progress.recoverable = False
         progress.recovery_required = False
@@ -355,6 +495,45 @@ class DeepImportOrchestrator:
         )
 
     @staticmethod
+    def _enqueue_stage_task(
+        db: AsyncSession,
+        *,
+        task_type: str,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        stage: str,
+        context_mode: str = "working",
+        include_pending_objects: bool = True,
+    ):
+        from infrastructure.tasks.enqueuer import enqueue_task
+
+        return enqueue_task(
+            db,
+            task_type,
+            meta={
+                "novel_id": novel_id,
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+                "stage": stage,
+                "context_mode": context_mode,
+                "include_pending_objects": include_pending_objects,
+            },
+        )
+
+    @staticmethod
+    def _stage_pending_message(stage: str, start_chapter: int, end_chapter: int) -> str:
+        labels = {
+            "scenes": "场景（scene）自动提取",
+            "world_objects": "世界对象与别名/关系自动提取",
+            "plot_structure": "剧情线自动提取",
+        }
+        return (
+            f"{labels.get(stage, '自动提取')}任务已提交"
+            f"（第{start_chapter}-{end_chapter}章）"
+        )
+
+    @staticmethod
     def _scene_overlaps_range(scene: dict[str, Any], start: int, end: int) -> bool:
         chapter_ids = scene.get("chapter_ids") or []
         try:
@@ -368,6 +547,8 @@ class DeepImportOrchestrator:
     @staticmethod
     def _result_from_progress(progress: DeepImportProgress) -> dict[str, Any]:
         return {
+            "workflow_type": progress.workflow_type,
+            "stage": progress.stage,
             "phase": progress.phase,
             "current_step": (
                 progress.current_step.value if progress.current_step else None

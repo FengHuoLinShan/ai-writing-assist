@@ -97,10 +97,16 @@ class SceneEntityExtractionService:
         workflow_id: str | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
 
-        scenes = await self._get_scenes(db, nid)
+        scenes = self._filter_scenes_by_range(
+            await self._get_scenes(db, nid),
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
         if not scenes:
             return {
                 "total_created": 0,
@@ -622,6 +628,46 @@ class SceneEntityExtractionService:
             status_filter=["draft", "canonical"],
             exclude_narrative_tags=["valley", "transition"],
         )
+
+    def _filter_scenes_by_range(
+        self,
+        scenes: list[dict[str, Any]],
+        *,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+    ) -> list[dict[str, Any]]:
+        if start_chapter is None and end_chapter is None:
+            return scenes
+
+        selected: list[dict[str, Any]] = []
+        for scene in scenes:
+            if self._scene_overlaps_chapter_range(
+                scene,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            ):
+                selected.append(scene)
+        return selected
+
+    def _scene_overlaps_chapter_range(
+        self,
+        scene: dict[str, Any],
+        *,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+    ) -> bool:
+        start = start_chapter if start_chapter is not None else -10**9
+        end = end_chapter if end_chapter is not None else 10**9
+        chapter_ids = scene.get("chapter_ids") or []
+        for chapter_id in chapter_ids:
+            try:
+                chapter_index = int(chapter_id)
+            except (TypeError, ValueError):
+                continue
+            if start <= chapter_index <= end:
+                return True
+        source_chapter = self._scene_source_chapter_index(scene)
+        return start <= source_chapter <= end
 
     async def _process_scene(
         self,
@@ -2018,7 +2064,12 @@ class SceneEntityExtractionService:
     ) -> str:
         from modules.world.facade import list_entities
 
-        entities = await list_entities(db, novel_id, limit=10000)
+        entities = await list_entities(
+            db,
+            novel_id,
+            statuses=("canonical", "draft", "candidate"),
+            limit=10000,
+        )
         if not entities:
             return "无可用对象"
         lines = ["## 可用对象索引"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
@@ -241,6 +242,41 @@ async def test_world_alias_relation_extraction_task_invokes_di_handler(
             "end_chapter": 3,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_world_alias_relation_extraction_task_requires_novel_id(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.world import tasks as world_tasks
+
+    handler = AsyncMock()
+    monkeypatch.setattr(
+        world_tasks,
+        "_container_get",
+        lambda name: handler
+        if name == "world.run_alias_relation_extraction"
+        else None,
+    )
+
+    class FakeTask:
+        id = uuid.uuid4()
+        meta = {"start_chapter": 1, "end_chapter": 3}
+
+        def update_progress(self, value: float) -> None:
+            raise AssertionError(f"progress should not update: {value}")
+
+    with pytest.raises(
+        ValueError,
+        match="novel_id is required for world_alias_relation_extraction",
+    ):
+        await world_tasks.handle_world_alias_relation_extraction(
+            db_session,
+            FakeTask(),
+        )
+
+    handler.assert_not_awaited()
 
 
 @pytest.mark.asyncio

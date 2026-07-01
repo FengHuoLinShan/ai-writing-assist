@@ -85,6 +85,41 @@ def test_llm_schema_normalizes_common_score_strings() -> None:
     assert candidate.split_hints == ["可按仪式前后拆分"]
 
 
+def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
+    output = AliasRelationExtractionOutput.model_validate(
+        {
+            "aliases": [
+                {
+                    "entity_name": "克莱恩",
+                    "alias": "周明瑞",
+                    "alias_type": "",
+                    "confidence": "85%",
+                },
+                {
+                    "entity_name": "梅丽莎",
+                    "alias": "妹妹",
+                    "alias_type": None,
+                    "confidence": "高",
+                },
+            ],
+            "relations": [
+                {
+                    "source_name": "克莱恩",
+                    "target_name": "梅丽莎",
+                    "relation_type": "sibling",
+                    "strength": "较高",
+                }
+            ],
+        }
+    )
+
+    assert output.aliases[0].alias_type == "alias"
+    assert output.aliases[0].confidence == 0.85
+    assert output.aliases[1].alias_type == "alias"
+    assert output.aliases[1].confidence == 0.9
+    assert output.relations[0].strength == 0.8
+
+
 @pytest.fixture
 async def novel_with_drafts(db_session: AsyncSession):
     """创建一个项目并写入第 1、2 章 draft。"""
@@ -823,6 +858,89 @@ async def test_phase2b_alias_append_is_idempotent_and_novel_scoped(
     found = (await db_session.execute(stmt)).scalar_one()
     aliases = (found.content_json or {}).get("aliases", [])
     assert [a.get("alias") for a in aliases] == ["周明瑞"]
+
+
+@pytest.mark.asyncio
+async def test_phase2b_entity_index_only_includes_working_statuses(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    from modules.world.facade import create_entity
+
+    for name, status in [
+        ("正史对象", "canonical"),
+        ("草稿对象", "draft"),
+        ("候选对象", "candidate"),
+        ("废弃对象", "deprecated"),
+        ("忽略对象", "ignored"),
+    ]:
+        await create_entity(
+            db_session,
+            novel_with_drafts,
+            {"name": name, "entity_type": "character", "status": status},
+        )
+
+    index = await svc._build_alias_relation_entity_index(
+        db_session,
+        novel_with_drafts,
+    )
+
+    assert "正史对象" in index
+    assert "草稿对象" in index
+    assert "候选对象" in index
+    assert "废弃对象" not in index
+    assert "忽略对象" not in index
+
+
+@pytest.mark.asyncio
+async def test_phase2b_scene_failure_degrades_without_raising(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    snapshot = Mock(id=None)
+
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="Scene 正文",
+        ),
+        patch.object(
+            svc,
+            "_build_alias_relation_entity_index",
+            new_callable=AsyncMock,
+            return_value="## 可用对象索引",
+        ),
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            new_callable=AsyncMock,
+            return_value=snapshot,
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("schema mismatch"),
+        ),
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [{"scene_index": 7, "id": "scene-7"}],
+            workflow_id="wf-phase2b",
+        )
+
+    assert result["total_aliases"] == 0
+    assert result["total_relations"] == 0
+    assert result["alias_relation_scenes"] == 0
+    assert result["alias_relation_failed_scenes"] == [7]
+    assert result["degraded"] is True
+    assert result["error_kind"] == "RuntimeError"
+    assert result["error_message"] == "schema mismatch"
 
 
 @pytest.mark.asyncio

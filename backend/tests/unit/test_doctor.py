@@ -84,7 +84,7 @@ def test_lsof_missing_still_reports_port_status(monkeypatch):
 
 
 def test_collect_db_counts_calculates_project_and_task_totals():
-    values = iter([3, 1, 8, 2, 5])
+    values = iter([3, 1, 8, 2, 1, 5])
 
     counts = doctor.collect_db_counts(lambda sql: next(values))
 
@@ -93,8 +93,25 @@ def test_collect_db_counts_calculates_project_and_task_totals():
         "soft_deleted_projects": 1,
         "async_tasks": 8,
         "running_async_tasks": 2,
+        "stale_running_async_tasks": 1,
         "orphan_task_meta": 5,
     }
+
+
+def test_db_warning_codes_flags_pending_migration_and_stale_tasks():
+    warnings = doctor.db_warning_codes(
+        {
+            "alembic_head": {"heads": ["head_revision"]},
+            "alembic_current": "old_revision",
+            "stale_running_async_tasks": 1,
+            "orphan_task_meta": 0,
+        }
+    )
+
+    assert warnings == [
+        "alembic_current_not_at_head",
+        "stale_running_async_tasks",
+    ]
 
 
 def test_json_output_contains_all_default_groups(monkeypatch, capsys):

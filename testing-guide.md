@@ -87,6 +87,14 @@ Key points:
 4. **Structure review**: detects early reveal of hidden_truth
 5. **Novel_id isolation**: project A API cannot read project B objects
 6. **XSS protection**: `<script>` tags display as text, not executed
+7. **Deep import Phase 2b alias/relation extraction**: Scene text + working entity index → append candidate alias metadata inline and create candidate relations without creating new entities. Required coverage:
+   - schema normalization for alias confidence/type and relation strength
+   - working index includes only `canonical` / `draft` / `candidate`, never `deprecated` / `ignored`
+   - alias append is novel-scoped, normalized, idempotent, and stores `status/source/workflow_id/scene_id/confidence/quote/needs_review`
+   - unresolved relation endpoints are skipped; created relations use `status="candidate"`
+   - single-scene Phase 2b failures mark degraded diagnostics without aborting Phase 2a output
+   - manual `world_alias_relation_extraction` tasks require `novel_id` and invoke the DI handler with chapter range / scene ids
+   - frontend world object auto-extract panel exposes the secondary “补抽别名/关系” entry and disables it while extraction is running
 
 ## Security Tests
 

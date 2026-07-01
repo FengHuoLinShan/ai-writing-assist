@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
-import { clearDocument, resetState } from "./helpers.js"
+import { captureModalHandler, clearDocument, resetState } from "./helpers.js"
 
 const workbenchPayload = {
   health: {
@@ -77,9 +77,39 @@ beforeEach(() => {
   sceneWorkbenchView._workbench = null
   sceneWorkbenchView._activeHealth = null
   sceneWorkbenchView._selectedFusionSceneIds = new Set()
+  sceneWorkbenchView._autoExtractTaskId = null
+  sceneWorkbenchView._autoExtractProgress = null
+  sceneWorkbenchView._autoExtractPoller = null
+  sceneWorkbenchView._autoExtractMeta = null
 })
 
 describe("sceneWorkbenchView", () => {
+  it("renders scene auto extraction action", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain("场景（scene）自动提取")
+    expect(html).toContain('data-action="scene-auto-extract"')
+  })
+
+  it("submits scene auto extraction stage task", async () => {
+    api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
+    sceneWorkbenchView._showSceneAutoExtractForm()
+    document.body.innerHTML += `
+      <input id="scene-auto-extract-start" value="1" />
+      <input id="scene-auto-extract-end" value="5" />
+    `
+
+    await captureModalHandler()()
+
+    expect(api.imports.startStage).toHaveBeenCalledWith("scenes", "p1", 1, 5)
+    expect(toast).toHaveBeenCalledWith(
+      "场景（scene）自动提取任务已提交：scene-task",
+      "success",
+    )
+  })
+
   it("loads selected scene workbench data on enter", async () => {
     await sceneWorkbenchView.onEnter()
 

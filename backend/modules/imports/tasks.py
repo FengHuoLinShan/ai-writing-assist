@@ -35,6 +35,50 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
     return result
 
 
+@task_handler("scene_auto_extraction")
+async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
+    """处理场景（scene）自动提取任务 — Phase0/1a/1b + Scene commit。"""
+    result = await DeepImportOrchestrator().run_stage_task(db, task, stage="scenes")
+    logger.info(
+        "Scene auto extraction complete — phase=%s, completed=%s",
+        result["phase"],
+        result["completed_steps"],
+    )
+    return result
+
+
+@task_handler("world_object_auto_extraction")
+async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
+    """处理世界对象与别名/关系自动提取任务 — Phase2a/2b。"""
+    result = await DeepImportOrchestrator().run_stage_task(
+        db,
+        task,
+        stage="world_objects",
+    )
+    logger.info(
+        "World object auto extraction complete — phase=%s, completed=%s",
+        result["phase"],
+        result["completed_steps"],
+    )
+    return result
+
+
+@task_handler("plot_structure_auto_extraction")
+async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
+    """处理剧情线自动提取任务 — Phase3。"""
+    result = await DeepImportOrchestrator().run_stage_task(
+        db,
+        task,
+        stage="plot_structure",
+    )
+    logger.info(
+        "Plot structure auto extraction complete — phase=%s, completed=%s",
+        result["phase"],
+        result["completed_steps"],
+    )
+    return result
+
+
 @task_handler("deep_import_resume")
 async def handle_deep_import_resume(db, task) -> dict[str, Any]:
     """（已废弃）候选管理已移除，深度导入全自动执行。

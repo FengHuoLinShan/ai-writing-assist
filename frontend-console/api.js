@@ -918,6 +918,27 @@ const api = {
       })
     },
 
+    /** 提交分阶段自动提取任务 */
+    async startStage(stage, novelId, startChapter, endChapter, force = false) {
+      const endpoints = {
+        scenes: "/imports/stages/scenes",
+        world_objects: "/imports/stages/world-objects",
+        plot_structure: "/imports/stages/plot-structure",
+      }
+      const endpoint = endpoints[stage]
+      if (!endpoint) throw new Error(`unsupported import stage: ${stage}`)
+      return request(endpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          novel_id: novelId,
+          start_chapter: startChapter,
+          end_chapter: endChapter,
+          force,
+        }),
+      })
+    },
+
     /** 继续可恢复的深度导入任务 */
     async resumeDeepImport(taskId) {
       return request("/imports/deep/resume", {

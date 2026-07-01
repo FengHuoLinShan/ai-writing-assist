@@ -245,6 +245,7 @@ globalThis.api = {
     upload: vi.fn(),
     list: vi.fn(),
     deepImport: vi.fn(),
+    startStage: vi.fn(),
     resumeDeepImport: vi.fn(),
     abandonDeepImport: vi.fn(),
   },

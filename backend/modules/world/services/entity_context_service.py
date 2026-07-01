@@ -75,6 +75,7 @@ class EntityContextService:
         novel_id: str,
         *,
         entity_type: str | None = None,
+        statuses: list[str] | tuple[str, ...] | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """获取实体 ID / 名称 / 类型摘要列表。"""
@@ -83,6 +84,7 @@ class EntityContextService:
             db,
             nid,
             entity_type=entity_type,
+            statuses=statuses,
             limit=limit,
         )
         return [

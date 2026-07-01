@@ -60,6 +60,19 @@ describe("writingView render", () => {
     expect(html).toContain("writing-editor")
   })
 
+  it("AI 工具菜单显示三个分阶段自动提取入口并移除深度导入入口", () => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 1
+    writingView._isReadonly = false
+
+    const html = writingView._renderEditorToolsMenu(true)
+
+    expect(html).toContain("场景（scene）自动提取")
+    expect(html).toContain("世界对象与别名/关系自动提取")
+    expect(html).toContain("剧情线自动提取")
+    expect(html).not.toContain('data-action="deep-import"')
+  })
+
   it("编辑器工具栏显示打开地图按钮", async () => {
     state.currentProjectId = "p1"
     writingView._loading = false
@@ -822,7 +835,7 @@ describe("_bindEvents", () => {
 describe("_submitDeepImport", () => {
   it("重复导入需要确认时，确认后使用 force=true 重新提交", async () => {
     state.currentProjectId = "p1"
-    api.imports.deepImport
+    api.imports.startStage
       .mockResolvedValueOnce({
         status: "requires_confirmation",
         requires_confirmation: true,
@@ -840,14 +853,15 @@ describe("_submitDeepImport", () => {
 
     await writingView._submitDeepImport(1, 5)
 
-    expect(api.imports.deepImport).toHaveBeenNthCalledWith(1, "p1", 1, 5, false)
-    expect(api.imports.deepImport).toHaveBeenNthCalledWith(2, "p1", 1, 5, true)
+    expect(api.imports.startStage).toHaveBeenNthCalledWith(1, "scenes", "p1", 1, 5, false)
+    expect(api.imports.startStage).toHaveBeenNthCalledWith(2, "scenes", "p1", 1, 5, true)
     expect(writingView._deepImportTaskId).toBe("task-2")
     expect(writingView._deepImportProgress.phase).toBe("running")
+    expect(writingView._deepImportProgress.workflowType).toBe("scene_auto_extraction")
     expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey))).toEqual([
       expect.objectContaining({
         taskId: "task-2",
-        workflowType: "deep_import",
+        workflowType: "scene_auto_extraction",
         projectId: "p1",
         view: "writing",
       }),

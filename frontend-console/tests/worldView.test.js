@@ -245,7 +245,7 @@ describe("对象库", () => {
     it("自动识别面板展开时显示", () => {
       worldView._autoExtractOpen = true
       const html = worldView._renderEntityList()
-      expect(html).toContain("自动识别")
+      expect(html).toContain("世界对象与别名/关系自动提取")
     })
 
     it("渲染过滤栏与分页", () => {
@@ -533,54 +533,24 @@ describe("AI 自动识别", () => {
 
   describe("_submitAutoExtract", () => {
     it("无项目显示警告", async () => {
-      await worldView._submitAutoExtract("world_entity_extraction")
+      await worldView._submitAutoExtract("world_object_auto_extraction")
       expect(toast).toHaveBeenCalledWith("请先选择项目", "warning")
     })
 
-    it("提交抽取任务", async () => {
+    it("提交世界对象与别名关系阶段任务", async () => {
       state.currentProjectId = "p1"
       document.body.innerHTML = `
         <input id="w-extract-start" value="1"/>
         <input id="w-extract-end" value="5"/>
-        <div id="modal-overlay" class="hidden">
-          <div id="modal-title"></div>
-          <div id="modal-body"></div>
-          <div id="modal-footer"></div>
-        </div>
       `
-      api.context.confirm.mockResolvedValue({ id: "confirm-1", selected_asset_ids: {}, warnings: [] })
-      api.world.extractEntities.mockResolvedValue({ task_id: "t1" })
+      api.imports.startStage.mockResolvedValue({ task_id: "t1" })
 
-      const promise = worldView._submitAutoExtract("world_entity_extraction")
-      await Promise.resolve()
-      document.querySelectorAll("#modal-footer button")[1].click()
-      await promise
+      await worldView._submitAutoExtract("world_object_auto_extraction")
 
-      expect(api.world.extractEntities).toHaveBeenCalledWith({
-        novel_id: "p1",
-        context_confirmation_id: "confirm-1",
-        start_chapter: 1,
-        end_chapter: 5,
-      })
+      expect(api.imports.startStage).toHaveBeenCalledWith("world_objects", "p1", 1, 5)
+      expect(api.world.extractEntities).not.toHaveBeenCalled()
+      expect(api.world.extractAliasRelations).not.toHaveBeenCalled()
       expect(worldView._autoExtractTaskId).toBe("t1")
-    })
-
-    it("提交别名关系补抽任务", async () => {
-      state.currentProjectId = "p1"
-      document.body.innerHTML = `
-        <input id="w-extract-start" value="2"/>
-        <input id="w-extract-end" value="4"/>
-      `
-      api.world.extractAliasRelations.mockResolvedValue({ task_id: "ar1" })
-
-      await worldView._submitAutoExtract("world_alias_relation_extraction")
-
-      expect(api.world.extractAliasRelations).toHaveBeenCalledWith({
-        novel_id: "p1",
-        start_chapter: 2,
-        end_chapter: 4,
-      })
-      expect(worldView._autoExtractTaskId).toBe("ar1")
     })
   })
 
@@ -588,7 +558,7 @@ describe("AI 自动识别", () => {
     it("任务完成时清理定时器并刷新列表", async () => {
       worldView._autoExtractTimer = setInterval(() => {}, 1000)
       state.currentProjectId = "p1"
-      api.tasks.get.mockResolvedValue({ task_id: "t1", task_type: "world_entity_extraction", status: "done" })
+      api.tasks.get.mockResolvedValue({ task_id: "t1", task_type: "world_object_auto_extraction", status: "done" })
       api.world.listEntities.mockResolvedValue({ items: [{ id: "e1", name: "新实体" }] })
 
       await worldView._pollAutoExtract("t1")
@@ -602,17 +572,37 @@ describe("AI 自动识别", () => {
       worldView._autoExtractTaskId = "t-fail"
       api.tasks.get.mockResolvedValue({
         task_id: "t-fail",
-        task_type: "world_entity_extraction",
+        task_type: "world_object_auto_extraction",
         status: "failed",
         error_message: "章节范围为空",
       })
 
       await worldView._pollAutoExtract("t-fail")
-      const html = worldView._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象")
+      const html = worldView._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取")
 
       expect(html).toContain("章节范围为空")
-      expect(html).toContain("开始识别")
+      expect(html).toContain("开始提取")
       expect(html).not.toContain("disabled")
+    })
+
+    it("阶段面板显示统一提取按钮并随运行状态禁用", () => {
+      let html = worldView._renderAutoExtractPanel(
+        "world_object_auto_extraction",
+        "世界对象与别名/关系自动提取",
+      )
+
+      expect(html).toContain("开始提取")
+      expect(html).toContain('data-type="world_object_auto_extraction"')
+      expect(html).not.toContain("补抽别名/关系")
+
+      worldView._autoExtractTaskId = "running-task"
+      worldView._autoExtractProgress = { terminal: false, failed: false }
+      html = worldView._renderAutoExtractPanel(
+        "world_object_auto_extraction",
+        "世界对象与别名/关系自动提取",
+      )
+
+      expect(html).toContain("disabled")
     })
 
     it("onEnter 兼容恢复旧 JSON localStorage 任务并用 api.tasks.get 轮询", async () => {
@@ -620,7 +610,7 @@ describe("AI 自动识别", () => {
       localStorage.setItem("novel_world_extract_task", JSON.stringify({ taskId: "legacy-t", status: "running" }))
       api.tasks.get.mockResolvedValue({
         task_id: "legacy-t",
-        task_type: "world_entity_extraction",
+        task_type: "world_object_auto_extraction",
         status: "running",
         progress: null,
       })

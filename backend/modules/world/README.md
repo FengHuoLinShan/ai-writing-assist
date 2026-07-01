@@ -207,7 +207,7 @@ class ResolveResult:
 
 ```python
 # ---- CoreEntity ----
-async def list_entities(db, novel_id, *, entity_type=None, limit=100) -> list[dict]
+async def list_entities(db, novel_id, *, entity_type=None, statuses=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
 async def create_entity(db, novel_id, data: dict) -> dict
 async def count_entities(db, novel_id, *, status_filter=None) -> int

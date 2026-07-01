@@ -51,6 +51,7 @@ class DeepImportWorkflow:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
+        stop_after: DeepImportStep | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
             if self._is_llm_health_required():
@@ -441,6 +442,17 @@ class DeepImportWorkflow:
                         ),
                     }
                 )
+            if stop_after == DeepImportStep.scene_segmentation:
+                progress.current_step = None
+                progress.phase = "done"
+                progress.quality_status = "partial" if progress.degraded else "complete"
+                progress.message = (
+                    "场景（scene）自动提取完成，"
+                    f"新增 {commit_result.created_count} 个，"
+                    f"复用 {commit_result.skipped_count} 个。"
+                )
+                await self._emit_progress(progress, 1.0, on_progress)
+                return progress
 
             # Phase 2: 实体增量提取
             progress.current_step = DeepImportStep.entity_extraction
@@ -1306,6 +1318,13 @@ class DeepImportWorkflow:
             ),
             "entity_count": int(phase2.get("total_created", 0) or 0),
             "relation_count": int(phase2.get("total_relations", 0) or 0),
+            "alias_count": int(phase2.get("total_aliases", 0) or 0),
+            "alias_relation_scenes": int(
+                phase2.get("alias_relation_scenes", 0) or 0
+            ),
+            "alias_relation_failed_scene_count": len(
+                phase2.get("alias_relation_failed_scenes") or []
+            ),
             "delta_count": int(phase2.get("total_deltas", 0) or 0),
             "structure_counts": {
                 "threads": int(phase3.get("total_threads", 0) or 0),
@@ -1430,6 +1449,370 @@ class DeepImportWorkflow:
         else:
             logger.warning("%s failed; transaction rolled back: %s", phase, exc)
 
+    async def run_entity_extraction_only(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        progress: DeepImportProgress,
+        *,
+        workflow_id: str | None = None,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
+    ) -> DeepImportProgress:
+        """Run Phase 2a/2b against already committed Scenes."""
+        progress.phase = "running"
+        progress.current_step = DeepImportStep.entity_extraction
+        progress.current_phase = "entity_extraction"
+        progress.current_operation = "scene_entity_extraction"
+        progress.message = "正在按 Scene 提取世界对象与别名/关系..."
+        self._start_phase(
+            progress,
+            "entity_extraction",
+            item={
+                "kind": "chapter_range",
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+            },
+        )
+        await self._emit_progress(progress, 0.05, on_progress)
+
+        if self._is_llm_health_required():
+            health = await self._check_llm_health()
+            progress.llm_health = health.model_dump()
+            if not health.ok:
+                return await self._fail_preflight(progress, health, on_progress)
+
+        if not await self._has_scenes_in_range(db, novel_id, start_chapter, end_chapter):
+            progress.phase = "failed"
+            progress.quality_status = "failed"
+            progress.current_step = None
+            progress.degraded = True
+            progress.degraded_reason = "missing_scene_prerequisite"
+            progress.message = "请先执行场景（scene）自动提取"
+            progress.phase_errors.append(
+                {
+                    "phase": DeepImportStep.entity_extraction.value,
+                    "error_kind": "missing_scene_prerequisite",
+                    "message": progress.message,
+                }
+            )
+            self._finish_phase(
+                progress,
+                "entity_extraction",
+                status="failed",
+                error_kind="missing_scene_prerequisite",
+                error_message=progress.message,
+            )
+            await self._emit_progress(progress, 1.0, on_progress)
+            return progress
+
+        async def _on_scene_progress(completed: int, total: int) -> None:
+            progress.phase2_total_scenes = total
+            progress.phase2_completed_scenes = completed
+            progress.current_item = {
+                "kind": "scene",
+                "completed": completed,
+                "total": total,
+            }
+            value = 0.1 + 0.85 * (completed / total) if total else 0.1
+            await self._emit_progress(progress, value, on_progress)
+
+        phase2_result = await self._extract_entities_by_scene(
+            db,
+            novel_id,
+            workflow_id=workflow_id,
+            on_scene_progress=_on_scene_progress,
+            existing_checkpoints=progress.checkpoints,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
+        self._merge_checkpoints(progress, phase2_result)
+        self._merge_audit_summary(progress, phase2_result)
+        self._merge_snapshot_health_summary(progress, phase2_result)
+        progress.quality_stats["phase2"] = self._phase2_quality_stats(phase2_result)
+        await self._refresh_snapshot_health_summary(
+            db,
+            novel_id,
+            workflow_id or progress.workflow_id,
+            progress,
+        )
+        if phase2_result.get("total_scenes", 0) <= 0:
+            progress.phase = "failed"
+            progress.quality_status = "failed"
+            progress.degraded = True
+            progress.degraded_reason = "missing_scene_prerequisite"
+            progress.phase_errors.append(
+                {
+                    "phase": DeepImportStep.entity_extraction.value,
+                    "error_kind": "missing_scene_prerequisite",
+                    "message": "请先执行场景（scene）自动提取",
+                }
+            )
+        else:
+            self._mark_step_completed(progress, DeepImportStep.entity_extraction)
+            progress.phase = "done"
+            progress.quality_status = (
+                "partial"
+                if phase2_result.get("degraded")
+                or int(phase2_result.get("total_created", 0) or 0) <= 0
+                else "complete"
+            )
+            if phase2_result.get("degraded"):
+                progress.degraded = True
+                progress.phase_errors.append(
+                    {
+                        "phase": DeepImportStep.entity_extraction.value,
+                        "error_kind": phase2_result.get("error_kind", "degraded"),
+                        "message": (
+                            phase2_result.get("error_message")
+                            or "世界对象与别名/关系提取部分降级"
+                        )[:300],
+                    }
+                )
+            progress.message = (
+                "世界对象与别名/关系自动提取完成，共创建 "
+                f"{phase2_result.get('total_created', 0)} 个实体，"
+                f"{phase2_result.get('total_aliases', 0)} 个别名，"
+                f"{phase2_result.get('total_relations', 0)} 条关系。"
+            )
+
+        progress.current_step = None
+        self._finish_phase(
+            progress,
+            "entity_extraction",
+            status="degraded" if progress.degraded else "completed",
+            details=progress.quality_stats.get("phase2"),
+            error_kind=progress.degraded_reason,
+            error_message=progress.message if progress.phase == "failed" else None,
+        )
+        await self._emit_progress(progress, 1.0, on_progress)
+        return progress
+
+    async def run_structure_analysis_only(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        progress: DeepImportProgress,
+        *,
+        workflow_id: str | None = None,
+        context_mode: str = "working",
+        include_pending_objects: bool = True,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
+    ) -> DeepImportProgress:
+        """Run Phase 3 against already committed Scenes and existing objects."""
+        progress.phase = "running"
+        progress.current_step = DeepImportStep.structure_analysis
+        progress.current_phase = "structure_analysis"
+        progress.current_operation = "structure_analysis"
+        progress.message = "正在生成剧情线、篇章纲、伏笔和揭示计划..."
+        self._start_phase(
+            progress,
+            "structure_analysis",
+            item={
+                "kind": "chapter_range",
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+            },
+        )
+        await self._emit_progress(progress, 0.05, on_progress)
+
+        if self._is_llm_health_required():
+            health = await self._check_llm_health()
+            progress.llm_health = health.model_dump()
+            if not health.ok:
+                return await self._fail_preflight(progress, health, on_progress)
+
+        if not await self._has_scenes_in_range(db, novel_id, start_chapter, end_chapter):
+            progress.phase = "failed"
+            progress.quality_status = "failed"
+            progress.current_step = None
+            progress.degraded = True
+            progress.degraded_reason = "missing_scene_prerequisite"
+            progress.message = "请先执行场景（scene）自动提取"
+            progress.phase_errors.append(
+                {
+                    "phase": DeepImportStep.structure_analysis.value,
+                    "error_kind": "missing_scene_prerequisite",
+                    "message": progress.message,
+                }
+            )
+            self._finish_phase(
+                progress,
+                "structure_analysis",
+                status="failed",
+                error_kind="missing_scene_prerequisite",
+                error_message=progress.message,
+            )
+            await self._emit_progress(progress, 1.0, on_progress)
+            return progress
+
+        if await self._count_world_objects(db, novel_id) <= 0:
+            progress.degraded = True
+            progress.phase_errors.append(
+                {
+                    "phase": DeepImportStep.structure_analysis.value,
+                    "error_kind": "missing_world_object_context",
+                    "message": "世界对象为空，剧情线提取将以 Scene 上下文降级执行。",
+                }
+            )
+
+        phase3_failed = False
+        try:
+            phase3_result = await asyncio.wait_for(
+                self._analyze_structure(
+                    db,
+                    novel_id,
+                    start_chapter,
+                    end_chapter,
+                    workflow_id=workflow_id,
+                    context_mode=context_mode,
+                    include_pending_objects=include_pending_objects,
+                ),
+                timeout=PHASE3_STRUCTURE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            phase3_failed = True
+            await self._rollback_after_phase_failure(db, "structure_analysis", exc)
+            phase3_result = {
+                "total_threads": 0,
+                "total_arcs": 0,
+                "total_foreshadowing": 0,
+                "total_reveals": 0,
+                "threads": [],
+                "arcs": [],
+                "foreshadowing_plans": [],
+                "reveal_plans": [],
+                "extra_sections": {},
+                "error_kind": "timeout",
+                "error_message": "剧情结构分析超时，已降级完成。",
+            }
+            progress.degraded = True
+            progress.phase_errors.append(
+                {
+                    "phase": DeepImportStep.structure_analysis.value,
+                    "error_kind": "timeout",
+                    "message": "剧情结构分析超时，已降级完成；可稍后重试结构分析。",
+                }
+            )
+        else:
+            self._mark_step_completed(progress, DeepImportStep.structure_analysis)
+            self._merge_audit_summary(progress, phase3_result)
+            self._merge_snapshot_health_summary(progress, phase3_result)
+
+        progress.quality_stats["phase3"] = self._phase3_quality_stats(
+            phase3_result,
+            failed=phase3_failed,
+        )
+        await self._refresh_snapshot_health_summary(
+            db,
+            novel_id,
+            workflow_id or progress.workflow_id,
+            progress,
+        )
+        if (
+            not phase3_failed
+            and phase3_result.get("total_threads", 0) <= 0
+            and phase3_result.get("total_arcs", 0) <= 0
+        ):
+            progress.degraded = True
+            progress.phase_errors.append(
+                {
+                    "phase": DeepImportStep.structure_analysis.value,
+                    "error_kind": phase3_result.get("error_kind", "empty_output"),
+                    "message": "剧情结构阶段未生成剧情线或篇章纲",
+                }
+            )
+
+        progress.current_step = None
+        progress.phase = "done"
+        progress.quality_status = "partial" if progress.degraded else "complete"
+        progress.message = (
+            "剧情线自动提取完成，共生成 "
+            f"{phase3_result.get('total_threads', 0)} 条剧情线，"
+            f"{phase3_result.get('total_arcs', 0)} 个篇章纲。"
+        )
+        self._finish_phase(
+            progress,
+            "structure_analysis",
+            status="failed"
+            if phase3_failed
+            else ("degraded" if progress.degraded else "completed"),
+            details=progress.quality_stats["phase3"],
+            error_kind=progress.quality_stats["phase3"].get("error_kind"),
+            error_message=phase3_result.get("error_message"),
+        )
+        await self._emit_progress(progress, 1.0, on_progress)
+        return progress
+
+    async def _fail_preflight(
+        self,
+        progress: DeepImportProgress,
+        health,
+        on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
+    ) -> DeepImportProgress:
+        progress.phase = "failed"
+        progress.quality_status = "failed"
+        progress.current_step = None
+        progress.degraded = True
+        progress.message = (
+            "LLM 健康检查失败，已停止自动提取："
+            f"{health.error_kind or health.message}"
+        )
+        progress.phase_errors.append(
+            {
+                "phase": "preflight",
+                "error_kind": health.error_kind or "llm_unavailable",
+                "message": health.message[:300],
+            }
+        )
+        await self._emit_progress(progress, 1.0, on_progress)
+        return progress
+
+    @staticmethod
+    def _scene_overlaps_chapter_range(
+        scene: dict[str, Any],
+        start_chapter: int,
+        end_chapter: int,
+    ) -> bool:
+        chapter_ids = scene.get("chapter_ids") or []
+        for chapter_id in chapter_ids:
+            try:
+                chapter_index = int(chapter_id)
+            except (TypeError, ValueError):
+                continue
+            if start_chapter <= chapter_index <= end_chapter:
+                return True
+        return False
+
+    async def _has_scenes_in_range(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> bool:
+        from modules.outline.facade import get_scenes_by_novel
+
+        scenes = await get_scenes_by_novel(
+            db,
+            novel_id,
+            status_filter=["draft", "canonical"],
+            exclude_narrative_tags=["valley", "transition"],
+        )
+        return any(
+            self._scene_overlaps_chapter_range(scene, start_chapter, end_chapter)
+            for scene in scenes
+        )
+
+    @staticmethod
+    async def _count_world_objects(db: AsyncSession, novel_id: str) -> int:
+        from modules.world.facade import count_entities
+
+        return await count_entities(db, novel_id, status_filter=["draft", "canonical"])
+
     # ------------------------------------------------------------------
     # Phase 1: Scene 切分
     # ------------------------------------------------------------------
@@ -1471,6 +1854,8 @@ class DeepImportWorkflow:
         workflow_id: str | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
     ) -> dict[str, Any]:
         try:
             handler = _container_get("world.run_scene_entity_extraction")
@@ -1480,6 +1865,8 @@ class DeepImportWorkflow:
                 workflow_id=workflow_id,
                 on_scene_progress=on_scene_progress,
                 existing_checkpoints=existing_checkpoints,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
             )
             return result
         except Exception as exc:

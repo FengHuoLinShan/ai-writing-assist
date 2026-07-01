@@ -10,7 +10,6 @@ import {
   recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
-import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { buildMapUrl } from "./mapRouteContext.js"
 
 const WORLD_FILTER_DEFAULTS = {
@@ -219,12 +218,9 @@ const worldView = {
     const progressHtml = this._autoExtractProgress
       ? renderWorkflowCard(this._autoExtractProgress, {
         title: label,
-        destinationLabel: `范围: ${rangeText}。完成后到候选清洗查看抽取结果。`,
+        destinationLabel: `范围: ${rangeText}。完成后查看世界对象、别名和候选关系。`,
       })
       : `<div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">状态: ${esc(this._autoExtractStatus)}</div>`
-    const secondaryButton = taskType === "world_entity_extraction"
-      ? `<button class="btn btn-sm" data-action="submit-extract" data-type="world_alias_relation_extraction" ${isRunning ? "disabled" : ""}>补抽别名/关系</button>`
-      : ""
     return `
       <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
@@ -232,9 +228,8 @@ const worldView = {
           起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
           结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
           <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${isRunning ? "disabled" : ""}>
-            ${isRunning ? "识别中..." : "开始识别"}
+            ${isRunning ? "提取中..." : "开始提取"}
           </button>
-          ${secondaryButton}
         </div>
         <div id="w-extract-progress" style="margin-top:8px;">${progressHtml}</div>
       </div>
@@ -248,49 +243,34 @@ const worldView = {
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
 
     try {
-      let result
-      if (taskType === "world_alias_relation_extraction") {
-        result = await api.world.extractAliasRelations({
-          novel_id: state.currentProjectId,
-          start_chapter: start,
-          end_chapter: end,
-        })
-      } else {
-        const confirmation = await confirmAiReference({
-          novel_id: state.currentProjectId,
-          action: "world.entities.extract",
-          task: "世界对象补抽",
-          scope: "chapter",
-          chapter_index: start,
-          include_pending_objects: true,
-        })
-        result = await api.world.extractEntities({
-          novel_id: state.currentProjectId,
-          context_confirmation_id: confirmation.id,
-          start_chapter: start,
-          end_chapter: end,
-        })
-      }
+      const result = await api.imports.startStage(
+        "world_objects",
+        state.currentProjectId,
+        start,
+        end,
+      )
       this._autoExtractTaskId = result.task_id
       this._autoExtractStatus = "运行中"
       this._autoExtractMeta = { start_chapter: start, end_chapter: end }
+      const workflowType = "world_object_auto_extraction"
       this._autoExtractProgress = normalizeTaskProgress({
         ...result,
-        task_type: taskType,
+        task_type: workflowType,
         meta: this._autoExtractMeta,
-      }, taskType)
+      }, workflowType)
       persistActiveWorkflow({
         taskId: result.task_id,
-        workflowType: taskType,
+        workflowType,
+        label: "世界对象与别名/关系自动提取",
         projectId: state.currentProjectId,
         view: "world",
         meta: this._autoExtractMeta,
       })
       this._updateExtractStatusDOM()
-      toast("识别任务已提交", "info")
+      toast("世界对象与别名/关系自动提取任务已提交", "info")
       router.navigate("world", state.currentSubView)
 
-      this._startAutoExtractPolling(result.task_id, taskType)
+      this._startAutoExtractPolling(result.task_id, workflowType)
     } catch (err) {
       this._autoExtractStatus = `失败: ${err.message}`
       this._updateExtractStatusDOM()
@@ -318,19 +298,22 @@ const worldView = {
   _recoverAutoExtractWorkflow() {
     this._normalizeLegacyAutoExtractStorage()
     const workflows = recoverActiveWorkflows(state.currentProjectId)
-    const workflow = workflows.find((item) => item.workflowType === "world_entity_extraction" && item.view === "world")
+    const workflow = workflows.find((item) => item.workflowType === "world_object_auto_extraction" && item.view === "world")
+      || workflows.find((item) => item.workflowType === "world_object_auto_extraction")
+      || workflows.find((item) => item.workflowType === "world_entity_extraction" && item.view === "world")
       || workflows.find((item) => item.workflowType === "world_entity_extraction")
     if (!workflow?.taskId) return
+    const workflowType = workflow.workflowType || "world_object_auto_extraction"
     this._autoExtractTaskId = workflow.taskId
     this._autoExtractStatus = "运行中"
     this._autoExtractMeta = workflow.meta || this._autoExtractMeta || null
     this._autoExtractProgress = normalizeTaskProgress({
       task_id: workflow.taskId,
-      task_type: "world_entity_extraction",
+      task_type: workflowType,
       status: "running",
       meta: workflow.meta || {},
-    }, "world_entity_extraction")
-    this._startAutoExtractPolling(workflow.taskId, "world_entity_extraction")
+    }, workflowType)
+    this._startAutoExtractPolling(workflow.taskId, workflowType)
   },
 
   _stopAutoExtractPolling() {
@@ -338,7 +321,7 @@ const worldView = {
     this._autoExtractPoller = null
   },
 
-  _startAutoExtractPolling(taskId, taskType = "world_entity_extraction") {
+  _startAutoExtractPolling(taskId, taskType = "world_object_auto_extraction") {
     this._stopAutoExtractPolling()
     this._autoExtractPoller = pollTaskProgress({
       taskId,
@@ -361,7 +344,7 @@ const worldView = {
   async _pollAutoExtract(taskId) {
     try {
       const data = await api.tasks.get(taskId)
-      const progress = normalizeTaskProgress(data, data.task_type || "world_entity_extraction")
+      const progress = normalizeTaskProgress(data, data.task_type || "world_object_auto_extraction")
       this._autoExtractProgress = progress
       this._autoExtractStatus = progress.statusLabel || data.status || "未知"
       this._updateExtractStatusDOM()
@@ -384,7 +367,7 @@ const worldView = {
     try { localStorage.removeItem("novel_world_extract_task") } catch {}
 
     if (progress.done) {
-      toast("识别任务已完成，请查看候选清洗", "success")
+      toast("世界对象与别名/关系自动提取已完成", "success")
       this._autoExtractTaskId = null
       await this._reloadWorldLists()
       try {
@@ -398,7 +381,7 @@ const worldView = {
 
     if (progress.failed || progress.cancelled) {
       this._autoExtractTaskId = null
-      const message = progress.cancelled ? "识别任务已取消" : `识别任务失败: ${progress.errorMessage || "未知错误"}`
+      const message = progress.cancelled ? "提取任务已取消" : `提取任务失败: ${progress.errorMessage || "未知错误"}`
       toast(message, progress.cancelled ? "warning" : "error")
     }
   },
@@ -407,10 +390,10 @@ const worldView = {
     const progressEl = document.getElementById("w-extract-progress")
     if (progressEl && this._autoExtractProgress) {
       const rangeText = this._autoExtractMeta
-        ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}。完成后到候选清洗查看抽取结果。`
-        : "完成后到候选清洗查看抽取结果。"
+        ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}。完成后查看世界对象、别名和候选关系。`
+        : "完成后查看世界对象、别名和候选关系。"
       progressEl.innerHTML = renderWorkflowCard(this._autoExtractProgress, {
-        title: "从章节正文中识别世界对象",
+        title: "世界对象与别名/关系自动提取",
         destinationLabel: rangeText,
       })
       return
@@ -427,9 +410,9 @@ const worldView = {
       return `
         <div style="text-align:center;margin-bottom:12px;">
           <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-          <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
+          <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取</button>
         </div>
-        ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
+        ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
         ${this._renderFilters()}
         <div class="empty-state">
           <div class="empty-icon">&#127758;</div>
@@ -443,10 +426,10 @@ const worldView = {
       <div style="text-align:center;margin-bottom:12px;">
         <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
         <button class="btn" data-action="toggle-extract" style="margin-left:8px;">
-          ${this._autoExtractOpen ? "▾" : "▸"} 自动识别
+          ${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取
         </button>
       </div>
-      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
+      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
       <div style="margin-bottom:8px;text-align:center;">
         <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidates.length}）</button>
       </div>
