@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { buildMapLayout, boxesOverlap } from "../views/mapLayoutEngine.js"
+import { buildMapLayout } from "../views/mapLayoutEngine.js"
+import { expectNoOverlaps } from "./helpers.js"
 
 function item(overrides = {}) {
   return {
@@ -18,6 +19,13 @@ function item(overrides = {}) {
   }
 }
 
+function layoutItems(items) {
+  return items.map((entry) => ({
+    label: entry.text || entry.label || entry.title || entry.itemId,
+    box: entry.box,
+  }))
+}
+
 describe("mapLayoutEngine", () => {
   it("places high priority labels without overlaps and degrades dense low priority items", () => {
     const queue = Array.from({ length: 18 }, (_, index) => item({
@@ -34,11 +42,7 @@ describe("mapLayoutEngine", () => {
       viewMode: "dashboard",
     })
 
-    for (let i = 0; i < layout.labels.length; i += 1) {
-      for (let j = i + 1; j < layout.labels.length; j += 1) {
-        expect(boxesOverlap(layout.labels[i].box, layout.labels[j].box)).toBe(false)
-      }
-    }
+    expectNoOverlaps(layoutItems(layout.labels))
     expect(layout.labels.some((label) => label.displayLevel === "full")).toBe(true)
     expect(layout.clusters.length + layout.hiddenCount).toBeGreaterThan(0)
   })
@@ -59,11 +63,7 @@ describe("mapLayoutEngine", () => {
 
     expect(layout.semanticBubbles).toHaveLength(4)
     expect(layout.semanticBubbles.every((bubble) => bubble.box.y < 96)).toBe(true)
-    for (let i = 0; i < layout.semanticBubbles.length; i += 1) {
-      for (let j = i + 1; j < layout.semanticBubbles.length; j += 1) {
-        expect(boxesOverlap(layout.semanticBubbles[i].box, layout.semanticBubbles[j].box)).toBe(false)
-      }
-    }
+    expectNoOverlaps(layoutItems(layout.semanticBubbles))
   })
 
   it("lens mode boosts focus-related objects and reports low motion", () => {
@@ -127,10 +127,6 @@ describe("mapLayoutEngine", () => {
     expect(first.labels.every((label) => allowedLevels.includes(label.displayLevel))).toBe(true)
     expect(first.labels.some((label) => label.displayLevel === "full")).toBe(true)
     expect(first.clusters.every((cluster) => /人物|事件|资源|危机|对象/.test(cluster.label))).toBe(true)
-    for (let i = 0; i < first.labels.length; i += 1) {
-      for (let j = i + 1; j < first.labels.length; j += 1) {
-        expect(boxesOverlap(first.labels[i].box, first.labels[j].box)).toBe(false)
-      }
-    }
+    expectNoOverlaps(layoutItems(first.labels))
   })
 })

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test"
 import { openWorkbench } from "./helpers/workbench.js"
+import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 import {
   cleanupProject,
   createDraft,
@@ -242,7 +243,8 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "scene")
 
     await expect(page.locator(".scene-workbench__organize")).toBeVisible()
-    await expect(page.locator(".scene-workbench-drawer")).toBeVisible()
-    await expect(page.locator('[data-action="close-scene-detail"]')).toBeVisible()
+    await expectNoPageOverflow(page)
+    await expectWithinViewport(page.locator(".scene-workbench-drawer"))
+    await expectWithinViewport(page.locator('[data-action="close-scene-detail"]'))
   })
 })

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import mapWorkspaceView from "../views/mapWorkspaceView.js"
-import { resetState, clearDocument } from "./helpers.js"
+import { expectNoTechnicalIds, renderHtml, resetState, clearDocument } from "./helpers.js"
 
 beforeEach(() => {
   resetState({ currentProjectId: "p1" })
@@ -196,19 +196,17 @@ describe("mapWorkspaceView overview", () => {
     }
 
     const html = mapWorkspaceView._renderDynamicSummary()
-    const container = document.createElement("div")
-    container.innerHTML = html
+    const container = renderHtml(html)
 
-    expect(html).toContain("沈砚")
-    expect(html).toContain("Scene 42")
-    expect(html).toContain("待确认")
-    expect(html).toContain("置信度 82%")
-    expect(html).toContain("洛阳外城")
-    expect(html).toContain("检查器")
-    expect(html).toContain("批量修改")
-    expect(html).toContain("人物")
-    expect(container.textContent).not.toContain("obs-technical-id")
-    expect(container.textContent).not.toContain("fact-technical-id")
+    expect(container.textContent).toContain("沈砚")
+    expect(container.textContent).toContain("Scene 42")
+    expect(container.textContent).toContain("待确认")
+    expect(container.textContent).toContain("置信度 82%")
+    expect(container.textContent).toContain("洛阳外城")
+    expect(container.textContent).toContain("检查器")
+    expect(container.textContent).toContain("批量修改")
+    expect(container.textContent).toContain("人物")
+    expectNoTechnicalIds(container, ["obs-technical-id", "fact-technical-id"])
   })
 
   it("hides UUID debug refs from dashboard and object info default text", () => {
@@ -265,8 +263,7 @@ describe("mapWorkspaceView overview", () => {
     }
 
     const html = mapWorkspaceView._renderDynamicSummary()
-    const container = document.createElement("div")
-    container.innerHTML = html
+    const container = renderHtml(html)
     expect(container.textContent).toContain("洛阳封锁")
     expect(container.textContent).toContain("洛阳外城")
     expect(container.textContent).not.toContain(observationId)
@@ -322,14 +319,14 @@ describe("mapWorkspaceView overview", () => {
     const container = document.createElement("div")
     container.innerHTML = html
 
-    expect(html).toContain("世界动态总控台")
-    expect(html).toContain("活地图")
-    expect(html).toContain("叙事透镜")
-    expect(html).toContain("低动效")
-    expect(html).toContain("东门密道")
+    expect(container.textContent).toContain("世界动态总控台")
+    expect(container.textContent).toContain("活地图")
+    expect(container.textContent).toContain("叙事透镜")
+    expect(container.textContent).toContain("低动效")
+    expect(container.textContent).toContain("东门密道")
     expect(container.querySelector("[data-view-mode='lens']").className).toContain("is-active")
     expect(container.querySelector("[data-action='map-low-motion-toggle']").checked).toBe(true)
-    expect(container.textContent).not.toContain("secret-technical-id")
+    expectNoTechnicalIds(container, ["secret-technical-id"])
   })
 
   it("loads dynamic summary for the active map", async () => {

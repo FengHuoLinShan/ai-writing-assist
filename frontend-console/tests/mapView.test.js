@@ -7,7 +7,7 @@
  * - mapView 列表渲染（空列表、有地图列表、XSS 转义）
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { resetState, clearDocument, createCanvasMock } from "./helpers.js"
+import { resetState, clearDocument, createCanvasMock, renderHtml } from "./helpers.js"
 import {
   hexToPixel,
   pixelToHex,
@@ -59,6 +59,8 @@ beforeEach(() => {
   clearDocument()
   if (globalThis.api) vi.clearAllMocks()
   resetMapState()
+  mapView._maps = []
+  mapView._mapsLoadError = null
 })
 
 // ============================================================
@@ -521,11 +523,16 @@ describe("mapView 列表渲染", () => {
     expect(mapView._maps[0].name).toBe("九州")
   })
 
-  it("listMaps 失败时回退空列表", async () => {
+  it("listMaps 失败时显示地图列表加载失败提示", async () => {
     globalThis.state.currentProjectId = "p1"
     api.world.listMaps.mockRejectedValue(new Error("网络失败"))
     await mapView._loadMaps()
+    const container = renderHtml(mapView._renderEmpty())
+
     expect(mapView._maps).toEqual([])
+    expect(container.textContent).toContain("地图列表加载失败")
+    expect(container.textContent).toContain("可稍后重试")
+    expect(toast).toHaveBeenCalledWith("地图列表加载失败，可稍后重试", "warning")
   })
 
   it("_renderEmpty 显示创建入口", () => {

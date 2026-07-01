@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
   cleanupProject,
   createDraft,
@@ -92,6 +93,12 @@ test.describe("地图一级工作台", () => {
     })
     await expect(page.locator(SEL.mapLeaflet)).toBeVisible({ timeout: 10000 })
     await expect(page.locator(SEL.mapBreadcrumb)).toContainText("九州世界 E2E")
+
+    await runResponsiveMatrix(page, async () => {
+      await expectNoPageOverflow(page)
+      await expectWithinViewport(page.locator(".map-toolbar").last())
+      await expect(page.locator(SEL.mapLeaflet)).toBeVisible()
+    })
 
     const maps = await listMaps(testProjectId)
     expect(maps.total).toBe(1)

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { API_BASE, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("项目回收站", () => {
   let testProjectId = null
@@ -103,7 +103,6 @@ test.describe("项目回收站", () => {
     await expect(page.locator(SEL.modalBody)).not.toContainText("永久删除测试项目", { timeout: 10000 })
 
     // 验证项目确实已不存在（通过API）
-    const API_BASE = "http://localhost:8000/api"
     const resp = await fetch(`${API_BASE}/projects/${project.id}`)
     expect(resp.status).toBe(404)
   })

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { API_BASE, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("RAG 检索模块", () => {
   let testProjectId = null
@@ -56,8 +56,8 @@ test.describe("RAG 检索模块", () => {
   })
 
   test("通过真实 RAG chunk 搜索并验证 embedding 降级元数据", async ({ page }) => {
-    await page.evaluate(async ({ projectId }) => {
-      const resp = await fetch(`http://localhost:8000/api/rag/chunks?novel_id=${projectId}`, {
+    await page.evaluate(async ({ apiBase, projectId }) => {
+      const resp = await fetch(`${apiBase}/rag/chunks?novel_id=${projectId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -80,7 +80,7 @@ test.describe("RAG 检索模块", () => {
         }),
       })
       if (!resp.ok) throw new Error(await resp.text())
-    }, { projectId: testProjectId })
+    }, { apiBase: API_BASE, projectId: testProjectId })
 
     await page.locator('.subnav-item[data-action="nav-search"]').click()
     await page.locator("#rag-search-input").fill("铜铃")
@@ -88,15 +88,15 @@ test.describe("RAG 检索模块", () => {
 
     await expect(page.locator("#rag-results")).toContainText("铜铃在雨夜响起", { timeout: 10000 })
 
-    const result = await page.evaluate(async ({ projectId }) => {
-      const resp = await fetch(`http://localhost:8000/api/rag/retrieve?novel_id=${projectId}`, {
+    const result = await page.evaluate(async ({ apiBase, projectId }) => {
+      const resp = await fetch(`${apiBase}/rag/retrieve?novel_id=${projectId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: "铜铃", mode: "search", top_k: 5 }),
       })
       if (!resp.ok) throw new Error(await resp.text())
       return resp.json()
-    }, { projectId: testProjectId })
+    }, { apiBase: API_BASE, projectId: testProjectId })
 
     expect(result.chunks.some((chunk) => chunk.text.includes("铜铃"))).toBeTruthy()
     expect(result.chunks.some((chunk) => chunk.embedding_status === "failed")).toBeTruthy()

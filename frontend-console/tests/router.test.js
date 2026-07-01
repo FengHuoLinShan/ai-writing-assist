@@ -8,6 +8,7 @@ import "../router.js"
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.replaceChildren()
+  window.location.hash = ""
 })
 
 describe("renderCurrentView error handling", () => {
@@ -32,6 +33,23 @@ describe("renderCurrentView error handling", () => {
 
     expect(content.querySelector("img")).toBeNull()
     expect(content.textContent).toContain(maliciousMessage)
+  })
+
+  it("shows a visible warning when project metadata cannot be loaded", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.append(content)
+
+    window.router.registerView("writing", { async render() { return "<p>写作台</p>" } })
+    api.projects.get.mockRejectedValue(new Error("offline"))
+    window.location.hash = "#workbench/p1/writing"
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await window.router.initRouter()
+    warnSpy.mockRestore()
+
+    expect(toast).toHaveBeenCalledWith("项目信息加载失败，可稍后重试", "warning")
+    expect(state.currentProject).toBeNull()
   })
 })
 

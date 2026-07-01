@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import worldView from "../views/worldView.js"
-import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
+import { resetState, autoConfirm, captureModalHandler, renderHtml } from "./helpers.js"
 
 beforeEach(() => {
   resetState()
@@ -13,6 +13,7 @@ beforeEach(() => {
   worldView._candidates = []
   worldView._batches = []
   worldView._total = 0
+  worldView._entitiesLoadError = null
   worldView._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
   worldView._autoExtractOpen = false
   if (worldView._autoExtractPoller?.stop) worldView._autoExtractPoller.stop()
@@ -45,13 +46,16 @@ describe("onEnter", () => {
     expect(worldView._batches).toHaveLength(1)
   })
 
-  it("API 失败时设置空列表", async () => {
+  it("API 失败时显示对象列表加载失败提示", async () => {
     state.currentProjectId = "p1"
     api.world.listEntities.mockRejectedValue(new Error("失败"))
 
     await worldView.onEnter()
+    const html = await worldView.render()
 
     expect(worldView._entities).toEqual([])
+    expect(html).toContain("世界对象加载失败")
+    expect(html).toContain("可稍后重试")
   })
 })
 
@@ -194,12 +198,15 @@ describe("对象库", () => {
     it("渲染实体表格", () => {
       worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical", summary: "首都" }]
       const html = worldView._renderEntityList()
-      expect(html).toContain("王都")
-      expect(html).toContain("location")
-      expect(html).toContain("正史")
-      expect(html).toContain('data-action="edit-entity"')
-      expect(html).toContain('data-action="open-entity-map"')
-      expect(html).toContain('data-action="delete-entity"')
+      const container = renderHtml(html)
+      const row = [...container.querySelectorAll("tr")]
+        .find((tr) => tr.textContent.includes("王都"))
+
+      expect(row?.textContent).toContain("location")
+      expect(row?.textContent).toContain("正史")
+      expect(row?.querySelector('[data-action="edit-entity"]')).toBeTruthy()
+      expect(row?.querySelector('[data-action="open-entity-map"]')).toBeTruthy()
+      expect(row?.querySelector('[data-action="delete-entity"]')).toBeTruthy()
     })
 
     it("对象行打开地图时使用 open-target 并携带 focus_entity_id", async () => {

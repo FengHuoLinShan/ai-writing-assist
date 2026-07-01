@@ -5,12 +5,20 @@
  */
 
 import { expect } from "@playwright/test"
+import { API_HOST } from "./api-client.js"
 import { SEL } from "./selectors.js"
+
+async function installApiHost(page) {
+  await page.addInitScript((apiHost) => {
+    window.API_HOST = apiHost
+  }, API_HOST)
+}
 
 /**
  * 导航到指定工作台视图
  */
 export async function openWorkbench(page, project, view = "writing", subview = null) {
+  await installApiHost(page)
   await page.goto("/")
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await page.evaluate(async ({ projectData, viewName, subViewName }) => {
@@ -39,6 +47,7 @@ export async function openWorkbench(page, project, view = "writing", subview = n
  * 导航到项目列表页（无选中项目）
  */
 export async function openProjectList(page) {
+  await installApiHost(page)
   await page.goto("/")
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await page.evaluate(async () => {
@@ -56,6 +65,7 @@ export async function openProjectList(page) {
  * 刷新页面后等待项目列表渲染完成
  */
 export async function reloadProjectList(page) {
+  await installApiHost(page)
   await page.reload()
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await expect(page.locator(SEL.projectGrid).or(page.locator(SEL.emptyState))).toBeVisible({ timeout: 10000 })
@@ -65,6 +75,7 @@ export async function reloadProjectList(page) {
  * 导航到项目列表页并选中指定项目（上传导入需要当前项目上下文）
  */
 export async function openProjectView(page, project) {
+  await installApiHost(page)
   await page.goto("/")
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await page.evaluate(async (projectData) => {
@@ -82,6 +93,7 @@ export async function openProjectView(page, project) {
  * 刷新页面后重新导航到指定视图
  */
 export async function reloadWorkbench(page, view, subview = null) {
+  await installApiHost(page)
   await page.reload()
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
   await page.evaluate(async ({ viewName, subViewName }) => {
