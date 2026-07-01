@@ -74,3 +74,17 @@ class EntityStatsService:
                 }
             )
         return items
+
+    async def deprecate_deep_import_entities_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Soft-deprecate auto-ingested entities created by one workflow."""
+        nid = parse_uuid(novel_id, "novel_id")
+        return await self._repo.deprecate_deep_import_entities_by_workflow(
+            db,
+            nid,
+            workflow_id,
+        )

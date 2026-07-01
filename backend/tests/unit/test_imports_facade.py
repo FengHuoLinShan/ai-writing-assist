@@ -1,7 +1,6 @@
 """Unit tests for modules.imports.facade
 
-覆盖 resume_deep_import 的 happy path、边界条件与异常路径。
-所有外部依赖（任务队列）均通过 mock 隔离。
+覆盖 deep import facade 的 happy path、边界条件与异常路径。
 """
 
 from __future__ import annotations
@@ -13,7 +12,11 @@ import pytest
 
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.contracts import TaskNotFoundError
-from modules.imports.facade import resume_deep_import, start_deep_import
+from modules.imports.facade import (
+    abandon_deep_import,
+    resume_deep_import,
+    start_deep_import,
+)
 
 pytestmark = [pytest.mark.asyncio]
 
@@ -26,14 +29,27 @@ pytestmark = [pytest.mark.asyncio]
 async def _create_prev_task(
     db_session,
     *,
+    task_type: str = "deep_import",
+    status: str = "running",
     meta: dict | None = None,
+    result: dict | None = None,
 ) -> AsyncTask:
     """在 db_session 中创建一个作为 prev_task 的 AsyncTask 记录。"""
+    recovery_flags = {
+        "interrupted": True,
+        "recoverable": True,
+        "recovery_required": True,
+    }
     task = AsyncTask(
         id=uuid.uuid4(),
-        task_type="deep_import",
-        status="done",
-        meta=meta,
+        task_type=task_type,
+        status=status,
+        meta=(
+            meta
+            if meta is not None
+            else {"novel_id": str(uuid.uuid4()), **recovery_flags}
+        ),
+        result=result if result is not None else dict(recovery_flags),
     )
     db_session.add(task)
     await db_session.flush()
@@ -129,82 +145,54 @@ async def test_start_deep_import_force_enqueues_after_duplicate_confirmation(
 # ------------------------------------------------------------------
 
 
-@mock.patch("infrastructure.tasks.enqueuer.enqueue_task")
-async def test_resume_deep_import_with_valid_prev_task_returns_new_task(
-    mock_enqueue,
+async def test_resume_deep_import_with_valid_prev_task_reuses_original_task(
     db_session,
 ):
-    """Happy path — 前一个任务存在且 meta 正常，成功提交 resume 任务。"""
+    """Happy path — 恢复时复用原 deep_import 任务，不创建 resume 任务。"""
     # Arrange
     prev_task = await _create_prev_task(
         db_session,
-        meta={"novel_id": str(uuid.uuid4()), "start_chapter": 1, "end_chapter": 5},
+        meta={
+            "novel_id": str(uuid.uuid4()),
+            "start_chapter": 1,
+            "end_chapter": 5,
+            "recovery_required": True,
+            "recoverable": True,
+            "interrupted": True,
+        },
     )
     prev_task_id = str(prev_task.id)
-    new_task_id = str(uuid.uuid4())
-    mock_enqueue.return_value = new_task_id
 
     # Act
     result = await resume_deep_import(db_session, prev_task_id)
 
     # Assert
-    assert result["task_id"] == new_task_id
+    assert result["task_id"] == prev_task_id
+    assert result["workflow_id"] == prev_task_id
     assert result["status"] == "pending"
-    assert "继续" in result["message"]
-
-    mock_enqueue.assert_called_once()
-    call_args, call_kwargs = mock_enqueue.call_args
-    assert call_args[0] is db_session
-    assert call_args[1] == "deep_import_resume"
-    assert call_kwargs["meta"]["prev_task_id"] == prev_task_id
-    assert call_kwargs["meta"]["start_chapter"] == 1
-    assert call_kwargs["meta"]["end_chapter"] == 5
+    assert prev_task.status == "pending"
+    assert prev_task.result["recovery_required"] is False
+    assert prev_task.meta["recovery_required"] is False
 
 
-@mock.patch("infrastructure.tasks.enqueuer.enqueue_task")
-async def test_resume_deep_import_with_none_meta_treats_as_empty_dict(
-    mock_enqueue,
+async def test_abandon_deep_import_with_valid_task_cancels_original_task(
     db_session,
 ):
-    """边界条件 — prev_task.meta 为 None 时，应退化为空 dict 并继续执行。"""
+    """Happy path — 放弃恢复会取消原任务并返回 no-op 清理摘要。"""
     # Arrange
-    prev_task = await _create_prev_task(db_session, meta=None)
+    prev_task = await _create_prev_task(db_session)
     prev_task_id = str(prev_task.id)
-    new_task_id = str(uuid.uuid4())
-    mock_enqueue.return_value = new_task_id
 
     # Act
-    result = await resume_deep_import(db_session, prev_task_id)
+    result = await abandon_deep_import(db_session, prev_task_id)
 
     # Assert
-    assert result["task_id"] == new_task_id
-    assert result["status"] == "pending"
-
-    call_kwargs = mock_enqueue.call_args.kwargs
-    assert call_kwargs["meta"] == {"prev_task_id": prev_task_id}
-
-
-@mock.patch("infrastructure.tasks.enqueuer.enqueue_task")
-async def test_resume_deep_import_with_empty_meta_includes_prev_task_id(
-    mock_enqueue,
-    db_session,
-):
-    """边界条件 — prev_task.meta 为空 dict 时，结果 meta 应只包含 prev_task_id。"""
-    # Arrange
-    prev_task = await _create_prev_task(db_session, meta={})
-    prev_task_id = str(prev_task.id)
-    new_task_id = str(uuid.uuid4())
-    mock_enqueue.return_value = new_task_id
-
-    # Act
-    result = await resume_deep_import(db_session, prev_task_id)
-
-    # Assert
-    assert result["task_id"] == new_task_id
-    assert result["status"] == "pending"
-
-    call_kwargs = mock_enqueue.call_args.kwargs
-    assert call_kwargs["meta"] == {"prev_task_id": prev_task_id}
+    assert result["task_id"] == prev_task_id
+    assert result["status"] == "cancelled"
+    assert result["cleanup_summary"]["deprecated_scenes"] == 0
+    assert result["cleanup_summary"]["hard_deleted_assets"] == 0
+    assert prev_task.status == "cancelled"
+    assert prev_task.finished_at is not None
 
 
 async def test_resume_deep_import_with_missing_prev_task_raises_404(

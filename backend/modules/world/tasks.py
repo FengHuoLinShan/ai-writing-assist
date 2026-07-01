@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 import logging
 
+from core.container import get as _container_get
 from infrastructure.tasks.registry import task_handler
 from modules.context import facade as context_facade
 from modules.world.services.extraction_service import EntityExtractionService
@@ -98,3 +99,35 @@ async def handle_world_entity_extraction(db, task):
         "failed_chapters": result.failed_chapters,
         "items": result.items,
     }
+
+
+@task_handler("world_alias_relation_extraction")
+async def handle_world_alias_relation_extraction(db, task):
+    """处理别名/关系补抽任务。"""
+    meta = task.meta or {}
+    novel_id = meta.get("novel_id", "")
+    start_chapter = int(meta.get("start_chapter", 1))
+    end_chapter = int(meta.get("end_chapter", 10))
+    scene_ids = meta.get("scene_ids")
+
+    if not novel_id:
+        raise ValueError("novel_id is required for world_alias_relation_extraction")
+
+    task.update_progress(0.1)
+    handler = _container_get("world.run_alias_relation_extraction")
+    result = await handler(
+        db,
+        novel_id,
+        workflow_id=str(task.id),
+        scene_ids=scene_ids,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+    )
+    task.update_progress(0.95)
+    flush = getattr(db, "flush", None)
+    if flush is not None:
+        result_flush = flush()
+        if inspect.isawaitable(result_flush):
+            await result_flush
+    task.update_progress(1.0)
+    return result

@@ -21,7 +21,8 @@
 | `structure_chapter_scene.md` | 章节与场景结构生成 | 手动生成流 |
 | `structure_extraction.md` | 从章节正文补抽世界对象 | world 抽取任务 |
 | `scene_segmentation.md` | 深度导入 Phase 1，Scene 切分 | imports |
-| `scene_entity_extraction.md` | 深度导入 Phase 2，Scene 实体/关系/Delta 抽取 | imports |
+| `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 抽取 | imports |
+| `alias_relation_extraction.md` | 深度导入 Phase 2b，基于工作对象索引提取别名/关系 | imports |
 | `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 
@@ -49,12 +50,13 @@
 
 - `structure_extraction.md`
 - `scene_entity_extraction.md`
+- `alias_relation_extraction.md`
 - `extract_character.md`
 
 这类 Prompt 面向“从已有正文中识别长期资产”，重点是：
 
 - 不是 NER，而是长期创作资产识别
-- 别名走关联，不创建重复对象
+- 别名走关联，不创建重复对象；深度导入 Phase 2b 将别名作为待复核内联证据写入目标对象
 - 临时对象优先忽略或标记为临时
 - 深度导入路径会保留 `auto_ingested` 来源元数据
 

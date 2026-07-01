@@ -35,6 +35,21 @@ POST/GET/PATCH/DELETE /api/outline/reveals...
 POST /api/outline/generate
 ```
 
+结构资产列表筛选：
+
+```http
+GET /api/outline/threads
+GET /api/outline/arcs
+GET /api/outline/foreshadowing
+GET /api/outline/reveals
+```
+
+以上列表接口支持 `status`、`source`、`workflow_id`、`needs_review`、
+`skip`、`limit` query 参数。其中 `status` 匹配表字段；`source`、
+`workflow_id`、`needs_review` 匹配 `provenance_meta`，用于整理深度导入
+产生的 `deprecated`、`needs_review` 等结构资产。返回的 `total` 为筛选后的
+总数，仍按 `novel_id` 隔离。
+
 ## Scene 工作台
 
 Scene 工作台是 Scene 管理、章节映射和结构整理的主入口。旧大纲页
@@ -49,6 +64,8 @@ POST  /api/outline/scene-workbench/merge/preview
 POST  /api/outline/scene-workbench/merge
 POST  /api/outline/scene-workbench/split/preview
 POST  /api/outline/scene-workbench/split
+POST  /api/outline/scene-workbench/fusion/preview
+POST  /api/outline/scene-workbench/fusion/save
 ```
 
 `scenes.structure_meta` 保存结构整理元信息，例如：
@@ -67,6 +84,13 @@ POST  /api/outline/scene-workbench/split
 preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，不修改数据，
 也不因存在关联资产自动阻断。合并不硬删除来源 Scene，只把来源 Scene 标记为
 `deprecated` 并保留可追踪 meta。拆分不修改正文内容，只调整 Scene 映射并创建新 Scene。
+
+LLM Scene 融合先走 `fusion/preview` 返回本地确定性融合草稿，后续可替换为真实
+LLM 结果；preview 不修改来源 Scene。`fusion/save` 支持 `keep_originals`、
+`deprecate_originals`、`discard` 和 `edit_then_save`。只有
+`deprecate_originals` 会把来源 Scene 标记为 `deprecated`，新 Scene 记录
+`source="manual_fusion"` 与 `structure_meta.fused_from_scene_ids`，来源 Scene 记录
+`fused_into_scene_id`。
 
 ## Facade
 

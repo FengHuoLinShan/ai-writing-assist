@@ -32,7 +32,7 @@ class TestSettingsEffectiveDefaults:
         assert Settings().llm_timeout == 60
 
     def test_effective_embedding_dim(self):
-        assert Settings().embedding_dim == 1024  # .env 覆盖默认 768
+        assert Settings().embedding_dim == 768
 
     def test_effective_inference_timeout(self):
         assert Settings().inference_worker_timeout == 30.0

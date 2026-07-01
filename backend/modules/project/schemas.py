@@ -10,6 +10,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from infrastructure.llm.profiles import sanitize_project_settings
+
 
 def _sanitize_title(v: str) -> str:
     """去除首尾空白，并拒绝空字节与纯空白"""
@@ -104,6 +106,13 @@ class ProjectResponse(BaseModel):
             return v
         return str(v)
 
+    @field_validator("settings", mode="before")
+    @classmethod
+    def sanitize_settings(cls, v: object) -> dict:
+        if isinstance(v, dict):
+            return sanitize_project_settings(v)
+        return {}
+
 
 class ProjectListResponse(BaseModel):
     """项目列表响应"""
@@ -126,3 +135,52 @@ class ProjectContext(BaseModel):
     current_stage: str | None = None
     default_reveal_policy: str = "author_safe"
     settings: dict = {}
+
+
+class LLMProviderTemplateResponse(BaseModel):
+    """User-facing LLM provider preset."""
+
+    id: str
+    name: str
+    category: str
+    base_url: str = ""
+    default_model: str = ""
+    models: list[str] = Field(default_factory=list)
+    description: str = ""
+    docs_url: str = ""
+
+
+class LLMProviderTemplateListResponse(BaseModel):
+    """LLM provider preset list."""
+
+    items: list[LLMProviderTemplateResponse]
+
+
+class ProjectLLMSettingsUpdate(BaseModel):
+    """Project-level LLM settings update.
+
+    api_key is write-only. Empty api_key preserves an existing key unless
+    clear_api_key is true.
+    """
+
+    provider_id: str = Field(default="openai-compatible", max_length=64)
+    label: str | None = Field(default=None, max_length=128)
+    base_url: str = Field(..., min_length=1, max_length=512)
+    model: str = Field(..., min_length=1, max_length=256)
+    api_key: str | None = Field(default=None, max_length=4096)
+    clear_api_key: bool = False
+
+    @field_validator("provider_id", "label", "base_url", "model", "api_key")
+    @classmethod
+    def strip_text(cls, v: str | None) -> str | None:
+        return v.strip() if isinstance(v, str) else v
+
+
+class ProjectLLMSettingsResponse(BaseModel):
+    """Project-level LLM settings response without secrets."""
+
+    provider_id: str = "openai-compatible"
+    label: str | None = None
+    base_url: str = ""
+    model: str = ""
+    api_key_configured: bool = False

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Tier(IntEnum):
@@ -37,6 +37,25 @@ class ContextSection(BaseModel):
     token_count: int = 0
     truncatable_per_item: bool = False
     max_items: int | None = None
+    title: str = ""
+    preview: str = ""
+    status: str = "unknown"
+    activation_reason: str = ""
+    sources: list[dict[str, str]] = Field(default_factory=list)
+    can_exclude: bool = True
+    excluded: bool = False
+    truncated_reason: str | None = None
+
+
+class ContextBudgetEvent(BaseModel):
+    """Budget enforcement event for UI review."""
+
+    section_key: str
+    event_type: str
+    reason: str
+    before_tokens: int
+    after_tokens: int
+    tier: int
 
 
 class CompiledContext(BaseModel):
@@ -46,8 +65,10 @@ class CompiledContext(BaseModel):
     total_tokens: int = 0
     budget_tokens: int = 0
     compiled_at: str = ""
-    evicted_keys: list[str] = []
-    truncated_keys: list[str] = []
+    evicted_keys: list[str] = Field(default_factory=list)
+    truncated_keys: list[str] = Field(default_factory=list)
+    budget_events: list[ContextBudgetEvent] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
     def enforce_budget(self) -> CompiledContext:
         """Evict sections by tier to fit within budget_tokens.
@@ -64,6 +85,7 @@ class CompiledContext(BaseModel):
         sections = list(self.sections)
         evicted_keys = list(self.evicted_keys)
         truncated_keys = list(self.truncated_keys)
+        budget_events = list(self.budget_events)
 
         # Phase 2: Evict entire sections by tier P4 → P3
         for tier in (Tier.P4, Tier.P3):
@@ -75,6 +97,16 @@ class CompiledContext(BaseModel):
             for s in removed:
                 if s.key not in evicted_keys:
                     evicted_keys.append(s.key)
+                budget_events.append(
+                    ContextBudgetEvent(
+                        section_key=s.key,
+                        event_type="evicted",
+                        reason="超过 token 预算后按低优先级移除",
+                        before_tokens=s.token_count,
+                        after_tokens=0,
+                        tier=int(s.tier),
+                    )
+                )
 
         # Phase 3: P2 per-item truncation
         current = sum(s.token_count for s in sections)
@@ -98,6 +130,7 @@ class CompiledContext(BaseModel):
                             break
                     if kept:
                         content = "\n".join(kept)
+                        truncated_reason = "超过预算后按条目裁剪"
                         new_sections.append(
                             ContextSection(
                                 key=s.key,
@@ -106,10 +139,28 @@ class CompiledContext(BaseModel):
                                 token_count=used,
                                 truncatable_per_item=True,
                                 max_items=s.max_items,
+                                title=s.title,
+                                preview=s.preview,
+                                status=s.status,
+                                activation_reason=s.activation_reason,
+                                sources=s.sources,
+                                can_exclude=s.can_exclude,
+                                excluded=s.excluded,
+                                truncated_reason=truncated_reason,
                             )
                         )
                         if s.key not in truncated_keys:
                             truncated_keys.append(s.key)
+                        budget_events.append(
+                            ContextBudgetEvent(
+                                section_key=s.key,
+                                event_type="truncated",
+                                reason=truncated_reason,
+                                before_tokens=s.token_count,
+                                after_tokens=used,
+                                tier=int(s.tier),
+                            )
+                        )
                 else:
                     new_sections.append(s)
             sections = new_sections
@@ -135,6 +186,14 @@ class CompiledContext(BaseModel):
                                     token_count=used,
                                     truncatable_per_item=s.truncatable_per_item,
                                     max_items=s.max_items,
+                                    title=s.title,
+                                    preview=s.preview,
+                                    status=s.status,
+                                    activation_reason=s.activation_reason,
+                                    sources=s.sources,
+                                    can_exclude=s.can_exclude,
+                                    excluded=s.excluded,
+                                    truncated_reason="超过预算后保留前段摘要",
                                 )
                             )
                             compressed = True
@@ -143,6 +202,17 @@ class CompiledContext(BaseModel):
                         new_sections.append(s)
                     if compressed and s.key not in truncated_keys:
                         truncated_keys.append(s.key)
+                    if compressed:
+                        budget_events.append(
+                            ContextBudgetEvent(
+                                section_key=s.key,
+                                event_type="truncated",
+                                reason="超过预算后保留前段摘要",
+                                before_tokens=s.token_count,
+                                after_tokens=new_sections[-1].token_count,
+                                tier=int(s.tier),
+                            )
+                        )
                 else:
                     new_sections.append(s)
             sections = new_sections
@@ -155,4 +225,6 @@ class CompiledContext(BaseModel):
             compiled_at=self.compiled_at,
             evicted_keys=evicted_keys,
             truncated_keys=truncated_keys,
+            budget_events=budget_events,
+            warnings=list(self.warnings),
         )

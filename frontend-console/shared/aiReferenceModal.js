@@ -12,6 +12,7 @@ export function confirmAiReference(options) {
     }
 
     let currentConfirmation = null
+    const excludedSectionKeys = new Set(options.excluded_asset_ids?.context_sections || [])
     titleEl.textContent = "AI 参考资料"
     bodyEl.innerHTML = renderBody(options)
     footerEl.innerHTML = ""
@@ -21,11 +22,27 @@ export function confirmAiReference(options) {
     const confirmBtn = createButton("确认使用", "btn btn-primary")
     const cancelBtn = createButton("取消", "btn btn-ghost")
 
+    const renderCurrentSummary = () => {
+      renderSummary(currentConfirmation, async (sectionKey) => {
+        excludedSectionKeys.add(sectionKey)
+        try {
+          setBusy(refreshBtn, true)
+          currentConfirmation = await createConfirmation(options, excludedSectionKeys)
+          renderCurrentSummary()
+          toast("AI 参考资料已重新整理", "success")
+        } catch (err) {
+          showError(err)
+        } finally {
+          setBusy(refreshBtn, false)
+        }
+      })
+    }
+
     refreshBtn.addEventListener("click", async () => {
       try {
         setBusy(refreshBtn, true)
-        currentConfirmation = await createConfirmation(options)
-        renderSummary(currentConfirmation)
+        currentConfirmation = await createConfirmation(options, excludedSectionKeys)
+        renderCurrentSummary()
         toast("AI 参考资料已整理", "success")
       } catch (err) {
         showError(err)
@@ -38,8 +55,8 @@ export function confirmAiReference(options) {
       try {
         setBusy(confirmBtn, true)
         if (!currentConfirmation) {
-          currentConfirmation = await createConfirmation(options)
-          renderSummary(currentConfirmation)
+          currentConfirmation = await createConfirmation(options, excludedSectionKeys)
+          renderCurrentSummary()
         }
         close()
         resolve(currentConfirmation)
@@ -110,12 +127,12 @@ function option(value, label, selected) {
   return `<option value="${esc(value)}" ${selected === value ? "selected" : ""}>${esc(label)}</option>`
 }
 
-async function createConfirmation(options) {
-  const payload = buildPayload(options)
+async function createConfirmation(options, excludedSectionKeys = new Set()) {
+  const payload = buildPayload(options, excludedSectionKeys)
   return api.context.confirm(payload)
 }
 
-function buildPayload(options) {
+function buildPayload(options, excludedSectionKeys = new Set()) {
   const scope = document.getElementById("ai-ref-scope")?.value || options.scope || "chapter"
   const chapterRaw = document.getElementById("ai-ref-chapter")?.value
   const chapter = chapterRaw ? parseInt(chapterRaw, 10) : options.chapter_index
@@ -136,13 +153,26 @@ function buildPayload(options) {
   if (options.arc_id) payload.arc_id = options.arc_id
   if (options.entity_ids) payload.entity_ids = options.entity_ids
   if (options.character_ids) payload.character_ids = options.character_ids
-  if (excludedIds.length) payload.excluded_asset_ids = { manual: excludedIds }
+  const excludedContextSections = Array.from(excludedSectionKeys)
+  if (excludedIds.length || excludedContextSections.length) {
+    payload.excluded_asset_ids = {}
+    if (excludedIds.length) payload.excluded_asset_ids.manual = excludedIds
+    if (excludedContextSections.length) payload.excluded_asset_ids.context_sections = excludedContextSections
+  }
   return payload
 }
 
-function renderSummary(confirmation) {
+function renderSummary(confirmation, onExcludeSection) {
   const el = document.getElementById("ai-ref-summary")
-  if (el) el.innerHTML = renderContextSummary(confirmation)
+  if (!el) return
+  el.innerHTML = renderContextSummary(confirmation)
+  if (!onExcludeSection) return
+  el.querySelectorAll("[data-ai-ref-exclude-section]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sectionKey = btn.getAttribute("data-ai-ref-exclude-section")
+      if (sectionKey) onExcludeSection(sectionKey)
+    })
+  })
 }
 
 function showError(err) {

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -12,10 +13,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMConnectionError
+from modules.imports import scene_entity_extraction as scene_entity_extraction_module
 from modules.imports.llm_schemas import (
+    AliasRelationExtractionOutput,
     DeltaEvent,
+    ExtractedAlias,
     ExtractedEntity,
     ExtractedRelation,
+    SceneCandidateOutput,
+    SceneEntityExtractionOutput,
 )
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 
@@ -24,6 +30,59 @@ async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
     from modules.context.facade import list_context_snapshots
 
     return await list_context_snapshots(db_session, novel_id=novel_id)
+
+
+def test_llm_schema_normalizes_common_score_strings() -> None:
+    output = SceneEntityExtractionOutput.model_validate(
+        {
+            "entities": [
+                {
+                    "name": "克莱恩",
+                    "entity_type": "character",
+                    "summary": None,
+                    "public_info": None,
+                    "hidden_truth": None,
+                    "candidate_reason": None,
+                    "importance": "85%",
+                    "confidence": "高",
+                    "aliases": ["周明瑞", {"name": "克莱恩·莫雷蒂"}],
+                }
+            ],
+            "relations": [
+                {
+                    "source_name": "克莱恩",
+                    "target_name": "梅丽莎",
+                    "relation_type": "sibling",
+                    "strength": "中",
+                }
+            ],
+            "delta_events": [],
+        }
+    )
+
+    assert output.entities[0].importance == 0.85
+    assert output.entities[0].confidence == 0.9
+    assert output.entities[0].aliases == [
+        {"alias": "周明瑞", "type": "name"},
+        {"name": "克莱恩·莫雷蒂", "alias": "克莱恩·莫雷蒂", "type": "name"},
+    ]
+    assert output.entities[0].summary == ""
+    assert output.entities[0].public_info == ""
+    assert output.entities[0].hidden_truth == ""
+    assert output.entities[0].candidate_reason == ""
+    assert output.relations[0].strength == 0.6
+
+    candidate = SceneCandidateOutput.model_validate(
+        {
+            "scenes": [{"title": "候选"}],
+            "confidence": "较高",
+            "evidence_anchors": ["第1章开头"],
+            "split_hints": ["可按仪式前后拆分"],
+        }
+    )
+    assert candidate.confidence == 0.8
+    assert candidate.evidence_anchors == ["第1章开头"]
+    assert candidate.split_hints == ["可按仪式前后拆分"]
 
 
 @pytest.fixture
@@ -98,7 +157,75 @@ async def test_persist_entities_writes_auto_ingested_meta(
     assert meta.get("source_scene_index") == 1
     assert meta.get("source_chapter_index") == 1
     assert meta.get("batch_id") == "wf-test-1"
+    assert meta.get("workflow_id") == "wf-test-1"
+    assert meta.get("source") == "deep_import"
+    assert meta.get("scene_id") is None
+    assert meta.get("scene_provenance_key") == "wf-test-1:scene:1"
     assert meta.get("suggested_action") == "create_new"
+
+
+@pytest.mark.asyncio
+async def test_load_scene_chapters_prefers_scene_chunk_text(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        novel_with_drafts,
+        chapter_index=3,
+        title="第三章",
+        content="段落0。\n\n段落1。\n\n段落2。\n\n段落3。",
+    )
+
+    svc = SceneEntityExtractionService()
+    text = await svc._load_scene_chapters(
+        db_session,
+        {
+            "novel_id": novel_with_drafts,
+            "scene_index": 3,
+            "title": "局部 Scene",
+            "goal": "只抽取段落1到2",
+            "core_conflict": "局部事件",
+            "emotional_beat": "紧张",
+            "chapter_ids": ["3"],
+            "scene_chunks": [
+                {
+                    "chapter_index": 3,
+                    "start_paragraph": 1,
+                    "end_paragraph": 2,
+                }
+            ],
+        },
+    )
+
+    assert "## Scene 上下文" in text
+    assert "- 标题: 局部 Scene" in text
+    assert "段落1。" in text
+    assert "段落2。" in text
+    assert "段落0。" not in text
+    assert "段落3。" not in text
+
+
+@pytest.mark.asyncio
+async def test_load_scene_chapters_falls_back_to_full_chapter_without_chunks(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    text = await svc._load_scene_chapters(
+        db_session,
+        {
+            "novel_id": novel_with_drafts,
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+            "scene_chunks": [],
+        },
+    )
+
+    assert "## Scene 上下文" in text
+    assert "主角克莱恩醒来。" in text
 
 
 @pytest.mark.asyncio
@@ -487,6 +614,218 @@ async def test_persist_relations_links_existing_entities(
 
 
 @pytest.mark.asyncio
+async def test_process_scene_defers_relation_output_to_phase2b(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """Phase 2a should not persist relation output from the entity prompt."""
+    svc = SceneEntityExtractionService()
+    from modules.world.facade import create_entity, get_entity_relations
+
+    await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "克莱恩", "entity_type": "character", "status": "canonical"},
+    )
+    await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "梅丽莎", "entity_type": "character", "status": "canonical"},
+    )
+    scene = {
+        "id": "scene-phase2a",
+        "novel_id": novel_with_drafts,
+        "scene_index": 12,
+        "chapter_ids": ["1"],
+    }
+    extraction = SceneEntityExtractionOutput(
+        entities=[],
+        relations=[
+            ExtractedRelation(
+                source_name="克莱恩",
+                target_name="梅丽莎",
+                relation_type="sibling",
+                description="兄妹",
+            )
+        ],
+        delta_events=[],
+    )
+
+    with (
+        patch.object(
+            svc,
+            "_call_llm_extraction",
+            new_callable=AsyncMock,
+            return_value=extraction,
+        ),
+        patch("modules.memory.facade.capture_snapshot", new_callable=AsyncMock),
+    ):
+        result = await svc._process_scene(
+            db_session,
+            novel_with_drafts,
+            scene,
+            0,
+            "无已有对象",
+            [],
+            set(),
+            workflow_id="wf-phase2a-only",
+        )
+
+    assert result["relations"] == 0
+    rels, total = await get_entity_relations(db_session, novel_with_drafts)
+    assert total == 0
+    assert rels == []
+
+
+@pytest.mark.asyncio
+async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """Phase 2b can use candidate entities and stores aliases inline for review."""
+    svc = SceneEntityExtractionService()
+    from modules.world.facade import create_entity, get_entity_relations
+
+    source = await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "克莱恩", "entity_type": "character", "status": "candidate"},
+    )
+    target = await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "梅丽莎", "entity_type": "character", "status": "candidate"},
+    )
+    output = AliasRelationExtractionOutput(
+        aliases=[
+            ExtractedAlias(
+                entity_name="克莱恩",
+                alias="周明瑞",
+                alias_type="name",
+                confidence=0.91,
+                quote="周明瑞醒来时发现自己成了克莱恩。",
+            )
+        ],
+        relations=[
+            ExtractedRelation(
+                source_name="克莱恩",
+                target_name="梅丽莎",
+                relation_type="sibling",
+                description="兄妹",
+                strength=0.8,
+            )
+        ],
+    )
+
+    result = await svc._persist_alias_relation_output(
+        db_session,
+        novel_with_drafts,
+        output,
+        scene_index=3,
+        workflow_id="wf-phase2b",
+        scene_id="scene-3",
+    )
+
+    assert result == {"aliases": 1, "relations": 1}
+    rels, total = await get_entity_relations(db_session, novel_with_drafts)
+    assert total == 1
+    assert rels[0].source_id == source["id"]
+    assert rels[0].target_id == target["id"]
+    assert rels[0].status == "candidate"
+
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    stmt = select(CoreEntity).where(
+        CoreEntity.id == parse_uuid(source["id"], "entity_id")
+    )
+    entity = (await db_session.execute(stmt)).scalar_one()
+    aliases = (entity.content_json or {}).get("aliases", [])
+    assert aliases == [
+        {
+            "alias": "周明瑞",
+            "type": "name",
+            "status": "candidate",
+            "source": "deep_import",
+            "workflow_id": "wf-phase2b",
+            "scene_id": "scene-3",
+            "scene_index": 3,
+            "confidence": 0.91,
+            "quote": "周明瑞醒来时发现自己成了克莱恩。",
+            "needs_review": True,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_phase2b_alias_append_is_idempotent_and_novel_scoped(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    from modules.project.schemas import ProjectCreate
+    from modules.project.services import ProjectService
+    from modules.world.facade import create_entity
+
+    entity = await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "克莱恩", "entity_type": "character", "status": "candidate"},
+    )
+    other_project = await ProjectService().create_project(
+        db_session,
+        ProjectCreate(title="Other Novel", language="zh"),
+    )
+    await create_entity(
+        db_session,
+        str(other_project.id),
+        {"name": "跨项目对象", "entity_type": "character", "status": "candidate"},
+    )
+    output = AliasRelationExtractionOutput(
+        aliases=[
+            ExtractedAlias(entity_name="克莱恩", alias="周明瑞", confidence=0.8),
+            ExtractedAlias(entity_name="克莱恩", alias=" 周明瑞 ", confidence=0.7),
+            ExtractedAlias(entity_name="跨项目对象", alias="不应写入", confidence=0.9),
+        ],
+        relations=[],
+    )
+
+    first = await svc._persist_alias_relation_output(
+        db_session,
+        novel_with_drafts,
+        output,
+        scene_index=3,
+        workflow_id="wf-phase2b",
+        scene_id="scene-3",
+    )
+    second = await svc._persist_alias_relation_output(
+        db_session,
+        novel_with_drafts,
+        output,
+        scene_index=3,
+        workflow_id="wf-phase2b",
+        scene_id="scene-3",
+    )
+
+    assert first == {"aliases": 1, "relations": 0}
+    assert second == {"aliases": 0, "relations": 0}
+
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    stmt = select(CoreEntity).where(
+        CoreEntity.id == parse_uuid(entity["id"], "entity_id")
+    )
+    found = (await db_session.execute(stmt)).scalar_one()
+    aliases = (found.content_json or {}).get("aliases", [])
+    assert [a.get("alias") for a in aliases] == ["周明瑞"]
+
+
+@pytest.mark.asyncio
 async def test_record_deltas_creates_delta_log(
     db_session: AsyncSession,
     novel_with_drafts: str,
@@ -501,7 +840,15 @@ async def test_record_deltas_creates_delta_log(
             meta={"source": "test"},
         )
     ]
-    count = await svc._record_deltas(db_session, novel_with_drafts, deltas, scene_index=2)
+    count = await svc._record_deltas(
+        db_session,
+        novel_with_drafts,
+        deltas,
+        scene_index=2,
+        workflow_id="wf-delta",
+        scene_id="00000000-0000-0000-0000-000000000002",
+        scene_provenance_key="wf-delta:scene:2",
+    )
     assert count == 1
 
     from sqlalchemy import select
@@ -515,6 +862,11 @@ async def test_record_deltas_creates_delta_log(
     items = result.scalars().all()
     assert len(items) == 1
     assert items[0].category == "ENTITY_CREATED"
+    assert items[0].source == "deep_import"
+    assert items[0].meta["workflow_id"] == "wf-delta"
+    assert items[0].meta["scene_id"] == "00000000-0000-0000-0000-000000000002"
+    assert items[0].meta["scene_provenance_key"] == "wf-delta:scene:2"
+    assert items[0].meta["auto_ingested"] is True
 
     from modules.world.map_models import MapObservation
 
@@ -527,6 +879,8 @@ async def test_record_deltas_creates_delta_log(
     assert observations[0].scene_index == 2
     assert observations[0].source_ref["source"] == "deep_import_delta_event"
     assert observations[0].source_ref["delta_log_id"] == str(items[0].id)
+    assert observations[0].source_ref["workflow_id"] == "wf-delta"
+    assert observations[0].source_ref["scene_provenance_key"] == "wf-delta:scene:2"
 
 
 @pytest.mark.asyncio
@@ -584,11 +938,81 @@ async def test_process_scene_captures_memory_snapshot(
 
 
 @pytest.mark.asyncio
-async def test_extract_by_scenes_stops_after_transport_failure() -> None:
+async def test_extract_by_scenes_continues_after_single_transport_failure() -> None:
     svc = SceneEntityExtractionService()
     scenes = [
         {"novel_id": "novel-1", "scene_index": 1, "chapter_ids": ["1"]},
         {"novel_id": "novel-1", "scene_index": 2, "chapter_ids": ["2"]},
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+
+    async def process_scene(*args, **kwargs):
+        scene = args[2]
+        if scene["scene_index"] == 1:
+            raise LLMConnectionError("connection failed")
+        return {
+            "created": 1,
+            "relations": 0,
+            "deltas": 0,
+            "created_entity_ids": ["entity-scene-2"],
+            "created_relation_ids": [],
+            "created_delta_ids": [],
+            "updated_context": "updated",
+            "updated_memory": [{"scene_index": 2, "entities": 1}],
+        }
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scene",
+            new_callable=AsyncMock,
+            side_effect=process_scene,
+        ) as process_scene,
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            existing_checkpoints={"unrelated-scene": {"status": "done"}},
+        )
+
+    assert result["total_created"] == 1
+    assert result["total_scenes"] == 2
+    assert result["degraded"] is True
+    assert result["error_kind"] == "connection_error"
+    assert result["failed_scene_indices"] == [1]
+    assert result["completed_scenes"] == 1
+    assert result["skipped_scenes"] == 0
+    assert result["stopped_early"] is False
+    assert process_scene.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_extract_by_scenes_stops_after_repeated_transport_failures() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {"novel_id": "novel-1", "scene_index": 1, "chapter_ids": ["1"]},
+        {"novel_id": "novel-1", "scene_index": 2, "chapter_ids": ["2"]},
+        {"novel_id": "novel-1", "scene_index": 3, "chapter_ids": ["3"]},
+        {"novel_id": "novel-1", "scene_index": 4, "chapter_ids": ["4"]},
     ]
     db = Mock()
     db.flush = AsyncMock()
@@ -606,18 +1030,839 @@ async def test_extract_by_scenes_stops_after_transport_failure() -> None:
             new_callable=AsyncMock,
             side_effect=LLMConnectionError("connection failed"),
         ) as process_scene,
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
     ):
         result = await svc.extract_by_scenes(
             db,
             "00000000-0000-0000-0000-000000000001",
+            existing_checkpoints={"unrelated-scene": {"status": "done"}},
         )
 
     assert result["total_created"] == 0
-    assert result["total_scenes"] == 2
+    assert result["total_scenes"] == 4
     assert result["degraded"] is True
     assert result["error_kind"] == "connection_error"
-    assert result["failed_scene_indices"] == [1]
+    assert result["failed_scene_indices"] == [1, 2, 3]
     assert result["completed_scenes"] == 0
     assert result["skipped_scenes"] == 1
     assert result["stopped_early"] is True
+    assert process_scene.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_phase2_records_checkpoint_for_each_successful_scene() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": "scene-a",
+            "novel_id": "novel-1",
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+        },
+        {
+            "id": "scene-b",
+            "novel_id": "novel-1",
+            "scene_index": 2,
+            "chapter_ids": ["2"],
+        },
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+
+    async def process_scene(*args, **kwargs):
+        scene = args[2]
+        scene_idx = args[3]
+        return {
+            "created": 1,
+            "relations": 1,
+            "deltas": 1,
+            "created_entity_ids": [f"entity-{scene['id']}"],
+            "created_relation_ids": [f"relation-{scene['id']}"],
+            "created_delta_ids": [f"delta-{scene['id']}"],
+            "updated_context": "updated",
+            "updated_memory": [{"scene_index": scene_idx, "entities": 1}],
+        }
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scene",
+            new_callable=AsyncMock,
+            side_effect=process_scene,
+        ),
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-checkpoint",
+            existing_checkpoints={"unrelated-scene": {"status": "done"}},
+        )
+
+    checkpoints = result["checkpoints"]["phase2"]["scenes"]
+    assert [checkpoint["scene_id"] for checkpoint in checkpoints] == [
+        "scene-a",
+        "scene-b",
+    ]
+    assert all(checkpoint["status"] == "done" for checkpoint in checkpoints)
+    assert checkpoints[0]["created_entity_ids"] == ["entity-scene-a"]
+    assert checkpoints[0]["created_relation_ids"] == ["relation-scene-a"]
+    assert checkpoints[0]["created_delta_ids"] == ["delta-scene-a"]
+    assert checkpoints[0]["workflow_id"] == "wf-phase2-checkpoint"
+    assert checkpoints[0]["source"] == "deep_import"
+    assert checkpoints[0]["auto_ingested"] is True
+
+
+@pytest.mark.asyncio
+async def test_phase2_small_sample_uses_bulk_extraction_with_scene_checkpoints() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": "scene-a",
+            "novel_id": "novel-1",
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+        },
+        {
+            "id": "scene-b",
+            "novel_id": "novel-1",
+            "scene_index": 2,
+            "chapter_ids": ["2"],
+        },
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scenes_bulk",
+            new_callable=AsyncMock,
+            return_value={
+                "created": 2,
+                "relations": 1,
+                "deltas": 1,
+                "created_entity_ids": ["entity-a", "entity-b"],
+                "created_relation_ids": ["relation-a"],
+                "created_delta_ids": ["delta-a"],
+            },
+        ) as bulk,
+        patch.object(svc, "_process_scene", new_callable=AsyncMock) as process_scene,
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-bulk",
+        )
+
+    bulk.assert_awaited_once()
+    process_scene.assert_not_awaited()
+    assert result["total_created"] == 2
+    assert result["completed_scenes"] == 2
+    checkpoints = result["checkpoints"]["phase2"]["scenes"]
+    assert [checkpoint["scene_id"] for checkpoint in checkpoints] == [
+        "scene-a",
+        "scene-b",
+    ]
+    assert all(checkpoint["status"] == "done" for checkpoint in checkpoints)
+    assert checkpoints[0]["created_entity_ids"] == ["entity-a", "entity-b"]
+
+
+@pytest.mark.asyncio
+async def test_phase2_small_sample_prefers_parallel_scene_llm() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "novel_id": "novel-1",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+        }
+        for index in range(1, 9)
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+    parallel_result = {
+        "total_created": 24,
+        "total_relations": 0,
+        "total_deltas": 0,
+        "total_scenes": 8,
+        "degraded": False,
+        "error_kind": None,
+        "error_message": None,
+        "failed_scene_indices": [],
+        "completed_scenes": 8,
+        "skipped_scenes": 0,
+        "rerun_scenes": 0,
+        "stopped_early": False,
+        "checkpoints": {"phase2": {"scenes": []}},
+        "parallel_llm_fallback": True,
+        "bulk_error_kind": "small_sample_parallel_default",
+    }
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scenes_parallel_llm",
+            new_callable=AsyncMock,
+            return_value=parallel_result,
+        ) as parallel,
+        patch.object(svc, "_process_scenes_bulk", new_callable=AsyncMock) as bulk,
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-parallel-default",
+        )
+
+    parallel.assert_awaited_once()
+    bulk.assert_not_awaited()
+    assert result["total_created"] == 24
+    assert result["bulk_error_kind"] == "small_sample_parallel_default"
+
+
+@pytest.mark.asyncio
+async def test_phase2_bulk_failure_uses_parallel_llm_fallback() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": "scene-a",
+            "novel_id": "novel-1",
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+        }
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+
+    parallel_result = {
+        "total_created": 3,
+        "total_relations": 0,
+        "total_deltas": 0,
+        "total_scenes": 1,
+        "degraded": False,
+        "error_kind": None,
+        "error_message": None,
+        "failed_scene_indices": [],
+        "completed_scenes": 1,
+        "skipped_scenes": 0,
+        "rerun_scenes": 0,
+        "stopped_early": False,
+        "checkpoints": {"phase2": {"scenes": []}},
+        "parallel_llm_fallback": True,
+        "bulk_error_kind": "timeout",
+    }
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scenes_bulk",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("bulk timeout"),
+        ) as bulk,
+        patch.object(
+            svc,
+            "_process_scenes_parallel_llm",
+            new_callable=AsyncMock,
+            return_value=parallel_result,
+        ) as parallel,
+        patch.object(svc, "_process_scene", new_callable=AsyncMock) as process_scene,
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-parallel",
+        )
+
+    bulk.assert_awaited_once()
+    parallel.assert_awaited_once()
+    process_scene.assert_not_awaited()
+    assert result["parallel_llm_fallback"] is True
+    assert result["bulk_error_kind"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "novel_id": "novel-1",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+            "title": f"Scene {index}",
+        }
+        for index in (1, 2)
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+    events: list[str] = []
+
+    async def load_scene(_db, scene):
+        return f"正文 {scene['scene_index']}"
+
+    async def create_snapshot(*_args, **_kwargs):
+        scene = _args[2]
+        return Mock(id=f"snapshot-{scene['scene_index']}")
+
+    async def call_llm(chapters_text: str, *_args, **_kwargs):
+        events.append(f"llm-{chapters_text[-1]}")
+        await asyncio.sleep(0.01)
+        return SceneEntityExtractionOutput(
+            entities=[
+                ExtractedEntity(
+                    name=f"实体{chapters_text[-1]}",
+                    entity_type="character",
+                    suggested_action="create_new",
+                )
+            ],
+            relations=[],
+            delta_events=[],
+        )
+
+    async def persist_entities(*_args, **kwargs):
+        result_refs = kwargs["result_refs"]
+        scene_index = kwargs["scene_index"]
+        events.append(f"persist-{scene_index}")
+        result_refs.append({"type": "core_entity", "id": f"entity-{scene_index}"})
+        return 1
+
+    with (
+        patch.object(svc, "_load_scene_chapters", new=load_scene),
+        patch.object(svc, "_create_phase2_snapshot", new=create_snapshot),
+        patch.object(svc, "_call_llm_extraction", new=call_llm),
+        patch.object(svc, "_persist_entities", new=persist_entities),
+        patch.object(
+            svc,
+            "_persist_relations",
+            new_callable=AsyncMock,
+            return_value=0,
+        ),
+        patch.object(
+            svc,
+            "_record_deltas",
+            new_callable=AsyncMock,
+            return_value=0,
+        ),
+        patch.object(
+            svc,
+            "_supplement_small_sample_entities",
+            new_callable=AsyncMock,
+            return_value={
+                "created": 0,
+                "created_entity_ids": [],
+                "supplemental_llm_created": 0,
+                "fallback_created": 0,
+                "supplemental_error_kind": None,
+            },
+        ),
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch("modules.context.facade.mark_context_snapshot_succeeded", AsyncMock()),
+        patch("modules.memory.facade.capture_snapshot", AsyncMock()),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            scenes,
+            "无已有对象",
+            workflow_id="wf-phase2-parallel",
+            on_scene_progress=None,
+            bulk_error_kind="schema_error",
+        )
+
+    first_persist_index = min(
+        index for index, event in enumerate(events) if event.startswith("persist-")
+    )
+    assert all(
+        event.startswith("llm-")
+        for event in events[:first_persist_index]
+    )
+    assert result["parallel_llm_fallback"] is True
+    assert result["bulk_error_kind"] == "schema_error"
+    assert result["total_created"] == 2
+    checkpoints = result["checkpoints"]["phase2"]["scenes"]
+    assert [checkpoint["created_entity_ids"] for checkpoint in checkpoints] == [
+        ["entity-1"],
+        ["entity-2"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bulk_llm_extractions_keep_successful_groups_when_one_group_fails() -> None:
+    svc = SceneEntityExtractionService()
+    output = SceneEntityExtractionOutput(
+        entities=[
+            ExtractedEntity(
+                name="克莱恩",
+                entity_type="character",
+                suggested_action="create_new",
+            )
+        ],
+        relations=[],
+        delta_events=[],
+    )
+
+    async def call_llm(chapters_text: str, *_args, **_kwargs):
+        if "Scene 4" in chapters_text:
+            raise TimeoutError("slow group")
+        return output
+
+    with patch.object(
+        svc,
+        "_call_llm_extraction",
+        new_callable=AsyncMock,
+        side_effect=call_llm,
+    ):
+        results = await svc._call_bulk_llm_extractions(
+            [f"Scene {index}" for index in range(1, 7)],
+            "无已有对象",
+            "批量上下文",
+        )
+
+    assert len(results) == 5
+    assert all(result == output for result in results)
+
+
+@pytest.mark.asyncio
+async def test_bulk_llm_extractions_use_fast_no_retry_calls() -> None:
+    svc = SceneEntityExtractionService()
+    output = SceneEntityExtractionOutput(
+        entities=[],
+        relations=[],
+        delta_events=[],
+    )
+    calls: list[dict] = []
+
+    async def call_llm(_chapters_text: str, *_args, **kwargs):
+        calls.append(kwargs)
+        return output
+
+    with patch.object(
+        svc,
+        "_call_llm_extraction",
+        new_callable=AsyncMock,
+        side_effect=call_llm,
+    ):
+        await svc._call_bulk_llm_extractions(
+            ["Scene 1"],
+            "无已有对象",
+            "批量上下文",
+        )
+
+    assert calls == [
+        {
+            "max_tokens": scene_entity_extraction_module.PHASE2_BULK_MAX_TOKENS,
+            "client_timeout": (
+                scene_entity_extraction_module.PHASE2_BULK_PROVIDER_TIMEOUT_SECONDS
+            ),
+            "max_fix_attempts": 0,
+            "transport_retries": False,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_small_sample_bulk_supplements_low_entity_count() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "scene_index": index,
+            "title": f"关键 Scene {index}",
+        }
+        for index in range(8)
+    ]
+    created_payloads: list[dict] = []
+
+    async def create_entity(_db, _novel_id, payload):
+        created_payloads.append(payload)
+        return {"id": f"entity-{len(created_payloads)}"}
+
+    class FakeSavepoint:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeDb:
+        def begin_nested(self):
+            return FakeSavepoint()
+
+    with patch(
+        "modules.world.facade.create_entity",
+        new=create_entity,
+    ), patch.object(
+        svc,
+        "_supplement_small_sample_entities_with_llm",
+        new_callable=AsyncMock,
+        return_value={"created": 0, "created_entity_ids": []},
+    ):
+        result = await svc._supplement_small_sample_entities(
+            db=FakeDb(),
+            nid="00000000-0000-0000-0000-000000000001",
+            scenes=scenes,
+            current_count=16,
+            workflow_id="wf-phase2",
+        )
+
+    assert result == {
+        "created": 2,
+        "created_entity_ids": ["entity-1", "entity-2"],
+        "supplemental_llm_created": 0,
+        "fallback_created": 2,
+        "supplemental_error_kind": None,
+    }
+    assert created_payloads[0]["content_json"]["_meta"]["needs_review"] is True
+    assert (
+        created_payloads[0]["content_json"]["_meta"]["fallback"]
+        == "small_sample_entity_minimum"
+    )
+    assert created_payloads[0]["status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_small_sample_bulk_uses_llm_supplement_before_fallback() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "scene_index": index,
+            "title": f"关键 Scene {index}",
+            "chapter_ids": [str(index)],
+            "novel_id": "novel-1",
+        }
+        for index in range(1, 9)
+    ]
+
+    with patch.object(
+        svc,
+        "_supplement_small_sample_entities_with_llm",
+        new_callable=AsyncMock,
+        return_value={
+            "created": 13,
+            "created_entity_ids": [f"llm-entity-{index}" for index in range(13)],
+        },
+    ) as llm_supplement:
+        result = await svc._supplement_small_sample_entities(
+            db=Mock(),
+            nid="00000000-0000-0000-0000-000000000001",
+            scenes=scenes,
+            current_count=16,
+            workflow_id="wf-phase2",
+        )
+
+    llm_supplement.assert_awaited_once()
+    assert result["created"] == 13
+    assert result["supplemental_llm_created"] == 13
+    assert result["fallback_created"] == 0
+    assert result["created_entity_ids"][0] == "llm-entity-0"
+
+
+@pytest.mark.asyncio
+async def test_small_sample_supplement_timeout_falls_back(monkeypatch) -> None:
+    monkeypatch.setattr(
+        scene_entity_extraction_module,
+        "PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS",
+        0.01,
+    )
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "scene_index": index,
+            "title": f"关键 Scene {index}",
+            "chapter_ids": [str(index)],
+            "novel_id": "novel-1",
+        }
+        for index in range(1, 9)
+    ]
+    created_payloads: list[dict] = []
+
+    async def slow_supplement(*_args, **_kwargs):
+        await asyncio.sleep(1)
+        return {"created": 1, "created_entity_ids": ["too-late"]}
+
+    async def create_entity(_db, _novel_id, payload):
+        created_payloads.append(payload)
+        return {"id": f"entity-{len(created_payloads)}"}
+
+    class FakeSavepoint:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeDb:
+        def begin_nested(self):
+            return FakeSavepoint()
+
+    with patch.object(
+        svc,
+        "_supplement_small_sample_entities_with_llm",
+        new=slow_supplement,
+    ), patch("modules.world.facade.create_entity", new=create_entity):
+        result = await svc._supplement_small_sample_entities(
+            db=FakeDb(),
+            nid="00000000-0000-0000-0000-000000000001",
+            scenes=scenes,
+            current_count=16,
+            workflow_id="wf-phase2",
+        )
+
+    assert result["supplemental_llm_created"] == 0
+    assert result["fallback_created"] == 2
+    assert result["supplemental_error_kind"] == "timeout"
+    assert result["created_entity_ids"] == ["entity-1", "entity-2"]
+    assert created_payloads[0]["content_json"]["_meta"]["needs_review"] is True
+
+
+def test_trim_supplement_chapter_text_keeps_head_and_tail() -> None:
+    text = "A" * 5000 + "MIDDLE" + "Z" * 5000
+
+    trimmed = SceneEntityExtractionService._trim_supplement_chapter_text(text)
+
+    assert len(trimmed) < len(text)
+    assert trimmed.startswith("A" * 100)
+    assert trimmed.endswith("Z" * 100)
+    assert "章节中段已压缩" in trimmed
+
+
+def test_bulk_entity_memory_context_adds_1_to_7_recall_guidance() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+        }
+        for index in range(1, 8)
+    ]
+
+    context = svc._bulk_entity_memory_context(scenes)
+
+    assert "整体目标应接近 24-32 个长期资产" in context
+    assert "主要人物及别名" in context
+    assert "神秘学概念/力量体系" in context
+
+
+def test_bulk_entity_memory_context_keeps_generic_guidance_for_other_ranges() -> None:
+    svc = SceneEntityExtractionService()
+    context = svc._bulk_entity_memory_context(
+        [
+            {
+                "id": "scene-10",
+                "scene_index": 10,
+                "chapter_ids": ["10"],
+            }
+        ]
+    )
+
+    assert "小样本批量实体提取" in context
+    assert "整体目标应接近 24-32 个长期资产" not in context
+
+
+@pytest.mark.asyncio
+async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": "scene-a",
+            "novel_id": "novel-1",
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+        },
+        {
+            "id": "scene-b",
+            "novel_id": "novel-1",
+            "scene_index": 2,
+            "chapter_ids": ["2"],
+        },
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scene",
+            new_callable=AsyncMock,
+            return_value={
+                "created": 1,
+                "relations": 0,
+                "deltas": 0,
+                "created_entity_ids": ["entity-scene-b"],
+                "created_relation_ids": [],
+                "created_delta_ids": [],
+                "updated_context": "updated",
+                "updated_memory": [{"scene_index": 2, "entities": 1}],
+            },
+        ) as process_scene,
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-recovery",
+            existing_checkpoints={
+                "phase2": {
+                    "scenes": [
+                        {"scene_id": "scene-a", "status": "done", "retry_count": 0},
+                        {"scene_id": "scene-b", "status": "failed", "retry_count": 0},
+                    ]
+                }
+            },
+        )
+
+    assert result["skipped_scenes"] == 1
+    assert result["rerun_scenes"] == 1
     assert process_scene.await_count == 1
+    processed_scene = process_scene.await_args.args[2]
+    assert processed_scene["id"] == "scene-b"
+    checkpoints = result["checkpoints"]["phase2"]["scenes"]
+    assert checkpoints[0]["scene_id"] == "scene-a"
+    assert checkpoints[0]["status"] == "skipped"
+    assert checkpoints[1]["scene_id"] == "scene-b"
+    assert checkpoints[1]["status"] == "done"
+    assert checkpoints[1]["retry_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_phase2_failed_scene_checkpoint_contains_error_status() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": "scene-failed",
+            "novel_id": "novel-1",
+            "scene_index": 5,
+            "chapter_ids": ["5"],
+        }
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scene",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("phase2 boom"),
+        ),
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-failed",
+            existing_checkpoints={"unrelated-scene": {"status": "done"}},
+        )
+
+    checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
+    assert checkpoint["scene_id"] == "scene-failed"
+    assert checkpoint["status"] == "failed"
+    assert checkpoint["error_kind"] == "RuntimeError"
+    assert checkpoint["error"] == "phase2 boom"

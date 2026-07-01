@@ -78,6 +78,8 @@ POST   /api/outline/scene-workbench/merge/preview
 POST   /api/outline/scene-workbench/merge
 POST   /api/outline/scene-workbench/split/preview
 POST   /api/outline/scene-workbench/split
+POST   /api/outline/scene-workbench/fusion/preview
+POST   /api/outline/scene-workbench/fusion/save
 
 POST   /api/outline/foreshadowing
 GET    /api/outline/foreshadowing
@@ -109,6 +111,7 @@ POST   /api/outline/generate
 - `scene_index` 是逻辑顺序
 - `scene_chunks` 保存 Scene 到正文物理区间的映射
 - `structure_meta` 保存结构整理元信息，如 `needs_organize`、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
+- 深度导入 / 手动融合等自动整理来源通过 `source` 与 `structure_meta` / `provenance_meta` 暴露给管理筛选；手动融合新 Scene 使用 `source="manual_fusion"`
 - `chapter_cards.scene_cards` 只保留历史兼容/冗余上下文，不是当前权威来源
 - 写作页、地图摘要、RAG `scene_id` 关联都依赖 `scenes` 表
 
@@ -128,6 +131,14 @@ Scene 工作台是 Scene 管理、章节映射和结构整理的主入口；大�
 再二次确认执行；预览只提示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，
 不自动阻断。合并来源 Scene 标记为 `deprecated` 而不是硬删除；拆分只调整映射并
 创建新 Scene，不修改正文内容。
+
+手动 Scene 融合先走 `fusion/preview`，再由用户选择保留原 Scene、保存并废弃原
+Scene、放弃结果或继续编辑后保存。只有“保存并废弃原 Scene”会把来源 Scene 标记为
+`deprecated`；所有融合新 Scene 都记录 `structure_meta.fused_from_scene_ids`。
+
+剧情线、篇章纲、伏笔和揭示列表支持按 `status`、`source`、`workflow_id`、
+`needs_review`、分页参数筛选；`source` / `workflow_id` / `needs_review` 来自
+`provenance_meta`，用于整理深度导入 Phase 3 结构资产。
 
 ## 测试
 

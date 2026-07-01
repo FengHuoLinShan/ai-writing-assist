@@ -244,6 +244,21 @@ const api = {
     async permanentDelete(id) {
       return request(`/projects/${id}/permanent`, { method: "DELETE" })
     },
+    /** 获取 LLM 供应商模板 */
+    async listLlmProviderTemplates() {
+      return request("/projects/llm/provider-templates")
+    },
+    /** 获取项目级 LLM 配置（API Key 不会回显） */
+    async getLlmSettings(id) {
+      return request(`/projects/${id}/llm-settings`)
+    },
+    /** 更新项目级 LLM 配置 */
+    async updateLlmSettings(id, payload) {
+      return request(`/projects/${id}/llm-settings`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      })
+    },
   },
 
   // ============================================================
@@ -287,6 +302,14 @@ const api = {
     /** 提交世界对象补抽任务 */
     async extractEntities(payload) {
       return request("/world/entities/extract", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+
+    /** 提交别名/关系补抽任务 */
+    async extractAliasRelations(payload) {
+      return request("/world/alias-relations/extract", {
         method: "POST",
         body: JSON.stringify(payload),
       })
@@ -440,6 +463,54 @@ const api = {
         scene_id: sceneId,
       }))
     },
+    async getMapQuickCreateContext(novelId, includeCandidates = false) {
+      return request("/world/maps/quick-create/context" + buildQueryString({
+        novel_id: novelId,
+        include_candidates: includeCandidates,
+      }))
+    },
+    async previewQuickCreateMap(payload, novelId) {
+      return request(`/world/maps/quick-create/preview${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    async confirmQuickCreateMap(payload, novelId) {
+      return request(`/world/maps/quick-create/confirm${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    async listLocationLayouts(mapId, novelId) {
+      return request(`/world/maps/${mapId}/location-layouts${buildQueryString({ novel_id: novelId })}`)
+    },
+    async replaceLocationLayouts(mapId, payload, novelId) {
+      return request(`/world/maps/${mapId}/location-layouts${buildQueryString({ novel_id: novelId })}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      })
+    },
+    async getMapTerrain(mapId, novelId) {
+      return request(`/world/maps/${mapId}/terrain${buildQueryString({ novel_id: novelId })}`)
+    },
+    async replaceTerrainLayerPatches(mapId, layerId, payload, novelId) {
+      return request(`/world/maps/${mapId}/terrain/layers/${layerId}/patches${buildQueryString({ novel_id: novelId })}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      })
+    },
+    async createTerrainBinding(mapId, regionId, payload, novelId) {
+      return request(`/world/maps/${mapId}/terrain/regions/${regionId}/bindings${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    async updateTerrainBinding(mapId, bindingId, payload, novelId) {
+      return request(`/world/maps/${mapId}/terrain/bindings/${bindingId}${buildQueryString({ novel_id: novelId })}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+    },
     /** 批量更新地形 */
     async batchUpdateTiles(mapId, payload, novelId) {
       return request(`/world/maps/${mapId}/tiles${buildQueryString({ novel_id: novelId })}`, {
@@ -508,6 +579,12 @@ const api = {
     },
     async listMapObservations(mapId, novelId, reviewState = null) {
       return request(`/world/maps/${mapId}/observations${buildQueryString({ novel_id: novelId, review_state: reviewState })}`)
+    },
+    async createMapObservation(mapId, payload, novelId) {
+      return request(`/world/maps/${mapId}/observations${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
     },
     async updateMapObservationReview(mapId, observationId, novelId, reviewState) {
       return request(`/world/maps/${mapId}/observations/${observationId}${buildQueryString({ novel_id: novelId })}`, {
@@ -840,6 +917,22 @@ const api = {
         }),
       })
     },
+
+    /** 继续可恢复的深度导入任务 */
+    async resumeDeepImport(taskId) {
+      return request("/imports/deep/resume", {
+        method: "POST",
+        body: JSON.stringify({ task_id: taskId }),
+      })
+    },
+
+    /** 放弃可恢复的深度导入任务，并触发后端清理 */
+    async abandonDeepImport(taskId) {
+      return request("/imports/deep/abandon", {
+        method: "POST",
+        body: JSON.stringify({ task_id: taskId }),
+      })
+    },
   },
 
   // ============================================================
@@ -847,8 +940,8 @@ const api = {
   // ============================================================
   outline: {
     /** 列出剧情线 */
-    async listThreads(novelId) {
-      return request("/outline/threads" + buildQueryString({ novel_id: novelId }))
+    async listThreads(novelId, params = {}) {
+      return request("/outline/threads" + buildQueryString({ novel_id: novelId, ...params }))
     },
 
     /** 创建剧情线 */
@@ -877,8 +970,8 @@ const api = {
     },
 
     /** 列出篇章纲 */
-    async listArcs(novelId) {
-      return request("/outline/arcs" + buildQueryString({ novel_id: novelId }))
+    async listArcs(novelId, params = {}) {
+      return request("/outline/arcs" + buildQueryString({ novel_id: novelId, ...params }))
     },
 
     /** 创建篇章纲 */
@@ -984,10 +1077,11 @@ const api = {
       })
     },
     /** 场景工作台聚合数据 */
-    async getSceneWorkbench(novelId, selectedSceneId = null) {
+    async getSceneWorkbench(novelId, selectedSceneId = null, params = {}) {
       return request("/outline/scene-workbench" + buildQueryString({
         novel_id: novelId,
         selected_scene_id: selectedSceneId,
+        ...params,
       }))
     },
     /** 调整 Scene 章节映射 */
@@ -1014,6 +1108,22 @@ const api = {
         body: JSON.stringify(data),
       })
     },
+    /** 预览手动 Scene 融合结果 */
+    async previewSceneFusion(novelId, data) {
+      return request(`/outline/scene-workbench/fusion/preview${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 保存或放弃手动 Scene 融合结果 */
+    async saveSceneFusion(novelId, data) {
+      return request(`/outline/scene-workbench/fusion/save${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
     /** 预览 Scene 拆分影响 */
     async previewSceneSplit(novelId, data) {
       return request(`/outline/scene-workbench/split/preview${buildQueryString({ novel_id: novelId })}`, {
@@ -1032,8 +1142,8 @@ const api = {
     },
 
     /** 列出伏笔计划 */
-    async listForeshadowing(novelId) {
-      return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId }))
+    async listForeshadowing(novelId, params = {}) {
+      return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId, ...params }))
     },
     /** 创建伏笔计划 */
     async createForeshadowing(novelId, payload) {
@@ -1058,8 +1168,8 @@ const api = {
       })
     },
     /** 列出揭示计划 */
-    async listReveals(novelId) {
-      return request("/outline/reveals" + buildQueryString({ novel_id: novelId }))
+    async listReveals(novelId, params = {}) {
+      return request("/outline/reveals" + buildQueryString({ novel_id: novelId, ...params }))
     },
     /** 创建揭示计划 */
     async createReveal(novelId, payload) {

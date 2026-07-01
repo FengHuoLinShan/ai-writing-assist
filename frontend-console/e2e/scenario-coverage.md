@@ -29,8 +29,10 @@
 | `project-recycle-bin.spec.js` | 场景 1 | 软删除后进入回收站可恢复、永久删除后不可恢复；2/2 通过 |
 | `import.spec.js` | 场景 2 | 文件上传并解析（基础导入成功流）；1/1 通过 |
 | `import-errors.spec.js` | 场景 2 | 格式不支持、超大文件前端拦截、空文件导入失败且不创建章节；3/3 通过 |
-| `deep-import.spec.js` | 场景 3 | 从项目视图导入后启动深度导入、进度条路由切换后恢复、无章节时不显示按钮；3/3 通过；浏览器关闭后 worker 继续执行仍待补测 |
-| `deep-import-real.spec.js` | 场景 3 | 真实同步深度导入（`POST /api/imports/deep/sync`），不覆盖浏览器关闭恢复与后台任务轮询 |
+| `deep-import.spec.js` | 场景 3 | 从项目视图导入后启动深度导入、进度条路由切换后恢复、无章节时不显示按钮；3/3 通过 |
+| `deep-import-resilient.spec.js` | 场景 3 | 新版深度导入 Phase 0 / Phase 1a / Phase 1b 进度、422 阻断/降级、localStorage 恢复、手动继续/放弃恢复、移动端进度可读；7/7 通过 |
+| `deep-import-worker.spec.js` | 场景 3 | guarded worker E2E：提交异步深度导入后关闭页面，任务继续由 worker 完成；需 `RUN_WORKER_E2E=1` 和运行中的 backend worker |
+| `deep-import-real.spec.js` | 场景 3 | 真实同步深度导入（`POST /api/imports/deep/sync`），不覆盖新版 Phase 0 / Phase 1a / Phase 1b 韧性策略 |
 | `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、断章更新左侧树、光标位置联动右侧 Scene 卡面板、AI 提取章节卡弹窗、离线恢复 localStorage、多 Tab 冲突检测；11/11 通过 |
 | `writing-conflict.spec.js` | 场景 4 | 409 冲突 — 其他会话已更新草稿版本；1/1 通过 |
 | `world.spec.js` | 场景 5 | 对象库空态、创建/编辑/删除世界对象、关系子标签、别名子标签、实体合并、实体回滚、人物知识边界；9/9 通过 |
@@ -54,8 +56,8 @@
 
 以下功能已有页面/API/基础 E2E，但仍有文档化操作路径未完整断言或未实现：
 
-- **深度导入流水线**：当前覆盖异步任务提交、轮询 UI 和同步真实流水线；浏览器关闭后 worker 继续执行仍待 `deep-import-worker.spec.js` 验证。
-- **真实异步深度导入三阶段 worker 路径与失败降级**：`deep-import-real.spec.js` 当前仅覆盖同步成功流，未覆盖后台异步轮询与失败降级。
+- **深度导入流水线**：当前覆盖异步任务提交、轮询 UI、刷新/路由恢复、新版 Phase 0 / Phase 1a / Phase 1b 韧性进度、422 阻断/降级、手动恢复提示，以及 guarded worker 浏览器关闭场景。
+- **真实异步深度导入质量验收**：`deep-import-real.spec.js` 当前仅覆盖同步成功流；前 60 章真实 LLM 质量验收由 `backend/modules/imports/tests/test_deep_import_real_llm.py` 提供，默认跳过，需显式环境变量开启。
 - **伏笔/揭示高级管理**：基础创建、删除与伏笔状态更新已有覆盖；回收率统计、积压高亮、手动标记回收仍待实现/验收。
 - **RAG 父子检索**：真实 chunk UI 召回与 embedding 降级 warning 已覆盖；父子检索补齐父 Scene 元数据和 Delta 摘要仍待实现/验收。
 - **上下文人物视角隐藏真相转换**：前端已覆盖 `reveal_mode=character` 与 `viewpoint_character_id` 提交契约；真实数据下不同 `reveal_mode` 的内容差异主要由后端 context 测试覆盖，浏览器端仍未完整断言预算裁剪和 hidden_truth 差异。

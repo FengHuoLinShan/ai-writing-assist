@@ -39,6 +39,7 @@ class _FakeLLMClient:
         self,
         request: LLMCallRequest,
         response_model: type[BaseModel],
+        **_kwargs,
     ) -> BaseModel:
         self.calls.append(request)
         if isinstance(self.return_value, Exception):

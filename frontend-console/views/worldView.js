@@ -13,6 +13,18 @@ import { renderWorkflowCard } from "../shared/progressRenderer.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { buildMapUrl } from "./mapRouteContext.js"
 
+const WORLD_FILTER_DEFAULTS = {
+  entity_type: "",
+  status: "",
+  q: "",
+  source: "",
+  workflow_id: "",
+  needs_review: "",
+  auto_ingested: "",
+  skip: 0,
+  limit: 20,
+}
+
 const worldView = {
   /** @type {Array} */
   _entities: [],
@@ -25,13 +37,7 @@ const worldView = {
 
   _total: 0,
 
-  _filters: {
-    entity_type: "",
-    status: "",
-    q: "",
-    skip: 0,
-    limit: 20,
-  },
+  _filters: { ...WORLD_FILTER_DEFAULTS },
 
   _entityTypes: [
     { value: "character", label: "人物" },
@@ -103,6 +109,12 @@ const worldView = {
       if (this._filters.entity_type) params.entity_type = this._filters.entity_type
       if (this._filters.status) params.status = this._filters.status
       if (this._filters.q) params.q = this._filters.q
+      if (this._filters.source) params.source = this._filters.source
+      if (this._filters.workflow_id) params.workflow_id = this._filters.workflow_id
+      if (this._filters.needs_review === "true") params.needs_review = true
+      if (this._filters.needs_review === "false") params.needs_review = false
+      if (this._filters.auto_ingested === "true") params.auto_ingested = true
+      if (this._filters.auto_ingested === "false") params.auto_ingested = false
 
       const data = await api.world.listEntities(params)
       this._entities = data.items || data || []
@@ -210,6 +222,9 @@ const worldView = {
         destinationLabel: `范围: ${rangeText}。完成后到候选清洗查看抽取结果。`,
       })
       : `<div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">状态: ${esc(this._autoExtractStatus)}</div>`
+    const secondaryButton = taskType === "world_entity_extraction"
+      ? `<button class="btn btn-sm" data-action="submit-extract" data-type="world_alias_relation_extraction" ${isRunning ? "disabled" : ""}>补抽别名/关系</button>`
+      : ""
     return `
       <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
@@ -219,6 +234,7 @@ const worldView = {
           <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${isRunning ? "disabled" : ""}>
             ${isRunning ? "识别中..." : "开始识别"}
           </button>
+          ${secondaryButton}
         </div>
         <div id="w-extract-progress" style="margin-top:8px;">${progressHtml}</div>
       </div>
@@ -232,20 +248,29 @@ const worldView = {
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
 
     try {
-      const confirmation = await confirmAiReference({
-        novel_id: state.currentProjectId,
-        action: "world.entities.extract",
-        task: "世界对象补抽",
-        scope: "chapter",
-        chapter_index: start,
-        include_pending_objects: true,
-      })
-      const result = await api.world.extractEntities({
-        novel_id: state.currentProjectId,
-        context_confirmation_id: confirmation.id,
-        start_chapter: start,
-        end_chapter: end,
-      })
+      let result
+      if (taskType === "world_alias_relation_extraction") {
+        result = await api.world.extractAliasRelations({
+          novel_id: state.currentProjectId,
+          start_chapter: start,
+          end_chapter: end,
+        })
+      } else {
+        const confirmation = await confirmAiReference({
+          novel_id: state.currentProjectId,
+          action: "world.entities.extract",
+          task: "世界对象补抽",
+          scope: "chapter",
+          chapter_index: start,
+          include_pending_objects: true,
+        })
+        result = await api.world.extractEntities({
+          novel_id: state.currentProjectId,
+          context_confirmation_id: confirmation.id,
+          start_chapter: start,
+          end_chapter: end,
+        })
+      }
       this._autoExtractTaskId = result.task_id
       this._autoExtractStatus = "运行中"
       this._autoExtractMeta = { start_chapter: start, end_chapter: end }
@@ -400,15 +425,16 @@ const worldView = {
   _renderEntityList() {
     if (this._entities.length === 0) {
       return `
+        <div style="text-align:center;margin-bottom:12px;">
+          <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
+          <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
+        </div>
+        ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
+        ${this._renderFilters()}
         <div class="empty-state">
           <div class="empty-icon">&#127758;</div>
           <p>还没有世界对象。</p>
           <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
-          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
-            <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-            <button class="btn" data-action="toggle-extract">${this._autoExtractOpen ? "▾" : "▸"} 自动识别</button>
-          </div>
-          ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_entity_extraction", "从章节正文中识别世界对象") : ""}
         </div>
       `
     }
@@ -495,11 +521,29 @@ const worldView = {
       `<option value="">全部状态</option>`,
       ...this._statuses.map((s) => `<option value="${esc(s.value)}" ${this._filters.status === s.value ? "selected" : ""}>${esc(s.label)}</option>`),
     ].join("")
+    const sourceOptions = [
+      `<option value="">全部来源</option>`,
+      `<option value="deep_import" ${this._filters.source === "deep_import" ? "selected" : ""}>深度导入</option>`,
+      `<option value="manual" ${this._filters.source === "manual" ? "selected" : ""}>手动</option>`,
+      `<option value="ai_generated" ${this._filters.source === "ai_generated" ? "selected" : ""}>AI 生成</option>`,
+    ].join("")
     return `
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-alt);">
-        <select class="form-select" id="filter-entity-type" style="min-width:100px;">${typeOptions}</select>
-        <select class="form-select" id="filter-status" style="min-width:100px;">${statusOptions}</select>
-        <input class="form-input" id="filter-q" type="search" placeholder="名称/别名搜索" value="${esc(this._filters.q)}" style="min-width:140px;flex:1;" />
+      <div class="world-object-filters">
+        <select class="form-select" id="filter-entity-type">${typeOptions}</select>
+        <select class="form-select" id="filter-status">${statusOptions}</select>
+        <select class="form-select" id="filter-source">${sourceOptions}</select>
+        <input class="form-input" id="filter-workflow-id" value="${esc(this._filters.workflow_id || "")}" placeholder="workflow_id" />
+        <select class="form-select" id="filter-needs-review">
+          <option value="">全部复核</option>
+          <option value="true" ${this._filters.needs_review === "true" ? "selected" : ""}>需复核</option>
+          <option value="false" ${this._filters.needs_review === "false" ? "selected" : ""}>无需复核</option>
+        </select>
+        <select class="form-select" id="filter-auto-ingested">
+          <option value="">全部入库方式</option>
+          <option value="true" ${this._filters.auto_ingested === "true" ? "selected" : ""}>自动入库</option>
+          <option value="false" ${this._filters.auto_ingested === "false" ? "selected" : ""}>非自动入库</option>
+        </select>
+        <input class="form-input world-object-filters__search" id="filter-q" type="search" placeholder="名称/别名搜索" value="${esc(this._filters.q)}" />
         <button class="btn btn-sm btn-primary" data-action="apply-filters">应用</button>
         <button class="btn btn-sm" data-action="reset-filters">重置</button>
       </div>
@@ -537,6 +581,8 @@ const worldView = {
           <th>状态</th>
           <th>类型</th>
           <th>名称</th>
+          <th>来源</th>
+          <th>复核</th>
           <th>重要度</th>
           <th>摘要</th>
           <th>操作</th>
@@ -548,6 +594,8 @@ const worldView = {
     for (const e of entities) {
       const statusClass = `badge-${e.status || "canonical"}`
       const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃", merged: "已合并" }
+      const sourceText = { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }
+      const reviewText = e.needs_review ? "需复核" : "已复核"
       const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;">新</span>' : ""
       const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
       const canMerge = e.status === "draft" || e.status === "candidate"
@@ -557,6 +605,8 @@ const worldView = {
           <td><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
           <td style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
           <td>${esc(e.name)}${isNew}</td>
+          <td style="color:var(--text-muted);font-size:12px;">${esc(sourceText[e.source] || e.source || "-")}</td>
+          <td style="color:${e.needs_review ? "var(--warning)" : "var(--text-muted)"};font-size:12px;">${reviewText}</td>
           <td>${esc(e.importance || e.importance_score || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
@@ -680,15 +730,18 @@ const worldView = {
       }
       html += `
       <table class="data-table">
-        <thead><tr><th>源对象</th><th>关系类型</th><th>目标对象</th><th>描述</th><th>操作</th></tr></thead>
+        <thead><tr><th>源对象</th><th>关系类型</th><th>目标对象</th><th>状态</th><th>描述</th><th>操作</th></tr></thead>
         <tbody>
       `
       for (const r of rels) {
+        const statusLabel = r.status === "candidate" ? "待确认" : "正史"
+        const statusClass = r.status === "candidate" ? "badge-warning" : "badge-canonical"
         html += `
         <tr data-id="${esc(r.id || r.relationship_id)}">
           <td style="color:var(--accent-dim);font-size:12px;">${esc(r.source_id || "").slice(0, 8)}...</td>
           <td><span class="badge badge-canonical">${esc(r.relation_type || "-")}</span></td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(r.target_id || "").slice(0, 8)}...</td>
+          <td><span class="badge ${statusClass}">${statusLabel}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(r.description || "")}</td>
           <td><button class="btn btn-sm btn-danger" data-action="delete-relation" data-id="${esc(r.id || r.relationship_id)}">删除</button></td>
         </tr>`
@@ -776,15 +829,20 @@ const worldView = {
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
       html += `
       <table class="data-table">
-        <thead><tr><th>对象</th><th>别名</th><th>类型</th><th>置信度</th><th>操作</th></tr></thead>
+        <thead><tr><th>对象</th><th>别名</th><th>类型</th><th>状态</th><th>来源</th><th>置信度</th><th>操作</th></tr></thead>
         <tbody>
       `
       for (const a of aliases) {
+        const statusLabel = a.status === "candidate" || a.needs_review ? "待确认" : "正史"
+        const statusClass = statusLabel === "待确认" ? "badge-warning" : "badge-canonical"
+        const sourceLabel = a.source === "deep_import" ? "深度导入" : (a.source || "-")
         html += `
         <tr data-id="${esc(a.id || a.alias_id)}">
-          <td style="color:var(--accent-dim);font-size:12px;">${esc(a.entity_id || "").slice(0, 8)}...</td>
+          <td style="color:var(--accent-dim);font-size:12px;">${esc(a.entity_name || (a.entity_id || "").slice(0, 8) + "...")}</td>
           <td>${esc(a.alias)}</td>
           <td>${typeMap[a.alias_type] || esc(a.alias_type)}</td>
+          <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+          <td>${esc(sourceLabel)}</td>
           <td>${a.confidence ? (a.confidence * 100).toFixed(0) + "%" : "-"}</td>
           <td><button class="btn btn-sm btn-danger" data-action="delete-alias" data-entity-id="${esc(a.entity_id)}" data-alias="${esc(a.alias)}">删除</button></td>
         </tr>`
@@ -975,25 +1033,42 @@ const worldView = {
       .join("")
   },
 
-  _applyFilters() {
+  async _applyFilters() {
     const entityType = document.getElementById("filter-entity-type")?.value || ""
     const status = document.getElementById("filter-status")?.value || ""
     const q = document.getElementById("filter-q")?.value || ""
-    this._filters = { entity_type: entityType, status, q, skip: 0, limit: 20 }
-    this._loadEntities().then(() => router.refresh())
+    const source = document.getElementById("filter-source")?.value || ""
+    const workflowId = document.getElementById("filter-workflow-id")?.value?.trim() || ""
+    const needsReview = document.getElementById("filter-needs-review")?.value || ""
+    const autoIngested = document.getElementById("filter-auto-ingested")?.value || ""
+    this._filters = {
+      ...WORLD_FILTER_DEFAULTS,
+      entity_type: entityType,
+      status,
+      q,
+      source,
+      workflow_id: workflowId,
+      needs_review: needsReview,
+      auto_ingested: autoIngested,
+      skip: 0,
+    }
+    await this._loadEntities()
+    await router.refresh()
   },
 
-  _resetFilters() {
-    this._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
-    this._loadEntities().then(() => router.refresh())
+  async _resetFilters() {
+    this._filters = { ...WORLD_FILTER_DEFAULTS }
+    await this._loadEntities()
+    await router.refresh()
   },
 
-  _changePage(delta) {
+  async _changePage(delta) {
     const newSkip = this._filters.skip + delta * this._filters.limit
     if (newSkip < 0) return
     if (newSkip >= this._total) return
     this._filters.skip = newSkip
-    this._loadEntities().then(() => router.refresh())
+    await this._loadEntities()
+    await router.refresh()
   },
 
   _bindEvents() {

@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from time import monotonic
 from typing import Any
 
 from sqlalchemy import select, update
-from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import DatabaseManager, get_manager
@@ -59,6 +59,9 @@ def _register_container_services() -> None:
     )
     from modules.memory.services import MemoryService as _MemSvc
     from modules.outline.services import (
+        ForeshadowingPlanService as _FPS,  # noqa: N814
+    )
+    from modules.outline.services import (
         OutlineArcService as _OAS,  # noqa: N814
     )
     from modules.outline.services import (
@@ -66,6 +69,9 @@ def _register_container_services() -> None:
     )
     from modules.outline.services import (
         PlotThreadService as _PTS,  # noqa: N814
+    )
+    from modules.outline.services import (
+        RevealPlanService as _RPS,  # noqa: N814
     )
     from modules.outline.services import (
         SceneService as _SceneSvc,
@@ -117,6 +123,8 @@ def _register_container_services() -> None:
         "outline.arc_service": _OAS(),
         "outline.thread_service": _PTS(),
         "outline.scene_service": _SceneSvc(),
+        "outline.foreshadowing_service": _FPS(),
+        "outline.reveal_service": _RPS(),
         "context.compile": _ctx_compile,
         "memory.service": _MemSvc(),
         "memory.capture_snapshot": _MemSvc().capture_snapshot,
@@ -158,6 +166,7 @@ class TaskWorker:
         self._running = False
         self._current_task: AsyncTask | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._last_stale_scan_at: float | None = None
         self._stats: dict[str, int] = {
             "processed": 0,
             "succeeded": 0,
@@ -195,11 +204,17 @@ class TaskWorker:
         )
 
         try:
+            try:
+                await self._maybe_recover_stale_tasks(force=True)
+            except Exception as e:
+                logger.error("TaskWorker startup stale scan failed: %s", e, exc_info=True)
+
             while self._running:
                 try:
                     async with self._db_manager.session_factory() as session:
                         task = await self._claim_task(session)
                         if task is None:
+                            await self._maybe_recover_stale_tasks()
                             await asyncio.sleep(self._poll_interval)
                             continue
                         await self._execute_task(task, session)
@@ -326,28 +341,105 @@ class TaskWorker:
         except asyncio.CancelledError:
             pass
 
-    async def recover_stale_tasks(self) -> int:
-        """恢复超时未心跳的任务（将 running 状态重置为 pending）
+    async def _maybe_recover_stale_tasks(self, *, force: bool = False) -> int:
+        """按轮询间隔节流 stale scan，启动时可强制扫描一次。"""
+        now = monotonic()
+        if (
+            not force
+            and self._last_stale_scan_at is not None
+            and now - self._last_stale_scan_at < self._poll_interval
+        ):
+            return 0
 
-        修复：移除 ORM stmt 死代码，使用参数化查询替代 f-string
-        （Bug C3: 死代码 + SQL 注入风险）
+        recovered = await self.recover_stale_tasks()
+        self._last_stale_scan_at = now
+        return recovered
+
+    async def recover_stale_tasks(self) -> int:
+        """处理超时未心跳的任务。
+
+        deep_import 任务只标记为可恢复，由用户显式继续；其他任务沿用
+        自动恢复为 pending 的行为。
 
         Returns:
-            恢复的任务数量
+            自动恢复为 pending 的任务数量，不包含 stale deep_import
         """
+        cutoff = datetime.now(UTC) - timedelta(seconds=self._max_heartbeat_gap)
         async with self._db_manager.session_factory() as session:
+            deep_imports = await self._mark_stale_deep_imports(session, cutoff)
+
             result = await session.execute(
-                sql_text(
-                    "UPDATE async_tasks "
-                    "SET status = 'pending', "
-                    "error_message = 'Task recovered: heartbeat timeout' "
-                    "WHERE status = 'running' "
-                    "AND heartbeat_at < NOW() - make_interval(secs => :gap)"
-                ),
-                {"gap": self._max_heartbeat_gap},
+                update(AsyncTask)
+                .where(
+                    AsyncTask.status == "running",
+                    AsyncTask.task_type != "deep_import",
+                    AsyncTask.heartbeat_at < cutoff,
+                )
+                .values(
+                    status="pending",
+                    error_message="Task recovered: heartbeat timeout",
+                )
             )
             await session.commit()
             recovered = result.rowcount if result.rowcount is not None else 0
             if recovered > 0:
                 logger.info("Recovered %d stale tasks", recovered)
+            if deep_imports > 0:
+                logger.info("Marked %d stale deep_import tasks recoverable", deep_imports)
             return recovered
+
+    async def _mark_stale_deep_imports(
+        self,
+        session: AsyncSession,
+        cutoff: datetime,
+    ) -> int:
+        """标记 stale deep_import 为可恢复，但不改回 pending。"""
+        result = await session.execute(
+            select(AsyncTask)
+            .where(
+                AsyncTask.status == "running",
+                AsyncTask.task_type == "deep_import",
+                AsyncTask.heartbeat_at < cutoff,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        tasks = result.scalars().all()
+        interrupted_at = datetime.now(UTC).isoformat()
+        marked = 0
+
+        for task in tasks:
+            result_data = dict(task.result or {})
+            meta_data = dict(task.meta or {})
+            if (
+                result_data.get("recovery_required") is True
+                and meta_data.get("recovery_required") is True
+            ):
+                continue
+
+            last_heartbeat_at = (
+                task.heartbeat_at.isoformat() if task.heartbeat_at is not None else None
+            )
+            recovery_summary = {
+                "reason": "heartbeat_timeout",
+                "message": (
+                    "Deep import worker heartbeat timed out; "
+                    "user recovery required."
+                ),
+            }
+            recovery_flags = {
+                "interrupted": True,
+                "recoverable": True,
+                "recovery_required": True,
+                "interrupted_at": interrupted_at,
+                "last_heartbeat_at": last_heartbeat_at,
+                "recovery_summary": recovery_summary,
+            }
+
+            task.result = {**result_data, **recovery_flags}
+            task.meta = {**meta_data, **recovery_flags}
+            task.error_message = (
+                "Task interrupted: heartbeat timeout; recovery required"
+            )
+            marked += 1
+
+        return marked

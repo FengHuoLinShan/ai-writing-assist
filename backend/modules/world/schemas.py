@@ -127,6 +127,22 @@ class WorldEntityExtractResponse(BaseModel):
     status: str = "pending"
 
 
+class WorldAliasRelationExtractRequest(BaseModel):
+    """手动别名/关系补抽请求。"""
+
+    novel_id: str
+    start_chapter: int = Field(..., ge=1)
+    end_chapter: int = Field(..., ge=1)
+    scene_ids: list[str] | None = Field(default=None)
+
+
+class WorldAliasRelationExtractResponse(BaseModel):
+    """手动别名/关系补抽入队响应。"""
+
+    task_id: str
+    status: str = "pending"
+
+
 # ============================================================
 # CoreEntity Schema
 # ============================================================

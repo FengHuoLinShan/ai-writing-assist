@@ -13,6 +13,7 @@ beforeEach(() => {
   outlineView._foreshadowing = []
   outlineView._reveals = []
   outlineView._loading = false
+  outlineView._structureFilters = {}
   vi.clearAllMocks()
 })
 
@@ -90,6 +91,31 @@ describe("outlineView onEnter", () => {
     expect(api.outline.listScenes).not.toHaveBeenCalled()
     expect(outlineView._scenes.length).toBe(0)
   })
+
+  it("加载结构资产时传递当前页签筛选参数", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    outlineView._structureFilters.threads = {
+      status: "deprecated",
+      source: "deep_import",
+      workflow_id: "wf-1",
+      needs_review: "true",
+      skip: 0,
+      limit: 50,
+    }
+    api.outline.listThreads.mockResolvedValue({ items: [] })
+
+    await outlineView.onEnter()
+
+    expect(api.outline.listThreads).toHaveBeenCalledWith("p1", {
+      status: "deprecated",
+      source: "deep_import",
+      workflow_id: "wf-1",
+      needs_review: true,
+      skip: 0,
+      limit: 50,
+    })
+  })
 })
 
 describe("outlineView render", () => {
@@ -119,6 +145,93 @@ describe("outlineView render", () => {
     outlineView[store] = data
     const html = await outlineView.render()
     expect(html).toContain(expected)
+  })
+
+  it("结构资产列表显示深度导入和需复核标记", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    outlineView._threads = [{
+      id: "t1",
+      name: "主线A",
+      thread_type: "main",
+      status: "candidate",
+      provenance_meta: {
+        source: "deep_import",
+        workflow_id: "wf-1",
+        needs_review: true,
+        phase: "structure_analysis",
+      },
+    }]
+
+    const html = await outlineView.render()
+
+    expect(html).toContain("深度导入")
+    expect(html).toContain("需复核")
+    expect(html).toContain("structure_analysis")
+  })
+
+  it("深度导入筛选为空时显示结构分析不完整提示", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    outlineView._threads = []
+    outlineView._structureFilters.threads = {
+      ...outlineView._structureFilterFor("threads"),
+      source: "deep_import",
+    }
+
+    const html = await outlineView.render()
+
+    expect(html).toContain("结构分析不完整")
+    expect(html).toContain("可重新分析")
+  })
+})
+
+describe("structure asset filters", () => {
+  it("应用筛选后刷新当前页签", () => {
+    state.currentSubView = "threads"
+    document.body.innerHTML = `
+      <select id="outline-filter-status"><option value="deprecated" selected>废弃</option></select>
+      <select id="outline-filter-source"><option value="deep_import" selected>深度导入</option></select>
+      <input id="outline-filter-workflow-id" value="wf-1" />
+      <select id="outline-filter-needs-review"><option value="true" selected>需复核</option></select>
+    `
+
+    outlineView._applyStructureFilters()
+
+    expect(outlineView._structureFilters.threads).toMatchObject({
+      status: "deprecated",
+      source: "deep_import",
+      workflow_id: "wf-1",
+      needs_review: "true",
+      skip: 0,
+    })
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("重置筛选后刷新当前页签", () => {
+    state.currentSubView = "threads"
+    outlineView._structureFilters.threads = {
+      status: "deprecated",
+      source: "deep_import",
+      workflow_id: "wf-1",
+      needs_review: "true",
+      skip: 0,
+      limit: 50,
+    }
+
+    outlineView._resetStructureFilters()
+
+    expect(outlineView._structureFilters.threads).toMatchObject({
+      status: "",
+      source: "",
+      workflow_id: "",
+      needs_review: "",
+      skip: 0,
+      limit: 50,
+    })
+    expect(router.refresh).toHaveBeenCalled()
   })
 })
 

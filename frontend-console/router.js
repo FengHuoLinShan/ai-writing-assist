@@ -20,6 +20,7 @@ const routes = {
   writing: { title: "写作台", subViews: [] },
   map: { title: "地图", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
+  llm: { title: "LLM 设置", subViews: [] },
 }
 
 /**
@@ -79,6 +80,11 @@ let _prevRenderedSubView = null
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = {}
 
+/** @type {Object<string, Set<string>>} 不应作为一级导航恢复目标的兼容子标签 */
+const _nonRestorableSubViews = {
+  world: new Set(["map"]),
+}
+
 /** @type {Object<string, DocumentFragment>} 各视图缓存的 DOM */
 const _viewDomCache = {}
 
@@ -127,6 +133,12 @@ function _parseHash(hash) {
  */
 function getLastSubView(viewName) {
   return _lastSubViewMap[viewName] || null
+}
+
+function _rememberSubView(viewName, subView) {
+  if (!viewName || !subView) return
+  if (_nonRestorableSubViews[viewName]?.has(subView)) return
+  _lastSubViewMap[viewName] = subView
 }
 
 /**
@@ -253,8 +265,10 @@ async function navigate(viewName, subView = null, pushHistory = true) {
     return
   }
 
-  if (state.currentView && state.currentView !== viewName) {
-    _lastSubViewMap[state.currentView] = state.currentSubView
+  if (state.currentView) {
+    if (state.currentView !== viewName || state.currentSubView !== subView) {
+      _rememberSubView(state.currentView, state.currentSubView)
+    }
   }
 
   const isSameView = state.currentView === viewName

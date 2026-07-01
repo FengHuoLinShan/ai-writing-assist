@@ -22,7 +22,7 @@
 | RAG 分块 | RagChunk | `rag_chunks` | 正文分块 + embedding 向量 + 元信息标注（entity_ids, character_ids, thread_ids） |
 | 事件 | Event | `core_entities` (entity_type="event") | 小说时间线事件。timeline_order 存于 content_json |
 | 导入记录 | ImportRecord | `import_records` | 小说文件导入跟踪。不存原文 |
-| 候选创作资产 | Candidate Creative Asset | 多表状态表达 | AI 或系统从正文中提取出的、具备长期维护价值但尚未被用户确认的结构化资产。可对应 CoreEntity、Relation、Event、Scene、PlotThread 等对象；默认进入 candidate 或等价待确认状态，可进入工作上下文但不进入正史上下文 |
+| 候选创作资产 | Candidate Creative Asset | 多表状态表达 | AI 或系统从正文中提取出的、具备长期维护价值但尚未被用户确认的结构化资产。可对应 CoreEntity、Relation、Alias、Event、Scene、PlotThread 等对象；默认进入 candidate 或等价待确认状态，可进入工作上下文但不进入正史上下文 |
 | ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。候选对象不再使用独立候选表，改由对应资产表的状态与自动入库元数据表达 |
 | 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
@@ -102,6 +102,7 @@ core > important > normal > temporary > alias
 - 长文档导入的第二轮/后续阶段可以基于候选创作资产继续抽取，避免等待用户逐条确认后才推进剧情线、篇章纲、关系和伏笔分析
 - 工作上下文中的候选资产只能作为待确认依据，不作为用户确认后的硬事实
 - 由候选资产派生的 PlotThread、OutlineArc、EntityRelation、ForeshadowingPlan、RevealPlan 等下游资产必须保持 draft / candidate / pending 等待确认状态
+- 深度导入中基于待确认世界对象生成的 EntityRelation 和 Alias 也是待确认世界对象证据；它们可以参与后续 working context，但在用户确认前不应被视为正史事实
 - 下游资产必须记录来源依赖；当依赖的候选资产被拒绝、合并或改名时，下游资产需要标记为需复核或重新计算
 - 面向正式写作、最终一致性校验和用户确认后的输出时，应使用正史上下文，而不是直接使用未确认的工作上下文
 
@@ -151,6 +152,60 @@ core > important > normal > temporary > alias
 - 只识别值得长期维护的**创作资产**
 - 深度导入等用户确认启动的抽取结果默认作为候选创作资产入库，`content_json._meta` 记录自动入库元数据；用户确认后再提升为正史
 
+### 深度导入 Scene 预取（Deep Import Scene Prefetch）
+- Scene 预取是深度导入正式 Scene 切分前的机会主义加速层，用于并发请求 LLM 获取 batch 级候选切分结果；batch 是现有 Scene 切分批次的别名，不是新的领域对象
+- 预取结果默认不等同于正式 Scene。只有通过提交门（Commit Gate）的高质量结果，才可按顺序写入 `draft Scene`
+- 提交门是确定性质量边界，而不是 LLM 自评；它至少要求 schema 校验通过、章节范围匹配、来源 hash 匹配、章节引用合法且覆盖目标章节
+- Phase 0 结果分为高质量候选和低质量参考：通过提交门的结果进入高质量候选，Phase 1a 可强参考；未通过提交门但 schema 可解析的结果进入低质量参考，Phase 1a 可参考但可重写；schema 不可解析或空结果只记录失败，不进入参考
+- 未通过提交门的预取结果只能作为正式 Phase 1 的参考材料，与原文一起提供给 LLM；正式 Phase 1 可以重写这些低质量结果
+- 通过提交门的预取结果进入可写候选集合，但在正式写库前仍可由 Phase 1b 自动整理；已写入正式 `Scene` 表后的 Scene 不应被后台静默覆盖，如需改写，应走显式重新导入或用户编辑路径
+- 预取结果只作为本次异步任务的中间状态持久化，不升格为长期业务资产；它可进入任务结果或 workflow 中间结果，用于恢复、审计和后续 Phase 1 参考
+- Scene 预取同时承担真实 LLM API 稳定性探针职责；Phase 0 只在两轮预取最终 422 错误率超过 40% 时阻断深度导入，超时、空结果和 schema 失败进入诊断与质量统计，不单独作为 Phase 0 阻断条件
+- 因 API 稳定性阻断时，用户可见提示应推荐切换更稳定的官方 API，例如：“推荐使用官方 API 以保障稳定性与质量（强推 DeepSeek-v4-flash，质量高、价格低、并发超快）”
+- 正式 Phase 1a 可并发补强两轮预取中的可解析 batch，默认并发 50；Round A / Round B 的每个 batch 分别带正文补强，不在 Phase 1a 合并相交结果。补强输出仍是中间候选，不预先拥有正式输出权。Phase 1a 对 422、网络错误和 timeout 允许 1 次 retry，schema 解析失败、空结果或质量不过提交门不 retry；最终 422 错误率单独统计，超过 40% 时阻断深度导入并提示 API 通道不稳定。相邻参考只取章节意义上的前后 batch（按 `batch_index` / 章节范围），不能使用 LLM 返回完成时间作为叙事顺序
+- 通过提交门的高质量预取结果也应等待正式 Phase 1 的顺序归并器统一写库；提交门决定“可写”，顺序归并器负责“何时写、以什么 `scene_index` 写”
+- 深度导入允许在正式写库前自动整理中间 Scene 候选，包括融合、切分、重排和保留重叠 Scene；自动整理只作用于本次 workflow 中间结果，不直接删除或覆盖已写入的正式 Scene
+- Scene 预取可采用双轮错位批次：第一轮默认 5 章窗口按起始章节顺序分批（如 1-5、6-10），第二轮默认从第 3 章开始偏移后再按 5 章分批（如 3-7、8-12），不额外补书首边界，书尾不足 5 章时允许短 batch；两轮结果地位平等，都是 Scene 候选观察，用于降低固定 batch 边界截断 Scene 的风险，最终正式输出权由 Phase 1b 自动 fusion / reducer 决定
+- Phase 0 是机会主义预取层，一般失败不阻断正式 Phase 1；每个预取 batch 对 422、网络错误和 timeout 允许 1 次 retry。若 retry 后该 batch 最终仍为 422，则计入 422 错误率；schema 解析失败、空结果或质量不过提交门不触发 Phase 0 retry。当 Phase 0 两轮预取的最终 422 错误率超过 40% 时，应阻断深度导入并提示 API 通道质量不稳定。422 错误率以两轮预取 batch 数为分母，不按章节数、成功 batch 数或实际请求次数计算；初次失败和 retry 情况应记录到 workflow 诊断信息。用户提示建议为：“推荐使用官方 API 以保障稳定性与质量（强推 DeepSeek-v4-flash，质量高价格低并发超快！）”
+- Phase 0 的 LLM 超时时间默认与正式 Phase 1a 流程一致，因为二者输入的正文规模一致；Phase 0 的定位差异体现在并发、暂存和降级策略，而不是更短的请求时间预算
+- 正式 Phase 1 分为带正文质量补强和无正文自动整理：Phase 1a 使用正文和两轮预取 Scene 结果补强每个 batch 的 Scene 质量，产出两轮平等候选；Phase 1b 不带正文，只基于补强后的两轮候选做自动融合、切分、重排和生成整理提示，再交由顺序归并器写入正式 Scene
+- Phase 1b 自动整理后的 Scene 数量可以多于或少于 Phase 1a；数量变化本身不是错误，但输出必须覆盖目标章节，并保留可追溯到 Phase 1a Scene 和章节来源的依赖信息
+- Phase 1b 自动整理可以生成或改写最终 Scene 的标题、目标、核心冲突、情绪节拍和叙事标签等展示字段；但必须保留来源章节和 scene_chunks，不能生成脱离来源的漂亮摘要
+- Phase 1b 可以调整 `scene_chunks.start_paragraph`，但只能基于 Phase 1a 候选、证据锚点或已有范围校正；没有可靠锚点时应保守沿用来源候选值或 0，并标记边界不确定，不能凭空发明精确段落
+- Phase 1b 可以丢弃尚未写入正式表的 Phase 1a 中间候选；丢弃必须记录原因，如已融合、已拆分、重复候选、低置信不可用或超出目标范围。丢弃中间候选不等同于删除用户资产
+- Phase 1b 自动整理失败时应按 Scene / 候选粒度降级：成功整理的输出继续使用，失败、无效或缺失覆盖的局部结果回退到对应 Phase 1a 补强候选；不应因为少数 Scene 整理失败而整批回退
+- Phase 1b 对 422、网络错误和 timeout 允许 1 次 retry，schema 解析失败或空结果不 retry；最终 422 错误率也单独统计，超过 40% 时不阻断整个深度导入，而是放弃 Phase 1b 自动整理结果，降级为 Phase 1a 候选顺序写库并标记 degraded；用户提示应说明自动整理失败，已使用质量补强结果继续导入，并建议切换官方 API 提高整理质量
+- 每个 Phase 1b 输出 Scene 必须声明来源和操作类型，包括来源候选 ID、来源章节、整理操作（kept / merged / split / reordered / rewritten）、置信度和是否需要回退；未被任何 Phase 1b 输出引用且没有明确丢弃原因的 Phase 1a 候选应回退写入，避免内容丢失
+- Phase 1b 自动整理按章节窗口分段执行，不做全书一次性整理；默认窗口 30 章、窗口 overlap 3 章、并发 4。Phase 1b 输出允许在窗口 overlap 覆盖范围内跨窗口边界形成连续 Scene，但不能越权覆盖远超当前窗口范围的章节。窗口 overlap 区域若多个窗口覆盖同一来源候选，优先采用该候选主要章节所在 core range 的主窗口输出；非主窗口输出只作为边界参考或 fallback。最终由顺序归并器按章节顺序合并窗口输出并应用候选覆盖 / 回退规则
+- 最终写入 `Scene` 表时应保留自动整理 provenance，但不新增业务表；优先放入现有可承载元数据的 JSON 字段，记录自动入库标记、workflow_id、生成阶段（如 phase1b_fusion / phase1a_fallback）、来源候选 ID、来源轮次、来源章节、融合/切分/重写操作、置信度和可选降级原因；若边界不确定，还应记录 boundary_status、boundary_reason、needs_review 和 review_reason，供后续 Scene 整理界面提示复核
+- 深度导入前端进度条周围应展示阶段质量统计和降级信息，包括 Phase 0 两轮请求数、成功数、422 率、timeout 数、schema 失败数，Phase 1a 成功数、fallback 数、422 率，Phase 1b 自动整理窗口数、成功窗口数、降级窗口数、422 率，最终写入 Scene 数、needs_review Scene 数和是否使用 phase1a_fallback；这些信息应随 workflow 进度更新，而不是只在任务结束后展示
+- 深度导入前端除主进度条外，应动态显示当前处理位置，包括当前章节范围、当前章节和当前 Scene / 候选 / 整理窗口；主进度条和当前处理提示应有克制的光效或流动状态，用于表达任务正在推进，避免用户误判为卡死
+- 当前处理位置和质量统计应持续写入异步任务 result，刷新页面后可恢复展示；建议记录 current_phase、current_round、current_chapter_range、current_chapter、current_scene_candidate_id、current_window、current_operation 和 quality_stats
+- 深度导入任务应支持从中断处恢复，但继续执行需用户明确确认：worker 启动时触发一次中断任务检测，运行中循环检测 stale / interrupted deep_import 任务并将状态写入 task result / 可查询状态；前端发现可恢复任务时提示用户“检测到上次深度导入中断，可从当前阶段继续”，用户点击继续后才恢复原 deep_import 任务并复用 async task result 中的 checkpoint。恢复后继续展示阶段、章节、候选、窗口和质量统计
+- 用户确认继续中断任务时，应复用原 deep_import task，将原 task 恢复为可领取状态（如 pending），不新建 recovery task；这样 localStorage 中的 task_id、workflow_id、checkpoint 和 provenance 保持稳定
+- 中断恢复第一版不新增任务状态枚举；保持现有 pending / running / done / failed / cancelled 体系。检测到 stale running deep_import 时，在 task result / meta 中标记 interrupted、recoverable、interrupted_at、last_heartbeat_at、recovery_required 等恢复信息；用户确认继续后再将原 task 改回 pending
+- 用户也可选择放弃恢复；放弃恢复是破坏性清理操作，前端必须先警告会清理本次 workflow 已写入的派生 Scene / 自动实体 / 关系 / delta 等结果。用户确认后，系统按 workflow_id / provenance 清理本次中断导入已写入的派生资产，并将原 task 标记 cancelled；默认将已暴露的派生资产标记 deprecated，只有纯中间且未暴露资产才可硬删除；不得删除用户编辑过、canonical 或不属于该 workflow 的资产
+- 用户点击继续恢复前，应展示 checkpoint 摘要，包括上次中断阶段、已完成章节 / 窗口 / Scene、已写入 Scene 数、已抽取世界对象数、将重跑的最小范围，以及是否存在 deprecated / 冲突 / needs_review 资产
+- 中断恢复允许按阶段粒度局部重跑：Phase 0 按 batch，Phase 1a 按 batch，Phase 1b 按窗口，Scene commit 按 Scene / provenance 补写且不得整批重复写，Phase 2 世界对象抽取按 Scene，Phase 3 结构分析可整阶段重跑
+- Scene commit 阶段应使用稳定 provenance_key 做幂等判断；provenance_key 由 workflow_id、source_candidate_ids、fusion_operation 和 source_chapter_indices 等来源信息生成并写入 Scene meta。恢复时若同 provenance_key 的 Scene 已存在则跳过，缺失则补写，已存在但 status 为 deprecated 时不自动复活，应记录冲突并标记 needs_review / fallback
+- Phase 2 世界对象抽取应按 Scene 记录 checkpoint，包含 scene_id、scene_provenance_key、状态、创建的实体 / 关系 / delta ID、错误类型和 retry 次数。恢复时已成功 Scene 跳过，failed / stale Scene 局部重跑；若已成功抽取的实体后来被用户 deprecated，不自动复活，应标记 needs_review
+- Phase 3 结构分析恢复时可整阶段重跑；重跑前只将同 workflow_id 且 source=deep_import 的自动生成结构资产标记 deprecated，再写入新的 draft / candidate 结构结果。用户编辑过、canonical 或不属于该 workflow 的结构资产不应被自动覆盖
+- Phase 1a 可使用扩展的中间 schema，记录边界状态、证据锚点、融合建议、拆分建议、置信度和缺失/不确定项；这些增强字段只保存在本次 workflow 中间结果中，不写入正式 `Scene` 表
+
+### 手动 Scene 融合（Manual Scene Fusion）
+- 手动 Scene 融合是作者整理 Scene 时的显式操作：用户选择多个已有 Scene，请求 LLM 生成一个融合后的新 Scene
+- 融合操作不应静默覆盖原 Scene；融合结果出来后，由用户选择后续动作：保留原 Scene 并保存融合 Scene、保存融合 Scene 并将原 Scene 标记为 `deprecated`、放弃融合结果、继续编辑融合结果后再保存
+- 保存的融合结果默认创建新的 `draft Scene`，并记录来源 Scene 依赖；原 Scene 只在用户明确选择时才标记为 `deprecated`
+- 融合后的新 Scene 必须继续保留章节来源、scene_chunks 和可编辑字段，不能只保存 LLM 摘要
+- 手动融合是导入后的作者整理工具，与深度导入写库前的自动整理并存；它要求用户明确选择输入 Scene，不由后台任务静默触发
+
+### 创作资产整理筛选（Creative Asset Triage Filters）
+- Scene、世界对象和相关派生资产的管理界面应支持按状态、标签和导入标记筛选，方便用户快速整理深度导入结果
+- 基础筛选至少包括 status（draft / candidate / canonical / deprecated / ignored / conflicted / pending）、needs_review、boundary_status、review_reason、source=deep_import、workflow_id、自动入库标记、实体类型和章节范围
+- 管理界面应能快速定位 deprecated、needs_review、边界不确定、phase1a_fallback、phase1b_fusion、恢复冲突和用户待确认对象
+- 大数据量导入后，筛选应优先由后端 API 查询参数支持，并配合分页；前端可做轻量二次过滤和状态呈现，但不应依赖全量拉取后本地筛选
+- 筛选只改变管理视图，不隐式修改资产状态；批量废弃、恢复、融合、忽略或提升为正史都必须是显式用户操作
+
 ### novel_id 隔离（Project Isolation）
 - 所有 API 在 service 层强制项目隔离
 - 不跨 novel_id 合并关系、别名或正史对象
@@ -159,6 +214,7 @@ core > important > normal > temporary > alias
 ### 别名管理（Aliases）
 - 别名统一存储在 `core_entities.aliases` JSONB
 - 标记为 `alias_of_existing` 而非创建新实体
+- 深度导入 Phase 2b 发现的别名以内联待复核形式写入目标对象 aliases，单条别名保留 source、workflow_id、scene_id、confidence、quote、needs_review 等来源元数据
 - 别名类型：name / title / nickname / alias / translation / abbreviation
 
 ### 嵌入与向量（Embedding）

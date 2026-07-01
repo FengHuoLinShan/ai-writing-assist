@@ -71,6 +71,24 @@ async def get_scenes_by_novel(
     return result
 
 
+async def get_scenes_by_provenance_key(
+    db: AsyncSession,
+    novel_id: str,
+    provenance_key: str,
+) -> list[dict[str, Any]]:
+    """按 deep import provenance_key 获取 Scene，包含 deprecated。"""
+    from modules.outline.repositories import SceneRepository
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    scenes = await SceneRepository().get_by_provenance_key(
+        db,
+        nid,
+        provenance_key,
+    )
+    return [_scene_to_dict(scene) for scene in scenes]
+
+
 async def count_scenes_by_novel(
     db: AsyncSession,
     novel_id: str,
@@ -195,6 +213,97 @@ async def split_scene_chunk_to_new_chapter(
     return [_scene_to_dict(scene) for scene in scenes]
 
 
+async def deprecate_deep_import_scenes_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    """Soft-deprecate auto-ingested Scenes created by one deep import workflow."""
+    from sqlalchemy import select, update
+
+    from modules.outline.models import Scene
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    stmt = select(Scene).where(
+        Scene.novel_id == nid,
+        Scene.status.in_(["candidate", "proposal", "draft", "canonical"]),
+    )
+    result = await db.execute(stmt)
+    scenes = result.scalars().all()
+
+    deprecated = 0
+    for scene in scenes:
+        meta = scene.structure_meta or {}
+        if scene.source != "deep_import" or not _is_cleanup_eligible_deep_import_meta(
+            meta,
+            workflow_id,
+            require_source=False,
+        ):
+            continue
+        updated_meta = {
+            **meta,
+            "cleanup_status": "deprecated",
+            "cleanup_reason": "abandoned_deep_import_recovery",
+        }
+        await db.execute(
+            update(Scene)
+            .where(Scene.id == scene.id, Scene.novel_id == nid)
+            .values(status="deprecated", structure_meta=updated_meta)
+        )
+        deprecated += 1
+
+    if deprecated:
+        await db.flush()
+    return deprecated
+
+
+async def deprecate_deep_import_structure_assets_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    """Soft-deprecate outline structure assets from one deep import workflow."""
+    from sqlalchemy import select, update
+
+    from modules.outline.models import (
+        ForeshadowingPlan,
+        OutlineArc,
+        PlotThread,
+        RevealPlan,
+    )
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    deprecated = 0
+    for model in (PlotThread, OutlineArc, ForeshadowingPlan, RevealPlan):
+        stmt = select(model).where(
+            model.novel_id == nid,
+            model.status.in_(["candidate", "proposal", "draft", "canonical"]),
+        )
+        result = await db.execute(stmt)
+        assets = result.scalars().all()
+        for asset in assets:
+            meta = asset.provenance_meta or {}
+            if not _is_cleanup_eligible_deep_import_meta(meta, workflow_id):
+                continue
+            updated_meta = {
+                **meta,
+                "cleanup_status": "deprecated",
+                "cleanup_reason": "abandoned_deep_import_recovery",
+            }
+            await db.execute(
+                update(model)
+                .where(model.id == asset.id, model.novel_id == nid)
+                .values(status="deprecated", provenance_meta=updated_meta)
+            )
+            deprecated += 1
+
+    if deprecated:
+        await db.flush()
+    return deprecated
+
+
 # ============================================================
 # ForeshadowingPlan
 # ============================================================
@@ -286,3 +395,19 @@ def _scene_to_contract(scene) -> SceneContract:
         structure_meta=scene.structure_meta or {},
         status=scene.status,
     )
+
+
+def _is_cleanup_eligible_deep_import_meta(
+    meta: dict[str, Any],
+    workflow_id: str,
+    *,
+    require_source: bool = True,
+) -> bool:
+    eligible = (
+        meta.get("workflow_id") == workflow_id
+        and meta.get("auto_ingested") is True
+        and meta.get("user_edited") is not True
+    )
+    if require_source:
+        return eligible and meta.get("source") == "deep_import"
+    return eligible

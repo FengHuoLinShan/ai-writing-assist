@@ -347,6 +347,7 @@ async def test_open_target_resolves_focus_entity_to_map_context(
         "map_id": map_id,
         "scene_id": None,
         "focus_entity_id": str(location.id),
+        "observation_id": None,
         "fallback_reason": None,
         "fallback_message": None,
     }

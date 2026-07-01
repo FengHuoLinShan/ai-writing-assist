@@ -8,11 +8,21 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.profiles import (
+    LLM_API_KEY_FIELD,
+    LLM_SETTINGS_KEY,
+    get_llm_profile,
+    list_provider_templates,
+    sanitize_llm_profile,
+)
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
+    LLMProviderTemplateListResponse,
     ProjectContext,
     ProjectCreate,
     ProjectListResponse,
+    ProjectLLMSettingsResponse,
+    ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
 )
@@ -25,6 +35,9 @@ class ProjectService:
 
     def __init__(self, repo: ProjectRepository | None = None) -> None:
         self._repo = repo or ProjectRepository()
+
+    def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
+        return LLMProviderTemplateListResponse(items=list_provider_templates())
 
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate
@@ -69,6 +82,54 @@ class ProjectService:
                 detail=f"Project {project_id} not found",
             )
         return ProjectResponse.model_validate(project)
+
+    async def get_llm_settings(
+        self,
+        db: AsyncSession,
+        project_id: str,
+    ) -> ProjectLLMSettingsResponse:
+        project = await self._get_existing_project(db, project_id)
+        profile = sanitize_llm_profile(get_llm_profile(project.settings))
+        return ProjectLLMSettingsResponse.model_validate(profile)
+
+    async def update_llm_settings(
+        self,
+        db: AsyncSession,
+        project_id: str,
+        data: ProjectLLMSettingsUpdate,
+    ) -> ProjectLLMSettingsResponse:
+        project = await self._get_existing_project(db, project_id)
+        settings = dict(project.settings or {})
+        existing_profile = get_llm_profile(settings)
+
+        next_profile = {
+            "provider_id": data.provider_id,
+            "label": data.label,
+            "base_url": data.base_url,
+            "model": data.model,
+        }
+
+        if data.clear_api_key:
+            pass
+        elif data.api_key:
+            next_profile[LLM_API_KEY_FIELD] = data.api_key
+        elif existing_profile.get(LLM_API_KEY_FIELD):
+            next_profile[LLM_API_KEY_FIELD] = existing_profile[LLM_API_KEY_FIELD]
+
+        settings[LLM_SETTINGS_KEY] = {
+            key: value
+            for key, value in next_profile.items()
+            if value is not None and value != ""
+        }
+        update_data = ProjectUpdate(settings=settings)
+        project = await self._repo.update(db, project.id, update_data)
+        if project is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Project {project_id} not found",
+            )
+        profile = sanitize_llm_profile(get_llm_profile(project.settings))
+        return ProjectLLMSettingsResponse.model_validate(profile)
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
         """软删除：标记项目为已删除（移至回收站）"""
@@ -146,3 +207,13 @@ class ProjectService:
             default_reveal_policy=project.default_reveal_policy,
             settings=project.settings,
         )
+
+    async def _get_existing_project(self, db: AsyncSession, project_id: str):
+        pid = parse_uuid(project_id, "project_id")
+        project = await self._repo.get(db, pid)
+        if project is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Project {project_id} not found",
+            )
+        return project

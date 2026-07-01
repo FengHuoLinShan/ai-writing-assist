@@ -31,6 +31,7 @@ beforeEach(() => {
   writingView._deepImportProgress = null
   api.world.getMapSceneSummary = vi.fn()
   vi.clearAllMocks()
+  confirmAction.mockReset()
 })
 
 describe("writingView render", () => {
@@ -879,6 +880,126 @@ describe("_renderDeepImportBar", () => {
 
     expect(html).toContain("部分完成")
     expect(html).toContain("实体提取阶段未生成任何实体")
+  })
+
+  it("recovery_required 时显示明确恢复提示和继续/放弃入口", () => {
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = {
+      phase: "running",
+      message: "worker interrupted",
+      percent: 40,
+      recoveryRequired: true,
+      interrupted: true,
+      recoverable: true,
+      recoverySummary: {
+        last_checkpoint: "phase1b_fusion",
+        committed_scenes: 12,
+        pending_scene_candidates: 4,
+      },
+    }
+
+    const html = writingView._renderDeepImportBar()
+
+    expect(html).toContain("需要恢复")
+    expect(html).toContain("phase1b_fusion")
+    expect(html).toContain("已写入 Scene：12")
+    expect(html).toContain("待处理候选：4")
+    expect(html).toContain('data-action="resume-deep-import"')
+    expect(html).toContain("继续")
+    expect(html).toContain('data-action="abandon-deep-import"')
+    expect(html).toContain("放弃恢复")
+  })
+
+  it("显示当前阶段、章节范围、Scene candidate、window 和 operation", () => {
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = {
+      phase: "running",
+      percent: 35,
+      message: "running",
+      currentPhase: "phase1b_fusion",
+      currentChapterRange: "3-5",
+      currentChapter: 4,
+      currentSceneCandidateId: "candidate-7",
+      currentWindow: "window-2",
+      currentOperation: "scene_fusion",
+    }
+
+    const html = writingView._renderDeepImportBar()
+
+    expect(html).toContain("阶段：phase1b_fusion")
+    expect(html).toContain("章节范围：3-5")
+    expect(html).toContain("当前章节：4")
+    expect(html).toContain("Scene candidate：candidate-7")
+    expect(html).toContain("窗口：window-2")
+    expect(html).toContain("操作：scene_fusion")
+    expect(html).toContain("deep-import-progress--alive")
+  })
+})
+
+describe("deep import recovery actions", () => {
+  it("继续恢复调用 resume API 并保留原 task id", async () => {
+    state.currentProjectId = "p1"
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = {
+      phase: "running",
+      recoveryRequired: true,
+      recoverable: true,
+      recoverySummary: {},
+    }
+    api.imports.resumeDeepImport.mockResolvedValue({
+      task_id: "deep-task",
+      status: "running",
+      result: { current_phase: "phase1b_fusion" },
+    })
+    const pollingSpy = vi
+      .spyOn(writingView, "_startDeepImportPolling")
+      .mockImplementation(() => {})
+    const rerenderSpy = vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
+
+    await writingView._resumeDeepImportRecovery()
+
+    expect(api.imports.resumeDeepImport).toHaveBeenCalledWith("deep-task")
+    expect(writingView._deepImportTaskId).toBe("deep-task")
+    expect(writingView._deepImportProgress.recoveryRequired).toBe(false)
+    expect(pollingSpy).toHaveBeenCalled()
+    expect(rerenderSpy).toHaveBeenCalled()
+
+    pollingSpy.mockRestore()
+    rerenderSpy.mockRestore()
+  })
+
+  it("放弃恢复需要二次确认，取消时不调用 abandon API", async () => {
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = { recoveryRequired: true }
+
+    await writingView._abandonDeepImportRecovery()
+
+    expect(confirmAction).toHaveBeenCalled()
+    expect(confirmAction.mock.calls[0][0]).toContain("删除/废弃已写入的 Scene/实体")
+    expect(api.imports.abandonDeepImport).not.toHaveBeenCalled()
+  })
+
+  it("确认放弃恢复后调用 abandon API 并清理本地任务", async () => {
+    writingView._deepImportTaskId = "deep-task"
+    writingView._deepImportProgress = { recoveryRequired: true }
+    localStorage.setItem("novel_deepImportTaskId", "deep-task")
+    api.imports.abandonDeepImport.mockResolvedValue({
+      status: "cancelled",
+      cleanup_summary: { deprecated_scenes: 2, deprecated_entities: 3 },
+    })
+    autoConfirm()
+    const rerenderSpy = vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
+
+    await writingView._abandonDeepImportRecovery()
+
+    expect(api.imports.abandonDeepImport).toHaveBeenCalledWith("deep-task")
+    expect(writingView._deepImportTaskId).toBeNull()
+    expect(writingView._deepImportProgress).toBeNull()
+    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
+    expect(toast).toHaveBeenCalledWith("已放弃恢复：Scene 2 个，实体 3 个", "success")
+    expect(rerenderSpy).toHaveBeenCalled()
+
+    rerenderSpy.mockRestore()
   })
 })
 

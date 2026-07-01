@@ -31,6 +31,7 @@ import {
 } from "./mapHexRenderer.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
+import { drawTerrainLayers } from "./mapTerrainRenderer.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import {
   mapState,
@@ -532,6 +533,14 @@ const mapView = {
     const getHexOpacity = this._getHexOpacity.bind(this)
     if (this._isLayerEnabled("terrain")) {
       drawTerrain(this._ctx, this._state.tiles, size, 0, 0, getHexOpacity)
+      drawTerrainLayers(this._ctx, {
+        layers: this._state.terrain_layers || [],
+        regions: this._state.terrain_regions || [],
+        patches: this._state.terrain_patches || [],
+      }, {
+        hexSize: size,
+        editMode: mapState.mode === "edit",
+      })
     }
     if (this._isLayerEnabled("locations")) {
       drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary, getHexOpacity)

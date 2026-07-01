@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
@@ -18,6 +19,20 @@ from infrastructure.llm.schemas import (
 
 class _StructuredPayload(BaseModel):
     value: str = Field(..., min_length=1)
+
+
+def test_from_project_settings_uses_project_profile_defaults() -> None:
+    client = LLMClient.from_project_settings(
+        {
+            "llm": {
+                "api_key": "sk-test",
+                "base_url": "https://api.deepseek.com/v1",
+                "model": "deepseek-chat",
+            }
+        }
+    )
+
+    assert client.model_name == "deepseek-chat"
 
 
 @pytest.mark.asyncio
@@ -100,3 +115,74 @@ async def test_generate_structured_validation_retry_keeps_existing_fix_path() ->
     assert len(requests) == 2
     assert requests[1].max_tokens == 20000
     assert "Your previous response failed validation" in requests[1].messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_final_error_keeps_last_validation_detail() -> None:
+    client = LLMClient()
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"value": ""}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMInvalidResponseError) as exc_info:
+        await client.generate_structured(
+            LLMCallRequest(
+                model="fake",
+                messages=[LLMMessage(role="user", content="return json")],
+                max_tokens=20000,
+            ),
+            _StructuredPayload,
+            max_fix_attempts=0,
+        )
+
+    assert "String should have at least 1 character" in str(exc_info.value)
+    assert exc_info.value.raw_response == '{"value": ""}'
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_can_bypass_transport_retries() -> None:
+    client = LLMClient()
+    requests: list[LLMCallRequest] = []
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            requests.append(request.model_copy(deep=True))
+            return LLMCallResponse(
+                content='{"value": "direct"}',
+                finish_reason="stop",
+                usage=LLMUsage(completion_tokens=5, total_tokens=5),
+                model="fake",
+                provider="fake",
+            )
+
+    async def forbidden_generate(
+        self: LLMClient,
+        request: LLMCallRequest,
+    ) -> LLMCallResponse:
+        raise AssertionError("client.generate should be bypassed")
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+    client.generate = MethodType(forbidden_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(
+            model="fake",
+            messages=[LLMMessage(role="user", content="return json")],
+            max_tokens=20000,
+        ),
+        _StructuredPayload,
+        transport_retries=False,
+    )
+
+    assert result.value == "direct"
+    assert len(requests) == 1

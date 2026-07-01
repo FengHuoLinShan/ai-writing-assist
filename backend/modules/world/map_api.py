@@ -24,6 +24,8 @@ from modules.world.map_schemas import (
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
+    MapLocationLayoutListResponse,
+    MapLocationLayoutReplaceRequest,
     MapMarkerCreate,
     MapMarkerResponse,
     MapMarkerUpdate,
@@ -35,14 +37,26 @@ from modules.world.map_schemas import (
     MapObservationReviewUpdate,
     MapOpenTarget,
     MapPlaybackResponse,
+    MapQuickCreateConfirmRequest,
+    MapQuickCreateConfirmResponse,
+    MapQuickCreateContextResponse,
+    MapQuickCreatePreviewRequest,
+    MapQuickCreatePreviewResponse,
     MapSceneSummaryResponse,
     MapStateResponse,
+    MapTerrainBindingCreate,
+    MapTerrainBindingResponse,
+    MapTerrainBindingUpdate,
+    MapTerrainPatchReplaceRequest,
+    MapTerrainStateResponse,
     MapTerritoryCreate,
     MapTerritoryResponse,
     MapTerritoryUpdate,
     MapTileBatchUpdate,
     MapTileResponse,
 )
+from modules.world.services.map_location_layout import MapLocationLayoutService
+from modules.world.services.map_quick_create import MapQuickCreateService
 from modules.world.services.map_scene_summary import MapSceneSummaryService
 from modules.world.services.map_service import (
     MapConfigService,
@@ -52,6 +66,7 @@ from modules.world.services.map_service import (
     MapTerritoryService,
     MapTileService,
 )
+from modules.world.services.map_terrain import MapTerrainService
 
 router = APIRouter(prefix="/api/world/maps", tags=["world-map"])
 
@@ -62,6 +77,9 @@ _marker_service = MapMarkerService()
 _territory_service = MapTerritoryService()
 _scene_summary_service = MapSceneSummaryService()
 _dynamic_fact_service = MapDynamicFactService()
+_layout_service = MapLocationLayoutService()
+_quick_create_service = MapQuickCreateService()
+_terrain_service = MapTerrainService()
 
 
 # ============================================================
@@ -111,6 +129,41 @@ async def get_map_open_target(
         scene_id=scene_id,
         focus_entity_id=focus_entity_id,
     )
+
+
+@router.get("/quick-create/context", response_model=MapQuickCreateContextResponse)
+async def get_quick_create_context(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    include_candidates: bool = Query(False, description="是否包含待确认候选"),
+) -> MapQuickCreateContextResponse:
+    return await _quick_create_service.context(
+        db,
+        novel_id,
+        include_candidates=include_candidates,
+    )
+
+
+@router.post("/quick-create/preview", response_model=MapQuickCreatePreviewResponse)
+async def preview_quick_create_map(
+    db: DbSession,
+    data: MapQuickCreatePreviewRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapQuickCreatePreviewResponse:
+    return await _quick_create_service.preview(db, novel_id, data)
+
+
+@router.post(
+    "/quick-create/confirm",
+    response_model=MapQuickCreateConfirmResponse,
+    status_code=201,
+)
+async def confirm_quick_create_map(
+    db: DbSession,
+    data: MapQuickCreateConfirmRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapQuickCreateConfirmResponse:
+    return await _quick_create_service.confirm(db, novel_id, data)
 
 
 @router.get("/{map_id}", response_model=MapConfigResponse)
@@ -206,6 +259,36 @@ async def get_map_playback(
 
 
 # ============================================================
+# 地点布局（快速创建 / 拖拽 / +/-）
+# ============================================================
+
+
+@router.get(
+    "/{map_id}/location-layouts",
+    response_model=MapLocationLayoutListResponse,
+)
+async def list_location_layouts(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapLocationLayoutListResponse:
+    return await _layout_service.list(db, novel_id, map_id)
+
+
+@router.put(
+    "/{map_id}/location-layouts",
+    response_model=MapLocationLayoutListResponse,
+)
+async def replace_location_layouts(
+    db: DbSession,
+    map_id: str,
+    data: MapLocationLayoutReplaceRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapLocationLayoutListResponse:
+    return await _layout_service.replace(db, novel_id, map_id, data)
+
+
+# ============================================================
 # 地形批量编辑（PRD §6.3）
 # ============================================================
 
@@ -218,6 +301,76 @@ async def batch_update_tiles(
     novel_id: str = Query(..., description="项目 ID"),
 ) -> list[MapTileResponse]:
     return await _map_tile_service.batch_update(db, novel_id, map_id, data)
+
+
+# ============================================================
+# 手绘地形图层
+# ============================================================
+
+
+@router.get("/{map_id}/terrain", response_model=MapTerrainStateResponse)
+async def get_terrain_state(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapTerrainStateResponse:
+    return await _terrain_service.get_state(db, novel_id, map_id)
+
+
+@router.put(
+    "/{map_id}/terrain/layers/{layer_id}/patches",
+    response_model=MapTerrainStateResponse,
+)
+async def replace_terrain_layer_patches(
+    db: DbSession,
+    map_id: str,
+    layer_id: str,
+    data: MapTerrainPatchReplaceRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapTerrainStateResponse:
+    return await _terrain_service.replace_layer_patches(
+        db,
+        novel_id,
+        map_id,
+        layer_id,
+        data,
+    )
+
+
+@router.post(
+    "/{map_id}/terrain/regions/{region_id}/bindings",
+    response_model=MapTerrainBindingResponse,
+    status_code=201,
+)
+async def create_terrain_binding(
+    db: DbSession,
+    map_id: str,
+    region_id: str,
+    data: MapTerrainBindingCreate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapTerrainBindingResponse:
+    payload = data.model_copy(update={"region_id": region_id})
+    return await _terrain_service.create_binding(db, novel_id, map_id, payload)
+
+
+@router.patch(
+    "/{map_id}/terrain/bindings/{binding_id}",
+    response_model=MapTerrainBindingResponse,
+)
+async def update_terrain_binding(
+    db: DbSession,
+    map_id: str,
+    binding_id: str,
+    data: MapTerrainBindingUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> MapTerrainBindingResponse:
+    return await _terrain_service.update_binding(
+        db,
+        novel_id,
+        map_id,
+        binding_id,
+        data,
+    )
 
 
 # ============================================================

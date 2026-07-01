@@ -20,21 +20,23 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 ## 服务
 
 - ImportService.upload_and_import()：文件校验 → 解析 → 创建 WritingDraft → 更新 ImportRecord
-- DeepImportWorkflow：三阶段深度导入流水线，运行在 `async_tasks` 的 `deep_import` 任务中
+- DeepImportWorkflow：带预取、补强、融合和恢复语义的深度导入流水线，运行在 `async_tasks` 的 `deep_import` 任务中
 
-## 深度导入流水线（三阶段）
+## 深度导入流水线
 
-DeepImportWorkflow 将三步串成全自动流水线，直接入库无需用户中途确认：
+DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动流水线，
+直接入库无需用户中途确认。新版 Scene 阶段拆为候选预取、逐批补强和融合提交，
+避免固定 batch 边界截断 Scene，并允许恢复时略微重复局部任务以保证质量。
 
 启动前会执行 LLM health preflight。若 `LLM_HEALTH_REQUIRED=true` 且 LLM 不可用，
 任务直接进入 `phase="failed"` / `quality_status="failed"`，不写入半成品 Scene。
 
-### Phase 1: Scene 切分（并行，40%）
-- 按 5 章/批 + 1 章 Overlap 拆分为 N 个子任务
-- 每个子任务调用 LLM（scene_segmentation.md prompt）
-- 输出写入 `scenes` 表
-- Overlap 机制：第 i 批末尾 1 章与第 i+1 批首章重复
-- 失败降级：逐章切分 → 机械分章
+### Phase 0 / 1a / 1b: Scene 候选与融合（40%）
+- Phase 0 使用两轮错位 batch 并发预取候选 Scene，默认并发较高，允许缺失和错误。
+- Phase 1a 分别带正文补强两轮候选结果；只对失败 Scene 退回补强，不重跑全部候选。
+- Phase 1b 不带正文，以补强后的两轮结果做智能融合 / 切分建议，再提交正式 Scene。
+- 正式 Scene 写入携带 provenance / workflow 信息；恢复或重跑时按 provenance 跳过已提交结果。
+- Phase 0 / 1a 的最终 422 错误率超过 40% 时阻断深度导入，并提示使用稳定官方 API；Phase 1b 超阈值时降级使用 Phase 1a 结果继续。
 
 ### Phase 2: 实体增量提取（串行，40%）
 - 按 scene_index 顺序串行处理每个 Scene
@@ -54,11 +56,13 @@ DeepImportWorkflow 将三步串成全自动流水线，直接入库无需用户�
 - current_step: scene_segmentation / entity_extraction / structure_analysis
 - completed_steps: 已完成阶段
 - message: 当前可展示给用户的中文状态
+- current_chapter / current_scene / current_batch / current_round / quality_stats: 前端进度条周围展示的实时位置和质量统计
 - phase1_total_batches / phase1_completed_batches
 - phase2_total_scenes / phase2_completed_scenes
 - degraded / degraded_batches 标记降级
 - quality_status: pending / complete / partial / failed
 - phase_errors: 各阶段可机器读取的失败或降级原因
+- recovery_required / recovery_summary: worker/backend 中断后提示用户手动继续或放弃恢复
 
 当任务能跑完但 Phase 2/3 未生成关键 AI 资产时，`phase` 仍可为 `done`，但
 `quality_status="partial"` 且 `degraded=true`。前端应把它显示为“部分完成”，
@@ -85,7 +89,8 @@ GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
 POST /api/imports/deep/sync                # 同步执行深度导入（E2E/无 worker 场景）
-POST /api/imports/deep/resume              # 兼容旧候选确认流程，当前已废弃
+POST /api/imports/deep/resume              # 用户确认后继续可恢复的原 deep_import task
+POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
 ```
 
 ## 跨模块依赖

@@ -19,6 +19,29 @@ from modules.outline.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
+def apply_structure_asset_filters(
+    conditions: list[Any],
+    model: Any,
+    *,
+    status: str | None = None,
+    source: str | None = None,
+    workflow_id: str | None = None,
+    needs_review: bool | None = None,
+) -> None:
+    if status is not None:
+        conditions.append(model.status == status)
+    if source is not None:
+        conditions.append(model.provenance_meta["source"].as_string() == source)
+    if workflow_id is not None:
+        conditions.append(
+            model.provenance_meta["workflow_id"].as_string() == workflow_id
+        )
+    if needs_review is not None:
+        conditions.append(
+            model.provenance_meta["needs_review"].as_boolean() == needs_review
+        )
+
+
 class PlotThreadRepository:
     async def create(
         self,
@@ -41,6 +64,7 @@ class PlotThreadRepository:
             related_memory_ids=data.related_memory_ids or [],
             reader_known_state=data.reader_known_state,
             author_known_state=data.author_known_state,
+            provenance_meta=data.provenance_meta or {},
             status=data.status or "draft",
         )
         db.add(thread)
@@ -59,8 +83,20 @@ class PlotThreadRepository:
         *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
     ) -> tuple[list[PlotThread], int]:
         conditions = [PlotThread.novel_id == novel_id]
+        apply_structure_asset_filters(
+            conditions,
+            PlotThread,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+        )
         count_stmt = select(func.count(PlotThread.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         stmt = (
@@ -155,6 +191,7 @@ class PlotThreadRepository:
             "related_character_ids",
             "related_entity_ids",
             "related_memory_ids",
+            "provenance_meta",
         ):
             value = getattr(data, json_field, None)
             if value is not None:
@@ -202,6 +239,7 @@ class OutlineArcRepository:
             related_thread_ids=data.related_thread_ids or [],
             related_character_ids=data.related_character_ids or [],
             related_entity_ids=data.related_entity_ids or [],
+            provenance_meta=data.provenance_meta or {},
             status=data.status or "draft",
         )
         db.add(arc)
@@ -220,8 +258,20 @@ class OutlineArcRepository:
         *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
     ) -> tuple[list[OutlineArc], int]:
         conditions = [OutlineArc.novel_id == novel_id]
+        apply_structure_asset_filters(
+            conditions,
+            OutlineArc,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+        )
         count_stmt = select(func.count(OutlineArc.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         stmt = (
@@ -310,6 +360,7 @@ class OutlineArcRepository:
             "related_thread_ids",
             "related_character_ids",
             "related_entity_ids",
+            "provenance_meta",
         ):
             value = getattr(data, json_field, None)
             if value is not None:
@@ -390,18 +441,73 @@ class SceneRepository:
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        boundary_status: str | None = None,
+        phase: str | None = None,
+        phase1a_fallback: bool | None = None,
+        skip: int = 0,
+        limit: int | None = None,
     ) -> list[Scene]:
+        conditions = [Scene.novel_id == novel_id]
+        if status:
+            conditions.append(Scene.status == status)
+        else:
+            conditions.append(Scene.status.in_(["candidate", "draft", "canonical"]))
+        if source:
+            conditions.append(Scene.source == source)
+        if workflow_id:
+            conditions.append(
+                Scene.structure_meta["workflow_id"].as_string() == workflow_id
+            )
+        if needs_review is not None:
+            conditions.append(
+                Scene.structure_meta["needs_review"].as_boolean() == needs_review
+            )
+        if boundary_status:
+            conditions.append(
+                Scene.structure_meta["boundary_status"].as_string() == boundary_status
+            )
+        if phase:
+            conditions.append(Scene.structure_meta["phase"].as_string() == phase)
+        if phase1a_fallback is not None:
+            conditions.append(
+                Scene.structure_meta["phase1a_fallback"].as_boolean()
+                == phase1a_fallback
+            )
         stmt = (
             select(Scene)
-            .where(
-                Scene.novel_id == novel_id,
-                Scene.status.in_(["draft", "canonical"]),
-            )
+            .where(*conditions)
             .order_by(Scene.scene_index)
+            .offset(skip)
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await db.execute(stmt)
         items: Sequence[Scene] = result.scalars().all()
         return list(items)
+
+    async def get_by_provenance_key(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        provenance_key: str,
+    ) -> list[Scene]:
+        stmt = (
+            select(Scene)
+            .where(Scene.novel_id == novel_id)
+            .order_by(Scene.scene_index, Scene.id)
+        )
+        result = await db.execute(stmt)
+        items: Sequence[Scene] = result.scalars().all()
+        return [
+            scene
+            for scene in items
+            if (scene.structure_meta or {}).get("provenance_key") == provenance_key
+        ]
 
     async def get_by_chapter(
         self,

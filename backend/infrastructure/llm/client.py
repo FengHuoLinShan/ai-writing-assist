@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.profiles import LLM_API_KEY_FIELD, get_llm_profile
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.retry import retry_with_backoff
 from infrastructure.llm.schemas import (
@@ -75,6 +76,31 @@ class LLMClient:
     def __init__(self, provider_name: str = "openai", **provider_kwargs: Any) -> None:
         self._provider = get_provider(provider_name, **provider_kwargs)
         self._settings = get_settings()
+        self._default_model = (
+            provider_kwargs.get("default_model") or self._settings.llm_model
+        )
+
+    @classmethod
+    def from_project_settings(
+        cls,
+        project_settings: dict[str, Any] | None,
+        **provider_kwargs: Any,
+    ) -> LLMClient:
+        """Build an OpenAI-compatible client from ``project.settings["llm"]``.
+
+        Project-level settings override the global env defaults only when set.
+        Missing values still fall back to ``core.config.Settings`` inside the
+        provider, so legacy env-based deployments keep working.
+        """
+        profile = get_llm_profile(project_settings)
+        merged_kwargs = dict(provider_kwargs)
+        if profile.get(LLM_API_KEY_FIELD):
+            merged_kwargs["api_key"] = profile[LLM_API_KEY_FIELD]
+        if profile.get("base_url"):
+            merged_kwargs["base_url"] = profile["base_url"]
+        if profile.get("model"):
+            merged_kwargs["default_model"] = profile["model"]
+        return cls(provider_name="openai", **merged_kwargs)
 
     async def close(self) -> None:
         """关闭 LLMClient 并释放 provider HTTP 连接
@@ -92,6 +118,9 @@ class LLMClient:
         if hasattr(self, "_provider") and hasattr(self._provider, "close"):
             await self._provider.close()
         self._provider = get_provider(provider_name, **provider_kwargs)
+        self._default_model = (
+            provider_kwargs.get("default_model") or self._settings.llm_model
+        )
 
     @property
     def provider(self) -> str:
@@ -101,7 +130,7 @@ class LLMClient:
     @property
     def model_name(self) -> str:
         """当前默认的 LLM 模型名称"""
-        return self._settings.llm_model
+        return self._default_model
 
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
@@ -154,6 +183,7 @@ class LLMClient:
         *,
         max_fix_attempts: int = 2,
         fix_prompt: str | None = None,
+        transport_retries: bool = True,
     ) -> T:
         """调用 LLM 并校验返回结构化 JSON 数据
 
@@ -187,7 +217,10 @@ class LLMClient:
 
         for attempt in range(max_fix_attempts + 1):
             try:
-                response = await self.generate(req)
+                if transport_retries:
+                    response = await self.generate(req)
+                else:
+                    response = await self._provider.generate(req)
                 data = json.loads(response.content)
                 # Auto-wrap bare list if schema expects a single list field
                 # (LLMs often return [...] instead of {"entities": [...]})
@@ -279,9 +312,14 @@ class LLMClient:
                     )
                 req.messages.append(LLMMessage(role="user", content=fix_msg))
 
+        raw_response = ""
+        if locals().get("response") is not None:
+            raw_response = getattr(response, "content", "")
+        detail = f": {last_error}" if last_error is not None else ""
         raise LLMInvalidResponseError(
-            f"All {max_fix_attempts + 1} structured output attempts failed",
+            f"All {max_fix_attempts + 1} structured output attempts failed{detail}",
             provider=self._provider.name,
+            raw_response=raw_response,
         )
 
     async def generate_simple(

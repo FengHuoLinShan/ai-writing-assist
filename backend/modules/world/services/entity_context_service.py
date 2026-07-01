@@ -138,6 +138,45 @@ class EntityContextService:
             entity_type=entity_type,
         )
 
+    async def find_working_entity_by_name(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        name: str,
+        entity_type: str | None = None,
+    ) -> str | None:
+        """按名称或别名解析 working context 内的实体。
+
+        深度导入 Phase 2b 需要在同一 workflow 刚创建的 candidate 对象之间
+        生成关系，因此这里显式包含 canonical / draft / candidate。
+        """
+        nid = parse_uuid(novel_id, "novel_id")
+        query = " ".join(str(name or "").strip().split()).lower()
+        if not query:
+            return None
+
+        entities, _ = await self._repo.get_by_novel(
+            db,
+            nid,
+            entity_type=entity_type,
+            limit=10000,
+        )
+        for item in entities:
+            if item.status not in ("canonical", "draft", "candidate"):
+                continue
+            if " ".join((item.name or "").strip().split()).lower() == query:
+                return str(item.id)
+            aliases = (item.content_json or {}).get("aliases", [])
+            for alias_item in aliases:
+                alias_text = (
+                    alias_item
+                    if isinstance(alias_item, str)
+                    else alias_item.get("alias", "")
+                )
+                if " ".join(str(alias_text).strip().split()).lower() == query:
+                    return str(item.id)
+        return None
+
     async def list_entity_batches(
         self,
         db: AsyncSession,

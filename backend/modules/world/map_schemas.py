@@ -226,6 +226,283 @@ class MapLocationBindingResponse(BaseModel):
 
 
 # ============================================================
+# MapLocationLayout — 地点布局节点
+# ============================================================
+
+
+class MapLocationLayoutItem(BaseModel):
+    location_entity_id: str
+    center_hex_q: int = Field(..., ge=0)
+    center_hex_r: int = Field(..., ge=0)
+    occupy_radius: Literal[1, 2, 3, 5] = 1
+    locked: bool = False
+    layout_source: str = Field("quick_create", max_length=32)
+    layout_version: int = Field(1, ge=1)
+    sync_geo_setting: bool = False
+    meta: dict | None = Field(default_factory=dict)
+
+    @field_validator("location_entity_id")
+    @classmethod
+    def _coerce_uuid(cls, v: str) -> str:
+        return str(uuid.UUID(v))
+
+
+class MapLocationLayoutReplaceRequest(BaseModel):
+    layouts: list[MapLocationLayoutItem] = Field(..., max_length=2000)
+
+
+class MapLocationLayoutResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    location_entity_id: str
+    center_hex_q: int
+    center_hex_r: int
+    occupy_radius: int
+    locked: bool
+    layout_source: str
+    layout_version: int
+    sync_geo_setting: bool
+    meta: dict | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "map_id", "location_entity_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class MapLocationLayoutListResponse(BaseModel):
+    items: list[MapLocationLayoutResponse]
+    total: int
+
+
+# ============================================================
+# Quick Create — 快速创建草稿
+# ============================================================
+
+
+class MapQuickCreateContextResponse(BaseModel):
+    map_targets: list[dict] = Field(default_factory=list)
+    locations: list[dict] = Field(default_factory=list)
+    candidate_locations: list[dict] = Field(default_factory=list)
+    existing_maps: list[MapConfigResponse] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MapQuickCreatePreviewRequest(BaseModel):
+    target: Literal["world", "detail", "drilldown"] = "world"
+    parent_map_id: str | None = None
+    parent_entity_id: str | None = None
+    include_candidates: bool = False
+    include_markers: bool = True
+
+    @field_validator("parent_map_id", "parent_entity_id")
+    @classmethod
+    def _coerce_optional_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return str(uuid.UUID(v))
+
+
+class MapQuickCreateConfirmRequest(MapQuickCreatePreviewRequest):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    layouts: list[MapLocationLayoutItem] | None = None
+
+
+class MapQuickCreatePreviewResponse(BaseModel):
+    map: dict
+    location_layouts: list[MapLocationLayoutItem]
+    location_bindings: list[dict] = Field(default_factory=list)
+    markers: list[dict] = Field(default_factory=list)
+    unlocated_objects: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MapQuickCreateConfirmResponse(BaseModel):
+    map: MapConfigResponse
+    location_layouts: list[MapLocationLayoutResponse]
+    location_bindings: list[MapLocationBindingResponse]
+    markers: list = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ============================================================
+# MapTerrain — 手绘地形
+# ============================================================
+
+
+class MapTerrainLayerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    terrain_asset_key: str = Field(..., min_length=1, max_length=64)
+    opacity: float = Field(0.45, ge=0.0, le=1.0)
+    z_index: int = 10
+    visible: bool = True
+    locked: bool = False
+    meta: dict | None = Field(default_factory=dict)
+
+
+class MapTerrainLayerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    name: str
+    terrain_asset_key: str
+    opacity: float
+    z_index: int
+    visible: bool
+    locked: bool
+    meta: dict | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "map_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class MapTerrainRegionCreate(BaseModel):
+    id: str | None = None
+    layer_id: str
+    name: str = Field(..., min_length=1, max_length=255)
+    region_status: Literal["active", "hidden", "deprecated"] = "active"
+    meta: dict | None = Field(default_factory=dict)
+
+    @field_validator("id", "layer_id")
+    @classmethod
+    def _coerce_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return str(uuid.UUID(v))
+
+
+class MapTerrainRegionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    layer_id: str
+    name: str
+    region_status: str
+    meta: dict | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "map_id", "layer_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class MapTerrainPatchItem(BaseModel):
+    region_id: str
+    hex_q: int = Field(..., ge=0)
+    hex_r: int = Field(..., ge=0)
+    strength: float = Field(1.0, ge=0.0, le=1.0)
+    brush_source: str = Field("brush", max_length=32)
+
+    @field_validator("region_id")
+    @classmethod
+    def _coerce_uuid(cls, v: str) -> str:
+        return str(uuid.UUID(v))
+
+
+class MapTerrainPatchReplaceRequest(BaseModel):
+    layer: MapTerrainLayerCreate | None = None
+    regions: list[MapTerrainRegionCreate] = Field(default_factory=list, max_length=200)
+    patches: list[MapTerrainPatchItem] = Field(default_factory=list, max_length=20000)
+
+
+class MapTerrainPatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    layer_id: str
+    region_id: str
+    hex_q: int
+    hex_r: int
+    strength: float
+    brush_source: str
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "map_id", "layer_id", "region_id", mode="before")
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class MapTerrainBindingCreate(BaseModel):
+    region_id: str
+    location_entity_id: str
+    binding_type: Literal["footprint", "influence"]
+    review_state: Literal["confirmed", "candidate", "needs_review", "ignored"] = (
+        "confirmed"
+    )
+    source: str = Field("user_confirmed", max_length=64)
+    meta: dict | None = Field(default_factory=dict)
+
+    @field_validator("region_id", "location_entity_id")
+    @classmethod
+    def _coerce_uuid(cls, v: str) -> str:
+        return str(uuid.UUID(v))
+
+
+class MapTerrainBindingUpdate(BaseModel):
+    binding_type: Annotated[Literal["footprint", "influence"] | None, Field(None)]
+    review_state: Annotated[
+        Literal["confirmed", "candidate", "needs_review", "ignored"] | None,
+        Field(None),
+    ]
+    source: Annotated[str | None, Field(None, max_length=64)]
+    meta: Annotated[dict | None, Field(None)]
+
+
+class MapTerrainBindingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    map_id: str
+    region_id: str
+    location_entity_id: str
+    binding_type: str
+    review_state: str
+    source: str
+    meta: dict | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator(
+        "id",
+        "novel_id",
+        "map_id",
+        "region_id",
+        "location_entity_id",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class MapTerrainStateResponse(BaseModel):
+    layers: list[MapTerrainLayerResponse] = Field(default_factory=list)
+    regions: list[MapTerrainRegionResponse] = Field(default_factory=list)
+    patches: list[MapTerrainPatchResponse] = Field(default_factory=list)
+    bindings: list[MapTerrainBindingResponse] = Field(default_factory=list)
+
+
+# ============================================================
 # MapState — 聚合状态（PRD §6.2）
 # ============================================================
 
@@ -247,6 +524,11 @@ class MapStateResponse(BaseModel):
     territories: list = Field(
         default_factory=list, description="P2: MapTerritoryTile[]，P0 恒为空"
     )
+    location_layouts: list[MapLocationLayoutResponse] = Field(default_factory=list)
+    terrain_layers: list[MapTerrainLayerResponse] = Field(default_factory=list)
+    terrain_regions: list[MapTerrainRegionResponse] = Field(default_factory=list)
+    terrain_patches: list[MapTerrainPatchResponse] = Field(default_factory=list)
+    terrain_bindings: list[MapTerrainBindingResponse] = Field(default_factory=list)
     candidate_location_bindings: list[MapLocationBindingResponse] = Field(
         default_factory=list,
         description="待确认地点绑定图层：关联 CoreEntity.status=candidate",

@@ -241,6 +241,196 @@ class MapLocationBinding(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
 
 # ============================================================
+# MapLocationLayout — 地点布局节点
+# ============================================================
+
+
+class MapLocationLayout(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """地点布局节点。
+
+    与 MapLocationBinding 分离：binding 表达地点绑定到哪些 hex，layout 表达
+    快速创建/拖拽后的节点中心、占用半径和锁定状态。
+    """
+
+    __tablename__ = "map_location_layouts"
+    __table_args__ = (
+        Index(
+            "uq_map_location_layout_map_entity",
+            "map_id",
+            "location_entity_id",
+            unique=True,
+        ),
+        {"comment": "地图地点布局节点"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="所属地图",
+    )
+    location_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="地点实体",
+    )
+    center_hex_q: Mapped[int] = mapped_column(Integer, nullable=False)
+    center_hex_r: Mapped[int] = mapped_column(Integer, nullable=False)
+    occupy_radius: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    layout_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="quick_create"
+    )
+    layout_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    sync_geo_setting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+# ============================================================
+# MapTerrain — 手绘地形图层/区域/patch/绑定
+# ============================================================
+
+
+class MapTerrainLayer(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """手绘地形图层。一个图层对应一种素材/语义类型。"""
+
+    __tablename__ = "map_terrain_layers"
+    __table_args__ = (
+        {"comment": "地图手绘地形图层"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    terrain_asset_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    opacity: Mapped[float] = mapped_column(Float, nullable=False, default=0.45)
+    z_index: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+class MapTerrainRegion(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """一次连续手绘或一个可命名地形区域。"""
+
+    __tablename__ = "map_terrain_regions"
+    __table_args__ = (
+        {"comment": "地图手绘地形区域"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    layer_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_terrain_layers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    region_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="active"
+    )
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+class MapTerrainPatch(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """地形区域覆盖的离散 hex patch。"""
+
+    __tablename__ = "map_terrain_patches"
+    __table_args__ = (
+        Index(
+            "uq_map_terrain_patch_map_layer_region_qr",
+            "map_id",
+            "layer_id",
+            "region_id",
+            "hex_q",
+            "hex_r",
+            unique=True,
+        ),
+        {"comment": "地图手绘地形 patch"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    layer_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_terrain_layers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_terrain_regions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    hex_q: Mapped[int] = mapped_column(Integer, nullable=False)
+    hex_r: Mapped[int] = mapped_column(Integer, nullable=False)
+    strength: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    brush_source: Mapped[str] = mapped_column(String(32), nullable=False, default="brush")
+
+
+class MapTerrainBinding(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """手绘地形区域与地点实体的用户确认绑定。"""
+
+    __tablename__ = "map_terrain_bindings"
+    __table_args__ = (
+        Index(
+            "uq_map_terrain_binding_region_location_type",
+            "region_id",
+            "location_entity_id",
+            "binding_type",
+            unique=True,
+        ),
+        {"comment": "地图手绘地形绑定"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_terrain_regions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    location_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    binding_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    review_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="confirmed"
+    )
+    source: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="user_confirmed"
+    )
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+# ============================================================
 # MapMarker — 动态标记（P1 数据层预留，P0 不实现 service/API）
 # ============================================================
 

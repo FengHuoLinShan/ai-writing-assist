@@ -13,6 +13,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 手动 AI 补抽必须先通过 `POST /api/context/confirm` 确认“AI 参考资料”，再调用 `POST /api/world/entities/extract`
 - AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
+- 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
+- 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
@@ -21,7 +23,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 - 世界对象 CRUD（CoreEntity / `WorldEntityService`）
 - 对象关系管理（EntityRelation）
-- 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB）
+- 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB，支持待复核别名元数据）
 - 对象去重（EntityDedupService）
 - 世界上下文/检索词典/批次（`EntityContextService`）
 - 实体统计与自动抽取批次查询（`EntityStatsService`）
@@ -59,8 +61,13 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | `map_configs` | 动态地图配置（世界/城市/区域/地下城，自引用树，PRD §4.1） |
 | `map_tiles` | 六边形地形网格（轴向坐标 q,r，PRD §4.2） |
 | `map_location_bindings` | 地点绑定（core_entities.entity_type=location → hex，PRD §4.3） |
+| `map_location_layouts` | 地点布局节点（中心 hex、占用半径、锁定状态、快速创建/拖拽来源） |
 | `map_markers` | 动态标记（P1 预留：character/event/item，按 Scene 时间层显隐，PRD §4.5） |
 | `map_territory_tiles` | 势力范围（组织控制区域，可与地形/地点/标记叠加） |
+| `map_terrain_layers` | 手绘地形图层（素材、透明度、显隐、锁定、层级） |
+| `map_terrain_regions` | 手绘地形区域（一次连续手绘或可命名区域） |
+| `map_terrain_patches` | 手绘地形 patch（region 覆盖的离散 hex） |
+| `map_terrain_bindings` | 手绘地形区域与地点的用户确认绑定（footprint / influence） |
 | `map_observations` | 地图观察事实候选（来源证据、置信度、审查状态；默认不污染正式事实） |
 | `map_facts` | 已确认时间化地图事实（由 observation 确认生成，供世界动态地图消费） |
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
@@ -127,6 +134,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
 - 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
 - 深度导入仍保留 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations` 候选流；该接入不自动写正式 `map_facts`。
+- 地图移动解释使用 `dynamic_type="movement_explanation"`，地图冲突使用 `dynamic_type="map_conflict"`；二者复用 observation/fact 流，不新增独立冲突表。
 - 写作冲突检查通过 `summarize_scene_map_for_writing(..., include_candidates=False)` 消费 Scene 地图摘要，默认只返回已确认事实；用户在写作页显式勾选包含待确认对象时才会纳入 candidate observation，并在 writing 问题项标记 `needs_review`。
 
 ## 对外契约（contracts.py）
@@ -305,13 +313,22 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/maps/{map_id}` | 地图详情 |
 | GET | `/api/world/maps/scene-summary` | 写作页 Scene 地图摘要 |
 | GET | `/api/world/maps/open-target` | 统一地图打开目标（scene / focus entity / fallback） |
+| GET | `/api/world/maps/quick-create/context` | 快速创建上下文（默认 canonical，可显式包含 candidate） |
+| POST | `/api/world/maps/quick-create/preview` | 快速创建预览草稿；不落库、不识别正文、不创建世界对象 |
+| POST | `/api/world/maps/quick-create/confirm` | 确认快速创建，一次只写入一张地图及其布局/绑定 |
 | PATCH | `/api/world/maps/{map_id}` | 更新地图配置 |
 | DELETE | `/api/world/maps/{map_id}` | 删除地图（硬删，前端二次确认） |
 | POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |
 | GET | `/api/world/maps/{map_id}/state` | 地图聚合状态（map+面包屑+地形+绑定，PRD §6.2） |
 | GET | `/api/world/maps/{map_id}/dashboard` | 世界动态总控台派生状态（首屏层、动态队列、检查器、批量分组） |
 | GET | `/api/world/maps/{map_id}/playback` | 世界动态播放派生状态（typed observation 轨道和事件） |
+| GET | `/api/world/maps/{map_id}/location-layouts` | 地点布局节点列表 |
+| PUT | `/api/world/maps/{map_id}/location-layouts` | 覆盖保存地点布局节点（拖拽、锁定、+/-） |
 | PATCH | `/api/world/maps/{map_id}/tiles` | 批量编辑地形（PRD §6.3） |
+| GET | `/api/world/maps/{map_id}/terrain` | 手绘地形图层/区域/patch/绑定聚合状态 |
+| PUT | `/api/world/maps/{map_id}/terrain/layers/{layer_id}/patches` | 覆盖保存某手绘地形图层最终 patches |
+| POST | `/api/world/maps/{map_id}/terrain/regions/{region_id}/bindings` | 创建地形区域与地点绑定 |
+| PATCH | `/api/world/maps/{map_id}/terrain/bindings/{binding_id}` | 更新地形绑定状态或类型 |
 | POST | `/api/world/maps/{map_id}/location-bindings` | 批量创建地点绑定（PRD §6.4） |
 | PATCH | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 更新地点绑定 |
 | DELETE | `/api/world/maps/{map_id}/location-bindings/{binding_id}` | 删除地点绑定 |

@@ -8,6 +8,11 @@ from modules.outline.models import Scene
 from modules.outline.repositories import SceneRepository
 from modules.outline.schemas import (
     SceneCreate,
+    SceneFusionDraft,
+    SceneFusionPreviewRequest,
+    SceneFusionPreviewResponse,
+    SceneFusionSaveRequest,
+    SceneFusionSaveResponse,
     SceneHealthSummary,
     SceneImpactPreview,
     SceneMappingUpdate,
@@ -39,16 +44,38 @@ class SceneWorkbenchService:
         novel_id: str,
         *,
         selected_scene_id: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        boundary_status: str | None = None,
+        phase: str | None = None,
+        phase1a_fallback: bool | None = None,
+        skip: int = 0,
+        limit: int | None = None,
     ) -> SceneWorkbenchResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        scenes = await self.repo.get_by_novel_ordered(db, nid)
+        scenes = await self.repo.get_by_novel_ordered(
+            db,
+            nid,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            boundary_status=boundary_status,
+            phase=phase,
+            phase1a_fallback=phase1a_fallback,
+            skip=skip,
+            limit=limit,
+        )
         chapter_indices = await list_chapter_indices(db, novel_id)
         unassigned_chapters = self._unassigned_chapters(chapter_indices, scenes)
+        duplicate_chapter_ids = self._duplicate_scene_chapter_ids(scenes)
 
         items = [
             SceneWorkbenchItem(
                 scene=SceneResponse.model_validate(scene),
-                health=self._scene_health(scene),
+                health=self._scene_health(scene, duplicate_chapter_ids),
                 chapter_range=self._chapter_range(scene.chapter_ids or []),
                 summary=scene.goal or scene.core_conflict or scene.emotional_beat,
             )
@@ -79,6 +106,12 @@ class SceneWorkbenchService:
         data: SceneMappingUpdate,
     ) -> SceneResponse:
         scene = await self._get_scene_in_novel(db, novel_id, scene_id)
+        await self._validate_mapping_chapters(
+            db,
+            novel_id,
+            data.chapter_ids,
+            data.scene_chunks,
+        )
         meta = dict(scene.structure_meta or {})
         if data.structure_meta is not None:
             meta.update(data.structure_meta)
@@ -215,6 +248,7 @@ class SceneWorkbenchService:
         keep, move = self._split_chapter_ids(
             source.chapter_ids or [],
             data.split_chapter_index,
+            data.split_pos,
         )
         keep_chunks, move_chunks = self._split_chunks(
             source.scene_chunks or [],
@@ -263,6 +297,7 @@ class SceneWorkbenchService:
         keep, move = self._split_chapter_ids(
             source.chapter_ids or [],
             data.split_chapter_index,
+            data.split_pos,
         )
         keep_chunks, move_chunks = self._split_chunks(
             source.scene_chunks or [],
@@ -304,6 +339,63 @@ class SceneWorkbenchService:
         )
         return item
 
+    async def preview_llm_fusion(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneFusionPreviewRequest,
+    ) -> SceneFusionPreviewResponse:
+        sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
+        fused_scene = await self._fusion_scene_payload(db, novel_id, sources)
+        return SceneFusionPreviewResponse(
+            source_scene_ids=[str(scene.id) for scene in sources],
+            fused_scene=fused_scene,
+            preview_scene=fused_scene,
+            warnings=["当前为本地确定性融合预览，后续可替换为 LLM 结果。"],
+        )
+
+    async def save_llm_fusion(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneFusionSaveRequest,
+    ) -> SceneFusionSaveResponse:
+        sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
+        source_ids = [str(scene.id) for scene in sources]
+        if data.mode == "discard":
+            return SceneFusionSaveResponse(
+                status="discarded",
+                source_scene_ids=source_ids,
+                fused_scene=None,
+                warnings=["融合结果已放弃，原 Scene 未修改。"],
+            )
+
+        overrides = data.fused_scene if data.mode == "edit_then_save" else None
+        payload = await self._fusion_scene_payload(db, novel_id, sources, overrides)
+        await self._validate_fusion_override_chapters(db, novel_id, overrides)
+        created = await self.repo.create(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            SceneCreate(**payload),
+        )
+
+        if data.mode == "deprecate_originals":
+            for source in sources:
+                source_meta = dict(source.structure_meta or {})
+                source_meta["fused_into_scene_id"] = str(created.id)
+                await self.repo.update(
+                    db,
+                    source.id,
+                    SceneUpdate(status="deprecated", structure_meta=source_meta),
+                )
+        await db.flush()
+
+        return SceneFusionSaveResponse(
+            status="saved",
+            source_scene_ids=source_ids,
+            fused_scene=SceneResponse.model_validate(created),
+        )
+
     async def _get_scene_in_novel(
         self,
         db: AsyncSession,
@@ -332,7 +424,186 @@ class SceneWorkbenchService:
             raise ValueError("source_scene_ids cannot include target_scene_id")
         return target, sources
 
-    def _scene_health(self, scene: Scene) -> list[str]:
+    async def _load_fusion_scenes(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        source_scene_ids: list[str],
+    ) -> list[Scene]:
+        if len(set(source_scene_ids)) != len(source_scene_ids):
+            raise ValueError("source_scene_ids cannot contain duplicates")
+        return [
+            await self._get_scene_in_novel(db, novel_id, scene_id)
+            for scene_id in source_scene_ids
+        ]
+
+    async def _fusion_scene_payload(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        sources: list[Scene],
+        overrides: SceneFusionDraft | None = None,
+    ) -> dict[str, Any]:
+        if not sources:
+            raise ValueError("source_scene_ids cannot be empty")
+        source_ids = [str(scene.id) for scene in sources]
+        payload: dict[str, Any] = {
+            "scene_index": await self._next_scene_index(db, novel_id),
+            "title": self._fusion_title(sources),
+            "goal": self._join_unique_scene_text(sources, "goal"),
+            "core_conflict": self._join_unique_scene_text(sources, "core_conflict"),
+            "emotional_beat": self._join_unique_scene_text(sources, "emotional_beat"),
+            "must_happen": self._join_unique_scene_text(sources, "must_happen"),
+            "must_not_happen": self._join_unique_scene_text(sources, "must_not_happen"),
+            "narrative_tag": sources[0].narrative_tag or "draft",
+            "source": "manual_fusion",
+            "scene_chunks": self._merge_chunks(
+                *[source.scene_chunks or [] for source in sources]
+            ),
+            "chapter_ids": self._merge_chapter_ids(
+                *[source.chapter_ids or [] for source in sources]
+            ),
+            "pov_character_id": self._first_non_empty(sources, "pov_character_id"),
+            "structure_meta": {
+                "fused_from_scene_ids": source_ids,
+                "fusion_kind": "llm_scene_workbench",
+                "fusion_strategy": "local_deterministic_preview",
+                "needs_review": True,
+            },
+            "status": "draft",
+        }
+        if overrides is not None:
+            override_values = overrides.model_dump(exclude_unset=True)
+            override_meta = override_values.pop("structure_meta", None)
+            for field, value in override_values.items():
+                if value is not None:
+                    payload[field] = value
+            if override_meta is not None:
+                meta = dict(payload["structure_meta"])
+                meta.update(override_meta)
+                payload["structure_meta"] = meta
+        payload["status"] = "draft"
+        payload["source"] = payload.get("source") or "manual_fusion"
+        payload["structure_meta"] = {
+            **dict(payload.get("structure_meta") or {}),
+            "fused_from_scene_ids": source_ids,
+        }
+        return payload
+
+    async def _validate_fusion_override_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        overrides: SceneFusionDraft | None,
+    ) -> None:
+        if overrides is None:
+            return
+        override_values = overrides.model_dump(exclude_unset=True)
+        if "chapter_ids" not in override_values and "scene_chunks" not in override_values:
+            return
+        if not await list_chapter_indices(db, novel_id):
+            return
+        await self._validate_mapping_chapters(
+            db,
+            novel_id,
+            override_values.get("chapter_ids"),
+            override_values.get("scene_chunks"),
+        )
+
+    async def _next_scene_index(self, db: AsyncSession, novel_id: str) -> int:
+        nid = parse_uuid(novel_id, "novel_id")
+        scenes = await self.repo.get_by_novel_ordered(
+            db,
+            nid,
+        )
+        deprecated_scenes = await self.repo.get_by_novel_ordered(
+            db,
+            nid,
+            status="deprecated",
+        )
+        all_scenes = [*scenes, *deprecated_scenes]
+        if not all_scenes:
+            return 0
+        return max(scene.scene_index for scene in all_scenes) + 1
+
+    def _fusion_title(self, sources: list[Scene]) -> str:
+        titles = [scene.title for scene in sources if scene.title]
+        if not titles:
+            return "融合 Scene"
+        joined = " / ".join(titles)
+        return f"融合：{joined}"[:255]
+
+    def _join_unique_scene_text(self, scenes: list[Scene], field: str) -> str | None:
+        values: list[str] = []
+        seen: set[str] = set()
+        for scene in scenes:
+            value = getattr(scene, field)
+            if value and value not in seen:
+                seen.add(value)
+                values.append(value)
+        if not values:
+            return None
+        return "\n\n".join(values)
+
+    async def _validate_mapping_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_ids: list[str] | None,
+        scene_chunks: list[dict] | None,
+    ) -> None:
+        if chapter_ids is None and scene_chunks is None:
+            return
+        known_chapters = set(await list_chapter_indices(db, novel_id))
+        if chapter_ids is not None:
+            for chapter_id in chapter_ids:
+                chapter_index = self._coerce_chapter_index(chapter_id, "chapter_ids")
+                if chapter_index not in known_chapters:
+                    raise ValueError(f"Chapter {chapter_index} is not in this novel")
+        if scene_chunks is not None:
+            for chunk in scene_chunks:
+                chapter_ref = chunk.get("chapter_index")
+                if chapter_ref is None:
+                    chapter_ref = chunk.get("chapter_id")
+                chapter_index = self._coerce_chapter_index(
+                    chapter_ref,
+                    "scene_chunks",
+                )
+                if chapter_index not in known_chapters:
+                    raise ValueError(
+                        f"Chunk chapter {chapter_index} is not in this novel"
+                    )
+                if chunk.get("chapter_id") is not None:
+                    chunk_id = self._coerce_chapter_index(
+                        chunk.get("chapter_id"),
+                        "scene_chunks.chapter_id",
+                    )
+                    if chunk_id != chapter_index:
+                        raise ValueError(
+                            "scene_chunks chapter_id and chapter_index mismatch"
+                        )
+
+    def _coerce_chapter_index(self, value: Any, field: str) -> int:
+        if value is None or not str(value).isdigit():
+            raise ValueError(f"{field} must use numeric chapter indexes")
+        return int(value)
+
+    def _duplicate_scene_chapter_ids(self, scenes: list[Scene]) -> set[str]:
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for scene in scenes:
+            for chapter_id in {str(cid) for cid in scene.chapter_ids or []}:
+                if chapter_id in seen:
+                    duplicates.add(chapter_id)
+                else:
+                    seen.add(chapter_id)
+        return duplicates
+
+    def _scene_health(
+        self,
+        scene: Scene,
+        duplicate_chapter_ids: set[str] | None = None,
+    ) -> list[str]:
         health: list[str] = []
         meta = scene.structure_meta or {}
         if (
@@ -349,16 +620,18 @@ class SceneWorkbenchService:
             for field in ("goal", "core_conflict", "must_happen", "must_not_happen")
         ):
             health.append("missing_setup")
-        if self._needs_organize(scene):
+        if self._needs_organize(scene, duplicate_chapter_ids or set()):
             health.append("needs_organize")
         return health
 
-    def _needs_organize(self, scene: Scene) -> bool:
+    def _needs_organize(self, scene: Scene, duplicate_chapter_ids: set[str]) -> bool:
         meta = scene.structure_meta or {}
         if meta.get("needs_organize"):
             return True
         chapter_ids = scene.chapter_ids or []
         if len(chapter_ids) != len(set(chapter_ids)):
+            return True
+        if any(str(chapter_id) in duplicate_chapter_ids for chapter_id in chapter_ids):
             return True
         chunk_chapters = {
             str(chunk.get("chapter_id") or chunk.get("chapter_index"))
@@ -443,14 +716,25 @@ class SceneWorkbenchService:
         self,
         chapter_ids: list[str],
         split_chapter_index: int,
+        split_pos: int | None = None,
     ) -> tuple[list[str], list[str]]:
         keep: list[str] = []
         move: list[str] = []
+        found_boundary = False
         for chapter_id in chapter_ids:
-            if str(chapter_id).isdigit() and int(chapter_id) >= split_chapter_index:
+            if str(chapter_id).isdigit() and int(chapter_id) == split_chapter_index:
+                found_boundary = True
+                if split_pos is not None:
+                    keep.append(str(chapter_id))
+                move.append(str(chapter_id))
+            elif str(chapter_id).isdigit() and int(chapter_id) > split_chapter_index:
                 move.append(str(chapter_id))
             else:
                 keep.append(str(chapter_id))
+        if split_pos is not None and not found_boundary:
+            raise ValueError(
+                "split_chapter_index must exist in chapter_ids for split_pos"
+            )
         if not keep or not move:
             raise ValueError("split_chapter_index must split existing chapter_ids")
         return keep, move
@@ -465,18 +749,47 @@ class SceneWorkbenchService:
             return [], []
         keep: list[dict] = []
         move: list[dict] = []
+        boundary_split = False
         for chunk in chunks:
             copied = dict(chunk)
-            chapter_index = copied.get("chapter_index") or copied.get("chapter_id")
-            if str(chapter_index).isdigit() and int(chapter_index) >= split_chapter_index:
+            chapter_index = self._chunk_chapter_index(copied)
+            if chapter_index == split_chapter_index and split_pos is not None:
+                start_pos = self._coerce_position(copied.get("start_pos", 0), "start_pos")
+                end_pos = self._coerce_position(copied.get("end_pos"), "end_pos")
+                if start_pos < split_pos < end_pos:
+                    keep_part = dict(copied)
+                    move_part = dict(copied)
+                    keep_part["end_pos"] = split_pos
+                    move_part["start_pos"] = split_pos
+                    keep.append(keep_part)
+                    move.append(move_part)
+                    boundary_split = True
+                elif end_pos <= split_pos:
+                    keep.append(copied)
+                elif start_pos >= split_pos:
+                    move.append(copied)
+                else:
+                    raise ValueError("split_pos must be inside boundary chunk range")
+            elif chapter_index is not None and chapter_index >= split_chapter_index:
                 move.append(copied)
             else:
                 keep.append(copied)
-        if split_pos is not None and move:
-            first = move[0]
-            if first.get("chapter_index") == split_chapter_index:
-                first["start_pos"] = split_pos
+        if split_pos is not None and not boundary_split:
+            raise ValueError("split_pos must be inside boundary chunk range")
         return keep, move
+
+    def _chunk_chapter_index(self, chunk: dict) -> int | None:
+        chapter_ref = chunk.get("chapter_index")
+        if chapter_ref is None:
+            chapter_ref = chunk.get("chapter_id")
+        if chapter_ref is None or not str(chapter_ref).isdigit():
+            return None
+        return int(chapter_ref)
+
+    def _coerce_position(self, value: Any, field: str) -> int:
+        if value is None or not str(value).isdigit():
+            raise ValueError(f"{field} must be numeric for split_pos")
+        return int(value)
 
     def _new_split_scene_payload(
         self,

@@ -14,7 +14,9 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 记录导入历史
 - 提交并编排深度导入任务（基于 async_tasks）
 - 在重复导入时返回覆盖确认要求，确认后才入队
+- 深度导入 Scene 阶段执行 Phase 0 双轮预取、Phase 1a 正文补强、Phase 1b 融合提交，并记录质量统计
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
+- 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
 
 ## 不负责
@@ -35,13 +37,13 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 
 - writing.facade.create_draft — 写入解析后的章节正文
 - outline facade / DI handler — 深度导入 Phase 1/3
-- world facade / DI handler — 深度导入 Phase 2
+- world facade / DI handler — 深度导入 Phase 2a 对象抽取、Phase 2b 别名/关系提取
 - context.facade — Phase 2/3 LLM 调用上下文快照审计
 - memory.facade.capture_snapshot — Phase 2 后记录记忆快照
 
 ## 上下文快照边界
 
-- Phase 2 保持当前 handcrafted prompt/context 构造，不重接 context compiler；快照记录实际送入实体抽取 LLM 的上下文摘要、prompt hash、section/token metadata 和生成对象 refs。
+- Phase 2 保持当前 handcrafted prompt/context 构造，不重接 context compiler；Phase 2a 快照记录实体抽取上下文，Phase 2b 快照记录别名/关系提取的对象索引与 Scene 摘要，二者都回写 result refs。
 - Phase 3 结构分析由深度导入调用时传入 `workflow_id` / `task_id` 并开启 `audit_context_snapshot=True`；手动 AI 操作默认不创建 snapshot。
 - Phase 3 快照使用 `context_mode="working"` 和 `include_pending_objects=true`，记录结构上下文的 section/token metadata。若当前编译结果未暴露完整 asset ids，只记录可见资产并在 metadata 中说明。
 - 默认不保存完整 rendered context；调用方显式开启保留时才落库，并由 context 模块按保留策略清理。
@@ -53,6 +55,14 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 `audit_summary` 暂时保留为兼容 alias，旧前端或旧测试仍可读取；新代码应优先读取 `snapshot_health_summary`，再回退到 `audit_summary`。前端只展示“快照健康摘要 / 快照状态”的轻量信息，不新增审计工作台。
 
 快照维护入口由 context 模块提供：`POST /api/context/snapshots/maintenance`，默认 `dry_run=true`，imports 不直接访问 `context_snapshots` 表。
+
+## 深度导入恢复语义
+
+worker 启动时会检测 stale 的 `deep_import` 任务并标记为需要恢复，但不会自动继续。
+前端通过 `GET /api/tasks/{task_id}` 展示 `recovery_required` / `recovery_summary`，
+用户点击继续后调用 `POST /api/imports/deep/resume` 复用原 task；放弃恢复调用
+`POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
+Phase 0 / Phase 1a 的 422 错误率超过 40% 时阻断任务；Phase 1b 超阈值时降级继续。
 
 ## Facade
 
@@ -72,7 +82,8 @@ GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；重复导入时先返回 requires_confirmation
 POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker 场景）
-POST /api/imports/deep/resume — 兼容旧候选确认流程，当前已废弃
+POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
+POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产
 ```
 
 ## 安全约束

@@ -52,9 +52,17 @@
 - Scene 树导航
 - 自动保存与未保存提醒
 - 版本历史/恢复
-- 深度导入进度展示
+- 深度导入进度展示：恢复 localStorage 中的 task_id，展示当前章节 / Scene / batch、质量统计、降级状态和中断恢复提示
+- 中断恢复操作：用户显式点击“继续”才调用 `/api/imports/deep/resume`；“放弃恢复”必须二次确认并展示清理摘要
 - `GET /api/world/maps/scene-summary` 的地图摘要展示，包括危机、风险和空间 warning
 - 跳转到地图工作台并携带 `scene_id` / `focus_entity_id`
+
+## 结构整理补充
+
+- `sceneWorkbenchView` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
+- Scene 工作台支持手动选择多个 Scene 调用 fusion preview；保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存。手动融合输出使用 `source="manual_fusion"`。
+- `outlineView` 的剧情线、篇章纲、伏笔、揭示列表支持按 status / deep_import source / workflow_id / needs_review 筛选，用于整理 Phase 3 结构资产。
+- 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 
 ## 地图工作台补充
 

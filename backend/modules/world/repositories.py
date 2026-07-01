@@ -142,6 +142,10 @@ class CoreEntityRepository:
         entity_type: str | None = None,
         status: str | None = None,
         q: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        auto_ingested: bool | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CoreEntity], int]:
@@ -150,6 +154,8 @@ class CoreEntityRepository:
             conditions.append(CoreEntity.entity_type == entity_type)
         if status:
             conditions.append(CoreEntity.status == status)
+        else:
+            conditions.append(CoreEntity.status != "deprecated")
         if q:
             query = q.strip()
             if query:
@@ -164,6 +170,25 @@ class CoreEntityRepository:
                         CoreEntity.content_json.cast(Text).ilike(escaped_expr),
                     )
                 )
+        if source:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["source"].as_string() == source
+            )
+        if workflow_id:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["workflow_id"].as_string()
+                == workflow_id
+            )
+        if needs_review is not None:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["needs_review"].as_boolean()
+                == needs_review
+            )
+        if auto_ingested is not None:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["auto_ingested"].as_boolean()
+                == auto_ingested
+            )
 
         count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
@@ -285,6 +310,50 @@ class CoreEntityRepository:
         stmt = select(func.count(CoreEntity.id)).where(*conditions)
         result = await db.execute(stmt)
         return result.scalar() or 0
+
+    async def deprecate_deep_import_entities_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        workflow_id: str,
+    ) -> int:
+        """Soft-deprecate auto-ingested entities from one deep import workflow."""
+        stmt = select(CoreEntity).where(
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.status.in_(["candidate", "proposal", "draft", "canonical"]),
+        )
+        result = await db.execute(stmt)
+        entities: Sequence[CoreEntity] = result.scalars().all()
+
+        deprecated = 0
+        for entity in entities:
+            content_json = entity.content_json or {}
+            meta = content_json.get("_meta") or {}
+            if not (
+                meta.get("workflow_id") == workflow_id
+                and meta.get("auto_ingested") is True
+                and meta.get("source") == "deep_import"
+                and meta.get("user_edited") is not True
+            ):
+                continue
+            updated_content_json = {
+                **content_json,
+                "_meta": {
+                    **meta,
+                    "cleanup_status": "deprecated",
+                    "cleanup_reason": "abandoned_deep_import_recovery",
+                },
+            }
+            await db.execute(
+                update(CoreEntity)
+                .where(CoreEntity.id == entity.id, CoreEntity.novel_id == novel_id)
+                .values(status="deprecated", content_json=updated_content_json)
+            )
+            deprecated += 1
+
+        if deprecated:
+            await db.flush()
+        return deprecated
 
     async def find_entity_by_name(
         self,

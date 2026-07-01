@@ -21,8 +21,13 @@ from modules.world.map_models import (
     MapConfig,
     MapFact,
     MapLocationBinding,
+    MapLocationLayout,
     MapMarker,
     MapObservation,
+    MapTerrainBinding,
+    MapTerrainLayer,
+    MapTerrainPatch,
+    MapTerrainRegion,
     MapTerritoryTile,
     MapTile,
 )
@@ -406,6 +411,177 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
         db.add_all(objs)
         await db.flush()
         return objs
+
+
+# ============================================================
+# MapLocationLayoutRepository
+# ============================================================
+
+
+class MapLocationLayoutRepository(MapEntityRepository[MapLocationLayout]):
+    """地点布局节点数据访问。"""
+
+    model_class = MapLocationLayout
+
+    async def replace_for_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        layouts: list[dict[str, Any]],
+    ) -> list[MapLocationLayout]:
+        stmt = delete(MapLocationLayout).where(
+            MapLocationLayout.novel_id == novel_id,
+            MapLocationLayout.map_id == map_id,
+        )
+        await db.execute(stmt)
+        objs = [
+            MapLocationLayout(novel_id=novel_id, map_id=map_id, **layout)
+            for layout in layouts
+        ]
+        db.add_all(objs)
+        await db.flush()
+        return objs
+
+
+# ============================================================
+# MapTerrain repositories
+# ============================================================
+
+
+class MapTerrainLayerRepository(MapEntityRepository[MapTerrainLayer]):
+    """手绘地形图层数据访问。"""
+
+    model_class = MapTerrainLayer
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapTerrainLayer:
+        layer = MapTerrainLayer(novel_id=novel_id, map_id=map_id, **values)
+        db.add(layer)
+        await db.flush()
+        return layer
+
+    async def get_in_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        layer_id: uuid.UUID,
+    ) -> MapTerrainLayer | None:
+        stmt = select(MapTerrainLayer).where(
+            MapTerrainLayer.novel_id == novel_id,
+            MapTerrainLayer.map_id == map_id,
+            MapTerrainLayer.id == layer_id,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+
+class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
+    """手绘地形区域数据访问。"""
+
+    model_class = MapTerrainRegion
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapTerrainRegion:
+        region = MapTerrainRegion(novel_id=novel_id, map_id=map_id, **values)
+        db.add(region)
+        await db.flush()
+        return region
+
+    async def upsert(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapTerrainRegion:
+        region_id = values.get("id")
+        if region_id:
+            existing = await self.get_in_map(db, novel_id, map_id, region_id)
+            if existing is not None:
+                for field in ("layer_id", "name", "region_status", "meta"):
+                    if field in values:
+                        setattr(existing, field, values[field])
+                await db.flush()
+                return existing
+        return await self.create(db, novel_id, map_id, values)
+
+    async def get_in_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        region_id: uuid.UUID,
+    ) -> MapTerrainRegion | None:
+        stmt = select(MapTerrainRegion).where(
+            MapTerrainRegion.novel_id == novel_id,
+            MapTerrainRegion.map_id == map_id,
+            MapTerrainRegion.id == region_id,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+
+class MapTerrainPatchRepository(MapEntityRepository[MapTerrainPatch]):
+    """手绘地形 patch 数据访问。"""
+
+    model_class = MapTerrainPatch
+
+    async def replace_for_layer(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        layer_id: uuid.UUID,
+        patches: list[dict[str, Any]],
+    ) -> list[MapTerrainPatch]:
+        stmt = delete(MapTerrainPatch).where(
+            MapTerrainPatch.novel_id == novel_id,
+            MapTerrainPatch.map_id == map_id,
+            MapTerrainPatch.layer_id == layer_id,
+        )
+        await db.execute(stmt)
+        objs = [
+            MapTerrainPatch(
+                novel_id=novel_id,
+                map_id=map_id,
+                layer_id=layer_id,
+                **patch,
+            )
+            for patch in patches
+        ]
+        db.add_all(objs)
+        await db.flush()
+        return objs
+
+
+class MapTerrainBindingRepository(MapEntityRepository[MapTerrainBinding]):
+    """手绘地形与地点绑定数据访问。"""
+
+    model_class = MapTerrainBinding
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapTerrainBinding:
+        binding = MapTerrainBinding(novel_id=novel_id, map_id=map_id, **values)
+        db.add(binding)
+        await db.flush()
+        return binding
 
 
 # ============================================================

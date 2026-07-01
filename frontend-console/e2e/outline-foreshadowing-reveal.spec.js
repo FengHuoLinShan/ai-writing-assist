@@ -159,4 +159,73 @@ test.describe("Outline View — 伏笔与揭示", () => {
       try { await cleanupProject(otherProject.id) } catch {}
     }
   })
+
+  test("结构资产筛选可定位深度导入的伏笔和揭示", async ({ page }) => {
+    const foreshadowingItems = [
+      {
+        id: "f-import",
+        name: "导入伏笔",
+        summary: "导入伏笔",
+        planned_seed_chapter: 2,
+        status: "abandoned",
+        provenance_meta: { source: "deep_import", workflow_id: "wf-structure-e2e", needs_review: true, phase: "structure_analysis" },
+      },
+      {
+        id: "f-manual",
+        name: "人工伏笔",
+        summary: "人工伏笔",
+        planned_seed_chapter: 3,
+        status: "planted",
+        provenance_meta: { source: "manual", needs_review: false },
+      },
+    ]
+    const revealItems = [
+      {
+        id: "r-import",
+        secret_summary: "导入揭示",
+        reveal_stages: [{ stage_index: 0, chapter_index: 6, reveal_content: "导入揭示" }],
+        status: "abandoned",
+        provenance_meta: { source: "deep_import", workflow_id: "wf-structure-e2e", needs_review: true, phase: "structure_analysis" },
+      },
+      {
+        id: "r-manual",
+        secret_summary: "人工揭示",
+        reveal_stages: [{ stage_index: 0, chapter_index: 8, reveal_content: "人工揭示" }],
+        status: "planned",
+        provenance_meta: { source: "manual", needs_review: false },
+      },
+    ]
+    await page.route("**/api/outline/foreshadowing**", async (route) => {
+      const url = new URL(route.request().url())
+      const filtered = url.searchParams.get("source") === "deep_import"
+      await route.fulfill({ json: { items: filtered ? [foreshadowingItems[0]] : foreshadowingItems, total: filtered ? 1 : 2 } })
+    })
+    await page.route("**/api/outline/reveals**", async (route) => {
+      const url = new URL(route.request().url())
+      const filtered = url.searchParams.get("source") === "deep_import"
+      await route.fulfill({ json: { items: filtered ? [revealItems[0]] : revealItems, total: filtered ? 1 : 2 } })
+    })
+
+    await reloadWorkbench(page, "outline", "foreshadowing")
+    await page.locator("#outline-filter-status").selectOption("abandoned")
+    await page.locator("#outline-filter-source").selectOption("deep_import")
+    await page.locator("#outline-filter-workflow-id").fill("wf-structure-e2e")
+    await page.locator("#outline-filter-needs-review").selectOption("true")
+    await page.locator('[data-action="apply-outline-structure-filters"]').click()
+    await expect(page.locator(SEL.dataTable)).toContainText("导入伏笔")
+    await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
+    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).not.toContainText("人工伏笔")
+
+    await page.locator('[data-action="nav-reveals"]').click()
+    await page.locator("#outline-filter-status").selectOption("abandoned")
+    await page.locator("#outline-filter-source").selectOption("deep_import")
+    await page.locator("#outline-filter-workflow-id").fill("wf-structure-e2e")
+    await page.locator("#outline-filter-needs-review").selectOption("true")
+    await page.locator('[data-action="apply-outline-structure-filters"]').click()
+    await expect(page.locator(SEL.dataTable)).toContainText("导入揭示")
+    await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
+    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).not.toContainText("人工揭示")
+  })
 })

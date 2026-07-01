@@ -80,3 +80,29 @@ async def create_delta_log(
         "scene_index": delta.scene_index,
         "field_path": delta.field_path,
     }
+
+
+async def count_deep_import_delta_logs_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    """Count deep import delta logs for cleanup reporting only."""
+    from sqlalchemy import select
+
+    from modules.memory.models import DeltaLog
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    stmt = select(DeltaLog).where(
+        DeltaLog.novel_id == nid,
+        DeltaLog.source == "deep_import",
+    )
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    return sum(
+        1
+        for item in items
+        if (item.meta or {}).get("workflow_id") == workflow_id
+        and (item.meta or {}).get("auto_ingested") is True
+    )

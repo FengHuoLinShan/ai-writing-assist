@@ -38,7 +38,9 @@
 # 规则
 - 只抽取会在后续章节反复出现、影响剧情的长期资产。
 - 不抽取路人、一次性道具、代词、一次性场景元素。
+- 单个 Scene 优先输出 3~8 个最高价值对象；不要为了凑数量抽取普通食物、家具、街边路人或一次性动作。
 - 别名不创建新对象；放入 `aliases`。
 - 如果对象已存在（名称或别名相同），使用 `suggested_action=link_to_existing`。
+- `importance`、`confidence`、`strength` 必须输出 JSON number，例如 `0.85`；不要输出“高/中/低”、百分比字符串或中文描述。
 - 当前任务由用户确认启动的深度导入流水线调用；不要输出 `status` 字段，系统会根据 `suggested_action` 写入带 `auto_ingested` 来源元数据的记录。
 - 请只输出合法 JSON，不要添加 Markdown 代码块标记。
