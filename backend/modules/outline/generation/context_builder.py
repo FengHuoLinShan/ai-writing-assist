@@ -43,6 +43,8 @@ class PlotStructureContextBuilder:
         *,
         context_mode: str = "canonical",
         include_pending_objects: bool = False,
+        include_chapter_texts: bool = True,
+        include_existing_scenes: bool = False,
     ) -> PlotStructureContext:
         """加载并组装上下文。
 
@@ -79,8 +81,20 @@ class PlotStructureContextBuilder:
             if ch.get("character_id") and ch.get("name")
         }
 
-        chapter_texts = await self._load_chapter_texts(
-            db, novel_id, start_chapter, end_chapter
+        if include_existing_scenes:
+            scenes_md = await self._load_scene_summaries(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+            )
+            if scenes_md:
+                context_md += "\n## 已生成 Scene 摘要\n" + scenes_md
+
+        chapter_texts = (
+            await self._load_chapter_texts(db, novel_id, start_chapter, end_chapter)
+            if include_chapter_texts
+            else []
         )
         if chapter_texts:
             context_md += "\n## 章节原文\n"
@@ -134,6 +148,60 @@ class PlotStructureContextBuilder:
             for warning in bundle.warnings:
                 context_md += f"- {warning}\n"
         return context_md
+
+    async def _load_scene_summaries(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> str:
+        """加载指定章节范围内已有 Scene 的紧凑摘要。"""
+        from modules.outline.services import SceneService
+
+        scenes = await SceneService().get_ordered(db, novel_id)
+        lines: list[str] = []
+        for scene in scenes:
+            if scene.status == "deprecated":
+                continue
+            chapter_indices = self._scene_chapter_indices(scene)
+            if chapter_indices and not any(
+                start_chapter <= idx <= end_chapter for idx in chapter_indices
+            ):
+                continue
+            chapter_label = (
+                f"第{min(chapter_indices)}-{max(chapter_indices)}章"
+                if chapter_indices
+                else "章节未知"
+            )
+            summary_parts = [
+                scene.goal,
+                scene.core_conflict,
+                scene.emotional_beat,
+            ]
+            summary = "；".join(str(part).strip() for part in summary_parts if part)
+            lines.append(
+                f"- S{scene.scene_index} {chapter_label}《{scene.title or '未命名'}》"
+                f"：{summary[:240]}"
+            )
+        return "\n".join(lines) + ("\n" if lines else "")
+
+    @staticmethod
+    def _scene_chapter_indices(scene: object) -> list[int]:
+        indices: set[int] = set()
+        for chapter_id in getattr(scene, "chapter_ids", []) or []:
+            try:
+                indices.add(int(chapter_id))
+            except (TypeError, ValueError):
+                continue
+        for chunk in getattr(scene, "scene_chunks", []) or []:
+            if not isinstance(chunk, dict):
+                continue
+            try:
+                indices.add(int(chunk.get("chapter_index")))
+            except (TypeError, ValueError):
+                continue
+        return sorted(indices)
 
     async def _load_chapter_texts(
         self,

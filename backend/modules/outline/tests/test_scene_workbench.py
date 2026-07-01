@@ -85,6 +85,160 @@ class TestSceneWorkbenchApi:
             "needs_organize",
         ]
 
+    async def test_workbench_includes_candidate_scenes(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "候选 Scene",
+                "source": "deep_import",
+                "status": "candidate",
+                "chapter_ids": ["1"],
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [item["scene"]["id"] for item in data["items"]] == [scene["id"]]
+        assert data["items"][0]["health"][:1] == ["unreviewed"]
+
+    async def test_workbench_filters_deep_import_scene_metadata(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        sample_novel_id: str,
+    ) -> None:
+        matching = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "需复核 fallback",
+                "source": "deep_import",
+                "status": "deprecated",
+                "structure_meta": {
+                    "workflow_id": "wf-scene-filter",
+                    "phase": "phase1a_fallback",
+                    "boundary_status": "uncertain",
+                    "needs_review": True,
+                    "phase1a_fallback": True,
+                },
+            },
+        )
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "其他 workflow",
+                "source": "deep_import",
+                "status": "deprecated",
+                "structure_meta": {
+                    "workflow_id": "wf-other",
+                    "phase": "phase1a_fallback",
+                    "boundary_status": "uncertain",
+                    "needs_review": True,
+                    "phase1a_fallback": True,
+                },
+            },
+        )
+        await _create_scene(
+            async_client,
+            sample_novel_id,
+            {
+                "scene_index": 0,
+                "title": "其他小说",
+                "source": "deep_import",
+                "status": "deprecated",
+                "structure_meta": {
+                    "workflow_id": "wf-scene-filter",
+                    "phase": "phase1a_fallback",
+                    "boundary_status": "uncertain",
+                    "needs_review": True,
+                    "phase1a_fallback": True,
+                },
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "status": "deprecated",
+                "source": "deep_import",
+                "workflow_id": "wf-scene-filter",
+                "needs_review": "true",
+                "boundary_status": "uncertain",
+                "phase": "phase1a_fallback",
+                "phase1a_fallback": "true",
+                "skip": 0,
+                "limit": 20,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [item["scene"]["id"] for item in data["items"]] == [matching["id"]]
+        assert data["items"][0]["scene"]["structure_meta"]["workflow_id"] == (
+            "wf-scene-filter"
+        )
+
+    async def test_workbench_marks_cross_scene_duplicate_chapters_needs_organize(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "重复一",
+                "chapter_ids": ["1"],
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须",
+                "must_not_happen": "禁止",
+            },
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "重复二",
+                "chapter_ids": ["1"],
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须",
+                "must_not_happen": "禁止",
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        health_by_scene = {
+            item["scene"]["id"]: item["health"] for item in data["items"]
+        }
+        assert "needs_organize" in health_by_scene[first["id"]]
+        assert "needs_organize" in health_by_scene[second["id"]]
+        assert data["health"]["needs_organize"]["count"] == 2
+
     async def test_mapping_update_changes_scene_mapping_without_touching_text(
         self,
         async_client: AsyncClient,
@@ -141,6 +295,46 @@ class TestSceneWorkbenchApi:
         )
         assert draft_resp.status_code == 200
         assert draft_resp.json()["content"] == "第2章正文"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"chapter_ids": ["999"]},
+            {"chapter_ids": ["chapter-1"]},
+            {"scene_chunks": [{"chapter_id": "999", "chapter_index": 999}]},
+            {"scene_chunks": [{"chapter_id": "1", "chapter_index": 2}]},
+        ],
+        ids=[
+            "unknown_chapter",
+            "non_numeric_chapter",
+            "unknown_chunk_chapter",
+            "chunk_id_index_mismatch",
+        ],
+    )
+    async def test_mapping_update_rejects_invalid_chapter_mappings(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        payload: dict,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "第一章")
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "旅程",
+                "chapter_ids": ["1"],
+            },
+        )
+
+        resp = await async_client.patch(
+            f"/api/outline/scene-workbench/scenes/{scene['id']}/mapping",
+            params={"novel_id": test_project_id},
+            json=payload,
+        )
+
+        assert resp.status_code == 400
 
     async def test_scene_detail_update_can_clear_nullable_fields(
         self,
@@ -344,6 +538,360 @@ class TestSceneWorkbenchApi:
         assert result["new_scene"]["status"] == "draft"
         assert result["new_scene"]["structure_meta"]["split_from_scene_id"] == scene["id"]
         assert result["new_scene"]["structure_meta"]["split_at_chapter_index"] == 2
+
+    async def test_split_with_split_pos_keeps_source_chunk_front_half(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "同章拆分",
+                "chapter_ids": ["1", "2"],
+                "scene_chunks": [
+                    {
+                        "chapter_id": "1",
+                        "chapter_index": 1,
+                        "start_pos": 0,
+                        "end_pos": 10,
+                    },
+                    {
+                        "chapter_id": "2",
+                        "chapter_index": 2,
+                        "start_pos": 0,
+                        "end_pos": 100,
+                    },
+                ],
+            },
+        )
+
+        split_resp = await async_client.post(
+            "/api/outline/scene-workbench/split",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_id": scene["id"],
+                "split_chapter_index": 2,
+                "split_pos": 40,
+                "confirmed": True,
+            },
+        )
+
+        assert split_resp.status_code == 200, split_resp.text
+        result = split_resp.json()
+        assert result["scene"]["chapter_ids"] == ["1", "2"]
+        assert result["scene"]["scene_chunks"][1]["start_pos"] == 0
+        assert result["scene"]["scene_chunks"][1]["end_pos"] == 40
+        assert result["new_scene"]["chapter_ids"] == ["2"]
+        assert result["new_scene"]["scene_chunks"][0]["start_pos"] == 40
+        assert result["new_scene"]["scene_chunks"][0]["end_pos"] == 100
+
+    async def test_fusion_preview_is_side_effect_free_and_returns_sources(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "潜入",
+                "goal": "拿到密信",
+                "core_conflict": "守卫巡逻",
+                "must_happen": "发现暗门",
+                "chapter_ids": ["1"],
+            },
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "逃离",
+                "goal": "带着密信脱身",
+                "emotional_beat": "紧张升级",
+                "must_not_happen": "身份暴露",
+                "chapter_ids": ["2"],
+            },
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview",
+            params={"novel_id": test_project_id},
+            json={"source_scene_ids": [first["id"], second["id"]]},
+        )
+
+        assert resp.status_code == 200, resp.text
+        preview = resp.json()
+        assert preview["source_scene_ids"] == [first["id"], second["id"]]
+        assert preview["fused_scene"]["status"] == "draft"
+        assert preview["fused_scene"]["chapter_ids"] == ["1", "2"]
+        assert preview["fused_scene"]["structure_meta"]["fused_from_scene_ids"] == [
+            first["id"],
+            second["id"],
+        ]
+
+        for scene in (first, second):
+            after_preview = await async_client.get(
+                f"/api/outline/scenes/{scene['id']}",
+                params={"novel_id": test_project_id},
+            )
+            assert after_preview.status_code == 200
+            assert after_preview.json()["status"] == "draft"
+
+    async def test_fusion_keep_originals_creates_draft_without_changing_sources(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "goal": "目标甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "goal": "目标乙", "chapter_ids": ["2"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/save",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "mode": "keep_originals",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "saved"
+        assert data["fused_scene"]["status"] == "draft"
+        assert data["fused_scene"]["source"] == "manual_fusion"
+        assert data["fused_scene"]["structure_meta"]["fused_from_scene_ids"] == [
+            first["id"],
+            second["id"],
+        ]
+        assert data["fused_scene"]["chapter_ids"] == ["1", "2"]
+
+        for scene in (first, second):
+            source_resp = await async_client.get(
+                f"/api/outline/scenes/{scene['id']}",
+                params={"novel_id": test_project_id},
+            )
+            assert source_resp.json()["status"] == "draft"
+
+    async def test_fusion_deprecate_originals_creates_draft_and_marks_sources(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/save",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "mode": "deprecate_originals",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        fused_scene = resp.json()["fused_scene"]
+        assert fused_scene["status"] == "draft"
+        assert fused_scene["source"] == "manual_fusion"
+
+        for source in (first, second):
+            source_resp = await async_client.get(
+                f"/api/outline/scenes/{source['id']}",
+                params={"novel_id": test_project_id},
+            )
+            source_data = source_resp.json()
+            assert source_data["status"] == "deprecated"
+            assert source_data["structure_meta"]["fused_into_scene_id"] == (
+                fused_scene["id"]
+            )
+
+    async def test_fusion_discard_does_not_create_or_change_sources(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/save",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "mode": "discard",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "discarded"
+        assert data["fused_scene"] is None
+
+        list_resp = await async_client.get(
+            "/api/outline/scenes",
+            params={"novel_id": test_project_id},
+        )
+        assert list_resp.json()["total"] == 2
+        for scene in (first, second):
+            source_resp = await async_client.get(
+                f"/api/outline/scenes/{scene['id']}",
+                params={"novel_id": test_project_id},
+            )
+            assert source_resp.json()["status"] == "draft"
+
+    async def test_fusion_edit_then_save_uses_user_edited_fields(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "goal": "旧目标", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/save",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "mode": "edit_then_save",
+                "fused_scene": {
+                    "title": "用户编辑后的融合",
+                    "goal": "用户确认目标",
+                    "chapter_ids": ["2"],
+                    "structure_meta": {"reviewed_at": "manual"},
+                },
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        fused_scene = resp.json()["fused_scene"]
+        assert fused_scene["title"] == "用户编辑后的融合"
+        assert fused_scene["goal"] == "用户确认目标"
+        assert fused_scene["chapter_ids"] == ["2"]
+        assert fused_scene["status"] == "draft"
+        assert fused_scene["structure_meta"]["reviewed_at"] == "manual"
+        assert fused_scene["structure_meta"]["fused_from_scene_ids"] == [
+            first["id"],
+            second["id"],
+        ]
+
+        for scene in (first, second):
+            source_resp = await async_client.get(
+                f"/api/outline/scenes/{scene['id']}",
+                params={"novel_id": test_project_id},
+            )
+            assert source_resp.json()["status"] == "draft"
+
+    async def test_fusion_rejects_source_scene_from_another_novel(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        sample_novel_id: str,
+    ) -> None:
+        local_scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "本小说", "chapter_ids": ["1"]},
+        )
+        other_scene = await _create_scene(
+            async_client,
+            sample_novel_id,
+            {"scene_index": 0, "title": "其他小说", "chapter_ids": ["1"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview",
+            params={"novel_id": test_project_id},
+            json={"source_scene_ids": [local_scene["id"], other_scene["id"]]},
+        )
+
+        assert resp.status_code == 404
+
+    async def test_fusion_requires_at_least_two_scenes(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "孤立 Scene", "chapter_ids": ["1"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview",
+            params={"novel_id": test_project_id},
+            json={"source_scene_ids": [scene["id"]]},
+        )
+
+        assert resp.status_code == 422
+
+    async def test_fusion_rejects_edited_chapter_outside_novel(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1)
+        await _create_draft(async_client, test_project_id, 2)
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/save",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "mode": "edit_then_save",
+                "fused_scene": {"chapter_ids": ["999"]},
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "Chapter 999 is not in this novel" in resp.text
 
     async def test_scene_workbench_write_operations_keep_novel_id_isolation(
         self,

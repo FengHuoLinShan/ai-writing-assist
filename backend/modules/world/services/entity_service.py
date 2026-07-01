@@ -104,6 +104,10 @@ class WorldEntityService(
         entity_type: str | None = None,
         status: str | None = None,
         q: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        auto_ingested: bool | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> CoreEntityListResponse:
@@ -116,6 +120,10 @@ class WorldEntityService(
             entity_type=entity_type,
             status=status,
             q=q,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            auto_ingested=auto_ingested,
             skip=skip,
             limit=limit,
         )

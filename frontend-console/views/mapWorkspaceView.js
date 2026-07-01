@@ -3,6 +3,7 @@
  */
 import mapView from "./mapView.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
+import mapQuickCreateView from "./mapQuickCreateView.js"
 import { parseMapRouteContext } from "./mapRouteContext.js"
 
 const RECENT_PREFIX = "novel_map_recent:"
@@ -68,12 +69,12 @@ const mapWorkspaceView = {
       this._activeMapId = context.mapId
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
-      this._viewMode = ["dashboard", "live", "lens"].includes(context.mode) ? context.mode : "dashboard"
+      this._viewMode = this._normalizeViewMode(context.mode)
     } else if (context.mode === "recent") {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
       this._defer(() => this._openRecentMap())
-    } else if (context.projectId && !context.mapId) {
+    } else if (context.projectId && !context.mapId && !this._activeMapId) {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
       this._defer(() => this._openDefaultTarget())
@@ -204,6 +205,7 @@ const mapWorkspaceView = {
         this._openMap(target.map_id, {
           sceneId: target.scene_id || this._activeSceneId,
           focusEntityId: target.focus_entity_id || this._focusEntityId,
+          viewMode: target.mode || "dashboard",
         })
       }
     } catch {
@@ -211,11 +213,12 @@ const mapWorkspaceView = {
     }
   },
 
-  _openMap(mapId, { sceneId = null, focusEntityId = null } = {}) {
+  _openMap(mapId, { sceneId = null, focusEntityId = null, viewMode = null } = {}) {
     this._mode = "map"
     this._activeMapId = mapId
     this._activeSceneId = sceneId
     this._focusEntityId = focusEntityId
+    if (viewMode) this._viewMode = this._normalizeViewMode(viewMode)
     this._resetDynamicSummary()
     const map = this._maps.find((m) => m.id === mapId)
     if (map) this._saveRecentMap(map)
@@ -241,7 +244,7 @@ const mapWorkspaceView = {
   },
 
   _setViewMode(viewMode) {
-    if (!["dashboard", "live", "lens"].includes(viewMode)) return
+    viewMode = this._normalizeViewMode(viewMode)
     this._viewMode = viewMode
     if (this._mode === "map") {
       mapView._mountContext = {
@@ -292,6 +295,11 @@ const mapWorkspaceView = {
     }
   },
 
+  _normalizeViewMode(mode) {
+    if (mode === "map") return "live"
+    return ["dashboard", "live", "lens"].includes(mode) ? mode : "dashboard"
+  },
+
   _search(query) {
     const text = (query || "").trim().toLowerCase()
     if (!text) return []
@@ -316,6 +324,7 @@ const mapWorkspaceView = {
           <button class="btn btn-primary" data-action="map-open-recent">
             打开最近地图
           </button>
+          <button class="btn btn-primary" data-action="map-quick-create">快速创建</button>
           <button class="btn" data-action="map-create-world">创建世界地图</button>
           <input class="form-input" id="map-workspace-search" placeholder="搜索地图或地点" />
         </div>
@@ -384,6 +393,7 @@ const mapWorkspaceView = {
       <div class="map-workspace map-workspace-active">
         <div class="map-toolbar">
           <button class="btn" data-action="map-overview">返回总览</button>
+          <button class="btn btn-sm btn-primary" data-action="map-quick-create">快速创建</button>
           ${this._renderViewModeControls()}
           ${this._renderLayerToggles()}
         </div>
@@ -1183,8 +1193,9 @@ const mapWorkspaceView = {
       if (!target) return
       const action = target.dataset.action
       if (action === "map-open-recent") this._openRecentMap()
-      if (action === "map-open") this._openMap(target.dataset.id)
+      if (action === "map-open") this._openMap(target.dataset.id, { viewMode: "live" })
       if (action === "map-search-location") this._openLocation(target.dataset.id)
+      if (action === "map-quick-create") this._openQuickCreate()
       if (action === "map-create-world") this._showCreateWorldForm()
       if (action === "map-confirm-observation") this._confirmObservation(target.dataset.id)
       if (action === "map-ignore-observation") this._ignoreObservation(target.dataset.id)
@@ -1221,6 +1232,15 @@ const mapWorkspaceView = {
         }
       }
     }
+  },
+
+  async _openQuickCreate() {
+    await mapQuickCreateView.open({
+      onCreated: async (map) => {
+        await this._loadData()
+        this._openMap(map.id, { viewMode: "live" })
+      },
+    })
   },
 
   _showCreateWorldForm() {
@@ -1268,7 +1288,7 @@ const mapWorkspaceView = {
           closeModal()
           toast("世界地图已创建", "success")
           await this._loadData()
-          this._openMap(created.id)
+          this._openMap(created.id, { viewMode: "live" })
         } catch (err) {
           toast(`创建失败：${err.message || "未知错误"}`, "error")
         }

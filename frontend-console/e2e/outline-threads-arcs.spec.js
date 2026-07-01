@@ -134,6 +134,75 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("10")
   })
 
+  test("结构资产筛选可定位深度导入的剧情线和篇章纲", async ({ page }) => {
+    const threadItems = [
+      {
+        id: "t-import",
+        name: "导入主线",
+        thread_type: "main",
+        status: "deprecated",
+        provenance_meta: { source: "deep_import", workflow_id: "wf-structure-e2e", needs_review: true, phase: "structure_analysis" },
+      },
+      {
+        id: "t-manual",
+        name: "人工支线",
+        thread_type: "sub",
+        status: "canonical",
+        provenance_meta: { source: "manual", needs_review: false },
+      },
+    ]
+    const arcItems = [
+      {
+        id: "a-import",
+        title: "导入篇章纲",
+        start_chapter: 1,
+        end_chapter: 5,
+        status: "deprecated",
+        provenance_meta: { source: "deep_import", workflow_id: "wf-structure-e2e", needs_review: true, phase: "structure_analysis" },
+      },
+      {
+        id: "a-manual",
+        title: "人工篇章纲",
+        start_chapter: 6,
+        end_chapter: 8,
+        status: "canonical",
+        provenance_meta: { source: "manual", needs_review: false },
+      },
+    ]
+    await page.route("**/api/outline/threads**", async (route) => {
+      const url = new URL(route.request().url())
+      const filtered = url.searchParams.get("source") === "deep_import"
+      await route.fulfill({ json: { items: filtered ? [threadItems[0]] : threadItems, total: filtered ? 1 : 2 } })
+    })
+    await page.route("**/api/outline/arcs**", async (route) => {
+      const url = new URL(route.request().url())
+      const filtered = url.searchParams.get("source") === "deep_import"
+      await route.fulfill({ json: { items: filtered ? [arcItems[0]] : arcItems, total: filtered ? 1 : 2 } })
+    })
+
+    await reloadWorkbench(page, "outline", "threads")
+    await page.locator("#outline-filter-status").selectOption("deprecated")
+    await page.locator("#outline-filter-source").selectOption("deep_import")
+    await page.locator("#outline-filter-workflow-id").fill("wf-structure-e2e")
+    await page.locator("#outline-filter-needs-review").selectOption("true")
+    await page.locator('[data-action="apply-outline-structure-filters"]').click()
+    await expect(page.locator(SEL.dataTable)).toContainText("导入主线")
+    await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
+    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).not.toContainText("人工支线")
+
+    await page.locator('[data-action="nav-arcs"]').click()
+    await page.locator("#outline-filter-status").selectOption("deprecated")
+    await page.locator("#outline-filter-source").selectOption("deep_import")
+    await page.locator("#outline-filter-workflow-id").fill("wf-structure-e2e")
+    await page.locator("#outline-filter-needs-review").selectOption("true")
+    await page.locator('[data-action="apply-outline-structure-filters"]').click()
+    await expect(page.locator(SEL.dataTable)).toContainText("导入篇章纲")
+    await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
+    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).not.toContainText("人工篇章纲")
+  })
+
   test("编辑篇章纲", async ({ page }) => {
     // Given: 已存在一个篇章纲
     await page.locator('[data-action="nav-arcs"]').click()

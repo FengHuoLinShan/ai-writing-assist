@@ -65,6 +65,19 @@ def _truncate(
     return value[:max_length]
 
 
+def _deep_import_provenance(workflow_id: str | None) -> dict[str, Any]:
+    if not workflow_id:
+        return {}
+    return {
+        "source": "deep_import",
+        "workflow_id": workflow_id,
+        "auto_ingested": True,
+        "needs_review": False,
+        "user_edited": False,
+        "phase": "structure_analysis",
+    }
+
+
 @dataclass
 class PersistResult:
     """持久化结果。"""
@@ -134,9 +147,11 @@ class PlotStructurePersister:
         parsed: ParsedPlotStructure,
         entity_name_to_id: dict[str, str],
         character_name_to_id: dict[str, str],
+        workflow_id: str | None = None,
     ) -> PersistResult:
         """持久化解析结果。"""
         result = PersistResult()
+        provenance_meta = _deep_import_provenance(workflow_id)
 
         existing_threads, existing_arcs = await self._check_duplicates(
             db, novel_id, start_chapter, end_chapter
@@ -158,6 +173,7 @@ class PlotStructurePersister:
             parsed.threads,
             character_name_to_id,
             entity_name_to_id,
+            provenance_meta,
         )
         result.threads = created_threads
         result.total_threads = len(created_threads)
@@ -173,6 +189,7 @@ class PlotStructurePersister:
             thread_name_to_id,
             character_name_to_id,
             entity_name_to_id,
+            provenance_meta,
         )
         result.arcs = created_arcs
         result.total_arcs = len(created_arcs)
@@ -184,6 +201,7 @@ class PlotStructurePersister:
             parsed.reveal_plans,
             entity_name_to_id,
             character_name_to_id,
+            provenance_meta,
         )
         created_foreshadowing, created_reveals = plans_result
 
@@ -231,6 +249,7 @@ class PlotStructurePersister:
         threads: list[GeneratedThread],
         character_name_to_id: dict[str, str],
         entity_name_to_id: dict[str, str],
+        provenance_meta: dict[str, Any],
     ) -> list[dict]:
         """持久化剧情线。"""
         created: list[dict] = []
@@ -260,6 +279,7 @@ class PlotStructurePersister:
                 current_stage=t.current_stage,
                 related_character_ids=thread_char_ids,
                 related_entity_ids=thread_entity_ids,
+                provenance_meta=dict(provenance_meta),
                 status="draft",
             )
             try:
@@ -287,6 +307,7 @@ class PlotStructurePersister:
         thread_name_to_id: dict[str, str],
         character_name_to_id: dict[str, str],
         entity_name_to_id: dict[str, str],
+        provenance_meta: dict[str, Any],
     ) -> list[dict]:
         """持久化篇章纲。"""
         created: list[dict] = []
@@ -326,6 +347,7 @@ class PlotStructurePersister:
                 related_thread_ids=arc_related_thread_ids,
                 related_character_ids=arc_related_char_ids,
                 related_entity_ids=arc_related_entity_ids,
+                provenance_meta=dict(provenance_meta),
                 status="draft",
             )
             try:
@@ -349,6 +371,7 @@ class PlotStructurePersister:
         reveal_plans: list[GeneratedRevealPlan],
         entity_name_to_id: dict[str, str],
         character_name_to_id: dict[str, str],
+        provenance_meta: dict[str, Any],
     ) -> tuple[list[dict], list[dict]]:
         """持久化伏笔计划和揭示计划。"""
         created_foreshadowing: list[dict] = []
@@ -368,6 +391,7 @@ class PlotStructurePersister:
                         hidden_meaning=getattr(fp, "hidden_meaning", None),
                         planned_seed_chapter=fp.planned_seed_chapter,
                         planned_payoff_chapter=fp.planned_payoff_chapter,
+                        provenance_meta=dict(provenance_meta),
                         status="draft",
                     ),
                 )
@@ -399,6 +423,7 @@ class PlotStructurePersister:
                             target_id or "00000000-0000-0000-0000-000000000000"
                         ),
                         secret_summary=rp.secret_summary or "",
+                        provenance_meta=dict(provenance_meta),
                         status="draft",
                     ),
                 )

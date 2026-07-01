@@ -77,11 +77,7 @@ class ContextConfirmationService:
             budget_tokens=budget_tokens,
         )
         selected_asset_ids = self._selected_asset_ids(compiled, options)
-        warnings = [
-            section.content
-            for section in compiled.sections
-            if section.key == "compiler_warnings"
-        ]
+        warnings = list(compiled.warnings)
         record = await self._repo.create(
             db,
             novel_id=parse_uuid(novel_id, "novel_id"),
@@ -96,7 +92,7 @@ class ContextConfirmationService:
             compile_options=self._compile_options_json(options),
             warnings=warnings,
         )
-        return self._to_contract(record)
+        return self._to_contract(record, compiled=compiled)
 
     async def require_confirmation(
         self,
@@ -235,9 +231,36 @@ class ContextConfirmationService:
         }
 
     @staticmethod
-    def _to_contract(record) -> ContextConfirmationContract:
+    def _to_contract(
+        record,
+        compiled: CompiledContext | None = None,
+    ) -> ContextConfirmationContract:
         compiled_at = record.compiled_at or datetime.now(UTC)
         created_at = record.created_at or compiled_at
+        sections = []
+        budget_events = []
+        if compiled is not None:
+            sections = [
+                {
+                    "key": section.key,
+                    "tier": int(section.tier),
+                    "content": section.content,
+                    "token_count": section.token_count,
+                    "truncated": section.key in compiled.truncated_keys,
+                    "title": section.title,
+                    "preview": section.preview or section.content[:160],
+                    "status": section.status,
+                    "activation_reason": section.activation_reason,
+                    "sources": section.sources,
+                    "can_exclude": section.can_exclude and int(section.tier) != 0,
+                    "excluded": section.excluded,
+                    "truncated_reason": section.truncated_reason,
+                }
+                for section in compiled.sections
+            ]
+            budget_events = [
+                event.model_dump() for event in compiled.budget_events
+            ]
         return ContextConfirmationContract(
             id=str(record.id),
             novel_id=str(record.novel_id),
@@ -251,6 +274,8 @@ class ContextConfirmationService:
             user_note=record.user_note,
             compile_options=record.compile_options or {},
             warnings=record.warnings or [],
+            sections=sections,
+            budget_events=budget_events,
             result_refs=record.result_refs or [],
             result_status=record.result_status,
             stale_reasons=record.stale_reasons or [],

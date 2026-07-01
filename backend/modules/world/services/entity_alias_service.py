@@ -50,6 +50,24 @@ class EntityAliasService:
                         "entity_name": entity.name,
                         "alias": alias_text,
                         "alias_type": alias_type,
+                        "status": alias_item.get("status")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "source": alias_item.get("source")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "workflow_id": alias_item.get("workflow_id")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "confidence": alias_item.get("confidence")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "needs_review": alias_item.get("needs_review")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "quote": alias_item.get("quote")
+                        if isinstance(alias_item, dict)
+                        else None,
                     }
                 )
         return result[skip : skip + limit]
@@ -84,6 +102,57 @@ class EntityAliasService:
         entity.content_json = content
         await db.flush()
         return {"entity_id": str(entity.id), "alias": alias, "alias_type": alias_type}
+
+    async def append_candidate_alias(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        *,
+        alias: str,
+        alias_type: str = "alias",
+        workflow_id: str | None = None,
+        scene_id: str | None = None,
+        scene_index: int | None = None,
+        confidence: float = 0.5,
+        quote: str | None = None,
+    ) -> bool:
+        """追加深度导入产生的待复核别名，已存在时返回 False。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(entity_id, "entity_id")
+        entity = await self.repo.get(db, eid)
+        if entity is None or entity.novel_id != nid:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        content = dict(entity.content_json or {})
+        aliases = list(content.get("aliases", []))
+        normalized_alias = " ".join(str(alias or "").strip().split())
+        if not normalized_alias:
+            return False
+        normalized_key = normalized_alias.lower()
+        for alias_item in aliases:
+            existing, _ = self._normalize_alias_item(alias_item)
+            if " ".join(existing.strip().split()).lower() == normalized_key:
+                return False
+
+        aliases.append(
+            {
+                "alias": normalized_alias,
+                "type": alias_type or "alias",
+                "status": "candidate",
+                "source": "deep_import",
+                "workflow_id": workflow_id,
+                "scene_id": scene_id,
+                "scene_index": scene_index,
+                "confidence": confidence,
+                "quote": quote,
+                "needs_review": True,
+            }
+        )
+        content["aliases"] = aliases
+        entity.content_json = content
+        await db.flush()
+        return True
 
     async def delete_alias(
         self,

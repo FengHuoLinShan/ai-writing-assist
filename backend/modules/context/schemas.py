@@ -144,6 +144,35 @@ class ContextSectionItem(BaseModel):
     content: str = Field(..., description="段内容")
     token_count: int = Field(..., description="估算 token 数")
     truncated: bool = Field(default=False, description="是否被截断")
+    title: str = Field(default="", description="面向作者的段标题")
+    preview: str = Field(default="", description="审查用内容预览")
+    status: Literal[
+        "system",
+        "canonical",
+        "working",
+        "candidate",
+        "mixed",
+        "unknown",
+    ] = Field(default="unknown", description="段内容状态")
+    activation_reason: str = Field(default="", description="段被选入的原因")
+    sources: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="段来源摘要",
+    )
+    can_exclude: bool = Field(default=True, description="本次操作是否允许排除")
+    excluded: bool = Field(default=False, description="是否已被排除")
+    truncated_reason: str | None = Field(default=None, description="截断原因")
+
+
+class ContextBudgetEventItem(BaseModel):
+    """预算裁剪事件。"""
+
+    section_key: str
+    event_type: Literal["evicted", "truncated"]
+    reason: str
+    before_tokens: int
+    after_tokens: int
+    tier: int
 
 
 class ContextTierCompileResponse(BaseModel):
@@ -160,6 +189,7 @@ class ContextTierCompileResponse(BaseModel):
     sections: list[ContextSectionItem] = Field(default_factory=list)
     evicted: list[str] = Field(default_factory=list, description="被驱逐的段 key 列表")
     truncated: list[str] = Field(default_factory=list, description="被截断的段 key 列表")
+    budget_events: list[ContextBudgetEventItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -183,6 +213,8 @@ class ContextConfirmationResponse(BaseModel):
     selected_asset_ids: dict[str, list[str]] = Field(default_factory=dict)
     user_note: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    sections: list[ContextSectionItem] = Field(default_factory=list)
+    budget_events: list[ContextBudgetEventItem] = Field(default_factory=list)
     result_refs: list[dict[str, str]] = Field(default_factory=list)
     result_status: str
     stale_reasons: list[str] = Field(default_factory=list)

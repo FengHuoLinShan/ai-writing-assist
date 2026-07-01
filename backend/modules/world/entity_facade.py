@@ -107,6 +107,49 @@ async def find_entity_id_by_name(
     )
 
 
+async def find_working_entity_id_by_name(
+    db: AsyncSession,
+    novel_id: str,
+    name: str,
+    entity_type: str | None = None,
+) -> str | None:
+    """按名称或别名解析 working context 内的实体 ID。"""
+    return await _context_service.find_working_entity_by_name(
+        db,
+        novel_id,
+        name,
+        entity_type=entity_type,
+    )
+
+
+async def append_candidate_alias(
+    db: AsyncSession,
+    novel_id: str,
+    entity_id: str,
+    *,
+    alias: str,
+    alias_type: str = "alias",
+    workflow_id: str | None = None,
+    scene_id: str | None = None,
+    scene_index: int | None = None,
+    confidence: float = 0.5,
+    quote: str | None = None,
+) -> bool:
+    """追加待复核别名，已存在时返回 False。"""
+    return await _alias_service.append_candidate_alias(
+        db,
+        novel_id,
+        entity_id,
+        alias=alias,
+        alias_type=alias_type,
+        workflow_id=workflow_id,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        confidence=confidence,
+        quote=quote,
+    )
+
+
 # ============================================================
 # EntityRelation
 # ============================================================
@@ -266,6 +309,19 @@ async def list_auto_ingested_entities(
         start_chapter=start_chapter,
         end_chapter=end_chapter,
         limit=limit,
+    )
+
+
+async def deprecate_deep_import_entities_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    """Soft-deprecate entities from one deep import workflow."""
+    return await _stats_service.deprecate_deep_import_entities_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )
 
 

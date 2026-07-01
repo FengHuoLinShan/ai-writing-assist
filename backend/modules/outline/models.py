@@ -25,6 +25,7 @@ class PlotThread(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     related_memory_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     reader_known_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     author_known_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provenance_meta: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
 
 
 class OutlineArc(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
@@ -46,6 +47,7 @@ class OutlineArc(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     related_thread_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     related_character_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
     related_entity_ids: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+    provenance_meta: Mapped[dict] = mapped_column(JSON, nullable=True, default=dict)
 
 
 class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
@@ -192,6 +194,12 @@ class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin
         default=list,
         comment="关联剧情线 ID",
     )
+    provenance_meta: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
+        default=dict,
+        comment="结构资产来源元信息",
+    )
 
     def __repr__(self) -> str:
         return f"<ForeshadowingPlan id={self.id} name={self.name} status={self.status}>"
@@ -225,6 +233,12 @@ class RevealPlan(Base, UUIDMixin, TimestampMixin, NovelMixin):
         comment=(
             "揭示阶段 [{stage_index, chapter_index, reveal_content, trigger, effect}]"
         ),
+    )
+    provenance_meta: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
+        default=dict,
+        comment="结构资产来源元信息",
     )
     status: Mapped[str] = mapped_column(
         String(32),

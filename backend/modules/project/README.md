@@ -12,6 +12,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 - 管理目标规模（字数/章节数）和当前创作阶段
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
+- 提供项目级 LLM Profile（供应商、Base URL、模型、写入式 API Key）
 
 ## 边界
 
@@ -38,7 +39,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 - `target_length` — 目标规模（如：short, medium, novel, epic）
 - `current_stage` — 当前创作阶段（如：world_building, outlining, writing, revising）
 - `default_reveal_policy` — 默认揭示策略（默认 `author_safe`）
-- `settings` — 小说配置（JSON，如 temporary_entity_expiry_chapters）
+- `settings` — 小说配置（JSON，如 `temporary_entity_expiry_chapters`、`llm`）
 - `created_at` / `updated_at` — 时间戳
 - `deleted_at` — 软删除时间（`NULL` 表示未删除）
 
@@ -75,8 +76,17 @@ async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 | PUT | `/api/projects/{project_id}` | 更新项目 |
 | DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站） |
 | GET | `/api/projects/recycle-bin` | 回收站列表 |
+| GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
+| GET | `/api/projects/{project_id}/llm-settings` | 项目级 LLM 配置（不回显 API Key） |
+| PUT | `/api/projects/{project_id}/llm-settings` | 更新项目级 LLM 配置 |
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
 | DELETE | `/api/projects/{project_id}/permanent` | 永久删除（级联清理） |
+
+### LLM 配置安全规则
+
+- `settings.llm.api_key` 是写入字段，`ProjectResponse` 和专用 LLM 设置响应只返回 `api_key_configured`
+- 前端空提交 `api_key` 会保留已有密钥；`clear_api_key=true` 才清除
+- 供应商模板只提供可编辑预填值，不写入密钥
 
 ## 测试方式
 

@@ -43,6 +43,8 @@ from modules.world.schemas import (
     EventUpdate,
     TextArchiveSeedRequest,
     TextArchiveSeedResponse,
+    WorldAliasRelationExtractRequest,
+    WorldAliasRelationExtractResponse,
     WorldEntityExtractRequest,
     WorldEntityExtractResponse,
 )
@@ -84,6 +86,10 @@ async def list_entities(
     entity_type: str | None = Query(None, description="实体类型过滤"),
     status: str | None = Query(None, description="状态过滤"),
     q: str | None = Query(None, description="名称/别名搜索"),
+    source: str | None = Query(None, description="来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
+    auto_ingested: bool | None = Query(None, description="是否自动导入"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -98,6 +104,10 @@ async def list_entities(
         entity_type=entity_type,
         status=status,
         q=q,
+        source=source,
+        workflow_id=workflow_id,
+        needs_review=needs_review,
+        auto_ingested=auto_ingested,
         skip=skip,
         limit=limit,
     )
@@ -146,6 +156,25 @@ async def extract_entities(
     )
     await db.flush()
     return WorldEntityExtractResponse(task_id=task_id)
+
+
+@router.post(
+    "/alias-relations/extract",
+    response_model=WorldAliasRelationExtractResponse,
+    status_code=201,
+)
+async def extract_alias_relations(
+    db: DbSession,
+    data: WorldAliasRelationExtractRequest,
+) -> WorldAliasRelationExtractResponse:
+    """提交手动别名/关系补抽任务。"""
+    task_id = enqueue_task(
+        db,
+        "world_alias_relation_extraction",
+        meta=data.model_dump(exclude_none=True),
+    )
+    await db.flush()
+    return WorldAliasRelationExtractResponse(task_id=task_id)
 
 
 @router.get("/entities/{entity_id}", response_model=CoreEntityResponse)

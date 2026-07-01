@@ -34,3 +34,22 @@ describe("renderCurrentView error handling", () => {
     expect(content.textContent).toContain(maliciousMessage)
   })
 })
+
+describe("subview memory", () => {
+  it("does not restore the world/map compatibility entry from primary world navigation", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.append(content)
+
+    window.router.registerView("world", { async render() { return "" } })
+    window.router.registerView("map", { async render() { return "" } })
+
+    state.currentView = "world"
+    state.currentSubView = "objects"
+
+    await window.router.navigate("world", "map", false)
+    await window.router.navigate("map", null, false)
+
+    expect(window.router.getLastSubView("world")).toBe("objects")
+  })
+})

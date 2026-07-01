@@ -60,6 +60,8 @@ class ContextConfirmationContract:
     user_note: str | None
     compile_options: dict
     warnings: list[str]
+    sections: list[dict]
+    budget_events: list[dict]
     result_refs: list[dict[str, str]]
     result_status: str
     stale_reasons: list[str]

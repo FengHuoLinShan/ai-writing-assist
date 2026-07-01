@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
@@ -47,12 +48,70 @@ from modules.outline.schemas import (
     SceneResponse,
     SceneUpdate,
 )
+from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
 
 
+class StructureAssetFilterMixin:
+    async def list(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+    ):
+        nid = parse_uuid(novel_id, "novel_id")
+        limit = min(limit, MAX_PAGE_SIZE)
+        objs, total = await self.repo.get_by_novel(
+            db,
+            nid,
+            skip=skip,
+            limit=limit,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+        )
+        return [self._to_response(o) for o in objs], total
+
+    async def list_with_response(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+    ) -> BaseModel:
+        items, total = await self.list(
+            db,
+            novel_id,
+            skip=skip,
+            limit=limit,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+        )
+        if self.list_response is None:
+            raise TypeError(
+                f"{self.__class__.__name__}.list_response is not set",
+            )
+        return self.list_response(items=items, total=total)
+
+
 class PlotThreadService(
+    StructureAssetFilterMixin,
     CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]
 ):
     repo = PlotThreadRepository()
@@ -104,6 +163,7 @@ class PlotThreadService(
 
 
 class OutlineArcService(
+    StructureAssetFilterMixin,
     CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse]
 ):
     repo = OutlineArcRepository()
@@ -157,6 +217,7 @@ class OutlineArcService(
 
 
 class ForeshadowingPlanService(
+    StructureAssetFilterMixin,
     CrudService[
         ForeshadowingPlan,
         ForeshadowingPlanCreate,
@@ -205,6 +266,7 @@ class ForeshadowingPlanService(
 
 
 class RevealPlanService(
+    StructureAssetFilterMixin,
     CrudService[RevealPlan, RevealPlanCreate, RevealPlanUpdate, RevealPlanResponse]
 ):
     repo = RevealPlanRepository()

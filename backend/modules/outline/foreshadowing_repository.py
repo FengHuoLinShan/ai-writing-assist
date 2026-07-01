@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import ForeshadowingPlan
+from modules.outline.repositories import apply_structure_asset_filters
 
 
 class ForeshadowingPlanRepository:
@@ -46,8 +47,20 @@ class ForeshadowingPlanRepository:
         *,
         skip: int = 0,
         limit: int = 50,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
     ) -> tuple[list[ForeshadowingPlan], int]:
         conditions = [ForeshadowingPlan.novel_id == novel_id]
+        apply_structure_asset_filters(
+            conditions,
+            ForeshadowingPlan,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+        )
         count_stmt = select(func.count(ForeshadowingPlan.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         stmt = (

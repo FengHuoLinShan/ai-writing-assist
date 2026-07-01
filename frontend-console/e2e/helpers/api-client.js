@@ -109,6 +109,14 @@ export async function listScenesOrdered(novelId) {
   return request(`/outline/scenes/ordered?novel_id=${encodeURIComponent(novelId)}`)
 }
 
+export async function listScenes(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/outline/scenes?${query.toString()}`)
+}
+
 export async function createThread(novelId, data) {
   return request(`/outline/threads?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
@@ -118,6 +126,20 @@ export async function createThread(novelId, data) {
 
 export async function createArc(novelId, data) {
   return request(`/outline/arcs?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function createForeshadowing(novelId, data) {
+  return request(`/outline/foreshadowing?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function createReveal(novelId, data) {
+  return request(`/outline/reveals?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
     body: JSON.stringify(data),
   })

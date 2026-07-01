@@ -282,6 +282,35 @@ describe("对象库", () => {
         expect.objectContaining({ novel_id: "p1", entity_type: "location", status: "canonical", q: "王都" }),
       )
     })
+
+    it("应用深度导入筛选参数并停留在对象管理视图", async () => {
+      state.currentProjectId = "p1"
+      state.currentSubView = "objects"
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+      document.body.innerHTML = `
+        <select id="filter-entity-type"><option value="">全部类型</option></select>
+        <select id="filter-status"><option value="deprecated" selected>废弃</option></select>
+        <input id="filter-q" value="" />
+        <select id="filter-source"><option value="deep_import" selected>深度导入</option></select>
+        <input id="filter-workflow-id" value="wf-18" />
+        <select id="filter-needs-review"><option value="true" selected>需复核</option></select>
+        <select id="filter-auto-ingested"><option value="true" selected>自动入库</option></select>
+      `
+
+      await worldView._applyFilters()
+
+      expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+        novel_id: "p1",
+        status: "deprecated",
+        source: "deep_import",
+        workflow_id: "wf-18",
+        needs_review: true,
+        auto_ingested: true,
+        skip: 0,
+        limit: 20,
+      }))
+      expect(router.navigate).not.toHaveBeenCalledWith("map", null)
+    })
   })
 
   describe("_changePage", () => {
@@ -370,6 +399,23 @@ describe("关系", () => {
       const html = await worldView._renderRelations()
       expect(html).toContain('data-action="delete-relation"')
     })
+
+    it("渲染待确认关系状态", async () => {
+      state.currentProjectId = "p1"
+      api.world.listRelationships.mockResolvedValue({
+        items: [
+          {
+            id: "r1",
+            source_id: "src",
+            target_id: "tgt",
+            relation_type: "sibling",
+            status: "candidate",
+          },
+        ],
+      })
+      const html = await worldView._renderRelations()
+      expect(html).toContain("待确认")
+    })
   })
 
   describe("showRelationCreateForm", () => {
@@ -406,6 +452,29 @@ describe("别名", () => {
       expect(html).toContain("称号")
       expect(html).toContain("80%")
       expect(html).toContain('data-action="delete-alias"')
+    })
+
+    it("渲染待确认别名元数据", async () => {
+      state.currentProjectId = "p1"
+      api.world.listAliases.mockResolvedValue({
+        items: [
+          {
+            alias: "周明瑞",
+            alias_type: "name",
+            entity_id: "e1",
+            entity_name: "克莱恩",
+            confidence: 0.91,
+            status: "candidate",
+            source: "deep_import",
+            needs_review: true,
+          },
+        ],
+      })
+      const html = await worldView._renderAliases()
+      expect(html).toContain("克莱恩")
+      expect(html).toContain("待确认")
+      expect(html).toContain("深度导入")
+      expect(html).toContain("91%")
     })
   })
 
@@ -494,6 +563,24 @@ describe("AI 自动识别", () => {
         end_chapter: 5,
       })
       expect(worldView._autoExtractTaskId).toBe("t1")
+    })
+
+    it("提交别名关系补抽任务", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = `
+        <input id="w-extract-start" value="2"/>
+        <input id="w-extract-end" value="4"/>
+      `
+      api.world.extractAliasRelations.mockResolvedValue({ task_id: "ar1" })
+
+      await worldView._submitAutoExtract("world_alias_relation_extraction")
+
+      expect(api.world.extractAliasRelations).toHaveBeenCalledWith({
+        novel_id: "p1",
+        start_chapter: 2,
+        end_chapter: 4,
+      })
+      expect(worldView._autoExtractTaskId).toBe("ar1")
     })
   })
 

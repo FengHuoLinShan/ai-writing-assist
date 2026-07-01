@@ -782,15 +782,28 @@ class TestTaskWorkerRecoverStale:
     """TaskWorker.recover_stale_tasks 单元测试"""
 
     @pytest.mark.asyncio
-    async def test_recover_stale_tasks(self) -> None:
-        """GREEN: 恢复超时任务"""
+    async def test_recover_stale_tasks_marks_deep_import_recovery_required(
+        self,
+    ) -> None:
+        """GREEN: stale deep_import 只标记可恢复，不自动改回 pending"""
         from infrastructure.tasks.worker import TaskWorker
 
+        heartbeat_at = datetime(2026, 6, 30, 10, 0, tzinfo=UTC)
+        task_mock = MagicMock()
+        task_mock.task_type = "deep_import"
+        task_mock.status = "running"
+        task_mock.heartbeat_at = heartbeat_at
+        task_mock.result = {"current_phase": "phase1b_fusion"}
+        task_mock.meta = {"novel_id": "novel-1"}
+
+        deep_import_result = MagicMock()
+        deep_import_result.scalars.return_value.all.return_value = [task_mock]
+
         result_mock = MagicMock()
-        result_mock.rowcount = 3
+        result_mock.rowcount = 0
 
         db_session = AsyncMock()
-        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.execute = AsyncMock(side_effect=[deep_import_result, result_mock])
         db_session.commit = AsyncMock()
 
         db_manager = MagicMock()
@@ -804,20 +817,63 @@ class TestTaskWorkerRecoverStale:
 
         recovered = await worker.recover_stale_tasks()
 
-        assert recovered == 3
-        db_session.execute.assert_awaited_once()
+        assert recovered == 0
+        assert task_mock.status == "running"
+        assert task_mock.result["interrupted"] is True
+        assert task_mock.result["recoverable"] is True
+        assert task_mock.result["recovery_required"] is True
+        assert task_mock.result["last_heartbeat_at"] == heartbeat_at.isoformat()
+        assert task_mock.result["interrupted_at"]
+        assert task_mock.result["recovery_summary"]["reason"] == "heartbeat_timeout"
+        assert task_mock.meta["interrupted"] is True
+        assert task_mock.meta["recoverable"] is True
+        assert task_mock.meta["recovery_required"] is True
+        assert "recovery" in task_mock.error_message.lower()
         db_session.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_recover_stale_tasks_rowcount_none(self) -> None:
-        """GREEN: rowcount 为 None 时返回 0"""
+    async def test_recover_stale_tasks_keeps_non_deep_import_auto_recovery(
+        self,
+    ) -> None:
+        """GREEN: 非 deep_import stale task 仍自动恢复为 pending"""
         from infrastructure.tasks.worker import TaskWorker
+
+        deep_import_result = MagicMock()
+        deep_import_result.scalars.return_value.all.return_value = []
+
+        result_mock = MagicMock()
+        result_mock.rowcount = 1
+
+        db_session = AsyncMock()
+        db_session.execute = AsyncMock(side_effect=[deep_import_result, result_mock])
+        db_session.commit = AsyncMock()
+
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=db_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+
+        worker = TaskWorker(db_manager=db_manager)
+
+        recovered = await worker.recover_stale_tasks()
+        assert recovered == 1
+        assert db_session.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_recover_stale_tasks_rowcount_none(self) -> None:
+        """GREEN: non-deep update rowcount 为 None 时返回 0"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        deep_import_result = MagicMock()
+        deep_import_result.scalars.return_value.all.return_value = []
 
         result_mock = MagicMock()
         result_mock.rowcount = None
 
         db_session = AsyncMock()
-        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.execute = AsyncMock(side_effect=[deep_import_result, result_mock])
         db_session.commit = AsyncMock()
 
         db_manager = MagicMock()
@@ -833,15 +889,18 @@ class TestTaskWorkerRecoverStale:
         assert recovered == 0
 
     @pytest.mark.asyncio
-    async def test_recover_uses_parameterized_query(self) -> None:
-        """GREEN: recover 使用参数化查询"""
+    async def test_recover_non_deep_import_update_excludes_deep_import(self) -> None:
+        """GREEN: 自动 pending 恢复语句排除 deep_import"""
         from infrastructure.tasks.worker import TaskWorker
+
+        deep_import_result = MagicMock()
+        deep_import_result.scalars.return_value.all.return_value = []
 
         result_mock = MagicMock()
         result_mock.rowcount = 0
 
         db_session = AsyncMock()
-        db_session.execute = AsyncMock(return_value=result_mock)
+        db_session.execute = AsyncMock(side_effect=[deep_import_result, result_mock])
         db_session.commit = AsyncMock()
 
         db_manager = MagicMock()
@@ -855,11 +914,29 @@ class TestTaskWorkerRecoverStale:
 
         await worker.recover_stale_tasks()
 
-        # 验证使用了参数化查询（:gap 参数）
-        call_stmt, call_params = db_session.execute.call_args[0]
-        stmt_text = str(call_stmt)
-        assert ":gap" in stmt_text
-        assert call_params == {"gap": worker._max_heartbeat_gap}
+        update_stmt = db_session.execute.await_args_list[1].args[0]
+        stmt_text = str(update_stmt)
+        assert "async_tasks.task_type != :task_type_1" in stmt_text
+
+    @pytest.mark.asyncio
+    async def test_maybe_recover_stale_tasks_force_and_idle_interval(self) -> None:
+        """GREEN: startup force 触发扫描，idle 未到间隔不重复，到间隔再扫描"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        db_manager = MagicMock()
+        worker = TaskWorker(db_manager=db_manager, poll_interval=2.0)
+        worker.recover_stale_tasks = AsyncMock(return_value=0)
+
+        with patch("infrastructure.tasks.worker.monotonic", return_value=10.0):
+            await worker._maybe_recover_stale_tasks(force=True)
+
+        with patch("infrastructure.tasks.worker.monotonic", return_value=11.0):
+            await worker._maybe_recover_stale_tasks()
+
+        with patch("infrastructure.tasks.worker.monotonic", return_value=12.1):
+            await worker._maybe_recover_stale_tasks()
+
+        assert worker.recover_stale_tasks.await_count == 2
 
 
 class TestTaskWorkerRunOnce:

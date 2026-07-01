@@ -6,19 +6,32 @@ task progress shaping for the user-confirmed deep import pipeline.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.models import AsyncTask
+from modules.imports.contracts import TaskNotFoundError
 from modules.imports.workflow import DeepImportWorkflow
 from modules.imports.workflow_schemas import DeepImportProgress
+from shared.utils import parse_uuid as _parse_uuid
+
+ProgressObserver = Callable[[DeepImportProgress, float, Any], Awaitable[None]]
 
 
 class DeepImportOrchestrator:
     """Stable implementation behind imports facade and task handler."""
 
-    def __init__(self, workflow: DeepImportWorkflow | None = None) -> None:
+    def __init__(
+        self,
+        workflow: DeepImportWorkflow | None = None,
+        *,
+        progress_observer: ProgressObserver | None = None,
+    ) -> None:
         self.workflow = workflow or DeepImportWorkflow()
+        self.progress_observer = progress_observer
 
     async def start(
         self,
@@ -71,7 +84,7 @@ class DeepImportOrchestrator:
         if not novel_id:
             raise ValueError("novel_id is required for deep_import")
 
-        progress = DeepImportProgress(workflow_id=str(task.id))
+        progress = self._progress_from_task(task)
 
         async def _record_progress(
             updated: DeepImportProgress,
@@ -80,6 +93,8 @@ class DeepImportOrchestrator:
             task.result = updated.model_dump(mode="json")
             task.update_progress(progress_value)
             await db.commit()
+            if self.progress_observer is not None:
+                await self.progress_observer(updated, progress_value, task)
 
         progress = await self.workflow.run_step(
             db,
@@ -93,6 +108,158 @@ class DeepImportOrchestrator:
             on_progress=_record_progress,
         )
         return self._result_from_progress(progress)
+
+    def _progress_from_task(self, task: Any) -> DeepImportProgress:
+        result_data = task.result if isinstance(task.result, dict) else {}
+        if not result_data:
+            return DeepImportProgress(workflow_id=str(task.id))
+
+        try:
+            progress = DeepImportProgress.model_validate(result_data)
+        except Exception:
+            progress = DeepImportProgress(workflow_id=str(task.id))
+
+        progress.workflow_id = progress.workflow_id or str(task.id)
+        progress.interrupted = False
+        progress.recoverable = False
+        progress.recovery_required = False
+        if progress.phase == "running":
+            progress.phase = "pending"
+        return progress
+
+    async def resume_interrupted(
+        self,
+        db: AsyncSession,
+        task_id: str,
+    ) -> dict[str, Any]:
+        task = await self._get_recoverable_deep_import_task(db, task_id)
+
+        result_data = dict(task.result or {})
+        meta_data = dict(task.meta or {})
+        for payload in (result_data, meta_data):
+            payload["interrupted"] = False
+            payload["recovery_required"] = False
+
+        task.result = result_data
+        task.meta = meta_data
+        task.status = "pending"
+        task.finished_at = None
+        task.error_message = None
+        await db.flush()
+
+        return {
+            "workflow_id": str(task.id),
+            "task_id": str(task.id),
+            "status": "pending",
+            "message": "深度导入恢复任务已重新入队",
+        }
+
+    async def abandon_recovery(
+        self,
+        db: AsyncSession,
+        task_id: str,
+    ) -> dict[str, Any]:
+        task = await self._get_recoverable_deep_import_task(db, task_id)
+        meta = task.meta or {}
+        novel_id = meta.get("novel_id", "")
+        workflow_id = str(task.id)
+
+        cleanup_summary = await self.cleanup_workflow_assets(db, novel_id, workflow_id)
+        task.mark_cancelled()
+        await db.flush()
+
+        return {
+            "workflow_id": workflow_id,
+            "task_id": str(task.id),
+            "status": "cancelled",
+            "cleanup_summary": cleanup_summary,
+            "message": "深度导入恢复已放弃",
+        }
+
+    async def cleanup_workflow_assets(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> dict[str, Any]:
+        """Soft-deprecate business assets written by an abandoned workflow."""
+        from modules.memory.facade import count_deep_import_delta_logs_by_workflow
+        from modules.outline.facade import (
+            deprecate_deep_import_scenes_by_workflow,
+            deprecate_deep_import_structure_assets_by_workflow,
+        )
+        from modules.world.facade import (
+            count_deep_import_map_observations_by_workflow,
+            deprecate_deep_import_entities_by_workflow,
+        )
+
+        deprecated_scenes = await deprecate_deep_import_scenes_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
+        deprecated_entities = await deprecate_deep_import_entities_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
+        deprecated_structure_assets = (
+            await deprecate_deep_import_structure_assets_by_workflow(
+                db,
+                novel_id,
+                workflow_id,
+            )
+        )
+        skipped_delta_logs = await count_deep_import_delta_logs_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
+        skipped_map_observations = (
+            await count_deep_import_map_observations_by_workflow(
+                db,
+                novel_id,
+                workflow_id,
+            )
+        )
+        cleanup_todo = None
+        if skipped_delta_logs or skipped_map_observations:
+            cleanup_todo = (
+                "delta logs and candidate map observations are counted but not "
+                "mutated until their owning modules expose an abandon-cleanup policy"
+            )
+        return {
+            "deprecated_scenes": deprecated_scenes,
+            "deprecated_entities": deprecated_entities,
+            "deprecated_structure_assets": deprecated_structure_assets,
+            "hard_deleted_assets": 0,
+            "cleanup_mode": "soft_deprecate",
+            "skipped_delta_logs": skipped_delta_logs,
+            "skipped_map_observations": skipped_map_observations,
+            "cleanup_todo": cleanup_todo,
+        }
+
+    async def _get_recoverable_deep_import_task(
+        self,
+        db: AsyncSession,
+        task_id: str,
+    ) -> AsyncTask:
+        stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(task_id))
+        result = await db.execute(stmt)
+        task = result.scalar_one_or_none()
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        if task.task_type != "deep_import":
+            raise ValueError("task_id must reference a deep_import task")
+
+        result_data = task.result or {}
+        meta_data = task.meta or {}
+        if not (
+            result_data.get("recovery_required") is True
+            and meta_data.get("recovery_required") is True
+        ):
+            raise ValueError("deep_import task does not require recovery")
+        return task
 
     async def _check_duplicate_import(
         self,
@@ -207,7 +374,28 @@ class DeepImportOrchestrator:
             ),
             "completed_steps": progress.completed_steps,
             "message": progress.message,
+            "current_phase": progress.current_phase,
+            "current_round": progress.current_round,
+            "current_chapter_range": progress.current_chapter_range,
+            "current_chapter": progress.current_chapter,
+            "current_scene_candidate_id": progress.current_scene_candidate_id,
+            "current_window": progress.current_window,
+            "current_operation": progress.current_operation,
+            "current_item": progress.current_item,
+            "phase_timeline": progress.phase_timeline,
+            "diagnostic_counts": progress.diagnostic_counts,
+            "last_error": progress.last_error,
+            "quality_stats": progress.quality_stats,
+            "checkpoints": progress.checkpoints,
+            "recovery_summary": progress.recovery_summary,
+            "interrupted": progress.interrupted,
+            "recoverable": progress.recoverable,
+            "recovery_required": progress.recovery_required,
+            "interrupted_at": progress.interrupted_at,
+            "last_heartbeat_at": progress.last_heartbeat_at,
             "degraded": progress.degraded,
+            "degraded_reason": progress.degraded_reason,
+            "phase1a_fallback": progress.phase1a_fallback,
             "degraded_batches": progress.degraded_batches,
             "quality_status": progress.quality_status,
             "phase_errors": progress.phase_errors,

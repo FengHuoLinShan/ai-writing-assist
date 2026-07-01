@@ -5,8 +5,18 @@ from unittest import mock
 
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.generation.context_builder import PlotStructureContext
+from modules.outline.generation.models import GeneratedThread
+from modules.outline.generation.parser import PlotStructureParser
+from modules.outline.models import (
+    ForeshadowingPlan,
+    OutlineArc,
+    PlotThread,
+    RevealPlan,
+)
 from modules.outline.repositories import (
     OutlineArcRepository,
     PlotThreadRepository,
@@ -107,8 +117,133 @@ class _GO(BaseModel):
     questions_for_user: list[_QN] = []
 
 
+class _CaptureLLM:
+    def __init__(self) -> None:
+        self.request = None
+        self.kwargs = None
+
+    async def generate_structured(self, request, schema, **kwargs):
+        self.request = request
+        self.kwargs = kwargs
+        return schema(
+            plot_threads=[
+                GeneratedThread(
+                    name="主线：灰雾召唤",
+                    thread_type="main",
+                    summary="克莱恩接触灰雾空间",
+                )
+            ],
+            scenes=[],
+        )
+
+
+class TestPlotStructureParserDeepImportMode:
+    @pytest.mark.asyncio
+    async def test_deep_import_mode_uses_compact_structure_request(self) -> None:
+        context = PlotStructureContext(
+            markdown="## 已生成 Scene 摘要\n- S0 第1章《穿越苏醒》：克莱恩醒来\n"
+        )
+        llm = _CaptureLLM()
+
+        result = await PlotStructureParser(
+            context,
+            include_scenes=False,
+            fast_structured=True,
+        ).parse(llm, "codex-5.3", 1, 7)
+
+        assert result is not None
+        assert len(result.threads) == 1
+        assert llm.kwargs["transport_retries"] is False
+        assert llm.kwargs["max_fix_attempts"] == 1
+        system_content = llm.request.messages[0].content
+        user_content = llm.request.messages[1].content
+        assert "深度导入结构模式" in system_content
+        assert "已生成 Scene 摘要" in system_content
+        assert "scenes 必须返回空数组" in system_content
+        assert "已生成 Scene 摘要" not in user_content
+        assert "scenes 返回空数组" in user_content
+
+
 class TestPlotStructureGenerator:
     """T6: AI 生成管线"""
+
+    @pytest.mark.asyncio
+    async def test_generate_persists_deep_import_structure_provenance(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        bundle = _make_bundle(sample_novel_id)
+        target_id = uuid.uuid4()
+        bundle.world_entities[0]["entity_id"] = str(target_id)
+        expected_meta = {
+            "source": "deep_import",
+            "workflow_id": "wf-structure",
+            "auto_ingested": True,
+            "needs_review": False,
+            "user_edited": False,
+            "phase": "structure_analysis",
+        }
+
+        with (
+            mock.patch(
+                "modules.context.facade.compile_structure_context", return_value=bundle
+            ),
+            mock.patch(
+                "infrastructure.llm.client.LLMClient.generate_structured"
+            ) as mock_llm,
+        ):
+            mock_llm.return_value = _GO(
+                plot_threads=[
+                    _GT(
+                        name="主线：寻剑",
+                        thread_type="main",
+                        summary="主角寻找霜华剑",
+                        start_chapter=1,
+                    )
+                ],
+                outline_arcs=[
+                    _GA(
+                        title="第一卷：启程",
+                        arc_index=1,
+                        start_chapter=1,
+                        end_chapter=3,
+                        related_thread_names=["主线：寻剑"],
+                    )
+                ],
+                foreshadowing_plans=[
+                    _FP(
+                        name="古剑封印",
+                        summary="主角发现古剑秘密",
+                        planned_seed_chapter=1,
+                        planned_payoff_chapter=3,
+                    )
+                ],
+                reveal_plans=[
+                    _RP(
+                        target_name="霜华剑",
+                        target_type="world_entity",
+                        secret_summary="古剑封印着魔神",
+                    )
+                ],
+            )
+            await PlotStructureGenerator().generate(
+                db_session,
+                sample_novel_id,
+                start_chapter=1,
+                end_chapter=3,
+                workflow_id="wf-structure",
+                context_mode="working",
+                include_pending_objects=True,
+            )
+
+        for model in (PlotThread, OutlineArc, ForeshadowingPlan, RevealPlan):
+            item = (
+                await db_session.execute(
+                    select(model).where(model.novel_id == uuid.UUID(sample_novel_id))
+                )
+            ).scalar_one()
+            assert item.provenance_meta == expected_meta
 
     @pytest.mark.asyncio
     async def test_generate_creates_threads_and_arcs(

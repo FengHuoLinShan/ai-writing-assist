@@ -210,27 +210,50 @@ async def resume_deep_import(
     db: DbSession,
     body: dict = Body(..., description="继续深度导入参数"),
 ) -> dict:
-    """继续深度导入流程
-
-    用户确认所有世界对象候选后，调用此接口继续执行人物同步和剧情结构生成。
+    """恢复被中断的深度导入流程
 
     请求体：
-    - task_id: 前一个 deep_import 任务的 ID（必填）
+    - task_id: 被中断的 deep_import 任务 ID（必填）
     """
     from modules.imports.facade import resume_deep_import as _resume
 
-    prev_task_id = body.get("task_id", "")
-    if not prev_task_id:
-        from fastapi import HTTPException
-
+    task_id = body.get("task_id", "")
+    if not task_id:
         raise HTTPException(400, detail="task_id is required")
 
     from modules.imports.contracts import TaskNotFoundError
 
     try:
-        result = await _resume(db, prev_task_id)
+        result = await _resume(db, task_id)
     except TaskNotFoundError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    return result
+
+
+@router.post("/deep/abandon")
+async def abandon_deep_import(
+    db: DbSession,
+    body: dict = Body(..., description="放弃深度导入恢复参数"),
+) -> dict:
+    """放弃被中断的深度导入流程并返回清理摘要
+
+    请求体：
+    - task_id: 被中断的 deep_import 任务 ID（必填）
+    """
+    from modules.imports.facade import abandon_deep_import as _abandon
+
+    task_id = body.get("task_id", "")
+    if not task_id:
+        raise HTTPException(400, detail="task_id is required")
+
+    from modules.imports.contracts import TaskNotFoundError
+
+    try:
+        result = await _abandon(db, task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
     return result

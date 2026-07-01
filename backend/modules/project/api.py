@@ -8,8 +8,11 @@ from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
 from modules.project.schemas import (
+    LLMProviderTemplateListResponse,
     ProjectCreate,
     ProjectListResponse,
+    ProjectLLMSettingsResponse,
+    ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
 )
@@ -52,6 +55,31 @@ async def api_list_deleted_projects(
 ) -> ProjectListResponse:
     """获取回收站中的项目列表"""
     return await _service.list_deleted_projects(db, skip=skip, limit=limit)
+
+
+@router.get("/llm/provider-templates", response_model=LLMProviderTemplateListResponse)
+async def api_list_llm_provider_templates() -> LLMProviderTemplateListResponse:
+    """获取前端可选的 LLM 供应商模板"""
+    return _service.list_llm_provider_templates()
+
+
+@router.get("/{project_id}/llm-settings", response_model=ProjectLLMSettingsResponse)
+async def api_get_project_llm_settings(
+    db: DbSession,
+    project_id: str,
+) -> ProjectLLMSettingsResponse:
+    """获取项目级 LLM 配置（不返回 API Key）"""
+    return await _service.get_llm_settings(db, project_id)
+
+
+@router.put("/{project_id}/llm-settings", response_model=ProjectLLMSettingsResponse)
+async def api_update_project_llm_settings(
+    db: DbSession,
+    project_id: str,
+    data: ProjectLLMSettingsUpdate,
+) -> ProjectLLMSettingsResponse:
+    """更新项目级 LLM 配置；api_key 为写入字段，响应中不会回显"""
+    return await _service.update_llm_settings(db, project_id, data)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

@@ -27,6 +27,10 @@ from modules.outline.schemas import (
     RevealPlanResponse,
     RevealPlanUpdate,
     SceneCreate,
+    SceneFusionPreviewRequest,
+    SceneFusionPreviewResponse,
+    SceneFusionSaveRequest,
+    SceneFusionSaveResponse,
     SceneImpactPreview,
     SceneListResponse,
     SceneMappingUpdate,
@@ -121,10 +125,23 @@ async def api_create_thread(
 async def api_list_threads(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
+    status: str | None = Query(None, description="状态过滤"),
+    source: str | None = Query(None, description="来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await _thread_service.list_with_response(db, novel_id, skip=skip, limit=limit)
+    return await _thread_service.list_with_response(
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
+        status=status,
+        source=source,
+        workflow_id=workflow_id,
+        needs_review=needs_review,
+    )
 
 
 @router.get("/threads/{thread_id}", response_model=PlotThreadResponse)
@@ -175,10 +192,23 @@ async def api_create_arc(
 async def api_list_arcs(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
+    status: str | None = Query(None, description="状态过滤"),
+    source: str | None = Query(None, description="来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await _arc_service.list_with_response(db, novel_id, skip=skip, limit=limit)
+    return await _arc_service.list_with_response(
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
+        status=status,
+        source=source,
+        workflow_id=workflow_id,
+        needs_review=needs_review,
+    )
 
 
 @router.get("/arcs/{arc_id}", response_model=OutlineArcResponse)
@@ -219,12 +249,30 @@ async def api_get_scene_workbench(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
     selected_scene_id: str | None = Query(None, description="当前选中的 Scene ID"),
+    status: str | None = Query(None, description="Scene 状态过滤"),
+    source: str | None = Query(None, description="Scene 来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
+    boundary_status: str | None = Query(None, description="边界状态过滤"),
+    phase: str | None = Query(None, description="深度导入阶段过滤"),
+    phase1a_fallback: bool | None = Query(None, description="是否 Phase 1a fallback"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
     try:
         return await _scene_workbench_service.get_workbench(
             db,
             novel_id,
             selected_scene_id=selected_scene_id,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            boundary_status=boundary_status,
+            phase=phase,
+            phase1a_fallback=phase1a_fallback,
+            skip=skip,
+            limit=limit,
         )
     except Exception as exc:
         raise _workbench_error(exc) from exc
@@ -301,6 +349,36 @@ async def api_split_scene(
 ):
     try:
         return await _scene_workbench_service.split(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/fusion/preview",
+    response_model=SceneFusionPreviewResponse,
+)
+async def api_preview_scene_fusion(
+    data: SceneFusionPreviewRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.preview_llm_fusion(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/fusion/save",
+    response_model=SceneFusionSaveResponse,
+)
+async def api_save_scene_fusion(
+    data: SceneFusionSaveRequest,
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await _scene_workbench_service.save_llm_fusion(db, novel_id, data)
     except Exception as exc:
         raise _workbench_error(exc) from exc
 
@@ -477,11 +555,22 @@ async def api_create_foreshadowing(
 async def api_list_foreshadowing(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
+    status: str | None = Query(None, description="状态过滤"),
+    source: str | None = Query(None, description="来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
     return await _foreshadowing_service.list_with_response(
-        db, novel_id, skip=skip, limit=limit
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
+        status=status,
+        source=source,
+        workflow_id=workflow_id,
+        needs_review=needs_review,
     )
 
 
@@ -538,10 +627,23 @@ async def api_create_reveal(
 async def api_list_reveals(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
+    status: str | None = Query(None, description="状态过滤"),
+    source: str | None = Query(None, description="来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
-    return await _reveal_service.list_with_response(db, novel_id, skip=skip, limit=limit)
+    return await _reveal_service.list_with_response(
+        db,
+        novel_id,
+        skip=skip,
+        limit=limit,
+        status=status,
+        source=source,
+        workflow_id=workflow_id,
+        needs_review=needs_review,
+    )
 
 
 @router.get("/reveals/{plan_id}", response_model=RevealPlanResponse)

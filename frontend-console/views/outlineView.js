@@ -13,6 +13,12 @@ const REVEAL_STATUSES = ["planned", "revealed", "resolved", "abandoned"]
 
 const FORESHADOWING_STATUS_LABELS = { planted: "已埋下", triggered: "已触发", resolved: "已兑现", abandoned: "已废弃" }
 const REVEAL_STATUS_LABELS = { planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "已废弃" }
+const STRUCTURE_FILTER_DEFAULTS = { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 }
+const STRUCTURE_SOURCE_OPTIONS = [
+  ["deep_import", "深度导入"],
+  ["manual", "手动"],
+  ["ai_generated", "AI 生成"],
+]
 
 const outlineView = {
   _threads: [],
@@ -22,6 +28,7 @@ const outlineView = {
   _reveals: [],
   _loading: true,
   _generateOverlap: { threadCount: 0, arcCount: 0, rangeKey: "" },
+  _structureFilters: {},
 
   async onEnter() {
     this._loading = true
@@ -40,32 +47,33 @@ const outlineView = {
     const fetchArcs = subView === "arcs"
     const fetchForeshadowing = subView === "foreshadowing"
     const fetchReveals = subView === "reveals"
+    const filterParams = this._structureFilterParams(subView)
 
     const promises = []
     if (fetchThreads) {
       promises.push(
-        api.outline.listThreads(state.currentProjectId)
+        api.outline.listThreads(state.currentProjectId, filterParams)
           .then((data) => { this._threads = data.items || data || [] })
           .catch(() => { this._threads = [] })
       )
     }
     if (fetchArcs) {
       promises.push(
-        api.outline.listArcs(state.currentProjectId)
+        api.outline.listArcs(state.currentProjectId, filterParams)
           .then((data) => { this._arcs = data.items || data || [] })
           .catch(() => { this._arcs = [] })
       )
     }
     if (fetchForeshadowing) {
       promises.push(
-        api.outline.listForeshadowing(state.currentProjectId)
+        api.outline.listForeshadowing(state.currentProjectId, filterParams)
           .then((data) => { this._foreshadowing = data.items || data || [] })
           .catch(() => { this._foreshadowing = [] })
       )
     }
     if (fetchReveals) {
       promises.push(
-        api.outline.listReveals(state.currentProjectId)
+        api.outline.listReveals(state.currentProjectId, filterParams)
           .then((data) => { this._reveals = data.items || data || [] })
           .catch(() => { this._reveals = [] })
       )
@@ -160,6 +168,111 @@ const outlineView = {
     return map[tag] || tag || "草稿"
   },
 
+  _structureFilterFor(subView = state.currentSubView || "threads") {
+    if (!this._structureFilters[subView]) {
+      this._structureFilters[subView] = { ...STRUCTURE_FILTER_DEFAULTS }
+    }
+    return this._structureFilters[subView]
+  },
+
+  _structureFilterParams(subView = state.currentSubView || "threads") {
+    if (!["threads", "arcs", "foreshadowing", "reveals"].includes(subView)) {
+      return {}
+    }
+    const filters = this._structureFilterFor(subView)
+    const params = {
+      skip: filters.skip,
+      limit: filters.limit,
+    }
+    if (filters.status) params.status = filters.status
+    if (filters.source) params.source = filters.source
+    if (filters.workflow_id) params.workflow_id = filters.workflow_id
+    if (filters.needs_review === "true") params.needs_review = true
+    if (filters.needs_review === "false") params.needs_review = false
+    return params
+  },
+
+  _structureStatusOptions(subView) {
+    if (subView === "foreshadowing") {
+      return FORESHADOWING_STATUSES.map((status) => [status, FORESHADOWING_STATUS_LABELS[status] || status])
+    }
+    if (subView === "reveals") {
+      return REVEAL_STATUSES.map((status) => [status, REVEAL_STATUS_LABELS[status] || status])
+    }
+    return [
+      ["canonical", "正史"],
+      ["draft", "草稿"],
+      ["candidate", "候选"],
+      ["deprecated", "废弃"],
+    ]
+  },
+
+  _renderStructureFilters(subView) {
+    const filters = this._structureFilterFor(subView)
+    return `
+      <div class="scene-management-filters" aria-label="结构资产筛选">
+        ${this._structureFilterSelect("outline-filter-status", "状态", filters.status, this._structureStatusOptions(subView), "全部状态")}
+        ${this._structureFilterSelect("outline-filter-source", "来源", filters.source, STRUCTURE_SOURCE_OPTIONS, "全部来源")}
+        <label class="scene-filter-field scene-filter-field--wide">
+          <span>Workflow</span>
+          <input class="form-input" id="outline-filter-workflow-id" value="${esc(filters.workflow_id)}" placeholder="workflow_id" />
+        </label>
+        ${this._structureFilterSelect("outline-filter-needs-review", "复核", filters.needs_review, [["true", "需复核"], ["false", "无需复核"]], "全部复核")}
+        <div class="scene-filter-actions">
+          <button class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters">应用</button>
+          <button class="btn btn-sm" data-action="reset-outline-structure-filters">重置</button>
+        </div>
+      </div>
+    `
+  },
+
+  _structureFilterSelect(id, label, value, options, emptyLabel) {
+    return `
+      <label class="scene-filter-field">
+        <span>${esc(label)}</span>
+        <select class="form-select" id="${esc(id)}">
+          <option value="">${esc(emptyLabel)}</option>
+          ${options.map(([optionValue, optionLabel]) => `
+            <option value="${esc(optionValue)}" ${optionValue === value ? "selected" : ""}>${esc(optionLabel)}</option>
+          `).join("")}
+        </select>
+      </label>
+    `
+  },
+
+  _assetProvenance(asset) {
+    return asset?.provenance_meta && typeof asset.provenance_meta === "object"
+      ? asset.provenance_meta
+      : {}
+  },
+
+  _renderStructureAssetBadges(asset) {
+    const meta = this._assetProvenance(asset)
+    const badges = []
+    const source = meta.source || asset.source
+    if (source === "deep_import") badges.push('<span class="badge badge-info">深度导入</span>')
+    else if (source === "manual") badges.push('<span class="badge">手动</span>')
+    else if (source) badges.push(`<span class="badge">${esc(source)}</span>`)
+    if (meta.needs_review === true) badges.push('<span class="badge badge-warning">需复核</span>')
+    if (meta.phase) badges.push(`<span class="badge">${esc(meta.phase)}</span>`)
+    return badges.length ? `<div class="structure-asset-badges">${badges.join("")}</div>` : ""
+  },
+
+  _renderStructureEmptyState(kind, subView) {
+    const filters = this._structureFilterFor(subView)
+    const filteredDeepImport = filters.source === "deep_import" || Boolean(filters.workflow_id)
+    const detail = filteredDeepImport
+      ? "结构分析不完整或无匹配结果，可重新分析，或重置筛选查看其他结构资产。"
+      : `${kind}用于整理深度导入和人工维护后的叙事结构。`
+    return `
+      <div class="empty-state">
+        <div class="empty-icon">&#128204;</div>
+        <p>暂无${esc(kind)}。</p>
+        <p style="color:var(--text-dim);font-size:12px;">${esc(detail)}</p>
+      </div>
+    `
+  },
+
   _renderThreads() {
     if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
@@ -169,16 +282,11 @@ const outlineView = {
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-thread">新建剧情线</button>
       </div>
+      ${this._renderStructureFilters("threads")}
     `
 
     if (this._threads.length === 0) {
-      return html + `
-        <div class="empty-state">
-          <div class="empty-icon">&#128204;</div>
-          <p>暂无剧情线。</p>
-          <p style="color:var(--text-dim);font-size:12px;">剧情线表示故事中的主要叙事线索。</p>
-        </div>
-      `
+      return html + this._renderStructureEmptyState("剧情线", "threads")
     }
 
     html += `
@@ -188,6 +296,7 @@ const outlineView = {
             <th>状态</th>
             <th>名称</th>
             <th>类型</th>
+            <th>标记</th>
             <th>描述</th>
             <th>操作</th>
           </tr>
@@ -206,6 +315,7 @@ const outlineView = {
           <td><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
           <td>${esc(t.name || t.title)}</td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(t.thread_type || "-")}</td>
+          <td>${this._renderStructureAssetBadges(t) || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
@@ -228,16 +338,11 @@ const outlineView = {
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-arc">新建篇章纲</button>
       </div>
+      ${this._renderStructureFilters("arcs")}
     `
 
     if (this._arcs.length === 0) {
-      return html + `
-        <div class="empty-state">
-          <div class="empty-icon">&#128218;</div>
-          <p>暂无篇章纲。</p>
-          <p style="color:var(--text-dim);font-size:12px;">篇章纲用于规划卷层级的叙事结构。</p>
-        </div>
-      `
+      return html + this._renderStructureEmptyState("篇章纲", "arcs")
     }
 
     html += `
@@ -247,6 +352,7 @@ const outlineView = {
             <th>状态</th>
             <th>名称</th>
             <th>章节范围</th>
+            <th>标记</th>
             <th>描述</th>
             <th>操作</th>
           </tr>
@@ -268,6 +374,7 @@ const outlineView = {
           <td><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
           <td>${esc(a.name || a.title)}</td>
           <td style="font-family:var(--font-mono);font-size:12px;">${esc(range)}</td>
+          <td>${this._renderStructureAssetBadges(a) || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
           <td>
             <button class="btn btn-sm" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
@@ -290,19 +397,14 @@ const outlineView = {
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔</button>
       </div>
+      ${this._renderStructureFilters("foreshadowing")}
     `
 
     if (this._foreshadowing.length === 0) {
-      return html + `
-        <div class="empty-state">
-          <div class="empty-icon">&#128220;</div>
-          <p>暂无伏笔。</p>
-          <p style="color:var(--text-dim);font-size:12px;">伏笔是埋设在早期章节的线索，在后续章节揭示其真实含义。</p>
-        </div>
-      `
+      return html + this._renderStructureEmptyState("伏笔", "foreshadowing")
     }
 
-    let tableHtml = '<table class="data-table"><thead><tr><th>状态</th><th>描述</th><th>目标章节</th><th>操作</th></tr></thead><tbody>'
+    let tableHtml = '<table class="data-table"><thead><tr><th>状态</th><th>描述</th><th>目标章节</th><th>标记</th><th>操作</th></tr></thead><tbody>'
     for (const f of this._foreshadowing) {
       const st = FORESHADOWING_STATUS_LABELS[f.status] || f.status
       const description = f.summary || f.name || "-"
@@ -310,6 +412,7 @@ const outlineView = {
         <td><span class="badge badge-${esc(f.status || "planted")}">${esc(st)}</span></td>
         <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(description)}</td>
         <td style="font-family:var(--font-mono);font-size:12px;">${f.planned_seed_chapter != null ? esc(String(f.planned_seed_chapter)) : "-"}</td>
+        <td>${this._renderStructureAssetBadges(f) || "-"}</td>
         <td>
           <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
             ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${FORESHADOWING_STATUS_LABELS[s] || s}</option>`).join("")}
@@ -332,19 +435,14 @@ const outlineView = {
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-reveal">新建揭示</button>
       </div>
+      ${this._renderStructureFilters("reveals")}
     `
 
     if (this._reveals.length === 0) {
-      return html + `
-        <div class="empty-state">
-          <div class="empty-icon">&#128065;</div>
-          <p>暂无揭示。</p>
-          <p style="color:var(--text-dim);font-size:12px;">揭示计划跟踪一个秘密如何分阶段向读者揭露。</p>
-        </div>
-      `
+      return html + this._renderStructureEmptyState("揭示", "reveals")
     }
 
-    html += '<table class="data-table"><thead><tr><th>状态</th><th>描述</th><th>揭示章节</th><th>操作</th></tr></thead><tbody>'
+    html += '<table class="data-table"><thead><tr><th>状态</th><th>描述</th><th>揭示章节</th><th>标记</th><th>操作</th></tr></thead><tbody>'
     for (const r of this._reveals) {
       const st = REVEAL_STATUS_LABELS[r.status] || r.status || "计划中"
       const revealChapter = (r.reveal_stages && r.reveal_stages[0] && r.reveal_stages[0].chapter_index) || "-"
@@ -352,6 +450,7 @@ const outlineView = {
         <td><span class="badge badge-${esc(r.status || "planned")}">${esc(st)}</span></td>
         <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary || "-")}</td>
         <td style="font-family:var(--font-mono);font-size:12px;">${revealChapter !== "-" ? esc(String(revealChapter)) : "-"}</td>
+        <td>${this._renderStructureAssetBadges(r) || "-"}</td>
         <td>
           <select class="form-select reveal-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(r.id)}">
             ${REVEAL_STATUSES.map((s) => `<option value="${s}" ${r.status === s ? "selected" : ""}>${REVEAL_STATUS_LABELS[s] || s}</option>`).join("")}
@@ -1117,6 +1216,27 @@ const outlineView = {
     }
   },
 
+  _applyStructureFilters() {
+    const subView = state.currentSubView || "threads"
+    if (!["threads", "arcs", "foreshadowing", "reveals"].includes(subView)) return
+    this._structureFilters[subView] = {
+      ...this._structureFilterFor(subView),
+      status: document.getElementById("outline-filter-status")?.value || "",
+      source: document.getElementById("outline-filter-source")?.value || "",
+      workflow_id: document.getElementById("outline-filter-workflow-id")?.value?.trim() || "",
+      needs_review: document.getElementById("outline-filter-needs-review")?.value || "",
+      skip: 0,
+    }
+    router.refresh()
+  },
+
+  _resetStructureFilters() {
+    const subView = state.currentSubView || "threads"
+    if (!["threads", "arcs", "foreshadowing", "reveals"].includes(subView)) return
+    this._structureFilters[subView] = { ...STRUCTURE_FILTER_DEFAULTS }
+    router.refresh()
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
@@ -1143,6 +1263,8 @@ const outlineView = {
       "create-reveal": () => this._showCreateRevealForm(),
       "edit-reveal": (_e, _t, ctx) => ctx.id && this._editReveal(ctx.id),
       "delete-reveal": (_e, _t, ctx) => ctx.id && this._deleteReveal(ctx.id),
+      "apply-outline-structure-filters": () => this._applyStructureFilters(),
+      "reset-outline-structure-filters": () => this._resetStructureFilters(),
     })
     // 伏笔状态变更：change 事件委托
     document.querySelectorAll(".foreshadowing-status-select").forEach((sel) => {

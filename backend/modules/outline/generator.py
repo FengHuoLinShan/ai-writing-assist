@@ -57,6 +57,10 @@ class PlotStructureGenerator:
         include_pending_objects: bool = False,
         workflow_id: str | None = None,
         audit_context_snapshot: bool = False,
+        include_chapter_texts: bool = True,
+        include_existing_scenes: bool = False,
+        generate_scenes: bool = True,
+        fast_structured: bool = False,
     ) -> dict[str, Any]:
         """为指定章节范围生成剧情结构并持久化。
 
@@ -72,9 +76,15 @@ class PlotStructureGenerator:
             end_chapter,
             context_mode=context_mode,
             include_pending_objects=include_pending_objects,
+            include_chapter_texts=include_chapter_texts,
+            include_existing_scenes=include_existing_scenes,
         )
 
-        parser = PlotStructureParser(context)
+        parser = PlotStructureParser(
+            context,
+            include_scenes=generate_scenes,
+            fast_structured=fast_structured,
+        )
         settings = get_settings()
         snapshot_id: str | None = None
         if audit_context_snapshot:
@@ -153,6 +163,7 @@ class PlotStructureGenerator:
                         parsed,
                         entity_name_to_id=context.entity_name_to_id,
                         character_name_to_id=context.character_name_to_id,
+                        workflow_id=workflow_id,
                     )
             else:
                 result = await self._persister.persist(
@@ -163,6 +174,7 @@ class PlotStructureGenerator:
                     parsed,
                     entity_name_to_id=context.entity_name_to_id,
                     character_name_to_id=context.character_name_to_id,
+                    workflow_id=workflow_id,
                 )
             data = result.to_dict()
             if snapshot_id is not None:

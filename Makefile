@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill test test-v lint lint-fix format format-fix help db migrate
+.PHONY: dev dev-backend dev-worker dev-frontend kill test test-v lint lint-fix format format-fix help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -70,6 +70,15 @@ format-fix:  ## Auto-format
 	cd $(BACKEND_DIR) && ruff format .
 
 # ─── Utilities ──────────────────────────────────────
+
+doctor:  ## Run read-only local environment diagnostics
+	cd $(BACKEND_DIR) && python scripts/doctor.py
+
+doctor-json:  ## Run doctor with stable JSON output
+	cd $(BACKEND_DIR) && python scripts/doctor.py --json
+
+doctor-llm:  ## Run doctor and explicitly contact the LLM provider
+	cd $(BACKEND_DIR) && python scripts/doctor.py --llm
 
 kill:  ## Stop all services
 	@echo "=== Stopping services ==="

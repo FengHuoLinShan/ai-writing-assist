@@ -6,6 +6,7 @@ SceneSegmentationService — Phase 1: 章节正文 → Scene 切分
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 5
 OVERLAP = 1
+MAX_BATCH_CHARS = 12_000
+LLM_CALL_TIMEOUT_SECONDS = 60
 
 
 class SceneSegmentationService:
@@ -47,11 +50,13 @@ class SceneSegmentationService:
         batches = self._split_into_batches(chapters)
         total_batches = len(batches)
         logger.info(
-            "Scene segmentation: %d chapters → %d batches (batch_size=%d, overlap=%d)",
+            "Scene segmentation: %d chapters → %d batches "
+            "(batch_size=%d, overlap=%d, max_batch_chars=%d)",
             len(chapters),
             total_batches,
             BATCH_SIZE,
             OVERLAP,
+            MAX_BATCH_CHARS,
         )
 
         next_scene_index = await get_next_scene_index(db, novel_id)
@@ -217,9 +222,30 @@ class SceneSegmentationService:
         batches: list[list[dict]] = []
         i = 0
         while i < len(chapters):
-            batch = chapters[i : i + BATCH_SIZE]
+            batch: list[dict] = []
+            batch_chars = 0
+            j = i
+            while j < len(chapters) and len(batch) < BATCH_SIZE:
+                chapter = chapters[j]
+                chapter_chars = len(chapter.get("content") or "")
+                would_exceed = (
+                    MAX_BATCH_CHARS > 0
+                    and bool(batch)
+                    and batch_chars + chapter_chars > MAX_BATCH_CHARS
+                )
+                if would_exceed:
+                    break
+                batch.append(chapter)
+                batch_chars += chapter_chars
+                j += 1
+
+            if not batch:
+                batch = [chapters[i]]
             batches.append(batch)
-            i += BATCH_SIZE - OVERLAP
+            if i + len(batch) >= len(chapters):
+                break
+            advance = len(batch) - OVERLAP
+            i += max(1, advance)
         return batches
 
     @staticmethod
@@ -343,12 +369,16 @@ class SceneSegmentationService:
                 ),
             ],
             temperature=0.3,
-            max_tokens=16384,
+            max_tokens=4096,
             response_format={"type": "json_object"},
         )
 
-        llm_client = LLMClient(timeout=180)
-        raw = await llm_client.generate(request)
+        llm_client = LLMClient(timeout=settings.llm_timeout)
+        raw = await self._generate_with_timeout(
+            llm_client,
+            request,
+            timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
+        )
         parsed = parse_llm_json(raw.content, f"Batch {batch_idx} LLM response")
         output = SceneSegmentationOutput.model_validate(parsed)
         scenes_data = [s.model_dump() for s in output.scenes]
@@ -385,9 +415,13 @@ class SceneSegmentationService:
                 max_tokens=4096,
             )
 
-            llm_client = LLMClient(timeout=120)
+            llm_client = LLMClient(timeout=settings.llm_timeout)
             try:
-                raw = await llm_client.generate(request)
+                raw = await self._generate_with_timeout(
+                    llm_client,
+                    request,
+                    timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
+                )
                 parsed = parse_llm_json(
                     raw.content,
                     f"Single-ch {ch['chapter_index']}",
@@ -411,6 +445,27 @@ class SceneSegmentationService:
                 f"Single-chapter fallback returned no scenes for ch {ch['chapter_index']}"
             )
         return all_scenes
+
+    @staticmethod
+    async def _generate_with_timeout(
+        llm_client: Any,
+        request: Any,
+        *,
+        timeout_seconds: float,
+    ) -> Any:
+        try:
+            return await asyncio.wait_for(
+                llm_client.generate(request),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError as exc:
+            provider = getattr(llm_client, "provider", "")
+            raise LLMTimeoutError(
+                "Scene segmentation LLM call timed out",
+                provider=provider,
+                model=getattr(request, "model", ""),
+                timeout=int(timeout_seconds),
+            ) from exc
 
     @staticmethod
     def _build_chapters_text(chapters: list[dict]) -> str:

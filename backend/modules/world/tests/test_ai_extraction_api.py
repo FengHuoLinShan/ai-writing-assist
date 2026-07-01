@@ -82,6 +82,42 @@ async def test_world_extract_enqueues_domain_task_after_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_world_alias_relation_extract_enqueues_domain_task(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "别名关系补抽"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/world/alias-relations/extract",
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 3,
+            "scene_ids": ["scene-a"],
+        },
+    )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["status"] == "pending"
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(data["task_id"]))
+    )
+    task = result.scalar_one()
+    assert task.task_type == "world_alias_relation_extraction"
+    assert task.meta["novel_id"] == novel_id
+    assert task.meta["start_chapter"] == 1
+    assert task.meta["end_chapter"] == 3
+    assert task.meta["scene_ids"] == ["scene-a"]
+
+
+@pytest.mark.asyncio
 async def test_world_entity_extraction_task_attaches_created_entity_refs(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -148,6 +184,63 @@ async def test_world_entity_extraction_task_attaches_created_entity_refs(
         confirmation_id=confirmation_id,
     )
     assert {"type": "world_entity", "id": entity_id} in confirmation.result_refs
+
+
+@pytest.mark.asyncio
+async def test_world_alias_relation_extraction_task_invokes_di_handler(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.world import tasks as world_tasks
+
+    calls: list[dict] = []
+
+    async def fake_handler(db, novel_id, **kwargs):
+        calls.append({"novel_id": novel_id, **kwargs})
+        return {
+            "total_aliases": 2,
+            "total_relations": 1,
+            "alias_relation_scenes": 3,
+        }
+
+    monkeypatch.setattr(
+        world_tasks,
+        "_container_get",
+        lambda name: fake_handler
+        if name == "world.run_alias_relation_extraction"
+        else None,
+    )
+
+    class FakeTask:
+        id = uuid.uuid4()
+        meta = {
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "start_chapter": 1,
+            "end_chapter": 3,
+            "scene_ids": ["scene-a"],
+        }
+
+        def __init__(self) -> None:
+            self.progress: float | None = None
+
+        def update_progress(self, value: float) -> None:
+            self.progress = value
+
+    task = FakeTask()
+    result = await world_tasks.handle_world_alias_relation_extraction(db_session, task)
+
+    assert result["total_aliases"] == 2
+    assert result["total_relations"] == 1
+    assert task.progress == 1.0
+    assert calls == [
+        {
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "workflow_id": str(task.id),
+            "scene_ids": ["scene-a"],
+            "start_chapter": 1,
+            "end_chapter": 3,
+        }
+    ]
 
 
 @pytest.mark.asyncio

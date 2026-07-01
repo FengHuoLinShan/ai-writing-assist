@@ -187,14 +187,40 @@ class ContextCompiler:
             chapter_index=options.chapter_index,
         )
         sections.extend(constraint_sections)
+        sections, exclusion_warnings = self._apply_section_exclusions(
+            sections,
+            options.excluded_asset_ids.get("context_sections", []),
+        )
+        warnings = [*bundle.warnings, *exclusion_warnings]
         total = sum(s.token_count for s in sections)
         ctx = CompiledContext(
             sections=sections,
             total_tokens=total,
             budget_tokens=budget_tokens,
             compiled_at=datetime.utcnow().isoformat(),
+            warnings=warnings,
         )
         return ctx.enforce_budget()
+
+    @staticmethod
+    def _apply_section_exclusions(
+        sections: list[ContextSection],
+        excluded_section_keys: list[str],
+    ) -> tuple[list[ContextSection], list[str]]:
+        excluded = set(excluded_section_keys or [])
+        if not excluded:
+            return sections, []
+
+        warnings: list[str] = []
+        kept: list[ContextSection] = []
+        for section in sections:
+            if section.key not in excluded:
+                kept.append(section)
+                continue
+            if section.tier == Tier.P0 or not section.can_exclude:
+                warnings.append(f"核心参考资料不可排除：{section.key}")
+                kept.append(section)
+        return kept, warnings
 
     def _build_sections(
         self,
@@ -213,17 +239,51 @@ class ContextCompiler:
                     tier=Tier.P0,
                     content=bundle.task,
                     token_count=max(1, len(bundle.task) // 4),
+                    title="本次任务",
+                    preview=bundle.task,
+                    status="system",
+                    activation_reason="用户当前发起的 AI 操作",
+                    sources=[
+                        {
+                            "type": "task",
+                            "id": "writing_objective",
+                            "label": bundle.task,
+                            "status": "system",
+                        }
+                    ],
+                    can_exclude=False,
                 )
             )
 
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)
+            scene_id = options.scene_id if options else None
+            scene_label = str(
+                bundle.scene.get("title")
+                or bundle.scene.get("name")
+                or bundle.scene.get("scene_id")
+                or scene_id
+                or "当前 Scene"
+            )
             sections.append(
                 ContextSection(
                     key="scene_blueprint",
                     tier=Tier.P0,
                     content=content,
                     token_count=max(1, len(content) // 4),
+                    title="当前 Scene",
+                    preview=content[:160],
+                    status=options.context_mode if options else "canonical",
+                    activation_reason="当前 scene_id/章节范围",
+                    sources=[
+                        {
+                            "type": "scene",
+                            "id": str(scene_id or scene_label),
+                            "label": scene_label,
+                            "status": options.context_mode if options else "canonical",
+                        }
+                    ],
+                    can_exclude=False,
                 )
             )
 
@@ -236,6 +296,15 @@ class ContextCompiler:
                     tier=Tier.P1,
                     content=prefixed,
                     token_count=max(1, len(prefixed) // 4),
+                    title="人物与视角知识",
+                    preview=prefixed[:160],
+                    status=options.context_mode if options else "canonical",
+                    activation_reason="scope 包含人物资料",
+                    sources=self._sources_from_items(
+                        bundle.characters,
+                        default_type="character",
+                        status=options.context_mode if options else "canonical",
+                    ),
                 )
             )
 
@@ -249,6 +318,19 @@ class ContextCompiler:
                     content=prefixed,
                     token_count=max(1, len(prefixed) // 4),
                     truncatable_per_item=True,
+                    title="记忆与时间线变化",
+                    preview=prefixed[:160],
+                    status=options.context_mode if options else "canonical",
+                    activation_reason="章节/Scene 相邻上下文",
+                    sources=self._sources_from_items(
+                        (
+                            bundle.memory_records
+                            if isinstance(bundle.memory_records, list)
+                            else [bundle.memory_records]
+                        ),
+                        default_type="memory",
+                        status=options.context_mode if options else "canonical",
+                    ),
                 )
             )
 
@@ -261,6 +343,15 @@ class ContextCompiler:
                     content=content,
                     token_count=max(1, len(content) // 4),
                     truncatable_per_item=True,
+                    title="剧情线与未完成义务",
+                    preview=content[:160],
+                    status=options.context_mode if options else "canonical",
+                    activation_reason="scope 包含剧情结构资料",
+                    sources=self._sources_from_items(
+                        bundle.plot_threads,
+                        default_type="plot_thread",
+                        status=options.context_mode if options else "canonical",
+                    ),
                 )
             )
 
@@ -273,6 +364,15 @@ class ContextCompiler:
                     content=content,
                     token_count=max(1, len(content) // 4),
                     truncatable_per_item=True,
+                    title="RAG 证据包",
+                    preview=content[:160],
+                    status=options.context_mode if options else "canonical",
+                    activation_reason="RAG 检索命中",
+                    sources=self._sources_from_items(
+                        bundle.rag_chunks,
+                        default_type="rag",
+                        status=options.context_mode if options else "canonical",
+                    ),
                 )
             )
 
@@ -284,18 +384,84 @@ class ContextCompiler:
                     tier=Tier.P3,
                     content=content,
                     token_count=max(1, len(content) // 4),
+                    title="项目风格与基础设定",
+                    preview=content[:160],
+                    status="canonical",
+                    activation_reason="项目基础资料",
+                    sources=self._sources_from_items(
+                        [bundle.project],
+                        default_type="project",
+                        status="canonical",
+                    ),
                 )
             )
 
-        if bundle.warnings:
-            content = "\n".join(f"- {w}" for w in bundle.warnings)
+        warnings = list(bundle.warnings)
+        if warnings:
+            content = "\n".join(f"- {w}" for w in warnings)
             sections.append(
                 ContextSection(
                     key="compiler_warnings",
                     tier=Tier.P4,
                     content=content,
                     token_count=max(1, len(content) // 4),
+                    title="编译警告",
+                    preview=content[:160],
+                    status="system",
+                    activation_reason="编译过程产生的提示",
+                    sources=[
+                        {
+                            "type": "compiler",
+                            "id": "compiler_warnings",
+                            "label": "编译警告",
+                            "status": "system",
+                        }
+                    ],
+                    can_exclude=False,
                 )
             )
 
         return sections
+
+    @staticmethod
+    def _sources_from_items(
+        items,
+        *,
+        default_type: str,
+        status: str,
+    ) -> list[dict[str, str]]:
+        sources: list[dict[str, str]] = []
+        for index, item in enumerate(items or []):
+            if isinstance(item, dict):
+                source_id = (
+                    item.get("id")
+                    or item.get("entity_id")
+                    or item.get("character_id")
+                    or item.get("chunk_id")
+                    or item.get("scene_id")
+                    or item.get("novel_id")
+                    or f"{default_type}-{index + 1}"
+                )
+                label = (
+                    item.get("name")
+                    or item.get("title")
+                    or item.get("summary")
+                    or item.get("text")
+                    or str(source_id)
+                )
+                item_status = str(item.get("status") or status)
+                source_type = str(item.get("source_type") or default_type)
+            else:
+                source_id = f"{default_type}-{index + 1}"
+                label = str(item)
+                item_status = status
+                source_type = default_type
+            sources.append(
+                {
+                    "type": str(source_type),
+                    "id": str(source_id),
+                    "label": str(label)[:80],
+                    "status": item_status,
+                }
+            )
+        return sources

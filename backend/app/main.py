@@ -32,9 +32,11 @@ from modules.context.facade import (
 )
 from modules.memory.services import MemoryService as _MemorySvc  # noqa: N814
 from modules.outline.services import (
+    ForeshadowingPlanService as _FPS,  # noqa: N814
     OutlineArcService as _OAS,  # noqa: N814
     PlotStructureGenerator as _PSG,  # noqa: N814
     PlotThreadService as _PTS,  # noqa: N814
+    RevealPlanService as _RPS,  # noqa: N814
     SceneService as _SceneSvc,  # noqa: N814
 )
 from modules.imports.scene_entity_extraction import (
@@ -77,6 +79,10 @@ def _register_container_services() -> None:
         "world.run_scene_entity_extraction",
         _SceneExtractSvc().extract_by_scenes,
     )
+    _register(
+        "world.run_alias_relation_extraction",
+        _SceneExtractSvc().extract_alias_relations,
+    )
     _register("world.create_character", _world_create_char)
     _register("world.get_character_id_by_world_entity", _world_get_char_id)
     _register("rag.index_chapter", _rag_index)
@@ -88,6 +94,8 @@ def _register_container_services() -> None:
     _register("outline.arc_service", _OAS())
     _register("outline.thread_service", _PTS())
     _register("outline.scene_service", _SceneSvc())
+    _register("outline.foreshadowing_service", _FPS())
+    _register("outline.reveal_service", _RPS())
     _register("context.compile", _ctx_compile)
     _register("memory.service", _MemorySvc())
 

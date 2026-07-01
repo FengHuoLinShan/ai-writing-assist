@@ -715,6 +715,221 @@ class TestContextConfirmation:
     """测试手动 AI 操作前的上下文确认记录。"""
 
     @pytest.mark.asyncio
+    async def test_compile_response_includes_section_metadata(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """编译响应应返回可审查的参考资料 section 元数据。"""
+        novel_id = "00000000-0000-0000-0000-000000000091"
+
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成第 1 章正文草稿",
+                "scope": "chapter",
+                "chapter_index": 1,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        objective = next(
+            section
+            for section in data["sections"]
+            if section["key"] == "writing_objective"
+        )
+        assert objective["title"] == "本次任务"
+        assert objective["status"] == "system"
+        assert objective["activation_reason"] == "用户当前发起的 AI 操作"
+        assert objective["can_exclude"] is False
+        assert objective["excluded"] is False
+        assert objective["preview"] == "生成第 1 章正文草稿"
+        assert objective["sources"] == [
+            {
+                "type": "task",
+                "id": "writing_objective",
+                "label": "生成第 1 章正文草稿",
+                "status": "system",
+            }
+        ]
+        assert data["budget_events"] == []
+
+    @pytest.mark.asyncio
+    async def test_confirm_response_includes_review_sections(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """确认响应应返回审查 sections 和预算事件，但不返回 raw prompt。"""
+        novel_id = "00000000-0000-0000-0000-000000000092"
+
+        response = await async_client.post(
+            "/api/context/confirm",
+            json={
+                "novel_id": novel_id,
+                "action": "writing.generate",
+                "task": "生成第 1 章正文草稿",
+                "scope": "chapter",
+                "chapter_index": 1,
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        assert "rendered_context" not in data
+        assert data["sections"]
+        assert data["sections"][0]["key"] == "writing_objective"
+        assert data["sections"][0]["title"] == "本次任务"
+        assert data["budget_events"] == []
+        assert data["selected_asset_ids"]["context_sections"] == [
+            section["key"] for section in data["sections"]
+        ]
+
+    @pytest.mark.asyncio
+    async def test_excluding_context_section_removes_non_p0_section(
+        self,
+        async_client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """context_sections 排除项应移除可排除 section。"""
+        from dataclasses import dataclass, field
+
+        @dataclass
+        class _FakeRagResult:
+            chunks: list = field(default_factory=list)
+            warnings: list[str] = field(default_factory=list)
+            degraded: bool = False
+
+        async def _fake_retrieve(*args, **kwargs):
+            return _FakeRagResult(
+                chunks=[
+                    {
+                        "chunk_id": "chunk-1",
+                        "text": "旧城门在暴雨夜关闭。",
+                        "source_type": "draft",
+                    }
+                ]
+            )
+
+        monkeypatch.setattr("modules.rag.facade.retrieve", _fake_retrieve)
+        novel_id = "00000000-0000-0000-0000-000000000093"
+
+        response = await async_client.post(
+            "/api/context/confirm",
+            json={
+                "novel_id": novel_id,
+                "action": "writing.generate",
+                "task": "生成第 1 章正文草稿",
+                "scope": "full",
+                "excluded_asset_ids": {
+                    "context_sections": ["retrieval_evidence_packs"]
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        data = response.json()
+        section_keys = [section["key"] for section in data["sections"]]
+        assert "retrieval_evidence_packs" not in section_keys
+        assert "retrieval_evidence_packs" not in data["selected_asset_ids"][
+            "context_sections"
+        ]
+        assert data["excluded_asset_ids"] == {
+            "context_sections": ["retrieval_evidence_packs"]
+        }
+
+    @pytest.mark.asyncio
+    async def test_excluding_p0_section_is_ignored_with_warning(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        """P0 核心 section 不可排除，并应返回可见 warning。"""
+        novel_id = "00000000-0000-0000-0000-000000000094"
+
+        response = await async_client.post(
+            "/api/context/compile",
+            json={
+                "novel_id": novel_id,
+                "task": "生成第 1 章正文草稿",
+                "scope": "chapter",
+                "chapter_index": 1,
+                "excluded_asset_ids": {
+                    "context_sections": ["writing_objective", "hard_constraints"]
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        section_keys = [section["key"] for section in data["sections"]]
+        assert "writing_objective" in section_keys
+        hard_constraints = next(
+            section
+            for section in data["sections"]
+            if section["key"] == "hard_constraints"
+        )
+        assert hard_constraints["can_exclude"] is False
+        assert "核心参考资料不可排除：writing_objective" in "\n".join(
+            data["warnings"]
+        )
+        assert "核心参考资料不可排除：hard_constraints" in "\n".join(
+            data["warnings"]
+        )
+
+    def test_budget_events_record_eviction_and_truncation(self) -> None:
+        """预算裁剪应记录已移除和已裁剪 section 的事件。"""
+        from modules.context.services.compiled_context import (
+            CompiledContext,
+            ContextSection,
+            Tier,
+        )
+
+        ctx = CompiledContext(
+            sections=[
+                ContextSection(
+                    key="writing_objective",
+                    tier=Tier.P0,
+                    content="目标",
+                    token_count=1,
+                    title="本次任务",
+                    can_exclude=False,
+                ),
+                ContextSection(
+                    key="open_narrative_obligations",
+                    tier=Tier.P2,
+                    content="\n".join(f"剧情线 {i}" for i in range(80)),
+                    token_count=200,
+                    title="剧情线与未完成义务",
+                    truncatable_per_item=True,
+                ),
+                ContextSection(
+                    key="style_assets",
+                    tier=Tier.P3,
+                    content="风格设定" * 80,
+                    token_count=120,
+                    title="项目风格与基础设定",
+                ),
+            ],
+            total_tokens=321,
+            budget_tokens=60,
+        )
+
+        result = ctx.enforce_budget()
+
+        assert "style_assets" in result.evicted_keys
+        assert "open_narrative_obligations" in result.truncated_keys
+        assert [event.event_type for event in result.budget_events] == [
+            "evicted",
+            "truncated",
+        ]
+        assert result.budget_events[0].section_key == "style_assets"
+        assert result.budget_events[0].before_tokens == 120
+        assert result.budget_events[0].after_tokens == 0
+        assert result.budget_events[1].section_key == "open_narrative_obligations"
+        assert result.budget_events[1].before_tokens == 200
+        assert result.budget_events[1].after_tokens < 200
+
+    @pytest.mark.asyncio
     async def test_confirm_context_api_creates_summary_without_rendered_context(
         self,
         async_client: AsyncClient,

@@ -24,13 +24,16 @@ from modules.world.character_facade import (  # noqa: F401
     update_character_location,
 )
 from modules.world.entity_facade import (  # noqa: F401
+    append_candidate_alias,
     backfill_entity_embeddings,
     count_entities,
     create_entity,
     create_relation,
+    deprecate_deep_import_entities_by_workflow,
     expand_related_entities,
     find_entity_id_by_name,
     find_similar_entities,
+    find_working_entity_id_by_name,
     get_entity_relations,
     get_world_context,
     list_auto_ingested_entities,
@@ -50,5 +53,6 @@ from modules.world.event_facade import (  # noqa: F401
     run_entity_extraction,
 )
 from modules.world.map_facade import (  # noqa: F401
+    count_deep_import_map_observations_by_workflow,
     create_map_observation_from_delta_event,
 )

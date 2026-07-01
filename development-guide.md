@@ -28,6 +28,11 @@ python scripts/check_llm.py      # Sanitized LLM connectivity check
 make db                          # docker compose up -d
 make migrate                     # alembic upgrade head (demo 阶段也可直接重建开发库)
 
+# Local diagnostics
+make doctor                      # Read-only local Doctor: env/ports/Docker/API/DB/LLM config
+make doctor-json                 # Same diagnostics as stable JSON
+make doctor-llm                  # Explicitly includes remote LLM provider connectivity
+
 # Testing & linting
 make test                        # All tests
 make test-v                      # Verbose, stop on first failure
@@ -93,7 +98,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 ## Core Infrastructure
 
 - **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`dependencies.py`, `DbSession`/`AppSettings` type aliases)
-- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
+- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, project-level profile helpers, explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
 - **`infrastructure/tasks/`**: Async task system with `@task_handler` registry, status tracking, heartbeat, FOR UPDATE SKIP LOCKED for worker safety
 - **`shared/`**: Global enums (`enums.py`), constants (`constants.py`), types (`types.py`), utilities (`utils.py`)
 
@@ -136,7 +141,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 
 ## Data Security Rules
 
-- API Keys from environment variables only, never in logs, never returned to frontend
+- API Keys come from environment defaults or project-level write-only LLM settings; never log keys and never return raw keys to frontend
 - .env not committed to repo; .env.example provided
 - LLM transport must not implicitly depend on system proxy state; use `LLM_TRUST_ENV` / `LLM_PROXY_URL` and verify with `python scripts/check_llm.py`
 - All API requests validated via Pydantic schema

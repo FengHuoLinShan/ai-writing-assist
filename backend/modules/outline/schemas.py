@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -13,6 +13,12 @@ def _uuid_validator(v: object) -> str:
     if isinstance(v, str):
         return v
     return str(v)
+
+
+def _dict_default(v: object) -> dict[str, Any]:
+    if isinstance(v, dict):
+        return v
+    return {}
 
 
 # ============================================================
@@ -34,6 +40,7 @@ class PlotThreadCreate(BaseModel):
     related_memory_ids: list[str] = []
     reader_known_state: str | None = None
     author_known_state: str | None = None
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
 
 
@@ -51,6 +58,7 @@ class PlotThreadUpdate(BaseModel):
     related_memory_ids: Annotated[list[str] | None, Field(None)]
     reader_known_state: Annotated[str | None, Field(None)]
     author_known_state: Annotated[str | None, Field(None)]
+    provenance_meta: Annotated[dict[str, Any] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
@@ -72,6 +80,7 @@ class PlotThreadResponse(BaseModel):
     related_memory_ids: list = []
     reader_known_state: str | None = None
     author_known_state: str | None = None
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -80,6 +89,11 @@ class PlotThreadResponse(BaseModel):
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
+
+    @field_validator("provenance_meta", mode="before")
+    @classmethod
+    def coerce_provenance_meta(cls, v: object) -> dict[str, Any]:
+        return _dict_default(v)
 
 
 class PlotThreadListResponse(BaseModel):
@@ -108,6 +122,7 @@ class OutlineArcCreate(BaseModel):
     related_thread_ids: list[str] = []
     related_character_ids: list[str] = []
     related_entity_ids: list[str] = []
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
 
 
@@ -127,6 +142,7 @@ class OutlineArcUpdate(BaseModel):
     related_thread_ids: Annotated[list[str] | None, Field(None)]
     related_character_ids: Annotated[list[str] | None, Field(None)]
     related_entity_ids: Annotated[list[str] | None, Field(None)]
+    provenance_meta: Annotated[dict[str, Any] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
@@ -150,6 +166,7 @@ class OutlineArcResponse(BaseModel):
     related_thread_ids: list = []
     related_character_ids: list = []
     related_entity_ids: list = []
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -158,6 +175,11 @@ class OutlineArcResponse(BaseModel):
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
+
+    @field_validator("provenance_meta", mode="before")
+    @classmethod
+    def coerce_provenance_meta(cls, v: object) -> dict[str, Any]:
+        return _dict_default(v)
 
 
 class OutlineArcListResponse(BaseModel):
@@ -314,6 +336,51 @@ class SceneImpactPreview(BaseModel):
     new_scene: dict[str, Any] | None = None
 
 
+class SceneFusionDraft(BaseModel):
+    scene_index: Annotated[int | None, Field(None, ge=0)]
+    title: Annotated[str | None, Field(None, max_length=255)]
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    must_happen: str | None = None
+    must_not_happen: str | None = None
+    narrative_tag: Annotated[str | None, Field(None, max_length=32)]
+    source: Annotated[str | None, Field(None, max_length=32)]
+    scene_chunks: list[dict] | None = None
+    chapter_ids: list[str] | None = None
+    pov_character_id: str | None = None
+    structure_meta: dict[str, Any] | None = None
+    status: Annotated[str | None, Field(None, max_length=32)]
+
+
+class SceneFusionPreviewRequest(BaseModel):
+    source_scene_ids: list[str] = Field(..., min_length=2)
+
+
+class SceneFusionPreviewResponse(BaseModel):
+    source_scene_ids: list[str]
+    fused_scene: dict[str, Any]
+    preview_scene: dict[str, Any]
+    warnings: list[str] = []
+
+
+class SceneFusionSaveRequest(SceneFusionPreviewRequest):
+    mode: Literal[
+        "keep_originals",
+        "deprecate_originals",
+        "discard",
+        "edit_then_save",
+    ]
+    fused_scene: SceneFusionDraft | None = None
+
+
+class SceneFusionSaveResponse(BaseModel):
+    status: Literal["saved", "discarded"]
+    source_scene_ids: list[str]
+    fused_scene: SceneResponse | None = None
+    warnings: list[str] = []
+
+
 class PlotStructureGenerateResponse(BaseModel):
     """AI 剧情结构生成接口响应"""
 
@@ -363,6 +430,7 @@ class ForeshadowingPlanCreate(BaseModel):
     planned_payoff_scene: int | None = Field(None, ge=0)
     related_entity_ids: list[str] = []
     related_thread_ids: list[str] = []
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
 
 
@@ -380,6 +448,7 @@ class ForeshadowingPlanUpdate(BaseModel):
     planned_payoff_scene: Annotated[int | None, Field(None, ge=0)]
     related_entity_ids: Annotated[list[str] | None, Field(None)]
     related_thread_ids: Annotated[list[str] | None, Field(None)]
+    provenance_meta: Annotated[dict[str, Any] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
@@ -398,6 +467,7 @@ class ForeshadowingPlanResponse(BaseModel):
     planned_payoff_scene: int | None = None
     related_entity_ids: list = []
     related_thread_ids: list = []
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -406,6 +476,11 @@ class ForeshadowingPlanResponse(BaseModel):
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
+
+    @field_validator("provenance_meta", mode="before")
+    @classmethod
+    def coerce_provenance_meta(cls, v: object) -> dict[str, Any]:
+        return _dict_default(v)
 
 
 class ForeshadowingPlanListResponse(BaseModel):
@@ -431,6 +506,7 @@ class RevealPlanCreate(BaseModel):
     target_id: uuid.UUID = Field(...)
     secret_summary: str = Field(...)
     reveal_stages: list[RevealStage] = []
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
 
 
@@ -439,6 +515,7 @@ class RevealPlanUpdate(BaseModel):
     target_id: Annotated[str | None, Field(None)]
     secret_summary: Annotated[str | None, Field(None)]
     reveal_stages: Annotated[list[RevealStage] | None, Field(None)]
+    provenance_meta: Annotated[dict[str, Any] | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
@@ -451,6 +528,7 @@ class RevealPlanResponse(BaseModel):
     target_id: str
     secret_summary: str
     reveal_stages: list = []
+    provenance_meta: dict[str, Any] = {}
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -459,6 +537,11 @@ class RevealPlanResponse(BaseModel):
     @classmethod
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
+
+    @field_validator("provenance_meta", mode="before")
+    @classmethod
+    def coerce_provenance_meta(cls, v: object) -> dict[str, Any]:
+        return _dict_default(v)
 
 
 class RevealPlanListResponse(BaseModel):

@@ -53,33 +53,15 @@ async def resume_deep_import(
     db: AsyncSession,
     prev_task_id: str,
 ) -> dict[str, Any]:
-    """（已废弃）候选管理已移除，深度导入全自动执行。"""
-    from sqlalchemy import select
+    """恢复被中断的 deep_import 任务，复用原 task_id。"""
+    _parse_uuid(prev_task_id)
+    return await _orchestrator.resume_interrupted(db, prev_task_id)
 
-    from infrastructure.tasks.enqueuer import enqueue_task
-    from infrastructure.tasks.models import AsyncTask
 
-    stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(prev_task_id))
-    result = await db.execute(stmt)
-    prev_task = result.scalar_one_or_none()
-    if prev_task is None:
-        from modules.imports.contracts import TaskNotFoundError
-
-        raise TaskNotFoundError(prev_task_id)
-
-    prev_meta = prev_task.meta or {}
-    task_meta = dict(prev_meta)
-    task_meta["prev_task_id"] = prev_task_id
-
-    task_id = enqueue_task(
-        db,
-        "deep_import_resume",
-        meta=task_meta,
-    )
-    await db.flush()
-
-    return {
-        "task_id": task_id,
-        "status": "pending",
-        "message": "深度导入继续任务已提交",
-    }
+async def abandon_deep_import(
+    db: AsyncSession,
+    task_id: str,
+) -> dict[str, Any]:
+    """放弃被中断的 deep_import 任务，并返回清理摘要。"""
+    _parse_uuid(task_id)
+    return await _orchestrator.abandon_recovery(db, task_id)

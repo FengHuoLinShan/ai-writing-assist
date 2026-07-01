@@ -167,9 +167,19 @@ const writingView = {
       if (!task || task.status === "done" || task.status === "failed" || task.status === "cancelled") {
         if (task) {
           const result = task.result || {}
+          const recoveryProgress = this._buildDeepImportProgressFromTask(
+            task, result, task.status === "failed" ? 0 : 100, "",
+          )
+          if (this._hasDeepImportRecoveryPrompt(recoveryProgress)) {
+            this._deepImportTaskId = taskId
+            this._deepImportProgress = recoveryProgress
+            await this._rerender()
+            return
+          }
           const isFailed = task.status === "failed"
           this._deepImportTaskId = taskId
           this._deepImportProgress = {
+            ...recoveryProgress,
             phase: isFailed ? "failed" : task.status === "cancelled" ? "cancelled" : "done",
             step: result.current_step || "",
             message: result.message || (isFailed ? "导入失败" : "导入完成"),
@@ -192,6 +202,7 @@ const writingView = {
       this._deepImportTaskId = taskId
       const result = task.result || {}
       this._deepImportProgress = {
+        ...this._buildDeepImportProgressFromTask(task, result, result.phase === "running" ? 50 : 0, ""),
         phase: result.phase || "running",
         step: result.current_step || "",
         message: result.message || "深度导入中...",
@@ -206,6 +217,7 @@ const writingView = {
         snapshotHealthSummary: result.snapshot_health_summary || result.snapshotHealthSummary || result.audit_summary || result.auditSummary || {},
       }
       await this._rerender()
+      if (this._hasDeepImportRecoveryPrompt(this._deepImportProgress)) return
       this._startDeepImportPolling()
     } catch {
       this._clearDeepImportWorkflow(taskId)
@@ -773,6 +785,9 @@ const writingView = {
         ${row("危机", summary.crises)}
         ${risks}
         ${warnings}
+        <div style="margin-top:8px;">
+          <button class="btn btn-sm" data-action="open-map">打开地图</button>
+        </div>
       </div>
     `
   },
@@ -2001,6 +2016,7 @@ const writingView = {
         }
 
         this._deepImportProgress = {
+          ...this._buildDeepImportProgressFromTask(task, result, percent, stepLabel),
           phase: result.phase || task.status,
           step: result.current_step || "",
           message: result.message || task.status,
@@ -2013,6 +2029,12 @@ const writingView = {
           qualityStatus: result.quality_status || (result.degraded ? "partial" : "pending"),
           auditSummary: result.audit_summary || result.auditSummary || {},
           snapshotHealthSummary: result.snapshot_health_summary || result.snapshotHealthSummary || result.audit_summary || result.auditSummary || {},
+        }
+
+        if (this._hasDeepImportRecoveryPrompt(this._deepImportProgress)) {
+          this._pauseDeepImportPolling()
+          await this._rerender()
+          return
         }
 
         if (task.status === "done" || result.phase === "done") {
@@ -2059,19 +2081,166 @@ const writingView = {
     this._clearDeepImportWorkflow(taskId)
   },
 
+  _pauseDeepImportPolling() {
+    if (this._deepImportTimer) {
+      clearInterval(this._deepImportTimer)
+      this._deepImportTimer = null
+    }
+  },
+
   _renderDeepImportBar() {
     if (!this._deepImportProgress) return ""
     const progress = this._normalizeDeepImportProgress()
     const actionsHtml = progress.failed
       ? `<button class="btn btn-sm" data-action="dismiss-deep-import" style="font-size:11px;">关闭</button>`
       : ""
+    const recoveryHtml = this._renderDeepImportRecoveryPrompt()
+    const currentPositionHtml = this._renderDeepImportCurrentPosition()
+    const qualityStatsHtml = this._renderDeepImportQualityStats()
+    const aliveClass = progress.terminal ? "" : "deep-import-progress--alive"
     return renderFixedProgress(progress, {
       offset: 40,
       title: "深度导入",
       message: progress.message,
       showTaskId: false,
-      actionsHtml: [this._renderDeepImportAuditSummary(), actionsHtml].filter(Boolean).join(""),
+      className: aliveClass,
+      actionsHtml: [
+        currentPositionHtml,
+        qualityStatsHtml,
+        recoveryHtml,
+        this._renderDeepImportAuditSummary(),
+        actionsHtml,
+      ].filter(Boolean).join(""),
     })
+  },
+
+  _renderDeepImportCurrentPosition() {
+    const p = this._deepImportProgress || {}
+    const fields = [
+      ["阶段", p.currentPhase],
+      ["Round", p.currentRound],
+      ["章节范围", p.currentChapterRange],
+      ["当前章节", p.currentChapter],
+      ["Scene candidate", p.currentSceneCandidateId],
+      ["窗口", p.currentWindow],
+      ["操作", p.currentOperation],
+    ].filter(([, value]) => value !== null && value !== undefined && value !== "")
+    if (fields.length === 0) return ""
+    return `
+      <div class="deep-import-current-position">
+        ${fields.map(([label, value]) => `
+          <span class="deep-import-current-position__item">${esc(label)}：${esc(value)}</span>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderDeepImportQualityStats() {
+    const p = this._deepImportProgress || {}
+    const stats = p.qualityStats && typeof p.qualityStats === "object"
+      ? p.qualityStats
+      : {}
+    const currentKey = p.currentPhase && stats[p.currentPhase]
+      ? p.currentPhase
+      : this._pickDeepImportQualityStatsKey(stats)
+    const currentStats = currentKey ? stats[currentKey] : null
+    if (!currentStats || typeof currentStats !== "object") return ""
+
+    const statLabels = {
+      total_batches: "请求数",
+      total_windows: "窗口数",
+      completed_batches: "已完成",
+      completed_windows: "已完成",
+      success: "成功",
+      failed: "失败",
+      final_422: "422",
+      final_422_batches: "422",
+      timeout: "timeout",
+      schema_error: "schema",
+      empty_result: "空结果",
+      fallback_scene_count: "fallback Scene",
+      fused_scene_count: "融合 Scene",
+      needs_review_scene_count: "待复核",
+    }
+    const orderedKeys = [
+      "total_batches",
+      "total_windows",
+      "completed_batches",
+      "completed_windows",
+      "success",
+      "failed",
+      "final_422",
+      "final_422_batches",
+      "timeout",
+      "schema_error",
+      "empty_result",
+      "fallback_scene_count",
+      "fused_scene_count",
+      "needs_review_scene_count",
+    ]
+    const items = orderedKeys
+      .filter((key) => currentStats[key] !== undefined && currentStats[key] !== null)
+      .map((key) => {
+        return `<span class="deep-import-current-position__item">${esc(statLabels[key] || key)}：${esc(currentStats[key])}</span>`
+      })
+    const rate = currentStats.final_422_rate
+    if (rate !== undefined && rate !== null) {
+      const percent = Number(rate) <= 1 ? Number(rate) * 100 : Number(rate)
+      items.push(`<span class="deep-import-current-position__item">422 率：${esc(`${percent.toFixed(0)}%`)}</span>`)
+    }
+    if (items.length === 0) return ""
+    return `
+      <div class="deep-import-current-position" aria-label="深度导入质量统计">
+        ${items.join("")}
+      </div>
+    `
+  },
+
+  _pickDeepImportQualityStatsKey(stats) {
+    for (const key of ["phase1b", "phase1a", "phase0", "scene_commit"]) {
+      if (stats[key]) return key
+    }
+    return Object.keys(stats)[0] || null
+  },
+
+  _renderDeepImportRecoveryPrompt() {
+    const p = this._deepImportProgress || {}
+    if (!this._hasDeepImportRecoveryPrompt(p)) return ""
+    const summary = p.recoverySummary && typeof p.recoverySummary === "object"
+      ? p.recoverySummary
+      : {}
+    const summaryLabels = {
+      last_checkpoint: "检查点",
+      current_phase: "阶段",
+      current_chapter: "当前章节",
+      current_chapter_range: "章节范围",
+      committed_scenes: "已写入 Scene",
+      deprecated_scenes: "已废弃 Scene",
+      committed_entities: "已写入实体",
+      deprecated_entities: "已废弃实体",
+      pending_scene_candidates: "待处理候选",
+    }
+    const summaryItems = Object.entries(summary)
+      .filter(([, value]) => value !== null && value !== undefined && value !== "")
+      .slice(0, 6)
+      .map(([key, value]) => {
+        const label = summaryLabels[key] || key
+        return `<span class="deep-import-recovery__meta-item">${esc(label)}：${esc(value)}</span>`
+      })
+      .join("")
+    return `
+      <div class="deep-import-recovery" role="status">
+        <div class="deep-import-recovery__body">
+          <strong>深度导入需要恢复</strong>
+          <span>检测到任务中断。可以继续原任务，或放弃恢复并交给后端清理本次自动写入资产。</span>
+        </div>
+        ${summaryItems ? `<div class="deep-import-recovery__meta">${summaryItems}</div>` : ""}
+        <div class="deep-import-recovery__actions">
+          <button class="btn btn-sm btn-primary" data-action="resume-deep-import" style="font-size:11px;">继续</button>
+          <button class="btn btn-sm" data-action="abandon-deep-import" style="font-size:11px;">放弃恢复</button>
+        </div>
+      </div>
+    `
   },
 
   _renderDeepImportAuditSummary() {
@@ -2116,13 +2285,16 @@ const writingView = {
 
   _normalizeDeepImportProgress() {
     const p = this._deepImportProgress || {}
-    const status = p.phase === "failed"
-      ? "failed"
-      : p.phase === "done"
-        ? "done"
-        : p.phase === "cancelled"
-          ? "cancelled"
-          : "running"
+    const needsRecovery = this._hasDeepImportRecoveryPrompt(p)
+    const status = needsRecovery
+      ? "running"
+      : p.phase === "failed"
+        ? "failed"
+        : p.phase === "done"
+          ? "done"
+          : p.phase === "cancelled"
+            ? "cancelled"
+            : "running"
     const degradedBatches = Array.isArray(p.degradedBatches) ? p.degradedBatches : []
     const phaseErrors = Array.isArray(p.phaseErrors) ? p.phaseErrors : []
     const phaseErrorText = phaseErrors
@@ -2137,19 +2309,109 @@ const writingView = {
     if (degradedBatches.length > 0) warnings.push(`降级批次：${degradedBatches.join(", ")}`)
     if (p.phaseError && status !== "failed") warnings.push(`阶段错误：${p.phaseError}`)
     if (phaseErrorText && status !== "failed") warnings.push(`阶段错误：${phaseErrorText}`)
+    if (p.phase1aFallback) warnings.push("自动整理失败，已使用质量补强结果继续导入")
 
     return normalizeTaskProgress({
       task_id: this._deepImportTaskId || "deep_import",
       task_type: "deep_import",
       status,
       progress: typeof p.percent === "number" ? p.percent : null,
-      error_message: status === "failed" ? (p.phaseError || phaseErrorText || p.message || "深度导入失败") : null,
+      error_message: status === "failed" ? (p.message || p.phaseError || phaseErrorText || "深度导入失败") : null,
       result: {
-        message: p.stepLabel || p.message || "深度导入中...",
+        message: needsRecovery
+          ? "深度导入中断，需要选择继续或放弃恢复"
+          : p.stepLabel || p.message || "深度导入中...",
         warnings,
         summary: isPartial ? "部分完成" : p.degraded ? "部分降级完成" : null,
       },
     }, "deep_import")
+  },
+
+  _buildDeepImportProgressFromTask(task, result = {}, percent = null, stepLabel = "") {
+    const recoverySummary = result.recovery_summary || result.recoverySummary || {}
+    return {
+      phase: result.phase || task?.status || "running",
+      step: result.current_step || "",
+      message: result.message || task?.status || "深度导入中...",
+      percent,
+      stepLabel,
+      degraded: result.degraded || false,
+      degradedBatches: result.degraded_batches || [],
+      phaseError: result.phase_error || result.error || task?.error_message || "",
+      phaseErrors: result.phase_errors || [],
+      qualityStatus: result.quality_status || (result.degraded ? "partial" : "pending"),
+      auditSummary: result.audit_summary || result.auditSummary || {},
+      snapshotHealthSummary: result.snapshot_health_summary || result.snapshotHealthSummary || result.audit_summary || result.auditSummary || {},
+      currentPhase: result.current_phase || null,
+      currentRound: result.current_round || null,
+      currentChapterRange: result.current_chapter_range || null,
+      currentChapter: result.current_chapter ?? null,
+      currentSceneCandidateId: result.current_scene_candidate_id || null,
+      currentWindow: result.current_window || null,
+      currentOperation: result.current_operation || null,
+      qualityStats: result.quality_stats || {},
+      degradedReason: result.degraded_reason || "",
+      phase1aFallback: result.phase1a_fallback || false,
+      recoverySummary,
+      interrupted: result.interrupted || false,
+      recoverable: result.recoverable || false,
+      recoveryRequired: result.recovery_required || false,
+    }
+  },
+
+  _hasDeepImportRecoveryPrompt(progress = this._deepImportProgress) {
+    return Boolean(progress?.recoveryRequired || progress?.interrupted || progress?.recoverable)
+  },
+
+  async _resumeDeepImportRecovery() {
+    const taskId = this._deepImportTaskId
+    if (!taskId) return
+    try {
+      const response = await api.imports.resumeDeepImport(taskId)
+      const result = response?.result || {}
+      this._deepImportTaskId = response?.task_id || taskId
+      this._deepImportProgress = {
+        ...this._buildDeepImportProgressFromTask(
+          { status: response?.status || "running" },
+          result,
+          this._deepImportProgress?.percent ?? null,
+          this._deepImportProgress?.stepLabel || "恢复进度中...",
+        ),
+        recoveryRequired: false,
+        interrupted: false,
+        recoverable: false,
+      }
+      this._startDeepImportPolling()
+      await this._rerender()
+      toast("已继续深度导入恢复", "success")
+    } catch (err) {
+      toast(err.message || "继续恢复失败", "error")
+    }
+  },
+
+  async _abandonDeepImportRecovery() {
+    const taskId = this._deepImportTaskId
+    if (!taskId) return
+    let confirmedWork = Promise.resolve()
+    const message = "确认放弃深度导入恢复？后端会删除/废弃已写入的 Scene/实体，并停止继续恢复。"
+    confirmAction(message, () => {
+      confirmedWork = (async () => {
+        try {
+          const response = await api.imports.abandonDeepImport(taskId)
+          const summary = response?.cleanup_summary || response?.cleanupSummary || {}
+          const scenes = summary.deprecated_scenes ?? summary.scenes ?? 0
+          const entities = summary.deprecated_entities ?? summary.entities ?? 0
+          this._deepImportProgress = null
+          this._deepImportTaskId = null
+          this._clearDeepImportWorkflow(taskId)
+          await this._rerender()
+          toast(`已放弃恢复：Scene ${scenes} 个，实体 ${entities} 个`, "success")
+        } catch (err) {
+          toast(err.message || "放弃恢复失败", "error")
+        }
+      })()
+    }, "确认放弃")
+    return confirmedWork
   },
 
   _persistDeepImportWorkflow(taskId, startChapter, endChapter) {
@@ -2281,6 +2543,8 @@ const writingView = {
       "deep-import": () => this._showDeepImportForm(),
       "open-map": () => this._openMapForCurrentScene(),
       "dismiss-deep-import": () => this._dismissDeepImport(),
+      "resume-deep-import": () => this._resumeDeepImportRecovery(),
+      "abandon-deep-import": () => this._abandonDeepImportRecovery(),
       "view-deep-import-audit": () => this._showDeepImportAuditDetails(),
       "open-outline": () => router.navigate("outline", null),
       "open-scene-workbench": () => {

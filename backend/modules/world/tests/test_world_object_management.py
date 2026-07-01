@@ -106,6 +106,82 @@ class TestEntitySearchAndFilter:
         assert result.total == 1
         assert result.items[0].name == "克莱恩"
 
+    @pytest.mark.asyncio
+    async def test_list_entities_filters_deep_import_workflow_metadata(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        other_novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        await _create_project(db_session, other_novel_id)
+        service = WorldEntityService()
+
+        matching = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="廷根市",
+                status="deprecated",
+                content_json={
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-world-filter",
+                        "needs_review": True,
+                        "auto_ingested": True,
+                    }
+                },
+            ),
+        )
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="贝克兰德",
+                status="deprecated",
+                content_json={
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-other",
+                        "needs_review": True,
+                        "auto_ingested": True,
+                    }
+                },
+            ),
+        )
+        await service.create(
+            db_session,
+            other_novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="其他小说地点",
+                status="deprecated",
+                content_json={
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-world-filter",
+                        "needs_review": True,
+                        "auto_ingested": True,
+                    }
+                },
+            ),
+        )
+
+        result = await service.list(
+            db_session,
+            novel_id,
+            status="deprecated",
+            source="deep_import",
+            workflow_id="wf-world-filter",
+            needs_review=True,
+            auto_ingested=True,
+        )
+
+        assert result.total == 1
+        assert result.items[0].id == matching.id
+
 
 # ============================================================
 # 手动创建标记
@@ -401,6 +477,67 @@ class TestWorldObjectManagementAPI:
         data = response.json()
         assert data["total"] == 1
         assert data["items"][0]["name"] == "克莱恩"
+
+    @pytest.mark.asyncio
+    async def test_api_list_entities_filters_deep_import_workflow_metadata(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        matching = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="廷根市",
+                status="deprecated",
+                content_json={
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-world-api",
+                        "needs_review": True,
+                        "auto_ingested": True,
+                    }
+                },
+            ),
+        )
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="无关地点",
+                status="deprecated",
+                content_json={
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-other",
+                        "needs_review": True,
+                        "auto_ingested": True,
+                    }
+                },
+            ),
+        )
+
+        response = await async_client.get(
+            "/api/world/entities",
+            params={
+                "novel_id": novel_id,
+                "status": "deprecated",
+                "source": "deep_import",
+                "workflow_id": "wf-world-api",
+                "needs_review": "true",
+                "auto_ingested": "true",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == matching.id
 
     @pytest.mark.asyncio
     async def test_api_create_relation_duplicate_returns_409(
