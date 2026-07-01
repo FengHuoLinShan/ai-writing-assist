@@ -12,6 +12,7 @@ beforeEach(() => {
   localStorage.clear()
   writingView._chapters = {}
   writingView._chapterList = []
+  writingView._chapterListLoadError = null
   writingView._currentChapter = null
   writingView._currentDraftId = null
   writingView._currentContent = null
@@ -150,11 +151,15 @@ describe("writingView onEnter", () => {
     expect(writingView._chapters[1]).toBeDefined()
   })
 
-  it("API 失败时降级为空列表", async () => {
+  it("API 失败时显示章节列表加载失败提示", async () => {
     state.currentProjectId = "p1"
     api.writing.listChapters.mockRejectedValue(new Error("fail"))
     await writingView.onEnter()
+    const html = await writingView.render()
+
     expect(writingView._chapterList).toEqual([])
+    expect(html).toContain("章节列表加载失败")
+    expect(html).toContain("可稍后重试")
   })
 })
 

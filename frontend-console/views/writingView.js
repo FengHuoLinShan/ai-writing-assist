@@ -41,6 +41,7 @@ const AUTO_EXTRACTION_STAGES = {
 const writingView = {
   _chapters: {},
   _chapterList: [],
+  _chapterListLoadError: null,
   _currentChapter: null,
   _currentDraftId: null,
   _currentContent: null,
@@ -117,6 +118,7 @@ const writingView = {
     }
     this._chapters = {}
     this._chapterList = []
+    this._chapterListLoadError = null
     this._versions = []
     this._publishTaskId = null
     this._publishProgress = null
@@ -167,8 +169,10 @@ const writingView = {
       } catch {
         this._scenes = []
       }
-    } catch {
+    } catch (err) {
       this._chapterList = []
+      this._chapterListLoadError = err?.message || "加载失败"
+      toast("章节列表加载失败，可稍后重试", "warning")
     }
 
     try {
@@ -277,6 +281,17 @@ const writingView = {
   async render() {
     if (this._loading) {
       return '<div class="empty-state"><p>加载中...</p></div>'
+    }
+
+    if (this._chapterListLoadError) {
+      return `
+        <div class="empty-state" role="alert">
+          <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
+          <p>章节列表加载失败</p>
+          <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._chapterListLoadError)}</p>
+        </div>
+        <div id="writing-deep-import-bar-container">${this._renderDeepImportBar()}</div>
+      `
     }
 
     if (this._chapterList.length === 0) {

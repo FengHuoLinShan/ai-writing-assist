@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend, createEntity, createCharacter, seedEntityArchive } from "./helpers/api-client.js"
+import { expectNoPageOverflow, runResponsiveMatrix } from "./helpers/responsive.js"
 
 test.describe("世界对象模块", () => {
   let testProjectId = null
@@ -57,6 +58,15 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("测试城堡")
     await expect(page.locator(SEL.dataTable)).toContainText("location")
+
+    await runResponsiveMatrix(page, async () => {
+      await expectNoPageOverflow(page)
+      await expect(page.locator(SEL.dataTable)).toBeVisible()
+    }, [
+      { width: 900, height: 800 },
+      { width: 600, height: 800 },
+      { width: 390, height: 844 },
+    ])
   })
 
   test("编辑世界对象", async ({ page }) => {

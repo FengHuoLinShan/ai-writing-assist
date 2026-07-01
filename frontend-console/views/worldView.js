@@ -35,6 +35,7 @@ const worldView = {
   _batches: [],
 
   _total: 0,
+  _entitiesLoadError: null,
 
   _filters: { ...WORLD_FILTER_DEFAULTS },
 
@@ -97,6 +98,7 @@ const worldView = {
   async _loadEntities() {
     this._entities = []
     this._total = 0
+    this._entitiesLoadError = null
     if (!state.currentProjectId) return
 
     try {
@@ -118,9 +120,11 @@ const worldView = {
       const data = await api.world.listEntities(params)
       this._entities = data.items || data || []
       this._total = data.total || this._entities.length
-    } catch {
+    } catch (err) {
       this._entities = []
       this._total = 0
+      this._entitiesLoadError = err?.message || "加载失败"
+      toast("世界对象加载失败，可稍后重试", "warning")
     }
   },
 
@@ -414,11 +418,19 @@ const worldView = {
         </div>
         ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
         ${this._renderFilters()}
+        ${this._entitiesLoadError ? `
+          <div class="empty-state" role="alert">
+            <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
+            <p>世界对象加载失败</p>
+            <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._entitiesLoadError)}</p>
+          </div>
+        ` : `
         <div class="empty-state">
           <div class="empty-icon">&#127758;</div>
           <p>还没有世界对象。</p>
           <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
         </div>
+        `}
       `
     }
 

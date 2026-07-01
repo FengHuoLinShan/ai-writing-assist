@@ -20,6 +20,22 @@ python -m http.server 8080
 
 如需修改后端地址，修改 `api.js` 中的 `API_BASE_URL`。
 
+## E2E 测试
+
+Playwright 默认启动后端 `8000` 和前端 `8080`，可通过环境变量避开端口冲突：
+
+```bash
+BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:smoke
+```
+
+后端地址可用 `API_HOST` 覆盖，支持 `http://localhost:8000` 或 `http://localhost:8000/api`。
+如果 `webServer` 超时，先运行：
+
+```bash
+cd ../backend
+python scripts/doctor.py --json
+```
+
 ## 文件结构
 
 ```

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
+  API_BASE,
   createProject, cleanupProject, waitForBackend,
   createDraft, createScene, getLatestDraft,
 } from "./helpers/api-client.js"
@@ -623,7 +624,6 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-editor")).toHaveValue("原始内容", { timeout: 5000 })
 
     // 模拟另一个会话删除了当前编辑的 v1 版本
-    const API_BASE = "http://localhost:8000/api"
     await fetch(
       `${API_BASE}/writing/drafts/${d1.draft.id}?novel_id=${encodeURIComponent(testProjectId)}`,
       { method: "DELETE" },

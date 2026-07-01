@@ -149,6 +149,67 @@ export function captureModalHandler({ callIndex = 0, buttonIndex = 0 } = {}) {
   return buttons?.[buttonIndex]?.handler ?? null
 }
 
+/** 将 HTML 字符串渲染到脱离页面的容器，便于区域化断言。 */
+export function renderHtml(html) {
+  const container = document.createElement("div")
+  container.innerHTML = html
+  return container
+}
+
+/** 读取最近一次 showModal 调用，返回具名字段而不是 mock 调用下标。 */
+export function latestModal() {
+  const call = showModal.mock.calls.at(-1)
+  if (!call) return null
+  const [title, body, buttons = []] = call
+  return { title, body, buttons }
+}
+
+/** 按用户可见按钮文案触发最近一次 modal action。 */
+export async function clickModalButtonByText(text) {
+  const modal = latestModal()
+  const action = modal?.buttons.find((button) => button.text === text)
+  if (!action) {
+    const labels = modal?.buttons.map((button) => button.text).join(", ") || "无按钮"
+    throw new Error(`未找到 modal 按钮 "${text}"。可用按钮：${labels}`)
+  }
+  return action.handler?.()
+}
+
+/** 断言默认可见 UI 没有泄露技术 ID，并在失败时列出具体 ID。 */
+export function expectNoTechnicalIds(container, ids) {
+  const text = container?.textContent || ""
+  const leaked = ids.filter((id) => id && text.includes(id))
+  if (leaked.length > 0) {
+    throw new Error(`用户可见文本泄露技术 ID：${leaked.join(", ")}`)
+  }
+}
+
+function overlap(a, b) {
+  return !(
+    a.x + a.width <= b.x
+    || b.x + b.width <= a.x
+    || a.y + a.height <= b.y
+    || b.y + b.height <= a.y
+  )
+}
+
+function describeBox(item) {
+  const box = item.box
+  return `${item.label || item.text || item.itemId || "未命名"} `
+    + `(${box.x},${box.y},${box.width}x${box.height})`
+}
+
+/** 断言布局项不重叠，失败时输出两个冲突项的标签和 box。 */
+export function expectNoOverlaps(items) {
+  for (let i = 0; i < items.length; i += 1) {
+    for (let j = i + 1; j < items.length; j += 1) {
+      if (overlap(items[i].box, items[j].box)) {
+        throw new Error(`布局项重叠：${describeBox(items[i])} overlaps ${describeBox(items[j])}`)
+      }
+    }
+  }
+}
+
 /**
  * 将对象方法 stub 为空实现，测试结束后需自行 restore。
  */

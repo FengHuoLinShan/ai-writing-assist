@@ -169,6 +169,7 @@ async function _syncCurrentProject(projectId) {
   } catch (err) {
     console.warn("加载项目信息失败:", err)
     state.currentProject = null
+    toast("项目信息加载失败，可稍后重试", "warning")
   }
 }
 

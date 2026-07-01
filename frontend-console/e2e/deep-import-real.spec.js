@@ -14,6 +14,7 @@ import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import {
+  API_BASE,
   createProject, cleanupProject, waitForBackend,
   listScenesOrdered,
 } from "./helpers/api-client.js"
@@ -21,8 +22,6 @@ import path from "path"
 import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const API_BASE = "http://localhost:8000/api"
-
 // 深度导入同步执行需要时间（LLM 调用），给充足的超时
 const SYNC_DEEP_TIMEOUT = 240_000
 const IMPORT_TIMEOUT = 30_000
