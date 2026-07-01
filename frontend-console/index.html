@@ -25,6 +25,7 @@
         <span id="topbar-project"></span>
         <span class="separator">&#183;</span>
         <span id="topbar-module">项目</span>
+        <span id="topbar-submodule" class="topbar-submodule hidden"></span>
       </div>
       <div class="topbar-right">
         <span id="topbar-status-dot" class="status-indicator disconnected"></span>
@@ -42,12 +43,14 @@
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
             </svg>
+            <span class="nav-label">项目</span>
           </li>
           <li data-view="writing" class="nav-item" data-tooltip="手动工作台" title="手动工作台">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 20h9"/>
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
             </svg>
+            <span class="nav-label">写作</span>
           </li>
           <li data-view="world" class="nav-item" data-tooltip="世界对象" title="世界对象">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -55,6 +58,7 @@
               <path d="M2 12h20"/>
               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
             </svg>
+            <span class="nav-label">世界</span>
           </li>
           <li data-view="map" class="nav-item" data-tooltip="地图" title="地图">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -62,12 +66,14 @@
               <path d="M9 3v15"/>
               <path d="M15 6v15"/>
             </svg>
+            <span class="nav-label">地图</span>
           </li>
           <li data-view="rag" class="nav-item" data-tooltip="RAG 检索" title="RAG 检索">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="11" cy="11" r="8"/>
               <path d="m21 21-4.35-4.35"/>
             </svg>
+            <span class="nav-label">检索</span>
           </li>
           <li data-view="outline" class="nav-item" data-tooltip="大纲" title="大纲">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -76,23 +82,27 @@
               <line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="1.5"/>
               <line x1="8" y1="15" x2="13" y2="15" stroke="currentColor" stroke-width="1.5"/>
             </svg>
+            <span class="nav-label">大纲</span>
           </li>
           <li data-view="scene" class="nav-item nav-item-scene" data-tooltip="场景 Scene" title="场景 Scene">
-            <span class="nav-scene-label">
-              <span class="nav-scene-label__main">场景</span>
-              <span class="nav-scene-label__sub">Scene</span>
-            </span>
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+              <circle cx="12" cy="12" r="3" fill="currentColor"/>
+            </svg>
+            <span class="nav-label">场景</span>
           </li>
           <li data-view="generate" class="nav-item" data-tooltip="生成中心" title="生成中心">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
             </svg>
+            <span class="nav-label">生成</span>
           </li>
           <li data-view="context" class="nav-item" data-tooltip="上下文" title="上下文">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
             </svg>
+            <span class="nav-label">编译</span>
           </li>
           <li data-view="llm" class="nav-item" data-tooltip="LLM 设置" title="LLM 设置">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -106,9 +116,11 @@
               <path d="M4.93 19.07l2.83-2.83"/>
               <path d="M16.24 7.76l2.83-2.83"/>
             </svg>
+            <span class="nav-label">设置</span>
           </li>
           <li class="nav-item help" data-tooltip="快捷键帮助" title="快捷键帮助">
-            <span>?</span>
+            <span class="help-icon">?</span>
+            <span class="nav-label">帮助</span>
           </li>
         </ul>
       </nav>

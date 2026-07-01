@@ -29,6 +29,17 @@ class DeepImportProgress(BaseModel):
         default=None,
         description="业务层 workflow 标识（与 async task_id 一致）",
     )
+    workflow_type: str = Field(
+        default="deep_import",
+        description=(
+            "工作流类型: deep_import / scene_auto_extraction / "
+            "world_object_auto_extraction / plot_structure_auto_extraction"
+        ),
+    )
+    stage: str | None = Field(
+        default=None,
+        description="分阶段自动提取标识: scenes / world_objects / plot_structure",
+    )
     phase: str = Field(
         default="pending",
         description="阶段: pending / running / done / failed",

@@ -3,8 +3,15 @@
  *
  * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
  */
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+} from "../shared/workflowProgress.js"
+import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
@@ -29,6 +36,10 @@ const outlineView = {
   _loading: true,
   _generateOverlap: { threadCount: 0, arcCount: 0, rangeKey: "" },
   _structureFilters: {},
+  _plotAutoExtractTaskId: null,
+  _plotAutoExtractProgress: null,
+  _plotAutoExtractPoller: null,
+  _plotAutoExtractMeta: null,
 
   async onEnter() {
     this._loading = true
@@ -42,7 +53,7 @@ const outlineView = {
       return
     }
 
-    const subView = state.currentSubView || "scenes"
+    const subView = state.currentSubView || "threads"
     const fetchThreads = subView === "threads" || subView === "scenes"
     const fetchArcs = subView === "arcs"
     const fetchForeshadowing = subView === "foreshadowing"
@@ -85,7 +96,9 @@ const outlineView = {
     this._loading = false
   },
 
-  onLeave() {},
+  onLeave() {
+    this._stopPlotAutoExtractPolling()
+  },
 
   onActivate() {
     // KeepAlive 恢复后重新绑定事件（DOM 来自缓存，事件监听器可能丢失）
@@ -109,7 +122,7 @@ const outlineView = {
   },
 
   async render() {
-    const subView = state.currentSubView || "scenes"
+    const subView = state.currentSubView || "threads"
     let html = ""
 
     html += `
@@ -137,7 +150,49 @@ const outlineView = {
     }
 
     setTimeout(() => this._bindEvents(), 0)
-    return html
+    return this._renderPlotAutoExtractProgress() + html
+  },
+
+  _renderPlotAutoExtractProgress() {
+    if (!this._plotAutoExtractProgress) return ""
+    const rangeText = this._plotAutoExtractMeta
+      ? `范围: 章节 ${this._plotAutoExtractMeta.start_chapter || 1}-${this._plotAutoExtractMeta.end_chapter || 10}`
+      : "范围: 所选章节"
+    return `<div style="margin-bottom:8px;">${renderWorkflowCard(this._plotAutoExtractProgress, {
+      title: "剧情线自动提取",
+      destinationLabel: rangeText,
+    })}</div>`
+  },
+
+  _stopPlotAutoExtractPolling() {
+    if (this._plotAutoExtractPoller?.stop) this._plotAutoExtractPoller.stop()
+    this._plotAutoExtractPoller = null
+  },
+
+  _startPlotAutoExtractPolling(taskId) {
+    this._stopPlotAutoExtractPolling()
+    this._plotAutoExtractPoller = pollTaskProgress({
+      taskId,
+      workflowType: "plot_structure_auto_extraction",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._plotAutoExtractProgress = progress
+        router.renderCurrentView()
+      },
+      onDone: async (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._plotAutoExtractTaskId = null
+        toast("剧情线自动提取完成", "success")
+        await this.onEnter?.()
+        router.refresh()
+      },
+      onFailed: async (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._plotAutoExtractTaskId = null
+        toast(`剧情线自动提取失败: ${progress.errorMessage || "未知错误"}`, "error")
+        router.renderCurrentView()
+      },
+    })
   },
 
   _renderScenes() {
@@ -273,6 +328,12 @@ const outlineView = {
     `
   },
 
+  _renderPlotAutoExtractAction() {
+    return `
+      <button class="btn" data-action="plot-structure-auto-extract">剧情线自动提取</button>
+    `
+  },
+
   _renderThreads() {
     if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先选择项目。</p></div>'
@@ -281,6 +342,7 @@ const outlineView = {
     let html = `
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-thread">新建剧情线</button>
+        ${this._renderPlotAutoExtractAction()}
       </div>
       ${this._renderStructureFilters("threads")}
     `
@@ -318,8 +380,10 @@ const outlineView = {
           <td>${this._renderStructureAssetBadges(t) || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
           <td>
-            <button class="btn btn-sm" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
-            <button class="btn btn-sm btn-danger" data-action="delete-thread" data-id="${esc(t.id || t.thread_id)}">删除</button>
+            <button class="btn btn-sm btn-primary" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
+            ${renderActionMenu(`thread-actions-${esc(t.id || t.thread_id)}`, [
+              { action: "delete-thread", label: "删除", class: "danger", data: { id: t.id || t.thread_id } },
+            ])}
           </td>
         </tr>
       `
@@ -337,6 +401,7 @@ const outlineView = {
     let html = `
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-arc">新建篇章纲</button>
+        ${this._renderPlotAutoExtractAction()}
       </div>
       ${this._renderStructureFilters("arcs")}
     `
@@ -377,8 +442,10 @@ const outlineView = {
           <td>${this._renderStructureAssetBadges(a) || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
           <td>
-            <button class="btn btn-sm" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
-            <button class="btn btn-sm btn-danger" data-action="delete-arc" data-id="${esc(a.id || a.arc_id)}">删除</button>
+            <button class="btn btn-sm btn-primary" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
+            ${renderActionMenu(`arc-actions-${esc(a.id || a.arc_id)}`, [
+              { action: "delete-arc", label: "删除", class: "danger", data: { id: a.id || a.arc_id } },
+            ])}
           </td>
         </tr>
       `
@@ -396,6 +463,7 @@ const outlineView = {
     let html = `
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔</button>
+        ${this._renderPlotAutoExtractAction()}
       </div>
       ${this._renderStructureFilters("foreshadowing")}
     `
@@ -417,8 +485,10 @@ const outlineView = {
           <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
             ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${FORESHADOWING_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
-          <button class="btn btn-sm" data-action="edit-foreshadowing" data-id="${esc(f.id)}">编辑</button>
-          <button class="btn btn-sm btn-danger" data-action="delete-foreshadowing" data-id="${esc(f.id)}">删除</button>
+          <button class="btn btn-sm btn-primary" data-action="edit-foreshadowing" data-id="${esc(f.id)}">编辑</button>
+          ${renderActionMenu(`foreshadowing-actions-${esc(f.id)}`, [
+            { action: "delete-foreshadowing", label: "删除", class: "danger", data: { id: f.id } },
+          ])}
         </td>
       </tr>`
     }
@@ -434,6 +504,7 @@ const outlineView = {
     let html = `
       <div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-reveal">新建揭示</button>
+        ${this._renderPlotAutoExtractAction()}
       </div>
       ${this._renderStructureFilters("reveals")}
     `
@@ -455,8 +526,10 @@ const outlineView = {
           <select class="form-select reveal-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(r.id)}">
             ${REVEAL_STATUSES.map((s) => `<option value="${s}" ${r.status === s ? "selected" : ""}>${REVEAL_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
-          <button class="btn btn-sm" data-action="edit-reveal" data-id="${esc(r.id)}">编辑</button>
-          <button class="btn btn-sm btn-danger" data-action="delete-reveal" data-id="${esc(r.id)}">删除</button>
+          <button class="btn btn-sm btn-primary" data-action="edit-reveal" data-id="${esc(r.id)}">编辑</button>
+          ${renderActionMenu(`reveal-actions-${esc(r.id)}`, [
+            { action: "delete-reveal", label: "删除", class: "danger", data: { id: r.id } },
+          ])}
         </td>
       </tr>`
     }
@@ -1089,6 +1162,52 @@ const outlineView = {
     await this._reorderScenes(sorted.map((s) => s.id))
   },
 
+  _showPlotStructureAutoExtractForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>起始章节</label>
+        <input class="form-input" id="plot-auto-extract-start" type="number" min="1" value="1" />
+      </div>
+      <div class="form-group">
+        <label>结束章节</label>
+        <input class="form-input" id="plot-auto-extract-end" type="number" min="1" value="10" />
+      </div>
+    `
+    showModal("剧情线自动提取", formHtml, [{
+      text: "开始提取",
+      class: "btn-primary",
+      handler: async () => {
+        const start = parseInt(document.getElementById("plot-auto-extract-start")?.value || "1", 10)
+        const end = parseInt(document.getElementById("plot-auto-extract-end")?.value || "10", 10)
+        if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+        try {
+          const result = await api.imports.startStage("plot_structure", state.currentProjectId, start, end)
+          this._plotAutoExtractTaskId = result.task_id
+          this._plotAutoExtractMeta = { start_chapter: start, end_chapter: end }
+          this._plotAutoExtractProgress = normalizeTaskProgress({
+            ...result,
+            task_type: "plot_structure_auto_extraction",
+            meta: this._plotAutoExtractMeta,
+          }, "plot_structure_auto_extraction")
+          persistActiveWorkflow({
+            taskId: result.task_id,
+            workflowType: "plot_structure_auto_extraction",
+            label: "剧情线自动提取",
+            projectId: state.currentProjectId,
+            view: "outline",
+            meta: this._plotAutoExtractMeta,
+          })
+          closeModal()
+          toast(`剧情线自动提取任务已提交：${result.task_id || ""}`, "success")
+          this._startPlotAutoExtractPolling(result.task_id)
+          router.renderCurrentView()
+        } catch (err) {
+          toast(err.message || "提交失败", "error")
+        }
+      },
+    }])
+  },
+
   _showGenerateStructureForm() {
     this._generateOverlap = { threadCount: 0, arcCount: 0, rangeKey: "" }
     const formHtml = `
@@ -1253,6 +1372,7 @@ const outlineView = {
       "delete-arc": (_e, _t, ctx) => ctx.id && this._deleteArc(ctx.id),
       "create-scene": () => this._showCreateSceneForm(),
       "generate-structure": () => this._showGenerateStructureForm(),
+      "plot-structure-auto-extract": () => this._showPlotStructureAutoExtractForm(),
       "move-scene-up": (_e, _t, ctx) => ctx.id && this._moveSceneUp(ctx.id),
       "move-scene-down": (_e, _t, ctx) => ctx.id && this._moveSceneDown(ctx.id),
       "edit-scene": (_e, _t, ctx) => ctx.id && this._editScene(ctx.id),
@@ -1266,6 +1386,9 @@ const outlineView = {
       "apply-outline-structure-filters": () => this._applyStructureFilters(),
       "reset-outline-structure-filters": () => this._resetStructureFilters(),
     })
+
+    bindActionMenus()
+
     // 伏笔状态变更：change 事件委托
     document.querySelectorAll(".foreshadowing-status-select").forEach((sel) => {
       sel.onchange = async () => {

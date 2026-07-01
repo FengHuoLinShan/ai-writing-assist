@@ -75,16 +75,15 @@ class EntityContextService:
         novel_id: str,
         *,
         entity_type: str | None = None,
+        statuses: list[str] | tuple[str, ...] | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """获取实体 ID / 名称 / 类型摘要列表。"""
         nid = parse_uuid(novel_id, "novel_id")
-        result = await self._repo.get_by_type_and_status(
-            db,
-            nid,
-            entity_type=entity_type,
-            limit=limit,
-        )
+        query_kwargs = {"entity_type": entity_type, "limit": limit}
+        if statuses is not None:
+            query_kwargs["statuses"] = statuses
+        result = await self._repo.get_by_type_and_status(db, nid, **query_kwargs)
         return [
             {"id": item.id, "name": item.name, "entity_type": item.entity_type}
             for item in result

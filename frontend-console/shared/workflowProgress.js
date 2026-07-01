@@ -7,6 +7,9 @@ const RUNNING_STATUSES = new Set(["pending", "running"])
 
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
+  scene_auto_extraction: "场景（scene）自动提取",
+  world_object_auto_extraction: "世界对象与别名/关系自动提取",
+  plot_structure_auto_extraction: "剧情线自动提取",
   publish_chapter: "发布正文",
   rag_reindex_novel: "重建 RAG 索引",
   rag_retry_embeddings: "重试失败向量",
@@ -86,6 +89,9 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     if (percent != null) return "深度导入处理中"
     return "深度导入已提交，等待处理"
   }
+  if (workflowType === "scene_auto_extraction") return "正在自动提取场景"
+  if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
+  if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
   if (workflowType === "publish_chapter") {
     if (percent != null && percent < 50) return "正在存入 RAG 系统"
     return "正在创建历史状态"
@@ -131,6 +137,15 @@ function buildResultSummary(result, workflowType) {
     return parts.length ? parts.join("，") : null
   }
   if (workflowType === "deep_import") {
+    if (result.summary) return result.summary
+    const steps = Array.isArray(result.completed_steps) ? result.completed_steps.length : null
+    return steps != null ? `已完成 ${steps} 个阶段` : null
+  }
+  if (
+    workflowType === "scene_auto_extraction"
+    || workflowType === "world_object_auto_extraction"
+    || workflowType === "plot_structure_auto_extraction"
+  ) {
     if (result.summary) return result.summary
     const steps = Array.isArray(result.completed_steps) ? result.completed_steps.length : null
     return steps != null ? `已完成 ${steps} 个阶段` : null

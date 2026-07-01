@@ -984,6 +984,49 @@ class TestImportTaskHandlers:
         assert result == expected
         mock_orchestrator.run_task.assert_awaited_once_with(db, task)
 
+    @pytest.mark.parametrize(
+        ("handler_name", "stage"),
+        [
+            ("handle_scene_auto_extraction", "scenes"),
+            ("handle_world_object_auto_extraction", "world_objects"),
+            ("handle_plot_structure_auto_extraction", "plot_structure"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_stage_handlers_delegate_to_orchestrator(self, handler_name, stage):
+        import modules.imports.tasks as tasks_module
+
+        handler = getattr(tasks_module, handler_name)
+        task = MagicMock()
+        task.meta = {
+            "novel_id": str(uuid.uuid4()),
+            "start_chapter": 1,
+            "end_chapter": 5,
+        }
+        expected = {
+            "phase": "done",
+            "current_step": None,
+            "completed_steps": [],
+            "message": "完成",
+            "degraded": False,
+            "degraded_batches": [],
+        }
+
+        with patch("modules.imports.tasks.DeepImportOrchestrator") as mock_cls:
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run_stage_task = AsyncMock(return_value=expected)
+            mock_cls.return_value = mock_orchestrator
+
+            db = MagicMock()
+            result = await handler(db, task)
+
+        assert result == expected
+        mock_orchestrator.run_stage_task.assert_awaited_once_with(
+            db,
+            task,
+            stage=stage,
+        )
+
     @pytest.mark.asyncio
     async def test_handle_deep_import_resume_deprecated(self):
         """deep_import_resume handler 应返回废弃提示"""

@@ -17,9 +17,31 @@ import { buildMapUrl } from "./mapRouteContext.js"
 import { renderSceneCockpitPanel, saveSceneCockpitOrder } from "./sceneCockpitPanel.js"
 import { showWritingConflictModal } from "./writingConflictModal.js"
 
+const AUTO_EXTRACTION_STAGES = {
+  scenes: {
+    taskType: "scene_auto_extraction",
+    label: "场景（scene）自动提取",
+    initialStep: "scene_segmentation",
+    initialMessage: "正在提取场景...",
+  },
+  world_objects: {
+    taskType: "world_object_auto_extraction",
+    label: "世界对象与别名/关系自动提取",
+    initialStep: "entity_extraction",
+    initialMessage: "正在提取世界对象与别名/关系...",
+  },
+  plot_structure: {
+    taskType: "plot_structure_auto_extraction",
+    label: "剧情线自动提取",
+    initialStep: "structure_analysis",
+    initialMessage: "正在提取剧情线...",
+  },
+}
+
 const writingView = {
   _chapters: {},
   _chapterList: [],
+  _chapterListLoadError: null,
   _currentChapter: null,
   _currentDraftId: null,
   _currentContent: null,
@@ -56,6 +78,19 @@ const writingView = {
   _latestConflictCheck: null,
   _checkingConflicts: false,
 
+  _autoExtractionWorkflowTypes() {
+    return Object.values(AUTO_EXTRACTION_STAGES).map((item) => item.taskType)
+  },
+
+  _stageConfig(stage) {
+    return AUTO_EXTRACTION_STAGES[stage] || AUTO_EXTRACTION_STAGES.scenes
+  },
+
+  _stageFromWorkflowType(workflowType) {
+    return Object.entries(AUTO_EXTRACTION_STAGES)
+      .find(([, config]) => config.taskType === workflowType)?.[0] || "scenes"
+  },
+
   // ============================================================
   // 生命周期
   // ============================================================
@@ -83,6 +118,7 @@ const writingView = {
     }
     this._chapters = {}
     this._chapterList = []
+    this._chapterListLoadError = null
     this._versions = []
     this._publishTaskId = null
     this._publishProgress = null
@@ -133,8 +169,10 @@ const writingView = {
       } catch {
         this._scenes = []
       }
-    } catch {
+    } catch (err) {
       this._chapterList = []
+      this._chapterListLoadError = err?.message || "加载失败"
+      toast("章节列表加载失败，可稍后重试", "warning")
     }
 
     try {
@@ -155,8 +193,12 @@ const writingView = {
   async _recoverDeepImportTask() {
     let workflow = null
     try {
+      const supportedTypes = new Set([
+        "deep_import",
+        ...this._autoExtractionWorkflowTypes(),
+      ])
       workflow = recoverActiveWorkflows(state.currentProjectId)
-        .find((item) => item.workflowType === "deep_import")
+        .find((item) => supportedTypes.has(item.workflowType))
     } catch {
       workflow = null
     }
@@ -167,12 +209,15 @@ const writingView = {
       if (!task || task.status === "done" || task.status === "failed" || task.status === "cancelled") {
         if (task) {
           const result = task.result || {}
+          const workflowType = result.workflow_type || task.task_type || workflow?.workflowType || "deep_import"
+          const stage = result.stage || workflow?.meta?.stage || this._stageFromWorkflowType(workflowType)
+          const label = workflow?.label || this._stageConfig(stage).label
           const recoveryProgress = this._buildDeepImportProgressFromTask(
             task, result, task.status === "failed" ? 0 : 100, "",
           )
           if (this._hasDeepImportRecoveryPrompt(recoveryProgress)) {
             this._deepImportTaskId = taskId
-            this._deepImportProgress = recoveryProgress
+            this._deepImportProgress = { ...recoveryProgress, workflowType, stage, label }
             await this._rerender()
             return
           }
@@ -180,9 +225,12 @@ const writingView = {
           this._deepImportTaskId = taskId
           this._deepImportProgress = {
             ...recoveryProgress,
+            workflowType,
+            stage,
+            label,
             phase: isFailed ? "failed" : task.status === "cancelled" ? "cancelled" : "done",
             step: result.current_step || "",
-            message: result.message || (isFailed ? "导入失败" : "导入完成"),
+            message: result.message || (isFailed ? `${label}失败` : `${label}完成`),
             percent: isFailed ? 0 : 100,
             stepLabel: isFailed ? "失败" : task.status === "cancelled" ? "已取消" : "完成",
             degraded: result.degraded || false,
@@ -201,11 +249,16 @@ const writingView = {
       // 仍在运行中，恢复轮询
       this._deepImportTaskId = taskId
       const result = task.result || {}
+      const workflowType = result.workflow_type || task.task_type || workflow?.workflowType || "deep_import"
+      const stage = result.stage || workflow?.meta?.stage || this._stageFromWorkflowType(workflowType)
       this._deepImportProgress = {
         ...this._buildDeepImportProgressFromTask(task, result, result.phase === "running" ? 50 : 0, ""),
+        workflowType,
+        stage,
+        label: workflow?.label || this._stageConfig(stage).label,
         phase: result.phase || "running",
         step: result.current_step || "",
-        message: result.message || "深度导入中...",
+        message: result.message || `${workflow?.label || this._stageConfig(stage).label}中...`,
         percent: result.phase === "running" ? 50 : 0,
         stepLabel: result.current_step ? `Phase: ${result.current_step}` : "恢复进度中...",
         degraded: result.degraded || false,
@@ -228,6 +281,17 @@ const writingView = {
   async render() {
     if (this._loading) {
       return '<div class="empty-state"><p>加载中...</p></div>'
+    }
+
+    if (this._chapterListLoadError) {
+      return `
+        <div class="empty-state" role="alert">
+          <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
+          <p>章节列表加载失败</p>
+          <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._chapterListLoadError)}</p>
+        </div>
+        <div id="writing-deep-import-bar-container">${this._renderDeepImportBar()}</div>
+      `
     }
 
     if (this._chapterList.length === 0) {
@@ -380,9 +444,26 @@ const writingView = {
     }
   },
 
+  /** 当前保存状态文案 */
+  _saveStatusText() {
+    if (this._autoSaving) return "保存中..."
+    if (this._isReadonly || this._currentChapter === null) return ""
+    const editor = typeof document !== "undefined" ? document.getElementById("writing-editor") : null
+    const currentContent = editor ? editor.value : this._currentContent
+    if (currentContent !== undefined && currentContent !== this._lastSavedContent) return "未保存"
+    return this._lastSavedContent !== null ? "已保存" : ""
+  },
+
+  /** 更新保存状态显示 */
+  _updateSaveStatus() {
+    const el = document.getElementById("writing-save-status")
+    if (el) el.textContent = this._saveStatusText()
+  },
+
   /** 安排自动保存（3 秒防抖） */
   _scheduleAutoSave() {
     this._clearAutoSaveTimer()
+    this._updateSaveStatus()
     this._autoSaveTimer = setTimeout(() => {
       this._autoSaveTimer = null
       this._autosave()
@@ -563,6 +644,7 @@ const writingView = {
               ${hasSelection ? `第 ${this._currentChapter} 章` : '选择章节开始编辑'}
             </span>
             <span id="writing-version-info" style="color:var(--text-dim);font-size:11px;">${esc(draftLabel)}</span>
+            <span id="writing-save-status" style="color:var(--text-dim);font-size:11px;">${esc(this._saveStatusText())}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
@@ -605,11 +687,13 @@ const writingView = {
     const disabled = hasSelection && !this._isReadonly ? "" : "disabled"
     return `
       <details class="writing-tools-menu">
-        <summary class="btn btn-sm">AI 工具 · 待定</summary>
+        <summary class="btn btn-sm">AI 工具</summary>
         <div class="writing-tools-menu__body">
           <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled}>AI 生成草稿</button>
           ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map">打开地图</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="deep-import">深度导入</button>` : ""}
+          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>` : ""}
+          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>` : ""}
+          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>` : ""}
           ${this._findCurrentScene() && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene">断章至此</button>` : ""}
           ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">AI 提取章节卡</button>` : ""}
         </div>
@@ -1197,6 +1281,7 @@ const writingView = {
       }
     } finally {
       this._autoSaving = false
+      this._updateSaveStatus()
     }
   },
 
@@ -1912,7 +1997,8 @@ const writingView = {
   // 深度导入
   // ============================================================
 
-  _showDeepImportForm() {
+  _showAutoExtractionForm(stage = "scenes") {
+    const config = this._stageConfig(stage)
     const lastChapter = this._chapterList.length > 0
       ? Math.max(...this._chapterList) : 10
     const firstChapter = this._chapterList.length > 0
@@ -1920,32 +2006,37 @@ const writingView = {
     const formHtml = `
       <div class="form-group">
         <label>起始章节</label>
-        <input class="form-input" id="deep-import-start" type="number" min="1" value="${firstChapter}" />
+        <input class="form-input" id="auto-extract-start" type="number" min="1" value="${firstChapter}" />
       </div>
       <div class="form-group">
         <label>结束章节</label>
-        <input class="form-input" id="deep-import-end" type="number" min="1" value="${lastChapter}" />
+        <input class="form-input" id="auto-extract-end" type="number" min="1" value="${lastChapter}" />
       </div>
       <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
-        自动执行三阶段：Scene 切分 → 实体提取 → 结构分析
+        ${esc(config.label)}会在所选章节范围内创建或补充对应结构资产。
       </p>
     `
-    showModal("深度导入", formHtml, [{
-      text: "开始导入", class: "btn-primary",
+    showModal(config.label, formHtml, [{
+      text: "开始提取", class: "btn-primary",
       handler: async () => {
-        const start = parseInt(document.getElementById("deep-import-start")?.value || "1", 10)
-        const end = parseInt(document.getElementById("deep-import-end")?.value || "10", 10)
+        const start = parseInt(document.getElementById("auto-extract-start")?.value || "1", 10)
+        const end = parseInt(document.getElementById("auto-extract-end")?.value || "10", 10)
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         closeModal()
-        await this._submitDeepImport(start, end)
+        await this._submitAutoExtractionStage(stage, start, end)
       },
     }])
   },
 
-  async _submitDeepImport(startChapter, endChapter, force = false) {
+  _showDeepImportForm() {
+    this._showAutoExtractionForm("scenes")
+  },
+
+  async _submitAutoExtractionStage(stage, startChapter, endChapter, force = false) {
+    const config = this._stageConfig(stage)
     try {
-      const result = await api.imports.deepImport(
-        state.currentProjectId, startChapter, endChapter, force,
+      const result = await api.imports.startStage(
+        stage, state.currentProjectId, startChapter, endChapter, force,
       )
       if (result.requires_confirmation) {
         const confirmed = await new Promise((resolve) => {
@@ -1957,31 +2048,36 @@ const writingView = {
           }, 50)
         })
         if (!confirmed) return
-        await this._submitDeepImport(startChapter, endChapter, true)
+        await this._submitAutoExtractionStage(stage, startChapter, endChapter, true)
         return
       }
 
       if (!result.task_id) {
-        toast(result.message || "深度导入未启动", "warning")
+        toast(result.message || `${config.label}未启动`, "warning")
         return
       }
 
       this._deepImportTaskId = result.task_id
       this._deepImportProgress = {
-        phase: "running", step: "scene_segmentation",
-        message: "正在切分 Scene...", percent: 0,
+        workflowType: config.taskType,
+        stage,
+        label: config.label,
+        phase: "running", step: config.initialStep,
+        message: config.initialMessage, percent: 0,
         degraded: false, degradedBatches: [], phaseError: "",
         phaseErrors: [], qualityStatus: "pending", auditSummary: {}, snapshotHealthSummary: {},
       }
-      this._persistDeepImportWorkflow(result.task_id, startChapter, endChapter)
-      // 保留 legacy key，shared workflow recovery 会迁移旧刷新状态。
-      try { localStorage.setItem("novel_deepImportTaskId", result.task_id) } catch {} // eslint-disable-line no-empty
-      toast("深度导入已启动", "success")
+      this._persistDeepImportWorkflow(result.task_id, startChapter, endChapter, stage)
+      toast(`${config.label}已启动`, "success")
       await this._rerender()
       this._startDeepImportPolling()
     } catch (err) {
       toast(err.message || "提交失败", "error")
     }
+  },
+
+  async _submitDeepImport(startChapter, endChapter, force = false) {
+    return this._submitAutoExtractionStage("scenes", startChapter, endChapter, force)
   },
 
   _startDeepImportPolling() {
@@ -1992,16 +2088,18 @@ const writingView = {
         const task = await api.tasks.get(this._deepImportTaskId)
         const result = task.result || {}
         const steps = result.completed_steps || []
+        const workflowType = result.workflow_type || task.task_type || this._deepImportProgress?.workflowType || "deep_import"
+        const stage = result.stage || this._deepImportProgress?.stage || this._stageFromWorkflowType(workflowType)
+        const label = this._deepImportProgress?.label || this._stageConfig(stage).label
 
-        // 计算三阶段进度
-        let percent = 0
+        let percent = typeof task.progress === "number"
+          ? (task.progress <= 1 ? Math.round(task.progress * 100) : Math.round(task.progress))
+          : 0
         let stepLabel = ""
-        if (steps.includes("scene_segmentation")) {
-          percent = steps.includes("entity_extraction")
-            ? (steps.includes("structure_analysis") ? 100 : 80)
-            : 40
-        }
-        if (!steps.includes("scene_segmentation")) {
+        if (workflowType !== "deep_import") {
+          if (task.status === "done" || result.phase === "done") percent = 100
+          stepLabel = result.current_step ? `Phase: ${result.current_step}` : label
+        } else if (!steps.includes("scene_segmentation")) {
           stepLabel = "Phase 1/3: Scene 切分"
           percent = Math.min(40, (result.phase1_completed_batches || 0) * 8)
         } else if (!steps.includes("entity_extraction")) {
@@ -2017,6 +2115,9 @@ const writingView = {
 
         this._deepImportProgress = {
           ...this._buildDeepImportProgressFromTask(task, result, percent, stepLabel),
+          workflowType,
+          stage,
+          label,
           phase: result.phase || task.status,
           step: result.current_step || "",
           message: result.message || task.status,
@@ -2042,9 +2143,9 @@ const writingView = {
           this._deepImportProgress.phase = "done"
           this._stopDeepImportPolling()
           if (this._deepImportProgress.qualityStatus === "partial") {
-            toast("深度导入部分完成，请查看降级原因", "warning")
+            toast(`${label}部分完成，请查看降级原因`, "warning")
           } else {
-            toast("深度导入完成！", "success")
+            toast(`${label}完成！`, "success")
           }
           // 深度导入会创建 / 更新 Scene，需要清空 API 缓存和视图 DOM 缓存，
           // 否则 KeepAlive 视图会显示旧数据（看不到新生成的 Scene）。
@@ -2061,7 +2162,7 @@ const writingView = {
             result.phase_error || result.error || task.error_message || this._deepImportProgress.message
           )
           this._stopDeepImportPolling()
-          toast("深度导入失败", "error")
+          toast(`${label}失败`, "error")
           setTimeout(() => { this._deepImportProgress = null; this._rerender() }, 5000)
           return
         }
@@ -2100,7 +2201,7 @@ const writingView = {
     const aliveClass = progress.terminal ? "" : "deep-import-progress--alive"
     return renderFixedProgress(progress, {
       offset: 40,
-      title: "深度导入",
+      title: progress.label || this._deepImportProgress?.label || "自动提取",
       message: progress.message,
       showTaskId: false,
       className: aliveClass,
@@ -2124,6 +2225,8 @@ const writingView = {
       ["Scene candidate", p.currentSceneCandidateId],
       ["窗口", p.currentWindow],
       ["操作", p.currentOperation],
+      ["当前项", p.currentItem?.kind],
+      ["进度", p.currentItem?.total ? `${p.currentItem.completed || 0}/${p.currentItem.total}` : ""],
     ].filter(([, value]) => value !== null && value !== undefined && value !== "")
     if (fields.length === 0) return ""
     return `
@@ -2231,7 +2334,7 @@ const writingView = {
     return `
       <div class="deep-import-recovery" role="status">
         <div class="deep-import-recovery__body">
-          <strong>深度导入需要恢复</strong>
+          <strong>自动提取需要恢复</strong>
           <span>检测到任务中断。可以继续原任务，或放弃恢复并交给后端清理本次自动写入资产。</span>
         </div>
         ${summaryItems ? `<div class="deep-import-recovery__meta">${summaryItems}</div>` : ""}
@@ -2313,26 +2416,29 @@ const writingView = {
 
     return normalizeTaskProgress({
       task_id: this._deepImportTaskId || "deep_import",
-      task_type: "deep_import",
+      task_type: p.workflowType || "deep_import",
       status,
       progress: typeof p.percent === "number" ? p.percent : null,
-      error_message: status === "failed" ? (p.message || p.phaseError || phaseErrorText || "深度导入失败") : null,
+      error_message: status === "failed" ? (p.message || p.phaseError || phaseErrorText || "自动提取失败") : null,
       result: {
         message: needsRecovery
-          ? "深度导入中断，需要选择继续或放弃恢复"
-          : p.stepLabel || p.message || "深度导入中...",
+          ? "自动提取中断，需要选择继续或放弃恢复"
+          : p.stepLabel || p.message || "自动提取中...",
         warnings,
         summary: isPartial ? "部分完成" : p.degraded ? "部分降级完成" : null,
       },
-    }, "deep_import")
+    }, p.workflowType || "deep_import")
   },
 
   _buildDeepImportProgressFromTask(task, result = {}, percent = null, stepLabel = "") {
     const recoverySummary = result.recovery_summary || result.recoverySummary || {}
     return {
       phase: result.phase || task?.status || "running",
+      workflowType: result.workflow_type || task?.task_type || "deep_import",
+      stage: result.stage || null,
+      label: result.stage ? this._stageConfig(result.stage).label : null,
       step: result.current_step || "",
-      message: result.message || task?.status || "深度导入中...",
+      message: result.message || task?.status || "自动提取中...",
       percent,
       stepLabel,
       degraded: result.degraded || false,
@@ -2349,6 +2455,7 @@ const writingView = {
       currentSceneCandidateId: result.current_scene_candidate_id || null,
       currentWindow: result.current_window || null,
       currentOperation: result.current_operation || null,
+      currentItem: result.current_item || {},
       qualityStats: result.quality_stats || {},
       degradedReason: result.degraded_reason || "",
       phase1aFallback: result.phase1a_fallback || false,
@@ -2414,14 +2521,15 @@ const writingView = {
     return confirmedWork
   },
 
-  _persistDeepImportWorkflow(taskId, startChapter, endChapter) {
+  _persistDeepImportWorkflow(taskId, startChapter, endChapter, stage = "scenes") {
+    const config = this._stageConfig(stage)
     persistActiveWorkflow({
       taskId,
-      workflowType: "deep_import",
-      label: "深度导入",
+      workflowType: config.taskType,
+      label: config.label,
       projectId: state.currentProjectId,
       view: "writing",
-      meta: { startChapter, endChapter },
+      meta: { startChapter, endChapter, stage },
     })
   },
 
@@ -2540,6 +2648,7 @@ const writingView = {
       "dismiss-publish-error": () => this._dismissPublishError(),
       "run-conflict-check": () => this._runConflictCheck(),
       "open-conflict-check": (_e, t) => this._openConflictCheck(t.getAttribute("data-check-id")),
+      "auto-extract-stage": (_e, t) => this._showAutoExtractionForm(t.getAttribute("data-stage") || "scenes"),
       "deep-import": () => this._showDeepImportForm(),
       "open-map": () => this._openMapForCurrentScene(),
       "dismiss-deep-import": () => this._dismissDeepImport(),
@@ -2655,6 +2764,8 @@ const writingView = {
     const versionLabel = this._currentVersionNumber ? `v${this._currentVersionNumber}` : ""
     const readOnlyLabel = this._isReadonly ? "（只读）" : ""
     if (versionInfo) versionInfo.textContent = `${versionLabel} ${readOnlyLabel}`
+
+    this._updateSaveStatus()
 
     const chapterTitle = document.getElementById("writing-chapter-title")
     if (chapterTitle && this._currentChapter) {

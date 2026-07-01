@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend, createEntity, createCharacter, seedEntityArchive } from "./helpers/api-client.js"
+import { expectNoPageOverflow, runResponsiveMatrix } from "./helpers/responsive.js"
 
 test.describe("世界对象模块", () => {
   let testProjectId = null
@@ -57,6 +58,15 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("测试城堡")
     await expect(page.locator(SEL.dataTable)).toContainText("location")
+
+    await runResponsiveMatrix(page, async () => {
+      await expectNoPageOverflow(page)
+      await expect(page.locator(SEL.dataTable)).toBeVisible()
+    }, [
+      { width: 900, height: 800 },
+      { width: 600, height: 800 },
+      { width: 390, height: 844 },
+    ])
   })
 
   test("编辑世界对象", async ({ page }) => {
@@ -98,8 +108,9 @@ test.describe("世界对象模块", () => {
     await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("待删除对象")
 
-    // When: 点击删除按钮，确认删除
-    await page.locator('[data-action="delete-entity"]').first().click()
+    // When: 打开行内更多菜单并点击删除，确认删除
+    await page.locator('.data-table tbody tr .action-menu-btn').first().click()
+    await page.locator('[data-action="delete-entity"]').click()
 
     // confirmAction 使用自定义模态框，点击确认
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
@@ -143,7 +154,8 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("目标实体")
     await expect(page.locator(SEL.dataTable)).toContainText("候选实体")
 
-    // When: 在候选实体行点击合并，输入目标 ID
+    // When: 在候选实体行打开更多菜单并点击合并，输入目标 ID
+    await page.locator('tr:has-text("候选实体") .action-menu-btn').click()
     await page.locator('tr:has-text("候选实体") [data-action="merge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
     await page.locator("#merge-target-id").fill(target.id)
@@ -167,6 +179,7 @@ test.describe("世界对象模块", () => {
     await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("待回滚实体")
 
+    await page.locator('tr:has-text("待回滚实体") .action-menu-btn').click()
     await page.locator('tr:has-text("待回滚实体") [data-action="rollback-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("回滚对象")
     await page.locator("#rollback-scene-index").fill("5")
@@ -197,7 +210,8 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("主角")
     await expect(page.locator(SEL.dataTable)).toContainText("秘密组织")
 
-    // When: 点击人物行的"知识"按钮，填写知识条目
+    // When: 打开人物行的更多菜单并点击"知识"按钮，填写知识条目
+    await page.locator('tr:has-text("主角") .action-menu-btn').click()
     await page.locator('tr:has-text("主角") [data-action="knowledge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("添加知识边界")
     await page.locator("#knowledge-target-id").selectOption(target.id)

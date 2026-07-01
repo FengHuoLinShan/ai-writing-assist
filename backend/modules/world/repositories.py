@@ -227,6 +227,7 @@ class CoreEntityRepository:
         novel_id: uuid.UUID,
         entity_type: str | None = None,
         status: str | None = None,
+        statuses: Sequence[str] | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[CoreEntity]:
         conditions = [CoreEntity.novel_id == novel_id]
@@ -234,6 +235,8 @@ class CoreEntityRepository:
             conditions.append(CoreEntity.entity_type == entity_type)
         if status:
             conditions.append(CoreEntity.status == status)
+        if statuses:
+            conditions.append(CoreEntity.status.in_(tuple(statuses)))
 
         stmt = (
             select(CoreEntity)

@@ -16,13 +16,13 @@
 import { test, expect } from "@playwright/test"
 import { openProjectView } from "./helpers/workbench.js"
 import {
+  API_BASE,
   createProject,
   cleanupProject,
   waitForBackend,
   getTask,
 } from "./helpers/api-client.js"
 
-const API_BASE = "http://localhost:8000/api"
 const TERMINAL_TASK_STATUSES = new Set(["done", "failed", "cancelled"])
 
 test.skip(

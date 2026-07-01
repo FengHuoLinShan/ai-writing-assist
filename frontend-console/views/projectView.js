@@ -69,7 +69,7 @@ const projectView = {
             <div class="project-meta">
               ${created ? `创建于 ${created}` : "刚刚创建"}
             </div>
-            <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;opacity:0;transition:opacity .15s;">
+            <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;">
               <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
               <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
             </div>
@@ -126,18 +126,6 @@ const projectView = {
     })
     this._bindCardDelegation()
     this._bindImportButtons()
-
-    // 卡片 hover 时显示操作按钮
-    document.querySelectorAll(".project-card[data-id]").forEach((card) => {
-      card.addEventListener("mouseenter", () => {
-        const actions = card.querySelector(".project-actions")
-        if (actions) actions.style.opacity = "1"
-      })
-      card.addEventListener("mouseleave", () => {
-        const actions = card.querySelector(".project-actions")
-        if (actions) actions.style.opacity = "0"
-      })
-    })
   },
 
   _bindCardDelegation() {

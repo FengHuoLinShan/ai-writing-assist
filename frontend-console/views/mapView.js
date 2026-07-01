@@ -64,6 +64,7 @@ const mapView = {
   _state: null,
   /** 当前 novel 下的地图列表 */
   _maps: [],
+  _mapsLoadError: null,
   /** 可绑定的 location 实体列表 */
   _locations: [],
   /** 所有实体列表（用于标记下拉） */
@@ -171,6 +172,7 @@ const mapView = {
   // ============================================================
 
   async _loadMaps() {
+    this._mapsLoadError = null
     if (!state.currentProjectId) {
       this._maps = []
       return
@@ -178,8 +180,10 @@ const mapView = {
     try {
       const data = await api.world.listMaps({ novel_id: state.currentProjectId })
       this._maps = data.items || []
-    } catch {
+    } catch (err) {
       this._maps = []
+      this._mapsLoadError = err?.message || "加载失败"
+      toast("地图列表加载失败，可稍后重试", "warning")
     }
   },
 
@@ -320,11 +324,19 @@ const mapView = {
       <div class="map-toolbar">
         <button class="btn btn-primary" data-action="map-create-world">+ 创建世界地图</button>
       </div>
+      ${this._mapsLoadError ? `
+        <div class="empty-state" role="alert">
+          <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
+          <p>地图列表加载失败</p>
+          <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._mapsLoadError)}</p>
+        </div>
+      ` : `
       <div class="empty-state">
         <div class="empty-icon">&#9744;</div>
         <p>暂无地图</p>
         <p style="color:var(--text-dim);font-size:12px;">创建第一张世界地图开始构建你的世界</p>
       </div>
+      `}
     `
   },
 

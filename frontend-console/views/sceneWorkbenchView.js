@@ -1,4 +1,11 @@
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+} from "../shared/workflowProgress.js"
+import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const HEALTH_ORDER = [
   ["unreviewed", "未复核"],
@@ -57,7 +64,12 @@ const sceneWorkbenchView = {
   _workbench: null,
   _activeHealth: null,
   _filters: { ...SCENE_FILTER_DEFAULTS },
+  _advancedFiltersOpen: false,
   _selectedFusionSceneIds: new Set(),
+  _autoExtractTaskId: null,
+  _autoExtractProgress: null,
+  _autoExtractPoller: null,
+  _autoExtractMeta: null,
 
   async onEnter() {
     this._loading = true
@@ -81,7 +93,9 @@ const sceneWorkbenchView = {
     this._bindEvents()
   },
 
-  onLeave() {},
+  onLeave() {
+    this._stopAutoExtractPolling()
+  },
 
   async render() {
     if (this._loading) return '<div class="loading">加载中...</div>'
@@ -96,6 +110,10 @@ const sceneWorkbenchView = {
     const narrow = typeof window !== "undefined" && window.innerWidth < 720
     const detail = this._renderDetail(selected, narrow)
     const html = `
+      <div style="margin-bottom:8px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
+      </div>
+      ${this._renderAutoExtractProgress()}
       <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
         <section class="scene-workbench__organize">
           ${this._renderManagementFilters()}
@@ -136,6 +154,14 @@ const sceneWorkbenchView = {
   },
 
   _renderManagementFilters() {
+    const advancedFilters = this._advancedFiltersOpen ? `
+      ${this._filterSelect("scene-filter-boundary-status", "边界", this._filters.boundary_status, BOUNDARY_STATUS_OPTIONS, "全部边界")}
+      ${this._filterSelect("scene-filter-phase", "阶段", this._filters.phase, PHASE_OPTIONS, "全部阶段")}
+      <label class="scene-filter-checkbox">
+        <input id="scene-filter-phase1a-fallback" type="checkbox" ${this._filters.phase1a_fallback ? "checked" : ""} />
+        <span>Phase 1A fallback</span>
+      </label>
+    ` : ""
     return `
       <div class="scene-management-filters" aria-label="Scene 管理筛选">
         ${this._filterSelect("scene-filter-status", "状态", this._filters.status, STATUS_OPTIONS, "全部状态")}
@@ -145,16 +171,12 @@ const sceneWorkbenchView = {
           <input class="form-input" id="scene-filter-workflow-id" value="${esc(this._filters.workflow_id)}" placeholder="workflow_id" />
         </label>
         ${this._filterSelect("scene-filter-needs-review", "复核", this._filters.needs_review, [["true", "需复核"], ["false", "无需复核"]], "全部复核")}
-        ${this._filterSelect("scene-filter-boundary-status", "边界", this._filters.boundary_status, BOUNDARY_STATUS_OPTIONS, "全部边界")}
-        ${this._filterSelect("scene-filter-phase", "阶段", this._filters.phase, PHASE_OPTIONS, "全部阶段")}
-        <label class="scene-filter-checkbox">
-          <input id="scene-filter-phase1a-fallback" type="checkbox" ${this._filters.phase1a_fallback ? "checked" : ""} />
-          <span>Phase 1A fallback</span>
-        </label>
         <div class="scene-filter-actions">
+          <button class="btn btn-sm" data-action="toggle-advanced-scene-filters">${this._advancedFiltersOpen ? "▾" : "▸"} 高级</button>
           <button class="btn btn-sm btn-primary" data-action="apply-scene-filters">应用</button>
           <button class="btn btn-sm" data-action="reset-scene-filters">重置</button>
         </div>
+        ${advancedFilters}
       </div>
     `
   },
@@ -232,9 +254,11 @@ const sceneWorkbenchView = {
           <div class="scene-workbench-row__health">${health}</div>
         </button>
         <div class="scene-workbench-row__actions">
-          <button class="btn btn-sm" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
-          <button class="btn btn-sm" data-action="organize-workbench-scene" data-id="${esc(scene.id)}">整理</button>
-          <button class="btn btn-sm" data-action="open-writing-scene" data-id="${esc(scene.id)}">打开写作</button>
+          <button class="btn btn-sm btn-primary" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
+          ${renderActionMenu(`scene-actions-${esc(scene.id)}`, [
+            { action: "organize-workbench-scene", label: "整理", data: { id: scene.id } },
+            { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
+          ])}
         </div>
       </article>
     `
@@ -633,18 +657,114 @@ const sceneWorkbenchView = {
 
   async _resetManagementFilters() {
     this._filters = { ...SCENE_FILTER_DEFAULTS }
+    this._advancedFiltersOpen = false
     await this._loadWorkbench()
     await router.refresh()
   },
 
+  _toggleAdvancedFilters() {
+    this._advancedFiltersOpen = !this._advancedFiltersOpen
+    router.refresh()
+  },
+
+  _renderAutoExtractProgress() {
+    if (!this._autoExtractProgress) return ""
+    const rangeText = this._autoExtractMeta
+      ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}`
+      : "范围: 所选章节"
+    return `<div style="margin-bottom:8px;">${renderWorkflowCard(this._autoExtractProgress, {
+      title: "场景（scene）自动提取",
+      destinationLabel: rangeText,
+    })}</div>`
+  },
+
+  _stopAutoExtractPolling() {
+    if (this._autoExtractPoller?.stop) this._autoExtractPoller.stop()
+    this._autoExtractPoller = null
+  },
+
+  _startAutoExtractPolling(taskId) {
+    this._stopAutoExtractPolling()
+    this._autoExtractPoller = pollTaskProgress({
+      taskId,
+      workflowType: "scene_auto_extraction",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._autoExtractProgress = progress
+        router.renderCurrentView()
+      },
+      onDone: async (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._autoExtractTaskId = null
+        toast("场景（scene）自动提取完成", "success")
+        await this._loadWorkbench()
+        router.refresh()
+      },
+      onFailed: async (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._autoExtractTaskId = null
+        toast(`场景（scene）自动提取失败: ${progress.errorMessage || "未知错误"}`, "error")
+        router.renderCurrentView()
+      },
+    })
+  },
+
+  _showSceneAutoExtractForm() {
+    const formHtml = `
+      <div class="form-group">
+        <label>起始章节</label>
+        <input class="form-input" id="scene-auto-extract-start" type="number" min="1" value="1" />
+      </div>
+      <div class="form-group">
+        <label>结束章节</label>
+        <input class="form-input" id="scene-auto-extract-end" type="number" min="1" value="10" />
+      </div>
+    `
+    showModal("场景（scene）自动提取", formHtml, [{
+      text: "开始提取",
+      class: "btn-primary",
+      handler: async () => {
+        const start = parseInt(document.getElementById("scene-auto-extract-start")?.value || "1", 10)
+        const end = parseInt(document.getElementById("scene-auto-extract-end")?.value || "10", 10)
+        if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
+        try {
+          const result = await api.imports.startStage("scenes", state.currentProjectId, start, end)
+          this._autoExtractTaskId = result.task_id
+          this._autoExtractMeta = { start_chapter: start, end_chapter: end }
+          this._autoExtractProgress = normalizeTaskProgress({
+            ...result,
+            task_type: "scene_auto_extraction",
+            meta: this._autoExtractMeta,
+          }, "scene_auto_extraction")
+          persistActiveWorkflow({
+            taskId: result.task_id,
+            workflowType: "scene_auto_extraction",
+            label: "场景（scene）自动提取",
+            projectId: state.currentProjectId,
+            view: "scene",
+            meta: this._autoExtractMeta,
+          })
+          closeModal()
+          toast(`场景（scene）自动提取任务已提交：${result.task_id || ""}`, "success")
+          this._startAutoExtractPolling(result.task_id)
+          router.renderCurrentView()
+        } catch (err) {
+          toast(err.message || "提交失败", "error")
+        }
+      },
+    }])
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
+      "scene-auto-extract": () => this._showSceneAutoExtractForm(),
       "filter-health": (_e, _t, ctx) => {
         this._activeHealth = this._activeHealth === ctx.id ? null : ctx.id
         router.renderCurrentView()
       },
       "apply-scene-filters": () => this._applyManagementFilters(),
       "reset-scene-filters": () => this._resetManagementFilters(),
+      "toggle-advanced-scene-filters": () => this._toggleAdvancedFilters(),
       "select-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
       "edit-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
       "organize-workbench-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
@@ -664,6 +784,8 @@ const sceneWorkbenchView = {
       "start-split-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
       "close-scene-detail": () => router.navigate("scene", null),
     })
+
+    bindActionMenus()
   },
 }
 

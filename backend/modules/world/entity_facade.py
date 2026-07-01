@@ -35,6 +35,7 @@ async def list_entities(
     novel_id: str,
     *,
     entity_type: str | None = None,
+    statuses: list[str] | tuple[str, ...] | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """获取世界对象摘要列表"""
@@ -42,6 +43,7 @@ async def list_entities(
         db,
         novel_id,
         entity_type=entity_type,
+        statuses=statuses,
         limit=limit,
     )
 

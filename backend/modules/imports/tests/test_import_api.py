@@ -11,7 +11,9 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from infrastructure.tasks.models import AsyncTask
 from modules.imports.parsers import MAX_FILE_SIZE
 
 
@@ -252,6 +254,58 @@ async def test_deep_import_explicit_range_valid(
     novel_id = sample_project["id"]
     resp = await async_client.post(
         "/api/imports/deep",
+        json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
+    )
+    assert resp.status_code == 400
+    assert "end_chapter must be >= start_chapter" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("endpoint", "expected_type"),
+    [
+        ("/api/imports/stages/scenes", "scene_auto_extraction"),
+        ("/api/imports/stages/world-objects", "world_object_auto_extraction"),
+        ("/api/imports/stages/plot-structure", "plot_structure_auto_extraction"),
+    ],
+)
+async def test_deep_import_stage_endpoints_enqueue_expected_task(
+    async_client: AsyncClient,
+    db_session,
+    sample_project: dict,
+    endpoint: str,
+    expected_type: str,
+) -> None:
+    novel_id = sample_project["id"]
+
+    resp = await async_client.post(
+        endpoint,
+        json={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 5},
+    )
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["task_id"]
+    assert data["workflow_type"] == expected_type
+
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(data["task_id"]))
+    )
+    task = result.scalar_one()
+    assert task.task_type == expected_type
+    assert task.meta["novel_id"] == novel_id
+    assert task.meta["start_chapter"] == 1
+    assert task.meta["end_chapter"] == 5
+
+
+@pytest.mark.asyncio
+async def test_deep_import_stage_endpoint_validates_chapter_range(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    novel_id = sample_project["id"]
+    resp = await async_client.post(
+        "/api/imports/stages/scenes",
         json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
     )
     assert resp.status_code == 400

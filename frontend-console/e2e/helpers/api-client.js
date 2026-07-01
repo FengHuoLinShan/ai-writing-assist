@@ -4,7 +4,10 @@
  * 绕过前端，直接调用后端 REST API 创建/清理测试数据。
  */
 
-const API_BASE = "http://localhost:8000/api"
+const backendPort = process.env.BACKEND_PORT || "8000"
+const rawApiHost = process.env.API_HOST || `http://localhost:${backendPort}`
+export const API_HOST = rawApiHost.endsWith("/api") ? rawApiHost.slice(0, -4) : rawApiHost
+export const API_BASE = `${API_HOST}/api`
 
 async function request(path, options = {}) {
   const resp = await fetch(`${API_BASE}${path}`, {

@@ -38,7 +38,7 @@ from modules.outline.models import (
     Scene,
 )
 from modules.project.models import Project
-from modules.world.models import CoreEntity
+from modules.world.models import CoreEntity, EntityRelation
 
 DEFAULT_5_CHAPTER_FILE_PATH = Path(
     "/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑_前5章.txt"
@@ -239,7 +239,45 @@ async def _group_count_by_novel(
     return {str(key or "unknown"): int(count or 0) for key, count in result.all()}
 
 
+async def _alias_counts_by_novel(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+) -> dict[str, int]:
+    result = await db.execute(
+        select(CoreEntity.content_json).where(CoreEntity.novel_id == project_id)
+    )
+    counts = {
+        "total_alias_count": 0,
+        "candidate_alias_count": 0,
+        "deep_import_alias_count": 0,
+        "needs_review_alias_count": 0,
+    }
+    for content_json in result.scalars().all():
+        aliases = (content_json or {}).get("aliases", [])
+        if not isinstance(aliases, list):
+            continue
+        for alias_item in aliases:
+            alias_text = (
+                alias_item.get("alias")
+                if isinstance(alias_item, dict)
+                else str(alias_item or "")
+            )
+            if not str(alias_text or "").strip():
+                continue
+            counts["total_alias_count"] += 1
+            if not isinstance(alias_item, dict):
+                continue
+            if alias_item.get("status") == "candidate":
+                counts["candidate_alias_count"] += 1
+            if alias_item.get("source") == "deep_import":
+                counts["deep_import_alias_count"] += 1
+            if alias_item.get("needs_review") is True:
+                counts["needs_review_alias_count"] += 1
+    return counts
+
+
 def _progress_log_payload(progress, progress_value: float) -> dict[str, Any]:
+    phase2_stats = (progress.quality_stats or {}).get("phase2") or {}
     return {
         "progress": round(progress_value, 4),
         "phase": progress.phase,
@@ -259,6 +297,14 @@ def _progress_log_payload(progress, progress_value: float) -> dict[str, Any]:
         "current_item": progress.current_item,
         "phase_timeline": progress.phase_timeline,
         "diagnostic_counts": progress.diagnostic_counts,
+        "phase2b": {
+            "total_aliases": phase2_stats.get("total_aliases"),
+            "total_relations": phase2_stats.get("total_relations"),
+            "alias_relation_scenes": phase2_stats.get("alias_relation_scenes"),
+            "alias_relation_failed_scenes": phase2_stats.get(
+                "alias_relation_failed_scenes",
+            ),
+        },
         "last_error": progress.last_error,
         "quality_status": progress.quality_status,
         "degraded": progress.degraded,
@@ -289,6 +335,7 @@ def _checkpoint_summary(checkpoints: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _result_log_payload(result: dict[str, Any]) -> dict[str, Any]:
+    phase2_stats = (result.get("quality_stats") or {}).get("phase2") or {}
     return {
         "phase": result.get("phase"),
         "current_step": result.get("current_step"),
@@ -302,6 +349,14 @@ def _result_log_payload(result: dict[str, Any]) -> dict[str, Any]:
         "current_item": result.get("current_item"),
         "phase_timeline": result.get("phase_timeline"),
         "diagnostic_counts": result.get("diagnostic_counts"),
+        "phase2b": {
+            "total_aliases": phase2_stats.get("total_aliases"),
+            "total_relations": phase2_stats.get("total_relations"),
+            "alias_relation_scenes": phase2_stats.get("alias_relation_scenes"),
+            "alias_relation_failed_scenes": phase2_stats.get(
+                "alias_relation_failed_scenes",
+            ),
+        },
         "last_error": result.get("last_error"),
         "message": result.get("message"),
         "quality_stats": result.get("quality_stats"),
@@ -350,6 +405,8 @@ async def _count_acceptance_outputs(
     novel_id = str(project_id)
     scene_count = await _count_by_novel(db, Scene, novel_id)
     entity_count = await _count_by_novel(db, CoreEntity, novel_id)
+    relation_count = await _count_by_novel(db, EntityRelation, novel_id)
+    alias_counts = await _alias_counts_by_novel(db, project_id)
     structure_counts = {
         "threads": await _count_by_novel(db, PlotThread, novel_id),
         "arcs": await _count_by_novel(db, OutlineArc, novel_id),
@@ -365,6 +422,8 @@ async def _count_acceptance_outputs(
     return {
         "scene_count": scene_count,
         "entity_count": entity_count,
+        "relation_count": relation_count,
+        **alias_counts,
         "structure_counts": structure_counts,
         "entity_type_counts": await _group_count_by_novel(
             db,
@@ -377,6 +436,12 @@ async def _count_acceptance_outputs(
             Scene,
             novel_id,
             Scene.status,
+        ),
+        "relation_status_counts": await _group_count_by_novel(
+            db,
+            EntityRelation,
+            novel_id,
+            EntityRelation.status,
         ),
         "structure_status_counts": {
             "threads": await _group_count_by_novel(
@@ -406,6 +471,70 @@ async def _count_acceptance_outputs(
         },
         "needs_review_scene_count": int(needs_review_result.scalar() or 0),
     }
+
+
+@pytest.mark.asyncio
+async def test_real_llm_log_output_counts_include_phase2b_alias_relations(
+    db_session: AsyncSession,
+) -> None:
+    project_id = uuid.uuid4()
+    db_session.add(
+        Project(
+            id=project_id,
+            title="Phase 2b 日志计数测试",
+            language="zh",
+        )
+    )
+    source_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            CoreEntity(
+                id=source_id,
+                novel_id=project_id,
+                entity_type="character",
+                name="克莱恩",
+                status="candidate",
+                content_json={
+                    "aliases": [
+                        {
+                            "alias": "周明瑞",
+                            "status": "candidate",
+                            "source": "deep_import",
+                            "needs_review": True,
+                        },
+                        {"alias": "小克", "type": "nickname"},
+                    ]
+                },
+            ),
+            CoreEntity(
+                id=target_id,
+                novel_id=project_id,
+                entity_type="character",
+                name="梅丽莎",
+                status="candidate",
+                content_json={"aliases": []},
+            ),
+            EntityRelation(
+                novel_id=project_id,
+                source_id=source_id,
+                target_id=target_id,
+                relation_type="sibling",
+                status="candidate",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    output_counts = await _count_acceptance_outputs(db_session, project_id)
+
+    assert output_counts["entity_count"] == 2
+    assert output_counts["relation_count"] == 1
+    assert output_counts["relation_status_counts"] == {"candidate": 1}
+    assert output_counts["total_alias_count"] == 2
+    assert output_counts["candidate_alias_count"] == 1
+    assert output_counts["deep_import_alias_count"] == 1
+    assert output_counts["needs_review_alias_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -672,6 +801,7 @@ async def test_deep_import_real_llm_acceptance(
     scene_count = output_counts["scene_count"]
     entity_count = output_counts["entity_count"]
     structure_counts = output_counts["structure_counts"]
+    phase2_stats = quality_stats.get("phase2") or {}
     checkpoint_summary = _checkpoint_summary(result.get("checkpoints"))
     phase_errors = result.get("phase_errors") or []
 
@@ -718,6 +848,56 @@ async def test_deep_import_real_llm_acceptance(
             "entity_count expected > 0, got 0 without phase_errors or "
             "phase2 checkpoints"
         ),
+    )
+    phase2b_required_stats = {
+        "total_aliases",
+        "total_relations",
+        "alias_relation_scenes",
+        "alias_relation_failed_scenes",
+    }
+    _record_acceptance_check(
+        acceptance_rule_results,
+        acceptance_issues,
+        name="phase2b_quality_stats_logged",
+        ok=phase2b_required_stats.issubset(phase2_stats),
+        expected=sorted(phase2b_required_stats),
+        actual=sorted(phase2_stats.keys()),
+        message="phase2 quality_stats missing Phase 2b alias/relation fields",
+    )
+    phase2b_attempts = int(phase2_stats.get("alias_relation_scenes", 0) or 0) + len(
+        phase2_stats.get("alias_relation_failed_scenes") or []
+    )
+    _record_acceptance_check(
+        acceptance_rule_results,
+        acceptance_issues,
+        name="phase2b_attempted_or_explained",
+        ok=phase2b_attempts > 0 or bool(phase_errors),
+        expected="alias_relation_scenes + failed_scenes > 0 or phase_errors",
+        actual={
+            "alias_relation_scenes": phase2_stats.get("alias_relation_scenes"),
+            "alias_relation_failed_scenes": phase2_stats.get(
+                "alias_relation_failed_scenes",
+            ),
+            "phase_error_count": len(phase_errors),
+        },
+        message="Phase 2b alias/relation extraction was not attempted or explained",
+    )
+    phase2b_output_fields = {
+        "relation_count",
+        "relation_status_counts",
+        "total_alias_count",
+        "candidate_alias_count",
+        "deep_import_alias_count",
+        "needs_review_alias_count",
+    }
+    _record_acceptance_check(
+        acceptance_rule_results,
+        acceptance_issues,
+        name="phase2b_output_counts_logged",
+        ok=phase2b_output_fields.issubset(output_counts),
+        expected=sorted(phase2b_output_fields),
+        actual=sorted(output_counts.keys()),
+        message="output_counts missing Phase 2b alias/relation diagnostics",
     )
     if EXPECTED_CHAPTER_COUNT == 7 and entity_count < 18:
         _record_acceptance_check(

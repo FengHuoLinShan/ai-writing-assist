@@ -14,6 +14,10 @@ beforeEach(() => {
   outlineView._reveals = []
   outlineView._loading = false
   outlineView._structureFilters = {}
+  outlineView._plotAutoExtractTaskId = null
+  outlineView._plotAutoExtractProgress = null
+  outlineView._plotAutoExtractPoller = null
+  outlineView._plotAutoExtractMeta = null
   vi.clearAllMocks()
 })
 
@@ -295,6 +299,30 @@ describe("helpers", () => {
     expect(result).toEqual({ task_id: "task-1", status: "pending" })
   })
 
+  it("submits plot structure auto extraction stage task", async () => {
+    state.currentProjectId = "p1"
+    api.imports.startStage.mockResolvedValue({ task_id: "plot-task" })
+    outlineView._showPlotStructureAutoExtractForm()
+    document.body.innerHTML += `
+      <input id="plot-auto-extract-start" value="2" />
+      <input id="plot-auto-extract-end" value="8" />
+    `
+
+    await captureModalHandler()()
+
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "plot_structure",
+      "p1",
+      2,
+      8,
+    )
+    expect(api.outline.generate).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "剧情线自动提取任务已提交：plot-task",
+      "success",
+    )
+  })
+
   it("reorders scenes up correctly", async () => {
     state.currentProjectId = "p1"
     outlineView._scenes = [
@@ -367,6 +395,17 @@ describe("helpers", () => {
 })
 
 describe("render buttons", () => {
+  it("renders plot structure auto extraction action on thread view", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+
+    const html = await outlineView.render()
+
+    expect(html).toContain("剧情线自动提取")
+    expect(html).toContain('data-action="plot-structure-auto-extract"')
+  })
+
   it("renders scene workbench jump instead of legacy scene management buttons", async () => {
     outlineView._loading = false
     state.currentSubView = "scenes"

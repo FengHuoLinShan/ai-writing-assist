@@ -18,11 +18,9 @@ from modules.world.services.helpers import (
     parse_uuid,
     world_entity_types_compatible,
 )
-from modules.world.services.map_service import (
-    MapConfigService,
-    MapLocationBindingService,
-    MapTileService,
-)
+from modules.world.services.map_config_service import MapConfigService
+from modules.world.services.map_location_binding_service import MapLocationBindingService
+from modules.world.services.map_tile_service import MapTileService
 
 # 去重服务: 仍可通过 modules.world.services.dedup_service 直接导入
 # (本文件不重导出以保持 facade 简洁 — 调用方按需 import)

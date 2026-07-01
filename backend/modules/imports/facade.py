@@ -49,6 +49,26 @@ async def start_deep_import(
     )
 
 
+async def start_deep_import_stage(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    *,
+    stage: str,
+    force: bool = False,
+) -> dict[str, Any]:
+    """提交分阶段自动提取任务。"""
+    return await _orchestrator.start_stage(
+        db,
+        novel_id,
+        start_chapter,
+        end_chapter,
+        stage=stage,
+        force=force,
+    )
+
+
 async def resume_deep_import(
     db: AsyncSession,
     prev_task_id: str,

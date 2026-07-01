@@ -13,6 +13,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 将解析结果写入 writing_drafts（每章一个 draft）
 - 记录导入历史
 - 提交并编排深度导入任务（基于 async_tasks）
+- 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入 Scene 阶段执行 Phase 0 双轮预取、Phase 1a 正文补强、Phase 1b 融合提交，并记录质量统计
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
@@ -64,6 +65,34 @@ worker 启动时会检测 stale 的 `deep_import` 任务并标记为需要恢复
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
 Phase 0 / Phase 1a 的 422 错误率超过 40% 时阻断任务；Phase 1b 超阈值时降级继续。
 
+## 深度导入内部结构
+
+`DeepImportOrchestrator` 负责重复导入策略、任务提交、恢复和放弃清理；
+`DeepImportWorkflow` 只保留 worker 执行入口和兼容 wrapper。阶段实现拆在同模块内部：
+
+- `workflow_scene_phase.py` — Phase 0 / Phase 1a / Phase 1b / Scene commit
+- `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
+- `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
+- `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
+- `workflow_llm_adapters.py` — 深度导入 LLM adapter 与 Phase 1b payload compact helper
+
+这些文件不改变 async task result shape、HTTP API、数据库 schema 或前端轮询字段。
+
+Phase 2 的 Scene 实体抽取由 `SceneEntityExtractionService` 保持对外入口和旧私有
+wrapper，内部策略拆在同模块内部：
+
+- `scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a
+- `scene_entity_parallel.py` — 小样本并发抽取与 bulk 失败 fallback
+- `scene_entity_bulk.py` — bulk 抽取、小样本 LLM supplement 与 fallback 候选
+- `scene_entity_alias_relation.py` — Phase 2b 别名/关系抽取
+- `scene_entity_persistence.py` — entity / alias / relation / delta / map observation 写入
+- `scene_entity_text.py`、`scene_entity_snapshots.py`、`scene_entity_llm_adapters.py`
+  — Scene 正文、context snapshot、LLM adapter 支撑逻辑
+- `scene_entity_checkpoint.py`、`scene_entity_config.py` — checkpoint、错误分类和 Phase 2 常量
+
+这些拆分不改变 `extract_by_scenes()` / `extract_alias_relations()` 返回字段、
+checkpoint shape、snapshot/audit summary、LLM prompt 或 timeout 语义。
+
 ## Facade
 
 ```python
@@ -72,6 +101,9 @@ async def import_file(db, novel_id, file_name, file_content) -> ImportResponse:
 
 async def start_deep_import(db, novel_id, start_chapter, end_chapter, force=False) -> dict:
     """提交深度导入任务；重复导入时先返回 requires_confirmation"""
+
+async def start_deep_import_stage(db, novel_id, start_chapter, end_chapter, *, stage, force=False) -> dict:
+    """提交分阶段自动提取任务：scenes / world_objects / plot_structure"""
 ```
 
 ## API
@@ -81,6 +113,9 @@ POST /api/imports/upload      — 上传文件（multipart multipart）
 GET  /api/imports             — 导入记录列表
 GET  /api/imports/{id}        — 导入记录详情
 POST /api/imports/deep        — 提交深度导入任务；重复导入时先返回 requires_confirmation
+POST /api/imports/stages/scenes — 提交场景（scene）自动提取任务，只执行 Phase 0/1a/1b + Scene commit
+POST /api/imports/stages/world-objects — 提交世界对象与别名/关系自动提取任务，只执行 Phase 2a/2b
+POST /api/imports/stages/plot-structure — 提交剧情线自动提取任务，只执行 Phase 3
 POST /api/imports/deep/sync   — 同步执行深度导入（测试/无 worker 场景）
 POST /api/imports/deep/resume — 用户确认后继续可恢复的原 deep_import task
 POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派生资产

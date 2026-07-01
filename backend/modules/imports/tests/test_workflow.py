@@ -644,7 +644,11 @@ class TestDeepImportWorkflowAutoRun:
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
                 "total_created": 3,
+                "total_relations": 1,
+                "total_aliases": 2,
                 "total_deltas": 2,
+                "alias_relation_scenes": 4,
+                "alias_relation_failed_scenes": [5],
             }
         )
         workflow._analyze_structure = AsyncMock(
@@ -688,8 +692,147 @@ class TestDeepImportWorkflowAutoRun:
             assert timeline[phase]["duration_s"] is not None
         assert result.diagnostic_counts["scene_count"] == 5
         assert result.diagnostic_counts["entity_count"] == 3
+        assert result.diagnostic_counts["relation_count"] == 1
+        assert result.diagnostic_counts["alias_count"] == 2
+        assert result.diagnostic_counts["alias_relation_scenes"] == 4
+        assert result.diagnostic_counts["alias_relation_failed_scene_count"] == 1
         assert result.diagnostic_counts["structure_counts"]["threads"] == 2
         assert result.quality_stats["phase3"]["total_threads"] == 2
+
+    @pytest.mark.asyncio
+    async def test_scene_auto_extraction_stops_after_scene_commit(self):
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress(
+            workflow_type="scene_auto_extraction",
+            stage="scenes",
+        )
+        workflow._run_phase0_prefetch = AsyncMock(
+            return_value=_phase0_prefetch_result()
+        )
+        workflow._run_phase1a_reinforcement = AsyncMock(
+            return_value=_phase1a_reinforcement_result()
+        )
+        workflow._run_phase1b_fusion = AsyncMock(
+            return_value=_phase1b_fusion_result()
+        )
+        workflow._commit_fused_scenes = AsyncMock(
+            return_value=_scene_commit_result(created_count=2)
+        )
+        workflow._extract_entities_by_scene = AsyncMock()
+        workflow._analyze_structure = AsyncMock()
+
+        result = await workflow.run_step(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=5,
+            progress=progress,
+            workflow_id="wf-scenes",
+            stop_after=DeepImportStep.scene_segmentation,
+        )
+
+        assert result.phase == "done"
+        assert result.workflow_type == "scene_auto_extraction"
+        assert result.stage == "scenes"
+        assert result.completed_steps == [DeepImportStep.scene_segmentation.value]
+        assert "场景（scene）自动提取完成" in result.message
+        workflow._extract_entities_by_scene.assert_not_awaited()
+        workflow._analyze_structure.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_world_object_stage_fails_without_scenes(self):
+        workflow = DeepImportWorkflow()
+        workflow._has_scenes_in_range = AsyncMock(return_value=False)
+        progress = DeepImportProgress(
+            workflow_type="world_object_auto_extraction",
+            stage="world_objects",
+        )
+
+        result = await workflow.run_entity_extraction_only(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=5,
+            progress=progress,
+            workflow_id="wf-world",
+        )
+
+        assert result.phase == "failed"
+        assert result.quality_status == "failed"
+        assert result.degraded_reason == "missing_scene_prerequisite"
+        assert "请先执行场景" in result.message
+
+    @pytest.mark.asyncio
+    async def test_world_object_stage_runs_phase2_only_for_range(self):
+        workflow = DeepImportWorkflow()
+        workflow._has_scenes_in_range = AsyncMock(return_value=True)
+        workflow._extract_entities_by_scene = AsyncMock(
+            return_value={
+                "total_created": 2,
+                "total_aliases": 1,
+                "total_relations": 3,
+                "total_deltas": 1,
+                "total_scenes": 4,
+                "completed_scenes": 4,
+                "failed_scene_indices": [],
+                "checkpoints": {"phase2": {"scenes": []}},
+            }
+        )
+        progress = DeepImportProgress(
+            workflow_type="world_object_auto_extraction",
+            stage="world_objects",
+        )
+
+        result = await workflow.run_entity_extraction_only(
+            db=AsyncMock(),
+            novel_id="novel-1",
+            start_chapter=2,
+            end_chapter=7,
+            progress=progress,
+            workflow_id="wf-world",
+        )
+
+        assert result.phase == "done"
+        assert DeepImportStep.entity_extraction.value in result.completed_steps
+        assert result.quality_stats["phase2"]["total_aliases"] == 1
+        workflow._extract_entities_by_scene.assert_awaited_once()
+        assert workflow._extract_entities_by_scene.await_args.kwargs[
+            "start_chapter"
+        ] == 2
+        assert workflow._extract_entities_by_scene.await_args.kwargs["end_chapter"] == 7
+
+    @pytest.mark.asyncio
+    async def test_plot_structure_stage_allows_missing_world_objects_as_partial(self):
+        workflow = DeepImportWorkflow()
+        workflow._has_scenes_in_range = AsyncMock(return_value=True)
+        workflow._count_world_objects = AsyncMock(return_value=0)
+        workflow._analyze_structure = AsyncMock(
+            return_value={
+                "total_threads": 1,
+                "total_arcs": 1,
+                "threads": [],
+                "arcs": [],
+                "extra_sections": {},
+            }
+        )
+        progress = DeepImportProgress(
+            workflow_type="plot_structure_auto_extraction",
+            stage="plot_structure",
+        )
+
+        result = await workflow.run_structure_analysis_only(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=5,
+            progress=progress,
+            workflow_id="wf-plot",
+        )
+
+        assert result.phase == "done"
+        assert result.quality_status == "partial"
+        assert DeepImportStep.structure_analysis.value in result.completed_steps
+        assert result.phase_errors[0]["error_kind"] == "missing_world_object_context"
 
     @pytest.mark.asyncio
     async def test_run_step_merges_snapshot_health_summary_and_audit_alias(self):
@@ -1576,6 +1719,75 @@ class TestDeepImportWorkflowAutoRun:
         assert reveal_service.create.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_workflow_constant_monkeypatch_controls_structure_fallback_target(
+        self,
+        monkeypatch,
+    ):
+        workflow = DeepImportWorkflow()
+        monkeypatch.setattr(
+            "modules.imports.workflow.SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
+            2,
+        )
+
+        def _response(**kwargs):
+            return Mock(id=uuid.uuid4(), **kwargs)
+
+        thread_service = Mock()
+        thread_service.create = AsyncMock(
+            return_value=_response(
+                name="第 1-7 章补强剧情线 2",
+                thread_type="foreshadowing",
+            )
+        )
+        arc_service = Mock()
+        arc_service.create = AsyncMock(
+            return_value=_response(title="第 1-7 章补强篇章纲 2", arc_index=2)
+        )
+        foreshadowing_service = Mock()
+        foreshadowing_service.create = AsyncMock(
+            return_value=_response(name="第 1-7 章补强伏笔 2")
+        )
+        reveal_service = Mock()
+        reveal_service.create = AsyncMock()
+
+        services = {
+            "outline.thread_service": thread_service,
+            "outline.arc_service": arc_service,
+            "outline.foreshadowing_service": foreshadowing_service,
+            "outline.reveal_service": reveal_service,
+        }
+
+        result = {
+            "total_threads": 1,
+            "total_arcs": 1,
+            "threads": [{"id": "thread-1", "name": "既有剧情线"}],
+            "arcs": [{"id": "arc-1", "title": "既有篇章纲", "arc_index": 1}],
+            "extra_sections": {
+                "foreshadowing_plans": [{"id": "f1"}],
+                "reveal_plans": [{"id": "r1"}, {"id": "r2"}],
+            },
+            "warnings": [],
+        }
+
+        with patch(
+            "modules.imports.workflow._container_get",
+            side_effect=lambda name: services[name],
+        ):
+            updated = await workflow._ensure_minimum_structure_outputs(
+                db=Mock(),
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=7,
+                result=result,
+                workflow_id="wf-constant",
+            )
+
+        assert updated["total_threads"] == 2
+        assert updated["total_arcs"] == 2
+        assert len(updated["extra_sections"]["foreshadowing_plans"]) == 2
+        assert len(updated["extra_sections"]["reveal_plans"]) == 2
+
+    @pytest.mark.asyncio
     async def test_empty_phase2_and_phase3_outputs_are_partial(self):
         """Done with empty AI assets should be machine-readable as partial."""
         workflow = DeepImportWorkflow()
@@ -1812,12 +2024,15 @@ class TestDeepImportWorkflowAutoRun:
             return_value={
                 "total_created": 2,
                 "total_relations": 0,
+                "total_aliases": 1,
                 "total_deltas": 0,
                 "degraded": True,
                 "error_kind": "transport_failure",
                 "error_message": "connection failed",
                 "failed_scene_indices": [],
                 "completed_scenes": 1,
+                "alias_relation_scenes": 1,
+                "alias_relation_failed_scenes": [2],
                 "skipped_scenes": 2,
                 "fallback_created": 1,
                 "stopped_early": True,
@@ -1856,6 +2071,9 @@ class TestDeepImportWorkflowAutoRun:
         assert timeline["entity_extraction"]["status"] == "degraded"
         assert timeline["entity_extraction"]["error_kind"] == "transport_failure"
         assert result.diagnostic_counts["entity_count"] == 2
+        assert result.diagnostic_counts["alias_count"] == 1
+        assert result.diagnostic_counts["alias_relation_scenes"] == 1
+        assert result.diagnostic_counts["alias_relation_failed_scene_count"] == 1
         assert result.diagnostic_counts["phase2_completed_scenes"] == 1
         assert result.last_error["error_kind"] == "transport_failure"
 
@@ -2411,6 +2629,8 @@ class TestDeepImportOrchestrator:
         result = await orchestrator.run_task(db, task)
 
         assert result == {
+            "workflow_type": "deep_import",
+            "stage": None,
             "phase": "done",
             "current_step": None,
             "completed_steps": [

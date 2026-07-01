@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
 
 from core.config import get_settings  # noqa: E402
 from infrastructure.llm.health import check_llm_health  # noqa: E402
+from shared.constants import TASK_MAX_HEARTBEAT_GAP  # noqa: E402
 
 Status = str
 
@@ -501,6 +502,15 @@ def _scalar(connection: Any, sql: str) -> Any:
 
 
 def collect_db_counts(execute_scalar: Callable[[str], Any]) -> dict[str, Any]:
+    stale_running_sql = f"""
+        SELECT count(*)
+        FROM async_tasks
+        WHERE status = 'running'
+          AND (
+            heartbeat_at IS NULL
+            OR heartbeat_at < now() - interval '{int(TASK_MAX_HEARTBEAT_GAP)} seconds'
+          )
+    """
     return {
         "projects": int(
             execute_scalar("SELECT count(*) FROM projects WHERE deleted_at IS NULL") or 0
@@ -514,6 +524,7 @@ def collect_db_counts(execute_scalar: Callable[[str], Any]) -> dict[str, Any]:
             execute_scalar("SELECT count(*) FROM async_tasks WHERE status = 'running'")
             or 0
         ),
+        "stale_running_async_tasks": int(execute_scalar(stale_running_sql) or 0),
         "orphan_task_meta": int(
             execute_scalar(
                 """
@@ -543,6 +554,20 @@ def read_alembic_heads() -> dict[str, Any]:
         if line.strip() and not line.startswith("Rev:")
     ]
     return {"status": STATUS_OK, "heads": heads, "raw": result.stdout.strip()}
+
+
+def db_warning_codes(details: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    alembic_head = details.get("alembic_head", {})
+    heads = alembic_head.get("heads", []) if isinstance(alembic_head, dict) else []
+    current = details.get("alembic_current")
+    if heads and current and current not in heads:
+        warnings.append("alembic_current_not_at_head")
+    if details.get("stale_running_async_tasks", 0):
+        warnings.append("stale_running_async_tasks")
+    if details.get("orphan_task_meta", 0):
+        warnings.append("orphan_task_meta")
+    return warnings
 
 
 def check_db() -> list[CheckResult]:
@@ -586,12 +611,10 @@ def check_db() -> list[CheckResult]:
         if "engine" in locals():
             engine.dispose()
 
-    status = STATUS_WARNING if details.get("orphan_task_meta", 0) else STATUS_OK
-    message = (
-        "Database is queryable"
-        if status == STATUS_OK
-        else "Database is queryable, but orphan task metadata exists"
-    )
+    warnings = db_warning_codes(details)
+    details["warnings"] = warnings
+    status = STATUS_WARNING if warnings else STATUS_OK
+    message = "Database is queryable" if not warnings else "Database has warnings"
     return [
         CheckResult(
             name="db_summary",

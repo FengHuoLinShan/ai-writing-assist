@@ -53,7 +53,7 @@ const llmSettingsView = {
             <h2>LLM 设置</h2>
             <p class="section-subtitle">${esc(state.currentProject?.title || "当前项目")}</p>
           </div>
-          <button class="btn primary" id="llm-save-btn">保存配置</button>
+          <button class="btn btn-primary" id="llm-save-btn">保存配置</button>
         </div>
 
         <div class="settings-panel">

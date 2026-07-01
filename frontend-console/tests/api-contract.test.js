@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -30,28 +30,166 @@ function definedApiMethods() {
   return methods
 }
 
-function usedApiMethods() {
+function stripNonCodeText(source) {
+  const out = [...source]
+  let state = "code"
+  let templateExpressionDepth = 0
+
+  function blank(index) {
+    if (out[index] !== "\n") out[index] = " "
+  }
+
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i]
+    const next = source[i + 1]
+
+    if (state === "code") {
+      if (char === "/" && next === "/") {
+        blank(i)
+        blank(i + 1)
+        i += 1
+        state = "line-comment"
+      } else if (char === "/" && next === "*") {
+        blank(i)
+        blank(i + 1)
+        i += 1
+        state = "block-comment"
+      } else if (char === "'" || char === "\"") {
+        blank(i)
+        state = char === "'" ? "single" : "double"
+      } else if (char === "`") {
+        blank(i)
+        state = "template"
+      }
+    } else if (state === "line-comment") {
+      blank(i)
+      if (char === "\n") state = "code"
+    } else if (state === "block-comment") {
+      blank(i)
+      if (char === "*" && next === "/") {
+        blank(i + 1)
+        i += 1
+        state = "code"
+      }
+    } else if (state === "single" || state === "double") {
+      blank(i)
+      if (char === "\\") {
+        blank(i + 1)
+        i += 1
+      } else if (
+        (state === "single" && char === "'")
+        || (state === "double" && char === "\"")
+      ) {
+        state = "code"
+      }
+    } else if (state === "template") {
+      if (char === "$" && next === "{") {
+        templateExpressionDepth = 1
+        i += 1
+        state = "template-expression"
+      } else {
+        blank(i)
+        if (char === "\\") {
+          blank(i + 1)
+          i += 1
+        } else if (char === "`") {
+          state = "code"
+        }
+      }
+    } else if (state === "template-expression") {
+      if (char === "'" || char === "\"") {
+        blank(i)
+        state = char === "'" ? "template-single" : "template-double"
+      } else if (char === "`") {
+        blank(i)
+        state = "nested-template"
+      } else if (char === "{") {
+        templateExpressionDepth += 1
+      } else if (char === "}") {
+        templateExpressionDepth -= 1
+        if (templateExpressionDepth === 0) state = "template"
+      }
+    } else if (state === "template-single" || state === "template-double") {
+      blank(i)
+      if (char === "\\") {
+        blank(i + 1)
+        i += 1
+      } else if (
+        (state === "template-single" && char === "'")
+        || (state === "template-double" && char === "\"")
+      ) {
+        state = "template-expression"
+      }
+    } else if (state === "nested-template") {
+      blank(i)
+      if (char === "\\") {
+        blank(i + 1)
+        i += 1
+      } else if (char === "`") {
+        state = "template-expression"
+      }
+    }
+  }
+
+  return out.join("")
+}
+
+function collectUsedApiMethods(sources) {
   const methods = new Map()
-  for (const file of viewFiles()) {
-    const source = readFileSync(file, "utf8")
-    for (const match of source.matchAll(/api\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/g)) {
+  for (const [file, source] of sources.entries()) {
+    const codeOnly = stripNonCodeText(source)
+    for (const match of codeOnly.matchAll(/api\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/g)) {
       const key = `${match[1]}.${match[2]}`
       const line = source.slice(0, match.index).split("\n").length
       if (!methods.has(key)) methods.set(key, [])
-      methods.get(key).push(`${file}:${line}`)
+      methods.get(key).push(`${relative(projectRoot, file)}:${line}`)
     }
   }
   return methods
 }
 
+function usedApiMethods() {
+  const sources = new Map()
+  for (const file of viewFiles()) {
+    sources.set(file, readFileSync(file, "utf8"))
+  }
+  return collectUsedApiMethods(sources)
+}
+
+function formatMissingApiMethods(used, defined) {
+  return [...used.entries()]
+    .filter(([method]) => !defined.has(method))
+    .map(([method, locations]) => `${method}\n  ${locations.join("\n  ")}`)
+}
+
 describe("前后端 API 契约", () => {
   it("视图调用的 api.* 方法必须在 api.js 中定义", () => {
     const defined = definedApiMethods()
-    const missing = [...usedApiMethods().entries()]
-      .filter(([method]) => !defined.has(method))
-      .map(([method, locations]) => `${method} (${locations.join(", ")})`)
+    const missing = formatMissingApiMethods(usedApiMethods(), defined)
 
     expect(missing).toEqual([])
+  })
+
+  it("扫描 API 调用时忽略字符串和模板静态文本里的 URL", () => {
+    const used = collectUsedApiMethods(new Map([
+      [join(projectRoot, "views/exampleView.js"), `
+        const literal = "https://api.example.com/v1"
+        const html = \`<input placeholder="https://api.example.com/v1" />\`
+        api.projects.list()
+      `],
+    ]))
+
+    expect([...used.keys()]).toEqual(["projects.list"])
+  })
+
+  it("缺失 API 方法按相对路径和行号输出", () => {
+    const used = collectUsedApiMethods(new Map([
+      [join(projectRoot, "views/exampleView.js"), "\napi.missing.method()\n"],
+    ]))
+
+    expect(formatMissingApiMethods(used, new Set())).toEqual([
+      "missing.method\n  views/exampleView.js:2",
+    ])
   })
 
   it("视图不直接 fetch 相对 /api 路径，避免绕过 API_BASE_URL", () => {
