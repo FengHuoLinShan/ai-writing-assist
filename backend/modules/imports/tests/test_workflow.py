@@ -1719,6 +1719,75 @@ class TestDeepImportWorkflowAutoRun:
         assert reveal_service.create.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_workflow_constant_monkeypatch_controls_structure_fallback_target(
+        self,
+        monkeypatch,
+    ):
+        workflow = DeepImportWorkflow()
+        monkeypatch.setattr(
+            "modules.imports.workflow.SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
+            2,
+        )
+
+        def _response(**kwargs):
+            return Mock(id=uuid.uuid4(), **kwargs)
+
+        thread_service = Mock()
+        thread_service.create = AsyncMock(
+            return_value=_response(
+                name="第 1-7 章补强剧情线 2",
+                thread_type="foreshadowing",
+            )
+        )
+        arc_service = Mock()
+        arc_service.create = AsyncMock(
+            return_value=_response(title="第 1-7 章补强篇章纲 2", arc_index=2)
+        )
+        foreshadowing_service = Mock()
+        foreshadowing_service.create = AsyncMock(
+            return_value=_response(name="第 1-7 章补强伏笔 2")
+        )
+        reveal_service = Mock()
+        reveal_service.create = AsyncMock()
+
+        services = {
+            "outline.thread_service": thread_service,
+            "outline.arc_service": arc_service,
+            "outline.foreshadowing_service": foreshadowing_service,
+            "outline.reveal_service": reveal_service,
+        }
+
+        result = {
+            "total_threads": 1,
+            "total_arcs": 1,
+            "threads": [{"id": "thread-1", "name": "既有剧情线"}],
+            "arcs": [{"id": "arc-1", "title": "既有篇章纲", "arc_index": 1}],
+            "extra_sections": {
+                "foreshadowing_plans": [{"id": "f1"}],
+                "reveal_plans": [{"id": "r1"}, {"id": "r2"}],
+            },
+            "warnings": [],
+        }
+
+        with patch(
+            "modules.imports.workflow._container_get",
+            side_effect=lambda name: services[name],
+        ):
+            updated = await workflow._ensure_minimum_structure_outputs(
+                db=Mock(),
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=7,
+                result=result,
+                workflow_id="wf-constant",
+            )
+
+        assert updated["total_threads"] == 2
+        assert updated["total_arcs"] == 2
+        assert len(updated["extra_sections"]["foreshadowing_plans"]) == 2
+        assert len(updated["extra_sections"]["reveal_plans"]) == 2
+
+    @pytest.mark.asyncio
     async def test_empty_phase2_and_phase3_outputs_are_partial(self):
         """Done with empty AI assets should be machine-readable as partial."""
         workflow = DeepImportWorkflow()

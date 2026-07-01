@@ -41,3 +41,61 @@ export function bindWorkspaceClick(view, handlerMap) {
   if (!el) return
   bindDelegation(view, el, "click", handlerMap)
 }
+
+function _escapeHtml(str) {
+  if (str === null || str === undefined) return ""
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
+/**
+ * 渲染行内操作下拉菜单
+ *
+ * @param {string} menuId - 菜单唯一标识（用于 data-menu-id）
+ * @param {Array<{action:string, label:string, class?:string, data?:Object}>} items - 菜单项
+ * @returns {string} HTML
+ */
+export function renderActionMenu(menuId, items) {
+  const itemHtml = items.map((item) => {
+    const cls = ["action-menu-item", item.class || ""].filter(Boolean).join(" ")
+    const dataAttrs = Object.entries(item.data || {})
+      .map(([k, v]) => `data-${k}="${_escapeHtml(v)}"`)
+      .join(" ")
+    return `<button class="${_escapeHtml(cls)}" data-action="${_escapeHtml(item.action)}" ${dataAttrs}>${_escapeHtml(item.label)}</button>`
+  }).join("")
+  return `
+    <div class="action-menu" data-menu-id="${_escapeHtml(menuId)}">
+      <button class="action-menu-btn" type="button" title="更多操作">&#183;&#183;&#183;</button>
+      <div class="action-menu-list">${itemHtml}</div>
+    </div>
+  `
+}
+
+/**
+ * 绑定行内操作下拉菜单
+ *
+ * 为 .action-menu-btn 添加 toggle，点击外部自动关闭。
+ * @param {Element} [container] - 容器，默认 #workspace-content
+ */
+export function bindActionMenus(container = document.getElementById("workspace-content")) {
+  if (!container || typeof container.querySelectorAll !== "function") return
+
+  container.querySelectorAll(".action-menu-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation()
+      const menu = btn.closest(".action-menu")
+      const wasOpen = menu?.classList.contains("open")
+      // 关闭同容器内其他菜单
+      container.querySelectorAll(".action-menu.open").forEach((m) => m.classList.remove("open"))
+      if (!wasOpen) menu?.classList.add("open")
+    })
+  })
+
+  const closeAll = () => container.querySelectorAll(".action-menu.open").forEach((m) => m.classList.remove("open"))
+  document.removeEventListener("click", closeAll)
+  document.addEventListener("click", closeAll)
+}

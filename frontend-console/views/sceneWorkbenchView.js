@@ -1,4 +1,4 @@
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
 import {
   clearActiveWorkflow,
   normalizeTaskProgress,
@@ -64,6 +64,7 @@ const sceneWorkbenchView = {
   _workbench: null,
   _activeHealth: null,
   _filters: { ...SCENE_FILTER_DEFAULTS },
+  _advancedFiltersOpen: false,
   _selectedFusionSceneIds: new Set(),
   _autoExtractTaskId: null,
   _autoExtractProgress: null,
@@ -153,6 +154,14 @@ const sceneWorkbenchView = {
   },
 
   _renderManagementFilters() {
+    const advancedFilters = this._advancedFiltersOpen ? `
+      ${this._filterSelect("scene-filter-boundary-status", "边界", this._filters.boundary_status, BOUNDARY_STATUS_OPTIONS, "全部边界")}
+      ${this._filterSelect("scene-filter-phase", "阶段", this._filters.phase, PHASE_OPTIONS, "全部阶段")}
+      <label class="scene-filter-checkbox">
+        <input id="scene-filter-phase1a-fallback" type="checkbox" ${this._filters.phase1a_fallback ? "checked" : ""} />
+        <span>Phase 1A fallback</span>
+      </label>
+    ` : ""
     return `
       <div class="scene-management-filters" aria-label="Scene 管理筛选">
         ${this._filterSelect("scene-filter-status", "状态", this._filters.status, STATUS_OPTIONS, "全部状态")}
@@ -162,16 +171,12 @@ const sceneWorkbenchView = {
           <input class="form-input" id="scene-filter-workflow-id" value="${esc(this._filters.workflow_id)}" placeholder="workflow_id" />
         </label>
         ${this._filterSelect("scene-filter-needs-review", "复核", this._filters.needs_review, [["true", "需复核"], ["false", "无需复核"]], "全部复核")}
-        ${this._filterSelect("scene-filter-boundary-status", "边界", this._filters.boundary_status, BOUNDARY_STATUS_OPTIONS, "全部边界")}
-        ${this._filterSelect("scene-filter-phase", "阶段", this._filters.phase, PHASE_OPTIONS, "全部阶段")}
-        <label class="scene-filter-checkbox">
-          <input id="scene-filter-phase1a-fallback" type="checkbox" ${this._filters.phase1a_fallback ? "checked" : ""} />
-          <span>Phase 1A fallback</span>
-        </label>
         <div class="scene-filter-actions">
+          <button class="btn btn-sm" data-action="toggle-advanced-scene-filters">${this._advancedFiltersOpen ? "▾" : "▸"} 高级</button>
           <button class="btn btn-sm btn-primary" data-action="apply-scene-filters">应用</button>
           <button class="btn btn-sm" data-action="reset-scene-filters">重置</button>
         </div>
+        ${advancedFilters}
       </div>
     `
   },
@@ -249,9 +254,11 @@ const sceneWorkbenchView = {
           <div class="scene-workbench-row__health">${health}</div>
         </button>
         <div class="scene-workbench-row__actions">
-          <button class="btn btn-sm" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
-          <button class="btn btn-sm" data-action="organize-workbench-scene" data-id="${esc(scene.id)}">整理</button>
-          <button class="btn btn-sm" data-action="open-writing-scene" data-id="${esc(scene.id)}">打开写作</button>
+          <button class="btn btn-sm btn-primary" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
+          ${renderActionMenu(`scene-actions-${esc(scene.id)}`, [
+            { action: "organize-workbench-scene", label: "整理", data: { id: scene.id } },
+            { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
+          ])}
         </div>
       </article>
     `
@@ -650,8 +657,14 @@ const sceneWorkbenchView = {
 
   async _resetManagementFilters() {
     this._filters = { ...SCENE_FILTER_DEFAULTS }
+    this._advancedFiltersOpen = false
     await this._loadWorkbench()
     await router.refresh()
+  },
+
+  _toggleAdvancedFilters() {
+    this._advancedFiltersOpen = !this._advancedFiltersOpen
+    router.refresh()
   },
 
   _renderAutoExtractProgress() {
@@ -751,6 +764,7 @@ const sceneWorkbenchView = {
       },
       "apply-scene-filters": () => this._applyManagementFilters(),
       "reset-scene-filters": () => this._resetManagementFilters(),
+      "toggle-advanced-scene-filters": () => this._toggleAdvancedFilters(),
       "select-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
       "edit-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
       "organize-workbench-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
@@ -770,6 +784,8 @@ const sceneWorkbenchView = {
       "start-split-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
       "close-scene-detail": () => router.navigate("scene", null),
     })
+
+    bindActionMenus()
   },
 }
 

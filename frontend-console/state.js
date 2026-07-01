@@ -143,6 +143,7 @@ function updateUIForState(key, value) {
       document.querySelectorAll(".nav-item[data-view]").forEach((item) => {
         item.classList.toggle("active", item.dataset.view === value)
       })
+      updateTopbarSubmodule(value, state.currentSubView)
       updateRightPanelForView(value)
       break
     }
@@ -150,6 +151,7 @@ function updateUIForState(key, value) {
       document.querySelectorAll(".subnav-item").forEach((item) => {
         item.classList.toggle("active", item.dataset.subview === value)
       })
+      updateTopbarSubmodule(state.currentView, value)
       break
     }
     case "currentProject": {
@@ -210,6 +212,24 @@ function updateUIForState(key, value) {
       }
       break
     }
+  }
+}
+
+/**
+ * 更新顶部面包屑子视图名称
+ * @param {string} viewName - 父视图名称
+ * @param {string} subViewName - 子视图名称
+ */
+function updateTopbarSubmodule(viewName, subViewName) {
+  const el = document.getElementById("topbar-submodule")
+  if (!el) return
+  const title = router.getSubViewTitle?.(viewName, subViewName)
+  if (title) {
+    el.textContent = "· " + title
+    el.classList.remove("hidden")
+  } else {
+    el.textContent = ""
+    el.classList.add("hidden")
   }
 }
 

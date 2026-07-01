@@ -1,7 +1,7 @@
 /**
  * 世界对象视图
  */
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
 import {
   clearActiveWorkflow,
   normalizeTaskProgress,
@@ -38,6 +38,8 @@ const worldView = {
   _entitiesLoadError: null,
 
   _filters: { ...WORLD_FILTER_DEFAULTS },
+
+  _advancedFiltersOpen: false,
 
   _entityTypes: [
     { value: "character", label: "人物" },
@@ -522,25 +524,29 @@ const worldView = {
       `<option value="manual" ${this._filters.source === "manual" ? "selected" : ""}>手动</option>`,
       `<option value="ai_generated" ${this._filters.source === "ai_generated" ? "selected" : ""}>AI 生成</option>`,
     ].join("")
+    const advancedFilters = this._advancedFiltersOpen ? `
+      <select class="form-select" id="filter-source">${sourceOptions}</select>
+      <input class="form-input" id="filter-workflow-id" value="${esc(this._filters.workflow_id || "")}" placeholder="workflow_id" />
+      <select class="form-select" id="filter-needs-review">
+        <option value="">全部复核</option>
+        <option value="true" ${this._filters.needs_review === "true" ? "selected" : ""}>需复核</option>
+        <option value="false" ${this._filters.needs_review === "false" ? "selected" : ""}>无需复核</option>
+      </select>
+      <select class="form-select" id="filter-auto-ingested">
+        <option value="">全部入库方式</option>
+        <option value="true" ${this._filters.auto_ingested === "true" ? "selected" : ""}>自动入库</option>
+        <option value="false" ${this._filters.auto_ingested === "false" ? "selected" : ""}>非自动入库</option>
+      </select>
+    ` : ""
     return `
       <div class="world-object-filters">
         <select class="form-select" id="filter-entity-type">${typeOptions}</select>
         <select class="form-select" id="filter-status">${statusOptions}</select>
-        <select class="form-select" id="filter-source">${sourceOptions}</select>
-        <input class="form-input" id="filter-workflow-id" value="${esc(this._filters.workflow_id || "")}" placeholder="workflow_id" />
-        <select class="form-select" id="filter-needs-review">
-          <option value="">全部复核</option>
-          <option value="true" ${this._filters.needs_review === "true" ? "selected" : ""}>需复核</option>
-          <option value="false" ${this._filters.needs_review === "false" ? "selected" : ""}>无需复核</option>
-        </select>
-        <select class="form-select" id="filter-auto-ingested">
-          <option value="">全部入库方式</option>
-          <option value="true" ${this._filters.auto_ingested === "true" ? "selected" : ""}>自动入库</option>
-          <option value="false" ${this._filters.auto_ingested === "false" ? "selected" : ""}>非自动入库</option>
-        </select>
         <input class="form-input world-object-filters__search" id="filter-q" type="search" placeholder="名称/别名搜索" value="${esc(this._filters.q)}" />
+        <button class="btn btn-sm" data-action="toggle-advanced-filters">${this._advancedFiltersOpen ? "▾" : "▸"} 高级</button>
         <button class="btn btn-sm btn-primary" data-action="apply-filters">应用</button>
         <button class="btn btn-sm" data-action="reset-filters">重置</button>
+        ${advancedFilters}
       </div>
     `
   },
@@ -605,13 +611,15 @@ const worldView = {
           <td>${esc(e.importance || e.importance_score || "-")}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
           <td>
-            <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
-            <button class="btn btn-sm" data-action="open-entity-map" data-id="${esc(e.id || e.entity_id)}">打开地图</button>
-            ${canPromote ? `<button class="btn btn-sm btn-primary" data-action="promote-entity" data-id="${esc(e.id || e.entity_id)}">提升为正史</button>` : ""}
-            ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(e.id || e.entity_id)}">合并</button>` : ""}
-            <button class="btn btn-sm" data-action="rollback-entity" data-id="${esc(e.id || e.entity_id)}">回滚</button>
-            ${isCharacter ? `<button class="btn btn-sm" data-action="knowledge-entity" data-id="${esc(e.id || e.entity_id)}">知识</button>` : ""}
-            <button class="btn btn-sm btn-danger" data-action="delete-entity" data-id="${esc(e.id || e.entity_id)}">删除</button>
+            <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
+            ${renderActionMenu(`entity-actions-${esc(e.id || e.entity_id)}`, [
+              { action: "open-entity-map", label: "打开地图", data: { id: e.id || e.entity_id } },
+              ...(canPromote ? [{ action: "promote-entity", label: "提升为正史", data: { id: e.id || e.entity_id } }] : []),
+              ...(canMerge ? [{ action: "merge-entity", label: "合并", data: { id: e.id || e.entity_id } }] : []),
+              { action: "rollback-entity", label: "回滚", data: { id: e.id || e.entity_id } },
+              ...(isCharacter ? [{ action: "knowledge-entity", label: "知识", data: { id: e.id || e.entity_id } }] : []),
+              { action: "delete-entity", label: "删除", class: "danger", data: { id: e.id || e.entity_id } },
+            ])}
           </td>
         </tr>
       `
@@ -1075,6 +1083,7 @@ const worldView = {
       "nav-map": () => router.navigate("world", "map"),
       "nav-generate": () => router.navigate("generate"),
       "toggle-extract": () => this._toggleAutoExtract(),
+      "toggle-advanced-filters": () => this._toggleAdvancedFilters(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
       "open-entity-map": (_e, _t, ctx) => ctx.id && this._openEntityMap(ctx.id),
@@ -1095,7 +1104,13 @@ const worldView = {
       "next-page": () => this._changePage(1),
     })
 
+    bindActionMenus()
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+  },
+
+  _toggleAdvancedFilters() {
+    this._advancedFiltersOpen = !this._advancedFiltersOpen
+    router.refresh()
   },
 
   async _openEntityMap(entityId) {

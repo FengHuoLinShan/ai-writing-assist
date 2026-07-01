@@ -24,11 +24,9 @@ from modules.world.map_schemas import (
 )
 from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
 from modules.world.services.helpers import parse_uuid
+from modules.world.services.map_config_service import MapConfigService
+from modules.world.services.map_location_binding_service import MapLocationBindingService
 from modules.world.services.map_location_layout import MapLocationLayoutService
-from modules.world.services.map_service import (
-    MapConfigService,
-    MapLocationBindingService,
-)
 
 GEO_RELATION_TYPES = {
     "contains",

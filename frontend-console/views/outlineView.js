@@ -3,7 +3,7 @@
  *
  * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
  */
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import {
   clearActiveWorkflow,
@@ -53,7 +53,7 @@ const outlineView = {
       return
     }
 
-    const subView = state.currentSubView || "scenes"
+    const subView = state.currentSubView || "threads"
     const fetchThreads = subView === "threads" || subView === "scenes"
     const fetchArcs = subView === "arcs"
     const fetchForeshadowing = subView === "foreshadowing"
@@ -122,7 +122,7 @@ const outlineView = {
   },
 
   async render() {
-    const subView = state.currentSubView || "scenes"
+    const subView = state.currentSubView || "threads"
     let html = ""
 
     html += `
@@ -380,8 +380,10 @@ const outlineView = {
           <td>${this._renderStructureAssetBadges(t) || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
           <td>
-            <button class="btn btn-sm" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
-            <button class="btn btn-sm btn-danger" data-action="delete-thread" data-id="${esc(t.id || t.thread_id)}">删除</button>
+            <button class="btn btn-sm btn-primary" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
+            ${renderActionMenu(`thread-actions-${esc(t.id || t.thread_id)}`, [
+              { action: "delete-thread", label: "删除", class: "danger", data: { id: t.id || t.thread_id } },
+            ])}
           </td>
         </tr>
       `
@@ -440,8 +442,10 @@ const outlineView = {
           <td>${this._renderStructureAssetBadges(a) || "-"}</td>
           <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
           <td>
-            <button class="btn btn-sm" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
-            <button class="btn btn-sm btn-danger" data-action="delete-arc" data-id="${esc(a.id || a.arc_id)}">删除</button>
+            <button class="btn btn-sm btn-primary" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
+            ${renderActionMenu(`arc-actions-${esc(a.id || a.arc_id)}`, [
+              { action: "delete-arc", label: "删除", class: "danger", data: { id: a.id || a.arc_id } },
+            ])}
           </td>
         </tr>
       `
@@ -481,8 +485,10 @@ const outlineView = {
           <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
             ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${FORESHADOWING_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
-          <button class="btn btn-sm" data-action="edit-foreshadowing" data-id="${esc(f.id)}">编辑</button>
-          <button class="btn btn-sm btn-danger" data-action="delete-foreshadowing" data-id="${esc(f.id)}">删除</button>
+          <button class="btn btn-sm btn-primary" data-action="edit-foreshadowing" data-id="${esc(f.id)}">编辑</button>
+          ${renderActionMenu(`foreshadowing-actions-${esc(f.id)}`, [
+            { action: "delete-foreshadowing", label: "删除", class: "danger", data: { id: f.id } },
+          ])}
         </td>
       </tr>`
     }
@@ -520,8 +526,10 @@ const outlineView = {
           <select class="form-select reveal-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(r.id)}">
             ${REVEAL_STATUSES.map((s) => `<option value="${s}" ${r.status === s ? "selected" : ""}>${REVEAL_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
-          <button class="btn btn-sm" data-action="edit-reveal" data-id="${esc(r.id)}">编辑</button>
-          <button class="btn btn-sm btn-danger" data-action="delete-reveal" data-id="${esc(r.id)}">删除</button>
+          <button class="btn btn-sm btn-primary" data-action="edit-reveal" data-id="${esc(r.id)}">编辑</button>
+          ${renderActionMenu(`reveal-actions-${esc(r.id)}`, [
+            { action: "delete-reveal", label: "删除", class: "danger", data: { id: r.id } },
+          ])}
         </td>
       </tr>`
     }
@@ -1378,6 +1386,9 @@ const outlineView = {
       "apply-outline-structure-filters": () => this._applyStructureFilters(),
       "reset-outline-structure-filters": () => this._resetStructureFilters(),
     })
+
+    bindActionMenus()
+
     // 伏笔状态变更：change 事件委托
     document.querySelectorAll(".foreshadowing-status-select").forEach((sel) => {
       sel.onchange = async () => {

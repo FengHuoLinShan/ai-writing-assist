@@ -203,6 +203,20 @@ class ResolveResult:
     suggestions: list = field(default_factory=list)
 ```
 
+## 地图内部结构
+
+`modules.world.services.map_service` 是历史兼容导出层，保留旧测试和 API 路由 import 路径；具体实现拆到以下内部服务：
+
+- `map_templates.py`：初始地形模板和详图 tile 生成。
+- `map_config_service.py` / `map_tile_service.py` / `map_location_binding_service.py`：地图配置、tile 批量编辑、地点绑定。
+- `map_marker_service.py` / `map_territory_service.py`：动态标记和势力范围。
+- `map_dynamic_service.py`：保留 `MapDynamicFactService` 名称，作为 observation、fact、dashboard、playback、open target 的兼容 facade。
+- `map_observation_service.py` / `map_fact_service.py`：观察事实候选、确认流转和正式事实状态。
+- `map_dashboard_service.py` / `map_playback_service.py` / `map_open_target_service.py`：只读派生视图、播放事件流和地图打开目标。
+- `map_dynamic_helpers.py`：动态地图 formatter、risk/priority/label、UUID 安全解析、空间锚点校验等私有 helper。
+
+已有的 `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py` 继续作为独立入口存在，不通过 `map_service.py` 承载业务实现。
+
 ## Facade（facade.py）
 
 ```python

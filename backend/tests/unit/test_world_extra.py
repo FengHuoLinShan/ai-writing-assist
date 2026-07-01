@@ -314,6 +314,28 @@ class TestEntityContextServiceListEntitySummaries:
                 limit=50,
             )
 
+    async def test_passes_statuses_when_filter_provided(self) -> None:
+        db = MagicMock()
+        nid = str(uuid.uuid4())
+        ent = _mock_entity(name="Sword", entity_type="item")
+        svc = EntityContextService()
+        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+            mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
+            await svc.list_entity_summaries(
+                db,
+                nid,
+                entity_type="item",
+                statuses=["canonical", "draft"],
+                limit=50,
+            )
+            mock_repo.get_by_type_and_status.assert_awaited_once_with(
+                db,
+                uuid.UUID(hex=nid),
+                entity_type="item",
+                statuses=["canonical", "draft"],
+                limit=50,
+            )
+
 
 class TestEntityContextServiceListEntityTerms:
     async def test_only_canonical_and_draft_included(self) -> None:

@@ -444,9 +444,26 @@ const writingView = {
     }
   },
 
+  /** 当前保存状态文案 */
+  _saveStatusText() {
+    if (this._autoSaving) return "保存中..."
+    if (this._isReadonly || this._currentChapter === null) return ""
+    const editor = typeof document !== "undefined" ? document.getElementById("writing-editor") : null
+    const currentContent = editor ? editor.value : this._currentContent
+    if (currentContent !== undefined && currentContent !== this._lastSavedContent) return "未保存"
+    return this._lastSavedContent !== null ? "已保存" : ""
+  },
+
+  /** 更新保存状态显示 */
+  _updateSaveStatus() {
+    const el = document.getElementById("writing-save-status")
+    if (el) el.textContent = this._saveStatusText()
+  },
+
   /** 安排自动保存（3 秒防抖） */
   _scheduleAutoSave() {
     this._clearAutoSaveTimer()
+    this._updateSaveStatus()
     this._autoSaveTimer = setTimeout(() => {
       this._autoSaveTimer = null
       this._autosave()
@@ -627,6 +644,7 @@ const writingView = {
               ${hasSelection ? `第 ${this._currentChapter} 章` : '选择章节开始编辑'}
             </span>
             <span id="writing-version-info" style="color:var(--text-dim);font-size:11px;">${esc(draftLabel)}</span>
+            <span id="writing-save-status" style="color:var(--text-dim);font-size:11px;">${esc(this._saveStatusText())}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
@@ -669,7 +687,7 @@ const writingView = {
     const disabled = hasSelection && !this._isReadonly ? "" : "disabled"
     return `
       <details class="writing-tools-menu">
-        <summary class="btn btn-sm">AI 工具 · 待定</summary>
+        <summary class="btn btn-sm">AI 工具</summary>
         <div class="writing-tools-menu__body">
           <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled}>AI 生成草稿</button>
           ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map">打开地图</button>` : ""}
@@ -1263,6 +1281,7 @@ const writingView = {
       }
     } finally {
       this._autoSaving = false
+      this._updateSaveStatus()
     }
   },
 
@@ -2745,6 +2764,8 @@ const writingView = {
     const versionLabel = this._currentVersionNumber ? `v${this._currentVersionNumber}` : ""
     const readOnlyLabel = this._isReadonly ? "（只读）" : ""
     if (versionInfo) versionInfo.textContent = `${versionLabel} ${readOnlyLabel}`
+
+    this._updateSaveStatus()
 
     const chapterTitle = document.getElementById("writing-chapter-title")
     if (chapterTitle && this._currentChapter) {

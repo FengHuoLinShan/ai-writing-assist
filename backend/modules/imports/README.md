@@ -65,6 +65,34 @@ worker 启动时会检测 stale 的 `deep_import` 任务并标记为需要恢复
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
 Phase 0 / Phase 1a 的 422 错误率超过 40% 时阻断任务；Phase 1b 超阈值时降级继续。
 
+## 深度导入内部结构
+
+`DeepImportOrchestrator` 负责重复导入策略、任务提交、恢复和放弃清理；
+`DeepImportWorkflow` 只保留 worker 执行入口和兼容 wrapper。阶段实现拆在同模块内部：
+
+- `workflow_scene_phase.py` — Phase 0 / Phase 1a / Phase 1b / Scene commit
+- `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
+- `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
+- `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
+- `workflow_llm_adapters.py` — 深度导入 LLM adapter 与 Phase 1b payload compact helper
+
+这些文件不改变 async task result shape、HTTP API、数据库 schema 或前端轮询字段。
+
+Phase 2 的 Scene 实体抽取由 `SceneEntityExtractionService` 保持对外入口和旧私有
+wrapper，内部策略拆在同模块内部：
+
+- `scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a
+- `scene_entity_parallel.py` — 小样本并发抽取与 bulk 失败 fallback
+- `scene_entity_bulk.py` — bulk 抽取、小样本 LLM supplement 与 fallback 候选
+- `scene_entity_alias_relation.py` — Phase 2b 别名/关系抽取
+- `scene_entity_persistence.py` — entity / alias / relation / delta / map observation 写入
+- `scene_entity_text.py`、`scene_entity_snapshots.py`、`scene_entity_llm_adapters.py`
+  — Scene 正文、context snapshot、LLM adapter 支撑逻辑
+- `scene_entity_checkpoint.py`、`scene_entity_config.py` — checkpoint、错误分类和 Phase 2 常量
+
+这些拆分不改变 `extract_by_scenes()` / `extract_alias_relations()` 返回字段、
+checkpoint shape、snapshot/audit summary、LLM prompt 或 timeout 语义。
+
 ## Facade
 
 ```python
