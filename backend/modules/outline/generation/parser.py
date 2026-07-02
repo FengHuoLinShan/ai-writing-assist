@@ -97,7 +97,7 @@ class PlotStructureParser:
                         "scenes、foreshadowing_plans、reveal_plans、offscreen_progress、"
                         "risks、questions_for_user 字段。不要 Markdown。"
                     ),
-                    transport_retries=not self._fast_structured,
+                    transport_retries=True,
                 )
             except Exception as exc:
                 if self._is_recoverable(exc) and not self._fast_structured:
@@ -152,7 +152,12 @@ class PlotStructureParser:
                 "- 不要生成新的 scenes，scenes 必须返回空数组。\n"
                 "- 只根据已生成 Scene 摘要、世界对象和人物，生成剧情线、篇章纲、"
                 "伏笔计划、揭示计划、幕后推进、风险和问题。\n"
-                "- 所有文本字段保持简短：标题 30 字以内，摘要 80 字以内。\n"
+                "- 全范围保持极简：plot_threads 恰好 3 项，outline_arcs 恰好 3 项，"
+                "foreshadowing_plans 最多 1 项，reveal_plans 最多 1 项；"
+                "offscreen_progress、risks、questions_for_user 返回空数组。\n"
+                "- 总 JSON 控制在 1800 个中文字符以内，不要逐章展开。\n"
+                "- 所有文本字段保持简短：标题 20 字以内，摘要/描述 50 字以内；"
+                "禁止摘录正文、复述场景列表或解释 JSON。\n"
                 "- 1-7 章小样本每类目标输出 4 项，至少输出 2 项；"
                 "优先保留长期创作资产。\n"
             )
@@ -176,7 +181,9 @@ class PlotStructureParser:
                 },
             ],
             temperature=0.5,
-            max_tokens=6144 if not self._include_scenes else 4096,
+            max_tokens=3072 if self._fast_structured else (
+                6144 if not self._include_scenes else 4096
+            ),
             response_format={"type": "json_object"},
         )
 
@@ -185,8 +192,10 @@ class PlotStructureParser:
             return (
                 f"请为章节 {start_chapter}-{end_chapter} 生成紧凑剧情结构。"
                 "返回 JSON 对象；plot_threads、outline_arcs、foreshadowing_plans、"
-                "reveal_plans 四类都应有内容；1-7 章样本每类目标 4 项、至少 2 项；"
-                "scenes 返回空数组。"
+                "reveal_plans 四类都应有内容；plot_threads 恰好 3 项，"
+                "outline_arcs 恰好 3 项，foreshadowing_plans 最多 1 项，"
+                "reveal_plans 最多 1 项；offscreen_progress、risks、"
+                "questions_for_user、scenes 都返回空数组；不要逐章展开。"
             )
         return (
             f"请为章节 {start_chapter}-{end_chapter} 生成剧情结构和篇章大纲。"

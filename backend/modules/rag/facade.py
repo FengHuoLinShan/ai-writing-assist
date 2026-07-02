@@ -74,6 +74,19 @@ async def list_chunks(
     return [RagChunkResponse.model_validate(c) for c in items], total
 
 
+async def get_chunk_contract(
+    db: AsyncSession,
+    novel_id: str,
+    chunk_id: str,
+) -> RagChunkContract | None:
+    """Get one RAG chunk through the stable contract seam."""
+    nid = uuid.UUID(hex=novel_id)
+    chunk = await _repo.get(db, uuid.UUID(hex=chunk_id))
+    if chunk is None or chunk.novel_id != nid:
+        return None
+    return _to_chunk_contract(chunk)
+
+
 async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
     """获取 RAG 索引诊断状态。"""
     from core.config import get_settings

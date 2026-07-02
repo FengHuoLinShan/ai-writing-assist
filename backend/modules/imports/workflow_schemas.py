@@ -101,6 +101,14 @@ class DeepImportProgress(BaseModel):
         default_factory=list,
         description="阶段开始/结束/耗时/状态诊断时间线",
     )
+    progress_events: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="服务级 compact 事件流（不含正文、API key 或 raw prompt）",
+    )
+    acceptance_checks: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="服务级结构化门禁检查摘要",
+    )
     diagnostic_counts: dict[str, Any] = Field(
         default_factory=dict,
         description="当前累计输出和诊断计数摘要",
@@ -112,6 +120,12 @@ class DeepImportProgress(BaseModel):
     quality_stats: dict[str, Any] = Field(
         default_factory=dict,
         description="各阶段质量统计",
+    )
+    phase_artifacts: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "服务级分阶段 compact artifact 摘要（不含正文、API key 或 raw prompt）"
+        ),
     )
     checkpoints: dict[str, Any] = Field(
         default_factory=dict,

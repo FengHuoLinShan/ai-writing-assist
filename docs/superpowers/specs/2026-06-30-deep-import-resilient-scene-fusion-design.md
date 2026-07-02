@@ -22,6 +22,7 @@
 - 允许 Phase 0 高并发预处理快速打满 LLM，把可用 Scene 观察先收集回来。
 - 通过两轮错位 batch 降低固定切分边界截断 Scene 的风险。
 - Phase 1a 带正文分别补强两轮结果，提高每个候选 Scene 的质量。
+- Phase 1a 作为受控正文补强器，不承担最终切分；当 provider 限流、网络错误、timeout 或 schema 问题出现时，保留可融合的低质量锚点，不静默丢章。
 - Phase 1b 不带正文，只基于两轮补强后的候选做自动融合、切分、重排和回退决策。
 - 在 LLM API 不稳定时及时阻断或降级，避免低质量结果污染正式 Scene 和世界对象。
 - 支持 worker / backend 中断后由用户手动继续，允许局部重复任务以换取质量和幂等。
@@ -102,17 +103,30 @@ Phase 0 输出只写入 workflow 中间结果 / task result，不写入正式 `S
 ## 6. Phase 1a: 带正文质量补强
 
 Phase 1a 使用正文和 Phase 0 两轮结果，对 Round A / Round B 的每个 batch 分别补强。
+它是正文级补强器，不是最终 Scene 切分器；输出目标是给 Phase 1b 提供稳定、
+可追溯的候选锚点。
 
 ### 6.1 输入
 
-- 当前 batch 正文。
-- 当前 batch 对应的 Phase 0 结果。
+- 当前 batch 正文；正文按预算收敛，避免把同一正文同时塞入多个 payload 字段。
+- 当前 batch 对应的 compact Phase 0 reference，只保留候选 id、round、batch、章节、质量、短 scenes、boundary / confidence 等字段。
 - 按章节意义取前后各 1 个 batch 的摘要或候选结果。
 - 不使用 LLM 返回完成时间决定叙事顺序。
 
 ### 6.2 输出
 
-Phase 1a 输出仍是中间候选，不写入正式 `Scene` 表。允许使用比正式 Scene 更丰富的中间 schema：
+Phase 1a 输出仍是中间候选，不写入正式 `Scene` 表。当前默认要求每个覆盖章节最多
+1 个短候选，每 5 章窗口最多 5 个；每个 scene 只保留：
+
+- title
+- goal
+- scene_chunks
+- boundary_reason
+
+输出写入中间候选前会 normalize：剥离非白名单字段、截断超长 title / goal /
+boundary_reason，并把 scene_chunks 收敛为最小 anchor。
+
+Phase 1a payload 仍可携带补强诊断字段：
 
 - boundary_status
 - evidence_anchors
@@ -126,14 +140,20 @@ Phase 1a 输出仍是中间候选，不写入正式 `Scene` 表。允许使用�
 
 Round A 和 Round B 必须分别补强，不在 Phase 1a 合并相交结果。两轮补强结果都交给 Phase 1b 作为平等观察。
 
-Scene 提取模板应随 Phase 1a 一起增强，不能只要求 LLM 输出摘要。模板必须明确要求模型给出边界状态、证据锚点、章节 / 段落来源、可能的合并建议、可能的拆分建议、缺失项和不确定原因。这些字段用于 Phase 1b 自动整理和后续人工复核，不直接作为正式 Scene 的展示文案。
+这些字段用于 Phase 1b 自动整理和后续人工复核，不直接作为正式 Scene 的展示文案。
+当前实现优先控制输出长度和可解析性；复杂语义判断继续后移到 Phase 1b。
 
 ### 6.3 并发、Retry 与阻断
 
-- `PHASE1A_REINFORCE_CONCURRENCY` 默认 `50`，可配置。
-- 对 `422`、网络错误、timeout 允许 `1` 次 retry。
-- schema 解析失败、空结果、质量不过提交门不 retry。
+- `PHASE1A_REINFORCE_CONCURRENCY` 默认 `6`，可配置。
+- `PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS` 默认 `180`，可配置；真实验收可临时缩短以验证 fallback。
+- `PHASE1A_SCENE_MAX_TOKENS` 默认 `6144`，独立于 `PHASE01_SCENE_MAX_TOKENS`，避免全局参数放大 Phase 1a 输出，同时给 5 章补强结果留出完整 JSON 空间。
+- `PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS` 默认 `1`，只在截断或轻量结构化失败时做一次 bounded repair，避免直接进入全 batch fallback。
+- `PHASE1A_RETRYABLE_ERROR_TYPES` 默认 `network,rate_limit,empty_result`；timeout / schema_error 默认不重试。
 - Phase 1a final `422` 错误率超过 `40%` 时，阻断深度导入，并提示 API 通道不稳定。
+- 非 422 的 LLM 失败不会写正式 Scene，也不会静默吞错；系统生成 `degraded_fallback`
+  中间候选，使用 Phase 0 anchor 为每个章节保留最小 `scene_chunks`，并在 diagnostics 中记录
+  `original_error_type`、attempt、耗时和 provider 错误摘要。
 
 ## 7. Phase 1b: 自动 Fusion / Reducer
 
@@ -151,10 +171,11 @@ Phase 1b 输出的 Scene 数量可以多于或少于 Phase 1a 候选数量。数
 
 ### 7.2 窗口
 
-- `PHASE1B_WINDOW_CHAPTERS = 30`
-- `PHASE1B_WINDOW_OVERLAP = 3`
+- `PHASE1B_WINDOW_CHAPTERS = 10`
+- `PHASE1B_WINDOW_OVERLAP = 2`
 - `PHASE1B_CONCURRENCY = 4`
 - Phase 1b 不做全书一次性整理。
+- Phase 1b 是 compact reducer：优先沿用 Phase 1a 的 `title / goal / scene_chunks`，只输出短裁决和 provenance，不重写长摘要或补齐完整 Scene 文本。60 章大样本默认使用确定性 reducer；小样本或显式 `PHASE1B_USE_LLM=1` 时才调用 LLM reducer。非小样本 LLM reducer 只让模型输出 `use_primary_round` 最小决策，再由代码物化 Phase 1a 候选。
 - 输出允许在窗口 overlap 覆盖范围内跨窗口边界形成连续 Scene，但不能越权覆盖远超当前窗口的章节。
 
 Overlap 冲突处理：
@@ -405,12 +426,47 @@ Scene、世界对象和相关派生资产管理界面支持后端 API 查询参�
 | 配置 | 默认值 | 说明 |
 |---|---:|---|
 | `PHASE0_PREFETCH_CONCURRENCY` | `50` | Phase 0 双轮预取并发 |
-| `PHASE1A_REINFORCE_CONCURRENCY` | `50` | Phase 1a 补强并发 |
+| `PHASE1A_REINFORCE_CONCURRENCY` | `6` | Phase 1a 补强并发 |
+| `PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS` | `180` | Phase 1a 单 batch timeout |
+| `PHASE1A_SCENE_MAX_TOKENS` | `6144` | Phase 1a 结构化输出 token 上限 |
+| `PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS` | `1` | Phase 1a 结构化输出修复次数 |
+| `PHASE1A_CHAPTER_TEXT_CHAR_LIMIT` | `1000` | Phase 1a 每章正文输入预算 |
+| `PHASE1A_RETRYABLE_ERROR_TYPES` | `network,rate_limit,empty_result` | Phase 1a 可重试错误类型 |
 | `PHASE1B_CONCURRENCY` | `4` | Phase 1b fusion/reducer 并发 |
-| `PHASE1B_WINDOW_CHAPTERS` | `30` | Phase 1b 章节窗口 |
-| `PHASE1B_WINDOW_OVERLAP` | `3` | Phase 1b 窗口 overlap |
+| `PHASE1B_WINDOW_CHAPTERS` | `10` | Phase 1b 章节窗口 |
+| `PHASE1B_WINDOW_OVERLAP` | `2` | Phase 1b 窗口 overlap |
+| `PHASE1B_REDUCER_MAX_TOKENS` | `128` | Phase 1b 非小样本 LLM 决策输出 token 上限 |
+| `PHASE1B_REDUCER_TIMEOUT_SECONDS` | `45` | Phase 1b 非小样本 LLM 决策单窗口 timeout |
+| `PHASE1B_USE_LLM` | unset | 未设置时 7 章及以下用 LLM reducer，60 章大样本用确定性 reducer；设为 `1` 强制 LLM，设为 `0` 强制确定性 |
 | `DEEP_IMPORT_422_BLOCK_THRESHOLD` | `0.40` | Phase 0 / Phase 1a 阻断阈值，Phase 1b 降级阈值 |
 | `DEEP_IMPORT_LLM_RETRY_COUNT` | `1` | 422 / 网络 / timeout retry 次数 |
+
+## 14.1 真实 LLM 验收与 batch repair
+
+真实 LLM 验收入口是 test-only，不改变 HTTP API、数据库 schema 或前端主流程：
+
+- `RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1`：只跑 60 章 Phase 0。
+- `RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1`：默认复用最近完整通过的 Phase 0 artifact，再跑
+  Phase 1a 后停止；可用 `PHASE1A_PHASE0_ARTIFACT_PATH` 显式指定输入 artifact。后续
+  phase-only 真实验收入口也默认消费上一个 phase 已通过 artifact。
+- `RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM=1`：默认复用最近完整通过的 Phase 1a artifact，再跑
+  Phase 1b 后停止；60 章默认确定性 reducer，可用 `PHASE1B_USE_LLM=1` 显式复测 LLM 决策 reducer。
+- `RUN_DEEP_IMPORT_60_SCENE_REAL_LLM=1`：跑 Phase 0 / 1a / 1b / scene_commit 后停止。
+
+Phase 0 / Phase 1a 验收会输出 JSONL、Markdown 和 `.artifact.json`。artifact
+用于验收证据、复盘和 failed-batch repair，不是业务持久化模型：
+
+- `PHASE0_REPAIR_SOURCE_ARTIFACT_PATH`：只重跑 Phase 0 失败 batch 并合并。
+- `PHASE0_REPAIR_MAX_FAILED_BATCHES`：限制 Phase 0 单轮 repair 处理的失败 batch 数。
+- `PHASE0_REPAIR_CONCURRENCY`：限制 Phase 0 repair 并发。
+- `PHASE0_REPAIR_ATTEMPTS`：限制 Phase 0 repair 尝试次数。
+- `PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH`：只重跑 Phase 1a 失败 batch 并合并。
+- `PHASE1A_REPAIR_MAX_FAILED_BATCHES`：限制 Phase 1a 单轮 repair 处理的失败 batch 数。
+- `PHASE1A_REPAIR_ATTEMPTS`：限制 Phase 1a repair 尝试次数。
+- `PHASE1A_REPAIR_BATCH_IDS`：可选，限制本轮 repair 的 batch id。
+
+后续 Phase 1b / Phase 2 调参也应优先采用同样思路：先持久化阶段 artifact，
+再对少量失败 batch/window 局部 repair，避免整轮真实 LLM 验收因瞬时 provider 波动报废。
 
 ## 15. 实施顺序
 
@@ -430,7 +486,7 @@ Scene、世界对象和相关派生资产管理界面支持后端 API 查询参�
 - Phase 0 对 213 章生成两轮错位 batch，能以默认并发 50 执行，并记录成功 / 422 / timeout / schema 失败统计。
 - Phase 0 或 Phase 1a final `422` 率超过 40% 时阻断任务，并展示官方 API 推荐提示。
 - Phase 1a 分别补强 Round A / Round B，不提前合并两轮。
-- Phase 1b 按 30 章窗口、3 章 overlap、并发 4 执行，不带正文。
+- Phase 1b 按 10 章窗口、2 章 overlap、并发 4 执行，不带正文；真实 60 章 Phase1b-only 默认消费最近通过的 Phase1a artifact，避免重复消耗 Phase0/1a。
 - Phase 1b 局部失败只 fallback 失败 Scene / 候选，不整批回退。
 - Phase 1b `422` 率超过 40% 时降级为 Phase 1a 顺序写库，任务继续。
 - 正式 Scene 写入包含 provenance_key，恢复重跑不会重复写入同一 Scene。

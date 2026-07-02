@@ -409,6 +409,8 @@ class EntityDedupService:
         novel_id: str,
         candidate_id: str,
         target_entity_id: str,
+        *,
+        allow_canonical_source: bool = False,
     ) -> Any:  # MergeResult
         """合并候选实体到目标正史实体（事务性跨表深度合并）。
 
@@ -456,11 +458,16 @@ class EntityDedupService:
 
         # 校验 candidate 必须是 draft/candidate
         # target 非 canonical 时由后置逻辑自动提升，不再前置拦截
-        if candidate.status not in ("draft", "candidate"):
+        allowed_source_statuses = ("draft", "candidate", "canonical") if (
+            allow_canonical_source
+        ) else ("draft", "candidate")
+        if candidate.status not in allowed_source_statuses:
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"Merge candidate must be draft or candidate, got {candidate.status}"
+                    "Merge candidate must be draft or candidate"
+                    f"{' or canonical' if allow_canonical_source else ''}, "
+                    f"got {candidate.status}"
                 ),
             )
 

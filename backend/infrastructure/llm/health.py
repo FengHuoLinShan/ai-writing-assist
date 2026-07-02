@@ -18,6 +18,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from core.config import get_settings
+from infrastructure.llm.profiles import resolve_llm_profile
 
 
 class LLMHealthResult(BaseModel):
@@ -31,6 +32,8 @@ class LLMHealthResult(BaseModel):
     dns_fake_ip: bool = False
     resolved_ips: list[str] = Field(default_factory=list)
     latency_ms: float = 0.0
+    profile_sources: dict[str, str] = Field(default_factory=dict)
+    profile_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass
@@ -179,6 +182,8 @@ class LLMHealthChecker:
         resolved_ips: list[str] | None = None,
         dns_fake_ip: bool = False,
         latency_ms: float = 0.0,
+        profile_sources: dict[str, str] | None = None,
+        profile_summary: dict[str, Any] | None = None,
     ) -> LLMHealthResult:
         return LLMHealthResult(
             ok=ok,
@@ -189,6 +194,8 @@ class LLMHealthChecker:
             resolved_ips=resolved_ips or [],
             dns_fake_ip=dns_fake_ip,
             latency_ms=latency_ms,
+            profile_sources=profile_sources or {},
+            profile_summary=profile_summary or {},
         )
 
     @staticmethod
@@ -196,17 +203,33 @@ class LLMHealthChecker:
         return round((time.monotonic() - start) * 1000, 1)
 
 
-async def check_llm_health() -> LLMHealthResult:
+async def check_llm_health_for_project(
+    project_settings: dict[str, Any] | None = None,
+    *,
+    test_overrides: dict[str, Any] | None = None,
+) -> LLMHealthResult:
     settings = get_settings()
+    profile = resolve_llm_profile(
+        project_settings,
+        env_settings=settings,
+        test_overrides=test_overrides,
+    )
     checker = LLMHealthChecker(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
+        api_key=profile.api_key,
+        base_url=profile.base_url,
+        model=profile.model,
         trust_env=settings.llm_trust_env,
         proxy_url=settings.llm_proxy_url,
-        timeout=min(settings.llm_timeout, 30),
+        timeout=min(int(profile.timeout), 30),
     )
-    return await checker.check()
+    result = await checker.check()
+    result.profile_sources = dict(profile.sources)
+    result.profile_summary = profile.sanitized_summary()
+    return result
+
+
+async def check_llm_health() -> LLMHealthResult:
+    return await check_llm_health_for_project(None)
 
 
 def _is_fake_ip(value: str) -> bool:

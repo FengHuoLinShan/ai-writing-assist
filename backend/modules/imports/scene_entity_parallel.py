@@ -180,7 +180,15 @@ class ParallelSceneEntityExtractor:
                     context_snapshot_id=snapshot_id,
                     result_refs=result_refs,
                 )
-                relation_count = 0
+                relation_count = await service._persist_relations(
+                    db,
+                    nid,
+                    extraction.relations,
+                    scene_index=scene_index,
+                    workflow_id=workflow_id,
+                    context_snapshot_id=snapshot_id,
+                    result_refs=result_refs,
+                )
                 delta_count = await service._record_deltas(
                     db,
                     nid,
@@ -284,7 +292,7 @@ class ParallelSceneEntityExtractor:
         if supplement_result["created"]:
             total_created += supplement_result["created"]
 
-        await db.flush()
+        flush_status = await service._phase2_flush_with_timeout(db)
         audit_summary = await service._phase2_audit_summary(
             db,
             str(nid),
@@ -301,9 +309,13 @@ class ParallelSceneEntityExtractor:
             "total_aliases": 0,
             "total_deltas": total_deltas,
             "total_scenes": len(scenes),
-            "degraded": bool(failed_scene_indices or supplement_result["created"]),
-            "error_kind": error_kind,
-            "error_message": error_message,
+            "degraded": bool(
+                failed_scene_indices
+                or supplement_result["created"]
+                or flush_status["degraded"]
+            ),
+            "error_kind": error_kind or flush_status["error_kind"],
+            "error_message": error_message or flush_status["error_message"],
             "failed_scene_indices": failed_scene_indices,
             "completed_scenes": completed_scenes,
             "skipped_scenes": 0,

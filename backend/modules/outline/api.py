@@ -8,6 +8,8 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_confirmation
 from modules.outline.scene_workbench import SceneWorkbenchService
 from modules.outline.schemas import (
+    CrossChapterSceneDetectRequest,
+    CrossChapterSceneDetectResponse,
     ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
     ForeshadowingPlanResponse,
@@ -381,6 +383,24 @@ async def api_save_scene_fusion(
         return await _scene_workbench_service.save_llm_fusion(db, novel_id, data)
     except Exception as exc:
         raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/cross-chapter/detect",
+    response_model=CrossChapterSceneDetectResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_detect_cross_chapter_scenes(
+    data: CrossChapterSceneDetectRequest,
+    db: DbSession,
+):
+    task_id = enqueue_task(
+        db,
+        "scene_cross_chapter_detection",
+        meta=data.model_dump(exclude_none=True),
+    )
+    await db.flush()
+    return CrossChapterSceneDetectResponse(task_id=task_id)
 
 
 @router.post(

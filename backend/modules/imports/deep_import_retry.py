@@ -30,10 +30,15 @@ DeepImportErrorType = Literal[
 ]
 DeepImportFinalStatus = Literal["success", "failed"]
 
-RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {"422", "network", "timeout", "rate_limit"}
+RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {
+    "422",
+    "network",
+    "timeout",
+    "rate_limit",
+    "empty_result",
+}
 NON_RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {
     "schema_error",
-    "empty_result",
     "quality_gate",
 }
 
@@ -80,7 +85,11 @@ def classify_deep_import_error(exc: Exception) -> DeepImportErrorType:
         return "empty_result"
     if status_code == 429 or isinstance(exc, LLMRateLimitError):
         return "rate_limit"
+    if "error code: 429" in text or "rate limit" in text:
+        return "rate_limit"
     if status_code is not None and status_code >= 500:
+        return "network"
+    if "error code: 5" in text or "failover_exhausted" in text:
         return "network"
     if isinstance(exc, (LLMConnectionError, httpx.RequestError, ConnectionError)):
         return "network"
@@ -101,6 +110,7 @@ def should_retry_deep_import_error(
     *,
     attempt: int,
     max_retries: int = 1,
+    retryable_error_types: set[str] | None = None,
 ) -> bool:
     """Return whether a failed attempt should be retried.
 
@@ -110,7 +120,8 @@ def should_retry_deep_import_error(
     retry_budget = min(max(max_retries, 0), 1)
     if error_type in NON_RETRYABLE_DEEP_IMPORT_ERROR_TYPES:
         return False
-    return error_type in RETRYABLE_DEEP_IMPORT_ERROR_TYPES and attempt < retry_budget
+    retryable = retryable_error_types or RETRYABLE_DEEP_IMPORT_ERROR_TYPES
+    return error_type in retryable and attempt < retry_budget
 
 
 async def run_deep_import_llm_with_retry[T](
@@ -118,6 +129,7 @@ async def run_deep_import_llm_with_retry[T](
     *,
     is_empty_result: Callable[[T], bool] | None = None,
     max_retries: int = 1,
+    retryable_error_types: set[str] | None = None,
 ) -> DeepImportRetryResult:
     """Run one deep-import LLM operation with at most one retry by default."""
 
@@ -138,6 +150,7 @@ async def run_deep_import_llm_with_retry[T](
                 error_type,
                 attempt=attempt_index,
                 max_retries=retry_budget,
+                retryable_error_types=retryable_error_types,
             )
             diagnostics.append(
                 DeepImportAttemptDiagnostic(

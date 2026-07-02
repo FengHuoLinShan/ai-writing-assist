@@ -42,6 +42,14 @@ def test_classifies_timeout_errors() -> None:
     assert classify_deep_import_error(LLMTimeoutError("timed out")) == "timeout"
 
 
+def test_classifies_provider_503_text_as_network() -> None:
+    assert classify_deep_import_error(Exception("Error code: 503")) == "network"
+    assert (
+        classify_deep_import_error(Exception("provider failover_exhausted"))
+        == "network"
+    )
+
+
 def test_classifies_schema_and_empty_result_errors() -> None:
     assert (
         classify_deep_import_error(
@@ -62,14 +70,9 @@ def test_classifies_schema_and_empty_result_errors() -> None:
     )
 
 
-def test_retry_policy_does_not_retry_schema_empty_or_quality_gate() -> None:
+def test_retry_policy_does_not_retry_schema_or_quality_gate() -> None:
     assert not should_retry_deep_import_error(
         "schema_error",
-        attempt=0,
-        max_retries=1,
-    )
-    assert not should_retry_deep_import_error(
-        "empty_result",
         attempt=0,
         max_retries=1,
     )
@@ -77,6 +80,17 @@ def test_retry_policy_does_not_retry_schema_empty_or_quality_gate() -> None:
         "quality_gate",
         attempt=0,
         max_retries=1,
+    )
+    assert should_retry_deep_import_error(
+        "empty_result",
+        attempt=0,
+        max_retries=1,
+    )
+    assert not should_retry_deep_import_error(
+        "timeout",
+        attempt=0,
+        max_retries=1,
+        retryable_error_types={"network", "rate_limit", "empty_result"},
     )
 
 
@@ -100,6 +114,47 @@ async def test_retry_wrapper_retries_once_then_succeeds() -> None:
     assert result.value == {"ok": "yes"}
     assert [d.error_type for d in result.diagnostics] == ["422", None]
     assert result.diagnostics[0].retry_scheduled is True
+
+
+@pytest.mark.asyncio
+async def test_retry_wrapper_respects_custom_retryable_error_types() -> None:
+    calls = 0
+
+    async def operation() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise StatusCodeError(503)
+        return {"ok": "yes"}
+
+    result = await run_deep_import_llm_with_retry(
+        operation,
+        retryable_error_types={"network", "rate_limit", "empty_result"},
+    )
+
+    assert calls == 2
+    assert result.final_status == "success"
+    assert [d.error_type for d in result.diagnostics] == ["network", None]
+
+
+@pytest.mark.asyncio
+async def test_retry_wrapper_custom_policy_does_not_retry_timeout() -> None:
+    calls = 0
+
+    async def operation() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        raise TimeoutError()
+
+    result = await run_deep_import_llm_with_retry(
+        operation,
+        retryable_error_types={"network", "rate_limit", "empty_result"},
+    )
+
+    assert calls == 1
+    assert result.final_status == "failed"
+    assert result.final_error_type == "timeout"
+    assert result.diagnostics[0].retry_scheduled is False
 
 
 @pytest.mark.asyncio
@@ -140,7 +195,32 @@ async def test_retry_wrapper_does_not_retry_schema_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_wrapper_does_not_retry_empty_results() -> None:
+async def test_retry_wrapper_retries_empty_result_once_then_succeeds() -> None:
+    calls = 0
+
+    async def operation() -> list[dict[str, str]]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return []
+        return [{"ok": "yes"}]
+
+    result = await run_deep_import_llm_with_retry(
+        operation,
+        is_empty_result=lambda value: not value,
+    )
+
+    assert calls == 2
+    assert result.attempts == 2
+    assert result.final_status == "success"
+    assert result.final_error_type is None
+    assert result.value == [{"ok": "yes"}]
+    assert [d.error_type for d in result.diagnostics] == ["empty_result", None]
+    assert result.diagnostics[0].retry_scheduled is True
+
+
+@pytest.mark.asyncio
+async def test_retry_wrapper_does_not_retry_empty_result_without_budget() -> None:
     calls = 0
 
     async def operation() -> list[dict[str, str]]:
@@ -151,6 +231,7 @@ async def test_retry_wrapper_does_not_retry_empty_results() -> None:
     result = await run_deep_import_llm_with_retry(
         operation,
         is_empty_result=lambda value: not value,
+        max_retries=0,
     )
 
     assert calls == 1

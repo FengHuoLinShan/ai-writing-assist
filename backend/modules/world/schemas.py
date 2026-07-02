@@ -534,6 +534,50 @@ class EntityMergeResponse(BaseModel):
     target_entity_id: str
 
 
+class EntityFusionSuggestionRequest(BaseModel):
+    """请求生成世界对象 LLM 融合/合并建议。"""
+
+    novel_id: str
+    entity_type: str | None = Field(None, max_length=64)
+    status: str | None = Field(None, max_length=32)
+    limit: int = Field(default=200, ge=2, le=1000)
+    max_suggestions: int = Field(default=50, ge=1, le=200)
+
+
+class EntityFusionSuggestionResponse(BaseModel):
+    """世界对象融合建议任务响应。"""
+
+    task_id: str
+    status: str = "pending"
+
+
+class EntityFusionApplyItem(BaseModel):
+    """一条用户确认要应用的融合建议。"""
+
+    action: str = Field(..., pattern="^(merge|alias_only)$")
+    source_entity_id: str
+    target_entity_id: str
+    alias: str | None = Field(None, max_length=255)
+    allow_canonical_merge: bool = False
+
+
+class EntityFusionApplyRequest(BaseModel):
+    """应用已确认的融合建议。"""
+
+    novel_id: str
+    confirmed: bool = False
+    suggestions: list[EntityFusionApplyItem] = Field(..., min_length=1)
+
+
+class EntityFusionApplyResponse(BaseModel):
+    """应用融合建议的结果。"""
+
+    applied: int = 0
+    skipped: int = 0
+    results: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class EntityRollbackResponse(BaseModel):
     """实体回滚响应"""
 

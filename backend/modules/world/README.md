@@ -25,6 +25,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 对象关系管理（EntityRelation）
 - 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB，支持待复核别名元数据）
 - 对象去重（EntityDedupService）
+- 对象融合建议（WorldEntityFusionService，LLM 只生成建议，用户确认后应用）
+- 面向项目级智能去重的实体融合 facade（`suggest_entity_fusion` /
+  `apply_entity_fusion`）
 - 世界上下文/检索词典/批次（`EntityContextService`）
 - 实体统计与自动抽取批次查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）
@@ -47,6 +50,12 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 手动 AI 抽取或补抽默认写入 `candidate`，不得自动提升为 `canonical`。
 - 只有用户明确启动并确认的自动流水线可直接写入 `canonical`；这类路径必须保留来源、可编辑/可回滚标记，并有对应测试覆盖。
 - 本模块不恢复旧 `entity_candidates` 表；候选状态由 `core_entities.status` 表达。
+- `POST /api/world/entities/fusion-suggestions` 只创建异步建议任务，建议结果保存在
+  `AsyncTask.result`；`POST /api/world/entities/fusion-suggestions/apply` 必须
+  `confirmed=true` 才会写库。`canonical -> canonical` 合并还必须逐条显式
+  `allow_canonical_merge=true`。
+- 项目级“智能去重”按钮复用同一套 world 实体融合逻辑；它只改变入口和结果聚合，
+  不放宽用户确认、正史二次确认或 novel_id 隔离规则。
 
 ## 数据表
 

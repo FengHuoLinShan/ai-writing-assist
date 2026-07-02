@@ -370,7 +370,7 @@ class SceneWorkbenchService:
                 warnings=["融合结果已放弃，原 Scene 未修改。"],
             )
 
-        overrides = data.fused_scene if data.mode == "edit_then_save" else None
+        overrides = data.fused_scene if data.mode != "discard" else None
         payload = await self._fusion_scene_payload(db, novel_id, sources, overrides)
         await self._validate_fusion_override_chapters(db, novel_id, overrides)
         created = await self.repo.create(

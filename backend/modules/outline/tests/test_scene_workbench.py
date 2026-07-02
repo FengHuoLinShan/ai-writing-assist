@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -84,6 +87,73 @@ class TestSceneWorkbenchApi:
             "missing_setup",
             "needs_organize",
         ]
+
+    async def test_cross_chapter_detector_extends_until_unrelated_chapter(
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.outline.cross_chapter_detection import (
+            CrossChapterDecision,
+            CrossChapterDetectionService,
+        )
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.schemas import SceneCreate
+
+        repo = SceneRepository()
+        for chapter in range(1, 5):
+            await repo.create(
+                db_session,
+                uuid.UUID(hex=test_project_id),
+                SceneCreate(
+                    scene_index=chapter - 1,
+                    title=f"第{chapter}章边界",
+                    goal="同一场追击" if chapter <= 3 else "新的转场",
+                    chapter_ids=[str(chapter)],
+                    scene_chunks=[{"chapter_index": chapter, "start_paragraph": 0}],
+                    status="draft",
+                ),
+            )
+
+        async def fake_evidence(self, db, novel_id, chain, next_scene):
+            return [{"source_type": "test", "snippet": "证据"}], None
+
+        async def fake_decide(self, *, novel_id, chain, next_scene, evidence):
+            chapter = int(next_scene.chapter_ids[0])
+            if chapter <= 3:
+                return CrossChapterDecision(
+                    action="extend_scene",
+                    confidence=0.9,
+                    reason="仍是同一场追击",
+                )
+            return CrossChapterDecision(
+                action="keep_separate",
+                confidence=0.8,
+                reason="进入新事件",
+            )
+
+        monkeypatch.setattr(
+            CrossChapterDetectionService,
+            "_evidence_for_boundary",
+            fake_evidence,
+        )
+        monkeypatch.setattr(
+            CrossChapterDetectionService,
+            "_decide_boundary",
+            fake_decide,
+        )
+
+        result = await CrossChapterDetectionService().detect(
+            db_session,
+            novel_id=test_project_id,
+        )
+
+        assert result["suggestion_count"] == 1
+        suggestion = result["suggestions"][0]
+        assert suggestion["chapter_span"] == [1, 3]
+        assert len(suggestion["source_scene_ids"]) == 3
+        assert suggestion["stop_reason"] == "keep_separate"
 
     async def test_workbench_includes_candidate_scenes(
         self,

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -146,6 +146,7 @@ class LLMProviderTemplateResponse(BaseModel):
     base_url: str = ""
     default_model: str = ""
     models: list[str] = Field(default_factory=list)
+    default_parameters: dict[str, Any] = Field(default_factory=dict)
     description: str = ""
     docs_url: str = ""
 
@@ -167,6 +168,11 @@ class ProjectLLMSettingsUpdate(BaseModel):
     label: str | None = Field(default=None, max_length=128)
     base_url: str = Field(..., min_length=1, max_length=512)
     model: str = Field(..., min_length=1, max_length=256)
+    timeout: int | None = Field(default=None, ge=1, le=3600)
+    max_tokens: int | None = Field(default=None, ge=1, le=200000)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    extra: dict[str, Any] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, max_length=4096)
     clear_api_key: bool = False
 
@@ -183,4 +189,54 @@ class ProjectLLMSettingsResponse(BaseModel):
     label: str | None = None
     base_url: str = ""
     model: str = ""
+    timeout: int | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
     api_key_configured: bool = False
+
+
+class SmartDedupScanRequest(BaseModel):
+    """Request one project-wide smart dedupe scan."""
+
+    scopes: list[str] | None = Field(
+        default=None,
+        description="资产范围；为空时扫描世界对象和全部 outline 结构资产",
+    )
+    limit_per_scope: int = Field(default=1000, ge=2, le=5000)
+    max_suggestions: int = Field(default=120, ge=1, le=300)
+
+
+class SmartDedupScanResponse(BaseModel):
+    """Async smart dedupe scan task response."""
+
+    task_id: str
+    status: str = "pending"
+
+
+class SmartDedupApplyItem(BaseModel):
+    """One user-confirmed smart dedupe suggestion."""
+
+    asset_type: str = Field(..., max_length=64)
+    action: str = Field(..., max_length=64)
+    source_asset_id: str
+    target_asset_id: str
+    alias: str | None = Field(None, max_length=255)
+    allow_canonical_merge: bool = False
+
+
+class SmartDedupApplyRequest(BaseModel):
+    """Apply selected smart dedupe suggestions after user confirmation."""
+
+    confirmed: bool = False
+    suggestions: list[SmartDedupApplyItem] = Field(..., min_length=1)
+
+
+class SmartDedupApplyResponse(BaseModel):
+    """Smart dedupe apply result."""
+
+    applied: int = 0
+    skipped: int = 0
+    results: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)

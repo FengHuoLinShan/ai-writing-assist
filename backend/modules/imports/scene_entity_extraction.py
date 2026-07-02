@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -16,7 +18,10 @@ from modules.imports.llm_schemas import (
     ExtractedRelation,
     SceneEntityExtractionOutput,
 )
-from modules.imports.scene_entity_alias_relation import AliasRelationExtractor
+from modules.imports.scene_entity_alias_relation import (
+    AliasRelationExtractor,
+    _effective_alias_relation_total_timeout_seconds,
+)
 from modules.imports.scene_entity_bulk import (
     BulkSceneEntityExtractor,
     bulk_entity_memory_context,
@@ -71,6 +76,15 @@ from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
 
+
+def _alias_relation_failure_scene_index(scene: dict[str, Any], fallback: int) -> int:
+    try:
+        scene_index = int(scene.get("scene_index") or 0)
+    except (AttributeError, TypeError, ValueError):
+        scene_index = 0
+    return scene_index if scene_index > 0 else fallback
+
+
 MAX_PHASE2_SCENE_RETRIES = _phase2_config.MAX_PHASE2_SCENE_RETRIES
 MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES = (
     _phase2_config.MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES
@@ -83,6 +97,9 @@ PHASE2_BULK_PROVIDER_TIMEOUT_SECONDS = (
     _phase2_config.PHASE2_BULK_PROVIDER_TIMEOUT_SECONDS
 )
 PHASE2_BULK_MAX_TOKENS = _phase2_config.PHASE2_BULK_MAX_TOKENS
+PHASE2_BATCH_SIZE_SCENES = _phase2_config.PHASE2_BATCH_SIZE_SCENES
+PHASE2_BATCH_CONCURRENCY = _phase2_config.PHASE2_BATCH_CONCURRENCY
+PHASE2_BOUNDARY_SCENES = _phase2_config.PHASE2_BOUNDARY_SCENES
 PHASE2_PARALLEL_SCENE_CONCURRENCY = _phase2_config.PHASE2_PARALLEL_SCENE_CONCURRENCY
 PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS = (
     _phase2_config.PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS
@@ -114,6 +131,8 @@ class SceneEntityExtractionService:
         scene_ids: list[str] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        existing_checkpoints: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self._get_scenes(db, nid)
@@ -133,12 +152,21 @@ class SceneEntityExtractionService:
             nid,
             selected,
             workflow_id=workflow_id,
+            on_scene_progress=on_scene_progress,
+            existing_checkpoints=existing_checkpoints,
         )
-        await db.flush()
+        flush_status = await self._phase2_flush_with_timeout(db)
         return {
             **result,
             "total_scenes": len(selected),
-            "degraded": bool(result.get("alias_relation_failed_scenes")),
+            "degraded": bool(
+                result.get("alias_relation_failed_scenes")
+                or flush_status["degraded"]
+            ),
+            "error_kind": result.get("error_kind") or flush_status["error_kind"],
+            "error_message": (
+                result.get("error_message") or flush_status["error_message"]
+            ),
         }
 
     async def extract_by_scenes(
@@ -151,6 +179,7 @@ class SceneEntityExtractionService:
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
+        include_alias_relations: bool = True,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -201,6 +230,7 @@ class SceneEntityExtractionService:
         accumulated_memory: list[dict] = []
         seen_entity_keys: set[tuple[str, str]] = set()
         failed_scene_indices: list[int] = []
+        failed_scene_ids: list[str] = []
         completed_scenes = 0
         skipped_scenes = 0
         rerun_scenes = 0
@@ -257,11 +287,12 @@ class SceneEntityExtractionService:
                     parallel_result["completed_scenes"] > 0
                     or parallel_result["failed_scene_indices"]
                 ):
-                    alias_result = await self._run_alias_relation_phase(
+                    alias_result = await self._phase2_alias_relation_result(
                         db,
                         nid,
                         scenes,
                         workflow_id=workflow_id,
+                        include_alias_relations=include_alias_relations,
                     )
                     return self._merge_alias_relation_result(
                         parallel_result,
@@ -298,7 +329,7 @@ class SceneEntityExtractionService:
                 ]
                 if on_scene_progress is not None:
                     await on_scene_progress(total_scenes, total_scenes)
-                await db.flush()
+                flush_status = await self._phase2_flush_with_timeout(db)
                 audit_summary = await self._phase2_audit_summary(
                     db,
                     novel_id,
@@ -315,9 +346,11 @@ class SceneEntityExtractionService:
                     "total_aliases": 0,
                     "total_deltas": bulk_result["deltas"],
                     "total_scenes": total_scenes,
-                    "degraded": bool(supplement_result["created"]),
-                    "error_kind": None,
-                    "error_message": None,
+                    "degraded": bool(
+                        supplement_result["created"] or flush_status["degraded"]
+                    ),
+                    "error_kind": flush_status["error_kind"],
+                    "error_message": flush_status["error_message"],
                     "failed_scene_indices": [],
                     "completed_scenes": total_scenes,
                     "skipped_scenes": 0,
@@ -334,13 +367,25 @@ class SceneEntityExtractionService:
                         "supplemental_error_kind"
                     ],
                 }
-                alias_result = await self._run_alias_relation_phase(
+                alias_result = await self._phase2_alias_relation_result(
                     db,
                     nid,
                     scenes,
                     workflow_id=workflow_id,
+                    include_alias_relations=include_alias_relations,
                 )
                 return self._merge_alias_relation_result(phase2_result, alias_result)
+
+        if total_scenes > PHASE2_BULK_MAX_SCENES and not checkpoint_by_scene:
+            return await self._process_scenes_batched(
+                db,
+                nid,
+                scenes,
+                existing_context,
+                workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
+                include_alias_relations=include_alias_relations,
+            )
 
         for scene_idx, scene in enumerate(scenes):
             scene_id = self._scene_id(scene)
@@ -435,6 +480,7 @@ class SceneEntityExtractionService:
                     else getattr(scene, "scene_index", scene_idx)
                 )
                 failed_scene_indices.append(scene_index_value)
+                failed_scene_ids.append(self._scene_id(scene))
                 error_kind = self._error_kind(exc)
                 error_message = str(exc)[:300]
                 scene_checkpoints.append(
@@ -495,7 +541,7 @@ class SceneEntityExtractionService:
             if on_scene_progress is not None:
                 await on_scene_progress(scene_idx + 1, total_scenes)
 
-        await db.flush()
+        flush_status = await self._phase2_flush_with_timeout(db)
         audit_summary = await self._phase2_audit_summary(
             db,
             novel_id,
@@ -512,10 +558,13 @@ class SceneEntityExtractionService:
             "total_aliases": 0,
             "total_deltas": total_deltas,
             "total_scenes": total_scenes,
-            "degraded": bool(failed_scene_indices or stopped_early),
-            "error_kind": error_kind,
-            "error_message": error_message,
+            "degraded": bool(
+                failed_scene_indices or stopped_early or flush_status["degraded"]
+            ),
+            "error_kind": error_kind or flush_status["error_kind"],
+            "error_message": error_message or flush_status["error_message"],
             "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": failed_scene_ids,
             "completed_scenes": completed_scenes,
             "skipped_scenes": skipped_scenes,
             "rerun_scenes": rerun_scenes,
@@ -524,11 +573,12 @@ class SceneEntityExtractionService:
             "snapshot_health_summary": snapshot_health_summary,
             "checkpoints": {"phase2": {"scenes": scene_checkpoints}},
         }
-        alias_result = await self._run_alias_relation_phase(
+        alias_result = await self._phase2_alias_relation_result(
             db,
             nid,
             scenes,
             workflow_id=workflow_id,
+            include_alias_relations=include_alias_relations,
         )
         return self._merge_alias_relation_result(phase2_result, alias_result)
 
@@ -572,6 +622,94 @@ class SceneEntityExtractionService:
         existing_checkpoints: dict[str, Any] | None,
     ) -> dict[str, dict[str, Any]]:
         return phase2_checkpoint_by_scene(existing_checkpoints)
+
+    @staticmethod
+    def _scene_index_value(scene: dict[str, Any], fallback: int = 0) -> int:
+        if isinstance(scene, dict):
+            raw_value = scene.get("scene_index")
+        else:
+            raw_value = getattr(scene, "scene_index", None)
+        try:
+            scene_index = int(raw_value or 0)
+        except (TypeError, ValueError):
+            scene_index = 0
+        return scene_index if scene_index > 0 else fallback
+
+    @staticmethod
+    def _phase2_batch_size_scenes() -> int:
+        return _phase2_config.phase2_batch_size_scenes()
+
+    @staticmethod
+    def _phase2_batch_concurrency() -> int:
+        return _phase2_config.phase2_batch_concurrency()
+
+    @classmethod
+    def _split_scene_batches(
+        cls,
+        scenes: list[dict[str, Any]],
+        *,
+        batch_size: int | None = None,
+    ) -> list[list[dict[str, Any]]]:
+        ordered = sorted(scenes, key=cls._scene_index_value)
+        size = max(1, int(batch_size or _phase2_config.phase2_batch_size_scenes()))
+        return [ordered[index : index + size] for index in range(0, len(ordered), size)]
+
+    @staticmethod
+    def _phase2_boundary_windows(
+        batches: list[list[dict[str, Any]]],
+        *,
+        boundary_size: int = PHASE2_BOUNDARY_SCENES,
+    ) -> list[dict[str, Any]]:
+        size = max(1, int(boundary_size or PHASE2_BOUNDARY_SCENES))
+        windows: list[dict[str, Any]] = []
+        for index in range(len(batches) - 1):
+            scenes = [*batches[index][-size:], *batches[index + 1][:size]]
+            if not scenes:
+                continue
+            windows.append(
+                {
+                    "window_index": len(windows),
+                    "left_batch_index": index,
+                    "right_batch_index": index + 1,
+                    "scenes": scenes,
+                }
+            )
+        return windows
+
+    @staticmethod
+    def _empty_phase2_persistence_stats() -> dict[str, Any]:
+        return {
+            "action_counts": {
+                "create_new": 0,
+                "link_to_existing": 0,
+                "ignore": 0,
+                "temporary_only": 0,
+            },
+            "dedup_counts": {
+                "checked": 0,
+                "skipped": 0,
+                "degraded": 0,
+            },
+            "linked_to_existing": 0,
+            "ignored": 0,
+            "temporary_only": 0,
+            "low_confidence": 0,
+        }
+
+    @staticmethod
+    def _merge_phase2_persistence_stats(
+        target: dict[str, Any],
+        source: dict[str, Any],
+    ) -> dict[str, Any]:
+        for key, value in (source.get("action_counts") or {}).items():
+            target.setdefault("action_counts", {}).setdefault(key, 0)
+            target["action_counts"][key] += int(value or 0)
+        for key, value in (source.get("dedup_counts") or {}).items():
+            target.setdefault("dedup_counts", {}).setdefault(key, 0)
+            target["dedup_counts"][key] += int(value or 0)
+        for key in ("linked_to_existing", "ignored", "temporary_only", "low_confidence"):
+            target[key] = int(target.get(key, 0) or 0) + int(source.get(key, 0) or 0)
+        return target
 
     def _build_scene_checkpoint(
         self,
@@ -641,6 +779,8 @@ class SceneEntityExtractionService:
         accumulated_memory: list[dict],
         seen_entity_keys: set[tuple[str, str]],
         workflow_id: str | None = None,
+        persistence_stats: dict[str, Any] | None = None,
+        db_lock: asyncio.Lock | None = None,
     ) -> dict[str, Any]:
         return await SingleSceneEntityExtractor(self).process(
             db,
@@ -651,7 +791,436 @@ class SceneEntityExtractionService:
             accumulated_memory,
             seen_entity_keys,
             workflow_id=workflow_id,
+            persistence_stats=persistence_stats,
+            db_lock=db_lock,
         )
+
+    async def _process_scenes_batched(
+        self,
+        db: AsyncSession,
+        nid,
+        scenes: list[dict[str, Any]],
+        existing_context: str,
+        *,
+        workflow_id: str | None,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
+        include_alias_relations: bool = True,
+    ) -> dict[str, Any]:
+        batch_size = self._phase2_batch_size_scenes()
+        batch_concurrency = self._phase2_batch_concurrency()
+        batches = self._split_scene_batches(scenes, batch_size=batch_size)
+        semaphore = asyncio.Semaphore(batch_concurrency)
+        progress_lock = asyncio.Lock()
+        db_lock = asyncio.Lock()
+        completed_counter = {"value": 0}
+        total_scenes = len(scenes)
+
+        async def run_batch(
+            batch_index: int,
+            batch: list[dict[str, Any]],
+        ) -> dict[str, Any]:
+            async with semaphore:
+                return await self._process_scene_batch_serial(
+                    db,
+                    nid,
+                    batch,
+                    batch_index=batch_index,
+                    existing_context=existing_context,
+                    workflow_id=workflow_id,
+                    completed_counter=completed_counter,
+                    progress_lock=progress_lock,
+                    db_lock=db_lock,
+                    total_scenes=total_scenes,
+                    on_scene_progress=on_scene_progress,
+                )
+
+        batch_results = await asyncio.gather(
+            *(run_batch(index, batch) for index, batch in enumerate(batches)),
+            return_exceptions=True,
+        )
+
+        total_created = 0
+        total_relations = 0
+        total_deltas = 0
+        failed_scene_indices: list[int] = []
+        failed_scene_ids: list[str] = []
+        scene_checkpoints: list[dict[str, Any]] = []
+        failed_batches: list[int] = []
+        degraded_batches: list[int] = []
+        error_kind: str | None = None
+        error_message: str | None = None
+        persistence_stats = self._empty_phase2_persistence_stats()
+
+        for batch_index, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                failed_batches.append(batch_index)
+                degraded_batches.append(batch_index)
+                error_kind = self._error_kind(result)
+                error_message = str(result)[:300]
+                for scene_position, scene in enumerate(batches[batch_index]):
+                    failed_scene_indices.append(
+                        self._scene_index_value(
+                            scene,
+                            fallback=batch_index * batch_size + scene_position + 1,
+                        )
+                    )
+                    failed_scene_ids.append(self._scene_id(scene))
+                    scene_checkpoints.append(
+                        self._build_scene_checkpoint(
+                            scene,
+                            status="failed",
+                            workflow_id=workflow_id,
+                            scene_provenance_key=self._scene_provenance_key(
+                                workflow_id,
+                                scene,
+                            ),
+                            retry_count=1,
+                            error=error_message,
+                            error_kind=error_kind,
+                        )
+                    )
+                continue
+
+            total_created += int(result.get("created", 0) or 0)
+            total_relations += int(result.get("relations", 0) or 0)
+            total_deltas += int(result.get("deltas", 0) or 0)
+            failed_scene_indices.extend(result.get("failed_scene_indices") or [])
+            failed_scene_ids.extend(result.get("failed_scene_ids") or [])
+            scene_checkpoints.extend(result.get("checkpoints") or [])
+            self._merge_phase2_persistence_stats(
+                persistence_stats,
+                result.get("persistence_stats")
+                or self._empty_phase2_persistence_stats(),
+            )
+            if result.get("degraded"):
+                degraded_batches.append(batch_index)
+            if result.get("error_kind"):
+                error_kind = result.get("error_kind")
+                error_message = result.get("error_message")
+
+        scene_checkpoints.sort(
+            key=lambda checkpoint: int(checkpoint.get("scene_index") or 0),
+        )
+
+        boundary_result = await self._run_boundary_supplements(
+            db,
+            nid,
+            batches,
+            workflow_id=workflow_id,
+        )
+        total_created += int(
+            boundary_result["phase2_boundary_supplement_counts"].get("created", 0)
+            or 0
+        )
+
+        flush_status = await self._phase2_flush_with_timeout(db)
+        audit_summary = await self._phase2_audit_summary(
+            db,
+            str(nid),
+            workflow_id=workflow_id,
+        )
+        snapshot_health_summary = await self._phase2_snapshot_health_summary(
+            db,
+            str(nid),
+            workflow_id=workflow_id,
+        )
+        phase2_result = {
+            "total_created": total_created,
+            "total_relations": total_relations,
+            "total_aliases": 0,
+            "total_deltas": total_deltas,
+            "total_scenes": total_scenes,
+            "degraded": bool(
+                failed_scene_indices
+                or degraded_batches
+                or boundary_result.get("degraded")
+                or flush_status["degraded"]
+            ),
+            "error_kind": (
+                error_kind
+                or boundary_result.get("error_kind")
+                or flush_status["error_kind"]
+            ),
+            "error_message": (
+                error_message
+                or boundary_result.get("error_message")
+                or flush_status["error_message"]
+            ),
+            "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": failed_scene_ids,
+            "completed_scenes": total_scenes - len(failed_scene_indices),
+            "skipped_scenes": 0,
+            "rerun_scenes": 0,
+            "stopped_early": False,
+            "audit_summary": audit_summary,
+            "snapshot_health_summary": snapshot_health_summary,
+            "checkpoints": {"phase2": {"scenes": scene_checkpoints}},
+            "phase2_batches_total": len(batches),
+            "phase2_batches_completed": len(batches) - len(failed_batches),
+            "phase2_batch_size_scenes": batch_size,
+            "phase2_batch_concurrency": batch_concurrency,
+            "phase2_failed_batches": failed_batches,
+            "phase2_degraded_batches": degraded_batches,
+            "phase2_boundary_windows_total": boundary_result[
+                "phase2_boundary_windows_total"
+            ],
+            "phase2_boundary_windows_completed": boundary_result[
+                "phase2_boundary_windows_completed"
+            ],
+            "phase2_boundary_supplement_counts": boundary_result[
+                "phase2_boundary_supplement_counts"
+            ],
+            "phase2_action_counts": persistence_stats["action_counts"],
+            "phase2_dedup_counts": persistence_stats["dedup_counts"],
+            "phase2_linked_to_existing": persistence_stats["linked_to_existing"],
+            "phase2_ignored": persistence_stats["ignored"],
+            "phase2_temporary_only": persistence_stats["temporary_only"],
+            "phase2_low_confidence": persistence_stats["low_confidence"],
+        }
+        alias_result = await self._phase2_alias_relation_result(
+            db,
+            nid,
+            scenes,
+            workflow_id=workflow_id,
+            include_alias_relations=include_alias_relations,
+        )
+        return self._merge_alias_relation_result(phase2_result, alias_result)
+
+    async def _process_scene_batch_serial(
+        self,
+        db: AsyncSession,
+        nid,
+        batch: list[dict[str, Any]],
+        *,
+        batch_index: int,
+        existing_context: str,
+        workflow_id: str | None,
+        completed_counter: dict[str, int],
+        progress_lock: asyncio.Lock,
+        db_lock: asyncio.Lock,
+        total_scenes: int,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
+    ) -> dict[str, Any]:
+        local_context = existing_context
+        local_memory: list[dict[str, Any]] = []
+        seen_entity_keys: set[tuple[str, str]] = set()
+        created = 0
+        relations = 0
+        deltas = 0
+        failed_scene_indices: list[int] = []
+        failed_scene_ids: list[str] = []
+        checkpoints: list[dict[str, Any]] = []
+        error_kind_value: str | None = None
+        error_message: str | None = None
+        persistence_stats = self._empty_phase2_persistence_stats()
+
+        for scene_idx, scene in enumerate(batch):
+            scene_provenance_key = self._scene_provenance_key(workflow_id, scene)
+            retry_count = 0
+            try:
+                scene_result = await self._process_scene(
+                    db,
+                    nid,
+                    scene,
+                    scene_idx,
+                    local_context,
+                    local_memory,
+                    seen_entity_keys,
+                    workflow_id=workflow_id,
+                    persistence_stats=persistence_stats,
+                    db_lock=db_lock,
+                )
+            except Exception as exc:
+                error_kind_value = self._error_kind(exc)
+                error_message = str(exc)[:300]
+                failed_scene_indices.append(
+                    self._scene_index_value(
+                        scene,
+                        fallback=batch_index
+                        * max(1, _phase2_config.phase2_batch_size_scenes())
+                        + scene_idx
+                        + 1,
+                    )
+                )
+                failed_scene_ids.append(self._scene_id(scene))
+                checkpoints.append(
+                    self._build_scene_checkpoint(
+                        scene,
+                        status="failed",
+                        workflow_id=workflow_id,
+                        scene_provenance_key=scene_provenance_key,
+                        retry_count=retry_count + 1,
+                        error=error_message,
+                        error_kind=error_kind_value,
+                    )
+                )
+            else:
+                created += int(scene_result.get("created", 0) or 0)
+                relations += int(scene_result.get("relations", 0) or 0)
+                deltas += int(scene_result.get("deltas", 0) or 0)
+                local_context = scene_result.get("updated_context") or local_context
+                local_memory = scene_result.get("updated_memory") or local_memory
+                checkpoint = scene_result.get("checkpoint")
+                if checkpoint is not None:
+                    checkpoints.append(checkpoint)
+                else:
+                    checkpoints.append(
+                        self._build_scene_checkpoint(
+                            scene,
+                            status="done",
+                            workflow_id=workflow_id,
+                            scene_provenance_key=scene_provenance_key,
+                            retry_count=retry_count,
+                            created_entity_ids=scene_result.get(
+                                "created_entity_ids",
+                                [],
+                            ),
+                            created_relation_ids=scene_result.get(
+                                "created_relation_ids",
+                                [],
+                            ),
+                            created_delta_ids=scene_result.get(
+                                "created_delta_ids",
+                                [],
+                            ),
+                        )
+                    )
+
+            async with progress_lock:
+                completed_counter["value"] += 1
+                completed = completed_counter["value"]
+            if on_scene_progress is not None:
+                async with db_lock:
+                    await on_scene_progress(completed, total_scenes)
+
+        return {
+            "batch_index": batch_index,
+            "created": created,
+            "relations": relations,
+            "deltas": deltas,
+            "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": failed_scene_ids,
+            "checkpoints": checkpoints,
+            "degraded": bool(failed_scene_indices),
+            "error_kind": error_kind_value,
+            "error_message": error_message,
+            "persistence_stats": persistence_stats,
+        }
+
+    async def _run_boundary_supplements(
+        self,
+        db: AsyncSession,
+        nid,
+        batches: list[list[dict[str, Any]]],
+        *,
+        workflow_id: str | None,
+    ) -> dict[str, Any]:
+        windows = self._phase2_boundary_windows(batches)
+        if not _phase2_config.phase2_boundary_supplement_enabled():
+            return {
+                "phase2_boundary_windows_total": len(windows),
+                "phase2_boundary_windows_completed": 0,
+                "phase2_boundary_supplement_counts": {
+                    "created": 0,
+                    "aliases": 0,
+                    "relations": 0,
+                    "link_suggestions": 0,
+                    "conflicts": 0,
+                    "failed": 0,
+                },
+                "degraded": False,
+                "error_kind": None,
+                "error_message": None,
+                "phase2_boundary_elapsed_s": 0.0,
+                "phase2_boundary_total_timeout_s": (
+                    _phase2_config.phase2_boundary_total_timeout_seconds()
+                ),
+                "phase2_boundary_skipped": True,
+                "phase2_boundary_skip_reason": "disabled",
+            }
+        started_at = time.monotonic()
+        total_timeout_seconds = _phase2_config.phase2_boundary_total_timeout_seconds()
+        counts = {
+            "created": 0,
+            "aliases": 0,
+            "relations": 0,
+            "link_suggestions": 0,
+            "conflicts": 0,
+            "failed": 0,
+        }
+        completed = 0
+        error_kind_value: str | None = None
+        error_message: str | None = None
+
+        for window_index, window in enumerate(windows):
+            remaining_s = total_timeout_seconds - (time.monotonic() - started_at)
+            if remaining_s <= 0:
+                counts["failed"] += len(windows) - window_index
+                error_kind_value = "timeout"
+                error_message = (
+                    "Phase 2 boundary supplement exceeded total timeout "
+                    f"budget ({total_timeout_seconds}s)"
+                )
+                break
+            try:
+                result = await asyncio.wait_for(
+                    self._process_boundary_window(
+                        db,
+                        nid,
+                        window,
+                        workflow_id=workflow_id,
+                    ),
+                    timeout=remaining_s,
+                )
+            except Exception as exc:
+                counts["failed"] += 1
+                error_kind_value = self._error_kind(exc)
+                error_message = str(exc)[:300]
+                continue
+            completed += 1
+            counts["created"] += int(result.get("created", 0) or 0)
+            counts["aliases"] += int(result.get("aliases", 0) or 0)
+            counts["relations"] += int(result.get("relations", 0) or 0)
+            counts["link_suggestions"] += int(result.get("link_suggestions", 0) or 0)
+            counts["conflicts"] += int(result.get("conflicts", 0) or 0)
+            if result.get("failed"):
+                counts["failed"] += 1
+
+        return {
+            "phase2_boundary_windows_total": len(windows),
+            "phase2_boundary_windows_completed": completed,
+            "phase2_boundary_supplement_counts": counts,
+            "degraded": counts["failed"] > 0,
+            "error_kind": error_kind_value,
+            "error_message": error_message,
+            "phase2_boundary_elapsed_s": round(time.monotonic() - started_at, 2),
+            "phase2_boundary_total_timeout_s": total_timeout_seconds,
+        }
+
+    async def _process_boundary_window(
+        self,
+        db: AsyncSession,
+        nid,
+        window: dict[str, Any],
+        *,
+        workflow_id: str | None,
+    ) -> dict[str, Any]:
+        scenes = window["scenes"]
+        entity_result = await self._process_scenes_bulk(
+            db,
+            nid,
+            scenes,
+            "边界补充：仅补相邻 batch 边界漏抽对象，不重写主 batch 结果。",
+            workflow_id=workflow_id,
+        )
+        return {
+            "created": int(entity_result.get("created", 0) or 0),
+            "aliases": 0,
+            "relations": 0,
+            "link_suggestions": 0,
+            "conflicts": 0,
+            "failed": False,
+        }
 
     async def _process_scenes_parallel_llm(
         self,
@@ -796,11 +1365,25 @@ class SceneEntityExtractionService:
         *,
         workflow_id: str | None,
     ) -> dict[str, Any]:
-        return await phase2_audit_summary(
-            self,
-            db,
-            novel_id,
-            workflow_id=workflow_id,
+        return await self._phase2_postprocess_with_timeout(
+            "audit_summary",
+            phase2_audit_summary(
+                self,
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+            ),
+            fallback={
+                "entity_extraction": {
+                    "snapshot_count": 0,
+                    "succeeded": 0,
+                    "failed": 0,
+                    "failed_scenes": [],
+                    "retained_rendered_context_count": 0,
+                    "rendered_context_expires_at": [],
+                    "degraded": True,
+                }
+            },
         )
 
     async def _phase2_snapshot_health_summary(
@@ -810,12 +1393,73 @@ class SceneEntityExtractionService:
         *,
         workflow_id: str | None,
     ) -> dict[str, Any]:
-        return await phase2_snapshot_health_summary(
-            self,
-            db,
-            novel_id,
-            workflow_id=workflow_id,
+        return await self._phase2_postprocess_with_timeout(
+            "snapshot_health_summary",
+            phase2_snapshot_health_summary(
+                self,
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+            ),
+            fallback={"degraded": True},
         )
+
+    async def _phase2_postprocess_with_timeout(
+        self,
+        label: str,
+        operation: Awaitable[dict[str, Any]],
+        *,
+        fallback: dict[str, Any],
+    ) -> dict[str, Any]:
+        timeout_seconds = _phase2_config.phase2_postprocess_timeout_seconds()
+        try:
+            return await asyncio.wait_for(operation, timeout=timeout_seconds)
+        except TimeoutError:
+            error_message = (
+                f"Phase 2 {label} exceeded postprocess timeout "
+                f"({timeout_seconds}s)"
+            )
+            logger.warning(error_message)
+            return {
+                **fallback,
+                "error_kind": "timeout",
+                "error_message": error_message,
+            }
+        except Exception as exc:
+            error_kind_value = self._error_kind(exc)
+            error_message = str(exc)[:300]
+            logger.warning("Phase 2 %s failed: %s", label, exc)
+            return {
+                **fallback,
+                "error_kind": error_kind_value,
+                "error_message": error_message,
+            }
+
+    async def _phase2_flush_with_timeout(self, db: AsyncSession) -> dict[str, Any]:
+        timeout_seconds = _phase2_config.phase2_postprocess_timeout_seconds()
+        try:
+            await asyncio.wait_for(db.flush(), timeout=timeout_seconds)
+            return {"degraded": False, "error_kind": None, "error_message": None}
+        except TimeoutError:
+            error_message = (
+                "Phase 2 db.flush exceeded postprocess timeout "
+                f"({timeout_seconds}s)"
+            )
+            logger.warning(error_message)
+            return {
+                "degraded": True,
+                "error_kind": "timeout",
+                "error_message": error_message,
+            }
+        except Exception as exc:
+            error_kind_value = self._error_kind(exc)
+            error_message = str(exc)[:300]
+            logger.warning("Phase 2 db.flush failed: %s", exc)
+            return {
+                "degraded": True,
+                "error_kind": error_kind_value,
+                "error_message": error_message,
+            }
 
     @staticmethod
     def _scene_source_chapter_index(scene: dict[str, Any]) -> int:
@@ -893,7 +1537,7 @@ class SceneEntityExtractionService:
         chapters_text: str,
         entity_index: str,
         *,
-        max_tokens: int = 4096,
+        max_tokens: int = 3072,
         client_timeout: int = 120,
     ) -> AliasRelationExtractionOutput:
         return await call_alias_relation_extraction(
@@ -903,7 +1547,57 @@ class SceneEntityExtractionService:
             client_timeout=client_timeout,
         )
 
-    async def _run_alias_relation_phase(
+    async def _phase2_alias_relation_result(
+        self,
+        db: AsyncSession,
+        nid,
+        scenes: list[dict[str, Any]],
+        *,
+        workflow_id: str | None = None,
+        include_alias_relations: bool = True,
+    ) -> dict[str, Any]:
+        if not include_alias_relations:
+            return self._skipped_alias_relation_result(
+                len(scenes),
+                reason="phase2a_only",
+            )
+        return await self._run_optional_alias_relation_phase(
+            db,
+            nid,
+            scenes,
+            workflow_id=workflow_id,
+        )
+
+    @staticmethod
+    def _skipped_alias_relation_result(
+        scene_count: int,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        concurrency = _phase2_config.phase2_alias_relation_concurrency()
+        total_timeout_seconds = _effective_alias_relation_total_timeout_seconds(
+            scene_count=scene_count,
+            concurrency=concurrency,
+            configured_timeout_seconds=(
+                _phase2_config.phase2_alias_relation_total_timeout_seconds()
+            ),
+        )
+        return {
+            "total_aliases": 0,
+            "total_relations": 0,
+            "alias_relation_scenes": 0,
+            "alias_relation_failed_scenes": [],
+            "degraded": False,
+            "error_kind": None,
+            "error_message": None,
+            "alias_relation_elapsed_s": 0.0,
+            "alias_relation_total_timeout_s": total_timeout_seconds,
+            "alias_relation_concurrency": concurrency,
+            "alias_relation_skipped": True,
+            "alias_relation_skip_reason": reason,
+        }
+
+    async def _run_optional_alias_relation_phase(
         self,
         db: AsyncSession,
         nid,
@@ -911,12 +1605,73 @@ class SceneEntityExtractionService:
         *,
         workflow_id: str | None = None,
     ) -> dict[str, Any]:
-        return await AliasRelationExtractor(self).run(
-            db,
-            nid,
-            scenes,
-            workflow_id=workflow_id,
+        if _phase2_config.phase2_alias_relation_supplement_enabled():
+            return await self._run_alias_relation_phase(
+                db,
+                nid,
+                scenes,
+                workflow_id=workflow_id,
+            )
+        return self._skipped_alias_relation_result(
+            len(scenes),
+            reason="phase2_alias_relation_supplement_disabled",
         )
+
+    async def _run_alias_relation_phase(
+        self,
+        db: AsyncSession,
+        nid,
+        scenes: list[dict[str, Any]],
+        *,
+        workflow_id: str | None = None,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        existing_checkpoints: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        started_at = time.monotonic()
+        concurrency = _phase2_config.phase2_alias_relation_concurrency()
+        total_timeout_seconds = _effective_alias_relation_total_timeout_seconds(
+            scene_count=len(scenes),
+            concurrency=concurrency,
+            configured_timeout_seconds=(
+                _phase2_config.phase2_alias_relation_total_timeout_seconds()
+            ),
+        )
+        watchdog_seconds = (
+            total_timeout_seconds + PHASE2_SCENE_TIMEOUT_GRACE_SECONDS
+        )
+        try:
+            return await asyncio.wait_for(
+                AliasRelationExtractor(self).run(
+                    db,
+                    nid,
+                    scenes,
+                    workflow_id=workflow_id,
+                    on_scene_progress=on_scene_progress,
+                    existing_checkpoints=existing_checkpoints,
+                ),
+                timeout=watchdog_seconds,
+            )
+        except TimeoutError:
+            error_message = (
+                "Phase 2b alias/relation extraction exceeded watchdog budget "
+                f"({watchdog_seconds}s)"
+            )
+            logger.warning(error_message)
+            return {
+                "total_aliases": 0,
+                "total_relations": 0,
+                "alias_relation_scenes": 0,
+                "alias_relation_failed_scenes": [
+                    _alias_relation_failure_scene_index(scene, position + 1)
+                    for position, scene in enumerate(scenes)
+                ],
+                "degraded": True,
+                "error_kind": "timeout",
+                "error_message": error_message,
+                "alias_relation_elapsed_s": round(time.monotonic() - started_at, 2),
+                "alias_relation_total_timeout_s": total_timeout_seconds,
+                "alias_relation_concurrency": concurrency,
+            }
 
     async def _build_alias_relation_entity_index(
         self,
@@ -979,6 +1734,7 @@ class SceneEntityExtractionService:
         scene_provenance_key: str | None = None,
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
+        persistence_stats: dict[str, Any] | None = None,
     ) -> int:
         return await SceneEntityPersistenceGateway(self).persist_entities(
             db,
@@ -992,6 +1748,7 @@ class SceneEntityExtractionService:
             scene_provenance_key=scene_provenance_key,
             context_snapshot_id=context_snapshot_id,
             result_refs=result_refs,
+            persistence_stats=persistence_stats,
         )
 
     @staticmethod

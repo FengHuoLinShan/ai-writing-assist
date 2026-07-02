@@ -7,6 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
+from infrastructure.tasks.enqueuer import enqueue_task
 from modules.project.schemas import (
     LLMProviderTemplateListResponse,
     ProjectCreate,
@@ -15,12 +16,18 @@ from modules.project.schemas import (
     ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
+    SmartDedupApplyRequest,
+    SmartDedupApplyResponse,
+    SmartDedupScanRequest,
+    SmartDedupScanResponse,
 )
 from modules.project.services import ProjectService
+from modules.project.smart_dedup import SmartDedupService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 _service = ProjectService()
+_smart_dedup_service = SmartDedupService()
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -80,6 +87,47 @@ async def api_update_project_llm_settings(
 ) -> ProjectLLMSettingsResponse:
     """更新项目级 LLM 配置；api_key 为写入字段，响应中不会回显"""
     return await _service.update_llm_settings(db, project_id, data)
+
+
+@router.post(
+    "/{project_id}/smart-dedup/scan",
+    response_model=SmartDedupScanResponse,
+    status_code=201,
+)
+async def api_start_smart_dedup_scan(
+    db: DbSession,
+    project_id: str,
+    data: SmartDedupScanRequest,
+) -> SmartDedupScanResponse:
+    """提交项目级智能去重扫描任务。"""
+    await _service.get_project(db, project_id)
+    task_id = enqueue_task(
+        db,
+        "smart_dedup_scan",
+        meta={"novel_id": project_id, **data.model_dump(exclude_none=True)},
+    )
+    await db.flush()
+    return SmartDedupScanResponse(task_id=task_id)
+
+
+@router.post(
+    "/{project_id}/smart-dedup/apply",
+    response_model=SmartDedupApplyResponse,
+)
+async def api_apply_smart_dedup(
+    db: DbSession,
+    project_id: str,
+    data: SmartDedupApplyRequest,
+) -> SmartDedupApplyResponse:
+    """应用用户确认的项目级智能去重建议。"""
+    await _service.get_project(db, project_id)
+    result = await _smart_dedup_service.apply(
+        db,
+        novel_id=project_id,
+        confirmed=data.confirmed,
+        suggestions=[item.model_dump(exclude_none=True) for item in data.suggestions],
+    )
+    return SmartDedupApplyResponse(**result)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

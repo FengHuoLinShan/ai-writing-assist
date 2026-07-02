@@ -11,6 +11,9 @@
 ```python
 llm = LLMClient(provider_name="openai")
 
+# 使用项目级 LLM Profile（project.settings.llm）
+llm = LLMClient.from_project_settings(project_context.settings)
+
 # 普通调用
 resp = await llm.generate(request)
 
@@ -37,6 +40,19 @@ stats = await llm.get_usage_stats()
 ```
 
 ### 配置与健康检查
+
+业务调用的项目级 LLM 配置由 `infrastructure.llm.profiles.resolve_llm_profile()`
+解析，优先级固定为：
+
+```text
+project settings.llm > test override env > legacy env fallback > code default
+```
+
+resolver 返回 effective api_key / base_url / model / timeout / max_tokens /
+temperature / top_p / extra，并保留字段来源。日志、JSONL、health check 和前端响应
+只能使用脱敏 summary：`provider_id`、`label`、`model`、`base_url_host`、
+`timeout`、`max_tokens`、`api_key_configured`、`sources`、`extra_keys`。API Key
+不得进入日志、错误信息、任务结果或前端响应。
 
 - `LLM_TRUST_ENV`：是否允许 httpx/OpenAI SDK 读取系统代理环境，默认 `false`
 - `LLM_PROXY_URL`：显式代理地址，默认空

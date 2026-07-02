@@ -13,6 +13,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
 - 提供项目级 LLM Profile（供应商、Base URL、模型、写入式 API Key）
+- 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 
 ## 边界
 
@@ -79,8 +80,22 @@ async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 | GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
 | GET | `/api/projects/{project_id}/llm-settings` | 项目级 LLM 配置（不回显 API Key） |
 | PUT | `/api/projects/{project_id}/llm-settings` | 更新项目级 LLM 配置 |
+| POST | `/api/projects/{project_id}/smart-dedup/scan` | 提交项目级智能去重扫描任务 |
+| POST | `/api/projects/{project_id}/smart-dedup/apply` | 应用用户确认的智能去重建议 |
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
 | DELETE | `/api/projects/{project_id}/permanent` | 永久删除（级联清理） |
+
+## 智能去重
+
+`smart_dedup_scan` 是项目级聚合任务，只负责调用各模块 facade 并把建议写入
+`AsyncTask.result`。实际资产判断和写入规则仍属于资产拥有模块：
+
+- `world_entity` 走 world 的实体融合建议和确认合并 / 别名登记逻辑。
+- `plot_thread`、`outline_arc`、`scene`、`foreshadowing_plan`、`reveal_plan`
+  走 outline 的结构资产去重逻辑。
+
+LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。正史对象到正史对象的
+世界对象合并仍需逐条 `allow_canonical_merge=true`。
 
 ### LLM 配置安全规则
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -45,6 +47,30 @@ def test_phase0_builds_tail_batches_for_small_ranges() -> None:
         ("A", [15, 16]),
         ("B", [12, 13, 14, 15, 16]),
     ]
+
+
+def test_phase0_prefetch_reads_concurrency_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PHASE0_PREFETCH_CONCURRENCY", "3")
+
+    async def llm(_batch):
+        return {"scenes": []}
+
+    prefetcher = Phase0ScenePrefetcher(llm=llm)
+
+    assert prefetcher.concurrency == 3
+
+
+def test_phase0_prefetch_reads_batch_timeout_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE0_PREFETCH_BATCH_TIMEOUT_SECONDS", "7.5")
+
+    async def llm(_batch):
+        return {"scenes": []}
+
+    prefetcher = Phase0ScenePrefetcher(llm=llm)
+
+    assert prefetcher.batch_timeout_seconds == 7.5
 
 
 @pytest.mark.asyncio
@@ -119,6 +145,27 @@ async def test_phase0_prefetch_exceptions_record_diagnostics_without_raising() -
     assert result.candidates[0].quality == "failed"
     assert result.candidates[0].diagnostics["final_status"] == "failed"
     assert result.candidates[0].diagnostics["attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_phase0_prefetch_batch_timeout_records_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE0_PREFETCH_BATCH_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_batch):
+        await asyncio.sleep(1)
+        return {"scenes": []}
+
+    result = await Phase0ScenePrefetcher(llm=llm, concurrency=1).run(
+        start_chapter=1,
+        end_chapter=1,
+    )
+
+    assert result.quality_stats["total_batches"] == 1
+    assert result.quality_stats["failed"] == 1
+    assert result.quality_stats["timeout"] == 1
+    assert result.candidates[0].diagnostics["final_error_type"] == "timeout"
 
 
 @pytest.mark.asyncio

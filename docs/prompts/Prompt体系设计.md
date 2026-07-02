@@ -20,7 +20,7 @@
 | `structure_plot.md` | 剧情结构生成 | outline 结构生成 |
 | `structure_chapter_scene.md` | 章节与场景结构生成 | 手动生成流 |
 | `structure_extraction.md` | 从章节正文补抽世界对象 | world 抽取任务 |
-| `scene_segmentation.md` | 深度导入 Phase 1，Scene 切分 | imports |
+| `scene_segmentation.md` | 正式 Scene 字段切分 / 小样本与单章恢复路径 | imports |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 抽取 | imports |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于工作对象索引提取别名/关系 | imports |
 | `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
@@ -66,6 +66,10 @@
 - `extract_chapter_scene.md`
 
 这类 Prompt 服务于 Scene 和章节结构整理，不负责正史对象落库策略。
+深度导入 60 章主链的 Phase 0 / Phase 1a / Phase 1b prompt 不再由
+`scene_segmentation.md` 单独代表，而是在 imports 的 `workflow_llm_adapters.py`
+中按阶段组装，并通过 adapter、token budget 和 schema guard 输出中间候选或融合候选。
+`scene_segmentation.md` 仍用于正式 Scene 字段切分、小样本检测和单章恢复等受控路径。
 
 ## 5. `shared_rules.md` 的权威地位
 

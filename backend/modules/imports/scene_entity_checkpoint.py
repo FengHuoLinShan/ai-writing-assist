@@ -47,6 +47,17 @@ def merge_alias_relation_result(
         "alias_relation_failed_scenes",
         [],
     )
+    merged["alias_relation_elapsed_s"] = alias_result.get("alias_relation_elapsed_s")
+    merged["alias_relation_total_timeout_s"] = alias_result.get(
+        "alias_relation_total_timeout_s"
+    )
+    merged["alias_relation_concurrency"] = alias_result.get(
+        "alias_relation_concurrency"
+    )
+    merged["alias_relation_skipped"] = bool(alias_result.get("alias_relation_skipped"))
+    merged["alias_relation_skip_reason"] = alias_result.get(
+        "alias_relation_skip_reason"
+    )
     if alias_result.get("degraded"):
         merged["degraded"] = True
         merged["error_kind"] = merged.get("error_kind") or alias_result.get(

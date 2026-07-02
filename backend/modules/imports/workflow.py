@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -23,6 +24,7 @@ from modules.imports.workflow_entity_phase import (
     phase2_quality_stats,
 )
 from modules.imports.workflow_llm_adapters import (
+    DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
     DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
     PHASE1B_COMPACT_TEXT_LIMIT,
     PHASE1B_SMALL_SAMPLE_MAX_TOKENS,
@@ -30,6 +32,7 @@ from modules.imports.workflow_llm_adapters import (
     _Phase0SceneCandidateLLM,
     _Phase1aSceneCandidateLLM,
     _Phase1bSceneFusionLLM,
+    _project_settings_for_novel,
     _SingleChapterSceneCandidateLLM,
 )
 from modules.imports.workflow_llm_adapters import (
@@ -59,6 +62,7 @@ from modules.imports.workflow_structure_phase import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
     "DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
     "DeepImportWorkflow",
     "PHASE0_422_RECOMMENDATION",
@@ -68,6 +72,13 @@ __all__ = [
     "PHASE3_STRUCTURE_TIMEOUT_SECONDS",
     "SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
 ]
+
+
+def _phase1b_use_llm(*, start_chapter: int, end_chapter: int) -> bool:
+    configured = os.getenv("PHASE1B_USE_LLM")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    return end_chapter - start_chapter + 1 <= 7
 
 
 class DeepImportWorkflow:
@@ -88,8 +99,12 @@ class DeepImportWorkflow:
         stop_after: DeepImportStep | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
+            self._agent_project_settings = await _project_settings_for_novel(
+                db,
+                novel_id,
+            )
             if self._is_llm_health_required():
-                health = await self._check_llm_health()
+                health = await self._check_llm_health(db, novel_id)
                 progress.llm_health = health.model_dump()
                 if not health.ok:
                     progress.phase = "failed"
@@ -177,10 +192,19 @@ class DeepImportWorkflow:
         return get_settings().llm_health_required
 
     @staticmethod
-    async def _check_llm_health():
-        from infrastructure.llm.health import check_llm_health
+    async def _check_llm_health(
+        db: AsyncSession | None = None,
+        novel_id: str | None = None,
+    ):
+        from infrastructure.llm.health import (
+            check_llm_health,
+            check_llm_health_for_project,
+        )
 
-        return await check_llm_health()
+        if db is None or not novel_id:
+            return await check_llm_health()
+        project_settings = await _project_settings_for_novel(db, novel_id)
+        return await check_llm_health_for_project(project_settings)
 
     @staticmethod
     def _phase3_timeout_seconds() -> int | float:
@@ -201,11 +225,13 @@ class DeepImportWorkflow:
                 end_chapter,
             )
 
+        project_settings = await _project_settings_for_novel(db, novel_id)
         prefetcher = Phase0ScenePrefetcher(
             llm=_Phase0SceneCandidateLLM(
                 db,
                 novel_id,
                 timeout_seconds=None,
+                project_settings=project_settings,
             ),
         )
         return await prefetcher.run(
@@ -299,8 +325,9 @@ class DeepImportWorkflow:
             start_chapter,
             end_chapter,
         )
+        project_settings = await _project_settings_for_novel(db, novel_id)
         return await Phase1aSceneReinforcer(
-            llm=_Phase1aSceneCandidateLLM(),
+            llm=_Phase1aSceneCandidateLLM(project_settings=project_settings),
         ).run(
             phase0_candidates=phase0_candidates,
             chapters=chapters,
@@ -338,6 +365,8 @@ class DeepImportWorkflow:
                 if int(chapter["chapter_index"]) in wanted_chapters
             ]
         semaphore = asyncio.Semaphore(50)
+        project_settings = await _project_settings_for_novel(db, novel_id)
+        llm = _SingleChapterSceneCandidateLLM(project_settings=project_settings)
 
         async def process(chapter: dict[str, Any]) -> SceneCandidate:
             chapter_index = int(chapter["chapter_index"])
@@ -349,7 +378,7 @@ class DeepImportWorkflow:
             )
             async with semaphore:
                 retry_result = await run_deep_import_llm_with_retry(
-                    lambda: _SingleChapterSceneCandidateLLM()(chapter),
+                    lambda: llm(chapter),
                     is_empty_result=lambda output: not output.scenes,
                     max_retries=1,
                 )
@@ -486,7 +515,10 @@ class DeepImportWorkflow:
         }
         quality_stats = {
             **primary.quality_stats,
-            "fallback_chapter_count": len(fallback.candidates),
+            "fallback_chapter_count": int(
+                primary.quality_stats.get("fallback_chapter_count", 0)
+            )
+            + len(fallback.candidates),
         }
         for key in count_keys:
             quality_stats[key] = int(primary.quality_stats.get(key, 0)) + int(
@@ -507,8 +539,8 @@ class DeepImportWorkflow:
             did_merge_rounds=primary.did_merge_rounds or fallback.did_merge_rounds,
         )
 
-    @staticmethod
     async def _run_phase1b_fusion(
+        self,
         phase1a_candidates,
         *,
         start_chapter: int,
@@ -516,7 +548,14 @@ class DeepImportWorkflow:
     ):
         from modules.imports.scene_fusion import Phase1bSceneFusion
 
-        return await Phase1bSceneFusion(llm=_Phase1bSceneFusionLLM()).run(
+        project_settings = getattr(self, "_agent_project_settings", None)
+        return await Phase1bSceneFusion(
+            llm=_Phase1bSceneFusionLLM(project_settings=project_settings),
+            use_llm=_phase1b_use_llm(
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            ),
+        ).run(
             phase1a_candidates=phase1a_candidates,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
@@ -857,7 +896,11 @@ class DeepImportWorkflow:
     async def _count_world_objects(db: AsyncSession, novel_id: str) -> int:
         from modules.world.facade import count_entities
 
-        return await count_entities(db, novel_id, status_filter=["draft", "canonical"])
+        return await count_entities(
+            db,
+            novel_id,
+            status_filter=["candidate", "draft", "canonical"],
+        )
 
     # ------------------------------------------------------------------
     # Phase 1: Scene 切分

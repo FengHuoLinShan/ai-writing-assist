@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -80,6 +82,32 @@ def success_output(payloads: list[dict]) -> dict:
     }
 
 
+def test_phase1a_reinforcer_reads_concurrency_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_CONCURRENCY", "4")
+
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    reinforcer = Phase1aSceneReinforcer(llm=llm)
+
+    assert reinforcer.concurrency == 4
+
+
+def test_phase1a_reinforcer_reads_batch_timeout_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS", "8.5")
+
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    reinforcer = Phase1aSceneReinforcer(llm=llm)
+
+    assert reinforcer.batch_timeout_seconds == 8.5
+
+
 @pytest.mark.asyncio
 async def test_phase1a_reinforces_rounds_separately() -> None:
     payloads: list[dict] = []
@@ -111,6 +139,86 @@ async def test_phase1a_reinforces_rounds_separately() -> None:
     assert [payload["round"] for payload in payloads] == ["A", "B"]
     assert all(
         candidate.payload["boundary_status"] == "complete"
+        for candidate in result.candidates
+    )
+
+
+@pytest.mark.asyncio
+async def test_phase1a_batch_timeout_falls_back_to_phase0_anchor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_payload: dict) -> dict:
+        await asyncio.sleep(1)
+        return {"scenes": []}
+
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
+        phase0_candidates=[
+            make_candidate(
+                source_round="A",
+                source_batch_id="A-0001-1-2",
+                source_batch_index=1,
+                source_chapter_indices=[1, 2],
+            ),
+        ],
+        chapters=make_chapters(1, 2),
+    )
+
+    assert result.quality_stats["total_batches"] == 1
+    assert result.quality_stats["failed"] == 0
+    assert result.quality_stats["success"] == 1
+    assert result.quality_stats["low_quality"] == 1
+    assert result.quality_stats["timeout"] == 0
+    assert result.quality_stats["degraded_fallback"] == 1
+    assert result.candidates[0].diagnostics["degraded"] is True
+    assert result.candidates[0].diagnostics["original_error_type"] == "timeout"
+    assert result.candidates[0].payload["degraded"] is True
+    assert result.candidates[0].payload["fallback_reason"] == "timeout"
+    assert result.candidates[0].payload["scenes"]
+
+
+@pytest.mark.asyncio
+async def test_phase1a_total_timeout_marks_pending_batches_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_TOTAL_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_payload: dict) -> dict:
+        await asyncio.sleep(1)
+        return {"scenes": []}
+
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
+        phase0_candidates=[
+            make_candidate(
+                source_round="A",
+                source_batch_id="A-0001-1-2",
+                source_batch_index=1,
+                source_chapter_indices=[1, 2],
+            ),
+            make_candidate(
+                source_round="A",
+                source_batch_id="A-0002-3-4",
+                source_batch_index=2,
+                source_chapter_indices=[3, 4],
+            ),
+        ],
+        chapters=make_chapters(1, 4),
+    )
+
+    assert result.quality_stats["total_batches"] == 2
+    assert result.quality_stats["failed"] == 2
+    assert result.quality_stats["timeout"] == 2
+    assert all(
+        candidate.diagnostics["final_error_type"] == "timeout"
         for candidate in result.candidates
     )
 
@@ -171,11 +279,132 @@ async def test_phase0_references_are_classified_for_llm_payload() -> None:
     )
 
     references = payloads[0]["phase0_references"]
-    assert references["strong"][0]["payload"]["scenes"][0]["title"] == "strong ref"
-    assert references["weak"][0]["payload"]["scenes"][0]["title"] == "weak ref"
+    assert references["strong"][0]["scenes"][0]["title"] == "strong ref"
+    assert references["weak"][0]["scenes"][0]["title"] == "weak ref"
+    assert references["strong"][0]["quality"] == "high"
+    assert "payload" not in references["strong"][0]
     assert references["failed_diagnostics"][0]["diagnostics"]["final_error_type"] == (
         "timeout"
     )
+
+
+@pytest.mark.asyncio
+async def test_phase1a_payload_keeps_full_chapter_text_once() -> None:
+    payloads: list[dict] = []
+
+    async def llm(payload: dict) -> dict:
+        payloads.append(payload)
+        return success_output(payloads)
+
+    await Phase1aSceneReinforcer(llm=llm).run(
+        phase0_candidates=[make_candidate()],
+        chapters=make_chapters(1, 2),
+    )
+
+    payload = payloads[0]
+    assert "chapter 1 text" in payload["chapter_text"]
+    assert payload["chapters"] == [
+        {
+            "chapter_index": 1,
+            "title": "第1章",
+            "content_chars": 14,
+            "content_truncated": False,
+        },
+        {
+            "chapter_index": 2,
+            "title": "第2章",
+            "content_chars": 14,
+            "content_truncated": False,
+        },
+    ]
+    assert all("content" not in chapter for chapter in payload["chapters"])
+    assert payload["chapter_text_budget"]["strategy"] == "bounded_head_middle_tail"
+
+
+@pytest.mark.asyncio
+async def test_phase0_references_are_compact_without_raw_payload() -> None:
+    payloads: list[dict] = []
+    candidate = make_candidate(title="strong ref")
+    candidate.payload["scenes"][0].update(
+        {
+            "goal": "x" * 300,
+            "core_conflict": "should be stripped",
+            "character_list": ["A", "B"],
+            "scene_chunks": [
+                {
+                    "chapter_index": 1,
+                    "start_paragraph": 2,
+                    "end_paragraph": 4,
+                    "quote": "should be stripped",
+                }
+            ],
+        }
+    )
+    candidate.payload["raw_model_output"] = "正文" * 1000
+
+    async def llm(payload: dict) -> dict:
+        payloads.append(payload)
+        return success_output(payloads)
+
+    await Phase1aSceneReinforcer(llm=llm).run(
+        phase0_candidates=[candidate],
+        chapters=make_chapters(1, 2),
+    )
+
+    reference = payloads[0]["phase0_references"]["strong"][0]
+    scene = reference["scenes"][0]
+    assert "payload" not in reference
+    assert "raw_model_output" not in reference
+    assert scene == {
+        "title": "strong ref",
+        "goal": "x" * 140,
+        "scene_chunks": [
+            {"chapter_index": 1, "start_paragraph": 2, "end_paragraph": 4}
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_phase1a_output_is_normalized_before_intermediate_candidate() -> None:
+    async def llm(_payload: dict) -> dict:
+        return {
+            "scenes": [
+                {
+                    "title": "题" * 80,
+                    "goal": "目标" * 120,
+                    "boundary_reason": "边界" * 120,
+                    "core_conflict": "should be stripped",
+                    "characters": ["should be stripped"],
+                    "scene_chunks": [
+                        {
+                            "chapter_index": 1,
+                            "start_paragraph": 1,
+                            "end_paragraph": 3,
+                            "quote": "should be stripped",
+                        }
+                    ],
+                }
+            ],
+            "boundary_status": "complete",
+            "confidence": 0.9,
+        }
+
+    result = await Phase1aSceneReinforcer(llm=llm).run(
+        phase0_candidates=[make_candidate()],
+        chapters=make_chapters(1, 2),
+    )
+
+    scene = result.candidates[0].payload["scenes"][0]
+    assert set(scene) == {"title", "goal", "scene_chunks", "boundary_reason"}
+    assert len(scene["title"]) == 40
+    assert len(scene["goal"]) == 140
+    assert len(scene["boundary_reason"]) == 160
+    assert scene["scene_chunks"] == [
+        {"chapter_index": 1, "start_paragraph": 1, "end_paragraph": 3}
+    ]
+    assert result.candidates[0].payload["source_round"] == "A"
+    assert result.candidates[0].payload["source_batch_id"] == "A-0001-1-2"
+    assert result.candidates[0].payload["source_chapter_indices"] == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -198,7 +427,11 @@ async def test_phase1a_blocks_on_final_422_rate_over_threshold() -> None:
             "confidence": 0.9,
         }
 
-    result = await Phase1aSceneReinforcer(llm=llm, concurrency=1).run(
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
         phase0_candidates=[
             make_candidate(
                 source_batch_id=f"A-{index:04d}-{index}-{index}",
@@ -233,7 +466,11 @@ async def test_schema_empty_and_timeout_diagnostics_do_not_block() -> None:
             raise response
         return response
 
-    result = await Phase1aSceneReinforcer(llm=llm, concurrency=1).run(
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
         phase0_candidates=[
             make_candidate(
                 source_batch_id=f"A-{index:04d}-{index}-{index}",
@@ -247,9 +484,16 @@ async def test_schema_empty_and_timeout_diagnostics_do_not_block() -> None:
 
     assert result.blocked is False
     assert result.block_reason is None
-    assert result.quality_stats["schema_error"] == 1
-    assert result.quality_stats["empty_result"] == 1
-    assert result.quality_stats["timeout"] == 1
+    assert result.quality_stats["schema_error"] == 0
+    assert result.quality_stats["empty_result"] == 0
+    assert result.quality_stats["timeout"] == 0
+    assert result.quality_stats["failed"] == 0
+    assert result.quality_stats["low_quality"] == 3
+    assert result.quality_stats["degraded_fallback"] == 3
+    assert {
+        candidate.diagnostics["original_error_type"]
+        for candidate in result.candidates
+    } == {"schema_error", "empty_result", "timeout"}
     assert result.quality_stats["final_422_rate"] == 0.0
 
 

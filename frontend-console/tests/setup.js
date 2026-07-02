@@ -96,6 +96,8 @@ globalThis.api = {
     listLlmProviderTemplates: vi.fn(),
     getLlmSettings: vi.fn(),
     updateLlmSettings: vi.fn(),
+    startSmartDedupScan: vi.fn(),
+    applySmartDedup: vi.fn(),
   },
   rag: {
     search: vi.fn(),

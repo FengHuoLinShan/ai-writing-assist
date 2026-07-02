@@ -8,7 +8,10 @@ const RUNNING_STATUSES = new Set(["pending", "running"])
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "场景（scene）自动提取",
+  scene_cross_chapter_detection: "跨章 Scene 识别",
+  smart_dedup_scan: "智能去重扫描",
   world_object_auto_extraction: "世界对象与别名/关系自动提取",
+  world_entity_fusion_suggestions: "世界对象 AI 合并建议",
   plot_structure_auto_extraction: "剧情线自动提取",
   publish_chapter: "发布正文",
   rag_reindex_novel: "重建 RAG 索引",
@@ -34,6 +37,10 @@ function nowIso() {
 
 function safeObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : []
 }
 
 function readStorage(storage = globalThis.localStorage) {
@@ -90,7 +97,10 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     return "深度导入已提交，等待处理"
   }
   if (workflowType === "scene_auto_extraction") return "正在自动提取场景"
+  if (workflowType === "scene_cross_chapter_detection") return "正在识别跨章 Scene"
+  if (workflowType === "smart_dedup_scan") return "正在扫描重复资产"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
+  if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
   if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
   if (workflowType === "publish_chapter") {
     if (percent != null && percent < 50) return "正在存入 RAG 系统"
@@ -110,6 +120,21 @@ function collectWarnings(result, meta) {
   const warnings = []
   for (const source of [result.warnings, meta.warnings]) {
     if (Array.isArray(source)) warnings.push(...source.filter(Boolean))
+  }
+  const artifacts = safeObject(result.phase_artifacts)
+  for (const [phase, artifact] of Object.entries(artifacts)) {
+    const coverage = safeObject(artifact?.coverage)
+    const repair = safeObject(artifact?.repair)
+    const missing = Array.isArray(coverage.missing_chapters) ? coverage.missing_chapters : []
+    if (missing.length > 0) warnings.push(`${phase} 缺少章节：${missing.slice(0, 8).join(", ")}`)
+    if ((repair.attempts || 0) > 0) warnings.push(`${phase} 已尝试修复 ${repair.attempts} 次`)
+    if (artifact?.status === "degraded") warnings.push(`${phase} 降级完成`)
+  }
+  for (const check of safeArray(result.acceptance_checks)) {
+    if (!check || check.ok !== false) continue
+    const phase = check.phase ? `${check.phase} ` : ""
+    const message = check.message || check.name || "门禁未通过"
+    warnings.push(`${phase}${message}`)
   }
   return warnings
 }
@@ -135,6 +160,21 @@ function buildResultSummary(result, workflowType) {
     if (result.total_created != null) parts.push(`新增 ${result.total_created}`)
     if (result.total_skipped != null) parts.push(`跳过 ${result.total_skipped}`)
     return parts.length ? parts.join("，") : null
+  }
+  if (workflowType === "scene_cross_chapter_detection") {
+    if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
+    return result.summary || null
+  }
+  if (workflowType === "smart_dedup_scan") {
+    const parts = []
+    if (result.total_assets_scanned != null) parts.push(`扫描 ${result.total_assets_scanned}`)
+    if (result.suggestion_count != null) parts.push(`建议 ${result.suggestion_count}`)
+    if (result.estimated_duplicate_count != null) parts.push(`疑似重复 ${result.estimated_duplicate_count}`)
+    return parts.length ? parts.join("，") : result.summary || null
+  }
+  if (workflowType === "world_entity_fusion_suggestions") {
+    if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
+    return result.summary || null
   }
   if (workflowType === "deep_import") {
     if (result.summary) return result.summary
@@ -189,6 +229,12 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     errorMessage: raw.error_message || result.error_message || result.error || null,
     warnings: collectWarnings(result, meta),
     resultSummary: buildResultSummary(result, type),
+    phaseArtifacts: safeObject(result.phase_artifacts),
+    progressEvents: safeArray(result.progress_events),
+    acceptanceChecks: safeArray(result.acceptance_checks),
+    phaseTimeline: safeArray(result.phase_timeline),
+    diagnosticCounts: safeObject(result.diagnostic_counts),
+    phaseErrors: safeArray(result.phase_errors),
     createdAt: raw.created_at || meta.createdAt || null,
     startedAt: raw.started_at || null,
     updatedAt: raw.updated_at || raw.heartbeat_at || null,

@@ -108,6 +108,16 @@ class ProjectService:
             "base_url": data.base_url,
             "model": data.model,
         }
+        if data.timeout is not None:
+            next_profile["timeout"] = data.timeout
+        if data.max_tokens is not None:
+            next_profile["max_tokens"] = data.max_tokens
+        if data.temperature is not None:
+            next_profile["temperature"] = data.temperature
+        if data.top_p is not None:
+            next_profile["top_p"] = data.top_p
+        if data.extra:
+            next_profile["extra"] = data.extra
 
         if data.clear_api_key:
             pass

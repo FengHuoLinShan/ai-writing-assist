@@ -4,6 +4,7 @@ import {
   normalizeTaskProgress,
   persistActiveWorkflow,
   pollTaskProgress,
+  recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
@@ -70,6 +71,9 @@ const sceneWorkbenchView = {
   _autoExtractProgress: null,
   _autoExtractPoller: null,
   _autoExtractMeta: null,
+  _crossChapterTaskId: null,
+  _crossChapterProgress: null,
+  _crossChapterPoller: null,
 
   async onEnter() {
     this._loading = true
@@ -80,6 +84,7 @@ const sceneWorkbenchView = {
       return
     }
     try {
+      this._recoverCrossChapterWorkflow()
       await this._loadWorkbench()
     } catch (err) {
       toast(err.message || "场景工作台加载失败", "error")
@@ -95,6 +100,7 @@ const sceneWorkbenchView = {
 
   onLeave() {
     this._stopAutoExtractPolling()
+    this._stopCrossChapterPolling()
   },
 
   async render() {
@@ -111,9 +117,11 @@ const sceneWorkbenchView = {
     const detail = this._renderDetail(selected, narrow)
     const html = `
       <div style="margin-bottom:8px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn" data-action="detect-cross-chapter-scenes">识别跨章 Scene</button>
         <button class="btn btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
       </div>
       ${this._renderAutoExtractProgress()}
+      ${this._renderCrossChapterProgress()}
       <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
         <section class="scene-workbench__organize">
           ${this._renderManagementFilters()}
@@ -678,9 +686,30 @@ const sceneWorkbenchView = {
     })}</div>`
   },
 
+  _renderCrossChapterProgress() {
+    if (!this._crossChapterProgress) return ""
+    const result = this._crossChapterProgress.raw?.result || {}
+    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    const suggestionHtml = this._crossChapterProgress.done && suggestions.length ? `
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+        <span style="color:var(--text-dim);font-size:12px;">${esc(suggestions.length)} 条建议可查看</span>
+        <button class="btn btn-sm btn-primary" data-action="show-cross-chapter-suggestions">查看建议</button>
+      </div>
+    ` : ""
+    return `<div style="margin-bottom:8px;">${renderWorkflowCard(this._crossChapterProgress, {
+      title: "跨章 Scene 识别",
+      destinationLabel: "完成后可选择建议并保存融合 Scene",
+    })}${suggestionHtml}</div>`
+  },
+
   _stopAutoExtractPolling() {
     if (this._autoExtractPoller?.stop) this._autoExtractPoller.stop()
     this._autoExtractPoller = null
+  },
+
+  _stopCrossChapterPolling() {
+    if (this._crossChapterPoller?.stop) this._crossChapterPoller.stop()
+    this._crossChapterPoller = null
   },
 
   _startAutoExtractPolling(taskId) {
@@ -755,9 +784,132 @@ const sceneWorkbenchView = {
     }])
   },
 
+  async _startCrossChapterDetection() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      const result = await api.outline.detectCrossChapterScenes({
+        novel_id: state.currentProjectId,
+      })
+      this._crossChapterTaskId = result.task_id
+      this._crossChapterProgress = normalizeTaskProgress({
+        ...result,
+        task_type: "scene_cross_chapter_detection",
+      }, "scene_cross_chapter_detection")
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "scene_cross_chapter_detection",
+        label: "跨章 Scene 识别",
+        projectId: state.currentProjectId,
+        view: "scene",
+      })
+      toast("跨章 Scene 识别任务已提交", "success")
+      this._startCrossChapterPolling(result.task_id)
+      router.renderCurrentView()
+    } catch (err) {
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  _startCrossChapterPolling(taskId) {
+    this._stopCrossChapterPolling()
+    this._crossChapterPoller = pollTaskProgress({
+      taskId,
+      workflowType: "scene_cross_chapter_detection",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._crossChapterProgress = progress
+        router.renderCurrentView()
+      },
+      onDone: (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._crossChapterTaskId = null
+        this._crossChapterProgress = progress
+        toast("跨章 Scene 识别完成", "success")
+        router.renderCurrentView()
+      },
+      onFailed: (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._crossChapterTaskId = null
+        this._crossChapterProgress = progress
+        toast(`跨章 Scene 识别失败: ${progress.errorMessage || "未知错误"}`, "error")
+        router.renderCurrentView()
+      },
+    })
+  },
+
+  _recoverCrossChapterWorkflow() {
+    const workflow = recoverActiveWorkflows(state.currentProjectId)
+      .find((item) => item.workflowType === "scene_cross_chapter_detection")
+    if (!workflow?.taskId) return
+    this._crossChapterTaskId = workflow.taskId
+    this._crossChapterProgress = normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: "scene_cross_chapter_detection",
+      status: "running",
+      meta: workflow.meta || {},
+    }, "scene_cross_chapter_detection")
+    this._startCrossChapterPolling(workflow.taskId)
+  },
+
+  _showCrossChapterSuggestions() {
+    const result = this._crossChapterProgress?.raw?.result || {}
+    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    if (!suggestions.length) {
+      toast("暂无跨章 Scene 建议", "info")
+      return
+    }
+    const rows = suggestions.map((item, index) => {
+      const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
+      const trace = (item.scan_trace || []).map((step) => `${step.action}: ${step.reason || ""}`).join(" / ")
+      return `
+        <label class="scene-fusion-suggestion" style="display:block;margin-bottom:12px;border:1px solid var(--border);padding:8px;border-radius:6px;">
+          <input type="radio" name="cross-chapter-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
+          <strong>${esc(item.proposed_scene?.title || "跨章融合建议")}</strong>
+          <div style="color:var(--text-dim);font-size:12px;">章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.stop_reason || "")}</div>
+          <p style="margin:6px 0 0;">${esc(item.reason || "无说明")}</p>
+          <details style="margin-top:6px;"><summary>扫描轨迹</summary><p>${esc(trace || "无")}</p></details>
+        </label>
+      `
+    }).join("")
+    showModal("跨章 Scene 建议", rows, [{
+      text: "保存选中融合 Scene",
+      class: "btn-primary",
+      handler: async () => {
+        const selected = document.querySelector('input[name="cross-chapter-suggestion"]:checked')?.value
+        const suggestion = suggestions[Number(selected || 0)]
+        if (!suggestion) return
+        const proposed = {
+          ...(suggestion.proposed_scene || {}),
+          structure_meta: {
+            ...(suggestion.proposed_scene?.structure_meta || {}),
+            source_task_id: this._crossChapterProgress?.taskId || this._crossChapterTaskId,
+          },
+        }
+        try {
+          await api.outline.saveSceneFusion(state.currentProjectId, {
+            source_scene_ids: suggestion.source_scene_ids || [],
+            mode: "deprecate_originals",
+            fused_scene: proposed,
+          })
+          closeModal()
+          toast("跨章融合 Scene 已保存", "success")
+          await this._loadWorkbench()
+          router.refresh()
+        } catch (err) {
+          toast(err.message || "保存失败", "error")
+        }
+      },
+    }])
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
+      "detect-cross-chapter-scenes": () => this._startCrossChapterDetection(),
+      "show-cross-chapter-suggestions": () => this._showCrossChapterSuggestions(),
       "filter-health": (_e, _t, ctx) => {
         this._activeHealth = this._activeHealth === ctx.id ? null : ctx.id
         router.renderCurrentView()

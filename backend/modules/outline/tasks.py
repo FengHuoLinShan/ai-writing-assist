@@ -146,6 +146,34 @@ async def handle_chapter_scene_generate(db, task):
     }
 
 
+@task_handler("scene_cross_chapter_detection")
+async def handle_scene_cross_chapter_detection(db, task):
+    """识别已提交 Scene 中可能跨多章的相邻 Scene 融合建议。"""
+    from modules.outline.cross_chapter_detection import (
+        CrossChapterDetectionService,
+    )
+
+    meta = task.meta or {}
+    novel_id = _require_str(meta, "novel_id", "scene_cross_chapter_detection")
+    task.update_progress(0.05)
+
+    def _progress(value: float) -> None:
+        task.update_progress(max(0.05, min(0.95, value)))
+
+    result = await CrossChapterDetectionService().detect(
+        db,
+        novel_id=novel_id,
+        start_chapter=meta.get("start_chapter"),
+        end_chapter=meta.get("end_chapter"),
+        max_chapter_span=int(meta.get("max_chapter_span", 6)),
+        max_suggestions=int(meta.get("max_suggestions", 30)),
+        max_chain_calls=int(meta.get("max_chain_calls", 6)),
+        progress_callback=_progress,
+    )
+    task.update_progress(1.0)
+    return result
+
+
 @task_handler("outline_analyze")
 async def handle_outline_analyze(db, task):
     """处理确认后的剧情分析任务。"""

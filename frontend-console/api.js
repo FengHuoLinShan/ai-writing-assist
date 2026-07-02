@@ -259,6 +259,20 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+    /** 提交项目级智能去重扫描任务 */
+    async startSmartDedupScan(id, payload = {}) {
+      return request(`/projects/${id}/smart-dedup/scan`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 应用已确认的项目级智能去重建议 */
+    async applySmartDedup(id, payload) {
+      return request(`/projects/${id}/smart-dedup/apply`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
   },
 
   // ============================================================
@@ -367,6 +381,22 @@ const api = {
       return request(`/world/entities/${candidateId}/merge${buildQueryString({ novel_id: novelId })}`, {
         method: "POST",
         body: JSON.stringify({ target_entity_id: targetEntityId }),
+      })
+    },
+
+    /** 创建世界对象 AI 融合建议任务 */
+    async createEntityFusionSuggestions(data) {
+      return request("/world/entities/fusion-suggestions", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+    },
+
+    /** 应用已确认的世界对象融合建议 */
+    async applyEntityFusionSuggestions(data) {
+      return request("/world/entities/fusion-suggestions/apply", {
+        method: "POST",
+        body: JSON.stringify(data),
       })
     },
 
@@ -1140,6 +1170,14 @@ const api = {
     /** 保存或放弃手动 Scene 融合结果 */
     async saveSceneFusion(novelId, data) {
       return request(`/outline/scene-workbench/fusion/save${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 创建跨章 Scene 识别任务 */
+    async detectCrossChapterScenes(data) {
+      return request("/outline/scene-workbench/cross-chapter/detect", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(data),

@@ -12,6 +12,7 @@ from core.config import get_settings
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_confirmation
+from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
     CharacterCreate,
     CharacterKnowledgeCreate,
@@ -26,6 +27,10 @@ from modules.world.schemas import (
     CoreEntityResponse,
     CoreEntityUpdate,
     EntityAliasCreate,
+    EntityFusionApplyRequest,
+    EntityFusionApplyResponse,
+    EntityFusionSuggestionRequest,
+    EntityFusionSuggestionResponse,
     EntityMergeRequest,
     EntityMergeResponse,
     EntityPromoteRequest,
@@ -68,6 +73,7 @@ _alias_service = EntityAliasService()
 _context_service = EntityContextService()
 _relation_service = EntityRelationService()
 _dedup_service = EntityDedupService()
+_fusion_service = WorldEntityFusionService()
 _revision_service = EntityRevisionService()
 _event_service = EventService()
 _character_service = CharacterService()
@@ -219,6 +225,41 @@ async def merge_entity(
         data.target_entity_id,
     )
     return EntityMergeResponse(target_entity_id=result.target_entity_id)
+
+
+@router.post(
+    "/entities/fusion-suggestions",
+    response_model=EntityFusionSuggestionResponse,
+    status_code=201,
+)
+async def create_entity_fusion_suggestions(
+    db: DbSession,
+    data: EntityFusionSuggestionRequest,
+) -> EntityFusionSuggestionResponse:
+    task_id = enqueue_task(
+        db,
+        "world_entity_fusion_suggestions",
+        meta=data.model_dump(exclude_none=True),
+    )
+    await db.flush()
+    return EntityFusionSuggestionResponse(task_id=task_id)
+
+
+@router.post(
+    "/entities/fusion-suggestions/apply",
+    response_model=EntityFusionApplyResponse,
+)
+async def apply_entity_fusion_suggestions(
+    db: DbSession,
+    data: EntityFusionApplyRequest,
+) -> EntityFusionApplyResponse:
+    result = await _fusion_service.apply(
+        db,
+        novel_id=data.novel_id,
+        confirmed=data.confirmed,
+        suggestions=data.suggestions,
+    )
+    return EntityFusionApplyResponse(**result)
 
 
 @router.post(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -28,6 +30,7 @@ def make_candidate(
     source_chapter_indices: list[int] | None = None,
     quality: str = "high",
     title: str | None = None,
+    payload: dict | None = None,
 ) -> SceneCandidate:
     chapter_indices = source_chapter_indices or [1]
     scene_title = title or f"{candidate_id} scene"
@@ -38,7 +41,7 @@ def make_candidate(
         source_batch_index=source_batch_index,
         source_chapter_indices=chapter_indices,
         quality=quality,
-        payload={
+        payload=payload or {
             "scenes": [
                 {
                     "title": scene_title,
@@ -103,7 +106,23 @@ def success_output(payloads: list[dict]) -> dict:
     }
 
 
-def test_phase1b_windows_are_30_chapters_with_3_overlap() -> None:
+def test_phase1b_windows_are_10_chapters_with_2_overlap_by_default() -> None:
+    windows = build_phase1b_windows(start_chapter=1, end_chapter=80)
+
+    assert windows[0].core_range == (1, 10)
+    assert windows[0].covered_range == (1, 12)
+    assert windows[1].core_range == (11, 20)
+    assert windows[1].covered_range == (9, 22)
+    assert windows[-1].core_range == (71, 80)
+    assert windows[-1].covered_range == (69, 80)
+
+
+def test_phase1b_windows_can_be_tuned_with_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1B_WINDOW_CHAPTERS", "30")
+    monkeypatch.setenv("PHASE1B_WINDOW_OVERLAP", "3")
+
     windows = build_phase1b_windows(start_chapter=1, end_chapter=80)
 
     assert windows[0].core_range == (1, 30)
@@ -161,6 +180,42 @@ async def test_phase1b_success_outputs_final_candidates_with_required_fields() -
     assert "完整 1-7 章样本至少 9 个" in payloads[0]["scene_count_guidance"]
     assert "chapter_text" not in payloads[0]
     assert "content" not in str(payloads[0]).lower()
+
+
+@pytest.mark.asyncio
+async def test_phase1b_fallback_preserves_explicit_multi_chapter_scene() -> None:
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    result = await Phase1bSceneFusion(llm=llm).run(
+        phase1a_candidates=[
+            make_candidate(
+                candidate_id="a-1",
+                source_round="A",
+                source_chapter_indices=[1, 2],
+                payload={
+                    "scenes": [
+                        {
+                            "title": "跨章追击",
+                            "goal": "追击从第一章延伸到第二章",
+                            "scene_chunks": [
+                                {"chapter_index": 1, "start_paragraph": 4},
+                                {"chapter_index": 2, "start_paragraph": 0},
+                            ],
+                        }
+                    ]
+                },
+            )
+        ],
+        start_chapter=1,
+        end_chapter=2,
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.source_chapter_indices == [1, 2]
+    assert [chunk.chapter_index for chunk in candidate.scene_chunks] == [1, 2]
+    assert result.quality_stats["multi_chapter_scene_count"] >= 1
+    assert result.quality_stats["cross_chapter_preserved_count"] >= 1
 
 
 @pytest.mark.asyncio
@@ -356,6 +411,31 @@ async def test_phase1b_timeout_fallback_keeps_minimum_scene_count_for_1_to_7() -
 
 
 @pytest.mark.asyncio
+async def test_phase1b_total_timeout_uses_phase1a_fallback(monkeypatch) -> None:
+    monkeypatch.setenv("PHASE1B_TOTAL_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_payload: dict) -> dict:
+        await asyncio.Event().wait()
+        return {"scenes": []}
+
+    result = await Phase1bSceneFusion(llm=llm).run(
+        phase1a_candidates=[
+            make_candidate(candidate_id="c-1", source_chapter_indices=[1, 2])
+        ],
+        start_chapter=1,
+        end_chapter=2,
+    )
+
+    assert result.blocked is False
+    assert result.degraded is True
+    assert result.phase1a_fallback is True
+    assert result.block_reason == "phase1b_reducer_fallback"
+    assert result.quality_stats["timeout"] == 1
+    assert len(result.candidates) == 2
+    assert all(candidate.phase == "phase1a_fallback" for candidate in result.candidates)
+
+
+@pytest.mark.asyncio
 async def test_phase1b_no_valid_candidates_creates_chapter_fallbacks() -> None:
     async def llm(_payload: dict) -> dict:
         raise AssertionError("no LLM call should be made without valid candidates")
@@ -438,7 +518,55 @@ async def test_phase1b_fallback_treats_none_boundary_as_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_phase1b_schema_empty_and_timeout_diagnostics_do_not_block() -> None:
+async def test_phase1b_fallback_normalizes_malformed_scene_chunks() -> None:
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    candidate = make_candidate(
+        candidate_id="malformed-chunks",
+        source_chapter_indices=[18, 19],
+    )
+    candidate.payload["scenes"] = [
+        {
+            "title": "chapter field chunk",
+            "goal": "preserve malformed chunk",
+            "scene_chunks": [
+                {"chapter": 18, "start_paragraph": 0, "end_paragraph": -1}
+            ],
+        },
+        {
+            "title": "second chapter field chunk",
+            "goal": "preserve malformed chunk",
+            "scene_chunks": [
+                {"chapter": 19, "start_paragraph": -2, "end_paragraph": -1}
+            ],
+        },
+    ]
+
+    result = await Phase1bSceneFusion(llm=llm).run(
+        phase1a_candidates=[candidate],
+        start_chapter=18,
+        end_chapter=19,
+    )
+
+    assert result.phase1a_fallback is True
+    assert [item.source_chapter_indices for item in result.candidates] == [[18], [19]]
+    assert [
+        chunk.model_dump(mode="json")
+        for item in result.candidates
+        for chunk in item.scene_chunks
+    ] == [
+        {"chapter_index": 18, "start_paragraph": 0, "end_paragraph": None},
+        {"chapter_index": 19, "start_paragraph": 0, "end_paragraph": None},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_phase1b_schema_empty_and_timeout_diagnostics_do_not_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1B_WINDOW_CHAPTERS", "30")
+    monkeypatch.setenv("PHASE1B_WINDOW_OVERLAP", "3")
     responses = [
         ValidationError.from_exception_data(
             "Phase1bReducerOutput",

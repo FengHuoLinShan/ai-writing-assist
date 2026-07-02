@@ -51,4 +51,74 @@ describe("progressRenderer", () => {
     expect(html).toContain("bottom:40px")
     expect(html).toContain('aria-valuenow="75"')
   })
+
+  it("renders phase artifact summaries", () => {
+    const html = renderWorkflowCard({
+      label: "场景自动提取",
+      message: "已完成",
+      statusLabel: "已完成",
+      status: "done",
+      done: true,
+      hasPercent: true,
+      percent: 100,
+      phaseArtifacts: {
+        scene_commit: {
+          status: "completed",
+          counts: { total_scenes: 60 },
+          coverage: { missing_chapters: [] },
+          repair: { attempts: 1 },
+        },
+      },
+    })
+
+    expect(html).toContain("scene_commit")
+    expect(html).toContain("Scene 60")
+    expect(html).toContain("修复 1")
+  })
+
+  it("renders detailed progress collapsed by default and escaped", () => {
+    const html = renderWorkflowCard({
+      label: "深度导入",
+      message: "处理中",
+      statusLabel: "运行中",
+      status: "running",
+      hasPercent: false,
+      indeterminate: true,
+      phaseTimeline: [{ phase: "phase0_prefetch", status: "completed", duration_s: 1.2 }],
+      progressEvents: [
+        {
+          event: "phase_finished",
+          phase: "<script>",
+          status: "completed",
+          message: "<img src=x>",
+          details: { raw: "<b>safe</b>" },
+        },
+      ],
+      acceptanceChecks: [
+        { name: "coverage", phase: "phase0_prefetch", ok: false, message: "缺章" },
+      ],
+      phaseErrors: [{ phase: "phase0_prefetch", error_kind: "missing", message: "<svg>" }],
+      diagnosticCounts: { scene_count: 2 },
+    })
+
+    expect(html).toContain("<details class=\"workflow-progress__details\">")
+    expect(html).toContain("详细进度")
+    expect(html).toContain("阶段时间线")
+    expect(html).toContain("门禁检查")
+    expect(html).toContain("&lt;img src=x&gt;")
+    expect(html).not.toContain("<script>")
+    expect(html).not.toContain("<svg>")
+  })
+
+  it("opens detailed progress when requested", () => {
+    const html = renderWorkflowCard({
+      label: "深度导入",
+      message: "处理中",
+      statusLabel: "运行中",
+      status: "running",
+      progressEvents: [{ event: "phase_started", phase: "phase0_prefetch" }],
+    }, { detailLevel: "detailed" })
+
+    expect(html).toContain("<details class=\"workflow-progress__details\" open>")
+  })
 })
