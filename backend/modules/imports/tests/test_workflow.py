@@ -37,6 +37,7 @@ from modules.imports.workflow import (
     DeepImportWorkflow,
     _compact_phase1b_payload,
     _Phase0SceneCandidateLLM,
+    _Phase1aSceneCandidateLLM,
     _Phase1bSceneFusionLLM,
     _run_deep_import_structured_call,
 )
@@ -272,7 +273,8 @@ async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
         ]
 
     async def fake_structured_call(client, request, schema, **kwargs):
-        del client, request, schema
+        del client, schema
+        captured["request"] = request
         captured["kwargs"] = kwargs
         return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
 
@@ -297,7 +299,175 @@ async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
         timeout_seconds=35,
     )(batch)
 
+    request = captured["request"]
+    system_content = request.messages[0].content
+    user_content = request.messages[1].content
+
+    assert "Phase 0 Scene 预取器" in system_content
+    assert "每章最多 1 个候选" in system_content
+    assert "每个 scene 只允许包含 title、goal、scene_chunks" in system_content
+    assert "不要输出正文摘录" in system_content
+    assert "请将以下章节正文切分为叙事 Scene" not in user_content
     assert captured["kwargs"]["timeout_seconds"] == 35
+
+
+@pytest.mark.asyncio
+async def test_phase0_adapter_uses_bounded_phase0_budget(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
+        return [
+            {
+                "chapter_index": 1,
+                "title": "第一章",
+                "content": "正文",
+            }
+        ]
+
+    async def fake_structured_call(client, request, schema, **kwargs):
+        del client, schema
+        captured["request"] = request
+        captured["kwargs"] = kwargs
+        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
+
+    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
+    monkeypatch.setattr(
+        "modules.imports.scene_segmentation.SceneSegmentationService._load_chapters",
+        fake_load_chapters,
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow._run_deep_import_structured_call",
+        fake_structured_call,
+    )
+
+    batch = SceneCandidateBatch(
+        batch_id="A-0001-1-5",
+        round_name="A",
+        batch_index=1,
+        chapter_indices=[1],
+    )
+    await _Phase0SceneCandidateLLM(
+        None,
+        "novel-1",
+    )(batch)
+
+    request = captured["request"]
+    assert request.max_tokens == 4096
+    assert captured["kwargs"]["timeout_seconds"] == 120
+
+
+@pytest.mark.asyncio
+async def test_phase0_adapter_allows_explicit_phase0_budget_override(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
+        return [
+            {
+                "chapter_index": 1,
+                "title": "第一章",
+                "content": "正文",
+            }
+        ]
+
+    async def fake_structured_call(client, request, schema, **kwargs):
+        del client, schema, kwargs
+        captured["request"] = request
+        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
+
+    monkeypatch.setenv("PHASE0_SCENE_MAX_TOKENS", "3072")
+    monkeypatch.setattr(
+        "modules.imports.scene_segmentation.SceneSegmentationService._load_chapters",
+        fake_load_chapters,
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow._run_deep_import_structured_call",
+        fake_structured_call,
+    )
+
+    batch = SceneCandidateBatch(
+        batch_id="A-0001-1-5",
+        round_name="A",
+        batch_index=1,
+        chapter_indices=[1],
+    )
+    await _Phase0SceneCandidateLLM(
+        None,
+        "novel-1",
+    )(batch)
+
+    request = captured["request"]
+    assert request.max_tokens == 3072
+
+
+@pytest.mark.asyncio
+async def test_phase1a_adapter_uses_controlled_prompt_and_budget(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_structured_call(client, request, schema, **kwargs):
+        del client, schema
+        captured["request"] = request
+        captured["kwargs"] = kwargs
+        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
+
+    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
+    monkeypatch.delenv("PHASE1A_SCENE_MAX_TOKENS", raising=False)
+    monkeypatch.setattr(
+        "modules.imports.workflow._run_deep_import_structured_call",
+        fake_structured_call,
+    )
+
+    await _Phase1aSceneCandidateLLM()(
+        {
+            "chapter_text": "## Chapter 1\n正文",
+            "phase0_references": {"strong": [], "weak": []},
+        }
+    )
+
+    request = captured["request"]
+    system_prompt = request.messages[0].content
+    user_prompt = request.messages[1].content
+    assert request.max_tokens == 1024
+    assert captured["kwargs"]["max_fix_attempts"] == 0
+    assert "正文级 Scene 候选补强器" in system_prompt
+    assert "不是最终 Scene 切分器" in system_prompt
+    assert "每个覆盖章节最多输出 1 个中间候选 Scene" in system_prompt
+    assert "每 5 章窗口最多 5 个" in system_prompt
+    assert "不追求最终完整切分" in system_prompt
+    assert "只允许包含 title、goal、scene_chunks、boundary_reason" in system_prompt
+    assert "goal 控制在约 30-60" in system_prompt
+    assert "禁止正文摘录、长摘要、人物列表" in system_prompt
+    assert "顶层不要输出 scenes 之外的字段" in system_prompt
+    assert "source_round/source_batch_id/source_chapter_indices" in user_prompt
+
+
+def test_phase1a_scene_max_tokens_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.imports import workflow_llm_adapters
+
+    monkeypatch.delenv("PHASE1A_SCENE_MAX_TOKENS", raising=False)
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 1024
+
+    monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "4096")
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 4096
+
+    monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "nope")
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 1024
+
+
+def test_phase1a_structured_max_fix_attempts_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.imports import workflow_llm_adapters
+
+    monkeypatch.delenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", raising=False)
+    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 0
+
+    monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "0")
+    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 0
+
+    monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "2")
+    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 2
 
 
 @pytest.mark.asyncio

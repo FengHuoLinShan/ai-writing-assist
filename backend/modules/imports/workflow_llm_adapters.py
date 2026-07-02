@@ -22,6 +22,10 @@ DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS = 2
 PHASE1B_SMALL_SAMPLE_MAX_TOKENS = 6144
 PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS = 90
 PHASE1B_COMPACT_TEXT_LIMIT = 180
+PHASE0_SCENE_MAX_TOKENS = 4096
+PHASE0_SCENE_TIMEOUT_SECONDS = 120
+PHASE1A_SCENE_MAX_TOKENS = 1024
+PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS = 0
 
 
 def _workflow_constant(name: str, default: Any) -> Any:
@@ -42,6 +46,32 @@ def _positive_int_env(name: str, default: int) -> int:
 
 def _phase01_scene_max_tokens(default: int) -> int:
     return _positive_int_env("PHASE01_SCENE_MAX_TOKENS", default)
+
+
+def _phase0_scene_max_tokens(default: int) -> int:
+    default_budget = min(default, PHASE0_SCENE_MAX_TOKENS)
+    return _positive_int_env("PHASE0_SCENE_MAX_TOKENS", default_budget)
+
+
+def _phase0_scene_timeout_seconds(default: int | None) -> int | None:
+    if default is not None:
+        return default
+    return _positive_int_env(
+        "PHASE0_SCENE_TIMEOUT_SECONDS",
+        _positive_int_env("LLM_TIMEOUT", PHASE0_SCENE_TIMEOUT_SECONDS),
+    )
+
+
+def _phase1a_scene_max_tokens(default: int) -> int:
+    del default
+    return _positive_int_env("PHASE1A_SCENE_MAX_TOKENS", PHASE1A_SCENE_MAX_TOKENS)
+
+
+def _phase1a_structured_max_fix_attempts() -> int:
+    return _positive_int_env(
+        "PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS",
+        PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS,
+    )
 
 
 def _deep_import_structured_max_fix_attempts() -> int:
@@ -130,45 +160,54 @@ class _Phase0SceneCandidateLLM:
             project_settings = await _project_settings_for_novel(self.db, self.novel_id)
         profile = resolve_llm_profile(project_settings)
         request_defaults = _profile_request_defaults(profile)
+        timeout_seconds = _phase0_scene_timeout_seconds(self.timeout_seconds)
         request = LLMCallRequest(
             model=request_defaults["model"],
             messages=[
                 LLMMessage(
                     role="system",
                     content=(
-                        service._load_prompt()
-                        + "\n\n输出 JSON 必须包含 scenes，并可包含 "
-                        "boundary_status、evidence_anchors、merge_hints、"
-                        "split_hints、confidence、missing_or_uncertain_items。"
+                        "你是长篇小说导入的 Phase 0 Scene 预取器。"
+                        "目标是快速给 Phase 1a 提供轻量候选锚点，不做正式 Scene 切分。"
+                        "只输出 JSON object，不要 Markdown。"
+                        "必须包含 scenes 数组、boundary_status、confidence。"
+                        "每章最多 1 个候选；5 章窗口最多 5 个候选。"
+                        "每个 scene 只允许包含 title、goal、scene_chunks。"
+                        "title 不超过 24 个中文字符，goal 不超过 60 个中文字符。"
+                        "scene_chunks 每项只保留 chapter_index、start_paragraph、"
+                        "end_paragraph；没有段落号时只填 chapter_index。"
+                        "不要输出正文摘录、人物列表、长摘要、core_conflict、"
+                        "emotional_beat、narrative_tag 或解释文字。"
                     ),
                 ),
                 LLMMessage(
                     role="user",
                     content=(
-                        "请预取以下章节的候选 Scene。候选只用于质量诊断和后续参考，"
-                        "不要假设它们会直接写入正式 Scene。\n\n"
+                        "请为以下章节生成轻量候选锚点。按章节顺序输出，优先覆盖每章"
+                        "最关键的叙事推进；不要展开成细粒度 Scene。\n\n"
                         f"{service._build_chapters_text(chapters)}"
                     ),
                 ),
             ],
             temperature=request_defaults["temperature"] or 0.3,
-            max_tokens=_phase01_scene_max_tokens(request_defaults["max_tokens"]),
+            max_tokens=_phase0_scene_max_tokens(request_defaults["max_tokens"]),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
             _llm_client_for_profile(
                 project_settings,
-                **({"timeout": self.timeout_seconds} if self.timeout_seconds else {}),
+                **({"timeout": timeout_seconds} if timeout_seconds else {}),
             ),
             request,
             SceneCandidateOutput,
             step_name="phase0_prefetch",
             transport_retries=False,
-            timeout_seconds=self.timeout_seconds,
+            timeout_seconds=timeout_seconds,
             fix_prompt=(
                 "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
-                "object，必须包含 scenes 数组；每个 scene 至少包含 title、goal、"
-                "scene_chunks，scene_chunks 内必须有 chapter_index。不要 Markdown。"
+                "object，必须包含 scenes 数组；每章最多 1 个 scene；每个 scene "
+                "只保留 title、goal、scene_chunks，scene_chunks 内必须有 "
+                "chapter_index。不要 Markdown，不要正文摘录或长摘要。"
             ),
         )
 
@@ -191,10 +230,20 @@ class _Phase1aSceneCandidateLLM:
                 LLMMessage(
                     role="system",
                     content=(
-                        "你是长篇小说导入的 Scene 候选强化器。"
-                        "只输出 JSON，必须包含 scenes，可包含 boundary_status、"
-                        "evidence_anchors、merge_hints、split_hints、confidence、"
-                        "missing_or_uncertain_items。不要写入正式 Scene。"
+                        "你是长篇小说导入 Phase 1a 正文级 Scene 候选补强器，"
+                        "不是最终 Scene 切分器，也不要写入正式 Scene。"
+                        "你的输出只给 Phase 1b 融合使用。"
+                        "每个覆盖章节最多输出 1 个中间候选 Scene；"
+                        "每 5 章窗口最多 5 个。优先覆盖章节推进锚点，"
+                        "不追求最终完整切分。"
+                        "每个 scene 只允许包含 title、goal、scene_chunks、"
+                        "boundary_reason。title 要短，goal 控制在约 30-60 "
+                        "个中文字符。scene_chunks 每项只保留 chapter_index、"
+                        "start_paragraph、end_paragraph。禁止正文摘录、长摘要、"
+                        "人物列表、core_conflict、emotional_beat、narrative_tag "
+                        "或最终 Scene 字段扩展。只输出 JSON object，必须包含 "
+                        "scenes；JSON 必须紧凑，不要 pretty print、换行缩进、"
+                        "解释文字或 Markdown。顶层不要输出 scenes 之外的字段。"
                     ),
                 ),
                 LLMMessage(
@@ -202,13 +251,14 @@ class _Phase1aSceneCandidateLLM:
                     content=(
                         "请基于章节正文、Phase 0 强/弱候选和相邻批次摘要强化当前"
                         "批次候选。保持 source_round/source_batch_id/"
-                        "source_chapter_indices 可追溯。\n\n"
+                        "source_chapter_indices 可追溯。不要复制正文，不要展开"
+                        "成最终 Scene，只输出可供 Phase 1b 融合的中间候选。\n\n"
                         f"{json.dumps(payload, ensure_ascii=False)}"
                     ),
                 ),
             ],
             temperature=request_defaults["temperature"] or 0.3,
-            max_tokens=_phase01_scene_max_tokens(request_defaults["max_tokens"]),
+            max_tokens=_phase1a_scene_max_tokens(request_defaults["max_tokens"]),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
@@ -217,9 +267,12 @@ class _Phase1aSceneCandidateLLM:
             SceneCandidateOutput,
             step_name="phase1a_reinforce",
             transport_retries=False,
+            max_fix_attempts=_phase1a_structured_max_fix_attempts(),
             fix_prompt=(
                 "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
-                "object，必须包含 scenes 数组；不要 Markdown。保留 source_round、"
+                "object，必须包含 scenes 数组；每个 scene 只保留 title、goal、"
+                "scene_chunks、boundary_reason。不要 Markdown，不要正文摘录、"
+                "长摘要、人物列表或最终 Scene 字段。保留 source_round、"
                 "source_batch_id、source_chapter_indices 等可追溯信息。"
             ),
         )
@@ -544,6 +597,7 @@ async def _run_deep_import_structured_call(
     transport_retries: bool,
     fix_prompt: str,
     timeout_seconds: int | None = None,
+    max_fix_attempts: int | None = None,
 ):
     from core.config import get_settings
 
@@ -573,7 +627,11 @@ async def _run_deep_import_structured_call(
         lambda: client.generate_structured(
             request,
             schema,
-            max_fix_attempts=_deep_import_structured_max_fix_attempts(),
+            max_fix_attempts=(
+                max_fix_attempts
+                if max_fix_attempts is not None
+                else _deep_import_structured_max_fix_attempts()
+            ),
             transport_retries=transport_retries,
             fix_prompt=fix_prompt,
         )

@@ -17,14 +17,20 @@ worker. Enable it only for explicit quality runs:
     RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
         PHASE01_SCENE_MAX_TOKENS=8192 pytest \
         modules/imports/tests/test_deep_import_real_llm.py -q -s
+
+    RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
+        PHASE1A_SCENE_MAX_TOKENS=1024 pytest \
+        modules/imports/tests/test_deep_import_real_llm.py -q -s
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,13 +44,23 @@ from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.parsers import parse_txt
+from modules.imports.scene_candidates import (
+    SceneCandidate,
+    SceneCandidateBatch,
+    ScenePrefetchResult,
+    SceneReinforcementResult,
+)
 from modules.imports.scene_entity_config import (
     phase2_batch_concurrency,
     phase2_batch_size_scenes,
     phase2_batch_tuning_group,
 )
 from modules.imports.services import ImportService
-from modules.imports.workflow import DeepImportWorkflow
+from modules.imports.workflow import (
+    DeepImportWorkflow,
+    _Phase0SceneCandidateLLM,
+    _Phase1aSceneCandidateLLM,
+)
 from modules.outline.models import (
     ForeshadowingPlan,
     OutlineArc,
@@ -82,6 +98,10 @@ def _phase0_real_llm_enabled() -> bool:
     return os.getenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM") == "1"
 
 
+def _phase1a_real_llm_enabled() -> bool:
+    return os.getenv("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM") == "1"
+
+
 def _expected_chapter_count() -> int:
     configured = os.getenv("DEEP_IMPORT_EXPECTED_CHAPTERS")
     if configured:
@@ -91,6 +111,7 @@ def _expected_chapter_count() -> int:
         or os.getenv("RUN_DEEP_IMPORT_213_REAL_LLM") == "1"
         or _scene_real_llm_enabled()
         or _phase0_real_llm_enabled()
+        or _phase1a_real_llm_enabled()
     ):
         return 60
     return 5
@@ -127,6 +148,13 @@ phase0_real_llm_required = pytest.mark.skipif(
     reason=(
         "60 章真实 LLM Phase0-only 验收默认跳过；设置 "
         "RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 才运行"
+    ),
+)
+phase1a_real_llm_required = pytest.mark.skipif(
+    not _phase1a_real_llm_enabled(),
+    reason=(
+        "60 章真实 LLM Phase1a-only 验收默认跳过；设置 "
+        "RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 才运行"
     ),
 )
 
@@ -202,6 +230,8 @@ class PersistentAcceptanceLogger:
     def from_env(cls) -> PersistentAcceptanceLogger:
         configured = (
             os.getenv("DEEP_IMPORT_LOG_PATH")
+            or os.getenv("DEEP_IMPORT_60_PHASE1A_LOG_PATH")
+            or os.getenv("DEEP_IMPORT_PHASE1A_LOG_PATH")
             or os.getenv("DEEP_IMPORT_60_PHASE0_LOG_PATH")
             or os.getenv("DEEP_IMPORT_PHASE0_LOG_PATH")
             or os.getenv("DEEP_IMPORT_5_LOG_PATH")
@@ -216,7 +246,9 @@ class PersistentAcceptanceLogger:
                 path = BACKEND_ROOT / path
         else:
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            if _phase0_real_llm_enabled():
+            if _phase1a_real_llm_enabled():
+                suffix = "phase1a_"
+            elif _phase0_real_llm_enabled():
                 suffix = "phase0_"
             elif _scene_real_llm_enabled():
                 suffix = "scene_"
@@ -573,6 +605,251 @@ def _phase0_summary_path(log_path: Path) -> Path:
     return log_path.parent / f"phase0_real_llm_{stamp}.md"
 
 
+def _phase0_artifact_path(log_path: Path) -> Path:
+    configured = os.getenv("PHASE0_REAL_LLM_ARTIFACT_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    stamp = log_path.stem.rsplit("_", 1)[-1]
+    return log_path.parent / f"phase0_real_llm_{stamp}.artifact.json"
+
+
+def _write_phase0_artifact(
+    *,
+    log_path: Path,
+    phase0_result: Any,
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    llm_config: dict[str, Any],
+) -> Path:
+    artifact_path = _phase0_artifact_path(log_path)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "test_mode": "phase0_only",
+        "stage": "phase0_prefetch",
+        "created_at": datetime.now(UTC).isoformat(),
+        "source_log_path": str(log_path),
+        "expected_chapter_count": EXPECTED_CHAPTER_COUNT,
+        "expected_phase_shape": expected_phase_shape,
+        "coverage": coverage,
+        "llm_config": llm_config,
+        "phase0_result": {
+            "candidates": [
+                candidate.model_dump(mode="json")
+                for candidate in getattr(phase0_result, "candidates", []) or []
+            ],
+            "quality_stats": getattr(phase0_result, "quality_stats", {}) or {},
+            "diagnostics": getattr(phase0_result, "diagnostics", []) or [],
+            "blocked": bool(getattr(phase0_result, "blocked", False)),
+            "block_reason": getattr(phase0_result, "block_reason", None),
+        },
+    }
+    artifact_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return artifact_path
+
+
+def _phase1a_phase0_artifact_path() -> Path | None:
+    configured = os.getenv("PHASE1A_PHASE0_ARTIFACT_PATH")
+    if not configured:
+        return None
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else BACKEND_ROOT / path
+
+
+def _phase0_repair_source_artifact_path() -> Path | None:
+    configured = os.getenv("PHASE0_REPAIR_SOURCE_ARTIFACT_PATH")
+    if not configured:
+        return None
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else BACKEND_ROOT / path
+
+
+def _load_phase0_artifact(path: Path) -> ScenePrefetchResult:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    phase0_payload = payload.get("phase0_result") or {}
+    return ScenePrefetchResult(
+        candidates=[
+            SceneCandidate.model_validate(candidate)
+            for candidate in phase0_payload.get("candidates", [])
+        ],
+        quality_stats=phase0_payload.get("quality_stats") or {},
+        diagnostics=phase0_payload.get("diagnostics") or [],
+        blocked=bool(phase0_payload.get("blocked", False)),
+        block_reason=phase0_payload.get("block_reason"),
+    )
+
+
+def _candidate_batch_key(
+    candidate: SceneCandidate,
+) -> tuple[str, str, int, tuple[int, ...]]:
+    return (
+        candidate.source_round,
+        candidate.source_batch_id,
+        candidate.source_batch_index,
+        tuple(candidate.source_chapter_indices),
+    )
+
+
+def _phase0_repair_max_failed_batches() -> int:
+    raw = os.getenv("PHASE0_REPAIR_MAX_FAILED_BATCHES")
+    if raw is None or raw.strip() == "":
+        return 5
+    try:
+        value = int(raw)
+    except ValueError:
+        return 5
+    return value if value > 0 else 5
+
+
+def _phase0_repair_concurrency() -> int:
+    raw = os.getenv("PHASE0_REPAIR_CONCURRENCY")
+    if raw is None or raw.strip() == "":
+        return 2
+    try:
+        value = int(raw)
+    except ValueError:
+        return 2
+    return value if value > 0 else 2
+
+
+def _phase0_repair_attempts() -> int:
+    raw = os.getenv("PHASE0_REPAIR_ATTEMPTS")
+    if raw is None or raw.strip() == "":
+        return 3
+    try:
+        value = int(raw)
+    except ValueError:
+        return 3
+    return value if value > 0 else 3
+
+
+def _phase0_repair_retry_delay_seconds() -> float:
+    raw = os.getenv("PHASE0_REPAIR_RETRY_DELAY_SECONDS")
+    if raw is None or raw.strip() == "":
+        return 5.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 5.0
+    return value if value > 0 else 5.0
+
+
+async def _repair_phase0_artifact(
+    *,
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    source_artifact_path: Path,
+) -> tuple[ScenePrefetchResult, dict[str, Any]]:
+    from modules.imports.scene_prefetch import (
+        Phase0ScenePrefetcher,
+        _build_quality_stats,
+    )
+
+    source_result = _load_phase0_artifact(source_artifact_path)
+    current_candidates = list(source_result.candidates)
+    max_failed = _phase0_repair_max_failed_batches()
+    prefetcher = Phase0ScenePrefetcher(
+        llm=_Phase0SceneCandidateLLM(db, str(project_id)),
+        concurrency=_phase0_repair_concurrency(),
+    )
+    semaphore = asyncio.Semaphore(_phase0_repair_concurrency())
+
+    async def repair(candidate: SceneCandidate) -> SceneCandidate:
+        batch = SceneCandidateBatch(
+            batch_id=candidate.source_batch_id,
+            round_name=candidate.source_round,
+            batch_index=candidate.source_batch_index,
+            chapter_indices=candidate.source_chapter_indices,
+        )
+        async with semaphore:
+            return await prefetcher._process_batch(batch)
+
+    repair_attempts: list[dict[str, Any]] = []
+    repaired_batch_ids: list[str] = []
+    for attempt in range(1, _phase0_repair_attempts() + 1):
+        failed_candidates = [
+            candidate
+            for candidate in current_candidates
+            if candidate.quality == "failed"
+        ]
+        if not failed_candidates:
+            break
+        if len(failed_candidates) > max_failed:
+            raise AssertionError(
+                "phase0 repair source has too many failed batches: "
+                f"{len(failed_candidates)} > {max_failed}"
+            )
+        if attempt > 1:
+            await asyncio.sleep(_phase0_repair_retry_delay_seconds())
+        repaired_candidates = await asyncio.gather(
+            *(repair(candidate) for candidate in failed_candidates)
+        )
+        repaired_batch_ids.extend(
+            candidate.source_batch_id for candidate in repaired_candidates
+        )
+        merged_by_key = {
+            _candidate_batch_key(candidate): candidate
+            for candidate in current_candidates
+        }
+        for candidate in repaired_candidates:
+            merged_by_key[_candidate_batch_key(candidate)] = candidate
+        current_candidates = _sorted_phase0_candidates(merged_by_key.values())
+        repair_attempts.append(
+            {
+                "attempt": attempt,
+                "input_failed_batches": [
+                    candidate.source_batch_id for candidate in failed_candidates
+                ],
+                "output_failed_batches": [
+                    candidate.source_batch_id
+                    for candidate in current_candidates
+                    if candidate.quality == "failed"
+                ],
+            }
+        )
+    merged_candidates = _sorted_phase0_candidates(current_candidates)
+    quality_stats = _build_quality_stats(
+        merged_candidates,
+        total_batches=len(merged_candidates),
+    )
+    diagnostics = [
+        candidate.diagnostics
+        for candidate in merged_candidates
+        if candidate.diagnostics
+    ]
+    result = ScenePrefetchResult(
+        candidates=merged_candidates,
+        quality_stats=quality_stats,
+        diagnostics=diagnostics,
+        blocked=source_result.blocked,
+        block_reason=source_result.block_reason,
+    )
+    repair_summary = {
+        "source_artifact_path": str(source_artifact_path),
+        "repair_attempts": repair_attempts,
+        "repaired_batch_count": len(repaired_batch_ids),
+        "repaired_batches": repaired_batch_ids,
+        "remaining_failed": quality_stats.get("failed"),
+    }
+    return result, repair_summary
+
+
+def _sorted_phase0_candidates(
+    candidates: Iterable[SceneCandidate],
+) -> list[SceneCandidate]:
+    return sorted(
+        candidates,
+        key=lambda candidate: (
+            candidate.source_round,
+            min(candidate.source_chapter_indices or [10**9]),
+            candidate.source_batch_index,
+        ),
+    )
+
+
 def _write_phase0_summary(
     *,
     log_path: Path,
@@ -627,6 +904,283 @@ def _write_phase0_summary(
             + " |\n"
         )
     return summary_path
+
+
+def _phase1a_summary_path(log_path: Path) -> Path:
+    configured = os.getenv("PHASE1A_REAL_LLM_SUMMARY_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    stamp = log_path.stem.rsplit("_", 1)[-1]
+    return log_path.parent / f"phase1a_real_llm_{stamp}.md"
+
+
+def _write_phase1a_summary(
+    *,
+    log_path: Path,
+    wall_clock_s: float,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    issues: list[str],
+    llm_config: dict[str, Any] | None = None,
+) -> Path:
+    summary_path = _phase1a_summary_path(log_path)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    phase0_stats = result.get("phase0_quality_stats") or {}
+    phase1a_stats = result.get("quality_stats") or {}
+    expected_chapters = coverage.get("expected_chapters") or []
+    row = {
+        "test_mode": "phase1a_only",
+        "stage": "phase1a_reinforce",
+        "chapters": len(expected_chapters) or EXPECTED_CHAPTER_COUNT,
+        "wall_clock_s": round(wall_clock_s, 2),
+        "blocked": result.get("blocked"),
+        "block_reason": result.get("block_reason"),
+        "expected_phase0_batches": expected_phase_shape.get("phase0_total_batches"),
+        "phase0_failed": phase0_stats.get("failed"),
+        "expected_phase1a_batches": expected_phase_shape.get("phase1a_total_batches"),
+        "phase1a_total_batches": phase1a_stats.get("total_batches"),
+        "phase1a_completed_batches": phase1a_stats.get("completed_batches"),
+        "phase1a_failed": phase1a_stats.get("failed"),
+        "phase1a_timeout": phase1a_stats.get("timeout"),
+        "phase1a_schema_error": phase1a_stats.get("schema_error"),
+        "candidate_count": result.get("candidate_count"),
+        "candidate_scene_count": result.get("candidate_scene_count"),
+        "covered": len(coverage.get("covered_chapters") or []),
+        "missing": coverage.get("missing_chapters"),
+        "scene_count": output_counts.get("scene_count"),
+        "entity_count": output_counts.get("entity_count"),
+        "provider": (llm_config or {}).get("effective_llm_profile"),
+        "later_phases": result.get("later_phases"),
+        "issues": "; ".join(issues),
+        "log": str(log_path),
+    }
+    headers = list(row)
+    if not summary_path.exists():
+        summary_path.write_text(
+            "# Phase 1a Real LLM Summary\n\n"
+            + "| "
+            + " | ".join(headers)
+            + " |\n| "
+            + " | ".join("---" for _ in headers)
+            + " |\n",
+            encoding="utf-8",
+        )
+    with summary_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "| "
+            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
+            + " |\n"
+        )
+    return summary_path
+
+
+def _phase1a_artifact_path(log_path: Path) -> Path:
+    configured = os.getenv("PHASE1A_REAL_LLM_ARTIFACT_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    stamp = log_path.stem.rsplit("_", 1)[-1]
+    return log_path.parent / f"phase1a_real_llm_{stamp}.artifact.json"
+
+
+def _write_phase1a_artifact(
+    *,
+    log_path: Path,
+    phase0_result: Any,
+    phase1a_result: Any,
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    llm_config: dict[str, Any],
+) -> Path:
+    artifact_path = _phase1a_artifact_path(log_path)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "test_mode": "phase1a_only",
+        "stage": "phase1a_reinforce",
+        "created_at": datetime.now(UTC).isoformat(),
+        "source_log_path": str(log_path),
+        "expected_chapter_count": EXPECTED_CHAPTER_COUNT,
+        "expected_phase_shape": expected_phase_shape,
+        "coverage": coverage,
+        "llm_config": llm_config,
+        "phase0_result": {
+            "quality_stats": getattr(phase0_result, "quality_stats", {}) or {},
+            "candidate_count": len(getattr(phase0_result, "candidates", []) or []),
+        },
+        "phase1a_result": {
+            "candidates": [
+                candidate.model_dump(mode="json")
+                for candidate in getattr(phase1a_result, "candidates", []) or []
+            ],
+            "quality_stats": getattr(phase1a_result, "quality_stats", {}) or {},
+            "diagnostics": getattr(phase1a_result, "diagnostics", []) or [],
+            "blocked": bool(getattr(phase1a_result, "blocked", False)),
+            "block_reason": getattr(phase1a_result, "block_reason", None),
+        },
+    }
+    artifact_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return artifact_path
+
+
+def _phase1a_repair_source_artifact_path() -> Path | None:
+    configured = os.getenv("PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH")
+    if not configured:
+        return None
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else BACKEND_ROOT / path
+
+
+def _load_phase1a_artifact(path: Path) -> SceneReinforcementResult:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    phase1a_payload = payload.get("phase1a_result") or {}
+    return SceneReinforcementResult(
+        candidates=[
+            SceneCandidate.model_validate(candidate)
+            for candidate in phase1a_payload.get("candidates", [])
+        ],
+        quality_stats=phase1a_payload.get("quality_stats") or {},
+        diagnostics=phase1a_payload.get("diagnostics") or [],
+        blocked=bool(phase1a_payload.get("blocked", False)),
+        block_reason=phase1a_payload.get("block_reason"),
+        did_merge_rounds=False,
+    )
+
+
+def _phase1a_repair_max_failed_batches() -> int:
+    raw = os.getenv("PHASE1A_REPAIR_MAX_FAILED_BATCHES")
+    if raw is None or raw.strip() == "":
+        return 24
+    try:
+        value = int(raw)
+    except ValueError:
+        return 24
+    return value if value > 0 else 24
+
+
+def _phase1a_repair_attempts() -> int:
+    raw = os.getenv("PHASE1A_REPAIR_ATTEMPTS")
+    if raw is None or raw.strip() == "":
+        return 2
+    try:
+        value = int(raw)
+    except ValueError:
+        return 2
+    return value if value > 0 else 2
+
+
+def _phase1a_repair_batch_ids() -> set[str] | None:
+    raw = os.getenv("PHASE1A_REPAIR_BATCH_IDS")
+    if raw is None or raw.strip() == "":
+        return None
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+async def _repair_phase1a_artifact(
+    *,
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    source_artifact_path: Path,
+    phase0_result: ScenePrefetchResult,
+    chapters: list[dict],
+) -> tuple[SceneReinforcementResult, dict[str, Any]]:
+    from modules.imports.scene_reinforcement import (
+        Phase1aSceneReinforcer,
+        _build_quality_stats,
+    )
+
+    source_result = _load_phase1a_artifact(source_artifact_path)
+    current_candidates = list(source_result.candidates)
+    repair_attempts: list[dict[str, Any]] = []
+    repaired_batch_ids: list[str] = []
+    max_failed = _phase1a_repair_max_failed_batches()
+    for attempt in range(1, _phase1a_repair_attempts() + 1):
+        failed_candidates = [
+            candidate
+            for candidate in current_candidates
+            if candidate.quality == "failed"
+        ]
+        allowed_batch_ids = _phase1a_repair_batch_ids()
+        if allowed_batch_ids is not None:
+            failed_candidates = [
+                candidate
+                for candidate in failed_candidates
+                if candidate.source_batch_id in allowed_batch_ids
+            ]
+        if not failed_candidates:
+            break
+        if len(failed_candidates) > max_failed:
+            raise AssertionError(
+                "phase1a repair source has too many failed batches: "
+                f"{len(failed_candidates)} > {max_failed}"
+            )
+        failed_batch_ids = {candidate.source_batch_id for candidate in failed_candidates}
+        phase0_candidates = [
+            candidate
+            for candidate in phase0_result.candidates
+            if candidate.source_batch_id in failed_batch_ids
+        ]
+        repair_result = await Phase1aSceneReinforcer(
+            llm=_Phase1aSceneCandidateLLM(),
+            concurrency=_phase0_repair_concurrency(),
+            max_retries=1,
+        ).run(
+            phase0_candidates=phase0_candidates,
+            chapters=chapters,
+        )
+        repaired_batch_ids.extend(
+            candidate.source_batch_id for candidate in repair_result.candidates
+        )
+        merged_by_key = {
+            _candidate_batch_key(candidate): candidate
+            for candidate in current_candidates
+        }
+        for candidate in repair_result.candidates:
+            merged_by_key[_candidate_batch_key(candidate)] = candidate
+        current_candidates = _sorted_phase0_candidates(merged_by_key.values())
+        repair_attempts.append(
+            {
+                "attempt": attempt,
+                "input_failed_batches": sorted(failed_batch_ids),
+                "output_failed_batches": [
+                    candidate.source_batch_id
+                    for candidate in current_candidates
+                    if candidate.quality == "failed"
+                ],
+                "repair_quality_stats": repair_result.quality_stats,
+            }
+        )
+        if any(candidate.quality == "failed" for candidate in current_candidates):
+            await asyncio.sleep(_phase0_repair_retry_delay_seconds())
+    quality_stats = _build_quality_stats(
+        current_candidates,
+        total_batches=len(current_candidates),
+    )
+    diagnostics = [
+        candidate.diagnostics
+        for candidate in current_candidates
+        if candidate.diagnostics
+    ]
+    result = SceneReinforcementResult(
+        candidates=current_candidates,
+        quality_stats=quality_stats,
+        diagnostics=diagnostics,
+        blocked=source_result.blocked,
+        block_reason=source_result.block_reason,
+        did_merge_rounds=False,
+    )
+    return result, {
+        "source_artifact_path": str(source_artifact_path),
+        "repair_attempts": repair_attempts,
+        "repaired_batch_count": len(repaired_batch_ids),
+        "repaired_batches": repaired_batch_ids,
+        "remaining_failed": quality_stats.get("failed"),
+    }
 
 
 def _candidate_chapter_coverage(
@@ -684,6 +1238,45 @@ def _phase0_result_payload(phase0_result: Any) -> dict[str, Any]:
         "diagnostics_sample": diagnostics[:5],
         "later_phases": {
             "phase1a": "skipped",
+            "phase1b": "skipped",
+            "scene_commit": "skipped",
+            "entity_extraction": "skipped",
+            "structure_analysis": "skipped",
+        },
+    }
+
+
+def _candidate_scene_count(candidates: list[Any]) -> int:
+    count = 0
+    for candidate in candidates:
+        payload = (
+            candidate.get("payload")
+            if isinstance(candidate, dict)
+            else getattr(candidate, "payload", None)
+        )
+        if not isinstance(payload, dict):
+            continue
+        scenes = payload.get("scenes")
+        if isinstance(scenes, list):
+            count += len(scenes)
+    return count
+
+
+def _phase1a_result_payload(phase0_result: Any, phase1a_result: Any) -> dict[str, Any]:
+    phase0_diagnostics = getattr(phase0_result, "diagnostics", []) or []
+    phase1a_diagnostics = getattr(phase1a_result, "diagnostics", []) or []
+    phase1a_candidates = list(getattr(phase1a_result, "candidates", []) or [])
+    return {
+        "blocked": bool(getattr(phase1a_result, "blocked", False)),
+        "block_reason": getattr(phase1a_result, "block_reason", None),
+        "phase0_candidate_count": len(getattr(phase0_result, "candidates", []) or []),
+        "phase0_quality_stats": getattr(phase0_result, "quality_stats", {}) or {},
+        "phase0_diagnostics_sample": phase0_diagnostics[:5],
+        "candidate_count": len(phase1a_candidates),
+        "candidate_scene_count": _candidate_scene_count(phase1a_candidates),
+        "quality_stats": getattr(phase1a_result, "quality_stats", {}) or {},
+        "diagnostics_sample": phase1a_diagnostics[:5],
+        "later_phases": {
             "phase1b": "skipped",
             "scene_commit": "skipped",
             "entity_extraction": "skipped",
@@ -788,6 +1381,135 @@ def _phase0_only_acceptance_checks(
         expected="no entity/relation/structure outputs",
         actual=output_counts,
         message="phase0-only unexpectedly wrote later phase outputs",
+    )
+    return checks, issues
+
+
+def _phase1a_only_acceptance_checks(
+    *,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    expected_chapter_count: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    phase0_stats = result.get("phase0_quality_stats") or {}
+    phase1a_stats = result.get("quality_stats") or {}
+    missing_chapters = coverage.get("missing_chapters") or []
+    max_candidate_scenes = max(
+        expected_chapter_count * 6,
+        int(expected_phase_shape.get("phase1a_total_batches", 0) or 0) * 15,
+    )
+
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_no_failed_batches",
+        ok=int(phase0_stats.get("failed", 0) or 0) == 0,
+        expected=0,
+        actual=phase0_stats.get("failed"),
+        message=f"phase0 failed batches expected 0, got {phase0_stats.get('failed')}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_not_blocked",
+        ok=result.get("blocked") is False,
+        expected=False,
+        actual=result.get("blocked"),
+        message=f"phase1a expected blocked false, got {result.get('blocked')}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_total_batches",
+        ok=phase1a_stats.get("total_batches")
+        == expected_phase_shape.get("phase1a_total_batches"),
+        expected=expected_phase_shape.get("phase1a_total_batches"),
+        actual=phase1a_stats.get("total_batches"),
+        message=(
+            "phase1a total_batches expected "
+            f"{expected_phase_shape.get('phase1a_total_batches')}, "
+            f"got {phase1a_stats.get('total_batches')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_completed_all_batches",
+        ok=phase1a_stats.get("completed_batches")
+        == phase1a_stats.get("total_batches"),
+        expected=phase1a_stats.get("total_batches"),
+        actual=phase1a_stats.get("completed_batches"),
+        message=(
+            "phase1a completed_batches expected total_batches "
+            f"{phase1a_stats.get('total_batches')}, got "
+            f"{phase1a_stats.get('completed_batches')}"
+        ),
+    )
+    for key in ("failed", "timeout", "schema_error"):
+        _record_acceptance_check(
+            checks,
+            issues,
+            name=f"phase1a_no_{key}",
+            ok=int(phase1a_stats.get(key, 0) or 0) == 0,
+            expected=0,
+            actual=phase1a_stats.get(key),
+            message=f"phase1a {key} expected 0, got {phase1a_stats.get(key)}",
+        )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_candidate_chapter_coverage_complete",
+        ok=not missing_chapters
+        and coverage.get("candidates_with_chapter_ids", 0) > 0,
+        expected=list(range(1, expected_chapter_count + 1)),
+        actual=coverage,
+        message=(
+            "phase1a candidate chapter coverage missing chapters: "
+            f"{missing_chapters}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_candidate_scene_count_not_exploded",
+        ok=0 < int(result.get("candidate_scene_count", 0) or 0)
+        <= max_candidate_scenes,
+        expected=f"1..{max_candidate_scenes}",
+        actual=result.get("candidate_scene_count"),
+        message=(
+            "phase1a candidate scene count expected within "
+            f"1..{max_candidate_scenes}, got {result.get('candidate_scene_count')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_no_scene_commit",
+        ok=int(output_counts.get("scene_count", 0) or 0) == 0,
+        expected=0,
+        actual=output_counts.get("scene_count"),
+        message=(
+            "phase1a-only expected no committed scenes, got "
+            f"{output_counts.get('scene_count')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_no_phase2_or_phase3_outputs",
+        ok=int(output_counts.get("entity_count", 0) or 0) == 0
+        and int(output_counts.get("relation_count", 0) or 0) == 0
+        and all(
+            int(count or 0) == 0
+            for count in (output_counts.get("structure_counts") or {}).values()
+        ),
+        expected="no entity/relation/structure outputs",
+        actual=output_counts,
+        message="phase1a-only unexpectedly wrote later phase outputs",
     )
     return checks, issues
 
@@ -1266,6 +1988,64 @@ def _phase0_only_result_fixture(
     return result, output_counts, coverage, expected_phase_shape
 
 
+def _phase1a_only_result_fixture(
+    *,
+    phase0_failed: int = 0,
+    blocked: bool = False,
+    total_batches: int = 24,
+    completed_batches: int = 24,
+    failed: int = 0,
+    timeout: int = 0,
+    schema_error: int = 0,
+    candidate_count: int = 24,
+    candidate_scene_count: int = 180,
+    scene_count: int = 0,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    result = {
+        "blocked": blocked,
+        "block_reason": "phase1a_422_rate_exceeded" if blocked else None,
+        "phase0_candidate_count": 24,
+        "phase0_quality_stats": {"failed": phase0_failed},
+        "candidate_count": candidate_count,
+        "candidate_scene_count": candidate_scene_count,
+        "quality_stats": {
+            "total_batches": total_batches,
+            "completed_batches": completed_batches,
+            "failed": failed,
+            "timeout": timeout,
+            "schema_error": schema_error,
+        },
+        "later_phases": {
+            "phase1b": "skipped",
+            "scene_commit": "skipped",
+            "entity_extraction": "skipped",
+            "structure_analysis": "skipped",
+        },
+    }
+    output_counts = {
+        "scene_count": scene_count,
+        "entity_count": 0,
+        "relation_count": 0,
+        "structure_counts": {
+            "threads": 0,
+            "arcs": 0,
+            "foreshadowing": 0,
+            "reveals": 0,
+        },
+    }
+    coverage = {
+        "covered_chapters": list(range(1, 61)),
+        "missing_chapters": [],
+        "expected_chapters": list(range(1, 61)),
+        "candidates_with_chapter_ids": candidate_count,
+    }
+    expected_phase_shape = {
+        "phase0_total_batches": total_batches,
+        "phase1a_total_batches": total_batches,
+    }
+    return result, output_counts, coverage, expected_phase_shape
+
+
 def test_phase0_real_llm_enabled_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1274,6 +2054,16 @@ def test_phase0_real_llm_enabled_helper(
 
     monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM", "1")
     assert _phase0_real_llm_enabled() is True
+
+
+def test_phase1a_real_llm_enabled_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM", raising=False)
+    assert _phase1a_real_llm_enabled() is False
+
+    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM", "1")
+    assert _phase1a_real_llm_enabled() is True
 
 
 def test_candidate_chapter_coverage_from_phase0_candidates() -> None:
@@ -1395,6 +2185,169 @@ def test_phase0_summary_writes_markdown(
     assert "Phase 0 Real LLM Summary" in text
     assert "| test_mode | stage | chapters |" in text
     assert "| phase0_only | phase0_prefetch | 60 |" in text
+    assert "deepseek-v4-flash" in text
+
+
+def test_phase0_artifact_round_trips_scene_prefetch_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_path = tmp_path / "phase0.artifact.json"
+    log_path = tmp_path / "deep_import_60_phase0_20260702T000000Z.jsonl"
+    monkeypatch.setenv("PHASE0_REAL_LLM_ARTIFACT_PATH", str(artifact_path))
+    phase0_result = ScenePrefetchResult(
+        candidates=[
+            SceneCandidate(
+                candidate_id="phase0-A-0001",
+                source_round="A",
+                source_batch_id="A-0001-1-5",
+                source_batch_index=1,
+                source_chapter_indices=[1, 2, 3, 4, 5],
+                quality="high",
+                payload={"scenes": [{"title": "候选"}]},
+            )
+        ],
+        quality_stats={"total_batches": 24, "failed": 0},
+        diagnostics=[{"final_status": "success"}],
+        blocked=False,
+    )
+
+    written = _write_phase0_artifact(
+        log_path=log_path,
+        phase0_result=phase0_result,
+        coverage={"covered_chapters": [1, 2, 3, 4, 5]},
+        expected_phase_shape={"phase0_total_batches": 24},
+        llm_config={"effective_llm_profile": {"model": "deepseek-v4-flash"}},
+    )
+    loaded = _load_phase0_artifact(written)
+
+    assert written == artifact_path
+    assert loaded.quality_stats == {"total_batches": 24, "failed": 0}
+    assert loaded.diagnostics == [{"final_status": "success"}]
+    assert loaded.candidates[0].candidate_id == "phase0-A-0001"
+    assert loaded.candidates[0].source_chapter_indices == [1, 2, 3, 4, 5]
+    assert loaded.candidates[0].payload["scenes"][0]["title"] == "候选"
+
+
+def test_phase1a_only_acceptance_passes_for_phase1a_only_result() -> None:
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase1a_only_result_fixture()
+    )
+
+    checks, issues = _phase1a_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        expected_chapter_count=60,
+    )
+
+    assert issues == []
+    assert {check["status"] for check in checks} == {"passed"}
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_issue"),
+    [
+        (
+            lambda result, _counts, _coverage: result[
+                "phase0_quality_stats"
+            ].update({"failed": 1}),
+            "phase0 failed batches expected 0, got 1",
+        ),
+        (
+            lambda result, _counts, _coverage: result.update({"blocked": True}),
+            "phase1a expected blocked false, got True",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"].update(
+                {"completed_batches": 23}
+            ),
+            "phase1a completed_batches expected total_batches",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"].update(
+                {"failed": 1}
+            ),
+            "phase1a failed expected 0, got 1",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"].update(
+                {"timeout": 1}
+            ),
+            "phase1a timeout expected 0, got 1",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"].update(
+                {"schema_error": 1}
+            ),
+            "phase1a schema_error expected 0, got 1",
+        ),
+        (
+            lambda _result, _counts, coverage: coverage.update(
+                {"covered_chapters": list(range(1, 60)), "missing_chapters": [60]}
+            ),
+            "phase1a candidate chapter coverage missing chapters: [60]",
+        ),
+        (
+            lambda result, _counts, _coverage: result.update(
+                {"candidate_scene_count": 361}
+            ),
+            "phase1a candidate scene count expected within 1..360, got 361",
+        ),
+        (
+            lambda _result, counts, _coverage: counts.update({"scene_count": 1}),
+            "phase1a-only expected no committed scenes, got 1",
+        ),
+    ],
+)
+def test_phase1a_only_acceptance_reports_guardrail_failures(
+    mutator,
+    expected_issue: str,
+) -> None:
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase1a_only_result_fixture()
+    )
+    mutator(result, output_counts, coverage)
+
+    _checks, issues = _phase1a_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        expected_chapter_count=60,
+    )
+
+    assert any(expected_issue in issue for issue in issues)
+
+
+def test_phase1a_summary_writes_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "phase1a_real_llm.md"
+    log_path = tmp_path / "deep_import_60_phase1a_20260702T000000Z.jsonl"
+    monkeypatch.setenv("PHASE1A_REAL_LLM_SUMMARY_PATH", str(summary_path))
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase1a_only_result_fixture()
+    )
+
+    written = _write_phase1a_summary(
+        log_path=log_path,
+        wall_clock_s=234.56,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        issues=[],
+        llm_config={"effective_llm_profile": {"model": "deepseek-v4-flash"}},
+    )
+
+    assert written == summary_path
+    text = summary_path.read_text(encoding="utf-8")
+    assert "Phase 1a Real LLM Summary" in text
+    assert "| test_mode | stage | chapters |" in text
+    assert "| phase1a_only | phase1a_reinforce | 60 |" in text
     assert "deepseek-v4-flash" in text
 
 
@@ -1613,12 +2566,29 @@ async def test_deep_import_60_phase0_real_llm_acceptance(
         expected_phase_shape=expected_phase_shape,
     )
     try:
-        phase0_result = await workflow._run_phase0_prefetch(
-            db_session,
-            str(project_id),
-            1,
-            EXPECTED_CHAPTER_COUNT,
-        )
+        repair_source_artifact = _phase0_repair_source_artifact_path()
+        if repair_source_artifact is not None:
+            phase0_result, repair_summary = await _repair_phase0_artifact(
+                db=db_session,
+                project_id=project_id,
+                source_artifact_path=repair_source_artifact,
+            )
+            log.write(
+                "phase0_repair_completed",
+                test_mode="phase0_only",
+                stage="phase0_prefetch",
+                phase="phase0_prefetch",
+                status="completed",
+                project_id=str(project_id),
+                **repair_summary,
+            )
+        else:
+            phase0_result = await workflow._run_phase0_prefetch(
+                db_session,
+                str(project_id),
+                1,
+                EXPECTED_CHAPTER_COUNT,
+            )
     except BaseException as exc:
         log.write(
             "exception",
@@ -1708,12 +2678,278 @@ async def test_deep_import_60_phase0_real_llm_acceptance(
         issues=acceptance_issues,
         llm_config=llm_config,
     )
+    artifact_path = _write_phase0_artifact(
+        log_path=log.path,
+        phase0_result=phase0_result,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+    )
     log.write(
         "final_summary",
         test_mode="phase0_only",
         stage="phase0_prefetch",
         wall_clock_s=round(time.monotonic() - log.started_at, 2),
         phase0_summary_path=str(summary_path),
+        phase0_artifact_path=str(artifact_path),
+        project_id=str(project_id),
+        issues=acceptance_issues,
+        output_counts=output_counts,
+        candidate_chapter_coverage=coverage,
+        result=result,
+    )
+    if acceptance_issues:
+        pytest.fail("\n".join(acceptance_issues))
+
+
+@pytest.mark.asyncio
+@pytest.mark.real_llm
+@phase1a_real_llm_required
+async def test_deep_import_60_phase1a_real_llm_acceptance(
+    db_session: AsyncSession,
+) -> None:
+    assert EXPECTED_CHAPTER_COUNT == 60
+    log = PersistentAcceptanceLogger.from_env()
+    expected_phase_shape = _expected_phase_shape()
+    llm_config = _llm_config_log_payload()
+    log.write(
+        "test_started",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        log_path=str(log.path),
+        file_path=str(REAL_FILE_PATH),
+        expected_chapter_count=EXPECTED_CHAPTER_COUNT,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+    )
+    assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
+    file_bytes = REAL_FILE_PATH.read_bytes()
+    chapters = parse_txt(file_bytes)
+    assert len(chapters) == EXPECTED_CHAPTER_COUNT
+    assert all(chapter.get("content") for chapter in chapters)
+    log.write(
+        "file_parsed",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        chapter_count=len(chapters),
+        bytes=len(file_bytes),
+        first_title=_chapter_title(chapters[0]) if chapters else None,
+        last_title=_chapter_title(chapters[-1]) if chapters else None,
+        nonempty_content_count=sum(1 for chapter in chapters if chapter.get("content")),
+    )
+
+    project_id = uuid.uuid4()
+    db_session.add(
+        Project(
+            id=project_id,
+            title="诡秘之主 第一部 前60章 Phase1a-only 验收",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
+        )
+    )
+    await db_session.flush()
+
+    import_result = await ImportService().upload_and_import(
+        db_session,
+        str(project_id),
+        REAL_FILE_PATH.name,
+        file_bytes,
+    )
+    log.set_context(project_id=str(project_id))
+    log.write(
+        "chapters_imported",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        project_id=str(project_id),
+        total_chapters=import_result.total_chapters,
+        imported_chapters=import_result.imported_chapters,
+    )
+    assert import_result.total_chapters == EXPECTED_CHAPTER_COUNT
+    assert import_result.imported_chapters == EXPECTED_CHAPTER_COUNT
+
+    workflow = DeepImportWorkflow()
+    try:
+        phase0_artifact_path = _phase1a_phase0_artifact_path()
+        if phase0_artifact_path is not None:
+            phase0_result = _load_phase0_artifact(phase0_artifact_path)
+            log.write(
+                "phase0_artifact_loaded",
+                test_mode="phase1a_only",
+                stage="phase0_prefetch",
+                phase="phase0_prefetch",
+                status="loaded",
+                project_id=str(project_id),
+                phase0_artifact_path=str(phase0_artifact_path),
+                details=phase0_result.quality_stats,
+                candidate_count=len(phase0_result.candidates),
+            )
+        else:
+            log.write(
+                "phase_started",
+                test_mode="phase1a_only",
+                stage="phase0_prefetch",
+                phase="phase0_prefetch",
+                status="running",
+                project_id=str(project_id),
+                expected_phase_shape=expected_phase_shape,
+            )
+            phase0_result = await workflow._run_phase0_prefetch(
+                db_session,
+                str(project_id),
+                1,
+                EXPECTED_CHAPTER_COUNT,
+            )
+            log.write(
+                "phase_completed",
+                test_mode="phase1a_only",
+                stage="phase0_prefetch",
+                phase="phase0_prefetch",
+                status="completed" if not phase0_result.blocked else "failed",
+                project_id=str(project_id),
+                details=phase0_result.quality_stats,
+                block_reason=phase0_result.block_reason,
+            )
+        log.write(
+            "phase_started",
+            test_mode="phase1a_only",
+            stage="phase1a_reinforce",
+            phase="phase1a_reinforce",
+            status="running",
+            project_id=str(project_id),
+        )
+        phase1a_repair_source = _phase1a_repair_source_artifact_path()
+        if phase1a_repair_source is not None:
+            phase1a_result, repair_summary = await _repair_phase1a_artifact(
+                db=db_session,
+                project_id=project_id,
+                source_artifact_path=phase1a_repair_source,
+                phase0_result=phase0_result,
+                chapters=chapters,
+            )
+            log.write(
+                "phase1a_repair_completed",
+                test_mode="phase1a_only",
+                stage="phase1a_reinforce",
+                phase="phase1a_reinforce",
+                status="completed",
+                project_id=str(project_id),
+                **repair_summary,
+            )
+        else:
+            phase1a_result = await workflow._run_phase1a_reinforcement(
+                db_session,
+                str(project_id),
+                1,
+                EXPECTED_CHAPTER_COUNT,
+                phase0_result.candidates,
+            )
+    except BaseException as exc:
+        log.write(
+            "exception",
+            test_mode="phase1a_only",
+            stage="phase1a_reinforce",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+            project_id=str(project_id),
+        )
+        try:
+            log.write(
+                "interrupted_counts",
+                test_mode="phase1a_only",
+                stage="phase1a_reinforce",
+                **await _count_acceptance_outputs(db_session, project_id),
+            )
+        except Exception as count_exc:
+            log.write(
+                "interrupted_count_failed",
+                test_mode="phase1a_only",
+                stage="phase1a_reinforce",
+                error_type=count_exc.__class__.__name__,
+                error_message=str(count_exc),
+            )
+        raise
+
+    result = _phase1a_result_payload(phase0_result, phase1a_result)
+    log.write(
+        "phase_completed",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        phase="phase1a_reinforce",
+        status="completed" if not result["blocked"] else "failed",
+        project_id=str(project_id),
+        details=result["quality_stats"],
+        block_reason=result["block_reason"],
+    )
+    log.write(
+        "result",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        project_id=str(project_id),
+        **result,
+    )
+    output_counts = await _count_acceptance_outputs(db_session, project_id)
+    coverage = _candidate_chapter_coverage(
+        list(phase1a_result.candidates),
+        start_chapter=1,
+        end_chapter=EXPECTED_CHAPTER_COUNT,
+    )
+    log.write(
+        "output_counts",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        project_id=str(project_id),
+        **output_counts,
+    )
+    log.write(
+        "candidate_chapter_coverage",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        project_id=str(project_id),
+        **coverage,
+    )
+
+    acceptance_rule_results, acceptance_issues = _phase1a_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        expected_chapter_count=EXPECTED_CHAPTER_COUNT,
+    )
+    log.write(
+        "acceptance_checks",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        checks=acceptance_rule_results,
+        issues=acceptance_issues,
+    )
+    summary_path = _write_phase1a_summary(
+        log_path=log.path,
+        wall_clock_s=time.monotonic() - log.started_at,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        issues=acceptance_issues,
+        llm_config=llm_config,
+    )
+    artifact_path = _write_phase1a_artifact(
+        log_path=log.path,
+        phase0_result=phase0_result,
+        phase1a_result=phase1a_result,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+    )
+    log.write(
+        "final_summary",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        wall_clock_s=round(time.monotonic() - log.started_at, 2),
+        phase1a_summary_path=str(summary_path),
+        phase1a_artifact_path=str(artifact_path),
         project_id=str(project_id),
         issues=acceptance_issues,
         output_counts=output_counts,

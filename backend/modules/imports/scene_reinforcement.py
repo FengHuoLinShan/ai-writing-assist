@@ -21,6 +21,14 @@ PHASE1A_REINFORCE_CONCURRENCY = 6
 PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS = 180.0
 DEEP_IMPORT_LLM_RETRY_COUNT = 1
 DEEP_IMPORT_422_BLOCK_THRESHOLD = 0.40
+PHASE1A_REFERENCE_SCENE_LIMIT = 12
+PHASE1A_SCENE_TITLE_LIMIT = 40
+PHASE1A_SCENE_GOAL_LIMIT = 140
+PHASE1A_BOUNDARY_REASON_LIMIT = 160
+PHASE1A_CHAPTER_TEXT_CHAR_LIMIT = 1000
+PHASE1A_RETRYABLE_ERROR_TYPES = frozenset(
+    {"network", "rate_limit", "empty_result"}
+)
 
 ChapterProvider = Callable[[SceneCandidateBatch], Awaitable[Sequence[Mapping[str, Any]]]]
 Phase1aLLMCallable = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -36,6 +44,7 @@ class Phase1aSceneReinforcer:
         *,
         concurrency: int | None = None,
         max_retries: int = DEEP_IMPORT_LLM_RETRY_COUNT,
+        retryable_error_types: set[str] | frozenset[str] | None = None,
     ) -> None:
         self.llm = llm
         self.concurrency = max(
@@ -52,6 +61,7 @@ class Phase1aSceneReinforcer:
             _llm_timeout_default(PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS),
         )
         self.max_retries = max_retries
+        self.retryable_error_types = retryable_error_types or _retryable_error_types_env()
 
     async def run(
         self,
@@ -150,14 +160,26 @@ class Phase1aSceneReinforcer:
             ),
             is_empty_result=lambda output: not output.scenes,
             max_retries=self.max_retries,
+            retryable_error_types=set(self.retryable_error_types),
         )
         diagnostics = retry_result.model_dump(mode="json", exclude={"value"})
 
         if retry_result.final_status != "success":
+            if retry_result.final_error_type == "422":
+                return _candidate_from_batch(
+                    batch,
+                    quality="failed",
+                    diagnostics=diagnostics,
+                )
             return _candidate_from_batch(
                 batch,
-                quality="failed",
-                diagnostics=diagnostics,
+                quality="low",
+                payload=_fallback_phase1a_payload(
+                    batch,
+                    batch_candidates=batch_candidates,
+                    diagnostics=diagnostics,
+                ),
+                diagnostics=_fallback_diagnostics(diagnostics),
             )
 
         output = retry_result.value
@@ -166,7 +188,9 @@ class Phase1aSceneReinforcer:
         return _candidate_from_batch(
             batch,
             quality=_quality_for_output(output),
-            payload=output.model_dump(mode="json"),
+            payload=_normalize_phase1a_output_payload(
+                output.model_dump(mode="json")
+            ),
             diagnostics=diagnostics,
         )
 
@@ -196,6 +220,10 @@ class Phase1aSceneReinforcer:
             "round": batch.round_name,
             "batch": batch.model_dump(mode="json"),
             "chapter_text": _build_chapter_text(chapters),
+            "chapter_text_budget": {
+                "chars_per_chapter": _phase1a_chapter_text_char_limit(),
+                "strategy": "bounded_head_middle_tail",
+            },
             "chapters": [_chapter_payload(chapter) for chapter in chapters],
             "phase0_references": _classify_references(batch_candidates),
             "previous_batch_summary": _batch_summary(
@@ -323,6 +351,7 @@ def _chapters_by_index(
 
 def _build_chapter_text(chapters: Sequence[Mapping[str, Any]]) -> str:
     parts = []
+    char_limit = _phase1a_chapter_text_char_limit()
     for chapter in sorted(
         chapters,
         key=lambda item: item.get("chapter_index", 10**9),
@@ -330,15 +359,21 @@ def _build_chapter_text(chapters: Sequence[Mapping[str, Any]]) -> str:
         chapter_index = chapter.get("chapter_index", "?")
         title = chapter.get("title") or f"Chapter {chapter_index}"
         content = chapter.get("content") or chapter.get("text") or ""
-        parts.append(f"## Chapter {chapter_index}: {title}\n{content}")
+        parts.append(
+            f"## Chapter {chapter_index}: {title}\n"
+            f"{_bounded_chapter_text(content, limit=char_limit)}"
+        )
     return "\n\n".join(parts)
 
 
 def _chapter_payload(chapter: Mapping[str, Any]) -> dict[str, Any]:
+    content = chapter.get("content") or chapter.get("text") or ""
+    char_limit = _phase1a_chapter_text_char_limit()
     return {
         "chapter_index": chapter.get("chapter_index"),
         "title": chapter.get("title", ""),
-        "content": chapter.get("content") or chapter.get("text") or "",
+        "content_chars": len(str(content)),
+        "content_truncated": len(str(content)) > char_limit,
     }
 
 
@@ -347,13 +382,7 @@ def _classify_references(candidates: Sequence[SceneCandidate]) -> dict[str, list
     weak = []
     failed_diagnostics = []
     for candidate in candidates:
-        payload = {
-            "candidate_id": candidate.candidate_id,
-            "source_round": candidate.source_round,
-            "source_batch_id": candidate.source_batch_id,
-            "source_chapter_indices": candidate.source_chapter_indices,
-            "payload": candidate.payload,
-        }
+        payload = _compact_phase0_reference(candidate)
         if candidate.quality == "high":
             strong.append(payload)
         elif candidate.quality == "low":
@@ -365,7 +394,8 @@ def _classify_references(candidates: Sequence[SceneCandidate]) -> dict[str, list
                     "source_round": candidate.source_round,
                     "source_batch_id": candidate.source_batch_id,
                     "source_chapter_indices": candidate.source_chapter_indices,
-                    "diagnostics": candidate.diagnostics,
+                    "quality": candidate.quality,
+                    "diagnostics": _compact_diagnostics(candidate.diagnostics),
                     "gap": "phase0 candidate was unavailable or unusable",
                 }
             )
@@ -392,13 +422,187 @@ def _batch_summary(
         "weak_reference_count": len(references["weak"]),
         "failed_reference_count": len(references["failed_diagnostics"]),
         "scene_titles": [
-            scene.get("title", "")
+            _compact_text(scene.get("title"), limit=PHASE1A_SCENE_TITLE_LIMIT)
             for candidate in candidates
             if candidate.quality in {"high", "low"}
             for scene in candidate.payload.get("scenes", [])
             if isinstance(scene, dict)
+        ][:PHASE1A_REFERENCE_SCENE_LIMIT],
+    }
+
+
+def _compact_phase0_reference(candidate: SceneCandidate) -> dict[str, Any]:
+    payload = candidate.payload if isinstance(candidate.payload, dict) else {}
+    return {
+        "candidate_id": candidate.candidate_id,
+        "source_round": candidate.source_round,
+        "source_batch_id": candidate.source_batch_id,
+        "source_chapter_indices": candidate.source_chapter_indices,
+        "quality": candidate.quality,
+        "boundary_status": payload.get("boundary_status"),
+        "confidence": payload.get("confidence"),
+        "scenes": [
+            _compact_phase1a_scene(scene)
+            for scene in payload.get("scenes", [])[:PHASE1A_REFERENCE_SCENE_LIMIT]
+            if isinstance(scene, dict)
         ],
     }
+
+
+def _compact_diagnostics(diagnostics: Mapping[str, Any] | None) -> dict[str, Any]:
+    diagnostics = diagnostics or {}
+    return {
+        "final_status": diagnostics.get("final_status"),
+        "final_error_type": diagnostics.get("final_error_type"),
+    }
+
+
+def _normalize_phase1a_output_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    normalized["scenes"] = [
+        _compact_phase1a_scene(scene)
+        for scene in normalized.get("scenes", [])
+        if isinstance(scene, dict)
+    ]
+    return normalized
+
+
+def _fallback_phase1a_payload(
+    batch: SceneCandidateBatch,
+    *,
+    batch_candidates: Sequence[SceneCandidate],
+    diagnostics: Mapping[str, Any],
+) -> dict[str, Any]:
+    references = _classify_references(batch_candidates)
+    fallback_reason = str(
+        diagnostics.get("final_error_type") or "degraded_fallback"
+    )
+    phase0_titles = [
+        scene.get("title")
+        for group_name in ("strong", "weak")
+        for reference in references.get(group_name, [])
+        for scene in reference.get("scenes", [])
+        if isinstance(scene, dict) and scene.get("title")
+    ]
+    title_seed = _compact_text(
+        phase0_titles[0] if phase0_titles else "Phase0 anchor",
+        limit=PHASE1A_SCENE_TITLE_LIMIT,
+    )
+    return {
+        "scenes": [
+            {
+                "title": f"{title_seed} #{chapter_index}",
+                "goal": "LLM 补强失败时保留章节锚点，供 Phase1b 继续融合。",
+                "scene_chunks": [{"chapter_index": chapter_index}],
+                "boundary_reason": f"degraded fallback after {fallback_reason}",
+            }
+            for chapter_index in batch.chapter_indices
+        ],
+        "degraded": True,
+        "fallback_reason": fallback_reason,
+        "fallback_source": "phase0_anchor",
+        "phase0_reference_counts": {
+            "strong": len(references.get("strong", [])),
+            "weak": len(references.get("weak", [])),
+            "failed": len(references.get("failed_diagnostics", [])),
+        },
+    }
+
+
+def _fallback_diagnostics(diagnostics: Mapping[str, Any]) -> dict[str, Any]:
+    original_error_type = diagnostics.get("final_error_type")
+    return {
+        "attempts": diagnostics.get("attempts", 1),
+        "final_status": "success",
+        "final_error_type": None,
+        "degraded": True,
+        "degraded_reason": "phase1a_llm_failed_fallback",
+        "original_error_type": original_error_type,
+        "diagnostics": diagnostics.get("diagnostics", []),
+    }
+
+
+def _compact_phase1a_scene(scene: Mapping[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {
+        "title": _compact_text(scene.get("title"), limit=PHASE1A_SCENE_TITLE_LIMIT),
+        "goal": _compact_text(scene.get("goal"), limit=PHASE1A_SCENE_GOAL_LIMIT),
+        "scene_chunks": [
+            _compact_scene_chunk(chunk)
+            for chunk in scene.get("scene_chunks", [])
+            if isinstance(chunk, dict)
+        ],
+    }
+    boundary_reason = _compact_text(
+        scene.get("boundary_reason"),
+        limit=PHASE1A_BOUNDARY_REASON_LIMIT,
+    )
+    if boundary_reason:
+        compact["boundary_reason"] = boundary_reason
+    return compact
+
+
+def _compact_scene_chunk(chunk: Mapping[str, Any]) -> dict[str, Any]:
+    compact = {"chapter_index": chunk.get("chapter_index")}
+    if chunk.get("start_paragraph") is not None:
+        compact["start_paragraph"] = chunk.get("start_paragraph")
+    if chunk.get("end_paragraph") is not None:
+        compact["end_paragraph"] = chunk.get("end_paragraph")
+    return compact
+
+
+def _compact_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip()
+
+
+def _bounded_chapter_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+    head_limit = max(1, limit // 3)
+    middle_limit = max(1, limit // 3)
+    tail_limit = max(1, limit - head_limit - middle_limit)
+    middle_start = max(0, (len(text) - middle_limit) // 2)
+    middle_end = middle_start + middle_limit
+    return (
+        text[:head_limit].rstrip()
+        + "\n[...phase1a text budget omitted middle gap...]\n"
+        + text[middle_start:middle_end].strip()
+        + "\n[...phase1a text budget omitted tail gap...]\n"
+        + text[-tail_limit:].lstrip()
+    )
+
+
+def _phase1a_chapter_text_char_limit() -> int:
+    return _positive_int_env(
+        "PHASE1A_CHAPTER_TEXT_CHAR_LIMIT",
+        PHASE1A_CHAPTER_TEXT_CHAR_LIMIT,
+    )
+
+
+def _retryable_error_types_env() -> frozenset[str]:
+    raw = os.getenv("PHASE1A_RETRYABLE_ERROR_TYPES")
+    if raw is None or raw.strip() == "":
+        return PHASE1A_RETRYABLE_ERROR_TYPES
+    allowed = {
+        "422",
+        "network",
+        "timeout",
+        "rate_limit",
+        "empty_result",
+        "schema_error",
+        "quality_gate",
+        "http_error",
+        "unknown",
+    }
+    values = {
+        item.strip()
+        for item in raw.split(",")
+        if item.strip() and item.strip() in allowed
+    }
+    return frozenset(values) if values else PHASE1A_RETRYABLE_ERROR_TYPES
 
 
 def _candidate_from_batch(
@@ -562,6 +766,7 @@ def _build_quality_stats(
         "quality_gate": 0,
         "http_error": 0,
         "unknown": 0,
+        "degraded_fallback": 0,
         "final_422": 0,
     }
     for candidate in candidates:
@@ -573,6 +778,8 @@ def _build_quality_stats(
             stats["high_quality"] += 1
         if candidate.quality == "low":
             stats["low_quality"] += 1
+        if candidate.diagnostics.get("degraded"):
+            stats["degraded_fallback"] += 1
 
         final_error_type = candidate.diagnostics.get("final_error_type")
         if final_error_type in stats:
