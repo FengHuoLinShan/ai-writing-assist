@@ -25,52 +25,66 @@ const contextView = {
         <div>
           <div class="card">
             <div class="card-title">编译上下文</div>
-            <div class="form-group">
-              <label>任务描述 *</label>
-              <textarea class="form-textarea" id="ctx-task" rows="2" placeholder="如：为旧档案缺页篇生成 10 章章节卡"></textarea>
+            <div class="context-template-row" aria-label="常用模板">
+              <button class="btn btn-sm" data-action="apply-template" data-template="plot">生成剧情线</button>
+              <button class="btn btn-sm" data-action="apply-template" data-template="polish">润色正文</button>
+              <button class="btn btn-sm" data-action="apply-template" data-template="conflict_check">检查冲突</button>
             </div>
-            <div class="form-group">
-              <label>范围</label>
-              <select class="form-select" id="ctx-scope">
-                <option value="project">项目信息</option>
-                <option value="world">世界对象</option>
-                <option value="world_character">世界+人物</option>
-                <option value="arc" selected>篇章</option>
-                <option value="chapter">章节</option>
-                <option value="full">全部</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>相关对象</label>
-              <input class="form-input" id="ctx-entities" placeholder="输入 world_entity ID，逗号分隔（可选）" />
-            </div>
-            <div class="form-group">
-              <label>相关人物</label>
-              <input class="form-input" id="ctx-characters" placeholder="输入 character ID，逗号分隔（可选）" />
-            </div>
-            <div class="form-group">
-              <label>章节索引</label>
-              <input class="form-input" id="ctx-chapter" type="number" min="1" placeholder="当前章节（可选）" />
-            </div>
-            <div class="form-group">
-              <label>Scene ID</label>
-              <input class="form-input" id="ctx-scene" placeholder="当前 Scene ID（可选，优先于章节）" />
-            </div>
-            <div class="form-group">
-              <label>预算 (tokens)</label>
-              <input class="form-input" id="ctx-budget" type="number" min="500" max="32000" value="4000" />
-            </div>
-            <div class="form-group">
-              <label>揭示模式</label>
-              <select class="form-select" id="ctx-reveal">
-                <option value="author_safe">作者安全模式（隐藏隐藏真相）</option>
-                <option value="author_full">作者全知模式（显示所有信息）</option>
-                <option value="reader">读者模式（仅显示读者已知信息）</option>
-                <option value="character">角色视角模式（按人物知识边界）</option>
-              </select>
-            </div>
+            <section class="ctx-form-section ctx-section-required">
+              <h3>必填</h3>
+              <div class="form-group">
+                <label>任务描述 *</label>
+                <textarea class="form-textarea" id="ctx-task" rows="2" placeholder="如：为旧档案缺页篇生成 10 章章节卡"></textarea>
+              </div>
+              <div class="form-group">
+                <label>范围</label>
+                <select class="form-select" id="ctx-scope">
+                  <option value="project">项目信息</option>
+                  <option value="world">世界对象</option>
+                  <option value="world_character">世界+人物</option>
+                  <option value="arc" selected>篇章</option>
+                  <option value="chapter">章节</option>
+                  <option value="full">全部</option>
+                </select>
+              </div>
+            </section>
+            <section class="ctx-form-section">
+              <h3>关联资料</h3>
+              <div class="form-group">
+                <label>相关对象</label>
+                <input class="form-input" id="ctx-entities" placeholder="可选 world_entity ID，逗号分隔" />
+              </div>
+              <div class="form-group">
+                <label>相关人物</label>
+                <input class="form-input" id="ctx-characters" placeholder="可选 character ID，逗号分隔" />
+              </div>
+              <div class="form-group">
+                <label>章节索引</label>
+                <input class="form-input" id="ctx-chapter" type="number" min="1" placeholder="当前章节（可选）" />
+              </div>
+              <div class="form-group">
+                <label>Scene ID</label>
+                <input class="form-input" id="ctx-scene" placeholder="当前 Scene ID（可选，优先于章节）" />
+              </div>
+            </section>
+            <details class="ctx-form-section ctx-section-advanced" open>
+              <summary>高级</summary>
+              <div class="form-group">
+                <label>预算 (tokens)</label>
+                <input class="form-input" id="ctx-budget" type="number" min="500" max="32000" value="4000" />
+              </div>
+              <div class="form-group">
+                <label>揭示模式</label>
+                <select class="form-select" id="ctx-reveal">
+                  <option value="author_safe">作者安全模式（隐藏隐藏真相）</option>
+                  <option value="author_full">作者全知模式（显示所有信息）</option>
+                  <option value="reader">读者模式（仅显示读者已知信息）</option>
+                  <option value="character">角色视角模式（按人物知识边界）</option>
+                </select>
+              </div>
+            </details>
             <button class="btn btn-primary" data-action="compile">编译上下文</button>
-            <button class="btn" data-action="render-md" disabled style="margin-left:8px;">渲染 Markdown</button>
+            <button class="btn" data-action="render-md" disabled title="编译成功后可渲染 Markdown" style="margin-left:8px;">渲染 Markdown</button>
           </div>
         </div>
 
@@ -79,8 +93,8 @@ const contextView = {
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
               <span>输出</span>
               <span>
-                <button class="btn btn-sm" data-action="copy" disabled>复制</button>
-                <button class="btn btn-sm" data-action="export" disabled>导出</button>
+                <button class="btn btn-sm" data-action="copy" disabled title="编译成功后可复制">复制</button>
+                <button class="btn btn-sm" data-action="export" disabled title="编译成功后可导出">导出</button>
               </span>
             </div>
             <div id="ctx-output" style="margin-top:8px;font-size:13px;line-height:1.6;">
@@ -98,7 +112,22 @@ const contextView = {
       "render-md": () => this.renderMarkdown(),
       "copy": () => this.copyMarkdown(),
       "export": () => this.exportContext(),
+      "apply-template": (_e, t) => this._applyTemplate(t.getAttribute("data-template")),
     })
+  },
+
+  _applyTemplate(template) {
+    const presets = {
+      plot: { task: "生成剧情线：基于当前设定梳理主线、支线和伏笔推进。", scope: "arc" },
+      polish: { task: "润色正文：保持设定一致，优化语气、节奏和场景细节。", scope: "chapter" },
+      conflict_check: { task: "检查当前章节是否存在人物、世界对象或剧情设定冲突。", scope: "chapter" },
+    }
+    const preset = presets[template]
+    if (!preset) return
+    const task = document.getElementById("ctx-task")
+    const scope = document.getElementById("ctx-scope")
+    if (task) task.value = preset.task
+    if (scope) scope.value = preset.scope
   },
 
   async compile() {

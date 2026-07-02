@@ -113,6 +113,7 @@ describe("候选清洗", () => {
       const html = worldView._renderCandidatesList()
 
       expect(html).toContain("作为林岚别名")
+      expect(html).toContain("candidate-action-badge")
       expect(html).toContain('data-action="merge-entity"')
       expect(html).toContain('data-target-name="林岚"')
     })
@@ -191,8 +192,10 @@ describe("对象库", () => {
   describe("_renderEntityList", () => {
     it("空列表显示空状态", () => {
       const html = worldView._renderEntityList()
+      const container = renderHtml(html)
       expect(html).toContain("还没有世界对象")
       expect(html).toContain('data-action="new"')
+      expect(container.querySelector(".empty-state [data-action='toggle-extract']")).toBeTruthy()
     })
 
     it("渲染实体表格", () => {
@@ -753,5 +756,41 @@ describe("_bindEvents", () => {
     document.querySelector("button").click()
     expect(spy).toHaveBeenCalledWith("e1")
     spy.mockRestore()
+  })
+})
+
+describe("批量操作", () => {
+  beforeEach(() => {
+    state.currentProjectId = "p1"
+    worldView._bulkSelections = {}
+  })
+
+  it("对象库批量删除调用现有单项 API", async () => {
+    worldView._entities = [
+      { id: "e1", name: "王都" },
+      { id: "e2", name: "旧城" },
+    ]
+    worldView._bulkSelections["world-objects"] = new Set(["e1", "e2"])
+    api.world.deleteEntity.mockResolvedValue({})
+
+    await worldView._executeBulkAction("world-objects", "delete-entities", worldView._itemsForBulkScope("world-objects"))
+
+    expect(api.world.deleteEntity).toHaveBeenCalledWith("e1", "p1")
+    expect(api.world.deleteEntity).toHaveBeenCalledWith("e2", "p1")
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+  })
+
+  it("候选清洗批量确认只处理 create_new 类候选", async () => {
+    worldView._candidates = [
+      { id: "c1", name: "新对象", content_json: { _meta: { suggested_action: "create_new" } } },
+      { id: "c2", name: "别名", content_json: { _meta: { suggested_action: "alias_of_existing" } } },
+    ]
+    worldView._bulkSelections["world-candidates"] = new Set(["c1", "c2"])
+    api.world.promoteEntity.mockResolvedValue({})
+
+    await worldView._executeBulkAction("world-candidates", "accept-candidates", worldView._itemsForBulkScope("world-candidates"))
+
+    expect(api.world.promoteEntity).toHaveBeenCalledTimes(1)
+    expect(api.world.promoteEntity).toHaveBeenCalledWith("c1", "p1")
   })
 })

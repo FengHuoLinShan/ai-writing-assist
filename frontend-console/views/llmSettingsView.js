@@ -73,6 +73,7 @@ const llmSettingsView = {
               <label>API Key</label>
               <div class="llm-key-row">
                 <input class="form-input" id="llm-api-key" type="password" autocomplete="off" placeholder="留空保留已保存密钥" />
+                <button class="btn btn-sm" id="llm-toggle-api-key" type="button">显示 Key</button>
                 <label class="llm-clear-key">
                   <input id="llm-clear-api-key" type="checkbox" />
                   清除
@@ -141,11 +142,23 @@ const llmSettingsView = {
     document.getElementById("llm-save-btn")?.addEventListener("click", () => {
       this.save()
     })
+    document.getElementById("llm-toggle-api-key")?.addEventListener("click", () => {
+      this.toggleApiKeyVisibility()
+    })
     document.querySelectorAll(".llm-template-item[data-template-id]").forEach((item) => {
       item.addEventListener("click", () => {
         this.applyTemplate(item.dataset.templateId)
       })
     })
+  },
+
+  toggleApiKeyVisibility() {
+    const input = document.getElementById("llm-api-key")
+    const button = document.getElementById("llm-toggle-api-key")
+    if (!input || !button) return
+    const visible = input.type === "text"
+    input.type = visible ? "password" : "text"
+    button.textContent = visible ? "显示 Key" : "隐藏 Key"
   },
 
   applyTemplate(templateId) {

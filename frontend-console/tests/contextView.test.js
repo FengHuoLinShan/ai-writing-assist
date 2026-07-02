@@ -10,6 +10,20 @@ describe("contextView", () => {
       expect(html).toContain("data-action")
       expect(html).toContain("compile")
       expect(html).toContain("render-md")
+      expect(html).toContain("ctx-section-required")
+      expect(html).toContain("data-action=\"apply-template\"")
+      expect(html).toContain("生成剧情线")
+    })
+  })
+
+  describe("templates", () => {
+    it("applies common task templates to task and scope fields", async () => {
+      document.body.innerHTML = await contextView.render()
+
+      contextView._applyTemplate("conflict_check")
+
+      expect(document.getElementById("ctx-task")?.value).toContain("检查")
+      expect(document.getElementById("ctx-scope")?.value).toBe("chapter")
     })
   })
 
@@ -65,4 +79,3 @@ describe("contextView", () => {
   })
 
 })
-

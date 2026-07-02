@@ -5,6 +5,17 @@
  * 生产环境通过 index.html 的 <script type="module"> 加载。
  */
 
+import {
+  bulkResultMessage,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import { renderInlineProgress } from "../shared/progressRenderer.js"
 
@@ -20,6 +31,7 @@ const projectView = {
 
   /** @type {object|null} 项目导入上传进度 */
   _uploadProgress: null,
+  _bulkSelections: {},
 
   async render() {
     const projects = state.projects
@@ -46,6 +58,7 @@ const projectView = {
           <p>选择一个项目继续创作，或创建新项目。</p>
           <div class="divider"></div>
         </div>
+        ${this._renderProjectBulkToolbar(projects)}
         <div class="project-grid">
       `
 
@@ -56,6 +69,9 @@ const projectView = {
         const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
         html += `
           <div class="project-card ${i === 0 ? "featured" : ""}" data-id="${esc(p.id)}" data-action="open-project">
+            <div class="project-card-selection" data-action="noop">
+              ${renderSelectionCell(this, "project-cards", p.id, `选择 ${p.title || p.name || "项目"}`)}
+            </div>
             <div class="project-status">
               <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
               <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${status === "canonical" ? "正史" : "草稿"}</span>
@@ -109,6 +125,18 @@ const projectView = {
     return html
   },
 
+  _renderProjectBulkToolbar(projects) {
+    const ids = projects.map((project) => project.id).filter(Boolean)
+    reconcileBulkSelection(this, "project-cards", ids)
+    return `
+      <div class="row-actions" style="margin-bottom:8px;">
+        <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
+      </div>
+    ` + renderBulkToolbar(this, "project-cards", [
+      { action: "delete-projects", label: "批量移入回收站", className: "btn-danger" },
+    ], { noun: "项目", hint: "只处理当前可见项目" })
+  },
+
   _stageLabel(stage) {
     const map = {
       world_building: "世界构建",
@@ -131,6 +159,21 @@ const projectView = {
   _bindCardDelegation() {
     bindWorkspaceClick(this, {
       "open-project": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
+      "noop": (e) => e.stopPropagation(),
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
+        router.refresh()
+      },
+      "bulk-clear": (_e, t) => {
+        clearBulkSelection(this, t.getAttribute("data-scope"))
+        router.refresh()
+      },
+      "bulk-run": (_e, t) => this._runProjectBulkAction(t.getAttribute("data-bulk-action")),
+      "select-visible-projects": () => {
+        for (const project of state.projects) toggleBulkSelection(this, "project-cards", project.id, true)
+        router.refresh()
+      },
       "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
       "delete-project": (_e, _t, ctx) => ctx.id && this.deleteProject(ctx.id),
       "new": () => this.showCreateForm(),
@@ -139,6 +182,24 @@ const projectView = {
       "upload-file": () => this._uploadFile(),
       "recycle-bin": () => this.showRecycleBin(),
     })
+  },
+
+  _runProjectBulkAction(action) {
+    if (action !== "delete-projects") return
+    const items = selectedItemsFrom(state.projects, getBulkSelection(this, "project-cards"))
+    if (!items.length) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    return confirmAction(`确定将选中的 ${items.length} 个项目移入回收站吗？`, async () => {
+      const result = await runBulkAction(items, async (project) => {
+        await api.projects.remove(project.id)
+      })
+      toast(bulkResultMessage(result, "批量移入回收站", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+      clearBulkSelection(this, "project-cards")
+      await this.onEnter()
+      router.refresh()
+    }, "移入回收站")
   },
 
   _bindImportButtons() {
@@ -286,7 +347,17 @@ const projectView = {
         showModal("回收站", "<p>回收站为空。</p>")
         return
       }
-      let listHtml = '<div style="max-height:400px;overflow-y:auto;">'
+      let listHtml = `
+        <div class="bulk-toolbar">
+          <div class="bulk-toolbar__status"><span>回收站项目</span></div>
+          <div class="bulk-toolbar__actions">
+            <button class="btn btn-sm" id="recycle-select-all">全选当前列表</button>
+            <button class="btn btn-sm btn-primary" id="recycle-bulk-restore">批量恢复</button>
+            <button class="btn btn-sm btn-danger" id="recycle-bulk-delete">批量永久删除</button>
+          </div>
+        </div>
+        <div style="max-height:400px;overflow-y:auto;">
+      `
       for (const p of items) {
         const name = p.title || p.name || "未命名"
         const deletedDate = p.deleted_at
@@ -294,7 +365,11 @@ const projectView = {
           : ""
         listHtml += `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);">
-            <div>
+            <label class="selection-checkbox" title="选择 ${esc(name)}">
+              <input type="checkbox" class="recycle-project-checkbox" data-id="${esc(p.id)}" />
+              <span class="sr-only">选择 ${esc(name)}</span>
+            </label>
+            <div style="flex:1;min-width:0;margin-left:8px;">
               <div style="font-weight:500;">${esc(name)}</div>
               <div style="font-size:11px;color:var(--text-dim);">删除于 ${deletedDate}</div>
             </div>
@@ -309,6 +384,30 @@ const projectView = {
       showModal("回收站", listHtml)
 
       setTimeout(() => {
+        const selectedRecycleProjects = () => {
+          const ids = new Set(Array.from(document.querySelectorAll(".recycle-project-checkbox:checked")).map((input) => input.dataset.id))
+          return items.filter((item) => ids.has(item.id))
+        }
+        document.getElementById("recycle-select-all")?.addEventListener("click", () => {
+          document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
+        })
+        document.getElementById("recycle-bulk-restore")?.addEventListener("click", async () => {
+          const selected = selectedRecycleProjects()
+          if (!selected.length) { toast("请先选择项目", "warning"); return }
+          const result = await runBulkAction(selected, async (project) => api.projects.restore(project.id))
+          toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+          router.refresh()
+          this.showRecycleBin()
+        })
+        document.getElementById("recycle-bulk-delete")?.addEventListener("click", () => {
+          const selected = selectedRecycleProjects()
+          if (!selected.length) { toast("请先选择项目", "warning"); return }
+          confirmAction(`确定永久删除选中的 ${selected.length} 个项目？此操作不可恢复。`, async () => {
+            const result = await runBulkAction(selected, async (project) => api.projects.permanentDelete(project.id))
+            toast(bulkResultMessage(result, "批量永久删除项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+            this.showRecycleBin()
+          }, "永久删除")
+        })
         document.querySelectorAll(".restore-project-btn").forEach((btn) => {
           btn.onclick = async () => {
             try {

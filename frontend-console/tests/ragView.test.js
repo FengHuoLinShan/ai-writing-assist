@@ -41,7 +41,7 @@ describe("ragView", () => {
           ragView._metrics = { avg_latency_ms: 123.4, embedding_avg_ms: 50, degraded_rate: 0.25 }
           ragView._retryableEmbeddingCount = 2
         },
-        expected: ["诊断", "实际维度", "768", "配置维度", "1024", "ready", "123.4ms", "重试失败向量"],
+        expected: ["技术诊断详情", "实际维度", "768", "配置维度", "1024", "ready", "123.4ms", "重试失败向量"],
       },
       {
         name: "status 子视图包含索引状态",

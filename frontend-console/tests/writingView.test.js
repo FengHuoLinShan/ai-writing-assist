@@ -68,10 +68,28 @@ describe("writingView render", () => {
 
     const html = writingView._renderEditorToolsMenu(true)
 
+    expect(html).toContain("生成")
+    expect(html).toContain("提取")
+    expect(html).toContain("检查")
+    expect(html).toContain("地图")
     expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain("世界对象与别名/关系自动提取")
     expect(html).toContain("剧情线自动提取")
     expect(html).not.toContain('data-action="deep-import"')
+  })
+
+  it("编辑器显示保存状态徽章", () => {
+    writingView._currentChapter = 1
+    writingView._currentDraftId = "d1"
+    writingView._currentVersionNumber = 2
+    writingView._currentTitle = "第一章"
+    writingView._currentContent = "正文"
+    writingView._isReadonly = false
+
+    const html = writingView._renderEditor()
+
+    expect(html).toContain("writing-save-badge")
+    expect(html).toContain("writing-version-badge")
   })
 
   it("编辑器工具栏显示打开地图按钮", async () => {
@@ -1019,6 +1037,32 @@ describe("deep import recovery actions", () => {
     expect(rerenderSpy).toHaveBeenCalled()
 
     rerenderSpy.mockRestore()
+  })
+})
+
+describe("writingView 章节批量操作", () => {
+  it("批量删除选中章节并清空当前章状态", async () => {
+    state.currentProjectId = "p1"
+    writingView._chapterList = [1, 2]
+    writingView._chapters = { 1: { title: "一" }, 2: { title: "二" } }
+    writingView._currentChapter = 2
+    writingView._currentDraftId = "d2"
+    writingView._bulkSelections = { "writing-chapters": new Set(["1", "2"]) }
+    api.writing.deleteChapter.mockResolvedValue({})
+    vi.spyOn(writingView, "_rerender").mockResolvedValue()
+    autoConfirm()
+
+    await writingView._runChapterBulkAction("delete-chapters")
+
+    await vi.waitFor(() => {
+      expect(api.writing.deleteChapter).toHaveBeenCalledWith(1, "p1")
+      expect(api.writing.deleteChapter).toHaveBeenCalledWith(2, "p1")
+      expect(writingView._chapterList).toEqual([])
+    })
+    expect(writingView._currentChapter).toBeNull()
+    await vi.waitFor(() => {
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+    })
   })
 })
 

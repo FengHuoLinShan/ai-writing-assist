@@ -4,6 +4,18 @@
  * 左侧章节树 → 中间编辑器 → 版本管理。
  * 支持暂存、发布、版本切换、整章删除。
  */
+import {
+  bulkResultMessage,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleAllBulkSelection,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import { renderFixedProgress } from "../shared/progressRenderer.js"
 import {
@@ -77,6 +89,7 @@ const writingView = {
   _conflictChecks: [],
   _latestConflictCheck: null,
   _checkingConflicts: false,
+  _bulkSelections: {},
 
   _autoExtractionWorkflowTypes() {
     return Object.values(AUTO_EXTRACTION_STAGES).map((item) => item.taskType)
@@ -507,12 +520,14 @@ const writingView = {
   // ============================================================
 
   _renderChapterTree() {
+    reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
     let html = `
       <div class="card" style="max-height:600px;overflow-y:auto;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:13px;font-weight:bold;">章节（${this._chapterList.length}）</span>
           <button class="btn btn-sm" data-action="new-chapter" style="font-size:11px;">+ 新建</button>
         </div>
+        ${this._renderChapterBulkToolbar()}
         <div style="margin-top:6px;">
     `
 
@@ -520,9 +535,10 @@ const writingView = {
       const isActive = idx === this._currentChapter
       html += `
         <div style="display:flex;align-items:center;padding:6px 8px;border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};margin-bottom:2px;background:${isActive ? 'var(--hover-bg)' : 'transparent'};border-radius:0 4px 4px 0;">
+          ${renderSelectionCell(this, "writing-chapters", String(idx), `选择第 ${idx} 章`)}
           <div class="clickable" data-action="select-chapter" data-chapter="${idx}" style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
             <strong>第 ${idx} 章</strong>
-            ${this._chapters[idx].title ? `<span style="color:var(--text-dim);font-size:11px;margin-left:6px;">${esc(this._chapters[idx].title)}</span>` : ''}
+            ${this._chapters[idx]?.title ? `<span style="color:var(--text-dim);font-size:11px;margin-left:6px;">${esc(this._chapters[idx].title)}</span>` : ''}
           </div>
           <button class="btn btn-sm" data-action="delete-chapter" data-chapter="${idx}" title="删除整章" style="font-size:11px;color:var(--danger);margin-left:4px;">✕</button>
         </div>
@@ -557,6 +573,7 @@ const writingView = {
     })
 
     const unassigned = this._chapterList.filter((idx) => !assignedChapters.has(idx))
+    reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
 
     let html = `
       <div class="card" style="max-height:600px;overflow-y:auto;">
@@ -564,6 +581,7 @@ const writingView = {
           <span style="font-size:13px;font-weight:bold;">Scene 树</span>
           <button class="btn btn-sm" data-action="new-chapter" style="font-size:11px;">+ 新建章</button>
         </div>
+        ${this._renderChapterBulkToolbar()}
         <div style="margin-top:6px;">
     `
 
@@ -617,6 +635,7 @@ const writingView = {
     const isActive = idx === this._currentChapter
     return `
       <div style="display:flex;align-items:center;padding:4px 6px;border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};margin-bottom:1px;background:${isActive ? 'var(--hover-bg)' : 'transparent'};border-radius:0 4px 4px 0;}">
+        ${renderSelectionCell(this, "writing-chapters", String(idx), `选择第 ${idx} 章`)}
         <div class="clickable" data-action="select-chapter" data-chapter="${idx}" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
           第 ${idx} 章
           ${this._chapters[idx] && this._chapters[idx].title ? `<span style="color:var(--text-dim);font-size:10px;margin-left:4px;">${esc(this._chapters[idx].title)}</span>` : ''}
@@ -624,6 +643,16 @@ const writingView = {
         <button class="btn btn-sm" data-action="delete-chapter" data-chapter="${idx}" title="删除整章" style="font-size:10px;color:var(--danger);margin-left:2px;">✕</button>
       </div>
     `
+  },
+
+  _renderChapterBulkToolbar() {
+    return `
+      <div class="row-actions" style="margin:8px 0;">
+        <button class="btn btn-sm" data-action="select-visible-chapters" ${this._chapterList.length === 0 ? "disabled" : ""}>全选当前章节</button>
+      </div>
+    ` + renderBulkToolbar(this, "writing-chapters", [
+      { action: "delete-chapters", label: "批量删除章节", className: "btn-danger" },
+    ], { noun: "章节", hint: "只删除当前可见章节" })
   },
 
   // ============================================================
@@ -635,6 +664,8 @@ const writingView = {
     const versionInfo = this._currentVersionNumber ? `v${this._currentVersionNumber}` : ''
     const readOnlyLabel = this._isReadonly ? '（只读）' : ''
     const draftLabel = this._currentDraftId ? `${versionInfo} ${readOnlyLabel}` : ''
+    const saveStatus = this._saveStatusText()
+    const disabledReason = hasSelection ? "当前版本只读，需基于此版本创建后再编辑" : "请先选择章节"
 
     let html = `
       <div>
@@ -643,14 +674,14 @@ const writingView = {
             <span id="writing-chapter-title" style="font-size:14px;font-weight:bold;">
               ${hasSelection ? `第 ${this._currentChapter} 章` : '选择章节开始编辑'}
             </span>
-            <span id="writing-version-info" style="color:var(--text-dim);font-size:11px;">${esc(draftLabel)}</span>
-            <span id="writing-save-status" style="color:var(--text-dim);font-size:11px;">${esc(this._saveStatusText())}</span>
+            <span id="writing-version-info" class="writing-version-badge">${esc(draftLabel || "未选择版本")}</span>
+            <span id="writing-save-status" class="writing-save-badge">${esc(saveStatus)}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
-            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
-            <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
-            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly && !this._checkingConflicts ? '' : 'disabled'}>剧情设定冲突检查</button>
+            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'} title="${hasSelection && !this._isReadonly ? "暂存当前编辑内容" : esc(disabledReason)}">${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
+            <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'} title="${hasSelection && !this._isReadonly ? "发布当前章节版本" : esc(disabledReason)}">发布</button>
+            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly && !this._checkingConflicts ? '' : 'disabled'} title="${this._checkingConflicts ? "冲突检查正在运行" : hasSelection && !this._isReadonly ? "检查当前章节设定冲突" : esc(disabledReason)}">剧情设定冲突检查</button>
             ${this._renderEditorToolsMenu(hasSelection)}
           </div>
         </div>
@@ -685,17 +716,31 @@ const writingView = {
 
   _renderEditorToolsMenu(hasSelection) {
     const disabled = hasSelection && !this._isReadonly ? "" : "disabled"
+    const disabledTitle = hasSelection ? "当前版本只读，需基于此版本创建后再使用" : "请先选择章节"
     return `
       <details class="writing-tools-menu">
         <summary class="btn btn-sm">AI 工具</summary>
         <div class="writing-tools-menu__body">
-          <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled}>AI 生成草稿</button>
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map">打开地图</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>` : ""}
-          ${this._findCurrentScene() && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene">断章至此</button>` : ""}
-          ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">AI 提取章节卡</button>` : ""}
+          <div class="writing-tools-menu__group">
+            <strong>生成</strong>
+            <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled} title="${disabled ? esc(disabledTitle) : "基于上下文生成当前章节草稿"}">AI 生成草稿</button>
+          </div>
+          ${state.currentProjectId ? `<div class="writing-tools-menu__group">
+            <strong>提取</strong>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>
+            ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">AI 提取章节卡</button>` : ""}
+          </div>` : ""}
+          <div class="writing-tools-menu__group">
+            <strong>检查</strong>
+            <button class="btn btn-sm" data-action="run-conflict-check" ${disabled} title="${disabled ? esc(disabledTitle) : "检查当前章节设定冲突"}">剧情设定冲突检查</button>
+            ${this._findCurrentScene() && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene">断章至此</button>` : ""}
+          </div>
+          ${state.currentProjectId ? `<div class="writing-tools-menu__group">
+            <strong>地图</strong>
+            <button class="btn btn-sm" data-action="open-map">打开地图</button>
+          </div>` : ""}
         </div>
       </details>
     `
@@ -1812,6 +1857,39 @@ const writingView = {
     }
   },
 
+  _runChapterBulkAction(action) {
+    if (action !== "delete-chapters") return
+    const selected = selectedItemsFrom(
+      this._chapterList.map((index) => ({ id: String(index), index })),
+      getBulkSelection(this, "writing-chapters"),
+    )
+    if (!selected.length) {
+      toast("请先选择章节", "warning")
+      return
+    }
+    return confirmAction(`确定删除选中的 ${selected.length} 个章节及其全部版本？此操作不可恢复。`, async () => {
+      const result = await runBulkAction(selected, async (item) => {
+        await api.writing.deleteChapter(item.index, state.currentProjectId)
+      })
+      for (const item of result.success) {
+        delete this._chapters[item.index]
+      }
+      const deleted = new Set(result.success.map((item) => item.index))
+      this._chapterList = this._chapterList.filter((index) => !deleted.has(index))
+      if (deleted.has(this._currentChapter)) {
+        this._currentChapter = null
+        this._currentDraftId = null
+        this._currentContent = null
+        this._currentTitle = null
+        this._versions = []
+        delete state.viewStates.writing
+      }
+      clearBulkSelection(this, "writing-chapters")
+      toast(bulkResultMessage(result, "批量删除章节", (item) => `第 ${item.index} 章`), result.failed.length ? "warning" : "success")
+      await this._rerender()
+    }, "确认删除")
+  },
+
   // ============================================================
   // Scene 导航
   // ============================================================
@@ -2637,6 +2715,20 @@ const writingView = {
   _bindEvents() {
     bindWorkspaceClick(this, {
       "select-chapter": (_e, t) => this._selectChapter(parseInt(t.getAttribute("data-chapter"), 10)),
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
+        this._rerender()
+      },
+      "bulk-clear": (_e, t) => {
+        clearBulkSelection(this, t.getAttribute("data-scope"))
+        this._rerender()
+      },
+      "bulk-run": (_e, t) => this._runChapterBulkAction(t.getAttribute("data-bulk-action")),
+      "select-visible-chapters": () => {
+        toggleAllBulkSelection(this, "writing-chapters", this._chapterList.map(String), true)
+        this._rerender()
+      },
       "new-chapter": () => this._newChapter(),
       "delete-chapter": (_e, t) => this._deleteChapter(parseInt(t.getAttribute("data-chapter"), 10)),
       "autosave": () => this._autosave(),

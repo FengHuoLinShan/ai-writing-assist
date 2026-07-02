@@ -122,6 +122,35 @@ describe("outlineView onEnter", () => {
   })
 })
 
+describe("outlineView 批量操作", () => {
+  beforeEach(() => {
+    state.currentProjectId = "p1"
+    outlineView._bulkSelections = {}
+  })
+
+  it("批量删除剧情线调用现有单项 API", async () => {
+    outlineView._threads = [{ id: "t1", name: "主线" }, { id: "t2", name: "支线" }]
+    outlineView._bulkSelections["outline-threads"] = new Set(["t1", "t2"])
+    api.outline.deleteThread.mockResolvedValue(null)
+
+    await outlineView._executeBulkAction("outline-threads", "delete-threads", outlineView._itemsForBulkScope("outline-threads"))
+
+    expect(api.outline.deleteThread).toHaveBeenCalledWith("t1", "p1")
+    expect(api.outline.deleteThread).toHaveBeenCalledWith("t2", "p1")
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+  })
+
+  it("批量删除伏笔调用 deleteForeshadowing", async () => {
+    outlineView._foreshadowing = [{ id: "f1", summary: "伏笔" }]
+    outlineView._bulkSelections["outline-foreshadowing"] = new Set(["f1"])
+    api.outline.deleteForeshadowing.mockResolvedValue(null)
+
+    await outlineView._executeBulkAction("outline-foreshadowing", "delete-foreshadowing", outlineView._itemsForBulkScope("outline-foreshadowing"))
+
+    expect(api.outline.deleteForeshadowing).toHaveBeenCalledWith("f1", "p1")
+  })
+})
+
 describe("outlineView render", () => {
   it("加载中显示加载提示", async () => {
     outlineView._loading = true
@@ -134,7 +163,8 @@ describe("outlineView render", () => {
     state.currentSubView = "scenes"
     state.currentProjectId = "p1"
     const html = await outlineView.render()
-    expect(html).toContain("Scene 管理已迁移到场景工作台")
+    expect(html).toContain("场景工作台")
+    expect(html).not.toContain(">场景卡<")
     expect(html).toContain("data-action=\"open-scene-workbench\"")
   })
 

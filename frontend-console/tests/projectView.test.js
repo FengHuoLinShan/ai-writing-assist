@@ -302,4 +302,22 @@ describe("projectView", () => {
       expect(html).toContain('aria-valuenow="42"')
     })
   })
+
+  describe("批量项目操作", () => {
+    it("批量移入回收站调用项目删除 API", async () => {
+      state.projects = [{ id: "p1", title: "项目A" }, { id: "p2", title: "项目B" }]
+      projectView._bulkSelections = { "project-cards": new Set(["p1", "p2"]) }
+      api.projects.remove.mockResolvedValue({})
+      autoConfirm()
+      vi.spyOn(projectView, "onEnter").mockResolvedValue()
+
+      await projectView._runProjectBulkAction("delete-projects")
+
+      expect(api.projects.remove).toHaveBeenCalledWith("p1")
+      expect(api.projects.remove).toHaveBeenCalledWith("p2")
+      await vi.waitFor(() => {
+        expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+      })
+    })
+  })
 })

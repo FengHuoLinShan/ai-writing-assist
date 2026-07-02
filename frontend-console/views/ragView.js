@@ -131,9 +131,9 @@ const ragView = {
         <div class="card" style="margin-bottom:8px;">
           <div class="card-title">RAG 索引概览</div>
           <div style="display:flex;gap:16px;margin-top:8px;">
-            <div><strong style="font-size:24px;">${countDisplay}</strong><br><span style="color:var(--text-dim);font-size:12px;">总片段数</span></div>
+            <div><strong style="font-size:24px;">${statusBadge}</strong><br><span style="color:var(--text-dim);font-size:12px;">索引是否可用</span></div>
+            <div><strong style="font-size:24px;">${countDisplay}</strong><br><span style="color:var(--text-dim);font-size:12px;">已索引章节片段</span></div>
             <div><strong style="font-size:24px;">${this._embeddingFailedCount}</strong><br><span style="color:var(--text-dim);font-size:12px;">降级片段</span></div>
-            <div><span style="font-size:24px;">${statusBadge}</span></div>
           </div>
         </div>
         <div id="rag-diagnostics">${this._renderDiagnostics()}</div>
@@ -191,8 +191,8 @@ const ragView = {
       <p style="margin-top:6px;font-size:12px;color:var(--warning);">${esc(this._prewarmWarning)}</p>
     ` : ""
     return `
-      <div class="card" style="margin-bottom:8px;">
-        <div class="card-title">诊断</div>
+      <details class="card rag-diagnostics-card" style="margin-bottom:8px;" ${this._embeddingDimensionMismatch || this._prewarmWarning ? "open" : ""}>
+        <summary class="card-title">技术诊断详情</summary>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:8px;font-size:12px;">
           <div><strong>${esc(String(actualDim))}</strong><br><span style="color:var(--text-dim);">实际维度</span></div>
           <div><strong>${esc(String(configuredDim))}</strong><br><span style="color:var(--text-dim);">配置维度</span></div>
@@ -205,7 +205,7 @@ const ragView = {
         </div>
         ${this._embeddingDimensionMismatch ? `<p style="margin-top:6px;font-size:12px;color:var(--warning);">向量维度配置漂移，请同步配置后重启后端。</p>` : ""}
         ${warning}
-      </div>
+      </details>
     `
   },
 

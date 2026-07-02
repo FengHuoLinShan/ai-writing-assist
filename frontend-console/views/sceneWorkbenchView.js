@@ -241,7 +241,7 @@ const sceneWorkbenchView = {
     }).join("")
     return `
       <article class="scene-workbench-row ${selected}" data-id="${esc(scene.id)}">
-        <label class="scene-fusion-select" title="选择用于手动融合">
+        <label class="scene-fusion-select selection-checkbox" title="选择用于手动融合">
           <input
             type="checkbox"
             data-action="toggle-fusion-selection"
@@ -264,7 +264,7 @@ const sceneWorkbenchView = {
         <div class="scene-workbench-row__actions">
           <button class="btn btn-sm btn-primary" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
           ${renderActionMenu(`scene-actions-${esc(scene.id)}`, [
-            { action: "organize-workbench-scene", label: "整理", data: { id: scene.id } },
+            { action: "organize-workbench-scene", label: "拆分/整理", data: { id: scene.id } },
             { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
           ])}
         </div>
@@ -275,13 +275,17 @@ const sceneWorkbenchView = {
   _renderFusionToolbar() {
     const count = this._selectedFusionSceneIds.size
     const disabled = count < 2 ? "disabled" : ""
+    const hint = count < 2 ? `再选 ${2 - count} 个即可融合` : "已可开始融合"
     return `
       <div class="scene-fusion-toolbar" aria-label="Scene 手动融合">
         <div class="scene-fusion-toolbar__status">
           <strong>${esc(count)}</strong>
           <span>个 Scene 已选</span>
+          <span class="scene-fusion-toolbar__hint">${esc(hint)}</span>
         </div>
-        <button class="btn btn-sm btn-primary" data-action="start-manual-fusion" ${disabled}>
+        <button class="btn btn-sm" data-action="select-visible-fusion-scenes">全选当前列表</button>
+        <button class="btn btn-sm" data-action="clear-fusion-selection" ${count === 0 ? "disabled" : ""} title="${count === 0 ? "当前没有选中的 Scene" : "清空当前选择"}">清空</button>
+        <button class="btn btn-sm btn-primary" data-action="start-manual-fusion" ${disabled} title="${count < 2 ? hint : "融合选中的 Scene"}">
           手动融合 / LLM 融合
         </button>
       </div>
@@ -404,6 +408,19 @@ const sceneWorkbenchView = {
     if (!sceneId) return
     if (selected) this._selectedFusionSceneIds.add(sceneId)
     else this._selectedFusionSceneIds.delete(sceneId)
+  },
+
+  _selectVisibleFusionScenes() {
+    for (const item of this._filteredItems()) {
+      const id = item.scene?.id
+      if (id) this._selectedFusionSceneIds.add(id)
+    }
+    router.renderCurrentView()
+  },
+
+  _clearFusionSelection() {
+    this._selectedFusionSceneIds = new Set()
+    router.renderCurrentView()
   },
 
   async _saveSceneDetails(sceneId) {
@@ -931,6 +948,8 @@ const sceneWorkbenchView = {
         this._toggleFusionSelection(ctx.id, t.checked)
         router.renderCurrentView()
       },
+      "select-visible-fusion-scenes": () => this._selectVisibleFusionScenes(),
+      "clear-fusion-selection": () => this._clearFusionSelection(),
       "start-manual-fusion": () => this._startManualFusion(),
       "start-merge-scene": (_e, _t, ctx) => ctx.id && this._startMerge(ctx.id),
       "start-split-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),

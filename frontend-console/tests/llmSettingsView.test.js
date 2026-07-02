@@ -85,7 +85,23 @@ describe("llmSettingsView", () => {
     expect(html).toContain("Kimi / Moonshot")
     expect(html).toContain("MiMo")
     expect(html).toContain("已保存")
+    expect(html).toContain("显示 Key")
     expect(html).not.toContain("sk-")
+  })
+
+  it("可以切换 API Key 输入框显示状态", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({})
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    llmSettingsView.bindEvents()
+
+    const keyInput = document.getElementById("llm-api-key")
+    document.getElementById("llm-toggle-api-key").click()
+
+    expect(keyInput.type).toBe("text")
+    expect(document.getElementById("llm-toggle-api-key").textContent).toContain("隐藏")
   })
 
   it("切换模板时填充 base URL 和默认模型", async () => {
