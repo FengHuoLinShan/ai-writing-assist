@@ -259,6 +259,20 @@ const api = {
         body: JSON.stringify(payload),
       })
     },
+    /** 提交项目级智能去重扫描任务 */
+    async startSmartDedupScan(id, payload = {}) {
+      return request(`/projects/${id}/smart-dedup/scan`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
+    /** 应用已确认的项目级智能去重建议 */
+    async applySmartDedup(id, payload) {
+      return request(`/projects/${id}/smart-dedup/apply`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+    },
   },
 
   // ============================================================

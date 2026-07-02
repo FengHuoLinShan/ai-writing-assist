@@ -9,6 +9,7 @@ const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "场景（scene）自动提取",
   scene_cross_chapter_detection: "跨章 Scene 识别",
+  smart_dedup_scan: "智能去重扫描",
   world_object_auto_extraction: "世界对象与别名/关系自动提取",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
   plot_structure_auto_extraction: "剧情线自动提取",
@@ -97,6 +98,7 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   }
   if (workflowType === "scene_auto_extraction") return "正在自动提取场景"
   if (workflowType === "scene_cross_chapter_detection") return "正在识别跨章 Scene"
+  if (workflowType === "smart_dedup_scan") return "正在扫描重复资产"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
   if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
   if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
@@ -162,6 +164,13 @@ function buildResultSummary(result, workflowType) {
   if (workflowType === "scene_cross_chapter_detection") {
     if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
     return result.summary || null
+  }
+  if (workflowType === "smart_dedup_scan") {
+    const parts = []
+    if (result.total_assets_scanned != null) parts.push(`扫描 ${result.total_assets_scanned}`)
+    if (result.suggestion_count != null) parts.push(`建议 ${result.suggestion_count}`)
+    if (result.estimated_duplicate_count != null) parts.push(`疑似重复 ${result.estimated_duplicate_count}`)
+    return parts.length ? parts.join("，") : result.summary || null
   }
   if (workflowType === "world_entity_fusion_suggestions") {
     if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`

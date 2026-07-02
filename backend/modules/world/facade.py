@@ -56,3 +56,47 @@ from modules.world.map_facade import (  # noqa: F401
     count_deep_import_map_observations_by_workflow,
     create_map_observation_from_delta_event,
 )
+
+
+async def suggest_entity_fusion(
+    db,
+    novel_id: str,
+    *,
+    entity_type: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    max_suggestions: int = 50,
+    progress_callback=None,
+) -> dict:
+    """Generate world entity duplicate suggestions through the public facade."""
+    from modules.world.entity_fusion import WorldEntityFusionService
+
+    return await WorldEntityFusionService().suggest(
+        db,
+        novel_id=novel_id,
+        entity_type=entity_type,
+        status=status,
+        limit=limit,
+        max_suggestions=max_suggestions,
+        progress_callback=progress_callback,
+    )
+
+
+async def apply_entity_fusion(
+    db,
+    novel_id: str,
+    *,
+    confirmed: bool,
+    suggestions: list[dict],
+) -> dict:
+    """Apply user-confirmed entity fusion suggestions through the public facade."""
+    from modules.world.entity_fusion import WorldEntityFusionService
+    from modules.world.schemas import EntityFusionApplyItem
+
+    items = [EntityFusionApplyItem(**item) for item in suggestions]
+    return await WorldEntityFusionService().apply(
+        db,
+        novel_id=novel_id,
+        confirmed=confirmed,
+        suggestions=items,
+    )

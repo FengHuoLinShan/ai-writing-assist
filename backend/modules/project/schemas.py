@@ -195,3 +195,48 @@ class ProjectLLMSettingsResponse(BaseModel):
     top_p: float | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
     api_key_configured: bool = False
+
+
+class SmartDedupScanRequest(BaseModel):
+    """Request one project-wide smart dedupe scan."""
+
+    scopes: list[str] | None = Field(
+        default=None,
+        description="资产范围；为空时扫描世界对象和全部 outline 结构资产",
+    )
+    limit_per_scope: int = Field(default=1000, ge=2, le=5000)
+    max_suggestions: int = Field(default=120, ge=1, le=300)
+
+
+class SmartDedupScanResponse(BaseModel):
+    """Async smart dedupe scan task response."""
+
+    task_id: str
+    status: str = "pending"
+
+
+class SmartDedupApplyItem(BaseModel):
+    """One user-confirmed smart dedupe suggestion."""
+
+    asset_type: str = Field(..., max_length=64)
+    action: str = Field(..., max_length=64)
+    source_asset_id: str
+    target_asset_id: str
+    alias: str | None = Field(None, max_length=255)
+    allow_canonical_merge: bool = False
+
+
+class SmartDedupApplyRequest(BaseModel):
+    """Apply selected smart dedupe suggestions after user confirmation."""
+
+    confirmed: bool = False
+    suggestions: list[SmartDedupApplyItem] = Field(..., min_length=1)
+
+
+class SmartDedupApplyResponse(BaseModel):
+    """Smart dedupe apply result."""
+
+    applied: int = 0
+    skipped: int = 0
+    results: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)

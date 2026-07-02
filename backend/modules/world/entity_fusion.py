@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from typing import Any, Literal
 
 from fastapi import HTTPException
@@ -183,13 +184,18 @@ class WorldEntityFusionService:
             else:
                 allow_canonical = item.allow_canonical_merge
 
-            result = await self._dedup.merge_candidate_into_entity(
-                db,
-                novel_id,
-                str(source.id),
-                str(target.id),
-                allow_canonical_source=allow_canonical,
-            )
+            try:
+                result = await self._dedup.merge_candidate_into_entity(
+                    db,
+                    novel_id,
+                    str(source.id),
+                    str(target.id),
+                    allow_canonical_source=allow_canonical,
+                )
+            except HTTPException as exc:
+                skipped += 1
+                warnings.append(str(exc.detail))
+                continue
             applied += 1
             results.append(
                 {
@@ -220,8 +226,41 @@ class WorldEntityFusionService:
     ) -> list[tuple[CoreEntity, CoreEntity, dict[str, Any]]]:
         by_id = {str(entity.id): entity for entity in entities}
         pairs: dict[tuple[str, str], dict[str, Any]] = {}
+        paired_sources: set[str] = set()
+
+        exact_groups: dict[tuple[str, str], list[CoreEntity]] = defaultdict(list)
+        for entity in entities:
+            normalized = normalize_name(entity.name)
+            if normalized:
+                exact_groups[(entity.entity_type, normalized)].append(entity)
+
+        for group in exact_groups.values():
+            if len(group) < 2:
+                continue
+            target = min(
+                group,
+                key=lambda item: (
+                    _STATUS_RANK.get(item.status, 9),
+                    item.name,
+                    str(item.id),
+                ),
+            )
+            for source in group:
+                if source.id == target.id:
+                    continue
+                pairs[(str(source.id), str(target.id))] = {
+                    "similarity_score": 1.0,
+                    "match_method": "normalized_exact_name",
+                }
+                paired_sources.add(str(source.id))
+                if len(pairs) >= max_pairs:
+                    break
+            if len(pairs) >= max_pairs:
+                break
 
         for source in entities:
+            if str(source.id) in paired_sources:
+                continue
             aliases = _aliases(source)
             for target in entities:
                 if source.id == target.id:
@@ -230,7 +269,8 @@ class WorldEntityFusionService:
                     continue
                 score, method = _lexical_similarity(source, target)
                 if score >= 0.84:
-                    pairs[(str(source.id), str(target.id))] = {
+                    merge_source, merge_target = _source_target(source, target)
+                    pairs[(str(merge_source.id), str(merge_target.id))] = {
                         "similarity_score": score,
                         "match_method": method,
                     }
@@ -244,7 +284,8 @@ class WorldEntityFusionService:
                 target = by_id.get(suggestion.existing_entity_id)
                 if target is None or target.id == source.id:
                     continue
-                pairs[(str(source.id), str(target.id))] = {
+                merge_source, merge_target = _source_target(source, target)
+                pairs[(str(merge_source.id), str(merge_target.id))] = {
                     "similarity_score": suggestion.similarity_score,
                     "match_method": suggestion.match_method,
                 }
@@ -313,6 +354,8 @@ class WorldEntityFusionService:
     ) -> EntityFusionDecision:
         deterministic = _deterministic_decision(source, target, match)
         if deterministic.action == "merge" and deterministic.confidence >= 0.98:
+            return deterministic
+        if deterministic.action in {"keep_separate", "needs_review", "alias_only"}:
             return deterministic
 
         client = self._llm_client or LLMClient()
@@ -385,6 +428,20 @@ def _deterministic_decision(
     score = float(match.get("similarity_score") or 0.0)
     method = str(match.get("match_method") or "")
     if method in {"normalized_exact_name", "exact_name"} or score >= 0.98:
+        if "alias" in method:
+            if source.status in {"candidate", "draft"}:
+                return EntityFusionDecision(
+                    action="merge",
+                    confidence=max(score, 0.98),
+                    reason="别名命中且来源仍是候选/草稿，建议合并到更稳定对象。",
+                    alias=source.name,
+                )
+            return EntityFusionDecision(
+                action="needs_review",
+                confidence=max(score, 0.9),
+                reason="正史对象存在别名命中，需要人工确认是否合并或仅保留别名。",
+                alias=source.name,
+            )
         return EntityFusionDecision(
             action="merge",
             confidence=max(score, 0.98),
@@ -410,6 +467,16 @@ def _deterministic_decision(
         confidence=1.0 - score,
         reason="名称和证据不足以支持合并。",
     )
+
+
+_STATUS_RANK = {"canonical": 0, "draft": 1, "candidate": 2}
+
+
+def _source_target(left: CoreEntity, right: CoreEntity) -> tuple[CoreEntity, CoreEntity]:
+    left_key = (_STATUS_RANK.get(left.status, 9), left.name, str(left.id))
+    right_key = (_STATUS_RANK.get(right.status, 9), right.name, str(right.id))
+    target, source = (left, right) if left_key <= right_key else (right, left)
+    return source, target
 
 
 def _entity_payload(entity: CoreEntity) -> dict[str, Any]:

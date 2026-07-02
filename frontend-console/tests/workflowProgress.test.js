@@ -54,6 +54,23 @@ describe("normalizeTaskProgress", () => {
     expect(progress.done).toBe(true)
   })
 
+  it("normalizes smart dedup scan summary", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "t-dedup",
+      task_type: "smart_dedup_scan",
+      status: "done",
+      result: {
+        total_assets_scanned: 20,
+        suggestion_count: 6,
+        estimated_duplicate_count: 5,
+      },
+    })
+
+    expect(progress.label).toBe("智能去重扫描")
+    expect(progress.message).toBe("任务完成")
+    expect(progress.resultSummary).toBe("扫描 20，建议 6，疑似重复 5")
+  })
+
   it("collects failure details and warnings", () => {
     const progress = normalizeTaskProgress({
       task_id: "t4",

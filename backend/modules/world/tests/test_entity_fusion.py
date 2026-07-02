@@ -105,3 +105,33 @@ async def test_entity_fusion_canonical_merge_requires_explicit_confirmation(
     assert result["applied"] == 0
     assert result["skipped"] == 1
     assert "二次确认" in result["warnings"][0]
+
+
+async def test_entity_fusion_suggestion_prefers_canonical_target(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    canonical_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="克莱恩",
+        status="canonical",
+    )
+    candidate_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="克莱恩",
+        status="candidate",
+    )
+
+    result = await WorldEntityFusionService().suggest(
+        db_session,
+        novel_id=project_novel_id,
+        max_suggestions=5,
+    )
+
+    suggestion = result["suggestions"][0]
+    assert suggestion["source_entity_id"] == candidate_id
+    assert suggestion["target_entity_id"] == canonical_id
+    assert suggestion["source_status"] == "candidate"
+    assert suggestion["target_status"] == "canonical"

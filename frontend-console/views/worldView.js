@@ -515,10 +515,8 @@ const worldView = {
         <div style="text-align:center;margin-bottom:12px;">
           <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
           <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取</button>
-          <button class="btn" data-action="start-entity-fusion" style="margin-left:8px;">AI 合并建议</button>
         </div>
         ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
-        ${this._renderFusionProgress()}
         ${this._renderFilters()}
         ${this._entitiesLoadError ? `
           <div class="empty-state" role="alert">
@@ -542,10 +540,8 @@ const worldView = {
         <button class="btn" data-action="toggle-extract" style="margin-left:8px;">
           ${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取
         </button>
-        <button class="btn" data-action="start-entity-fusion" style="margin-left:8px;">AI 合并建议</button>
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
-      ${this._renderFusionProgress()}
       <div style="margin-bottom:8px;text-align:center;">
         <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidates.length}）</button>
       </div>
@@ -1185,8 +1181,6 @@ const worldView = {
       "nav-map": () => router.navigate("world", "map"),
       "nav-generate": () => router.navigate("generate"),
       "toggle-extract": () => this._toggleAutoExtract(),
-      "start-entity-fusion": () => this._startEntityFusionSuggestions(),
-      "show-entity-fusion-suggestions": () => this._showEntityFusionSuggestions(),
       "toggle-advanced-filters": () => this._toggleAdvancedFilters(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),

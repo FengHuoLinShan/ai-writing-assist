@@ -19,6 +19,7 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 - `OutlineArcService`
 - `SceneService`
 - `SceneWorkbenchService`
+- `OutlineStructureDedupService`
 - `ForeshadowingPlanService`
 - `RevealPlanService`
 - `PlotStructureGenerator`
@@ -98,6 +99,18 @@ LLM 结果；preview 不修改来源 Scene。`fusion/save` 支持 `keep_original
 `structure_meta` 记录 `fusion_kind="cross_chapter_llm_detection"`、扫描轨迹和
 `source_task_id`。
 
+## 结构资产智能去重
+
+outline 模块拥有剧情线、篇章纲、Scene、伏笔和揭示的去重判断与应用规则。
+`OutlineStructureDedupService` 先用标题 / 摘要 / 章节范围召回相似资产，再用
+RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_duplicate`、
+`keep_separate` 或 `needs_review`。RAG 不可用时降级为摘要证据，并在建议中保留
+`degraded` reason。
+
+应用建议必须由用户确认。Scene 复用 Scene 工作台 merge 逻辑；其他结构资产不会
+硬删除，只标记为 `deprecated`，并在 `provenance_meta` 写入
+`merged_into_asset_id`、`dedup_source="smart_dedup"` 和 `needs_review=true`。
+
 ## Facade
 
 跨模块调用优先走 `facade.py`，当前主要提供 Scene 读取能力：
@@ -107,6 +120,8 @@ async def get_scene(...)
 async def get_scene_contract(...)
 async def get_scenes_by_novel(...)
 async def get_scenes_by_chapter(...)
+async def suggest_structure_dedup(...)
+async def apply_structure_dedup(...)
 ```
 
 ## 测试

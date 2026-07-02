@@ -10,9 +10,22 @@
  * 6. 激活默认视图
  */
 
+import {
+  clearActiveWorkflow,
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  pollTaskProgress,
+  recoverActiveWorkflows,
+} from "./shared/workflowProgress.js"
+import { renderWorkflowCard } from "./shared/progressRenderer.js"
+
 const App = {
   /** @type {boolean} */
   _initialized: false,
+
+  _smartDedupTaskId: null,
+  _smartDedupProgress: null,
+  _smartDedupPoller: null,
 
   /**
    * 初始化应用
@@ -34,9 +47,13 @@ const App = {
 
     // 从 localStorage 恢复项目选择
     this._restoreProjectState()
+    this._bindGlobalActions()
 
     // 初始化路由（async，等待项目元数据同步完成后再渲染首屏）
     await router.initRouter()
+    router.onNavigate(() => this._renderGlobalActions())
+    this._recoverSmartDedupWorkflow()
+    this._renderGlobalActions()
 
     // 检查后端连接
     this._checkBackendHealth()
@@ -64,6 +81,234 @@ const App = {
     document.querySelector(".nav-item.help")?.addEventListener("click", () => {
       this._showHelp()
     })
+  },
+
+  _bindGlobalActions() {
+    document.getElementById("view-actions")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-action]")
+      if (!button) return
+      const action = button.getAttribute("data-action")
+      if (action === "start-smart-dedup") {
+        this._startSmartDedupScan()
+      } else if (action === "show-smart-dedup-progress") {
+        this._showSmartDedupProgress()
+      }
+    })
+  },
+
+  _renderGlobalActions() {
+    const actions = document.getElementById("view-actions")
+    if (!actions) return
+    if (!state.currentProjectId || state.currentView === "project") {
+      actions.innerHTML = ""
+      return
+    }
+    const running = this._smartDedupProgress && !this._smartDedupProgress.terminal
+    const done = this._smartDedupProgress?.done
+    const label = running ? "查看智能去重" : done ? "查看去重建议" : "智能去重"
+    const action = running || done ? "show-smart-dedup-progress" : "start-smart-dedup"
+    actions.innerHTML = `
+      <button class="btn btn-sm ${running ? "btn-primary" : ""}" data-action="${action}">
+        ${esc(label)}
+      </button>
+    `
+  },
+
+  _recoverSmartDedupWorkflow() {
+    const workflow = recoverActiveWorkflows(state.currentProjectId)
+      .find((item) => item.workflowType === "smart_dedup_scan")
+    if (!workflow?.taskId) return
+    this._smartDedupTaskId = workflow.taskId
+    this._smartDedupProgress = normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: "smart_dedup_scan",
+      status: "running",
+      meta: workflow.meta || {},
+    }, "smart_dedup_scan")
+    this._startSmartDedupPolling(workflow.taskId)
+  },
+
+  async _startSmartDedupScan() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    if (this._smartDedupProgress && !this._smartDedupProgress.terminal) {
+      this._showSmartDedupProgress()
+      return
+    }
+    try {
+      const result = await api.projects.startSmartDedupScan(state.currentProjectId, {})
+      this._smartDedupTaskId = result.task_id
+      this._smartDedupProgress = normalizeTaskProgress({
+        ...result,
+        task_type: "smart_dedup_scan",
+      }, "smart_dedup_scan")
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "smart_dedup_scan",
+        label: "智能去重扫描",
+        projectId: state.currentProjectId,
+        view: state.currentView,
+      })
+      toast("智能去重扫描已提交", "success")
+      this._startSmartDedupPolling(result.task_id)
+      this._renderGlobalActions()
+    } catch (err) {
+      toast(`智能去重启动失败：${err.message}`, "error")
+    }
+  },
+
+  _startSmartDedupPolling(taskId) {
+    this._stopSmartDedupPolling()
+    this._smartDedupPoller = pollTaskProgress({
+      taskId,
+      workflowType: "smart_dedup_scan",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._smartDedupProgress = progress
+        this._renderGlobalActions()
+      },
+      onDone: (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._smartDedupTaskId = null
+        this._smartDedupProgress = progress
+        toast("智能去重扫描完成", "success")
+        this._renderGlobalActions()
+        this._showSmartDedupSuggestions()
+      },
+      onFailed: (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._smartDedupTaskId = null
+        this._smartDedupProgress = progress
+        toast(`智能去重扫描失败：${progress.errorMessage || "未知错误"}`, "error")
+        this._renderGlobalActions()
+      },
+    })
+  },
+
+  _stopSmartDedupPolling() {
+    if (this._smartDedupPoller?.stop) this._smartDedupPoller.stop()
+    this._smartDedupPoller = null
+  },
+
+  _showSmartDedupProgress() {
+    const progress = this._smartDedupProgress
+    if (!progress) {
+      this._startSmartDedupScan()
+      return
+    }
+    if (progress.done) {
+      this._showSmartDedupSuggestions()
+      return
+    }
+    showModal("智能去重", renderWorkflowCard(progress, {
+      title: "智能去重扫描",
+      destinationLabel: "完成后可选择合并或软废弃重复资产",
+      detailLevel: "detailed",
+    }), [])
+  },
+
+  _showSmartDedupSuggestions() {
+    const result = this._smartDedupProgress?.raw?.result || {}
+    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    if (!suggestions.length) {
+      showModal("智能去重", "<p>没有发现可处理的重复资产。</p>", [])
+      return
+    }
+    const rows = suggestions.map((item, index) => this._renderSmartDedupSuggestion(item, index)).join("")
+    const summary = `
+      <div style="margin-bottom:12px;color:var(--text-dim);font-size:13px;">
+        扫描 ${esc(result.total_assets_scanned || 0)} 个资产，
+        发现 ${esc(result.suggestion_count || suggestions.length)} 条建议。
+      </div>
+    `
+    showModal("智能去重建议", summary + rows, [{
+      text: "应用选中建议",
+      class: "btn-primary",
+      handler: async () => this._applySmartDedupSuggestions(suggestions),
+    }])
+  },
+
+  _renderSmartDedupSuggestion(item, index) {
+    const actionLabel = {
+      merge: "合并",
+      alias_only: "登记别名",
+      deprecate_duplicate: "废弃重复项",
+      needs_review: "复核",
+    }[item.action] || item.action || "复核"
+    const assetLabel = {
+      world_entity: "世界对象",
+      plot_thread: "剧情线",
+      outline_arc: "篇章纲",
+      scene: "Scene",
+      foreshadowing_plan: "伏笔",
+      reveal_plan: "揭示",
+    }[item.asset_type] || item.asset_type || "资产"
+    const evidence = (item.evidence_anchors || [])
+      .map((anchor) => anchor.snippet || anchor.reason || anchor.source_type || "")
+      .filter(Boolean)
+      .join(" / ")
+    const canonical = item.requires_canonical_confirmation ? `
+      <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
+        <input type="checkbox" data-smart-dedup-canonical="${esc(index)}" />
+        确认合并两个正史对象
+      </label>
+    ` : ""
+    const checked = item.action === "needs_review" ? "" : "checked"
+    return `
+      <article style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:10px;">
+        <label style="display:flex;gap:8px;align-items:flex-start;">
+          <input type="checkbox" data-smart-dedup-index="${esc(index)}" ${checked} />
+          <span>
+            <strong>${esc(assetLabel)} · ${esc(actionLabel)}：</strong>
+            ${esc(item.source_title || item.source_asset_id)} → ${esc(item.target_title || item.target_asset_id)}
+          </span>
+        </label>
+        <div style="color:var(--text-dim);font-size:12px;margin-top:4px;">
+          置信度 ${esc(item.confidence ?? "-")} · ${esc(item.match_method || "-")}
+        </div>
+        <p style="margin:6px 0 0;">${esc(item.reason || "无说明")}</p>
+        ${canonical}
+        <details style="margin-top:6px;"><summary>证据</summary><p>${esc(evidence || "无")}</p></details>
+      </article>
+    `
+  },
+
+  async _applySmartDedupSuggestions(suggestions) {
+    const selected = Array.from(document.querySelectorAll("[data-smart-dedup-index]:checked"))
+      .map((input) => {
+        const index = Number(input.getAttribute("data-smart-dedup-index"))
+        return { index, item: suggestions[index] }
+      })
+      .filter((entry) => entry.item)
+      .filter((entry) => ["merge", "alias_only", "deprecate_duplicate"].includes(entry.item.action))
+    if (!selected.length) {
+      toast("请选择可应用的建议", "warning")
+      return
+    }
+    const payload = selected.map(({ index, item }) => ({
+      asset_type: item.asset_type,
+      action: item.action,
+      source_asset_id: item.source_asset_id,
+      target_asset_id: item.target_asset_id,
+      alias: item.alias || item.source_title,
+      allow_canonical_merge: Boolean(document.querySelector(`[data-smart-dedup-canonical="${index}"]`)?.checked),
+    }))
+    try {
+      const applied = await api.projects.applySmartDedup(state.currentProjectId, {
+        confirmed: true,
+        suggestions: payload,
+      })
+      closeModal()
+      toast(`已应用 ${applied.applied || 0} 条智能去重建议`, "success")
+      this._smartDedupProgress = null
+      api.clearCache()
+      this._renderGlobalActions()
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "应用失败", "error")
+    }
   },
 
   /**

@@ -388,6 +388,7 @@ async def root():
 
 import modules.imports.tasks  # noqa: F401, E402 — 注册深度导入任务处理器
 import modules.outline.tasks  # noqa: F401, E402 — 注册剧情结构生成任务处理器
+import modules.project.tasks  # noqa: F401, E402 — 注册项目级任务处理器
 import modules.rag.tasks  # noqa: F401, E402 — 注册 RAG 索引/重建任务处理器
 import modules.world.tasks  # noqa: F401, E402 — 注册世界模块任务处理器
 import modules.writing.tasks  # noqa: F401, E402 — 注册章节发布任务处理器
