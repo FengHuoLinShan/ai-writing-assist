@@ -105,7 +105,23 @@ def success_output(payloads: list[dict]) -> dict:
     }
 
 
-def test_phase1b_windows_are_30_chapters_with_3_overlap() -> None:
+def test_phase1b_windows_are_10_chapters_with_2_overlap_by_default() -> None:
+    windows = build_phase1b_windows(start_chapter=1, end_chapter=80)
+
+    assert windows[0].core_range == (1, 10)
+    assert windows[0].covered_range == (1, 12)
+    assert windows[1].core_range == (11, 20)
+    assert windows[1].covered_range == (9, 22)
+    assert windows[-1].core_range == (71, 80)
+    assert windows[-1].covered_range == (69, 80)
+
+
+def test_phase1b_windows_can_be_tuned_with_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1B_WINDOW_CHAPTERS", "30")
+    monkeypatch.setenv("PHASE1B_WINDOW_OVERLAP", "3")
+
     windows = build_phase1b_windows(start_chapter=1, end_chapter=80)
 
     assert windows[0].core_range == (1, 30)
@@ -509,7 +525,11 @@ async def test_phase1b_fallback_normalizes_malformed_scene_chunks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_phase1b_schema_empty_and_timeout_diagnostics_do_not_block() -> None:
+async def test_phase1b_schema_empty_and_timeout_diagnostics_do_not_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1B_WINDOW_CHAPTERS", "30")
+    monkeypatch.setenv("PHASE1B_WINDOW_OVERLAP", "3")
     responses = [
         ValidationError.from_exception_data(
             "Phase1bReducerOutput",

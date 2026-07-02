@@ -67,8 +67,9 @@ async def call_alias_relation_extraction(
     chapters_text: str,
     entity_index: str,
     *,
-    max_tokens: int = 4096,
+    max_tokens: int = 3072,
     client_timeout: int = 120,
+    max_fix_attempts: int = 0,
 ) -> AliasRelationExtractionOutput:
     from core.config import get_settings
     from infrastructure.llm.client import LLMClient
@@ -88,7 +89,9 @@ async def call_alias_relation_extraction(
                 role="user",
                 content=(
                     "请只基于下列 Scene 正文和对象索引提取别名与对象关系。"
-                    "不要创建新对象；无法在索引中定位两端对象时跳过。\n\n"
+                    "不要创建新对象；无法在索引中定位两端对象时跳过。"
+                    "最多输出 8 个 aliases、12 个 relations；quote 和 "
+                    "description 必须短。只输出 JSON。\n\n"
                     f"{chapters_text}"
                 ),
             ),
@@ -101,7 +104,7 @@ async def call_alias_relation_extraction(
     return await llm_client.generate_structured(
         request,
         AliasRelationExtractionOutput,
-        max_fix_attempts=1,
+        max_fix_attempts=max_fix_attempts,
         transport_retries=True,
         fix_prompt=(
             "上一轮别名/关系抽取输出不是合法 JSON 或不符合 schema。"
@@ -109,4 +112,3 @@ async def call_alias_relation_extraction(
             "不要 Markdown 或解释。"
         ),
     )
-

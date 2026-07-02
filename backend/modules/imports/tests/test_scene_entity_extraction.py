@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.llm.errors import LLMConnectionError
+from infrastructure.llm.errors import LLMConnectionError, LLMInvalidResponseError
 from modules.imports import scene_entity_extraction as scene_entity_extraction_module
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
@@ -24,7 +24,9 @@ from modules.imports.llm_schemas import (
     SceneEntityExtractionOutput,
 )
 from modules.imports.scene_entity_alias_relation import (
+    _compact_entity_index_for_scene,
     _effective_alias_relation_total_timeout_seconds,
+    _trim_phase2b_scene_text,
 )
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 
@@ -184,6 +186,44 @@ def test_alias_relation_total_timeout_env_keeps_explicit_budget(
     )
 
     assert timeout == 240
+
+
+def test_phase2b_compacts_entity_index_to_scene_relevant_terms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT", "1")
+    entity_index = "\n".join(
+        [
+            "## 可用对象索引",
+            "- 克莱恩·莫雷蒂 (character)",
+            "- 黑荆棘安保公司 (organization)",
+            "- 无关地点 (location)",
+            "- 无关物品 (item)",
+        ]
+    )
+
+    compact = _compact_entity_index_for_scene(
+        entity_index,
+        "克莱恩进入黑荆棘安保公司。",
+    )
+
+    assert "- 克莱恩·莫雷蒂 (character)" in compact
+    assert "- 黑荆棘安保公司 (organization)" in compact
+    assert "- 无关地点 (location)" in compact
+    assert "- 无关物品 (item)" not in compact
+    assert "全量对象 4 个" in compact
+
+
+def test_phase2b_trims_scene_text_with_head_and_tail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT", "20")
+
+    compact = _trim_phase2b_scene_text("A" * 20 + "B" * 20 + "C" * 20)
+
+    assert compact.startswith("A")
+    assert "Scene 中段已压缩" in compact
+    assert compact.endswith("C" * 6)
 
 
 @pytest.fixture
@@ -1192,6 +1232,188 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
 
 
 @pytest.mark.asyncio
+async def test_phase2b_records_checkpoints_and_progress(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    snapshot = Mock(id=None)
+    progress_events: list[tuple[int, int]] = []
+
+    async def on_progress(completed: int, total: int) -> None:
+        progress_events.append((completed, total))
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_alias_relation."
+        "phase2_alias_relation_total_timeout_seconds",
+        lambda: 1,
+    )
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="Scene 正文",
+        ),
+        patch.object(
+            svc,
+            "_build_alias_relation_entity_index",
+            new_callable=AsyncMock,
+            return_value="## 可用对象索引",
+        ),
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            new_callable=AsyncMock,
+            return_value=snapshot,
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            new_callable=AsyncMock,
+            return_value=AliasRelationExtractionOutput(aliases=[], relations=[]),
+        ),
+        patch.object(
+            svc,
+            "_persist_alias_relation_output",
+            new_callable=AsyncMock,
+            return_value={"aliases": 1, "relations": 2},
+        ),
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [{"scene_index": 7, "id": "scene-7"}],
+            workflow_id="wf-phase2b",
+            on_scene_progress=on_progress,
+        )
+
+    assert progress_events[0] == (0, 1)
+    assert progress_events[-1] == (1, 1)
+    checkpoints = result["alias_relation_checkpoints"]["phase2b"]["scenes"]
+    assert checkpoints == [
+        {
+            "scene_id": "scene-7",
+            "scene_index": 7,
+            "position": 7,
+            "status": "done",
+            "aliases": 1,
+            "relations": 2,
+            "retry_count": 0,
+            "fallback": False,
+            "source": "deep_import",
+            "auto_ingested": True,
+        }
+    ]
+
+
+@pytest.mark.parametrize("checkpoint_status", ["done", "skipped"])
+@pytest.mark.asyncio
+async def test_phase2b_existing_checkpoint_skips_scene(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    checkpoint_status: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    progress_events: list[tuple[int, int]] = []
+
+    async def on_progress(completed: int, total: int) -> None:
+        progress_events.append((completed, total))
+
+    with patch.object(
+        svc,
+        "_call_alias_relation_extraction",
+        new_callable=AsyncMock,
+    ) as call_alias_relation:
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [{"scene_index": 7, "id": "new-scene-7"}],
+            workflow_id="wf-phase2b",
+            existing_checkpoints={
+                "phase2b": {
+                    "scenes": [
+                        {
+                            "scene_id": "new-scene-7",
+                            "scene_index": 7,
+                            "status": checkpoint_status,
+                            "aliases": 3,
+                            "relations": 4,
+                            "retry_count": 0,
+                        }
+                    ]
+                }
+            },
+            on_scene_progress=on_progress,
+        )
+
+    assert call_alias_relation.await_count == 0
+    assert result["alias_relation_scenes"] == 0
+    assert result["alias_relation_skipped_scenes"] == 1
+    assert result["alias_relation_failed_scenes"] == []
+    assert progress_events == [(0, 1), (1, 1)]
+    checkpoint = result["alias_relation_checkpoints"]["phase2b"]["scenes"][0]
+    assert checkpoint["scene_id"] == "new-scene-7"
+    assert checkpoint["status"] == "skipped"
+    assert checkpoint["aliases"] == 3
+    assert checkpoint["relations"] == 4
+    assert checkpoint["fallback"] is False
+
+
+@pytest.mark.asyncio
+async def test_phase2b_invalid_json_falls_back_to_empty_result(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    snapshot = Mock(id=None)
+
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="Scene 正文",
+        ),
+        patch.object(
+            svc,
+            "_build_alias_relation_entity_index",
+            new_callable=AsyncMock,
+            return_value="## 可用对象索引\n- 克莱恩 (character)",
+        ),
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            new_callable=AsyncMock,
+            return_value=snapshot,
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            new_callable=AsyncMock,
+            side_effect=LLMInvalidResponseError("truncated json"),
+        ),
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [{"scene_index": 7, "id": "scene-7"}],
+            workflow_id="wf-phase2b",
+        )
+
+    assert result["alias_relation_scenes"] == 1
+    assert result["alias_relation_failed_scenes"] == []
+    assert result["alias_relation_fallback_scenes"] == [7]
+    assert result["degraded"] is False
+    assert result["error_kind"] is None
+    checkpoint = result["alias_relation_checkpoints"]["phase2b"]["scenes"][0]
+    assert checkpoint["status"] == "done"
+    assert checkpoint["fallback"] is True
+    assert checkpoint["error_kind"] == "LLMInvalidResponseError"
+
+
+@pytest.mark.asyncio
 async def test_phase2b_watchdog_timeout_returns_degraded_result(
     db_session: AsyncSession,
     novel_with_drafts: str,
@@ -1301,6 +1523,35 @@ async def test_optional_phase2b_skips_supplement_by_default(
     assert result["alias_relation_skipped"] is True
     assert result["alias_relation_failed_scenes"] == []
     assert result["degraded"] is False
+
+
+@pytest.mark.asyncio
+async def test_phase2a_only_alias_relation_result_skips_phase2b_even_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    monkeypatch.setenv("PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED", "1")
+
+    with patch.object(
+        svc,
+        "_run_alias_relation_phase",
+        new_callable=AsyncMock,
+    ) as run_alias_relation:
+        result = await svc._phase2_alias_relation_result(
+            Mock(),
+            "novel-1",
+            [{"scene_index": 1}],
+            workflow_id="wf-phase2a-skip",
+            include_alias_relations=False,
+        )
+
+    assert run_alias_relation.await_count == 0
+    assert result["total_aliases"] == 0
+    assert result["total_relations"] == 0
+    assert result["alias_relation_scenes"] == 0
+    assert result["alias_relation_failed_scenes"] == []
+    assert result["alias_relation_skipped"] is True
+    assert result["alias_relation_skip_reason"] == "phase2a_only"
 
 
 @pytest.mark.asyncio

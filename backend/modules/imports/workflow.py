@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -71,6 +72,13 @@ __all__ = [
     "PHASE3_STRUCTURE_TIMEOUT_SECONDS",
     "SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
 ]
+
+
+def _phase1b_use_llm(*, start_chapter: int, end_chapter: int) -> bool:
+    configured = os.getenv("PHASE1B_USE_LLM")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    return end_chapter - start_chapter + 1 <= 7
 
 
 class DeepImportWorkflow:
@@ -542,7 +550,11 @@ class DeepImportWorkflow:
 
         project_settings = getattr(self, "_agent_project_settings", None)
         return await Phase1bSceneFusion(
-            llm=_Phase1bSceneFusionLLM(project_settings=project_settings)
+            llm=_Phase1bSceneFusionLLM(project_settings=project_settings),
+            use_llm=_phase1b_use_llm(
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            ),
         ).run(
             phase1a_candidates=phase1a_candidates,
             start_chapter=start_chapter,
@@ -884,7 +896,11 @@ class DeepImportWorkflow:
     async def _count_world_objects(db: AsyncSession, novel_id: str) -> int:
         from modules.world.facade import count_entities
 
-        return await count_entities(db, novel_id, status_filter=["draft", "canonical"])
+        return await count_entities(
+            db,
+            novel_id,
+            status_filter=["candidate", "draft", "canonical"],
+        )
 
     # ------------------------------------------------------------------
     # Phase 1: Scene 切分

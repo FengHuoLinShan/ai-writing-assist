@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.service_progress_logs import record_progress_event
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,18 @@ class DeepImportProgressTracker:
                 "details": details or {},
             }
         )
+        record_progress_event(
+            progress,
+            "phase_started",
+            phase=phase,
+            status="running",
+            message=f"{phase} started",
+            details={
+                "operation": progress.current_operation,
+                "item": item or {},
+                "details": details or {},
+            },
+        )
         cls.refresh_diagnostic_counts(progress)
 
     @classmethod
@@ -76,6 +89,23 @@ class DeepImportProgressTracker:
                 target["details"] = {**(target.get("details") or {}), **details}
             if error_kind:
                 target["error_kind"] = error_kind
+        event_level = (
+            "error"
+            if status == "failed"
+            else ("warning" if status == "degraded" else "info")
+        )
+        record_progress_event(
+            progress,
+            "phase_finished",
+            phase=phase,
+            status=status,
+            level=event_level,
+            message=error_message or f"{phase} {status}",
+            details={
+                "error_kind": error_kind,
+                "details": details or {},
+            },
+        )
         if error_kind:
             cls.set_last_error(
                 progress,
@@ -149,25 +179,66 @@ class DeepImportProgressTracker:
             "snapshot_succeeded": int(snapshot_status.get("succeeded", 0) or 0),
             "snapshot_failed": int(snapshot_status.get("failed", 0) or 0),
             "checkpoint_summary": checkpoint_summary,
+            "phase_artifact_summary": cls.phase_artifact_summary(
+                progress.phase_artifacts
+            ),
             "phase_error_count": len(progress.phase_errors),
         }
 
-    @staticmethod
-    def checkpoint_summary(checkpoints: dict[str, Any] | None) -> dict[str, Any]:
+    @classmethod
+    def checkpoint_summary(cls, checkpoints: dict[str, Any] | None) -> dict[str, Any]:
         phase2 = (checkpoints or {}).get("phase2")
         scenes = phase2.get("scenes") if isinstance(phase2, dict) else []
-        if not isinstance(scenes, list):
-            return {}
+        phase2b = (checkpoints or {}).get("phase2b")
+        alias_scenes = phase2b.get("scenes") if isinstance(phase2b, dict) else []
+        phase2_status_counts = cls._checkpoint_status_counts(
+            scenes if isinstance(scenes, list) else []
+        )
+        phase2b_status_counts = cls._checkpoint_status_counts(
+            alias_scenes if isinstance(alias_scenes, list) else []
+        )
+        return {
+            "phase2_scene_checkpoints": len(scenes)
+            if isinstance(scenes, list)
+            else 0,
+            "phase2_status_counts": phase2_status_counts,
+            "phase2b_scene_checkpoints": len(alias_scenes)
+            if isinstance(alias_scenes, list)
+            else 0,
+            "phase2b_status_counts": phase2b_status_counts,
+        }
+
+    @staticmethod
+    def _checkpoint_status_counts(items: list[dict[str, Any]]) -> dict[str, int]:
         status_counts: dict[str, int] = {}
-        for item in scenes:
+        for item in items:
             if not isinstance(item, dict):
                 continue
             status = str(item.get("status") or "unknown")
             status_counts[status] = status_counts.get(status, 0) + 1
-        return {
-            "phase2_scene_checkpoints": len(scenes),
-            "phase2_status_counts": status_counts,
-        }
+        return status_counts
+
+    @staticmethod
+    def phase_artifact_summary(artifacts: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(artifacts, dict):
+            return {}
+        summary: dict[str, Any] = {}
+        for phase, artifact in artifacts.items():
+            if not isinstance(artifact, dict):
+                continue
+            coverage = artifact.get("coverage") or {}
+            repair = artifact.get("repair") or {}
+            counts = artifact.get("counts") or {}
+            summary[str(phase)] = {
+                "status": artifact.get("status"),
+                "quality_status": artifact.get("quality_status"),
+                "coverage_complete": coverage.get("coverage_complete"),
+                "missing_chapters": coverage.get("missing_chapters") or [],
+                "repair_attempts": repair.get("attempts", 0),
+                "repair_failed_units": repair.get("failed_units", 0),
+                "counts": counts,
+            }
+        return summary
 
     @classmethod
     async def emit_progress(

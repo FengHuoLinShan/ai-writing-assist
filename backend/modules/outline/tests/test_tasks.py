@@ -153,15 +153,19 @@ class TestPlotStructureParserDeepImportMode:
 
         assert result is not None
         assert len(result.threads) == 1
-        assert llm.kwargs["transport_retries"] is False
+        assert llm.kwargs["transport_retries"] is True
         assert llm.kwargs["max_fix_attempts"] == 1
+        assert llm.request.max_tokens == 3072
         system_content = llm.request.messages[0].content
         user_content = llm.request.messages[1].content
         assert "深度导入结构模式" in system_content
+        assert "plot_threads 恰好 3 项" in system_content
+        assert "总 JSON 控制在 1800 个中文字符以内" in system_content
         assert "已生成 Scene 摘要" in system_content
         assert "scenes 必须返回空数组" in system_content
         assert "已生成 Scene 摘要" not in user_content
-        assert "scenes 返回空数组" in user_content
+        assert "outline_arcs 恰好 3 项" in user_content
+        assert "scenes 都返回空数组" in user_content
 
 
 class TestPlotStructureGenerator:

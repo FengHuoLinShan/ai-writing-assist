@@ -36,6 +36,10 @@ function safeObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
 }
 
+function safeArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
 function readStorage(storage = globalThis.localStorage) {
   if (!storage) return []
   try {
@@ -110,6 +114,21 @@ function collectWarnings(result, meta) {
   const warnings = []
   for (const source of [result.warnings, meta.warnings]) {
     if (Array.isArray(source)) warnings.push(...source.filter(Boolean))
+  }
+  const artifacts = safeObject(result.phase_artifacts)
+  for (const [phase, artifact] of Object.entries(artifacts)) {
+    const coverage = safeObject(artifact?.coverage)
+    const repair = safeObject(artifact?.repair)
+    const missing = Array.isArray(coverage.missing_chapters) ? coverage.missing_chapters : []
+    if (missing.length > 0) warnings.push(`${phase} 缺少章节：${missing.slice(0, 8).join(", ")}`)
+    if ((repair.attempts || 0) > 0) warnings.push(`${phase} 已尝试修复 ${repair.attempts} 次`)
+    if (artifact?.status === "degraded") warnings.push(`${phase} 降级完成`)
+  }
+  for (const check of safeArray(result.acceptance_checks)) {
+    if (!check || check.ok !== false) continue
+    const phase = check.phase ? `${check.phase} ` : ""
+    const message = check.message || check.name || "门禁未通过"
+    warnings.push(`${phase}${message}`)
   }
   return warnings
 }
@@ -189,6 +208,12 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     errorMessage: raw.error_message || result.error_message || result.error || null,
     warnings: collectWarnings(result, meta),
     resultSummary: buildResultSummary(result, type),
+    phaseArtifacts: safeObject(result.phase_artifacts),
+    progressEvents: safeArray(result.progress_events),
+    acceptanceChecks: safeArray(result.acceptance_checks),
+    phaseTimeline: safeArray(result.phase_timeline),
+    diagnosticCounts: safeObject(result.diagnostic_counts),
+    phaseErrors: safeArray(result.phase_errors),
     createdAt: raw.created_at || meta.createdAt || null,
     startedAt: raw.started_at || null,
     updatedAt: raw.updated_at || raw.heartbeat_at || null,

@@ -22,6 +22,10 @@ PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS = 120
 PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS = 135
 PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS = 240
 PHASE2_ALIAS_RELATION_CONCURRENCY = 4
+PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS = 75
+PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT = 3200
+PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT = 3600
+PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT = 30
 PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED = False
 PHASE2_POSTPROCESS_TIMEOUT_SECONDS = 30.0
 PHASE2_SMALL_SAMPLE_MIN_SCENES = 8
@@ -87,6 +91,34 @@ def phase2_alias_relation_concurrency() -> int:
     return _positive_int_env(
         "PHASE2_ALIAS_RELATION_CONCURRENCY",
         PHASE2_ALIAS_RELATION_CONCURRENCY,
+    )
+
+
+def phase2_alias_relation_llm_timeout_seconds() -> int:
+    return _positive_int_env(
+        "PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS",
+        PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS,
+    )
+
+
+def phase2_alias_relation_scene_char_limit() -> int:
+    return _positive_int_env(
+        "PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT",
+        PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT,
+    )
+
+
+def phase2_alias_relation_entity_index_char_limit() -> int:
+    return _positive_int_env(
+        "PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT",
+        PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT,
+    )
+
+
+def phase2_alias_relation_entity_index_fallback_limit() -> int:
+    return _positive_int_env(
+        "PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT",
+        PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT,
     )
 
 

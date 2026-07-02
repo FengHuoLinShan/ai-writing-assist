@@ -19,8 +19,8 @@ from modules.imports.deep_import_retry import (
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.scene_candidates import SceneCandidate
 
-PHASE1B_WINDOW_CHAPTERS = 30
-PHASE1B_WINDOW_OVERLAP = 3
+PHASE1B_WINDOW_CHAPTERS = 10
+PHASE1B_WINDOW_OVERLAP = 2
 PHASE1B_CONCURRENCY = 4
 PHASE1B_CHAPTER_FALLBACK_MAX_RANGE = 12
 PHASE1B_REDUCER_RETRY_COUNT = 0
@@ -319,7 +319,7 @@ def build_phase1b_windows(
     start_chapter: int,
     end_chapter: int,
 ) -> list[Phase1bWindow]:
-    """Build 30-chapter reducer windows with 3-chapter overlap coverage."""
+    """Build reducer windows with bounded overlap coverage."""
 
     if start_chapter < 1:
         raise ValueError("start_chapter must be >= 1")
@@ -329,10 +329,12 @@ def build_phase1b_windows(
     windows: list[Phase1bWindow] = []
     core_start = start_chapter
     window_index = 1
+    window_chapters = _phase1b_window_chapters()
+    window_overlap = _phase1b_window_overlap()
     while core_start <= end_chapter:
-        core_end = min(core_start + PHASE1B_WINDOW_CHAPTERS - 1, end_chapter)
-        covered_start = max(start_chapter, core_start - PHASE1B_WINDOW_OVERLAP)
-        covered_end = min(end_chapter, core_end + PHASE1B_WINDOW_OVERLAP)
+        core_end = min(core_start + window_chapters - 1, end_chapter)
+        covered_start = max(start_chapter, core_start - window_overlap)
+        covered_end = min(end_chapter, core_end + window_overlap)
         windows.append(
             Phase1bWindow(
                 window_index=window_index,
@@ -345,6 +347,28 @@ def build_phase1b_windows(
     return windows
 
 
+def _phase1b_window_chapters() -> int:
+    raw = os.getenv("PHASE1B_WINDOW_CHAPTERS")
+    if raw is None or raw.strip() == "":
+        return PHASE1B_WINDOW_CHAPTERS
+    try:
+        value = int(raw)
+    except ValueError:
+        return PHASE1B_WINDOW_CHAPTERS
+    return value if value > 0 else PHASE1B_WINDOW_CHAPTERS
+
+
+def _phase1b_window_overlap() -> int:
+    raw = os.getenv("PHASE1B_WINDOW_OVERLAP")
+    if raw is None or raw.strip() == "":
+        return PHASE1B_WINDOW_OVERLAP
+    try:
+        value = int(raw)
+    except ValueError:
+        return PHASE1B_WINDOW_OVERLAP
+    return value if value >= 0 else PHASE1B_WINDOW_OVERLAP
+
+
 class Phase1bSceneFusion:
     """Fuse Phase 1a observations without正文 or formal Scene writes."""
 
@@ -354,10 +378,12 @@ class Phase1bSceneFusion:
         *,
         concurrency: int = PHASE1B_CONCURRENCY,
         max_retries: int = PHASE1B_REDUCER_RETRY_COUNT,
+        use_llm: bool = True,
     ) -> None:
         self.llm = llm
         self.concurrency = max(1, concurrency)
         self.max_retries = max_retries
+        self.use_llm = use_llm
 
     async def run(
         self,
@@ -382,6 +408,31 @@ class Phase1bSceneFusion:
             start_chapter=start_chapter,
             end_chapter=end_chapter,
         )
+        if not self.use_llm:
+            candidates = _deterministic_final_candidates_for(
+                valid_candidates,
+                windows=windows,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+            retry_results = [
+                DeepImportRetryResult(attempts=1, final_status="success")
+                for _window in windows
+            ]
+            quality_stats = _build_quality_stats(
+                retry_results,
+                total_windows=len(windows),
+            )
+            quality_stats["skipped_windows"] = 0
+            quality_stats["deterministic"] = True
+            return Phase1bFusionResult(
+                candidates=candidates,
+                quality_stats=quality_stats,
+                diagnostics=[],
+                degraded=False,
+                phase1a_fallback=False,
+                blocked=False,
+            )
         if not valid_candidates:
             quality_stats = _build_quality_stats([], total_windows=len(windows))
             quality_stats["skipped_windows"] = len(windows)
@@ -879,6 +930,90 @@ def _fallback_candidates_for(
                 )
             )
     return final_candidates
+
+
+def _deterministic_final_candidates_for(
+    candidates: Sequence[SceneCandidate],
+    *,
+    windows: Sequence[Phase1bWindow],
+    start_chapter: int,
+    end_chapter: int,
+) -> list[FinalSceneCandidate]:
+    primary_candidates = _deterministic_primary_candidates(
+        candidates,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+    )
+    final_candidates: list[FinalSceneCandidate] = []
+    for window in windows:
+        core_candidates = _window_candidates(
+            primary_candidates,
+            window,
+            range_name="core",
+        )
+        final_candidates.extend(_fallback_candidates_for(core_candidates))
+    normalized = [
+        candidate.model_copy(
+            update={
+                "candidate_id": candidate.candidate_id.replace(
+                    "phase1a-fallback-",
+                    "phase1b-deterministic-",
+                    1,
+                ),
+                "phase": "phase1b_fusion",
+                "fallback_required": False,
+                "boundary_status": (
+                    "complete"
+                    if candidate.boundary_status == "uncertain"
+                    else candidate.boundary_status
+                ),
+                "boundary_reason": (
+                    "Deterministic Phase 1b accepted the Phase 1a candidate "
+                    "for this chapter/window."
+                ),
+                "needs_review": True,
+                "review_reason": (
+                    "Deterministic Phase 1b result should be reviewed before "
+                    "canonical use."
+                ),
+            }
+        )
+        for candidate in final_candidates
+    ]
+    return _dedupe_final_candidates(normalized)
+
+
+def _deterministic_primary_candidates(
+    candidates: Sequence[SceneCandidate],
+    *,
+    start_chapter: int,
+    end_chapter: int,
+) -> list[SceneCandidate]:
+    primary_round_candidates = [
+        candidate for candidate in candidates if candidate.source_round == "A"
+    ]
+    if _covers_chapter_range(
+        primary_round_candidates,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+    ):
+        return primary_round_candidates
+    return list(candidates)
+
+
+def _covers_chapter_range(
+    candidates: Sequence[SceneCandidate],
+    *,
+    start_chapter: int,
+    end_chapter: int,
+) -> bool:
+    covered = {
+        chapter
+        for candidate in candidates
+        for chapter in _source_chapters_for(candidate)
+        if start_chapter <= chapter <= end_chapter
+    }
+    return covered == set(range(start_chapter, end_chapter + 1))
 
 
 def _with_chapter_coverage_fallbacks(

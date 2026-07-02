@@ -389,8 +389,11 @@ class DeepImportOrchestrator:
         task = result.scalar_one_or_none()
         if task is None:
             raise TaskNotFoundError(task_id)
-        if task.task_type != "deep_import":
-            raise ValueError("task_id must reference a deep_import task")
+        allowed_task_types = {"deep_import", *STAGE_TASK_TYPES.values()}
+        if task.task_type not in allowed_task_types:
+            raise ValueError(
+                "task_id must reference a deep_import or deep import stage task"
+            )
 
         result_data = task.result or {}
         meta_data = task.meta or {}
@@ -398,7 +401,7 @@ class DeepImportOrchestrator:
             result_data.get("recovery_required") is True
             and meta_data.get("recovery_required") is True
         ):
-            raise ValueError("deep_import task does not require recovery")
+            raise ValueError("deep import task does not require recovery")
         return task
 
     async def _check_duplicate_import(
@@ -564,9 +567,12 @@ class DeepImportOrchestrator:
             "current_operation": progress.current_operation,
             "current_item": progress.current_item,
             "phase_timeline": progress.phase_timeline,
+            "progress_events": progress.progress_events,
+            "acceptance_checks": progress.acceptance_checks,
             "diagnostic_counts": progress.diagnostic_counts,
             "last_error": progress.last_error,
             "quality_stats": progress.quality_stats,
+            "phase_artifacts": progress.phase_artifacts,
             "checkpoints": progress.checkpoints,
             "recovery_summary": progress.recovery_summary,
             "interrupted": progress.interrupted,

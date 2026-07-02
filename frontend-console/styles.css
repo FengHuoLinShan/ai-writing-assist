@@ -2391,6 +2391,67 @@ kbd {
   font-size: var(--text-xs);
 }
 
+.workflow-progress__artifacts {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.workflow-progress__details {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.workflow-progress__details summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.workflow-progress__detail-section {
+  margin-top: var(--space-2);
+}
+
+.workflow-progress__detail-section h4 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.workflow-progress__detail-section ul {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.workflow-progress__detail-section li {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.workflow-progress__details-kv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-top: 2px;
+}
+
+.workflow-progress__kv {
+  overflow-wrap: anywhere;
+}
+
+.workflow-progress__check--failed,
+.workflow-progress__event--warning {
+  color: var(--warning);
+}
+
+.workflow-progress__event--error {
+  color: var(--danger);
+}
+
 .workflow-progress--failed {
   border-color: var(--danger);
 }

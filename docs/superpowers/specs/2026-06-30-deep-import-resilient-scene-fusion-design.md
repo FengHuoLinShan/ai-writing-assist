@@ -171,10 +171,11 @@ Phase 1b 输出的 Scene 数量可以多于或少于 Phase 1a 候选数量。数
 
 ### 7.2 窗口
 
-- `PHASE1B_WINDOW_CHAPTERS = 30`
-- `PHASE1B_WINDOW_OVERLAP = 3`
+- `PHASE1B_WINDOW_CHAPTERS = 10`
+- `PHASE1B_WINDOW_OVERLAP = 2`
 - `PHASE1B_CONCURRENCY = 4`
 - Phase 1b 不做全书一次性整理。
+- Phase 1b 是 compact reducer：优先沿用 Phase 1a 的 `title / goal / scene_chunks`，只输出短裁决和 provenance，不重写长摘要或补齐完整 Scene 文本。60 章大样本默认使用确定性 reducer；小样本或显式 `PHASE1B_USE_LLM=1` 时才调用 LLM reducer。非小样本 LLM reducer 只让模型输出 `use_primary_round` 最小决策，再由代码物化 Phase 1a 候选。
 - 输出允许在窗口 overlap 覆盖范围内跨窗口边界形成连续 Scene，但不能越权覆盖远超当前窗口的章节。
 
 Overlap 冲突处理：
@@ -432,8 +433,11 @@ Scene、世界对象和相关派生资产管理界面支持后端 API 查询参�
 | `PHASE1A_CHAPTER_TEXT_CHAR_LIMIT` | `1000` | Phase 1a 每章正文输入预算 |
 | `PHASE1A_RETRYABLE_ERROR_TYPES` | `network,rate_limit,empty_result` | Phase 1a 可重试错误类型 |
 | `PHASE1B_CONCURRENCY` | `4` | Phase 1b fusion/reducer 并发 |
-| `PHASE1B_WINDOW_CHAPTERS` | `30` | Phase 1b 章节窗口 |
-| `PHASE1B_WINDOW_OVERLAP` | `3` | Phase 1b 窗口 overlap |
+| `PHASE1B_WINDOW_CHAPTERS` | `10` | Phase 1b 章节窗口 |
+| `PHASE1B_WINDOW_OVERLAP` | `2` | Phase 1b 窗口 overlap |
+| `PHASE1B_REDUCER_MAX_TOKENS` | `128` | Phase 1b 非小样本 LLM 决策输出 token 上限 |
+| `PHASE1B_REDUCER_TIMEOUT_SECONDS` | `45` | Phase 1b 非小样本 LLM 决策单窗口 timeout |
+| `PHASE1B_USE_LLM` | unset | 未设置时 7 章及以下用 LLM reducer，60 章大样本用确定性 reducer；设为 `1` 强制 LLM，设为 `0` 强制确定性 |
 | `DEEP_IMPORT_422_BLOCK_THRESHOLD` | `0.40` | Phase 0 / Phase 1a 阻断阈值，Phase 1b 降级阈值 |
 | `DEEP_IMPORT_LLM_RETRY_COUNT` | `1` | 422 / 网络 / timeout retry 次数 |
 
@@ -445,6 +449,8 @@ Scene、世界对象和相关派生资产管理界面支持后端 API 查询参�
 - `RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1`：默认复用最近完整通过的 Phase 0 artifact，再跑
   Phase 1a 后停止；可用 `PHASE1A_PHASE0_ARTIFACT_PATH` 显式指定输入 artifact。后续
   phase-only 真实验收入口也默认消费上一个 phase 已通过 artifact。
+- `RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM=1`：默认复用最近完整通过的 Phase 1a artifact，再跑
+  Phase 1b 后停止；60 章默认确定性 reducer，可用 `PHASE1B_USE_LLM=1` 显式复测 LLM 决策 reducer。
 - `RUN_DEEP_IMPORT_60_SCENE_REAL_LLM=1`：跑 Phase 0 / 1a / 1b / scene_commit 后停止。
 
 Phase 0 / Phase 1a 验收会输出 JSONL、Markdown 和 `.artifact.json`。artifact
@@ -480,7 +486,7 @@ Phase 0 / Phase 1a 验收会输出 JSONL、Markdown 和 `.artifact.json`。artif
 - Phase 0 对 213 章生成两轮错位 batch，能以默认并发 50 执行，并记录成功 / 422 / timeout / schema 失败统计。
 - Phase 0 或 Phase 1a final `422` 率超过 40% 时阻断任务，并展示官方 API 推荐提示。
 - Phase 1a 分别补强 Round A / Round B，不提前合并两轮。
-- Phase 1b 按 30 章窗口、3 章 overlap、并发 4 执行，不带正文。
+- Phase 1b 按 10 章窗口、2 章 overlap、并发 4 执行，不带正文；真实 60 章 Phase1b-only 默认消费最近通过的 Phase1a artifact，避免重复消耗 Phase0/1a。
 - Phase 1b 局部失败只 fallback 失败 Scene / 候选，不整批回退。
 - Phase 1b `422` 率超过 40% 时降级为 Phase 1a 顺序写库，任务继续。
 - 正式 Scene 写入包含 provenance_key，恢复重跑不会重复写入同一 Scene。

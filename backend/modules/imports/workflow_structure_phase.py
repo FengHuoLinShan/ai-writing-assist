@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.service_phase_artifacts import add_phase_artifact
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 PHASE3_STRUCTURE_TIMEOUT_SECONDS = 300
@@ -134,6 +135,30 @@ class StructureAnalysisPhaseRunner:
             error_kind=progress.quality_stats["phase3"].get("error_kind"),
             error_message=phase3_result.get("error_message"),
         )
+        add_phase_artifact(
+            progress,
+            "structure_analysis",
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            status="failed"
+            if phase3_failed
+            else (
+                "degraded"
+                if progress.quality_stats["phase3"]["error_kind"]
+                else "completed"
+            ),
+            quality_status="partial"
+            if phase3_failed or progress.quality_stats["phase3"]["error_kind"]
+            else "complete",
+            quality_stats=progress.quality_stats["phase3"],
+            counts=_phase3_counts(phase3_result),
+            checkpoint_summary={"snapshot_health": progress.snapshot_health_summary},
+            errors=[
+                error
+                for error in progress.phase_errors
+                if error.get("phase") == DeepImportStep.structure_analysis.value
+            ],
+        )
         return phase3_result
 
     async def run_stage_only(
@@ -199,6 +224,21 @@ class StructureAnalysisPhaseRunner:
                 status="failed",
                 error_kind="missing_scene_prerequisite",
                 error_message=progress.message,
+            )
+            add_phase_artifact(
+                progress,
+                "structure_analysis",
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                status="failed",
+                quality_status="failed",
+                quality_stats={},
+                counts=_phase3_counts({}),
+                errors=[
+                    error
+                    for error in progress.phase_errors
+                    if error.get("phase") == DeepImportStep.structure_analysis.value
+                ],
             )
             await workflow._emit_progress(progress, 1.0, on_progress)
             return progress
@@ -286,6 +326,24 @@ class StructureAnalysisPhaseRunner:
             error_kind=progress.quality_stats["phase3"].get("error_kind"),
             error_message=phase3_result.get("error_message"),
         )
+        add_phase_artifact(
+            progress,
+            "structure_analysis",
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            status="failed"
+            if phase3_failed
+            else ("degraded" if progress.degraded else "completed"),
+            quality_status=progress.quality_status,
+            quality_stats=progress.quality_stats["phase3"],
+            counts=_phase3_counts(phase3_result),
+            checkpoint_summary={"snapshot_health": progress.snapshot_health_summary},
+            errors=[
+                error
+                for error in progress.phase_errors
+                if error.get("phase") == DeepImportStep.structure_analysis.value
+            ],
+        )
         await workflow._emit_progress(progress, 1.0, on_progress)
         return progress
 
@@ -309,6 +367,24 @@ def phase3_quality_stats(
         "total_reveals": int(reveals or 0),
         "failed": failed,
         "error_kind": phase3_result.get("error_kind"),
+    }
+
+
+def _phase3_counts(phase3_result: dict[str, Any]) -> dict[str, Any]:
+    extra_sections = phase3_result.get("extra_sections") or {}
+    return {
+        "total_threads": int(phase3_result.get("total_threads", 0) or 0),
+        "total_arcs": int(phase3_result.get("total_arcs", 0) or 0),
+        "total_foreshadowing": int(
+            phase3_result.get("total_foreshadowing")
+            if phase3_result.get("total_foreshadowing") is not None
+            else len(extra_sections.get("foreshadowing_plans") or [])
+        ),
+        "total_reveals": int(
+            phase3_result.get("total_reveals")
+            if phase3_result.get("total_reveals") is not None
+            else len(extra_sections.get("reveal_plans") or [])
+        ),
     }
 
 

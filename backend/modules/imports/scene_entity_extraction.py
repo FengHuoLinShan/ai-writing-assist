@@ -131,6 +131,8 @@ class SceneEntityExtractionService:
         scene_ids: list[str] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        existing_checkpoints: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self._get_scenes(db, nid)
@@ -150,6 +152,8 @@ class SceneEntityExtractionService:
             nid,
             selected,
             workflow_id=workflow_id,
+            on_scene_progress=on_scene_progress,
+            existing_checkpoints=existing_checkpoints,
         )
         flush_status = await self._phase2_flush_with_timeout(db)
         return {
@@ -175,6 +179,7 @@ class SceneEntityExtractionService:
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
+        include_alias_relations: bool = True,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -281,11 +286,12 @@ class SceneEntityExtractionService:
                     parallel_result["completed_scenes"] > 0
                     or parallel_result["failed_scene_indices"]
                 ):
-                    alias_result = await self._run_optional_alias_relation_phase(
+                    alias_result = await self._phase2_alias_relation_result(
                         db,
                         nid,
                         scenes,
                         workflow_id=workflow_id,
+                        include_alias_relations=include_alias_relations,
                     )
                     return self._merge_alias_relation_result(
                         parallel_result,
@@ -360,11 +366,12 @@ class SceneEntityExtractionService:
                         "supplemental_error_kind"
                     ],
                 }
-                alias_result = await self._run_optional_alias_relation_phase(
+                alias_result = await self._phase2_alias_relation_result(
                     db,
                     nid,
                     scenes,
                     workflow_id=workflow_id,
+                    include_alias_relations=include_alias_relations,
                 )
                 return self._merge_alias_relation_result(phase2_result, alias_result)
 
@@ -376,6 +383,7 @@ class SceneEntityExtractionService:
                 existing_context,
                 workflow_id=workflow_id,
                 on_scene_progress=on_scene_progress,
+                include_alias_relations=include_alias_relations,
             )
 
         for scene_idx, scene in enumerate(scenes):
@@ -562,11 +570,12 @@ class SceneEntityExtractionService:
             "snapshot_health_summary": snapshot_health_summary,
             "checkpoints": {"phase2": {"scenes": scene_checkpoints}},
         }
-        alias_result = await self._run_optional_alias_relation_phase(
+        alias_result = await self._phase2_alias_relation_result(
             db,
             nid,
             scenes,
             workflow_id=workflow_id,
+            include_alias_relations=include_alias_relations,
         )
         return self._merge_alias_relation_result(phase2_result, alias_result)
 
@@ -786,6 +795,7 @@ class SceneEntityExtractionService:
         *,
         workflow_id: str | None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
+        include_alias_relations: bool = True,
     ) -> dict[str, Any]:
         batch_size = self._phase2_batch_size_scenes()
         batch_concurrency = self._phase2_batch_concurrency()
@@ -949,11 +959,12 @@ class SceneEntityExtractionService:
             "phase2_temporary_only": persistence_stats["temporary_only"],
             "phase2_low_confidence": persistence_stats["low_confidence"],
         }
-        alias_result = await self._run_optional_alias_relation_phase(
+        alias_result = await self._phase2_alias_relation_result(
             db,
             nid,
             scenes,
             workflow_id=workflow_id,
+            include_alias_relations=include_alias_relations,
         )
         return self._merge_alias_relation_result(phase2_result, alias_result)
 
@@ -1496,7 +1507,7 @@ class SceneEntityExtractionService:
         chapters_text: str,
         entity_index: str,
         *,
-        max_tokens: int = 4096,
+        max_tokens: int = 3072,
         client_timeout: int = 120,
     ) -> AliasRelationExtractionOutput:
         return await call_alias_relation_extraction(
@@ -1506,24 +1517,36 @@ class SceneEntityExtractionService:
             client_timeout=client_timeout,
         )
 
-    async def _run_optional_alias_relation_phase(
+    async def _phase2_alias_relation_result(
         self,
         db: AsyncSession,
         nid,
         scenes: list[dict[str, Any]],
         *,
         workflow_id: str | None = None,
+        include_alias_relations: bool = True,
     ) -> dict[str, Any]:
-        if _phase2_config.phase2_alias_relation_supplement_enabled():
-            return await self._run_alias_relation_phase(
-                db,
-                nid,
-                scenes,
-                workflow_id=workflow_id,
+        if not include_alias_relations:
+            return self._skipped_alias_relation_result(
+                len(scenes),
+                reason="phase2a_only",
             )
+        return await self._run_optional_alias_relation_phase(
+            db,
+            nid,
+            scenes,
+            workflow_id=workflow_id,
+        )
+
+    @staticmethod
+    def _skipped_alias_relation_result(
+        scene_count: int,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
         concurrency = _phase2_config.phase2_alias_relation_concurrency()
         total_timeout_seconds = _effective_alias_relation_total_timeout_seconds(
-            scene_count=len(scenes),
+            scene_count=scene_count,
             concurrency=concurrency,
             configured_timeout_seconds=(
                 _phase2_config.phase2_alias_relation_total_timeout_seconds()
@@ -1541,8 +1564,28 @@ class SceneEntityExtractionService:
             "alias_relation_total_timeout_s": total_timeout_seconds,
             "alias_relation_concurrency": concurrency,
             "alias_relation_skipped": True,
-            "alias_relation_skip_reason": "phase2_alias_relation_supplement_disabled",
+            "alias_relation_skip_reason": reason,
         }
+
+    async def _run_optional_alias_relation_phase(
+        self,
+        db: AsyncSession,
+        nid,
+        scenes: list[dict[str, Any]],
+        *,
+        workflow_id: str | None = None,
+    ) -> dict[str, Any]:
+        if _phase2_config.phase2_alias_relation_supplement_enabled():
+            return await self._run_alias_relation_phase(
+                db,
+                nid,
+                scenes,
+                workflow_id=workflow_id,
+            )
+        return self._skipped_alias_relation_result(
+            len(scenes),
+            reason="phase2_alias_relation_supplement_disabled",
+        )
 
     async def _run_alias_relation_phase(
         self,
@@ -1551,6 +1594,8 @@ class SceneEntityExtractionService:
         scenes: list[dict[str, Any]],
         *,
         workflow_id: str | None = None,
+        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        existing_checkpoints: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         started_at = time.monotonic()
         concurrency = _phase2_config.phase2_alias_relation_concurrency()
@@ -1571,6 +1616,8 @@ class SceneEntityExtractionService:
                     nid,
                     scenes,
                     workflow_id=workflow_id,
+                    on_scene_progress=on_scene_progress,
+                    existing_checkpoints=existing_checkpoints,
                 ),
                 timeout=watchdog_seconds,
             )

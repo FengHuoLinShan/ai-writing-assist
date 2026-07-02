@@ -67,6 +67,57 @@ describe("normalizeTaskProgress", () => {
     expect(progress.errorMessage).toBe("boom")
     expect(progress.warnings).toEqual(["warn"])
   })
+
+  it("normalizes deep import phase artifacts into warnings", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "t5",
+      task_type: "scene_auto_extraction",
+      status: "done",
+      result: {
+        phase_artifacts: {
+          phase1b_fusion: {
+            status: "degraded",
+            coverage: { missing_chapters: [2, 3] },
+            repair: { attempts: 1 },
+          },
+        },
+      },
+    })
+
+    expect(progress.phaseArtifacts.phase1b_fusion.status).toBe("degraded")
+    expect(progress.warnings).toContain("phase1b_fusion 缺少章节：2, 3")
+    expect(progress.warnings).toContain("phase1b_fusion 已尝试修复 1 次")
+    expect(progress.warnings).toContain("phase1b_fusion 降级完成")
+  })
+
+  it("normalizes service progress diagnostics and gate warnings", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "t6",
+      task_type: "world_object_auto_extraction",
+      status: "running",
+      result: {
+        progress_events: [{ event: "phase_started", phase: "entity_extraction" }],
+        acceptance_checks: [
+          {
+            name: "entity_extraction_missing_scene_prerequisite",
+            phase: "entity_extraction",
+            ok: false,
+            message: "请先执行场景",
+          },
+        ],
+        phase_timeline: [{ phase: "entity_extraction", status: "running" }],
+        diagnostic_counts: { entity_count: 0 },
+        phase_errors: [{ phase: "entity_extraction", error_kind: "missing_scene_prerequisite" }],
+      },
+    })
+
+    expect(progress.progressEvents).toHaveLength(1)
+    expect(progress.acceptanceChecks).toHaveLength(1)
+    expect(progress.phaseTimeline).toHaveLength(1)
+    expect(progress.diagnosticCounts.entity_count).toBe(0)
+    expect(progress.phaseErrors[0].error_kind).toBe("missing_scene_prerequisite")
+    expect(progress.warnings).toContain("entity_extraction 请先执行场景")
+  })
 })
 
 describe("active workflow storage", () => {
