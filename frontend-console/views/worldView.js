@@ -70,6 +70,9 @@ const worldView = {
   _autoExtractProgress: null,
   _autoExtractPoller: null,
   _autoExtractMeta: null,
+  _fusionTaskId: null,
+  _fusionProgress: null,
+  _fusionPoller: null,
 
   async onEnter() {
     this._entities = []
@@ -82,8 +85,10 @@ const worldView = {
       this._autoExtractTimer = null
     }
     this._stopAutoExtractPolling()
+    this._stopFusionPolling()
 
     this._recoverAutoExtractWorkflow()
+    this._recoverFusionWorkflow()
 
     await this._loadEntities()
     await this._loadCandidates()
@@ -322,9 +327,102 @@ const worldView = {
     this._startAutoExtractPolling(workflow.taskId, workflowType)
   },
 
+  _recoverFusionWorkflow() {
+    const workflow = recoverActiveWorkflows(state.currentProjectId)
+      .find((item) => item.workflowType === "world_entity_fusion_suggestions")
+    if (!workflow?.taskId) return
+    this._fusionTaskId = workflow.taskId
+    this._fusionProgress = normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: "world_entity_fusion_suggestions",
+      status: "running",
+      meta: workflow.meta || {},
+    }, "world_entity_fusion_suggestions")
+    this._startFusionPolling(workflow.taskId)
+  },
+
   _stopAutoExtractPolling() {
     if (this._autoExtractPoller?.stop) this._autoExtractPoller.stop()
     this._autoExtractPoller = null
+  },
+
+  _stopFusionPolling() {
+    if (this._fusionPoller?.stop) this._fusionPoller.stop()
+    this._fusionPoller = null
+  },
+
+  _renderFusionProgress() {
+    if (!this._fusionProgress) return ""
+    const result = this._fusionProgress.raw?.result || {}
+    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    const suggestionHtml = this._fusionProgress.done && suggestions.length ? `
+      <div style="margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;">
+        <span style="color:var(--text-dim);font-size:12px;">${esc(suggestions.length)} 条建议可查看</span>
+        <button class="btn btn-sm btn-primary" data-action="show-entity-fusion-suggestions">查看建议</button>
+      </div>
+    ` : ""
+    return `<div style="margin-bottom:12px;">${renderWorkflowCard(this._fusionProgress, {
+      title: "世界对象 AI 合并建议",
+      destinationLabel: "完成后可选择合并或登记别名",
+    })}${suggestionHtml}</div>`
+  },
+
+  async _startEntityFusionSuggestions() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      const result = await api.world.createEntityFusionSuggestions({
+        novel_id: state.currentProjectId,
+        entity_type: this._filters.entity_type || undefined,
+        status: this._filters.status || undefined,
+      })
+      this._fusionTaskId = result.task_id
+      this._fusionProgress = normalizeTaskProgress({
+        ...result,
+        task_type: "world_entity_fusion_suggestions",
+      }, "world_entity_fusion_suggestions")
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "world_entity_fusion_suggestions",
+        label: "世界对象 AI 合并建议",
+        projectId: state.currentProjectId,
+        view: "world",
+      })
+      toast("世界对象 AI 合并建议任务已提交", "success")
+      this._startFusionPolling(result.task_id)
+      router.renderCurrentView()
+    } catch (err) {
+      toast(err.message || "提交失败", "error")
+    }
+  },
+
+  _startFusionPolling(taskId) {
+    this._stopFusionPolling()
+    this._fusionPoller = pollTaskProgress({
+      taskId,
+      workflowType: "world_entity_fusion_suggestions",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._fusionProgress = progress
+        router.renderCurrentView()
+      },
+      onDone: (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._fusionTaskId = null
+        this._fusionProgress = progress
+        toast("世界对象 AI 合并建议已生成", "success")
+        router.renderCurrentView()
+      },
+      onFailed: (progress) => {
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._fusionTaskId = null
+        this._fusionProgress = progress
+        toast(`世界对象 AI 合并建议失败: ${progress.errorMessage || "未知错误"}`, "error")
+        router.renderCurrentView()
+      },
+    })
   },
 
   _startAutoExtractPolling(taskId, taskType = "world_object_auto_extraction") {
@@ -417,8 +515,10 @@ const worldView = {
         <div style="text-align:center;margin-bottom:12px;">
           <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
           <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取</button>
+          <button class="btn" data-action="start-entity-fusion" style="margin-left:8px;">AI 合并建议</button>
         </div>
         ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
+        ${this._renderFusionProgress()}
         ${this._renderFilters()}
         ${this._entitiesLoadError ? `
           <div class="empty-state" role="alert">
@@ -442,8 +542,10 @@ const worldView = {
         <button class="btn" data-action="toggle-extract" style="margin-left:8px;">
           ${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取
         </button>
+        <button class="btn" data-action="start-entity-fusion" style="margin-left:8px;">AI 合并建议</button>
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
+      ${this._renderFusionProgress()}
       <div style="margin-bottom:8px;text-align:center;">
         <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidates.length}）</button>
       </div>
@@ -1083,6 +1185,8 @@ const worldView = {
       "nav-map": () => router.navigate("world", "map"),
       "nav-generate": () => router.navigate("generate"),
       "toggle-extract": () => this._toggleAutoExtract(),
+      "start-entity-fusion": () => this._startEntityFusionSuggestions(),
+      "show-entity-fusion-suggestions": () => this._showEntityFusionSuggestions(),
       "toggle-advanced-filters": () => this._toggleAdvancedFilters(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
@@ -1245,6 +1349,79 @@ const worldView = {
     } catch (err) {
       toast(err.message || "合并失败", "error")
     }
+  },
+
+  _showEntityFusionSuggestions() {
+    const result = this._fusionProgress?.raw?.result || {}
+    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    if (!suggestions.length) {
+      toast("暂无合并建议", "info")
+      return
+    }
+    const rows = suggestions.map((item, index) => {
+      const actionLabel = item.action === "merge" ? "合并" : item.action === "alias_only" ? "登记别名" : "复核"
+      const evidence = (item.evidence_anchors || []).map((anchor) => anchor.snippet || anchor.source_type || "").filter(Boolean).join(" / ")
+      const canonical = item.requires_canonical_confirmation ? `
+        <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
+          <input type="checkbox" data-canonical-merge="${esc(index)}" />
+          确认合并两个正史对象
+        </label>
+      ` : ""
+      return `
+        <article style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:10px;">
+          <label style="display:flex;gap:8px;align-items:flex-start;">
+            <input type="checkbox" data-fusion-index="${esc(index)}" ${item.action === "needs_review" ? "" : "checked"} />
+            <span>
+              <strong>${esc(actionLabel)}：</strong>
+              ${esc(item.source_entity_name)} → ${esc(item.target_entity_name)}
+            </span>
+          </label>
+          <div style="color:var(--text-dim);font-size:12px;margin-top:4px;">
+            ${esc(item.entity_type || "-")} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.match_method || "-")}
+          </div>
+          <p style="margin:6px 0 0;">${esc(item.reason || "无说明")}</p>
+          ${canonical}
+          <details style="margin-top:6px;"><summary>证据</summary><p>${esc(evidence || "无")}</p></details>
+        </article>
+      `
+    }).join("")
+    showModal("世界对象 AI 合并建议", rows, [{
+      text: "应用选中建议",
+      class: "btn-primary",
+      handler: async () => {
+        const selected = Array.from(document.querySelectorAll("[data-fusion-index]:checked"))
+          .map((input) => {
+            const index = Number(input.getAttribute("data-fusion-index"))
+            return { index, item: suggestions[index] }
+          })
+          .filter((entry) => entry.item)
+          .filter((entry) => entry.item.action === "merge" || entry.item.action === "alias_only")
+        if (!selected.length) {
+          toast("请选择可应用的建议", "warning")
+          return
+        }
+        const payload = selected.map(({ index, item }) => ({
+          action: item.action,
+          source_entity_id: item.source_entity_id,
+          target_entity_id: item.target_entity_id,
+          alias: item.alias || item.source_entity_name,
+          allow_canonical_merge: Boolean(document.querySelector(`[data-canonical-merge="${index}"]`)?.checked),
+        }))
+        try {
+          const applied = await api.world.applyEntityFusionSuggestions({
+            novel_id: state.currentProjectId,
+            confirmed: true,
+            suggestions: payload,
+          })
+          closeModal()
+          toast(`已应用 ${applied.applied || 0} 条建议`, "success")
+          await this._reloadWorldLists()
+          router.refresh()
+        } catch (err) {
+          toast(err.message || "应用失败", "error")
+        }
+      },
+    }])
   },
 
   showRollbackForm(entityId) {

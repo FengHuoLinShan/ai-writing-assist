@@ -425,6 +425,7 @@ class Phase1bSceneFusion:
             )
             quality_stats["skipped_windows"] = 0
             quality_stats["deterministic"] = True
+            _add_scene_span_stats(quality_stats, candidates)
             return Phase1bFusionResult(
                 candidates=candidates,
                 quality_stats=quality_stats,
@@ -466,6 +467,7 @@ class Phase1bSceneFusion:
                 0,
                 len(fallback_candidates) - quality_stats["coverage_gap_fallback_count"],
             )
+            _add_scene_span_stats(quality_stats, fallback_candidates)
             return Phase1bFusionResult(
                 candidates=fallback_candidates,
                 quality_stats=quality_stats,
@@ -531,6 +533,7 @@ class Phase1bSceneFusion:
             quality_stats["minimum_count_fallback_count"] = len(
                 fallback_candidates
             ) - len(coverage_candidates)
+            _add_scene_span_stats(quality_stats, fallback_candidates)
             return Phase1bFusionResult(
                 candidates=fallback_candidates,
                 quality_stats=quality_stats,
@@ -573,6 +576,7 @@ class Phase1bSceneFusion:
             block_reason = "phase1b_coverage_gap_fallback"
         elif reducer_fallback:
             block_reason = "phase1b_reducer_fallback"
+        _add_scene_span_stats(quality_stats, final_candidates)
         return Phase1bFusionResult(
             candidates=final_candidates,
             quality_stats=quality_stats,
@@ -882,7 +886,11 @@ def _fallback_candidates_for(
                 scene if isinstance(scene, dict) else {}
                 for scene in scenes
             ]
-            if len(scene_payloads) == 1 and len(source_chapters) > 1:
+            if (
+                len(scene_payloads) == 1
+                and len(source_chapters) > 1
+                and not _payload_has_explicit_multi_chapter_chunks(scene_payloads[0])
+            ):
                 scene_payloads = [
                     _chapter_scene_payload_from(scene_payloads[0], chapter)
                     for chapter in source_chapters
@@ -1260,6 +1268,19 @@ def _normalized_scene_chunks_for_payload(
     ] or [{"chapter_index": 1, "start_paragraph": 0, "end_paragraph": None}]
 
 
+def _payload_has_explicit_multi_chapter_chunks(scene: dict[str, Any]) -> bool:
+    chunks = scene.get("scene_chunks")
+    if not isinstance(chunks, list):
+        return False
+    chapters = _unique_sorted(
+        int(chunk.get("chapter_index") or chunk.get("chapter"))
+        for chunk in chunks
+        if isinstance(chunk, dict)
+        and str(chunk.get("chapter_index") or chunk.get("chapter") or "").isdigit()
+    )
+    return len(chapters) > 1
+
+
 def _valid_phase1a_candidates(
     candidates: Sequence[SceneCandidate],
 ) -> list[SceneCandidate]:
@@ -1457,6 +1478,10 @@ def _build_quality_stats(
         "http_error": 0,
         "unknown": 0,
         "final_422": 0,
+        "multi_chapter_scene_count": 0,
+        "single_chapter_scene_count": 0,
+        "fallback_split_count": 0,
+        "cross_chapter_preserved_count": 0,
     }
     for retry_result in retry_results:
         if retry_result is None:
@@ -1476,6 +1501,30 @@ def _build_quality_stats(
         stats["final_422"] / total_windows if total_windows > 0 else 0.0
     )
     return stats
+
+
+def _add_scene_span_stats(
+    stats: dict[str, Any],
+    candidates: Sequence[FinalSceneCandidate],
+) -> None:
+    multi_count = 0
+    single_count = 0
+    fallback_split_count = 0
+    preserved_count = 0
+    for candidate in candidates:
+        chapters = _unique_sorted(candidate.source_chapter_indices)
+        if len(chapters) > 1:
+            multi_count += 1
+            if candidate.phase == "phase1a_fallback":
+                preserved_count += 1
+        else:
+            single_count += 1
+            if candidate.phase == "phase1a_fallback" and candidate.fallback_required:
+                fallback_split_count += 1
+    stats["multi_chapter_scene_count"] = multi_count
+    stats["single_chapter_scene_count"] = single_count
+    stats["fallback_split_count"] = fallback_split_count
+    stats["cross_chapter_preserved_count"] = preserved_count
 
 
 def _unique_sorted(values: Sequence[int] | Any) -> list[int]:

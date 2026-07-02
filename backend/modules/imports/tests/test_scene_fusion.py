@@ -30,6 +30,7 @@ def make_candidate(
     source_chapter_indices: list[int] | None = None,
     quality: str = "high",
     title: str | None = None,
+    payload: dict | None = None,
 ) -> SceneCandidate:
     chapter_indices = source_chapter_indices or [1]
     scene_title = title or f"{candidate_id} scene"
@@ -40,7 +41,7 @@ def make_candidate(
         source_batch_index=source_batch_index,
         source_chapter_indices=chapter_indices,
         quality=quality,
-        payload={
+        payload=payload or {
             "scenes": [
                 {
                     "title": scene_title,
@@ -179,6 +180,42 @@ async def test_phase1b_success_outputs_final_candidates_with_required_fields() -
     assert "完整 1-7 章样本至少 9 个" in payloads[0]["scene_count_guidance"]
     assert "chapter_text" not in payloads[0]
     assert "content" not in str(payloads[0]).lower()
+
+
+@pytest.mark.asyncio
+async def test_phase1b_fallback_preserves_explicit_multi_chapter_scene() -> None:
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    result = await Phase1bSceneFusion(llm=llm).run(
+        phase1a_candidates=[
+            make_candidate(
+                candidate_id="a-1",
+                source_round="A",
+                source_chapter_indices=[1, 2],
+                payload={
+                    "scenes": [
+                        {
+                            "title": "跨章追击",
+                            "goal": "追击从第一章延伸到第二章",
+                            "scene_chunks": [
+                                {"chapter_index": 1, "start_paragraph": 4},
+                                {"chapter_index": 2, "start_paragraph": 0},
+                            ],
+                        }
+                    ]
+                },
+            )
+        ],
+        start_chapter=1,
+        end_chapter=2,
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.source_chapter_indices == [1, 2]
+    assert [chunk.chapter_index for chunk in candidate.scene_chunks] == [1, 2]
+    assert result.quality_stats["multi_chapter_scene_count"] >= 1
+    assert result.quality_stats["cross_chapter_preserved_count"] >= 1
 
 
 @pytest.mark.asyncio

@@ -370,6 +370,22 @@ const api = {
       })
     },
 
+    /** 创建世界对象 AI 融合建议任务 */
+    async createEntityFusionSuggestions(data) {
+      return request("/world/entities/fusion-suggestions", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+    },
+
+    /** 应用已确认的世界对象融合建议 */
+    async applyEntityFusionSuggestions(data) {
+      return request("/world/entities/fusion-suggestions/apply", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+    },
+
     /** 回滚实体到指定场景索引 */
     async rollbackEntity(entityId, targetSceneIndex, novelId) {
       return request(`/world/entities/${entityId}/rollback${buildQueryString({ novel_id: novelId })}`, {
@@ -1140,6 +1156,14 @@ const api = {
     /** 保存或放弃手动 Scene 融合结果 */
     async saveSceneFusion(novelId, data) {
       return request(`/outline/scene-workbench/fusion/save${buildQueryString({ novel_id: novelId })}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data),
+      })
+    },
+    /** 创建跨章 Scene 识别任务 */
+    async detectCrossChapterScenes(data) {
+      return request("/outline/scene-workbench/cross-chapter/detect", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(data),

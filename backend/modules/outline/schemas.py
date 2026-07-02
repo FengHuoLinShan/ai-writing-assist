@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def _uuid_validator(v: object) -> str:
@@ -379,6 +379,30 @@ class SceneFusionSaveResponse(BaseModel):
     source_scene_ids: list[str]
     fused_scene: SceneResponse | None = None
     warnings: list[str] = []
+
+
+class CrossChapterSceneDetectRequest(BaseModel):
+    novel_id: str
+    start_chapter: int | None = Field(None, ge=1)
+    end_chapter: int | None = Field(None, ge=1)
+    max_chapter_span: int = Field(default=6, ge=2, le=20)
+    max_suggestions: int = Field(default=30, ge=1, le=100)
+    max_chain_calls: int = Field(default=6, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> CrossChapterSceneDetectRequest:
+        if (
+            self.start_chapter is not None
+            and self.end_chapter is not None
+            and self.end_chapter < self.start_chapter
+        ):
+            raise ValueError("end_chapter must be >= start_chapter")
+        return self
+
+
+class CrossChapterSceneDetectResponse(BaseModel):
+    task_id: str
+    status: str = "pending"
 
 
 class PlotStructureGenerateResponse(BaseModel):

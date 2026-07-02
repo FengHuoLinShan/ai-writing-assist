@@ -66,6 +66,7 @@ POST  /api/outline/scene-workbench/split/preview
 POST  /api/outline/scene-workbench/split
 POST  /api/outline/scene-workbench/fusion/preview
 POST  /api/outline/scene-workbench/fusion/save
+POST  /api/outline/scene-workbench/cross-chapter/detect
 ```
 
 `scenes.structure_meta` 保存结构整理元信息，例如：
@@ -91,6 +92,11 @@ LLM 结果；preview 不修改来源 Scene。`fusion/save` 支持 `keep_original
 `deprecate_originals` 会把来源 Scene 标记为 `deprecated`，新 Scene 记录
 `source="manual_fusion"` 与 `structure_meta.fused_from_scene_ids`，来源 Scene 记录
 `fused_into_scene_id`。
+
+跨章 Scene 识别通过 `cross-chapter/detect` 创建异步任务，只生成相邻 Scene
+递归扩展建议，不直接改库。用户确认后复用 `fusion/save` 保存融合 Scene，并在
+`structure_meta` 记录 `fusion_kind="cross_chapter_llm_detection"`、扫描轨迹和
+`source_task_id`。
 
 ## Facade
 

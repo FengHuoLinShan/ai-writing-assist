@@ -131,3 +131,36 @@ async def handle_world_alias_relation_extraction(db, task):
             await result_flush
     task.update_progress(1.0)
     return result
+
+
+@task_handler("world_entity_fusion_suggestions")
+async def handle_world_entity_fusion_suggestions(db, task):
+    """生成世界对象 LLM 融合/合并建议，不直接改实体。"""
+    from modules.world.entity_fusion import WorldEntityFusionService
+
+    meta = task.meta or {}
+    novel_id = meta.get("novel_id", "")
+    if not novel_id:
+        raise ValueError("novel_id is required for world_entity_fusion_suggestions")
+
+    task.update_progress(0.05)
+
+    def _progress(value: float) -> None:
+        task.update_progress(max(0.05, min(0.95, value)))
+
+    result = await WorldEntityFusionService().suggest(
+        db,
+        novel_id=novel_id,
+        entity_type=meta.get("entity_type"),
+        status=meta.get("status"),
+        limit=int(meta.get("limit", 200)),
+        max_suggestions=int(meta.get("max_suggestions", 50)),
+        progress_callback=_progress,
+    )
+    task.update_progress(1.0)
+    flush = getattr(db, "flush", None)
+    if flush is not None:
+        result_flush = flush()
+        if inspect.isawaitable(result_flush):
+            await result_flush
+    return result

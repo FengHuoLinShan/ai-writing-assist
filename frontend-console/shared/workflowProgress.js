@@ -8,7 +8,9 @@ const RUNNING_STATUSES = new Set(["pending", "running"])
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "场景（scene）自动提取",
+  scene_cross_chapter_detection: "跨章 Scene 识别",
   world_object_auto_extraction: "世界对象与别名/关系自动提取",
+  world_entity_fusion_suggestions: "世界对象 AI 合并建议",
   plot_structure_auto_extraction: "剧情线自动提取",
   publish_chapter: "发布正文",
   rag_reindex_novel: "重建 RAG 索引",
@@ -94,7 +96,9 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     return "深度导入已提交，等待处理"
   }
   if (workflowType === "scene_auto_extraction") return "正在自动提取场景"
+  if (workflowType === "scene_cross_chapter_detection") return "正在识别跨章 Scene"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
+  if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
   if (workflowType === "plot_structure_auto_extraction") return "正在自动提取剧情线"
   if (workflowType === "publish_chapter") {
     if (percent != null && percent < 50) return "正在存入 RAG 系统"
@@ -154,6 +158,14 @@ function buildResultSummary(result, workflowType) {
     if (result.total_created != null) parts.push(`新增 ${result.total_created}`)
     if (result.total_skipped != null) parts.push(`跳过 ${result.total_skipped}`)
     return parts.length ? parts.join("，") : null
+  }
+  if (workflowType === "scene_cross_chapter_detection") {
+    if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
+    return result.summary || null
+  }
+  if (workflowType === "world_entity_fusion_suggestions") {
+    if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
+    return result.summary || null
   }
   if (workflowType === "deep_import") {
     if (result.summary) return result.summary
