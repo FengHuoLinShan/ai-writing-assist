@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -146,6 +146,7 @@ class LLMProviderTemplateResponse(BaseModel):
     base_url: str = ""
     default_model: str = ""
     models: list[str] = Field(default_factory=list)
+    default_parameters: dict[str, Any] = Field(default_factory=dict)
     description: str = ""
     docs_url: str = ""
 
@@ -167,6 +168,11 @@ class ProjectLLMSettingsUpdate(BaseModel):
     label: str | None = Field(default=None, max_length=128)
     base_url: str = Field(..., min_length=1, max_length=512)
     model: str = Field(..., min_length=1, max_length=256)
+    timeout: int | None = Field(default=None, ge=1, le=3600)
+    max_tokens: int | None = Field(default=None, ge=1, le=200000)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    extra: dict[str, Any] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, max_length=4096)
     clear_api_key: bool = False
 
@@ -183,4 +189,9 @@ class ProjectLLMSettingsResponse(BaseModel):
     label: str | None = None
     base_url: str = ""
     model: str = ""
+    timeout: int | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
     api_key_configured: bool = False

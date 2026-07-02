@@ -103,6 +103,36 @@ class SceneCandidateOutput(BaseModel):
             return None
         return _coerce_score(value)
 
+    @field_validator("boundary_status", mode="before")
+    @classmethod
+    def _normalize_boundary_status(cls, value: Any) -> str | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, dict):
+            for key in ("status", "type", "boundary_status"):
+                if value.get(key):
+                    return str(value[key])
+            return "uncertain"
+        return str(value)
+
+    @field_validator("evidence_anchors", "merge_hints", "split_hints", mode="before")
+    @classmethod
+    def _normalize_diagnostic_list(cls, value: Any) -> list[Any]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return value
+        return [value]
+
+    @field_validator("missing_or_uncertain_items", mode="before")
+    @classmethod
+    def _normalize_missing_items(cls, value: Any) -> list[str]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return [str(item) for item in value if item is not None and item != ""]
+        return [str(value)]
+
 
 class ExtractedEntity(BaseModel):
     """Phase 2 LLM 输出的单个世界对象。"""
@@ -210,6 +240,15 @@ class AliasRelationExtractionOutput(BaseModel):
     aliases: list[ExtractedAlias] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
 
+    @field_validator("aliases", "relations", mode="before")
+    @classmethod
+    def _normalize_optional_lists(cls, value: Any) -> list[Any]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return value
+        return []
+
 
 class DeltaEvent(BaseModel):
     """Phase 2 LLM 输出的结构化 Delta。"""
@@ -227,3 +266,12 @@ class SceneEntityExtractionOutput(BaseModel):
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
     delta_events: list[DeltaEvent] = Field(default_factory=list)
+
+    @field_validator("entities", "relations", "delta_events", mode="before")
+    @classmethod
+    def _normalize_optional_lists(cls, value: Any) -> list[Any]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return value
+        return []

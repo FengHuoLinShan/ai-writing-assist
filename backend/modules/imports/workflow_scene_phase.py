@@ -15,6 +15,7 @@ PHASE0_422_RECOMMENDATION = (
     "推荐使用官方api以保障稳定性与质量；"
     "强推 DeepSeek-v4-flash，质量高价格低并发超快。"
 )
+PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING = 12
 
 
 def _phase0_422_recommendation() -> str:
@@ -218,7 +219,7 @@ class ScenePhaseRunner:
         if (
             fallback_chapters
             and phase1a_failed_count > 0
-            and end_chapter - start_chapter + 1 <= 12
+            and len(fallback_chapters) <= PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING
             and not phase1a_result.quality_stats.get("direct_single_chapter_fallback")
         ):
             fallback_result = await workflow._run_phase1a_single_chapter_fallback(
@@ -234,11 +235,47 @@ class ScenePhaseRunner:
             if fallback_result.candidates:
                 if phase1a_success_count <= 0:
                     phase1a_result = fallback_result
+                    phase1a_result.quality_stats["fallback_chapter_count"] = len(
+                        fallback_result.candidates
+                    )
                 else:
                     phase1a_result = workflow._merge_phase1a_results(
                         phase1a_result,
                         fallback_result,
                     )
+            remaining_fallback_chapters = workflow._missing_phase1a_chapters(
+                phase1a_result.candidates,
+                start_chapter,
+                end_chapter,
+            )
+            if (
+                remaining_fallback_chapters
+                and len(remaining_fallback_chapters)
+                <= PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING
+            ):
+                retry_fallback_result = (
+                    await workflow._run_phase1a_single_chapter_fallback(
+                        db,
+                        novel_id,
+                        start_chapter,
+                        end_chapter,
+                        only_chapters=remaining_fallback_chapters,
+                    )
+                )
+                progress.quality_stats["phase1a_single_chapter_fallback_retry"] = (
+                    retry_fallback_result.quality_stats
+                )
+                if retry_fallback_result.candidates:
+                    if phase1a_result.candidates:
+                        phase1a_result = workflow._merge_phase1a_results(
+                            phase1a_result,
+                            retry_fallback_result,
+                        )
+                    else:
+                        phase1a_result = retry_fallback_result
+                        phase1a_result.quality_stats["fallback_chapter_count"] = len(
+                            retry_fallback_result.candidates
+                        )
         progress.quality_stats["phase1a"] = phase1a_result.quality_stats
         if phase1a_diagnostics := workflow._diagnostic_samples(
             phase1a_result.diagnostics

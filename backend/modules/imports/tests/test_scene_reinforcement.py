@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -80,6 +82,32 @@ def success_output(payloads: list[dict]) -> dict:
     }
 
 
+def test_phase1a_reinforcer_reads_concurrency_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_CONCURRENCY", "4")
+
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    reinforcer = Phase1aSceneReinforcer(llm=llm)
+
+    assert reinforcer.concurrency == 4
+
+
+def test_phase1a_reinforcer_reads_batch_timeout_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS", "8.5")
+
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    reinforcer = Phase1aSceneReinforcer(llm=llm)
+
+    assert reinforcer.batch_timeout_seconds == 8.5
+
+
 @pytest.mark.asyncio
 async def test_phase1a_reinforces_rounds_separately() -> None:
     payloads: list[dict] = []
@@ -111,6 +139,79 @@ async def test_phase1a_reinforces_rounds_separately() -> None:
     assert [payload["round"] for payload in payloads] == ["A", "B"]
     assert all(
         candidate.payload["boundary_status"] == "complete"
+        for candidate in result.candidates
+    )
+
+
+@pytest.mark.asyncio
+async def test_phase1a_batch_timeout_records_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_payload: dict) -> dict:
+        await asyncio.sleep(1)
+        return {"scenes": []}
+
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
+        phase0_candidates=[
+            make_candidate(
+                source_round="A",
+                source_batch_id="A-0001-1-2",
+                source_batch_index=1,
+                source_chapter_indices=[1, 2],
+            ),
+        ],
+        chapters=make_chapters(1, 2),
+    )
+
+    assert result.quality_stats["total_batches"] == 1
+    assert result.quality_stats["failed"] == 1
+    assert result.quality_stats["timeout"] == 1
+    assert result.candidates[0].diagnostics["final_error_type"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_phase1a_total_timeout_marks_pending_batches_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE1A_REINFORCE_TOTAL_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_payload: dict) -> dict:
+        await asyncio.sleep(1)
+        return {"scenes": []}
+
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
+        phase0_candidates=[
+            make_candidate(
+                source_round="A",
+                source_batch_id="A-0001-1-2",
+                source_batch_index=1,
+                source_chapter_indices=[1, 2],
+            ),
+            make_candidate(
+                source_round="A",
+                source_batch_id="A-0002-3-4",
+                source_batch_index=2,
+                source_chapter_indices=[3, 4],
+            ),
+        ],
+        chapters=make_chapters(1, 4),
+    )
+
+    assert result.quality_stats["total_batches"] == 2
+    assert result.quality_stats["failed"] == 2
+    assert result.quality_stats["timeout"] == 2
+    assert all(
+        candidate.diagnostics["final_error_type"] == "timeout"
         for candidate in result.candidates
     )
 
@@ -198,7 +299,11 @@ async def test_phase1a_blocks_on_final_422_rate_over_threshold() -> None:
             "confidence": 0.9,
         }
 
-    result = await Phase1aSceneReinforcer(llm=llm, concurrency=1).run(
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
         phase0_candidates=[
             make_candidate(
                 source_batch_id=f"A-{index:04d}-{index}-{index}",
@@ -233,7 +338,11 @@ async def test_schema_empty_and_timeout_diagnostics_do_not_block() -> None:
             raise response
         return response
 
-    result = await Phase1aSceneReinforcer(llm=llm, concurrency=1).run(
+    result = await Phase1aSceneReinforcer(
+        llm=llm,
+        concurrency=1,
+        max_retries=0,
+    ).run(
         phase0_candidates=[
             make_candidate(
                 source_batch_id=f"A-{index:04d}-{index}-{index}",

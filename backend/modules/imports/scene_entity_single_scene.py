@@ -114,7 +114,15 @@ class SingleSceneEntityExtractor:
                     result_refs=result_refs,
                     persistence_stats=persistence_stats,
                 )
-                relation_count = 0
+                relation_count = await service._persist_relations(
+                    db,
+                    nid,
+                    extraction.relations,
+                    scene_index=scene_index,
+                    workflow_id=workflow_id,
+                    context_snapshot_id=context_snapshot_id,
+                    result_refs=result_refs,
+                )
                 delta_count = await service._record_deltas(
                     db,
                     nid,

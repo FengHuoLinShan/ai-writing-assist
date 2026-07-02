@@ -169,7 +169,7 @@ class StructureAnalysisPhaseRunner:
         await workflow._emit_progress(progress, 0.05, on_progress)
 
         if workflow._is_llm_health_required():
-            health = await workflow._check_llm_health()
+            health = await workflow._check_llm_health(db, novel_id)
             progress.llm_health = health.model_dump()
             if not health.ok:
                 return await workflow._fail_preflight(progress, health, on_progress)

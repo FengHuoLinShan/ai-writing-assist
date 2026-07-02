@@ -28,7 +28,27 @@ async def test_llm_provider_templates_include_common_suppliers(
     assert resp.status_code == 200
     items = resp.json()["items"]
     ids = {item["id"] for item in items}
-    assert {"deepseek", "kimi", "mimo", "openrouter", "siliconflow"}.issubset(ids)
+    assert {
+        "deepseek",
+        "kimi",
+        "qwen-dashscope",
+        "zhipu",
+        "baichuan",
+        "minimax",
+        "hunyuan",
+        "qianfan",
+        "stepfun",
+        "yi",
+        "mimo",
+        "openrouter",
+        "siliconflow",
+        "volcengine-ark",
+        "openai-compatible",
+    }.issubset(ids)
+    by_id = {item["id"]: item for item in items}
+    assert by_id["deepseek"]["default_model"] == "deepseek-v4-flash"
+    assert by_id["deepseek"]["base_url"] == "https://api.deepseek.com"
+    assert by_id["qwen-dashscope"]["default_parameters"]["timeout"] == 180
     assert all("api_key" not in item for item in items)
 
 
@@ -45,6 +65,11 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
             "model": "deepseek-chat",
+            "timeout": 180,
+            "max_tokens": 8192,
+            "temperature": 0.2,
+            "top_p": 0.8,
+            "extra": {"reasoning_effort": "high"},
             "api_key": "sk-secret-value",
         },
     )
@@ -55,6 +80,11 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
     assert data["provider_id"] == "deepseek"
     assert data["base_url"] == "https://api.deepseek.com/v1"
     assert data["model"] == "deepseek-chat"
+    assert data["timeout"] == 180
+    assert data["max_tokens"] == 8192
+    assert data["temperature"] == 0.2
+    assert data["top_p"] == 0.8
+    assert data["extra"] == {"reasoning_effort": "high"}
     assert data["api_key_configured"] is True
     assert "api_key" not in data
 

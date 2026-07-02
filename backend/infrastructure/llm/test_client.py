@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import MethodType
 
 import pytest
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
@@ -21,6 +23,129 @@ class _StructuredPayload(BaseModel):
     value: str = Field(..., min_length=1)
 
 
+class _FakeEnvSettings:
+    llm_api_key = "sk-env"
+    llm_base_url = "https://env.example/v1"
+    llm_model = "env-model"
+    llm_timeout = 70
+    llm_max_tokens = 1234
+
+
+def test_resolve_llm_profile_uses_code_defaults_without_env(monkeypatch) -> None:
+    for name in (
+        "LLM_API_KEY",
+        "LLM_BASE_URL",
+        "LLM_MODEL",
+        "LLM_TIMEOUT",
+        "LLM_MAX_TOKENS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    profile = resolve_llm_profile(env_settings=_FakeEnvSettings())
+
+    assert profile.model == "gpt-4o"
+    assert profile.timeout == 60
+    assert profile.max_tokens == 4096
+    assert profile.sources["model"] == "default"
+    assert profile.sources["timeout"] == "default"
+
+
+def test_resolve_llm_profile_uses_legacy_env_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_API_KEY", "set")
+    monkeypatch.setenv("LLM_BASE_URL", "set")
+    monkeypatch.setenv("LLM_MODEL", "set")
+    monkeypatch.setenv("LLM_TIMEOUT", "set")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "set")
+
+    profile = resolve_llm_profile(env_settings=_FakeEnvSettings())
+
+    assert profile.api_key == "sk-env"
+    assert profile.base_url == "https://env.example/v1"
+    assert profile.model == "env-model"
+    assert profile.timeout == 70
+    assert profile.max_tokens == 1234
+    assert profile.sources["api_key"] == "env"
+    assert profile.sources["base_url"] == "env"
+
+
+def test_resolve_llm_profile_test_override_sits_between_project_and_env(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LLM_MODEL", "set")
+    monkeypatch.setenv("LLM_TIMEOUT", "set")
+
+    profile = resolve_llm_profile(
+        {
+            "llm": {
+                "provider_id": "openai-compatible",
+                "base_url": "https://project.example/v1",
+                "model": "project-model",
+                "timeout": 180,
+            }
+        },
+        env_settings=_FakeEnvSettings(),
+        test_overrides={"LLM_MODEL": "override-model", "LLM_TIMEOUT": 90},
+    )
+
+    assert profile.model == "project-model"
+    assert profile.timeout == 180
+    assert profile.base_url == "https://project.example/v1"
+    assert profile.sources["model"] == "project"
+    assert profile.sources["timeout"] == "project"
+
+    profile_without_project = resolve_llm_profile(
+        {},
+        env_settings=_FakeEnvSettings(),
+        test_overrides={"LLM_MODEL": "override-model", "LLM_TIMEOUT": 90},
+    )
+    assert profile_without_project.model == "override-model"
+    assert profile_without_project.timeout == 90
+    assert profile_without_project.sources["model"] == "test_override"
+
+
+def test_resolve_llm_profile_invalid_values_fall_back(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_TIMEOUT", "set")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "set")
+
+    class BadEnvSettings:
+        llm_api_key = ""
+        llm_base_url = ""
+        llm_model = ""
+        llm_timeout = "bad"
+        llm_max_tokens = 0
+
+    profile = resolve_llm_profile(env_settings=BadEnvSettings())
+
+    assert profile.timeout == 60
+    assert profile.max_tokens == 4096
+    assert profile.sources["timeout"] == "default"
+    assert profile.sources["max_tokens"] == "default"
+
+
+def test_resolve_llm_profile_sanitized_summary_redacts_api_key() -> None:
+    profile = resolve_llm_profile(
+        {
+            "llm": {
+                "provider_id": "openai-compatible",
+                "label": "Open CodeGo",
+                "api_key": "sk-secret",
+                "base_url": "https://opencode.ai/zen/go/v1",
+                "model": "deepseek-v4-flash",
+                "timeout": 180,
+                "max_tokens": 8192,
+            }
+        },
+        env_settings=_FakeEnvSettings(),
+    )
+
+    summary = profile.sanitized_summary()
+
+    assert summary["provider_id"] == "openai-compatible"
+    assert summary["base_url_host"] == "opencode.ai"
+    assert summary["api_key_configured"] is True
+    assert "sk-secret" not in json.dumps(summary)
+
+
 def test_from_project_settings_uses_project_profile_defaults() -> None:
     client = LLMClient.from_project_settings(
         {
@@ -28,11 +153,13 @@ def test_from_project_settings_uses_project_profile_defaults() -> None:
                 "api_key": "sk-test",
                 "base_url": "https://api.deepseek.com/v1",
                 "model": "deepseek-chat",
+                "timeout": 180,
             }
         }
     )
 
     assert client.model_name == "deepseek-chat"
+    assert getattr(client._provider, "_timeout") == 180
 
 
 @pytest.mark.asyncio

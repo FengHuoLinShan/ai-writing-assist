@@ -1,4 +1,17 @@
 {
-  "log_path": "/Users/tywww/Desktop/项目/ai-writing-assist/backend/.test-logs/deep_import_real_llm/deep_import_60_20260701T040608Z.jsonl",
-  "started_at": "2026-07-01T04:06:08.243419+00:00"
+  "log_path": "/Users/tywww/Desktop/项目/ai-writing-assist/backend/.test-logs/deep_import_real_llm/deep_import_60_scene_20260702T054136Z.jsonl",
+  "started_at": "2026-07-02T05:41:36.413512+00:00",
+  "status": "failed",
+  "last_event": "final_summary",
+  "last_phase": "scene_commit",
+  "last_elapsed_s": 1520.54,
+  "updated_at": "2026-07-02T06:06:56.964139+00:00",
+  "project_id": "87dd83c4-45fa-4283-b34b-f39ebc7f2493",
+  "task_id": "d9a54be5-34de-4a31-a1c6-12c23556912f",
+  "quality_status": "partial",
+  "last_error": {
+    "phase": "phase1b_fusion",
+    "error_kind": "phase1b_reducer_fallback",
+    "message": "正在融合 Scene 候选并生成正式写入候选..."
+  }
 }

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from modules.imports.deep_import_retry import (
+    DeepImportAttemptDiagnostic,
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
 )
@@ -21,6 +24,7 @@ PHASE1B_WINDOW_OVERLAP = 3
 PHASE1B_CONCURRENCY = 4
 PHASE1B_CHAPTER_FALLBACK_MAX_RANGE = 12
 PHASE1B_REDUCER_RETRY_COUNT = 0
+PHASE1B_TOTAL_TIMEOUT_SECONDS = 240.0
 DEEP_IMPORT_422_DEGRADE_THRESHOLD = 0.40
 LOTM_1_TO_7_EVENT_ANCHORS: dict[int, list[dict[str, str]]] = {
     1: [
@@ -432,8 +436,10 @@ class Phase1bSceneFusion:
             async with semaphore:
                 return await self._process_window(window, valid_candidates)
 
-        window_results = await asyncio.gather(
-            *(process(window) for window in active_windows)
+        window_results = await self._run_active_windows(
+            active_windows,
+            process,
+            valid_candidates,
         )
         retry_results = [
             result.retry_result
@@ -606,6 +612,53 @@ class Phase1bSceneFusion:
             phase1a_fallback=bool(fallback_candidates),
         )
 
+    async def _run_active_windows(
+        self,
+        active_windows: Sequence[Phase1bWindow],
+        process: Callable[[Phase1bWindow], Awaitable[_WindowFusionResult]],
+        valid_candidates: Sequence[SceneCandidate],
+    ) -> list[_WindowFusionResult]:
+        if not active_windows:
+            return []
+
+        timeout_s = _phase1b_total_timeout_seconds()
+        started_at = time.monotonic()
+        task_to_window = {
+            asyncio.create_task(process(window)): window for window in active_windows
+        }
+        done, pending = await asyncio.wait(task_to_window, timeout=timeout_s)
+        window_results = [task.result() for task in done]
+        if not pending:
+            return window_results
+
+        elapsed_ms = max(0.0, (time.monotonic() - started_at) * 1000)
+        for task in pending:
+            task.add_done_callback(_consume_cancelled_task)
+            task.cancel()
+            window = task_to_window[task]
+            core_candidates = _window_candidates(
+                valid_candidates,
+                window,
+                range_name="core",
+            )
+            retry_result = _phase1b_timeout_retry_result(
+                elapsed_ms=elapsed_ms,
+                timeout_s=timeout_s,
+            )
+            window_results.append(
+                _WindowFusionResult(
+                    window=window,
+                    candidates=_fallback_candidates_for(core_candidates),
+                    diagnostics=retry_result.model_dump(mode="json", exclude={"value"}),
+                    retry_result=retry_result,
+                    phase1a_fallback=bool(core_candidates),
+                )
+            )
+        return sorted(
+            window_results,
+            key=lambda result: result.window.window_index,
+        )
+
     async def _call_and_validate(
         self,
         payload: dict[str, Any],
@@ -632,6 +685,15 @@ class Phase1bSceneFusion:
         if inspect.isawaitable(result):
             return await result
         return result
+
+
+def _consume_cancelled_task(task: asyncio.Task[Any]) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        return
 
 
 def _build_window_payload(
@@ -686,6 +748,38 @@ def _build_window_payload(
             ],
         },
     }
+
+
+def _phase1b_total_timeout_seconds() -> float:
+    raw = os.getenv("PHASE1B_TOTAL_TIMEOUT_SECONDS")
+    if raw is None or raw.strip() == "":
+        return PHASE1B_TOTAL_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return PHASE1B_TOTAL_TIMEOUT_SECONDS
+    return value if value > 0 else PHASE1B_TOTAL_TIMEOUT_SECONDS
+
+
+def _phase1b_timeout_retry_result(
+    *,
+    elapsed_ms: float,
+    timeout_s: float,
+) -> DeepImportRetryResult:
+    return DeepImportRetryResult(
+        attempts=1,
+        final_status="failed",
+        final_error_type="timeout",
+        diagnostics=[
+            DeepImportAttemptDiagnostic(
+                attempt=1,
+                status="failed",
+                error_type="timeout",
+                message=f"Phase 1b reducer exceeded total timeout budget ({timeout_s}s)",
+                elapsed_ms=elapsed_ms,
+            )
+        ],
+    )
 
 
 def _candidate_summary(candidate: SceneCandidate) -> dict[str, Any]:
@@ -747,9 +841,14 @@ def _fallback_candidates_for(
                 _chapter_scene_payload_from({}, chapter)
                 for chapter in source_chapters
             ] or [{}]
+
         for scene_index, scene in enumerate(scene_payloads, start=1):
             scene_data = scene if isinstance(scene, dict) else {}
             scene_chapters = _scene_chapters_for_payload(scene_data, source_chapters)
+            scene_chunks = _normalized_scene_chunks_for_payload(
+                scene_data,
+                scene_chapters,
+            )
             final_candidates.append(
                 FinalSceneCandidate(
                     candidate_id=(
@@ -761,7 +860,7 @@ def _fallback_candidates_for(
                     core_conflict=scene_data.get("core_conflict", ""),
                     emotional_beat=scene_data.get("emotional_beat", ""),
                     narrative_tag=scene_data.get("narrative_tag", "imported"),
-                    scene_chunks=scene_data.get("scene_chunks", []),
+                    scene_chunks=scene_chunks,
                     source_candidate_ids=[candidate.candidate_id],
                     source_rounds=[candidate.source_round],
                     source_chapter_indices=scene_chapters,
@@ -973,13 +1072,57 @@ def _scene_chapters_for_payload(
     chunks = scene.get("scene_chunks")
     if isinstance(chunks, list):
         chapters = _unique_sorted(
-            chunk.get("chapter_index")
+            chunk.get("chapter_index") or chunk.get("chapter")
             for chunk in chunks
             if isinstance(chunk, dict)
         )
         if chapters:
             return chapters
     return _unique_sorted(fallback_chapters)
+
+
+def _normalized_scene_chunks_for_payload(
+    scene: dict[str, Any],
+    fallback_chapters: Sequence[int],
+) -> list[dict[str, int | None]]:
+    normalized: list[dict[str, int | None]] = []
+    chunks = scene.get("scene_chunks")
+    if isinstance(chunks, list):
+        for chunk in chunks:
+            if not isinstance(chunk, dict):
+                continue
+            raw_chapter = chunk.get("chapter_index") or chunk.get("chapter")
+            try:
+                chapter_index = int(raw_chapter)
+            except (TypeError, ValueError):
+                continue
+            if chapter_index <= 0:
+                continue
+            try:
+                start_paragraph = int(chunk.get("start_paragraph", 0) or 0)
+            except (TypeError, ValueError):
+                start_paragraph = 0
+            start_paragraph = max(0, start_paragraph)
+            raw_end = chunk.get("end_paragraph")
+            try:
+                end_paragraph = None if raw_end is None else int(raw_end)
+            except (TypeError, ValueError):
+                end_paragraph = None
+            if end_paragraph is not None and end_paragraph < start_paragraph:
+                end_paragraph = None
+            normalized.append(
+                {
+                    "chapter_index": chapter_index,
+                    "start_paragraph": start_paragraph,
+                    "end_paragraph": end_paragraph,
+                }
+            )
+    if normalized:
+        return normalized
+    return [
+        {"chapter_index": chapter, "start_paragraph": 0, "end_paragraph": None}
+        for chapter in fallback_chapters
+    ] or [{"chapter_index": 1, "start_paragraph": 0, "end_paragraph": None}]
 
 
 def _valid_phase1a_candidates(

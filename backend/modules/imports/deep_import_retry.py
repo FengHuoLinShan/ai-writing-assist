@@ -30,10 +30,15 @@ DeepImportErrorType = Literal[
 ]
 DeepImportFinalStatus = Literal["success", "failed"]
 
-RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {"422", "network", "timeout", "rate_limit"}
+RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {
+    "422",
+    "network",
+    "timeout",
+    "rate_limit",
+    "empty_result",
+}
 NON_RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {
     "schema_error",
-    "empty_result",
     "quality_gate",
 }
 

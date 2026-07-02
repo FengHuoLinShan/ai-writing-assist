@@ -62,19 +62,19 @@ def test_classifies_schema_and_empty_result_errors() -> None:
     )
 
 
-def test_retry_policy_does_not_retry_schema_empty_or_quality_gate() -> None:
+def test_retry_policy_does_not_retry_schema_or_quality_gate() -> None:
     assert not should_retry_deep_import_error(
         "schema_error",
         attempt=0,
         max_retries=1,
     )
     assert not should_retry_deep_import_error(
-        "empty_result",
+        "quality_gate",
         attempt=0,
         max_retries=1,
     )
-    assert not should_retry_deep_import_error(
-        "quality_gate",
+    assert should_retry_deep_import_error(
+        "empty_result",
         attempt=0,
         max_retries=1,
     )
@@ -140,7 +140,32 @@ async def test_retry_wrapper_does_not_retry_schema_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_wrapper_does_not_retry_empty_results() -> None:
+async def test_retry_wrapper_retries_empty_result_once_then_succeeds() -> None:
+    calls = 0
+
+    async def operation() -> list[dict[str, str]]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return []
+        return [{"ok": "yes"}]
+
+    result = await run_deep_import_llm_with_retry(
+        operation,
+        is_empty_result=lambda value: not value,
+    )
+
+    assert calls == 2
+    assert result.attempts == 2
+    assert result.final_status == "success"
+    assert result.final_error_type is None
+    assert result.value == [{"ok": "yes"}]
+    assert [d.error_type for d in result.diagnostics] == ["empty_result", None]
+    assert result.diagnostics[0].retry_scheduled is True
+
+
+@pytest.mark.asyncio
+async def test_retry_wrapper_does_not_retry_empty_result_without_budget() -> None:
     calls = 0
 
     async def operation() -> list[dict[str, str]]:
@@ -151,6 +176,7 @@ async def test_retry_wrapper_does_not_retry_empty_results() -> None:
     result = await run_deep_import_llm_with_retry(
         operation,
         is_empty_result=lambda value: not value,
+        max_retries=0,
     )
 
     assert calls == 1

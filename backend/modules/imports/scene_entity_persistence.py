@@ -275,12 +275,20 @@ class SceneEntityPersistenceGateway:
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
     ) -> int:
-        from modules.world.facade import create_relation, find_entity_id_by_name
+        from modules.world.facade import create_relation, find_working_entity_id_by_name
 
         created = 0
         for rel in relations:
-            source_id = await find_entity_id_by_name(db, str(nid), rel.source_name)
-            target_id = await find_entity_id_by_name(db, str(nid), rel.target_name)
+            source_id = await find_working_entity_id_by_name(
+                db,
+                str(nid),
+                rel.source_name,
+            )
+            target_id = await find_working_entity_id_by_name(
+                db,
+                str(nid),
+                rel.target_name,
+            )
             if not source_id or not target_id:
                 logger.debug(
                     "Skipping relation %s -> %s: entity not found",

@@ -986,6 +986,19 @@ html, body {
   color: var(--success);
 }
 
+.llm-advanced-panel {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.llm-extra-json {
+  min-height: 96px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  line-height: var(--leading-normal);
+}
+
 .llm-template-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

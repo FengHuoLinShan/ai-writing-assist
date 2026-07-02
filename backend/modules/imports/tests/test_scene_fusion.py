@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
@@ -356,6 +358,31 @@ async def test_phase1b_timeout_fallback_keeps_minimum_scene_count_for_1_to_7() -
 
 
 @pytest.mark.asyncio
+async def test_phase1b_total_timeout_uses_phase1a_fallback(monkeypatch) -> None:
+    monkeypatch.setenv("PHASE1B_TOTAL_TIMEOUT_SECONDS", "0.01")
+
+    async def llm(_payload: dict) -> dict:
+        await asyncio.Event().wait()
+        return {"scenes": []}
+
+    result = await Phase1bSceneFusion(llm=llm).run(
+        phase1a_candidates=[
+            make_candidate(candidate_id="c-1", source_chapter_indices=[1, 2])
+        ],
+        start_chapter=1,
+        end_chapter=2,
+    )
+
+    assert result.blocked is False
+    assert result.degraded is True
+    assert result.phase1a_fallback is True
+    assert result.block_reason == "phase1b_reducer_fallback"
+    assert result.quality_stats["timeout"] == 1
+    assert len(result.candidates) == 2
+    assert all(candidate.phase == "phase1a_fallback" for candidate in result.candidates)
+
+
+@pytest.mark.asyncio
 async def test_phase1b_no_valid_candidates_creates_chapter_fallbacks() -> None:
     async def llm(_payload: dict) -> dict:
         raise AssertionError("no LLM call should be made without valid candidates")
@@ -435,6 +462,50 @@ async def test_phase1b_fallback_treats_none_boundary_as_missing() -> None:
     assert result.candidates[0].boundary_reason == (
         "Phase 1b reducer fell back to Phase 1a candidate."
     )
+
+
+@pytest.mark.asyncio
+async def test_phase1b_fallback_normalizes_malformed_scene_chunks() -> None:
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    candidate = make_candidate(
+        candidate_id="malformed-chunks",
+        source_chapter_indices=[18, 19],
+    )
+    candidate.payload["scenes"] = [
+        {
+            "title": "chapter field chunk",
+            "goal": "preserve malformed chunk",
+            "scene_chunks": [
+                {"chapter": 18, "start_paragraph": 0, "end_paragraph": -1}
+            ],
+        },
+        {
+            "title": "second chapter field chunk",
+            "goal": "preserve malformed chunk",
+            "scene_chunks": [
+                {"chapter": 19, "start_paragraph": -2, "end_paragraph": -1}
+            ],
+        },
+    ]
+
+    result = await Phase1bSceneFusion(llm=llm).run(
+        phase1a_candidates=[candidate],
+        start_chapter=18,
+        end_chapter=19,
+    )
+
+    assert result.phase1a_fallback is True
+    assert [item.source_chapter_indices for item in result.candidates] == [[18], [19]]
+    assert [
+        chunk.model_dump(mode="json")
+        for item in result.candidates
+        for chunk in item.scene_chunks
+    ] == [
+        {"chapter_index": 18, "start_paragraph": 0, "end_paragraph": None},
+        {"chapter_index": 19, "start_paragraph": 0, "end_paragraph": None},
+    ]
 
 
 @pytest.mark.asyncio

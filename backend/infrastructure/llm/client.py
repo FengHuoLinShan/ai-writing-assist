@@ -21,7 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
-from infrastructure.llm.profiles import LLM_API_KEY_FIELD, get_llm_profile
+from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.retry import retry_with_backoff
 from infrastructure.llm.schemas import (
@@ -92,14 +92,11 @@ class LLMClient:
         Missing values still fall back to ``core.config.Settings`` inside the
         provider, so legacy env-based deployments keep working.
         """
-        profile = get_llm_profile(project_settings)
-        merged_kwargs = dict(provider_kwargs)
-        if profile.get(LLM_API_KEY_FIELD):
-            merged_kwargs["api_key"] = profile[LLM_API_KEY_FIELD]
-        if profile.get("base_url"):
-            merged_kwargs["base_url"] = profile["base_url"]
-        if profile.get("model"):
-            merged_kwargs["default_model"] = profile["model"]
+        profile = resolve_llm_profile(project_settings)
+        merged_kwargs = {
+            **profile.provider_kwargs(),
+            **provider_kwargs,
+        }
         return cls(provider_name="openai", **merged_kwargs)
 
     async def close(self) -> None:

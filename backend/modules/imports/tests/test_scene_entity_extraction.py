@@ -23,6 +23,9 @@ from modules.imports.llm_schemas import (
     SceneCandidateOutput,
     SceneEntityExtractionOutput,
 )
+from modules.imports.scene_entity_alias_relation import (
+    _effective_alias_relation_total_timeout_seconds,
+)
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 
 
@@ -72,6 +75,17 @@ def test_llm_schema_normalizes_common_score_strings() -> None:
     assert output.entities[0].candidate_reason == ""
     assert output.relations[0].strength == 0.6
 
+    tolerant_output = SceneEntityExtractionOutput.model_validate(
+        {
+            "entities": None,
+            "relations": None,
+            "delta_events": None,
+        }
+    )
+    assert tolerant_output.entities == []
+    assert tolerant_output.relations == []
+    assert tolerant_output.delta_events == []
+
     candidate = SceneCandidateOutput.model_validate(
         {
             "scenes": [{"title": "候选"}],
@@ -83,6 +97,24 @@ def test_llm_schema_normalizes_common_score_strings() -> None:
     assert candidate.confidence == 0.8
     assert candidate.evidence_anchors == ["第1章开头"]
     assert candidate.split_hints == ["可按仪式前后拆分"]
+
+    tolerant_candidate = SceneCandidateOutput.model_validate(
+        {
+            "scenes": [{"title": "候选"}],
+            "boundary_status": {"type": "complete", "reason": "边界完整"},
+            "evidence_anchors": {"chapter_index": 1, "quote": "锚点"},
+            "merge_hints": "无需合并",
+            "split_hints": None,
+            "missing_or_uncertain_items": "无重大缺失",
+        }
+    )
+    assert tolerant_candidate.boundary_status == "complete"
+    assert tolerant_candidate.evidence_anchors == [
+        {"chapter_index": 1, "quote": "锚点"}
+    ]
+    assert tolerant_candidate.merge_hints == ["无需合并"]
+    assert tolerant_candidate.split_hints == []
+    assert tolerant_candidate.missing_or_uncertain_items == ["无重大缺失"]
 
 
 def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
@@ -118,6 +150,40 @@ def test_alias_relation_schema_normalizes_alias_type_and_scores() -> None:
     assert output.aliases[1].alias_type == "alias"
     assert output.aliases[1].confidence == 0.9
     assert output.relations[0].strength == 0.8
+
+    tolerant_output = AliasRelationExtractionOutput.model_validate(
+        {"aliases": None, "relations": None}
+    )
+    assert tolerant_output.aliases == []
+    assert tolerant_output.relations == []
+
+
+def test_alias_relation_total_timeout_scales_for_large_scene_sets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS", raising=False)
+
+    timeout = _effective_alias_relation_total_timeout_seconds(
+        scene_count=86,
+        concurrency=4,
+        configured_timeout_seconds=240,
+    )
+
+    assert timeout > 240
+
+
+def test_alias_relation_total_timeout_env_keeps_explicit_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS", "240")
+
+    timeout = _effective_alias_relation_total_timeout_seconds(
+        scene_count=86,
+        concurrency=4,
+        configured_timeout_seconds=240,
+    )
+
+    assert timeout == 240
 
 
 @pytest.fixture
@@ -649,11 +715,51 @@ async def test_persist_relations_links_existing_entities(
 
 
 @pytest.mark.asyncio
-async def test_process_scene_defers_relation_output_to_phase2b(
+async def test_persist_relations_links_candidate_entities(
     db_session: AsyncSession,
     novel_with_drafts: str,
 ) -> None:
-    """Phase 2a should not persist relation output from the entity prompt."""
+    svc = SceneEntityExtractionService()
+    from modules.world.facade import create_entity, get_entity_relations
+
+    await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "克莱恩", "entity_type": "character", "status": "candidate"},
+    )
+    await create_entity(
+        db_session,
+        novel_with_drafts,
+        {"name": "伦纳德", "entity_type": "character", "status": "candidate"},
+    )
+
+    created = await svc._persist_relations(
+        db_session,
+        novel_with_drafts,
+        [
+            ExtractedRelation(
+                source_name="克莱恩",
+                target_name="伦纳德",
+                relation_type="colleague",
+                description="同事",
+            )
+        ],
+        scene_index=2,
+        workflow_id="wf-candidate-rel",
+    )
+
+    assert created == 1
+    rels, total = await get_entity_relations(db_session, novel_with_drafts)
+    assert total == 1
+    assert rels[0].relation_type == "colleague"
+
+
+@pytest.mark.asyncio
+async def test_process_scene_persists_phase2a_relation_output(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """Phase 2a relation output should land without waiting for Phase 2b."""
     svc = SceneEntityExtractionService()
     from modules.world.facade import create_entity, get_entity_relations
 
@@ -706,10 +812,10 @@ async def test_process_scene_defers_relation_output_to_phase2b(
             workflow_id="wf-phase2a-only",
         )
 
-    assert result["relations"] == 0
+    assert result["relations"] == 1
     rels, total = await get_entity_relations(db_session, novel_with_drafts)
-    assert total == 0
-    assert rels == []
+    assert total == 1
+    assert rels[0].relation_type == "sibling"
 
 
 @pytest.mark.asyncio
@@ -941,6 +1047,401 @@ async def test_phase2b_scene_failure_degrades_without_raising(
     assert result["degraded"] is True
     assert result["error_kind"] == "RuntimeError"
     assert result["error_message"] == "schema mismatch"
+
+
+@pytest.mark.asyncio
+async def test_phase2b_total_timeout_budget_degrades_remaining_scenes(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    snapshot = Mock(id=None)
+
+    async def slow_alias_relation_call(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return AliasRelationExtractionOutput(aliases=[], relations=[])
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_alias_relation."
+        "phase2_alias_relation_total_timeout_seconds",
+        lambda: 0.01,
+    )
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="Scene 正文",
+        ),
+        patch.object(
+            svc,
+            "_build_alias_relation_entity_index",
+            new_callable=AsyncMock,
+            return_value="## 可用对象索引",
+        ),
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            new_callable=AsyncMock,
+            return_value=snapshot,
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            new_callable=AsyncMock,
+            side_effect=slow_alias_relation_call,
+        ),
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [
+                {"scene_index": 7, "id": "scene-7"},
+                {"scene_index": 8, "id": "scene-8"},
+            ],
+            workflow_id="wf-phase2b",
+        )
+
+    assert result["total_aliases"] == 0
+    assert result["total_relations"] == 0
+    assert result["alias_relation_scenes"] == 0
+    assert result["alias_relation_failed_scenes"] == [7, 8]
+    assert result["degraded"] is True
+    assert result["error_kind"] == "timeout"
+    assert result["alias_relation_total_timeout_s"] == 0.01
+    assert result["alias_relation_elapsed_s"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    snapshot = Mock(id=None)
+    both_started = asyncio.Event()
+    started_calls = 0
+
+    async def concurrent_alias_relation_call(*_args, **_kwargs):
+        nonlocal started_calls
+        started_calls += 1
+        if started_calls == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=0.2)
+        return AliasRelationExtractionOutput(aliases=[], relations=[])
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_alias_relation."
+        "phase2_alias_relation_concurrency",
+        lambda: 2,
+    )
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_alias_relation."
+        "phase2_alias_relation_total_timeout_seconds",
+        lambda: 1,
+    )
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="Scene 正文",
+        ),
+        patch.object(
+            svc,
+            "_build_alias_relation_entity_index",
+            new_callable=AsyncMock,
+            return_value="## 可用对象索引",
+        ) as build_entity_index,
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            new_callable=AsyncMock,
+            return_value=snapshot,
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            new=concurrent_alias_relation_call,
+        ),
+        patch.object(
+            svc,
+            "_persist_alias_relation_output",
+            new_callable=AsyncMock,
+            return_value={"aliases": 0, "relations": 0},
+        ) as persist_output,
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [
+                {"scene_index": 7, "id": "scene-7"},
+                {"scene_index": 8, "id": "scene-8"},
+            ],
+            workflow_id="wf-phase2b",
+        )
+
+    assert started_calls == 2
+    assert result["alias_relation_scenes"] == 2
+    assert result["alias_relation_failed_scenes"] == []
+    assert result["alias_relation_concurrency"] == 2
+    assert build_entity_index.await_count == 1
+    assert persist_output.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_phase2b_watchdog_timeout_returns_degraded_result(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+
+    async def stuck_alias_relation_run(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return {
+            "total_aliases": 1,
+            "total_relations": 1,
+            "alias_relation_scenes": 1,
+            "alias_relation_failed_scenes": [],
+        }
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction."
+        "_phase2_config.phase2_alias_relation_total_timeout_seconds",
+        lambda: 0.01,
+    )
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction."
+        "PHASE2_SCENE_TIMEOUT_GRACE_SECONDS",
+        0,
+    )
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction.AliasRelationExtractor.run",
+        stuck_alias_relation_run,
+    )
+
+    result = await svc._run_alias_relation_phase(
+        db_session,
+        novel_with_drafts,
+        [
+            {"scene_index": 7, "id": "scene-7"},
+            {"scene_index": 8, "id": "scene-8"},
+        ],
+        workflow_id="wf-phase2b-watchdog",
+    )
+
+    assert result["total_aliases"] == 0
+    assert result["total_relations"] == 0
+    assert result["alias_relation_scenes"] == 0
+    assert result["alias_relation_failed_scenes"] == [7, 8]
+    assert result["degraded"] is True
+    assert result["error_kind"] == "timeout"
+    assert result["alias_relation_total_timeout_s"] == 0.01
+    assert result["alias_relation_concurrency"] == 4
+
+
+@pytest.mark.asyncio
+async def test_phase2b_watchdog_uses_dynamic_timeout_for_large_scene_sets(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+
+    async def quick_alias_relation_run(*_args, **_kwargs):
+        return {
+            "total_aliases": 0,
+            "total_relations": 0,
+            "alias_relation_scenes": 84,
+            "alias_relation_failed_scenes": [],
+            "alias_relation_total_timeout_s": 2895,
+            "alias_relation_concurrency": 4,
+        }
+
+    monkeypatch.delenv("PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction.AliasRelationExtractor.run",
+        quick_alias_relation_run,
+    )
+
+    result = await svc._run_alias_relation_phase(
+        db_session,
+        novel_with_drafts,
+        [{"scene_index": index, "id": f"scene-{index}"} for index in range(1, 85)],
+        workflow_id="wf-phase2b-dynamic-watchdog",
+    )
+
+    assert result["alias_relation_scenes"] == 84
+    assert result["alias_relation_failed_scenes"] == []
+
+
+@pytest.mark.asyncio
+async def test_optional_phase2b_skips_supplement_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    monkeypatch.delenv("PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED", raising=False)
+
+    with patch.object(
+        svc,
+        "_run_alias_relation_phase",
+        new_callable=AsyncMock,
+    ) as run_alias_relation:
+        result = await svc._run_optional_alias_relation_phase(
+            Mock(),
+            "novel-1",
+            [{"scene_index": 1}],
+            workflow_id="wf-optional-skip",
+        )
+
+    assert run_alias_relation.await_count == 0
+    assert result["alias_relation_skipped"] is True
+    assert result["alias_relation_failed_scenes"] == []
+    assert result["degraded"] is False
+
+
+@pytest.mark.asyncio
+async def test_optional_phase2b_runs_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+    monkeypatch.setenv("PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED", "1")
+
+    with patch.object(
+        svc,
+        "_run_alias_relation_phase",
+        new_callable=AsyncMock,
+        return_value={
+            "total_aliases": 1,
+            "total_relations": 1,
+            "alias_relation_scenes": 1,
+            "alias_relation_failed_scenes": [],
+            "degraded": False,
+        },
+    ) as run_alias_relation:
+        result = await svc._run_optional_alias_relation_phase(
+            Mock(),
+            "novel-1",
+            [{"scene_index": 1}],
+            workflow_id="wf-optional-run",
+        )
+
+    assert run_alias_relation.await_count == 1
+    assert result["total_aliases"] == 1
+    assert result["total_relations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_phase2b_snapshot_preparation_timeout_degrades_scene(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+
+    async def slow_snapshot(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return Mock(id="snapshot-7")
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_alias_relation."
+        "phase2_postprocess_timeout_seconds",
+        lambda: 0.01,
+    )
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="Scene 正文",
+        ),
+        patch.object(
+            svc,
+            "_build_alias_relation_entity_index",
+            new_callable=AsyncMock,
+            return_value="## 可用对象索引",
+        ),
+        patch.object(svc, "_create_phase2b_snapshot", new=slow_snapshot),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            new_callable=AsyncMock,
+            return_value=AliasRelationExtractionOutput(aliases=[], relations=[]),
+        ) as alias_call,
+    ):
+        result = await svc._run_alias_relation_phase(
+            db_session,
+            novel_with_drafts,
+            [{"scene_index": 7, "id": "scene-7"}],
+            workflow_id="wf-phase2b-snapshot-timeout",
+        )
+
+    assert result["total_aliases"] == 0
+    assert result["total_relations"] == 0
+    assert result["alias_relation_scenes"] == 0
+    assert result["alias_relation_failed_scenes"] == [7]
+    assert result["degraded"] is True
+    assert result["error_kind"] == "timeout"
+    alias_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_phase2_postprocess_summary_timeout_returns_degraded(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+
+    async def slow_summary(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction."
+        "_phase2_config.phase2_postprocess_timeout_seconds",
+        lambda: 0.01,
+    )
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction.phase2_snapshot_health_summary",
+        slow_summary,
+    )
+
+    result = await svc._phase2_snapshot_health_summary(
+        db_session,
+        novel_with_drafts,
+        workflow_id="wf-summary-timeout",
+    )
+
+    assert result["degraded"] is True
+    assert result["error_kind"] == "timeout"
+    assert "snapshot_health_summary" in result["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_phase2_flush_timeout_returns_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = SceneEntityExtractionService()
+
+    class SlowFlushDB:
+        async def flush(self):
+            await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(
+        "modules.imports.scene_entity_extraction."
+        "_phase2_config.phase2_postprocess_timeout_seconds",
+        lambda: 0.01,
+    )
+
+    result = await svc._phase2_flush_with_timeout(SlowFlushDB())
+
+    assert result["degraded"] is True
+    assert result["error_kind"] == "timeout"
+    assert "db.flush" in result["error_message"]
 
 
 @pytest.mark.asyncio

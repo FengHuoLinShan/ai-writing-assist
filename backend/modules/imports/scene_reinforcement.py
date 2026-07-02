@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
@@ -16,7 +17,8 @@ from modules.imports.scene_candidates import (
     SceneReinforcementResult,
 )
 
-PHASE1A_REINFORCE_CONCURRENCY = 50
+PHASE1A_REINFORCE_CONCURRENCY = 6
+PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS = 180.0
 DEEP_IMPORT_LLM_RETRY_COUNT = 1
 DEEP_IMPORT_422_BLOCK_THRESHOLD = 0.40
 
@@ -32,11 +34,23 @@ class Phase1aSceneReinforcer:
         self,
         llm: Phase1aLLMCallable | Any,
         *,
-        concurrency: int = PHASE1A_REINFORCE_CONCURRENCY,
+        concurrency: int | None = None,
         max_retries: int = DEEP_IMPORT_LLM_RETRY_COUNT,
     ) -> None:
         self.llm = llm
-        self.concurrency = max(1, concurrency)
+        self.concurrency = max(
+            1,
+            concurrency
+            if concurrency is not None
+            else _positive_int_env(
+                "PHASE1A_REINFORCE_CONCURRENCY",
+                PHASE1A_REINFORCE_CONCURRENCY,
+            ),
+        )
+        self.batch_timeout_seconds = _positive_float_env(
+            "PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS",
+            _llm_timeout_default(PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS),
+        )
         self.max_retries = max_retries
 
     async def run(
@@ -80,8 +94,15 @@ class Phase1aSceneReinforcer:
                     chapter_provider=chapter_provider,
                 )
 
-        candidates = await asyncio.gather(
-            *(process(batch) for batch in ordered_batches)
+        candidates = await _run_batches_with_total_timeout(
+            ordered_batches,
+            process,
+            timeout_seconds=_total_timeout_seconds(
+                env_name="PHASE1A_REINFORCE_TOTAL_TIMEOUT_SECONDS",
+                total_batches=len(ordered_batches),
+                concurrency=self.concurrency,
+                batch_timeout_seconds=self.batch_timeout_seconds,
+            ),
         )
         diagnostics = [
             candidate.diagnostics
@@ -123,7 +144,10 @@ class Phase1aSceneReinforcer:
             chapter_provider=chapter_provider,
         )
         retry_result = await run_deep_import_llm_with_retry(
-            lambda: self._call_and_validate(payload),
+            lambda: asyncio.wait_for(
+                self._call_and_validate(payload),
+                timeout=self.batch_timeout_seconds,
+            ),
             is_empty_result=lambda output: not output.scenes,
             max_retries=self.max_retries,
         )
@@ -408,6 +432,114 @@ def _quality_for_output(output: SceneCandidateOutput) -> str:
     if output.boundary_status in {"truncated", "uncertain", "incomplete"}:
         return "low"
     return "high"
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _llm_timeout_default(default: float) -> float:
+    return _positive_float_env("LLM_TIMEOUT", default)
+
+
+def _total_timeout_seconds(
+    *,
+    env_name: str,
+    total_batches: int,
+    concurrency: int,
+    batch_timeout_seconds: float,
+) -> float:
+    env_timeout = _positive_float_env(env_name, 0.0)
+    if env_timeout > 0:
+        return env_timeout
+    waves = max(
+        1,
+        (max(total_batches, 1) + max(concurrency, 1) - 1) // max(concurrency, 1),
+    )
+    return waves * batch_timeout_seconds + 60.0
+
+
+async def _run_batches_with_total_timeout(
+    batches: Sequence[SceneCandidateBatch],
+    process: Callable[[SceneCandidateBatch], Awaitable[SceneCandidate]],
+    *,
+    timeout_seconds: float,
+) -> list[SceneCandidate]:
+    tasks = [(batch, asyncio.create_task(process(batch))) for batch in batches]
+    done, pending = await asyncio.wait(
+        [task for _batch, task in tasks],
+        timeout=timeout_seconds,
+    )
+    if pending:
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    candidates: list[SceneCandidate] = []
+    for batch, task in tasks:
+        if task in done:
+            try:
+                candidates.append(task.result())
+            except Exception as exc:
+                candidates.append(
+                    _candidate_from_batch(
+                        batch,
+                        quality="failed",
+                        diagnostics=_timeout_diagnostics(
+                            message=f"Phase1a batch task failed: {exc}"
+                        ),
+                    )
+                )
+            continue
+        candidates.append(
+            _candidate_from_batch(
+                batch,
+                quality="failed",
+                diagnostics=_timeout_diagnostics(
+                    message=(
+                        "Phase1a total timeout exceeded "
+                        f"({timeout_seconds:.2f}s)"
+                    )
+                ),
+            )
+        )
+    return candidates
+
+
+def _timeout_diagnostics(*, message: str) -> dict[str, Any]:
+    return {
+        "attempts": 1,
+        "final_status": "failed",
+        "final_error_type": "timeout",
+        "diagnostics": [
+            {
+                "attempt": 1,
+                "status": "failed",
+                "error_type": "timeout",
+                "message": message[:300],
+                "elapsed_ms": 0.0,
+                "retry_scheduled": False,
+            }
+        ],
+    }
 
 
 def _build_quality_stats(

@@ -9,6 +9,14 @@ worker. Enable it only for explicit quality runs:
 
     RUN_DEEP_IMPORT_60_REAL_LLM=1 pytest \
         modules/imports/tests/test_deep_import_real_llm.py -q
+
+    RUN_DEEP_IMPORT_60_SCENE_REAL_LLM=1 LLM_TIMEOUT=180 \
+        PHASE01_SCENE_MAX_TOKENS=8192 pytest \
+        modules/imports/tests/test_deep_import_real_llm.py -q -s
+
+    RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
+        PHASE01_SCENE_MAX_TOKENS=8192 pytest \
+        modules/imports/tests/test_deep_import_real_llm.py -q -s
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
+from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.parsers import parse_txt
@@ -35,6 +44,7 @@ from modules.imports.scene_entity_config import (
     phase2_batch_tuning_group,
 )
 from modules.imports.services import ImportService
+from modules.imports.workflow import DeepImportWorkflow
 from modules.outline.models import (
     ForeshadowingPlan,
     OutlineArc,
@@ -56,7 +66,7 @@ DEFAULT_LOG_DIR = BACKEND_ROOT / ".test-logs" / "deep_import_real_llm"
 OFFICIAL_API_RECOMMENDATION = "推荐使用官方api以保障稳定性与质量"
 
 
-def _real_llm_enabled() -> bool:
+def _full_real_llm_enabled() -> bool:
     return (
         os.getenv("RUN_DEEP_IMPORT_5_REAL_LLM") == "1"
         or os.getenv("RUN_DEEP_IMPORT_60_REAL_LLM") == "1"
@@ -64,13 +74,24 @@ def _real_llm_enabled() -> bool:
     )
 
 
+def _scene_real_llm_enabled() -> bool:
+    return os.getenv("RUN_DEEP_IMPORT_60_SCENE_REAL_LLM") == "1"
+
+
+def _phase0_real_llm_enabled() -> bool:
+    return os.getenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM") == "1"
+
+
 def _expected_chapter_count() -> int:
     configured = os.getenv("DEEP_IMPORT_EXPECTED_CHAPTERS")
     if configured:
         return int(configured)
-    if os.getenv("RUN_DEEP_IMPORT_60_REAL_LLM") == "1" or os.getenv(
-        "RUN_DEEP_IMPORT_213_REAL_LLM"
-    ) == "1":
+    if (
+        os.getenv("RUN_DEEP_IMPORT_60_REAL_LLM") == "1"
+        or os.getenv("RUN_DEEP_IMPORT_213_REAL_LLM") == "1"
+        or _scene_real_llm_enabled()
+        or _phase0_real_llm_enabled()
+    ):
         return 60
     return 5
 
@@ -88,20 +109,41 @@ REAL_FILE_PATH = _real_file_path()
 EXPECTED_CHAPTER_COUNT = _expected_chapter_count()
 
 real_llm_required = pytest.mark.skipif(
-    not _real_llm_enabled(),
+    not _full_real_llm_enabled(),
     reason=(
         "真实 LLM 深度导入默认跳过；设置 RUN_DEEP_IMPORT_5_REAL_LLM=1 "
         "或 RUN_DEEP_IMPORT_60_REAL_LLM=1 才运行"
     ),
 )
+scene_real_llm_required = pytest.mark.skipif(
+    not _scene_real_llm_enabled(),
+    reason=(
+        "60 章真实 LLM Scene-only 验收默认跳过；设置 "
+        "RUN_DEEP_IMPORT_60_SCENE_REAL_LLM=1 才运行"
+    ),
+)
+phase0_real_llm_required = pytest.mark.skipif(
+    not _phase0_real_llm_enabled(),
+    reason=(
+        "60 章真实 LLM Phase0-only 验收默认跳过；设置 "
+        "RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 才运行"
+    ),
+)
 
 
-def _llm_config_log_payload() -> dict[str, Any]:
+def _llm_config_log_payload(
+    project_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
+    profile = resolve_llm_profile(project_settings, env_settings=settings)
+    summary = profile.sanitized_summary()
     return {
-        "llm_base_url": settings.llm_base_url,
-        "llm_model": settings.llm_model,
-        "llm_timeout": settings.llm_timeout,
+        "effective_llm_profile": summary,
+        "llm_base_url_host": summary["base_url_host"],
+        "llm_model": profile.model,
+        "llm_timeout": profile.timeout,
+        "llm_max_tokens": profile.max_tokens,
+        "llm_profile_sources": profile.sources,
         "llm_retry_max_attempts": settings.llm_retry_max_attempts,
         "llm_retry_base_delay": settings.llm_retry_base_delay,
         "llm_retry_max_delay": settings.llm_retry_max_delay,
@@ -160,7 +202,11 @@ class PersistentAcceptanceLogger:
     def from_env(cls) -> PersistentAcceptanceLogger:
         configured = (
             os.getenv("DEEP_IMPORT_LOG_PATH")
+            or os.getenv("DEEP_IMPORT_60_PHASE0_LOG_PATH")
+            or os.getenv("DEEP_IMPORT_PHASE0_LOG_PATH")
             or os.getenv("DEEP_IMPORT_5_LOG_PATH")
+            or os.getenv("DEEP_IMPORT_60_SCENE_LOG_PATH")
+            or os.getenv("DEEP_IMPORT_SCENE_LOG_PATH")
             or os.getenv("DEEP_IMPORT_60_LOG_PATH")
             or os.getenv("DEEP_IMPORT_213_LOG_PATH")
         )
@@ -170,8 +216,14 @@ class PersistentAcceptanceLogger:
                 path = BACKEND_ROOT / path
         else:
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            if _phase0_real_llm_enabled():
+                suffix = "phase0_"
+            elif _scene_real_llm_enabled():
+                suffix = "scene_"
+            else:
+                suffix = ""
             path = DEFAULT_LOG_DIR / (
-                f"deep_import_{EXPECTED_CHAPTER_COUNT}_{stamp}.jsonl"
+                f"deep_import_{EXPECTED_CHAPTER_COUNT}_{suffix}{stamp}.jsonl"
             )
         return cls(path)
 
@@ -454,6 +506,380 @@ def _write_phase2_batch_tuning_summary(
     return summary_path
 
 
+def _phase01_scene_summary_path(log_path: Path) -> Path:
+    configured = os.getenv("PHASE01_SCENE_REAL_LLM_SUMMARY_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    stamp = log_path.stem.rsplit("_", 1)[-1]
+    return log_path.parent / f"phase01_scene_real_llm_{stamp}.md"
+
+
+def _write_phase01_scene_summary(
+    *,
+    log_path: Path,
+    wall_clock_s: float,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    issues: list[str],
+) -> Path:
+    summary_path = _phase01_scene_summary_path(log_path)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    quality_stats = result.get("quality_stats") or {}
+    expected_chapters = coverage.get("expected_chapters") or []
+    row = {
+        "chapters": len(expected_chapters) or EXPECTED_CHAPTER_COUNT,
+        "wall_clock_s": round(wall_clock_s, 2),
+        "phase": result.get("phase"),
+        "quality": result.get("quality_status"),
+        "scene_count": output_counts.get("scene_count"),
+        "created": (quality_stats.get("scene_commit") or {}).get("created_count"),
+        "skipped": (quality_stats.get("scene_commit") or {}).get("skipped_count"),
+        "covered": len(coverage.get("covered_chapters") or []),
+        "missing": coverage.get("missing_chapters"),
+        "phase0": quality_stats.get("phase0"),
+        "phase1a": quality_stats.get("phase1a"),
+        "phase1b": quality_stats.get("phase1b"),
+        "issues": "; ".join(issues),
+        "log": str(log_path),
+    }
+    headers = list(row)
+    if not summary_path.exists():
+        summary_path.write_text(
+            "# Phase 0/1 Scene Real LLM Summary\n\n"
+            + "| "
+            + " | ".join(headers)
+            + " |\n| "
+            + " | ".join("---" for _ in headers)
+            + " |\n",
+            encoding="utf-8",
+        )
+    with summary_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "| "
+            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
+            + " |\n"
+        )
+    return summary_path
+
+
+def _phase0_summary_path(log_path: Path) -> Path:
+    configured = os.getenv("PHASE0_REAL_LLM_SUMMARY_PATH")
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    stamp = log_path.stem.rsplit("_", 1)[-1]
+    return log_path.parent / f"phase0_real_llm_{stamp}.md"
+
+
+def _write_phase0_summary(
+    *,
+    log_path: Path,
+    wall_clock_s: float,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    issues: list[str],
+    llm_config: dict[str, Any] | None = None,
+) -> Path:
+    summary_path = _phase0_summary_path(log_path)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    quality_stats = result.get("quality_stats") or {}
+    expected_chapters = coverage.get("expected_chapters") or []
+    row = {
+        "test_mode": "phase0_only",
+        "stage": "phase0_prefetch",
+        "chapters": len(expected_chapters) or EXPECTED_CHAPTER_COUNT,
+        "wall_clock_s": round(wall_clock_s, 2),
+        "blocked": result.get("blocked"),
+        "block_reason": result.get("block_reason"),
+        "expected_batches": expected_phase_shape.get("phase0_total_batches"),
+        "total_batches": quality_stats.get("total_batches"),
+        "completed_batches": quality_stats.get("completed_batches"),
+        "failed": quality_stats.get("failed"),
+        "candidate_count": result.get("candidate_count"),
+        "covered": len(coverage.get("covered_chapters") or []),
+        "missing": coverage.get("missing_chapters"),
+        "scene_count": output_counts.get("scene_count"),
+        "entity_count": output_counts.get("entity_count"),
+        "provider": (llm_config or {}).get("effective_llm_profile"),
+        "later_phases": result.get("later_phases"),
+        "issues": "; ".join(issues),
+        "log": str(log_path),
+    }
+    headers = list(row)
+    if not summary_path.exists():
+        summary_path.write_text(
+            "# Phase 0 Real LLM Summary\n\n"
+            + "| "
+            + " | ".join(headers)
+            + " |\n| "
+            + " | ".join("---" for _ in headers)
+            + " |\n",
+            encoding="utf-8",
+        )
+    with summary_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "| "
+            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
+            + " |\n"
+        )
+    return summary_path
+
+
+def _candidate_chapter_coverage(
+    candidates: list[Any],
+    *,
+    start_chapter: int,
+    end_chapter: int,
+) -> dict[str, Any]:
+    covered: set[int] = set()
+    duplicate: set[int] = set()
+    candidates_with_chapter_ids = 0
+    for candidate in candidates:
+        raw_indices = (
+            candidate.get("source_chapter_indices")
+            if isinstance(candidate, dict)
+            else getattr(candidate, "source_chapter_indices", None)
+        )
+        seen_in_candidate: set[int] = set()
+        for raw_chapter_id in raw_indices or []:
+            try:
+                chapter_index = int(raw_chapter_id)
+            except (TypeError, ValueError):
+                continue
+            if chapter_index in seen_in_candidate or chapter_index in covered:
+                duplicate.add(chapter_index)
+            seen_in_candidate.add(chapter_index)
+            covered.add(chapter_index)
+        if seen_in_candidate:
+            candidates_with_chapter_ids += 1
+    expected = set(range(start_chapter, end_chapter + 1))
+    return {
+        "expected_chapters": sorted(expected),
+        "covered_chapters": sorted(covered.intersection(expected)),
+        "missing_chapters": sorted(expected - covered),
+        "extra_chapters": sorted(covered - expected),
+        "duplicate_chapters": sorted(duplicate),
+        "candidate_count": len(candidates),
+        "candidates_with_chapter_ids": candidates_with_chapter_ids,
+        "coverage_ratio": (
+            round(len(covered.intersection(expected)) / len(expected), 4)
+            if expected
+            else 1.0
+        ),
+    }
+
+
+def _phase0_result_payload(phase0_result: Any) -> dict[str, Any]:
+    diagnostics = getattr(phase0_result, "diagnostics", []) or []
+    candidates = getattr(phase0_result, "candidates", []) or []
+    return {
+        "blocked": bool(getattr(phase0_result, "blocked", False)),
+        "block_reason": getattr(phase0_result, "block_reason", None),
+        "candidate_count": len(candidates),
+        "quality_stats": getattr(phase0_result, "quality_stats", {}) or {},
+        "diagnostics_sample": diagnostics[:5],
+        "later_phases": {
+            "phase1a": "skipped",
+            "phase1b": "skipped",
+            "scene_commit": "skipped",
+            "entity_extraction": "skipped",
+            "structure_analysis": "skipped",
+        },
+    }
+
+
+def _phase0_only_acceptance_checks(
+    *,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    expected_chapter_count: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    quality_stats = result.get("quality_stats") or {}
+    missing_chapters = coverage.get("missing_chapters") or []
+
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_not_blocked",
+        ok=result.get("blocked") is False,
+        expected=False,
+        actual=result.get("blocked"),
+        message=f"phase0 expected blocked false, got {result.get('blocked')}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_total_batches",
+        ok=quality_stats.get("total_batches")
+        == expected_phase_shape.get("phase0_total_batches"),
+        expected=expected_phase_shape.get("phase0_total_batches"),
+        actual=quality_stats.get("total_batches"),
+        message=(
+            "phase0 total_batches expected "
+            f"{expected_phase_shape.get('phase0_total_batches')}, "
+            f"got {quality_stats.get('total_batches')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_completed_all_batches",
+        ok=quality_stats.get("completed_batches") == quality_stats.get("total_batches"),
+        expected=quality_stats.get("total_batches"),
+        actual=quality_stats.get("completed_batches"),
+        message=(
+            "phase0 completed_batches expected total_batches "
+            f"{quality_stats.get('total_batches')}, got "
+            f"{quality_stats.get('completed_batches')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_no_failed_batches",
+        ok=int(quality_stats.get("failed", 0) or 0) == 0,
+        expected=0,
+        actual=quality_stats.get("failed"),
+        message=f"phase0 failed batches expected 0, got {quality_stats.get('failed')}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_candidate_chapter_coverage_complete",
+        ok=not missing_chapters
+        and coverage.get("candidates_with_chapter_ids", 0) > 0,
+        expected=list(range(1, expected_chapter_count + 1)),
+        actual=coverage,
+        message=(
+            "phase0 candidate chapter coverage missing chapters or source ids: "
+            f"{missing_chapters}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_no_scene_commit",
+        ok=int(output_counts.get("scene_count", 0) or 0) == 0,
+        expected=0,
+        actual=output_counts.get("scene_count"),
+        message=(
+            "phase0-only expected no committed scenes, got "
+            f"{output_counts.get('scene_count')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase0_no_phase2_or_phase3_outputs",
+        ok=int(output_counts.get("entity_count", 0) or 0) == 0
+        and int(output_counts.get("relation_count", 0) or 0) == 0
+        and all(
+            int(count or 0) == 0
+            for count in (output_counts.get("structure_counts") or {}).values()
+        ),
+        expected="no entity/relation/structure outputs",
+        actual=output_counts,
+        message="phase0-only unexpectedly wrote later phase outputs",
+    )
+    return checks, issues
+
+
+def _scene_only_acceptance_checks(
+    *,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_chapter_count: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    checks: list[dict[str, Any]] = []
+    issues: list[str] = []
+    completed_steps = result.get("completed_steps") or []
+    timeline_phases = [
+        str(item.get("phase") or "")
+        for item in (result.get("phase_timeline") or [])
+        if isinstance(item, dict)
+    ]
+    quality_stats = result.get("quality_stats") or {}
+    scene_commit = quality_stats.get("scene_commit") or {}
+    phase1a = quality_stats.get("phase1a") or {}
+    scene_commit_count = int(scene_commit.get("created_count", 0) or 0) + int(
+        scene_commit.get("skipped_count", 0) or 0
+    )
+    missing_chapters = coverage.get("missing_chapters") or []
+
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="scene_only_phase_done",
+        ok=result.get("phase") == "done",
+        expected="done",
+        actual=result.get("phase"),
+        message=f"scene-only phase expected done, got {result.get('phase')}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="scene_only_completed_steps",
+        ok=completed_steps == ["scene_segmentation"],
+        expected=["scene_segmentation"],
+        actual=completed_steps,
+        message=f"scene-only completed_steps mismatch: {completed_steps}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="scene_only_did_not_enter_later_phases",
+        ok=not {"entity_extraction", "structure_analysis"}.intersection(
+            timeline_phases
+        ),
+        expected="no entity_extraction or structure_analysis phase",
+        actual=timeline_phases,
+        message=f"scene-only entered later phases: {timeline_phases}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="scene_commit_positive",
+        ok=scene_commit_count > 0 and int(output_counts.get("scene_count", 0) or 0) > 0,
+        expected="scene commit and stored scene counts > 0",
+        actual={
+            "scene_commit_count": scene_commit_count,
+            "scene_count": output_counts.get("scene_count"),
+        },
+        message=(
+            "scene-only expected committed scenes > 0, got "
+            f"{scene_commit_count} / stored {output_counts.get('scene_count')}"
+        ),
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="scene_chapter_coverage_complete",
+        ok=not missing_chapters,
+        expected=list(range(1, expected_chapter_count + 1)),
+        actual=coverage,
+        message=f"scene chapter coverage missing chapters: {missing_chapters}",
+    )
+    _record_acceptance_check(
+        checks,
+        issues,
+        name="phase1a_no_failed_batches",
+        ok=int(phase1a.get("failed", 0) or 0) == 0,
+        expected=0,
+        actual=phase1a.get("failed"),
+        message=f"phase1a failed batches expected 0, got {phase1a.get('failed')}",
+    )
+    return checks, issues
+
+
 def _result_log_payload(result: dict[str, Any]) -> dict[str, Any]:
     phase2_stats = (result.get("quality_stats") or {}).get("phase2") or {}
     return {
@@ -594,6 +1020,61 @@ async def _count_acceptance_outputs(
     }
 
 
+async def _scene_chapter_coverage(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    start_chapter: int,
+    end_chapter: int,
+) -> dict[str, Any]:
+    result = await db.execute(
+        select(Scene.chapter_ids).where(Scene.novel_id == project_id)
+    )
+    covered: set[int] = set()
+    duplicate: set[int] = set()
+    for chapter_ids in result.scalars().all():
+        seen_in_scene: set[int] = set()
+        for raw_chapter_id in chapter_ids or []:
+            try:
+                chapter_index = int(raw_chapter_id)
+            except (TypeError, ValueError):
+                continue
+            if chapter_index in seen_in_scene or chapter_index in covered:
+                duplicate.add(chapter_index)
+            seen_in_scene.add(chapter_index)
+            covered.add(chapter_index)
+    expected = set(range(start_chapter, end_chapter + 1))
+    return {
+        "expected_chapters": sorted(expected),
+        "covered_chapters": sorted(covered.intersection(expected)),
+        "missing_chapters": sorted(expected - covered),
+        "extra_chapters": sorted(covered - expected),
+        "duplicate_chapters": sorted(duplicate),
+        "coverage_ratio": (
+            round(len(covered.intersection(expected)) / len(expected), 4)
+            if expected
+            else 1.0
+        ),
+    }
+
+
+def _build_scene_only_task(project_id: uuid.UUID) -> AsyncTask:
+    return AsyncTask(
+        id=uuid.uuid4(),
+        task_type="scene_auto_extraction",
+        status="pending",
+        meta={
+            "novel_id": str(project_id),
+            "start_chapter": 1,
+            "end_chapter": EXPECTED_CHAPTER_COUNT,
+            "stage": "scenes",
+            "context_mode": "working",
+            "include_pending_objects": True,
+        },
+        progress=0.0,
+    )
+
+
 @pytest.mark.asyncio
 async def test_real_llm_log_output_counts_include_phase2b_alias_relations(
     db_session: AsyncSession,
@@ -703,6 +1184,761 @@ def test_phase2_batch_tuning_summary_writes_markdown(
     assert "Phase 2 Batch Tuning Summary" in text
     assert "| 8x8 |" in text
     assert "| group | chapters | wall_clock_s |" in text
+
+
+def _scene_only_result_fixture(
+    *,
+    phase: str = "done",
+    completed_steps: list[str] | None = None,
+    timeline_phases: list[str] | None = None,
+    scene_count: int = 60,
+    phase1a_failed: int = 0,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    completed_steps = completed_steps or ["scene_segmentation"]
+    timeline_phases = timeline_phases or [
+        "phase0_prefetch",
+        "phase1a_reinforce",
+        "phase1b_fusion",
+        "scene_commit",
+    ]
+    result = {
+        "phase": phase,
+        "completed_steps": completed_steps,
+        "phase_timeline": [{"phase": phase_name} for phase_name in timeline_phases],
+        "quality_stats": {
+            "phase1a": {"failed": phase1a_failed},
+            "scene_commit": {"created_count": scene_count, "skipped_count": 0},
+        },
+    }
+    output_counts = {"scene_count": scene_count}
+    coverage = {
+        "covered_chapters": list(range(1, 61)),
+        "missing_chapters": [],
+        "expected_chapters": list(range(1, 61)),
+    }
+    return result, output_counts, coverage
+
+
+def _phase0_only_result_fixture(
+    *,
+    blocked: bool = False,
+    total_batches: int = 24,
+    completed_batches: int = 24,
+    failed: int = 0,
+    candidate_count: int = 24,
+    scene_count: int = 0,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    result = {
+        "blocked": blocked,
+        "block_reason": "phase0_422_rate_exceeded" if blocked else None,
+        "candidate_count": candidate_count,
+        "quality_stats": {
+            "total_batches": total_batches,
+            "completed_batches": completed_batches,
+            "failed": failed,
+        },
+        "later_phases": {
+            "phase1a": "skipped",
+            "phase1b": "skipped",
+            "scene_commit": "skipped",
+            "entity_extraction": "skipped",
+            "structure_analysis": "skipped",
+        },
+    }
+    output_counts = {
+        "scene_count": scene_count,
+        "entity_count": 0,
+        "relation_count": 0,
+        "structure_counts": {
+            "threads": 0,
+            "arcs": 0,
+            "foreshadowing": 0,
+            "reveals": 0,
+        },
+    }
+    coverage = {
+        "covered_chapters": list(range(1, 61)),
+        "missing_chapters": [],
+        "expected_chapters": list(range(1, 61)),
+        "candidates_with_chapter_ids": candidate_count,
+    }
+    expected_phase_shape = {"phase0_total_batches": total_batches}
+    return result, output_counts, coverage, expected_phase_shape
+
+
+def test_phase0_real_llm_enabled_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM", raising=False)
+    assert _phase0_real_llm_enabled() is False
+
+    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM", "1")
+    assert _phase0_real_llm_enabled() is True
+
+
+def test_candidate_chapter_coverage_from_phase0_candidates() -> None:
+    candidates = [
+        {"source_chapter_indices": [1, 2, 3]},
+        {"source_chapter_indices": [3, 4, 5]},
+    ]
+
+    coverage = _candidate_chapter_coverage(
+        candidates,
+        start_chapter=1,
+        end_chapter=5,
+    )
+
+    assert coverage["covered_chapters"] == [1, 2, 3, 4, 5]
+    assert coverage["missing_chapters"] == []
+    assert coverage["duplicate_chapters"] == [3]
+    assert coverage["candidates_with_chapter_ids"] == 2
+
+
+def test_phase0_only_acceptance_passes_for_phase0_only_result() -> None:
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase0_only_result_fixture()
+    )
+
+    checks, issues = _phase0_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        expected_chapter_count=60,
+    )
+
+    assert issues == []
+    assert {check["status"] for check in checks} == {"passed"}
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_issue"),
+    [
+        (
+            lambda result, _counts, _coverage: result.update({"blocked": True}),
+            "phase0 expected blocked false, got True",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"].update(
+                {"completed_batches": 23}
+            ),
+            "phase0 completed_batches expected total_batches",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"].update(
+                {"failed": 1}
+            ),
+            "phase0 failed batches expected 0, got 1",
+        ),
+        (
+            lambda _result, _counts, coverage: coverage.update(
+                {"covered_chapters": list(range(1, 60)), "missing_chapters": [60]}
+            ),
+            "phase0 candidate chapter coverage missing chapters",
+        ),
+        (
+            lambda _result, _counts, coverage: coverage.update(
+                {"covered_chapters": [], "candidates_with_chapter_ids": 0}
+            ),
+            "phase0 candidate chapter coverage missing chapters or source ids",
+        ),
+        (
+            lambda _result, counts, _coverage: counts.update({"scene_count": 1}),
+            "phase0-only expected no committed scenes, got 1",
+        ),
+    ],
+)
+def test_phase0_only_acceptance_reports_guardrail_failures(
+    mutator,
+    expected_issue: str,
+) -> None:
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase0_only_result_fixture()
+    )
+    mutator(result, output_counts, coverage)
+
+    _checks, issues = _phase0_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        expected_chapter_count=60,
+    )
+
+    assert any(expected_issue in issue for issue in issues)
+
+
+def test_phase0_summary_writes_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "phase0_real_llm.md"
+    log_path = tmp_path / "deep_import_60_phase0_20260702T000000Z.jsonl"
+    monkeypatch.setenv("PHASE0_REAL_LLM_SUMMARY_PATH", str(summary_path))
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase0_only_result_fixture()
+    )
+
+    written = _write_phase0_summary(
+        log_path=log_path,
+        wall_clock_s=123.45,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        issues=[],
+        llm_config={"effective_llm_profile": {"model": "deepseek-v4-flash"}},
+    )
+
+    assert written == summary_path
+    text = summary_path.read_text(encoding="utf-8")
+    assert "Phase 0 Real LLM Summary" in text
+    assert "| test_mode | stage | chapters |" in text
+    assert "| phase0_only | phase0_prefetch | 60 |" in text
+    assert "deepseek-v4-flash" in text
+
+
+def test_scene_only_real_llm_task_uses_scene_stage() -> None:
+    project_id = uuid.uuid4()
+
+    task = _build_scene_only_task(project_id)
+
+    assert task.task_type == "scene_auto_extraction"
+    assert task.meta["stage"] == "scenes"
+    assert task.meta["novel_id"] == str(project_id)
+    assert task.meta["start_chapter"] == 1
+
+
+def test_phase01_scene_max_tokens_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.imports import workflow_llm_adapters
+
+    monkeypatch.delenv("PHASE01_SCENE_MAX_TOKENS", raising=False)
+    assert workflow_llm_adapters._phase01_scene_max_tokens(4096) == 4096
+
+    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
+    assert workflow_llm_adapters._phase01_scene_max_tokens(4096) == 8192
+
+    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "nope")
+    assert workflow_llm_adapters._phase01_scene_max_tokens(4096) == 4096
+
+
+def test_deep_import_structured_max_fix_attempts_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.imports import workflow_llm_adapters
+
+    monkeypatch.delenv("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", raising=False)
+    assert workflow_llm_adapters._deep_import_structured_max_fix_attempts() == 2
+
+    monkeypatch.setenv("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", "3")
+    assert workflow_llm_adapters._deep_import_structured_max_fix_attempts() == 3
+
+    monkeypatch.setenv("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", "0")
+    assert workflow_llm_adapters._deep_import_structured_max_fix_attempts() == 2
+
+    monkeypatch.setenv("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", "nope")
+    assert workflow_llm_adapters._deep_import_structured_max_fix_attempts() == 2
+
+
+def test_scene_only_acceptance_passes_for_scene_segmentation_only() -> None:
+    result, output_counts, coverage = _scene_only_result_fixture()
+
+    checks, issues = _scene_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_chapter_count=60,
+    )
+
+    assert issues == []
+    assert {check["status"] for check in checks} == {"passed"}
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_issue"),
+    [
+        (
+            lambda result, _counts, coverage: coverage.update(
+                {"covered_chapters": list(range(1, 60)), "missing_chapters": [60]}
+            ),
+            "scene chapter coverage missing chapters: [60]",
+        ),
+        (
+            lambda result, _counts, _coverage: result.update(
+                {
+                    "completed_steps": ["scene_segmentation", "entity_extraction"],
+                    "phase_timeline": [
+                        {"phase": "phase0_prefetch"},
+                        {"phase": "entity_extraction"},
+                    ],
+                }
+            ),
+            "scene-only entered later phases",
+        ),
+        (
+            lambda result, counts, _coverage: (
+                counts.update({"scene_count": 0}),
+                result["quality_stats"]["scene_commit"].update({"created_count": 0}),
+            ),
+            "scene-only expected committed scenes > 0",
+        ),
+        (
+            lambda result, _counts, _coverage: result["quality_stats"][
+                "phase1a"
+            ].update({"failed": 1}),
+            "phase1a failed batches expected 0, got 1",
+        ),
+    ],
+)
+def test_scene_only_acceptance_reports_guardrail_failures(
+    mutator,
+    expected_issue: str,
+) -> None:
+    result, output_counts, coverage = _scene_only_result_fixture()
+    mutator(result, output_counts, coverage)
+
+    _checks, issues = _scene_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_chapter_count=60,
+    )
+
+    assert any(expected_issue in issue for issue in issues)
+
+
+def test_phase01_scene_summary_writes_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary_path = tmp_path / "phase01_scene_real_llm.md"
+    log_path = tmp_path / "deep_import_60_scene_8x8.jsonl"
+    monkeypatch.setenv("PHASE01_SCENE_REAL_LLM_SUMMARY_PATH", str(summary_path))
+    result, output_counts, coverage = _scene_only_result_fixture()
+
+    written = _write_phase01_scene_summary(
+        log_path=log_path,
+        wall_clock_s=456.78,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        issues=[],
+    )
+
+    assert written == summary_path
+    text = summary_path.read_text(encoding="utf-8")
+    assert "Phase 0/1 Scene Real LLM Summary" in text
+    assert "| chapters | wall_clock_s |" in text
+    assert "| 60 | 456.78 |" in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.real_llm
+@phase0_real_llm_required
+async def test_deep_import_60_phase0_real_llm_acceptance(
+    db_session: AsyncSession,
+) -> None:
+    assert EXPECTED_CHAPTER_COUNT == 60
+    log = PersistentAcceptanceLogger.from_env()
+    expected_phase_shape = _expected_phase_shape()
+    llm_config = _llm_config_log_payload()
+    log.write(
+        "test_started",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        log_path=str(log.path),
+        file_path=str(REAL_FILE_PATH),
+        expected_chapter_count=EXPECTED_CHAPTER_COUNT,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+    )
+    assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
+    file_bytes = REAL_FILE_PATH.read_bytes()
+    chapters = parse_txt(file_bytes)
+    assert len(chapters) == EXPECTED_CHAPTER_COUNT
+    assert all(chapter.get("content") for chapter in chapters)
+    log.write(
+        "file_parsed",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        chapter_count=len(chapters),
+        bytes=len(file_bytes),
+        first_title=_chapter_title(chapters[0]) if chapters else None,
+        last_title=_chapter_title(chapters[-1]) if chapters else None,
+        nonempty_content_count=sum(1 for chapter in chapters if chapter.get("content")),
+    )
+
+    project_id = uuid.uuid4()
+    db_session.add(
+        Project(
+            id=project_id,
+            title="诡秘之主 第一部 前60章 Phase0-only 验收",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
+        )
+    )
+    await db_session.flush()
+
+    import_result = await ImportService().upload_and_import(
+        db_session,
+        str(project_id),
+        REAL_FILE_PATH.name,
+        file_bytes,
+    )
+    log.set_context(project_id=str(project_id))
+    log.write(
+        "chapters_imported",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        project_id=str(project_id),
+        total_chapters=import_result.total_chapters,
+        imported_chapters=import_result.imported_chapters,
+    )
+    assert import_result.total_chapters == EXPECTED_CHAPTER_COUNT
+    assert import_result.imported_chapters == EXPECTED_CHAPTER_COUNT
+
+    workflow = DeepImportWorkflow()
+    log.write(
+        "phase_started",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        phase="phase0_prefetch",
+        status="running",
+        project_id=str(project_id),
+        expected_phase_shape=expected_phase_shape,
+    )
+    try:
+        phase0_result = await workflow._run_phase0_prefetch(
+            db_session,
+            str(project_id),
+            1,
+            EXPECTED_CHAPTER_COUNT,
+        )
+    except BaseException as exc:
+        log.write(
+            "exception",
+            test_mode="phase0_only",
+            stage="phase0_prefetch",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+            project_id=str(project_id),
+        )
+        try:
+            log.write(
+                "interrupted_counts",
+                test_mode="phase0_only",
+                stage="phase0_prefetch",
+                **await _count_acceptance_outputs(db_session, project_id),
+            )
+        except Exception as count_exc:
+            log.write(
+                "interrupted_count_failed",
+                test_mode="phase0_only",
+                stage="phase0_prefetch",
+                error_type=count_exc.__class__.__name__,
+                error_message=str(count_exc),
+            )
+        raise
+
+    result = _phase0_result_payload(phase0_result)
+    log.write(
+        "phase_completed",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        phase="phase0_prefetch",
+        status="completed" if not result["blocked"] else "failed",
+        project_id=str(project_id),
+        details=result["quality_stats"],
+        block_reason=result["block_reason"],
+    )
+    log.write(
+        "result",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        project_id=str(project_id),
+        **result,
+    )
+    output_counts = await _count_acceptance_outputs(db_session, project_id)
+    coverage = _candidate_chapter_coverage(
+        list(phase0_result.candidates),
+        start_chapter=1,
+        end_chapter=EXPECTED_CHAPTER_COUNT,
+    )
+    log.write(
+        "output_counts",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        project_id=str(project_id),
+        **output_counts,
+    )
+    log.write(
+        "candidate_chapter_coverage",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        project_id=str(project_id),
+        **coverage,
+    )
+
+    acceptance_rule_results, acceptance_issues = _phase0_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        expected_chapter_count=EXPECTED_CHAPTER_COUNT,
+    )
+    log.write(
+        "acceptance_checks",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        checks=acceptance_rule_results,
+        issues=acceptance_issues,
+    )
+    summary_path = _write_phase0_summary(
+        log_path=log.path,
+        wall_clock_s=time.monotonic() - log.started_at,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        issues=acceptance_issues,
+        llm_config=llm_config,
+    )
+    log.write(
+        "final_summary",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        wall_clock_s=round(time.monotonic() - log.started_at, 2),
+        phase0_summary_path=str(summary_path),
+        project_id=str(project_id),
+        issues=acceptance_issues,
+        output_counts=output_counts,
+        candidate_chapter_coverage=coverage,
+        result=result,
+    )
+    if acceptance_issues:
+        pytest.fail("\n".join(acceptance_issues))
+
+
+@pytest.mark.asyncio
+@pytest.mark.real_llm
+@scene_real_llm_required
+async def test_deep_import_60_scene_real_llm_acceptance(
+    db_session: AsyncSession,
+) -> None:
+    assert EXPECTED_CHAPTER_COUNT == 60
+    log = PersistentAcceptanceLogger.from_env()
+    expected_phase_shape = _expected_phase_shape()
+    log.write(
+        "test_started",
+        test_mode="scene_only",
+        stage="scenes",
+        log_path=str(log.path),
+        file_path=str(REAL_FILE_PATH),
+        expected_chapter_count=EXPECTED_CHAPTER_COUNT,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=_llm_config_log_payload(),
+    )
+    assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
+    file_bytes = REAL_FILE_PATH.read_bytes()
+    chapters = parse_txt(file_bytes)
+    assert len(chapters) == EXPECTED_CHAPTER_COUNT
+    assert all(chapter.get("content") for chapter in chapters)
+    log.write(
+        "file_parsed",
+        test_mode="scene_only",
+        stage="scenes",
+        chapter_count=len(chapters),
+        bytes=len(file_bytes),
+        first_title=_chapter_title(chapters[0]) if chapters else None,
+        last_title=_chapter_title(chapters[-1]) if chapters else None,
+        nonempty_content_count=sum(1 for chapter in chapters if chapter.get("content")),
+    )
+
+    project_id = uuid.uuid4()
+    db_session.add(
+        Project(
+            id=project_id,
+            title="诡秘之主 第一部 前60章 Scene-only 验收",
+            genre="西方奇幻",
+            tone="维多利亚风格、黑暗",
+            language="zh",
+            target_length="novel",
+            current_stage="writing",
+        )
+    )
+    await db_session.flush()
+
+    import_result = await ImportService().upload_and_import(
+        db_session,
+        str(project_id),
+        REAL_FILE_PATH.name,
+        file_bytes,
+    )
+    log.write(
+        "chapters_imported",
+        test_mode="scene_only",
+        stage="scenes",
+        project_id=str(project_id),
+        total_chapters=import_result.total_chapters,
+        imported_chapters=import_result.imported_chapters,
+    )
+    assert import_result.total_chapters == EXPECTED_CHAPTER_COUNT
+    assert import_result.imported_chapters == EXPECTED_CHAPTER_COUNT
+
+    task = _build_scene_only_task(project_id)
+    db_session.add(task)
+    await db_session.flush()
+    log.set_context(project_id=str(project_id), task_id=str(task.id))
+    log.write(
+        "task_created",
+        test_mode="scene_only",
+        stage="scenes",
+        task_id=str(task.id),
+        task_type=task.task_type,
+        project_id=str(project_id),
+        meta=task.meta,
+    )
+
+    emitted_phase_events: set[tuple[str, str]] = set()
+
+    async def _observe_progress(progress, progress_value: float, _task) -> None:
+        payload = _progress_log_payload(progress, progress_value)
+        log.write(
+            "progress",
+            test_mode="scene_only",
+            stage="scenes",
+            task_id=str(_task.id),
+            project_id=str(project_id),
+            **payload,
+        )
+        for item in progress.phase_timeline:
+            phase_name = str(item.get("phase") or "")
+            status = str(item.get("status") or "unknown")
+            key = (phase_name, status)
+            if not phase_name or key in emitted_phase_events:
+                continue
+            emitted_phase_events.add(key)
+            log.write(
+                _phase_event_name(status),
+                test_mode="scene_only",
+                stage="scenes",
+                task_id=str(_task.id),
+                project_id=str(project_id),
+                **item,
+            )
+        log.write(
+            "diagnostic_snapshot",
+            test_mode="scene_only",
+            stage="scenes",
+            task_id=str(_task.id),
+            project_id=str(project_id),
+            current_phase=progress.current_phase,
+            current_item=progress.current_item,
+            diagnostic_counts=progress.diagnostic_counts,
+            last_error=progress.last_error,
+            phase_errors=progress.phase_errors[-5:],
+            checkpoint_summary=_checkpoint_summary(progress.checkpoints),
+            snapshot_health_summary=progress.snapshot_health_summary,
+        )
+
+    orchestrator = DeepImportOrchestrator(progress_observer=_observe_progress)
+
+    try:
+        result = await orchestrator.run_stage_task(db_session, task, stage="scenes")
+    except BaseException as exc:
+        log.write(
+            "exception",
+            test_mode="scene_only",
+            stage="scenes",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+            project_id=str(project_id),
+            task_id=str(task.id),
+        )
+        try:
+            log.write(
+                "interrupted_counts",
+                test_mode="scene_only",
+                stage="scenes",
+                **await _count_acceptance_outputs(db_session, project_id),
+            )
+        except Exception as count_exc:
+            log.write(
+                "interrupted_count_failed",
+                test_mode="scene_only",
+                stage="scenes",
+                error_type=count_exc.__class__.__name__,
+                error_message=str(count_exc),
+            )
+        raise
+
+    log.write(
+        "result",
+        test_mode="scene_only",
+        stage="scenes",
+        **_result_log_payload(result),
+    )
+    output_counts = await _count_acceptance_outputs(db_session, project_id)
+    coverage = await _scene_chapter_coverage(
+        db_session,
+        project_id,
+        start_chapter=1,
+        end_chapter=EXPECTED_CHAPTER_COUNT,
+    )
+    log.write(
+        "output_counts",
+        test_mode="scene_only",
+        stage="scenes",
+        **output_counts,
+    )
+    log.write(
+        "scene_chapter_coverage",
+        test_mode="scene_only",
+        stage="scenes",
+        **coverage,
+    )
+
+    acceptance_rule_results, acceptance_issues = _scene_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_chapter_count=EXPECTED_CHAPTER_COUNT,
+    )
+    log.write(
+        "acceptance_checks",
+        test_mode="scene_only",
+        stage="scenes",
+        checks=acceptance_rule_results,
+        issues=acceptance_issues,
+    )
+    summary_path = _write_phase01_scene_summary(
+        log_path=log.path,
+        wall_clock_s=time.monotonic() - log.started_at,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        issues=acceptance_issues,
+    )
+    log.write(
+        "final_summary",
+        test_mode="scene_only",
+        stage="scenes",
+        wall_clock_s=round(time.monotonic() - log.started_at, 2),
+        phase01_scene_summary_path=str(summary_path),
+        project_id=str(project_id),
+        task_id=str(task.id),
+        issues=acceptance_issues,
+        output_counts=output_counts,
+        scene_chapter_coverage=coverage,
+        result=_result_log_payload(result),
+    )
+    if acceptance_issues:
+        pytest.fail("\n".join(acceptance_issues))
 
 
 @pytest.mark.asyncio
@@ -866,6 +2102,11 @@ async def test_deep_import_real_llm_acceptance(
     acceptance_issues: list[str] = []
     acceptance_rule_results: list[dict[str, Any]] = []
     if EXPECTED_CHAPTER_COUNT == 5:
+        expected_phase1a_batches = (
+            EXPECTED_CHAPTER_COUNT
+            if quality_stats["phase1a"].get("direct_single_chapter_fallback")
+            else expected_phase_shape["phase1a_total_batches"]
+        )
         expected_phase_checks = {
             "phase0_total_batches": (
                 quality_stats["phase0"].get("total_batches"),
@@ -873,7 +2114,7 @@ async def test_deep_import_real_llm_acceptance(
             ),
             "phase1a_total_batches": (
                 quality_stats["phase1a"].get("total_batches"),
-                expected_phase_shape["phase1a_total_batches"],
+                expected_phase1a_batches,
             ),
             "phase1b_total_windows": (
                 quality_stats["phase1b"].get("total_windows"),

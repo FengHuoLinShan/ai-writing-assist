@@ -194,7 +194,7 @@ class EntityExtractionPhaseRunner:
         await workflow._emit_progress(progress, 0.05, on_progress)
 
         if workflow._is_llm_health_required():
-            health = await workflow._check_llm_health()
+            health = await workflow._check_llm_health(db, novel_id)
             progress.llm_health = health.model_dump()
             if not health.ok:
                 return await workflow._fail_preflight(progress, health, on_progress)
@@ -338,6 +338,11 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
             "alias_relation_failed_scenes",
             [],
         ),
+        "alias_relation_elapsed_s": phase2_result.get("alias_relation_elapsed_s"),
+        "alias_relation_total_timeout_s": phase2_result.get(
+            "alias_relation_total_timeout_s"
+        ),
+        "alias_relation_concurrency": phase2_result.get("alias_relation_concurrency"),
         "skipped_scenes": int(phase2_result.get("skipped_scenes", 0) or 0),
         "rerun_scenes": int(phase2_result.get("rerun_scenes", 0) or 0),
         "failed_scene_count": len(failed_scenes)

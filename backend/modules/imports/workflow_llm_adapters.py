@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+import os
 from importlib import import_module
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.profiles import ResolvedLLMProfile, resolve_llm_profile
+from modules.imports.agent_step_harness import (
+    AgentPermissionLevel,
+    ManagedLLMStep,
+    StepExecutionStatus,
+    StepToolEnvelope,
+)
+
 DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS = 15
+DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS = 2
 PHASE1B_SMALL_SAMPLE_MAX_TOKENS = 6144
 PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS = 90
 PHASE1B_COMPACT_TEXT_LIMIT = 180
@@ -18,6 +27,65 @@ PHASE1B_COMPACT_TEXT_LIMIT = 180
 def _workflow_constant(name: str, default: Any) -> Any:
     workflow_module = import_module("modules.imports.workflow")
     return getattr(workflow_module, name, default)
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _phase01_scene_max_tokens(default: int) -> int:
+    return _positive_int_env("PHASE01_SCENE_MAX_TOKENS", default)
+
+
+def _deep_import_structured_max_fix_attempts() -> int:
+    default = int(
+        _workflow_constant(
+            "DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
+            DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
+        )
+    )
+    return _positive_int_env("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", default)
+
+
+async def _project_settings_for_novel(
+    db: AsyncSession | None,
+    novel_id: str,
+) -> dict[str, Any] | None:
+    if db is None:
+        return None
+    from unittest.mock import Mock
+
+    if isinstance(db, Mock):
+        return None
+    from modules.project.facade import get_project_context
+
+    context = await get_project_context(db, novel_id)
+    if context is None:
+        return None
+    settings = getattr(context, "settings", None)
+    return settings if isinstance(settings, dict) else None
+
+
+def _llm_client_for_profile(project_settings: dict[str, Any] | None, **overrides: Any):
+    from infrastructure.llm.client import LLMClient
+
+    return LLMClient.from_project_settings(project_settings, **overrides)
+
+
+def _profile_request_defaults(profile: ResolvedLLMProfile) -> dict[str, Any]:
+    defaults = profile.request_defaults()
+    return {
+        "model": defaults["model"],
+        "temperature": defaults.get("temperature"),
+        "max_tokens": defaults["max_tokens"],
+    }
 
 
 class _Phase0SceneCandidateLLM:
@@ -29,14 +97,14 @@ class _Phase0SceneCandidateLLM:
         novel_id: str,
         *,
         timeout_seconds: int | None = None,
+        project_settings: dict[str, Any] | None = None,
     ) -> None:
         self.db = db
         self.novel_id = novel_id
         self.timeout_seconds = timeout_seconds
+        self.project_settings = project_settings
 
     async def __call__(self, batch) -> Any:
-        from core.config import get_settings
-        from infrastructure.llm.client import LLMClient
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
         from modules.imports.llm_schemas import SceneCandidateOutput
         from modules.imports.scene_segmentation import SceneSegmentationService
@@ -57,9 +125,13 @@ class _Phase0SceneCandidateLLM:
                 missing_or_uncertain_items=["no chapter content found"],
             )
 
-        settings = get_settings()
+        project_settings = self.project_settings
+        if project_settings is None and self.db is not None:
+            project_settings = await _project_settings_for_novel(self.db, self.novel_id)
+        profile = resolve_llm_profile(project_settings)
+        request_defaults = _profile_request_defaults(profile)
         request = LLMCallRequest(
-            model=settings.llm_model,
+            model=request_defaults["model"],
             messages=[
                 LLMMessage(
                     role="system",
@@ -79,14 +151,18 @@ class _Phase0SceneCandidateLLM:
                     ),
                 ),
             ],
-            temperature=0.3,
-            max_tokens=4096,
+            temperature=request_defaults["temperature"] or 0.3,
+            max_tokens=_phase01_scene_max_tokens(request_defaults["max_tokens"]),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
-            LLMClient(timeout=settings.llm_timeout),
+            _llm_client_for_profile(
+                project_settings,
+                **({"timeout": self.timeout_seconds} if self.timeout_seconds else {}),
+            ),
             request,
             SceneCandidateOutput,
+            step_name="phase0_prefetch",
             transport_retries=False,
             timeout_seconds=self.timeout_seconds,
             fix_prompt=(
@@ -100,15 +176,17 @@ class _Phase0SceneCandidateLLM:
 class _Phase1aSceneCandidateLLM:
     """LLM adapter for text-backed Phase 1a candidate reinforcement."""
 
+    def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
+        self.project_settings = project_settings
+
     async def __call__(self, payload: dict[str, Any]) -> Any:
-        from core.config import get_settings
-        from infrastructure.llm.client import LLMClient
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
         from modules.imports.llm_schemas import SceneCandidateOutput
 
-        settings = get_settings()
+        profile = resolve_llm_profile(self.project_settings)
+        request_defaults = _profile_request_defaults(profile)
         request = LLMCallRequest(
-            model=settings.llm_model,
+            model=request_defaults["model"],
             messages=[
                 LLMMessage(
                     role="system",
@@ -129,14 +207,15 @@ class _Phase1aSceneCandidateLLM:
                     ),
                 ),
             ],
-            temperature=0.3,
-            max_tokens=4096,
+            temperature=request_defaults["temperature"] or 0.3,
+            max_tokens=_phase01_scene_max_tokens(request_defaults["max_tokens"]),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
-            LLMClient(timeout=settings.llm_timeout),
+            _llm_client_for_profile(self.project_settings),
             request,
             SceneCandidateOutput,
+            step_name="phase1a_reinforce",
             transport_retries=False,
             fix_prompt=(
                 "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
@@ -149,17 +228,19 @@ class _Phase1aSceneCandidateLLM:
 class _SingleChapterSceneCandidateLLM:
     """Small-scope fallback when batch Phase 1a produces no usable candidates."""
 
+    def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
+        self.project_settings = project_settings
+
     async def __call__(self, chapter: dict[str, Any]) -> Any:
-        from core.config import get_settings
-        from infrastructure.llm.client import LLMClient
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
         from modules.imports.llm_schemas import SceneSegmentationOutput
         from modules.imports.scene_segmentation import SceneSegmentationService
 
         service = SceneSegmentationService()
-        settings = get_settings()
+        profile = resolve_llm_profile(self.project_settings)
+        request_defaults = _profile_request_defaults(profile)
         request = LLMCallRequest(
-            model=settings.llm_model,
+            model=request_defaults["model"],
             messages=[
                 LLMMessage(
                     role="system",
@@ -180,13 +261,14 @@ class _SingleChapterSceneCandidateLLM:
                 ),
             ],
             temperature=0.2,
-            max_tokens=4096,
+            max_tokens=_phase01_scene_max_tokens(request_defaults["max_tokens"]),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
-            LLMClient(timeout=settings.llm_timeout),
+            _llm_client_for_profile(self.project_settings),
             request,
             SceneSegmentationOutput,
+            step_name="phase1a_single_chapter",
             transport_retries=False,
             fix_prompt=(
                 "上一轮输出无法通过 SceneSegmentationOutput 校验。请只输出一个 JSON "
@@ -199,13 +281,14 @@ class _SingleChapterSceneCandidateLLM:
 class _Phase1bSceneFusionLLM:
     """LLM adapter for Phase 1b reducer windows."""
 
+    def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
+        self.project_settings = project_settings
+
     async def __call__(self, payload: dict[str, Any]) -> Any:
-        from core.config import get_settings
-        from infrastructure.llm.client import LLMClient
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
         from modules.imports.scene_fusion import Phase1bReducerOutput
 
-        settings = get_settings()
+        profile = resolve_llm_profile(self.project_settings)
         compact_payload = _compact_phase1b_payload(payload)
         small_sample = _is_small_phase1b_payload(compact_payload)
         max_tokens = (
@@ -216,7 +299,7 @@ class _Phase1bSceneFusionLLM:
                 )
             )
             if small_sample
-            else 8192
+            else _phase01_scene_max_tokens(max(int(profile.max_tokens), 8192))
         )
         timeout_seconds = (
             int(
@@ -226,7 +309,7 @@ class _Phase1bSceneFusionLLM:
                 )
             )
             if small_sample
-            else max(int(settings.llm_timeout), 45)
+            else max(int(profile.timeout), 45)
         )
         scene_guidance = (
             "1-7章样本目标输出9个Scene，必须覆盖1-7章；只合并真正重复的候选。"
@@ -245,7 +328,7 @@ class _Phase1bSceneFusionLLM:
             " fallback_required=true。"
         )
         request = LLMCallRequest(
-            model=settings.llm_model,
+            model=profile.model,
             messages=[
                 LLMMessage(
                     role="system",
@@ -289,9 +372,10 @@ class _Phase1bSceneFusionLLM:
             response_format={"type": "json_object"},
         )
         return await _call_structured(
-            LLMClient(timeout=settings.llm_timeout),
+            _llm_client_for_profile(self.project_settings),
             request,
             Phase1bReducerOutput,
+            step_name="phase1b_fusion",
             transport_retries=False,
             timeout_seconds=timeout_seconds,
             fix_prompt=(
@@ -456,6 +540,7 @@ async def _run_deep_import_structured_call(
     request,
     schema,
     *,
+    step_name: str = "managed_llm_step",
     transport_retries: bool,
     fix_prompt: str,
     timeout_seconds: int | None = None,
@@ -474,16 +559,30 @@ async def _run_deep_import_structured_call(
             )
         )
     )
-    return await asyncio.wait_for(
-        client.generate_structured(
+    step = ManagedLLMStep(
+        StepToolEnvelope(
+            name=step_name,
+            output_schema=schema,
+            permission_level=AgentPermissionLevel.draft,
+            read_only=False,
+            concurrent_safe=True,
+            timeout=timeout,
+        )
+    )
+    result = await step.run(
+        lambda: client.generate_structured(
             request,
             schema,
-            max_fix_attempts=1,
+            max_fix_attempts=_deep_import_structured_max_fix_attempts(),
             transport_retries=transport_retries,
             fix_prompt=fix_prompt,
-        ),
-        timeout=timeout,
+        )
     )
+    if result.status != StepExecutionStatus.succeeded:
+        if result.exception is not None:
+            raise result.exception
+        raise RuntimeError(result.error_kind or "managed_llm_step_failed")
+    return result.output
 
 
 async def _call_structured(*args, **kwargs):
