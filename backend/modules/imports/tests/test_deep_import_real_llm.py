@@ -2278,6 +2278,20 @@ def _phase2b_effective_completed_count(phase2b_result: dict[str, Any]) -> int:
     return int(phase2b_result.get("alias_relation_scenes", 0) or 0)
 
 
+def _phase2b_attempted_or_explained(
+    phase2_stats: dict[str, Any],
+    phase_errors: list[dict[str, Any]],
+) -> bool:
+    phase2b_attempts = int(phase2_stats.get("alias_relation_scenes", 0) or 0) + len(
+        phase2_stats.get("alias_relation_failed_scenes") or []
+    )
+    skipped_with_reason = bool(
+        phase2_stats.get("alias_relation_skipped")
+        and phase2_stats.get("alias_relation_skip_reason")
+    )
+    return phase2b_attempts > 0 or skipped_with_reason or bool(phase_errors)
+
+
 def _phase1a_repair_max_failed_batches() -> int:
     raw = os.getenv("PHASE1A_REPAIR_MAX_FAILED_BATCHES")
     if raw is None or raw.strip() == "":
@@ -5287,6 +5301,28 @@ def test_phase2b_repair_merge_keeps_source_completed_count() -> None:
     assert merged["total_aliases"] == 6
     assert merged["total_relations"] == 13
     assert merged["alias_relation_failed_scenes"] == [6]
+
+
+def test_phase2b_attempted_or_explained_accepts_skipped_with_reason() -> None:
+    phase2_stats = {
+        "alias_relation_scenes": 0,
+        "alias_relation_failed_scenes": [],
+        "alias_relation_skipped": True,
+        "alias_relation_skip_reason": "phase2_alias_relation_supplement_disabled",
+    }
+
+    assert _phase2b_attempted_or_explained(phase2_stats, []) is True
+
+
+def test_phase2b_attempted_or_explained_rejects_silent_skip() -> None:
+    phase2_stats = {
+        "alias_relation_scenes": 0,
+        "alias_relation_failed_scenes": [],
+        "alias_relation_skipped": True,
+        "alias_relation_skip_reason": None,
+    }
+
+    assert _phase2b_attempted_or_explained(phase2_stats, []) is False
 
 
 def _write_phase2b_artifact_payload(
@@ -8621,19 +8657,23 @@ async def test_deep_import_real_llm_acceptance(
         actual=sorted(phase2_stats.keys()),
         message="phase2 quality_stats missing Phase 2b alias/relation fields",
     )
-    phase2b_attempts = int(phase2_stats.get("alias_relation_scenes", 0) or 0) + len(
-        phase2_stats.get("alias_relation_failed_scenes") or []
-    )
     _record_acceptance_check(
         acceptance_rule_results,
         acceptance_issues,
         name="phase2b_attempted_or_explained",
-        ok=phase2b_attempts > 0 or bool(phase_errors),
-        expected="alias_relation_scenes + failed_scenes > 0 or phase_errors",
+        ok=_phase2b_attempted_or_explained(phase2_stats, phase_errors),
+        expected=(
+            "alias_relation_scenes + failed_scenes > 0, skipped with reason, "
+            "or phase_errors"
+        ),
         actual={
             "alias_relation_scenes": phase2_stats.get("alias_relation_scenes"),
             "alias_relation_failed_scenes": phase2_stats.get(
                 "alias_relation_failed_scenes",
+            ),
+            "alias_relation_skipped": phase2_stats.get("alias_relation_skipped"),
+            "alias_relation_skip_reason": phase2_stats.get(
+                "alias_relation_skip_reason"
             ),
             "phase_error_count": len(phase_errors),
         },

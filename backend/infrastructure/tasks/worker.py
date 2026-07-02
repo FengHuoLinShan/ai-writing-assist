@@ -36,6 +36,7 @@ from shared.constants import (
 logger = logging.getLogger(__name__)
 
 # 注册 projects 表（NovelMixin FK 依赖）
+import modules.imports.models  # noqa: E402, F401
 import modules.imports.tasks  # noqa: E402, F401
 import modules.outline.tasks  # noqa: E402, F401
 import modules.project.models  # noqa: E402, F401

@@ -455,6 +455,10 @@ class EntityExtractionPhaseRunner:
             "failed_scene_indices",
             [],
         )
+        repair_summary["source_failed_scene_ids"] = phase2_result.get(
+            "failed_scene_ids",
+            [],
+        )
         repair_summary["source_failed_batches"] = phase2_result.get(
             "phase2_failed_batches",
             [],
@@ -464,6 +468,7 @@ class EntityExtractionPhaseRunner:
 
 def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
     failed_scenes = phase2_result.get("failed_scene_indices") or []
+    failed_scene_ids = phase2_result.get("failed_scene_ids") or []
     checkpoints = (phase2_result.get("checkpoints") or {}).get("phase2", {}).get(
         "scenes",
         [],
@@ -494,6 +499,10 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
             "alias_relation_total_timeout_s"
         ),
         "alias_relation_concurrency": phase2_result.get("alias_relation_concurrency"),
+        "alias_relation_skipped": bool(phase2_result.get("alias_relation_skipped")),
+        "alias_relation_skip_reason": phase2_result.get(
+            "alias_relation_skip_reason"
+        ),
         "skipped_scenes": int(phase2_result.get("skipped_scenes", 0) or 0),
         "rerun_scenes": int(phase2_result.get("rerun_scenes", 0) or 0),
         "failed_scene_count": len(failed_scenes)
@@ -530,6 +539,9 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
             phase2_result.get("phase2_boundary_supplement_counts") or {}
         ),
         "phase2_failed_batches": phase2_result.get("phase2_failed_batches") or [],
+        "failed_scene_ids": (
+            failed_scene_ids if isinstance(failed_scene_ids, list) else []
+        ),
         "phase2_degraded_batches": phase2_result.get("phase2_degraded_batches") or [],
         "phase2_linked_to_existing": int(
             phase2_result.get("phase2_linked_to_existing", 0) or 0
@@ -556,6 +568,7 @@ def _phase2_counts(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "total_relations": int(phase2_result.get("total_relations", 0) or 0),
         "total_deltas": int(phase2_result.get("total_deltas", 0) or 0),
         "failed_scene_count": len(phase2_result.get("failed_scene_indices") or []),
+        "failed_scene_ids": phase2_result.get("failed_scene_ids") or [],
         "failed_batch_count": len(phase2_result.get("phase2_failed_batches") or []),
         "alias_relation_failed_scene_count": len(
             phase2_result.get("alias_relation_failed_scenes") or []
@@ -592,6 +605,7 @@ def _merge_phase2_repair_result(
         int(repair.get("completed_scenes", 0) or 0),
     )
     merged["failed_scene_indices"] = repair.get("failed_scene_indices") or []
+    merged["failed_scene_ids"] = repair.get("failed_scene_ids") or []
     merged["phase2_failed_batches"] = repair.get("phase2_failed_batches") or []
     merged["degraded"] = bool(
         repair.get("degraded")

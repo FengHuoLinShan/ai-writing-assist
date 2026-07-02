@@ -1089,7 +1089,12 @@ class TestDeepImportWorkflowAutoRun:
                     "failed": 0,
                 },
                 "phase2_failed_batches": [],
+                "failed_scene_ids": ["scene-3"],
                 "phase2_degraded_batches": [],
+                "alias_relation_skipped": True,
+                "alias_relation_skip_reason": (
+                    "phase2_alias_relation_supplement_disabled"
+                ),
             }
         )
 
@@ -1102,6 +1107,12 @@ class TestDeepImportWorkflowAutoRun:
         assert stats["phase2_action_counts"]["create_new"] == 3
         assert stats["phase2_dedup_counts"]["skipped"] == 1
         assert stats["phase2_boundary_supplement_counts"]["created"] == 1
+        assert stats["failed_scene_ids"] == ["scene-3"]
+        assert stats["alias_relation_skipped"] is True
+        assert (
+            stats["alias_relation_skip_reason"]
+            == "phase2_alias_relation_supplement_disabled"
+        )
 
     @pytest.mark.asyncio
     async def test_pending_to_done(self):

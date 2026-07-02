@@ -255,6 +255,7 @@ def phase2_repair_summary(
         "attempts": 1 if attempted else 0,
         "reason": reason,
         "failed_scene_indices": failed_scenes,
+        "failed_scene_ids": result.get("failed_scene_ids") or [],
         "failed_batches": failed_batches,
         "rerun_scenes": int(result.get("rerun_scenes", 0) or 0),
         "skipped_scenes": int(result.get("skipped_scenes", 0) or 0),

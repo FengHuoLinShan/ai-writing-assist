@@ -230,6 +230,7 @@ class SceneEntityExtractionService:
         accumulated_memory: list[dict] = []
         seen_entity_keys: set[tuple[str, str]] = set()
         failed_scene_indices: list[int] = []
+        failed_scene_ids: list[str] = []
         completed_scenes = 0
         skipped_scenes = 0
         rerun_scenes = 0
@@ -479,6 +480,7 @@ class SceneEntityExtractionService:
                     else getattr(scene, "scene_index", scene_idx)
                 )
                 failed_scene_indices.append(scene_index_value)
+                failed_scene_ids.append(self._scene_id(scene))
                 error_kind = self._error_kind(exc)
                 error_message = str(exc)[:300]
                 scene_checkpoints.append(
@@ -562,6 +564,7 @@ class SceneEntityExtractionService:
             "error_kind": error_kind or flush_status["error_kind"],
             "error_message": error_message or flush_status["error_message"],
             "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": failed_scene_ids,
             "completed_scenes": completed_scenes,
             "skipped_scenes": skipped_scenes,
             "rerun_scenes": rerun_scenes,
@@ -621,10 +624,16 @@ class SceneEntityExtractionService:
         return phase2_checkpoint_by_scene(existing_checkpoints)
 
     @staticmethod
-    def _scene_index_value(scene: dict[str, Any]) -> int:
+    def _scene_index_value(scene: dict[str, Any], fallback: int = 0) -> int:
         if isinstance(scene, dict):
-            return int(scene.get("scene_index") or 0)
-        return int(getattr(scene, "scene_index", 0) or 0)
+            raw_value = scene.get("scene_index")
+        else:
+            raw_value = getattr(scene, "scene_index", None)
+        try:
+            scene_index = int(raw_value or 0)
+        except (TypeError, ValueError):
+            scene_index = 0
+        return scene_index if scene_index > 0 else fallback
 
     @staticmethod
     def _phase2_batch_size_scenes() -> int:
@@ -834,6 +843,7 @@ class SceneEntityExtractionService:
         total_relations = 0
         total_deltas = 0
         failed_scene_indices: list[int] = []
+        failed_scene_ids: list[str] = []
         scene_checkpoints: list[dict[str, Any]] = []
         failed_batches: list[int] = []
         degraded_batches: list[int] = []
@@ -847,8 +857,14 @@ class SceneEntityExtractionService:
                 degraded_batches.append(batch_index)
                 error_kind = self._error_kind(result)
                 error_message = str(result)[:300]
-                for scene in batches[batch_index]:
-                    failed_scene_indices.append(self._scene_index_value(scene))
+                for scene_position, scene in enumerate(batches[batch_index]):
+                    failed_scene_indices.append(
+                        self._scene_index_value(
+                            scene,
+                            fallback=batch_index * batch_size + scene_position + 1,
+                        )
+                    )
+                    failed_scene_ids.append(self._scene_id(scene))
                     scene_checkpoints.append(
                         self._build_scene_checkpoint(
                             scene,
@@ -869,6 +885,7 @@ class SceneEntityExtractionService:
             total_relations += int(result.get("relations", 0) or 0)
             total_deltas += int(result.get("deltas", 0) or 0)
             failed_scene_indices.extend(result.get("failed_scene_indices") or [])
+            failed_scene_ids.extend(result.get("failed_scene_ids") or [])
             scene_checkpoints.extend(result.get("checkpoints") or [])
             self._merge_phase2_persistence_stats(
                 persistence_stats,
@@ -930,6 +947,7 @@ class SceneEntityExtractionService:
                 or flush_status["error_message"]
             ),
             "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": failed_scene_ids,
             "completed_scenes": total_scenes - len(failed_scene_indices),
             "skipped_scenes": 0,
             "rerun_scenes": 0,
@@ -990,6 +1008,7 @@ class SceneEntityExtractionService:
         relations = 0
         deltas = 0
         failed_scene_indices: list[int] = []
+        failed_scene_ids: list[str] = []
         checkpoints: list[dict[str, Any]] = []
         error_kind_value: str | None = None
         error_message: str | None = None
@@ -1014,7 +1033,16 @@ class SceneEntityExtractionService:
             except Exception as exc:
                 error_kind_value = self._error_kind(exc)
                 error_message = str(exc)[:300]
-                failed_scene_indices.append(self._scene_index_value(scene))
+                failed_scene_indices.append(
+                    self._scene_index_value(
+                        scene,
+                        fallback=batch_index
+                        * max(1, _phase2_config.phase2_batch_size_scenes())
+                        + scene_idx
+                        + 1,
+                    )
+                )
+                failed_scene_ids.append(self._scene_id(scene))
                 checkpoints.append(
                     self._build_scene_checkpoint(
                         scene,
@@ -1062,7 +1090,8 @@ class SceneEntityExtractionService:
                 completed_counter["value"] += 1
                 completed = completed_counter["value"]
             if on_scene_progress is not None:
-                await on_scene_progress(completed, total_scenes)
+                async with db_lock:
+                    await on_scene_progress(completed, total_scenes)
 
         return {
             "batch_index": batch_index,
@@ -1070,6 +1099,7 @@ class SceneEntityExtractionService:
             "relations": relations,
             "deltas": deltas,
             "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": failed_scene_ids,
             "checkpoints": checkpoints,
             "degraded": bool(failed_scene_indices),
             "error_kind": error_kind_value,

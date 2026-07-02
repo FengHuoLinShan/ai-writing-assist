@@ -2327,6 +2327,163 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
 
 
 @pytest.mark.asyncio
+async def test_phase2_batched_progress_callback_uses_db_lock() -> None:
+    svc = SceneEntityExtractionService()
+    db = Mock()
+    db_lock = asyncio.Lock()
+    progress_lock = asyncio.Lock()
+    progress_lock_states: list[bool] = []
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "novel_id": "novel-1",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+        }
+        for index in (1, 2)
+    ]
+
+    async def process_scene(*_args, **kwargs):
+        assert kwargs["db_lock"] is db_lock
+        return {
+            "created": 1,
+            "relations": 0,
+            "deltas": 0,
+            "created_entity_ids": [],
+            "created_relation_ids": [],
+            "created_delta_ids": [],
+            "updated_context": "updated",
+            "updated_memory": [],
+        }
+
+    async def on_scene_progress(_completed: int, _total: int) -> None:
+        progress_lock_states.append(db_lock.locked())
+
+    with patch.object(
+        svc,
+        "_process_scene",
+        new_callable=AsyncMock,
+        side_effect=process_scene,
+    ):
+        result = await svc._process_scene_batch_serial(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            scenes,
+            batch_index=0,
+            existing_context="无已有对象",
+            workflow_id="wf-phase2-lock",
+            completed_counter={"value": 0},
+            progress_lock=progress_lock,
+            db_lock=db_lock,
+            total_scenes=len(scenes),
+            on_scene_progress=on_scene_progress,
+        )
+
+    assert result["created"] == 2
+    assert progress_lock_states == [True, True]
+
+
+@pytest.mark.asyncio
+async def test_phase2_batched_failed_batch_records_scene_ids_and_fallback_indices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PHASE2_BATCH_SIZE_SCENES", "12")
+    monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "6")
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "novel_id": "novel-1",
+            "scene_index": 0,
+            "chapter_ids": [str(index)],
+        }
+        for index in range(1, 14)
+    ]
+    db = Mock()
+
+    async def process_batch(*_args, **kwargs):
+        if kwargs["batch_index"] == 0:
+            raise RuntimeError("session state changed")
+        return {
+            "created": 1,
+            "relations": 0,
+            "deltas": 0,
+            "failed_scene_indices": [],
+            "failed_scene_ids": [],
+            "checkpoints": [],
+            "degraded": False,
+            "error_kind": None,
+            "error_message": None,
+            "persistence_stats": svc._empty_phase2_persistence_stats(),
+        }
+
+    with (
+        patch.object(
+            svc,
+            "_process_scene_batch_serial",
+            new_callable=AsyncMock,
+            side_effect=process_batch,
+        ),
+        patch.object(
+            svc,
+            "_run_boundary_supplements",
+            new_callable=AsyncMock,
+            return_value={
+                "phase2_boundary_windows_total": 1,
+                "phase2_boundary_windows_completed": 0,
+                "phase2_boundary_supplement_counts": {
+                    "created": 0,
+                    "aliases": 0,
+                    "relations": 0,
+                    "link_suggestions": 0,
+                    "conflicts": 0,
+                    "failed": 0,
+                },
+                "degraded": False,
+                "error_kind": None,
+                "error_message": None,
+            },
+        ),
+        patch.object(
+            svc,
+            "_phase2_flush_with_timeout",
+            new_callable=AsyncMock,
+            return_value={"degraded": False, "error_kind": None, "error_message": None},
+        ),
+        patch.object(
+            svc,
+            "_phase2_audit_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_snapshot_health_summary",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+        patch.object(
+            svc,
+            "_phase2_alias_relation_result",
+            new_callable=AsyncMock,
+            return_value=svc._skipped_alias_relation_result(13, reason="test"),
+        ),
+    ):
+        result = await svc._process_scenes_batched(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            scenes,
+            "无已有对象",
+            workflow_id="wf-phase2-failed-batch",
+            on_scene_progress=None,
+        )
+
+    assert result["phase2_failed_batches"] == [0]
+    assert result["failed_scene_indices"] == list(range(1, 13))
+    assert result["failed_scene_ids"] == [f"scene-{index}" for index in range(1, 13)]
+
+
+@pytest.mark.asyncio
 async def test_bulk_llm_extractions_keep_successful_groups_when_one_group_fails() -> None:
     svc = SceneEntityExtractionService()
     output = SceneEntityExtractionOutput(
