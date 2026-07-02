@@ -1,10 +1,12 @@
 {
-  "log_path": "/Users/tywww/Desktop/项目/ai-writing-assist/backend/.test-logs/deep_import_real_llm/deep_import_60_phase1a_20260702T101443Z.jsonl",
-  "started_at": "2026-07-02T10:14:43.829346+00:00",
+  "log_path": "/Users/tywww/Desktop/项目/ai-writing-assist/backend/.test-logs/deep_import_real_llm/deep_import_60_phase1a_20260702T111812Z.jsonl",
+  "started_at": "2026-07-02T11:18:12.510854+00:00",
   "status": "complete",
   "last_event": "final_summary",
   "last_phase": "phase1a_reinforce",
-  "last_elapsed_s": 120.46,
-  "updated_at": "2026-07-02T10:16:44.286505+00:00",
-  "project_id": "b103894b-6a19-4846-8e45-8ef6fa707808"
+  "last_elapsed_s": 447.71,
+  "updated_at": "2026-07-02T11:25:40.245124+00:00",
+  "project_id": "7de84531-02ca-4027-acff-30761a0eebf1",
+  "task_id": "b4c15ff7-12bc-426f-91b0-6ff6450e2d1f",
+  "quality_status": "complete"
 }

@@ -426,8 +426,8 @@ async def test_phase1a_adapter_uses_controlled_prompt_and_budget(monkeypatch):
     request = captured["request"]
     system_prompt = request.messages[0].content
     user_prompt = request.messages[1].content
-    assert request.max_tokens == 1024
-    assert captured["kwargs"]["max_fix_attempts"] == 0
+    assert request.max_tokens == 6144
+    assert captured["kwargs"]["max_fix_attempts"] == 1
     assert "正文级 Scene 候选补强器" in system_prompt
     assert "不是最终 Scene 切分器" in system_prompt
     assert "每个覆盖章节最多输出 1 个中间候选 Scene" in system_prompt
@@ -446,13 +446,13 @@ def test_phase1a_scene_max_tokens_env_override(
     from modules.imports import workflow_llm_adapters
 
     monkeypatch.delenv("PHASE1A_SCENE_MAX_TOKENS", raising=False)
-    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 1024
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 6144
 
     monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "4096")
     assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 4096
 
     monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "nope")
-    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 1024
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 6144
 
 
 def test_phase1a_structured_max_fix_attempts_env_override(
@@ -461,10 +461,10 @@ def test_phase1a_structured_max_fix_attempts_env_override(
     from modules.imports import workflow_llm_adapters
 
     monkeypatch.delenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", raising=False)
-    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 0
+    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 1
 
     monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "0")
-    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 0
+    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 1
 
     monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "2")
     assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 2

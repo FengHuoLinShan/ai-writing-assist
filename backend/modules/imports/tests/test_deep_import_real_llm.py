@@ -19,7 +19,7 @@ worker. Enable it only for explicit quality runs:
         modules/imports/tests/test_deep_import_real_llm.py -q -s
 
     RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
-        PHASE1A_SCENE_MAX_TOKENS=1024 pytest \
+        PHASE1A_SCENE_MAX_TOKENS=6144 pytest \
         modules/imports/tests/test_deep_import_real_llm.py -q -s
 """
 
@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 import uuid
 from collections.abc import Iterable
@@ -61,6 +62,7 @@ from modules.imports.workflow import (
     _Phase0SceneCandidateLLM,
     _Phase1aSceneCandidateLLM,
 )
+from modules.imports.workflow_schemas import DeepImportProgress
 from modules.outline.models import (
     ForeshadowingPlan,
     OutlineArc,
@@ -621,6 +623,8 @@ def _write_phase0_artifact(
     coverage: dict[str, Any],
     expected_phase_shape: dict[str, Any],
     llm_config: dict[str, Any],
+    project_id: str | None = None,
+    task_id: str | None = None,
 ) -> Path:
     artifact_path = _phase0_artifact_path(log_path)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
@@ -629,6 +633,8 @@ def _write_phase0_artifact(
         "stage": "phase0_prefetch",
         "created_at": datetime.now(UTC).isoformat(),
         "source_log_path": str(log_path),
+        "project_id": project_id,
+        "task_id": task_id,
         "expected_chapter_count": EXPECTED_CHAPTER_COUNT,
         "expected_phase_shape": expected_phase_shape,
         "coverage": coverage,
@@ -653,10 +659,54 @@ def _write_phase0_artifact(
 
 def _phase1a_phase0_artifact_path() -> Path | None:
     configured = os.getenv("PHASE1A_PHASE0_ARTIFACT_PATH")
-    if not configured:
-        return None
-    path = Path(configured).expanduser()
-    return path if path.is_absolute() else BACKEND_ROOT / path
+    if configured:
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BACKEND_ROOT / path
+    return _latest_passed_phase0_artifact_path()
+
+
+def _latest_passed_phase0_artifact_path() -> Path | None:
+    candidates = sorted(
+        DEFAULT_LOG_DIR.glob("phase0_real_llm_*.artifact.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for path in candidates:
+        if _is_passed_phase0_artifact(path):
+            return path
+    return None
+
+
+def _is_passed_phase0_artifact(path: Path) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if payload.get("test_mode") != "phase0_only":
+        return False
+    if payload.get("stage") != "phase0_prefetch":
+        return False
+    if payload.get("expected_chapter_count") != EXPECTED_CHAPTER_COUNT:
+        return False
+    coverage = payload.get("coverage") or {}
+    if coverage.get("missing_chapters"):
+        return False
+    if coverage.get("coverage_ratio") != 1.0:
+        return False
+    phase0_payload = payload.get("phase0_result") or {}
+    if phase0_payload.get("blocked"):
+        return False
+    quality_stats = phase0_payload.get("quality_stats") or {}
+    expected_phase_shape = payload.get("expected_phase_shape") or {}
+    expected_batches = expected_phase_shape.get("phase0_total_batches")
+    if expected_batches is not None:
+        if quality_stats.get("total_batches") != expected_batches:
+            return False
+        if quality_stats.get("completed_batches") != expected_batches:
+            return False
+    if quality_stats.get("failed") != 0:
+        return False
+    return bool(phase0_payload.get("candidates"))
 
 
 def _phase0_repair_source_artifact_path() -> Path | None:
@@ -994,6 +1044,8 @@ def _write_phase1a_artifact(
     coverage: dict[str, Any],
     expected_phase_shape: dict[str, Any],
     llm_config: dict[str, Any],
+    project_id: str | None = None,
+    task_id: str | None = None,
 ) -> Path:
     artifact_path = _phase1a_artifact_path(log_path)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1002,6 +1054,8 @@ def _write_phase1a_artifact(
         "stage": "phase1a_reinforce",
         "created_at": datetime.now(UTC).isoformat(),
         "source_log_path": str(log_path),
+        "project_id": project_id,
+        "task_id": task_id,
         "expected_chapter_count": EXPECTED_CHAPTER_COUNT,
         "expected_phase_shape": expected_phase_shape,
         "coverage": coverage,
@@ -1283,6 +1337,191 @@ def _phase1a_result_payload(phase0_result: Any, phase1a_result: Any) -> dict[str
             "structure_analysis": "skipped",
         },
     }
+
+
+def _build_phase_acceptance_task(
+    project_id: uuid.UUID,
+    *,
+    test_mode: str,
+    stage: str,
+) -> AsyncTask:
+    task_type = {
+        "phase0_only": "deep_import_phase0_real_llm",
+        "phase1a_only": "deep_import_phase1a_real_llm",
+    }.get(test_mode, "deep_import_phase_real_llm")
+    return AsyncTask(
+        id=uuid.uuid4(),
+        task_type=task_type,
+        status="running",
+        meta={
+            "novel_id": str(project_id),
+            "start_chapter": 1,
+            "end_chapter": EXPECTED_CHAPTER_COUNT,
+            "test_mode": test_mode,
+            "stage": stage,
+            "source": "real_llm_acceptance",
+        },
+        progress=0.0,
+        started_at=datetime.now(UTC),
+        heartbeat_at=datetime.now(UTC),
+    )
+
+
+def _phase_acceptance_progress_payload(
+    *,
+    task: AsyncTask,
+    test_mode: str,
+    stage: str,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    llm_config: dict[str, Any],
+    summary_path: Path,
+    artifact_path: Path,
+    log_path: Path,
+    issues: list[str],
+) -> dict[str, Any]:
+    blocked = bool(result.get("blocked"))
+    failed = blocked or bool(issues)
+    if test_mode == "phase1a_only":
+        quality_stats = {
+            "phase0": result.get("phase0_quality_stats") or {},
+            "phase1a": result.get("quality_stats") or {},
+        }
+        completed_steps = ["phase0_prefetch", "phase1a_reinforce"]
+    else:
+        quality_stats = {"phase0": result.get("quality_stats") or {}}
+        completed_steps = ["phase0_prefetch"]
+
+    phase_error_items = [
+        {
+            "phase": stage,
+            "error_kind": "acceptance_issue",
+            "message": issue[:300],
+        }
+        for issue in issues
+    ]
+    if blocked and not phase_error_items:
+        phase_error_items.append(
+            {
+                "phase": stage,
+                "error_kind": str(result.get("block_reason") or "blocked"),
+                "message": str(result.get("block_reason") or "stage blocked")[:300],
+            }
+        )
+
+    progress = DeepImportProgress(
+        workflow_id=str(task.id),
+        workflow_type=str(task.task_type),
+        stage=stage,
+        phase="failed" if failed else "done",
+        quality_status="failed" if failed else "complete",
+        total_steps=len(completed_steps),
+        completed_steps=completed_steps if not failed else completed_steps[:-1],
+        message=(
+            f"{stage} acceptance failed"
+            if failed
+            else f"{stage} acceptance completed"
+        ),
+        current_phase=stage,
+        phase1_total_batches=int(
+            (quality_stats.get("phase0") or {}).get("total_batches", 0) or 0
+        )
+        + int((quality_stats.get("phase1a") or {}).get("total_batches", 0) or 0),
+        phase1_completed_batches=int(
+            (quality_stats.get("phase0") or {}).get("completed_batches", 0) or 0
+        )
+        + int(
+            (quality_stats.get("phase1a") or {}).get("completed_batches", 0) or 0
+        ),
+        phase_timeline=[
+            {
+                "phase": stage,
+                "status": "failed" if failed else "completed",
+                "details": {
+                    "test_mode": test_mode,
+                    "candidate_count": result.get("candidate_count"),
+                    "candidate_scene_count": result.get("candidate_scene_count"),
+                    "covered_chapters": len(coverage.get("covered_chapters") or []),
+                    "missing_chapters": coverage.get("missing_chapters") or [],
+                    "expected_phase_shape": expected_phase_shape,
+                },
+                "ended_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+        diagnostic_counts={
+            **output_counts,
+            "candidate_count": result.get("candidate_count"),
+            "candidate_scene_count": result.get("candidate_scene_count"),
+            "covered_chapter_count": len(coverage.get("covered_chapters") or []),
+            "missing_chapters": coverage.get("missing_chapters") or [],
+            "phase_error_count": len(phase_error_items),
+        },
+        quality_stats=quality_stats,
+        checkpoints={
+            stage: {
+                "test_mode": test_mode,
+                "log_path": str(log_path),
+                "summary_path": str(summary_path),
+                "artifact_path": str(artifact_path),
+                "coverage": coverage,
+                "expected_phase_shape": expected_phase_shape,
+            }
+        },
+        phase_errors=phase_error_items,
+        degraded=bool(result.get("quality_stats", {}).get("degraded_fallback")),
+        degraded_reason=(
+            "degraded_fallback"
+            if result.get("quality_stats", {}).get("degraded_fallback")
+            else None
+        ),
+    )
+    payload = progress.model_dump(mode="json")
+    payload["llm_config"] = llm_config
+    payload["result_summary"] = result
+    payload["artifact_path"] = str(artifact_path)
+    payload["summary_path"] = str(summary_path)
+    return payload
+
+
+async def _persist_phase_acceptance_task_result(
+    db: AsyncSession,
+    task: AsyncTask,
+    *,
+    test_mode: str,
+    stage: str,
+    result: dict[str, Any],
+    output_counts: dict[str, Any],
+    coverage: dict[str, Any],
+    expected_phase_shape: dict[str, Any],
+    llm_config: dict[str, Any],
+    summary_path: Path,
+    artifact_path: Path,
+    log_path: Path,
+    issues: list[str],
+) -> dict[str, Any]:
+    payload = _phase_acceptance_progress_payload(
+        task=task,
+        test_mode=test_mode,
+        stage=stage,
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+        summary_path=summary_path,
+        artifact_path=artifact_path,
+        log_path=log_path,
+        issues=issues,
+    )
+    task.result = payload
+    task.status = "failed" if payload["phase"] == "failed" else "done"
+    task.progress = 1.0
+    task.finished_at = datetime.now(UTC)
+    task.heartbeat_at = task.finished_at
+    await db.flush()
+    return payload
 
 
 def _phase0_only_acceptance_checks(
@@ -2194,6 +2433,8 @@ def test_phase0_artifact_round_trips_scene_prefetch_result(
 ) -> None:
     artifact_path = tmp_path / "phase0.artifact.json"
     log_path = tmp_path / "deep_import_60_phase0_20260702T000000Z.jsonl"
+    project_id = uuid.uuid4()
+    task_id = uuid.uuid4()
     monkeypatch.setenv("PHASE0_REAL_LLM_ARTIFACT_PATH", str(artifact_path))
     phase0_result = ScenePrefetchResult(
         candidates=[
@@ -2218,15 +2459,195 @@ def test_phase0_artifact_round_trips_scene_prefetch_result(
         coverage={"covered_chapters": [1, 2, 3, 4, 5]},
         expected_phase_shape={"phase0_total_batches": 24},
         llm_config={"effective_llm_profile": {"model": "deepseek-v4-flash"}},
+        project_id=str(project_id),
+        task_id=str(task_id),
     )
+    payload = json.loads(written.read_text(encoding="utf-8"))
     loaded = _load_phase0_artifact(written)
 
     assert written == artifact_path
+    assert payload["project_id"] == str(project_id)
+    assert payload["task_id"] == str(task_id)
     assert loaded.quality_stats == {"total_batches": 24, "failed": 0}
     assert loaded.diagnostics == [{"final_status": "success"}]
     assert loaded.candidates[0].candidate_id == "phase0-A-0001"
     assert loaded.candidates[0].source_chapter_indices == [1, 2, 3, 4, 5]
     assert loaded.candidates[0].payload["scenes"][0]["title"] == "候选"
+
+
+def _write_phase0_artifact_payload(
+    path: Path,
+    *,
+    failed: int = 0,
+    missing_chapters: list[int] | None = None,
+    candidate_id: str = "phase0-A-0001",
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "test_mode": "phase0_only",
+                "stage": "phase0_prefetch",
+                "expected_chapter_count": EXPECTED_CHAPTER_COUNT,
+                "expected_phase_shape": {"phase0_total_batches": 24},
+                "coverage": {
+                    "coverage_ratio": 1.0 if not missing_chapters else 0.9,
+                    "missing_chapters": missing_chapters or [],
+                },
+                "phase0_result": {
+                    "candidates": [
+                        {
+                            "candidate_id": candidate_id,
+                            "source_round": "A",
+                            "source_batch_id": "A-0001-1-5",
+                            "source_batch_index": 1,
+                            "source_chapter_indices": [1, 2, 3, 4, 5],
+                            "quality": "high",
+                            "payload": {"scenes": [{"title": "候选"}]},
+                        }
+                    ],
+                    "quality_stats": {
+                        "total_batches": 24,
+                        "completed_batches": 24,
+                        "failed": failed,
+                    },
+                    "diagnostics": [],
+                    "blocked": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_phase1a_defaults_to_latest_passed_phase0_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PHASE1A_PHASE0_ARTIFACT_PATH", raising=False)
+    monkeypatch.setattr(sys.modules[__name__], "DEFAULT_LOG_DIR", tmp_path)
+    failed_artifact = tmp_path / "phase0_real_llm_20260702T000000Z.artifact.json"
+    old_passed_artifact = tmp_path / "phase0_real_llm_20260702T010000Z.artifact.json"
+    latest_passed_artifact = (
+        tmp_path / "phase0_real_llm_20260702T020000Z.artifact.json"
+    )
+    _write_phase0_artifact_payload(
+        failed_artifact,
+        failed=1,
+        candidate_id="failed",
+    )
+    _write_phase0_artifact_payload(
+        old_passed_artifact,
+        candidate_id="old-passed",
+    )
+    _write_phase0_artifact_payload(
+        latest_passed_artifact,
+        candidate_id="latest-passed",
+    )
+
+    os.utime(failed_artifact, (100, 100))
+    os.utime(old_passed_artifact, (200, 200))
+    os.utime(latest_passed_artifact, (300, 300))
+
+    assert _phase1a_phase0_artifact_path() == latest_passed_artifact
+    assert _load_phase0_artifact(latest_passed_artifact).candidates[
+        0
+    ].candidate_id == "latest-passed"
+
+
+def test_phase1a_phase0_artifact_env_overrides_latest_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_artifact = tmp_path / "configured.artifact.json"
+    monkeypatch.setenv("PHASE1A_PHASE0_ARTIFACT_PATH", str(configured_artifact))
+    monkeypatch.setattr(sys.modules[__name__], "DEFAULT_LOG_DIR", tmp_path / "logs")
+
+    assert _phase1a_phase0_artifact_path() == configured_artifact
+
+
+def test_phase_acceptance_task_uses_stage_specific_task_type() -> None:
+    project_id = uuid.uuid4()
+
+    phase0_task = _build_phase_acceptance_task(
+        project_id,
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+    )
+    phase1a_task = _build_phase_acceptance_task(
+        project_id,
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+    )
+
+    assert phase0_task.task_type == "deep_import_phase0_real_llm"
+    assert phase1a_task.task_type == "deep_import_phase1a_real_llm"
+    assert phase0_task.meta["novel_id"] == str(project_id)
+    assert phase1a_task.meta["novel_id"] == str(project_id)
+    assert phase1a_task.meta["stage"] == "phase1a_reinforce"
+
+
+@pytest.mark.asyncio
+async def test_phase_acceptance_task_result_links_project_and_artifact(
+    db_session: AsyncSession,
+    tmp_path: Path,
+) -> None:
+    project_id = uuid.uuid4()
+    db_session.add(
+        Project(
+            id=project_id,
+            title="Phase0 分阶段结果项目映射",
+            language="zh",
+        )
+    )
+    task = _build_phase_acceptance_task(
+        project_id,
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    result, output_counts, coverage, expected_phase_shape = (
+        _phase0_only_result_fixture()
+    )
+    summary_path = tmp_path / "phase0.md"
+    artifact_path = tmp_path / "phase0.artifact.json"
+    log_path = tmp_path / "phase0.jsonl"
+
+    payload = await _persist_phase_acceptance_task_result(
+        db_session,
+        task,
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        llm_config={"effective_llm_profile": {"model": "deepseek-v4-flash"}},
+        summary_path=summary_path,
+        artifact_path=artifact_path,
+        log_path=log_path,
+        issues=[],
+    )
+
+    saved_task = await db_session.get(AsyncTask, task.id)
+    saved_project = await db_session.get(Project, project_id)
+    assert saved_project is not None
+    assert saved_task is not None
+    assert saved_task.status == "done"
+    assert saved_task.progress == 1.0
+    assert saved_task.meta["novel_id"] == str(project_id)
+    assert saved_task.meta["test_mode"] == "phase0_only"
+    assert saved_task.result["workflow_id"] == str(task.id)
+    assert saved_task.result["stage"] == "phase0_prefetch"
+    assert saved_task.result["quality_stats"]["phase0"]["failed"] == 0
+    assert saved_task.result["checkpoints"]["phase0_prefetch"]["artifact_path"] == str(
+        artifact_path
+    )
+    assert payload["llm_config"]["effective_llm_profile"]["model"] == (
+        "deepseek-v4-flash"
+    )
 
 
 def test_phase1a_only_acceptance_passes_for_phase1a_only_result() -> None:
@@ -2555,6 +2976,24 @@ async def test_deep_import_60_phase0_real_llm_acceptance(
     assert import_result.total_chapters == EXPECTED_CHAPTER_COUNT
     assert import_result.imported_chapters == EXPECTED_CHAPTER_COUNT
 
+    task = _build_phase_acceptance_task(
+        project_id,
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    log.set_context(project_id=str(project_id), task_id=str(task.id))
+    log.write(
+        "task_created",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        task_id=str(task.id),
+        task_type=task.task_type,
+        project_id=str(project_id),
+        meta=task.meta,
+    )
+
     workflow = DeepImportWorkflow()
     log.write(
         "phase_started",
@@ -2684,6 +3123,34 @@ async def test_deep_import_60_phase0_real_llm_acceptance(
         coverage=coverage,
         expected_phase_shape=expected_phase_shape,
         llm_config=llm_config,
+        project_id=str(project_id),
+        task_id=str(task.id),
+    )
+    task_result = await _persist_phase_acceptance_task_result(
+        db_session,
+        task,
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+        summary_path=summary_path,
+        artifact_path=artifact_path,
+        log_path=log.path,
+        issues=acceptance_issues,
+    )
+    log.write(
+        "task_result_persisted",
+        test_mode="phase0_only",
+        stage="phase0_prefetch",
+        task_id=str(task.id),
+        project_id=str(project_id),
+        task_status=task.status,
+        result_phase=task_result.get("phase"),
+        quality_status=task_result.get("quality_status"),
+        artifact_path=str(artifact_path),
     )
     log.write(
         "final_summary",
@@ -2693,6 +3160,7 @@ async def test_deep_import_60_phase0_real_llm_acceptance(
         phase0_summary_path=str(summary_path),
         phase0_artifact_path=str(artifact_path),
         project_id=str(project_id),
+        task_id=str(task.id),
         issues=acceptance_issues,
         output_counts=output_counts,
         candidate_chapter_coverage=coverage,
@@ -2769,6 +3237,24 @@ async def test_deep_import_60_phase1a_real_llm_acceptance(
     )
     assert import_result.total_chapters == EXPECTED_CHAPTER_COUNT
     assert import_result.imported_chapters == EXPECTED_CHAPTER_COUNT
+
+    task = _build_phase_acceptance_task(
+        project_id,
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    log.set_context(project_id=str(project_id), task_id=str(task.id))
+    log.write(
+        "task_created",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        task_id=str(task.id),
+        task_type=task.task_type,
+        project_id=str(project_id),
+        meta=task.meta,
+    )
 
     workflow = DeepImportWorkflow()
     try:
@@ -2942,6 +3428,34 @@ async def test_deep_import_60_phase1a_real_llm_acceptance(
         coverage=coverage,
         expected_phase_shape=expected_phase_shape,
         llm_config=llm_config,
+        project_id=str(project_id),
+        task_id=str(task.id),
+    )
+    task_result = await _persist_phase_acceptance_task_result(
+        db_session,
+        task,
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        result=result,
+        output_counts=output_counts,
+        coverage=coverage,
+        expected_phase_shape=expected_phase_shape,
+        llm_config=llm_config,
+        summary_path=summary_path,
+        artifact_path=artifact_path,
+        log_path=log.path,
+        issues=acceptance_issues,
+    )
+    log.write(
+        "task_result_persisted",
+        test_mode="phase1a_only",
+        stage="phase1a_reinforce",
+        task_id=str(task.id),
+        project_id=str(project_id),
+        task_status=task.status,
+        result_phase=task_result.get("phase"),
+        quality_status=task_result.get("quality_status"),
+        artifact_path=str(artifact_path),
     )
     log.write(
         "final_summary",
@@ -2951,6 +3465,7 @@ async def test_deep_import_60_phase1a_real_llm_acceptance(
         phase1a_summary_path=str(summary_path),
         phase1a_artifact_path=str(artifact_path),
         project_id=str(project_id),
+        task_id=str(task.id),
         issues=acceptance_issues,
         output_counts=output_counts,
         candidate_chapter_coverage=coverage,

@@ -27,13 +27,17 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动流水线，
 直接入库无需用户中途确认。新版 Scene 阶段拆为候选预取、逐批补强和融合提交，
 避免固定 batch 边界截断 Scene，并允许恢复时略微重复局部任务以保证质量。
+Phase 0 / Phase 1a 都是 workflow 中间候选层，不写正式 `scenes` 表；正式 Scene
+只在 Phase 1b 融合和 scene commit 后写入。
 
 启动前会执行 LLM health preflight。若 `LLM_HEALTH_REQUIRED=true` 且 LLM 不可用，
 任务直接进入 `phase="failed"` / `quality_status="failed"`，不写入半成品 Scene。
 
 ### Phase 0 / 1a / 1b: Scene 候选与融合（40%）
 - Phase 0 使用两轮错位 batch 并发预取候选 Scene，默认并发较高，允许缺失和错误。
-- Phase 1a 分别带正文补强两轮候选结果；只对失败 Scene 退回补强，不重跑全部候选。
+- Phase 1a 是受控正文补强器，不是最终 Scene 切分器；它按 budget 收敛正文和 Phase 0 reference，输出短候选锚点供 Phase 1b 使用。
+- Phase 1a 对 `network / rate_limit / empty_result` 做短重试；最终仍失败的 `timeout / schema_error` 等非 422 错误会生成 `degraded_fallback` 低质量中间候选，保留章节锚点继续推进。
+- Phase 1a 的 422 错误率超过阈值仍阻断，避免不兼容 API 通道污染后续流程。
 - Phase 1b 不带正文，以补强后的两轮结果做智能融合 / 切分建议，再提交正式 Scene。
 - 正式 Scene 写入携带 provenance / workflow 信息；恢复或重跑时按 provenance 跳过已提交结果。
 - Phase 0 / 1a 的最终 422 错误率超过 40% 时阻断深度导入，并提示使用稳定官方 API；Phase 1b 超阈值时降级使用 Phase 1a 结果继续。
@@ -63,6 +67,7 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 - quality_status: pending / complete / partial / failed
 - phase_errors: 各阶段可机器读取的失败或降级原因
 - recovery_required / recovery_summary: worker/backend 中断后提示用户手动继续或放弃恢复
+- quality_stats.phase1a.degraded_fallback: Phase 1a 因非阻断 LLM 错误降级生成的中间候选数量
 
 当任务能跑完但 Phase 2/3 未生成关键 AI 资产时，`phase` 仍可为 `done`，但
 `quality_status="partial"` 且 `degraded=true`。前端应把它显示为“部分完成”，
@@ -88,6 +93,9 @@ POST /api/imports/upload                    # 上传并导入（multipart/form-d
 GET  /api/imports                           # 导入记录列表
 GET  /api/imports/{id}                     # 导入记录详情
 POST /api/imports/deep                     # 提交深度导入任务；重复导入需 force=true
+POST /api/imports/stages/scenes            # 只执行 Phase 0/1a/1b + scene_commit
+POST /api/imports/stages/world-objects     # 只执行 Phase 2a/2b
+POST /api/imports/stages/plot-structure    # 只执行 Phase 3
 POST /api/imports/deep/sync                # 同步执行深度导入（E2E/无 worker 场景）
 POST /api/imports/deep/resume              # 用户确认后继续可恢复的原 deep_import task
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
@@ -101,3 +109,20 @@ POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow �
 - Phase 2 通过 world facade / 注册服务写入 `core_entities` / 关系数据，通过 memory 模块记录 `delta_log`
 - Phase 3 通过 outline 注册服务写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
+
+## 真实 LLM 验收与测试 artifact
+
+60 章真实 LLM 验收入口是 test-only，不改变 HTTP API：
+
+- `RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1`：只跑 Phase 0 prefetch，输出 `phase0_real_llm_<timestamp>.artifact.json`
+- `RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1`：默认复用最近通过的 Phase 0 artifact，再跑 Phase 1a 后停止；可通过 `PHASE1A_PHASE0_ARTIFACT_PATH` 显式指定 artifact。后续 phase-only 真实验收入口默认消费上一个 phase 已通过 artifact，避免因前置 phase 临时波动重复整轮失败。
+- `RUN_DEEP_IMPORT_60_SCENE_REAL_LLM=1`：跑 Phase 0 / 1a / 1b / scene_commit 后停止
+
+artifact 只落在 `.test-logs/deep_import_real_llm/`，用于验收、复盘和 failed-batch repair；
+Phase0 / Phase1a-only 入口还会创建 test-only `AsyncTask` result 映射，使 artifact
+里的 `project_id` / `task_id` 能对上对应验收项目。它不进入前端主流程，也不等同于正式
+Scene。repair 按 batch key 合并新旧结果，常用变量包括
+`PHASE0_REPAIR_SOURCE_ARTIFACT_PATH`、`PHASE0_REPAIR_MAX_FAILED_BATCHES`、
+`PHASE0_REPAIR_CONCURRENCY`、`PHASE0_REPAIR_ATTEMPTS`、
+`PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH`、`PHASE1A_REPAIR_MAX_FAILED_BATCHES`、
+`PHASE1A_REPAIR_ATTEMPTS` 和 `PHASE1A_REPAIR_BATCH_IDS`。

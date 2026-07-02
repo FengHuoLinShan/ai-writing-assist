@@ -16,6 +16,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入 Scene 阶段执行 Phase 0 双轮预取、Phase 1a 正文补强、Phase 1b 融合提交，并记录质量统计
+- Phase 0 / Phase 1a 是 workflow 中间候选层，不写正式 Scene；真实 LLM 验收会持久化 JSONL / Markdown / artifact 作为测试证据，供复跑和失败 batch repair
+- Phase 1a 默认作为受控正文补强器：输入正文按预算收敛，输出短候选锚点；最终仍失败的非 422 LLM 错误会生成 `degraded_fallback` 低质量中间候选，保留每章锚点给 Phase 1b 融合
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；真实 LLM 调参可用 `PHASE2_BATCH_SIZE_SCENES` / `PHASE2_BATCH_CONCURRENCY` 临时覆盖；每个 batch 保留局部 rolling context
@@ -67,7 +69,9 @@ worker 启动时会检测 stale 的 `deep_import` 任务并标记为需要恢复
 前端通过 `GET /api/tasks/{task_id}` 展示 `recovery_required` / `recovery_summary`，
 用户点击继续后调用 `POST /api/imports/deep/resume` 复用原 task；放弃恢复调用
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
-Phase 0 / Phase 1a 的 422 错误率超过 40% 时阻断任务；Phase 1b 超阈值时降级继续。
+Phase 0 / Phase 1a 的最终 422 错误率超过 40% 时阻断任务；Phase 1a 的
+network / rate_limit / empty_result 可短重试，最终仍失败的 timeout / schema 等非 422
+错误会降级为 `degraded_fallback` 中间候选继续推进；Phase 1b 超阈值时降级继续。
 
 ## 深度导入内部结构
 
@@ -78,9 +82,43 @@ Phase 0 / Phase 1a 的 422 错误率超过 40% 时阻断任务；Phase 1b 超阈
 - `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
 - `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
 - `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
-- `workflow_llm_adapters.py` — 深度导入 LLM adapter 与 Phase 1b payload compact helper
+- `workflow_llm_adapters.py` — 深度导入 LLM adapter、Phase 0/1a/1b prompt 和 token 预算控制
+- `scene_reinforcement.py` — Phase 1a 正文补强、compact payload、短候选 normalize 和 degraded fallback
+- `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
+- `agent_step_harness.py` — imports 内部受控 LLM step envelope / journal / 输出守门；由 `workflow_llm_adapters.py` 使用，不提供自治 agent loop 或工具自主选择
+- `agent_text_tools.py` — imports 内部只读正文 Search/Read 工具 adapter，复用 RAG 检索和 writing draft 权威正文
 
 这些文件不改变 async task result shape、HTTP API、数据库 schema 或前端轮询字段。
+
+## 真实 LLM 验收与 artifact
+
+真实 LLM 验收入口默认跳过，只在显式环境变量开启时运行：
+
+```bash
+RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
+  PHASE01_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
+
+RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
+  PHASE1A_SCENE_MAX_TOKENS=6144 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
+```
+
+Phase 0 / Phase 1a 验收会写入 `.test-logs/deep_import_real_llm/` 下的
+JSONL、Markdown summary 和 `.artifact.json`，同时创建 test-only `AsyncTask`
+结果映射，确保分阶段结果有对应 `Project` / `task_id` 可追踪。artifact 是测试/验收证据，
+不是业务表；repair 会按 batch key 合并新旧结果，避免少量 provider 波动导致整轮
+60 章作废。Phase 1a-only 默认会自动使用最近一个完整通过的 Phase 0 artifact；
+需要复核旧结果或指定输入时，可用 `PHASE1A_PHASE0_ARTIFACT_PATH` 显式覆盖。后续
+phase-only 真实验收入口也应默认消费上一个 phase 已通过的 artifact。
+常用 repair 环境变量：
+
+- `PHASE0_REPAIR_SOURCE_ARTIFACT_PATH`
+- `PHASE0_REPAIR_MAX_FAILED_BATCHES`
+- `PHASE0_REPAIR_CONCURRENCY`
+- `PHASE0_REPAIR_ATTEMPTS`
+- `PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH`
+- `PHASE1A_REPAIR_MAX_FAILED_BATCHES`
+- `PHASE1A_REPAIR_ATTEMPTS`
+- `PHASE1A_REPAIR_BATCH_IDS`
 
 Phase 2 的 Scene 实体抽取由 `SceneEntityExtractionService` 保持对外入口和旧私有
 wrapper，内部策略拆在同模块内部：
