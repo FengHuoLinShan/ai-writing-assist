@@ -274,6 +274,41 @@ class TestRelationValidation:
         assert result.relation_type == "member_of"
 
     @pytest.mark.asyncio
+    async def test_list_relations_includes_endpoint_names(
+        self,
+        db_session: AsyncSession,
+        relation_service: EntityRelationService,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        entity_service = WorldEntityService()
+        source = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="克莱恩"),
+        )
+        target = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="邓恩"),
+        )
+        await relation_service.create(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="member_of",
+            ),
+        )
+
+        result = await relation_service.list(db_session, novel_id)
+
+        assert result.total == 1
+        assert result.items[0].source_name == "克莱恩"
+        assert result.items[0].target_name == "邓恩"
+
+    @pytest.mark.asyncio
     async def test_create_relation_self_loop_rejected(
         self,
         db_session: AsyncSession,

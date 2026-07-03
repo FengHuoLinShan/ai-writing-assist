@@ -457,7 +457,9 @@ class EntityRelationResponse(BaseModel):
     id: str
     novel_id: str
     source_id: str
+    source_name: str | None = None
     target_id: str
+    target_name: str | None = None
     relation_type: str
     description: str | None = None
     strength: float = 0.5

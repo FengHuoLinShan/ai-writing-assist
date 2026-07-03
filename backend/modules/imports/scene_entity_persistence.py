@@ -24,6 +24,37 @@ def entity_key(entity_type: str, name: str) -> tuple[str, str]:
     return (entity_type.strip().lower(), " ".join(name.strip().lower().split()))
 
 
+def normalize_candidate_alias_item(
+    alias_item: Any,
+    *,
+    workflow_id: str | None,
+    scene_id: str | None,
+    scene_index: int,
+    confidence: float,
+) -> dict[str, Any] | None:
+    if isinstance(alias_item, dict):
+        raw_alias = alias_item.get("alias") or alias_item.get("name") or ""
+        alias_type = alias_item.get("type") or alias_item.get("alias_type") or "alias"
+    else:
+        raw_alias = alias_item
+        alias_type = "alias"
+    alias_text = " ".join(str(raw_alias).strip().split())
+    if not alias_text:
+        return None
+    return {
+        "alias": alias_text,
+        "type": alias_type,
+        "status": "candidate",
+        "source": "deep_import",
+        "workflow_id": workflow_id,
+        "scene_id": scene_id,
+        "scene_index": scene_index,
+        "confidence": confidence,
+        "quote": alias_item.get("quote") if isinstance(alias_item, dict) else None,
+        "needs_review": True,
+    }
+
+
 class SceneEntityPersistenceGateway:
     """Persists Phase 2 entities, aliases, relations, deltas, and map observations."""
 
@@ -209,6 +240,20 @@ class SceneEntityPersistenceGateway:
                         persistence_stats["dedup_counts"]["skipped"] += 1
                     continue
 
+            normalized_aliases = [
+                normalized
+                for alias in (ent.aliases or [])
+                if (
+                    normalized := normalize_candidate_alias_item(
+                        alias,
+                        workflow_id=workflow_id,
+                        scene_id=scene_id,
+                        scene_index=scene_index,
+                        confidence=ent.confidence,
+                    )
+                )
+            ]
+
             content_json: dict[str, Any] = {
                 "_meta": {
                     "auto_ingested": True,
@@ -230,7 +275,7 @@ class SceneEntityPersistenceGateway:
                     "candidate_reason": ent.candidate_reason,
                     "confidence": ent.confidence,
                 },
-                "aliases": ent.aliases or [],
+                "aliases": normalized_aliases,
             }
             if context_snapshot_id:
                 content_json["_meta"]["context_snapshot_id"] = context_snapshot_id

@@ -33,7 +33,7 @@ from modules.imports.scene_commit import SceneCommitResult
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 from modules.imports.scene_fusion import FinalSceneCandidate, Phase1bFusionResult
 from modules.imports.scene_segmentation import SceneSegmentationService
-from modules.imports.service_phase_artifacts import add_phase_artifact
+from modules.imports.service_phase_artifacts import add_phase_artifact, coverage_summary
 from modules.imports.service_progress_logs import record_progress_event
 from modules.imports.workflow import (
     DeepImportWorkflow,
@@ -85,6 +85,14 @@ def _phase0_prefetch_result(
         blocked=blocked,
         block_reason=block_reason,
     )
+
+
+def _scene_coverage(
+    covered_chapters: set[int] | list[int] | tuple[int, ...],
+    start_chapter: int,
+    end_chapter: int,
+) -> dict:
+    return coverage_summary(set(covered_chapters), start_chapter, end_chapter)
 
 
 def _scene_candidate(
@@ -1299,7 +1307,9 @@ class TestDeepImportWorkflowAutoRun:
     @pytest.mark.asyncio
     async def test_world_object_stage_fails_without_scenes(self):
         workflow = DeepImportWorkflow()
-        workflow._has_scenes_in_range = AsyncMock(return_value=False)
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage(set(), 1, 5)
+        )
         progress = DeepImportProgress(
             workflow_type="world_object_auto_extraction",
             stage="world_objects",
@@ -1319,15 +1329,49 @@ class TestDeepImportWorkflowAutoRun:
         assert result.degraded_reason == "missing_scene_prerequisite"
         assert "请先执行场景" in result.message
         assert result.phase_artifacts["entity_extraction"]["status"] == "failed"
+        assert result.phase_artifacts["entity_extraction"]["coverage"][
+            "missing_chapters"
+        ] == [1, 2, 3, 4, 5]
         assert any(
             check["name"] == "entity_extraction_missing_scene_prerequisite"
             for check in result.acceptance_checks
         )
 
     @pytest.mark.asyncio
+    async def test_world_object_stage_fails_when_scene_coverage_is_partial(self):
+        workflow = DeepImportWorkflow()
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage({1, 2, 3}, 1, 5)
+        )
+        workflow._extract_entities_by_scene = AsyncMock()
+        progress = DeepImportProgress(
+            workflow_type="world_object_auto_extraction",
+            stage="world_objects",
+        )
+
+        result = await workflow.run_entity_extraction_only(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=5,
+            progress=progress,
+            workflow_id="wf-world",
+        )
+
+        assert result.phase == "failed"
+        assert result.degraded_reason == "missing_scene_coverage"
+        assert "缺少章节" in result.message
+        assert result.phase_artifacts["entity_extraction"]["coverage"][
+            "missing_chapters"
+        ] == [4, 5]
+        workflow._extract_entities_by_scene.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_world_object_stage_runs_phase2_only_for_range(self):
         workflow = DeepImportWorkflow()
-        workflow._has_scenes_in_range = AsyncMock(return_value=True)
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage({2, 3, 4, 5, 6, 7}, 2, 7)
+        )
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
                 "total_created": 2,
@@ -1369,7 +1413,9 @@ class TestDeepImportWorkflowAutoRun:
     @pytest.mark.asyncio
     async def test_plot_structure_stage_allows_missing_world_objects_as_partial(self):
         workflow = DeepImportWorkflow()
-        workflow._has_scenes_in_range = AsyncMock(return_value=True)
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage({1, 2, 3, 4, 5}, 1, 5)
+        )
         workflow._count_world_objects = AsyncMock(return_value=0)
         workflow._analyze_structure = AsyncMock(
             return_value={
@@ -1405,9 +1451,41 @@ class TestDeepImportWorkflowAutoRun:
         )
 
     @pytest.mark.asyncio
+    async def test_plot_structure_stage_fails_when_scene_coverage_is_partial(self):
+        workflow = DeepImportWorkflow()
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage({1, 2, 3}, 1, 5)
+        )
+        workflow._count_world_objects = AsyncMock()
+        workflow._analyze_structure = AsyncMock()
+        progress = DeepImportProgress(
+            workflow_type="plot_structure_auto_extraction",
+            stage="plot_structure",
+        )
+
+        result = await workflow.run_structure_analysis_only(
+            db=AsyncMock(),
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=5,
+            progress=progress,
+            workflow_id="wf-plot",
+        )
+
+        assert result.phase == "failed"
+        assert result.degraded_reason == "missing_scene_coverage"
+        assert result.phase_artifacts["structure_analysis"]["coverage"][
+            "missing_chapters"
+        ] == [4, 5]
+        workflow._count_world_objects.assert_not_awaited()
+        workflow._analyze_structure.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_world_object_stage_repairs_phase2a_failures_with_checkpoints(self):
         workflow = DeepImportWorkflow()
-        workflow._has_scenes_in_range = AsyncMock(return_value=True)
+        workflow._scene_chapter_coverage = AsyncMock(
+            return_value=_scene_coverage({1, 2, 3}, 1, 3)
+        )
         workflow._extract_entities_by_scene = AsyncMock(
             side_effect=[
                 {
@@ -2620,7 +2698,7 @@ class TestDeepImportWorkflowAutoRun:
             "reveal_plan",
         ]
         assert updated["warnings"] == [
-            "小样本结构类别输出不足，已补充待复核结构候选。"
+            "结构类别输出不足，已补充待复核结构候选。"
         ]
         thread_service.create.assert_awaited_once()
         assert arc_service.create.await_count == 3
@@ -2695,6 +2773,78 @@ class TestDeepImportWorkflowAutoRun:
         assert updated["total_arcs"] == 2
         assert len(updated["extra_sections"]["foreshadowing_plans"]) == 2
         assert len(updated["extra_sections"]["reveal_plans"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_large_sample_structure_fallback_uses_long_form_minimums(self):
+        workflow = DeepImportWorkflow()
+
+        def _response(**kwargs):
+            return Mock(id=uuid.uuid4(), **kwargs)
+
+        thread_service = Mock()
+        thread_service.create = AsyncMock()
+        arc_service = Mock()
+        arc_service.create = AsyncMock(
+            return_value=_response(title="第 1-60 章补强篇章纲 4", arc_index=4)
+        )
+        foreshadowing_service = Mock()
+        foreshadowing_service.create = AsyncMock(
+            side_effect=[
+                _response(name=f"第 1-60 章补强伏笔 {index}")
+                for index in range(2, 4)
+            ]
+        )
+        reveal_service = Mock()
+        reveal_service.create = AsyncMock(
+            side_effect=[_response(target_name="克莱恩") for _ in range(2)]
+        )
+
+        async def list_entities(_db, _novel_id, *, limit=20):
+            return [{"id": uuid.uuid4(), "name": "克莱恩", "entity_type": "character"}]
+
+        services = {
+            "outline.thread_service": thread_service,
+            "outline.arc_service": arc_service,
+            "outline.foreshadowing_service": foreshadowing_service,
+            "outline.reveal_service": reveal_service,
+            "world.list_entities": list_entities,
+        }
+        result = {
+            "total_threads": 3,
+            "total_arcs": 3,
+            "threads": [{"id": f"thread-{i}", "name": f"剧情线 {i}"} for i in range(3)],
+            "arcs": [
+                {"id": f"arc-{i}", "title": f"篇章纲 {i}", "arc_index": i}
+                for i in range(3)
+            ],
+            "extra_sections": {
+                "foreshadowing_plans": [{"id": "f1"}],
+                "reveal_plans": [{"id": "r1"}],
+            },
+            "warnings": [],
+        }
+
+        with patch(
+            "modules.imports.workflow._container_get",
+            side_effect=lambda name: services[name],
+        ):
+            updated = await workflow._ensure_minimum_structure_outputs(
+                db=Mock(),
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=60,
+                result=result,
+                workflow_id="wf-structure-large",
+            )
+
+        assert updated["total_threads"] == 3
+        assert updated["total_arcs"] == 4
+        assert len(updated["extra_sections"]["foreshadowing_plans"]) == 3
+        assert len(updated["extra_sections"]["reveal_plans"]) == 3
+        assert thread_service.create.await_count == 0
+        arc_service.create.assert_awaited_once()
+        assert foreshadowing_service.create.await_count == 2
+        assert reveal_service.create.await_count == 2
 
     @pytest.mark.asyncio
     async def test_empty_phase2_and_phase3_outputs_are_partial(self):

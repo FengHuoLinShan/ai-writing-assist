@@ -50,7 +50,7 @@ class EntityRelationService(
         nid,
         sid,
         tid,
-    ) -> None:
+    ):
         if sid == tid:
             raise HTTPException(
                 status_code=http_status.HTTP_400_BAD_REQUEST,
@@ -69,6 +69,19 @@ class EntityRelationService(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Source or target entity not found in this novel",
             )
+        return source, target
+
+    def _response_with_endpoint_names(
+        self,
+        rel: EntityRelation,
+    ) -> EntityRelationResponse:
+        response = EntityRelationResponse.model_validate(rel)
+        return response.model_copy(
+            update={
+                "source_name": rel.source.name if rel.source is not None else None,
+                "target_name": rel.target.name if rel.target is not None else None,
+            }
+        )
 
     # ============================================================
     # Override: create 加端点有效性与重复校验
@@ -84,7 +97,12 @@ class EntityRelationService(
         sid = parse_uuid(data.source_id, "source_id")
         tid = parse_uuid(data.target_id, "target_id")
 
-        await self._require_distinct_entities_in_novel(db, nid, sid, tid)
+        source, target = await self._require_distinct_entities_in_novel(
+            db,
+            nid,
+            sid,
+            tid,
+        )
 
         duplicate = await self.repo.find_duplicate_relation(
             db,
@@ -99,7 +117,34 @@ class EntityRelationService(
                 detail="Relation already exists",
             )
 
-        return await super().create(db, novel_id, data)
+        created = await super().create(db, novel_id, data)
+        return created.model_copy(
+            update={
+                "source_name": source.name,
+                "target_name": target.name,
+            }
+        )
+
+    async def list(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> EntityRelationListResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        limit = min(limit, MAX_PAGE_SIZE)
+        relations, total = await self.repo.get_by_novel(
+            db,
+            nid,
+            skip=skip,
+            limit=limit,
+        )
+        return EntityRelationListResponse(
+            items=[self._response_with_endpoint_names(rel) for rel in relations],
+            total=total,
+        )
 
     # ============================================================
     # 特例方法
@@ -116,7 +161,7 @@ class EntityRelationService(
         cid = parse_uuid(chapter_id, "chapter_id")
         relations = await self.repo.get_traceable_relations(db, nid, cid)
         return EntityRelationListResponse(
-            items=[EntityRelationResponse.model_validate(r) for r in relations],
+            items=[self._response_with_endpoint_names(r) for r in relations],
             total=len(relations),
         )
 
@@ -190,7 +235,7 @@ class EntityRelationService(
         )
         all_rels = source_rels + target_rels
         return EntityRelationListResponse(
-            items=[EntityRelationResponse.model_validate(r) for r in all_rels],
+            items=[self._response_with_endpoint_names(r) for r in all_rels],
             total=len(all_rels),
         )
 
@@ -207,7 +252,12 @@ class EntityRelationService(
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(source_id, "source_id")
         tid = parse_uuid(target_id, "target_id")
-        await self._require_distinct_entities_in_novel(db, nid, sid, tid)
+        source, target = await self._require_distinct_entities_in_novel(
+            db,
+            nid,
+            sid,
+            tid,
+        )
         rel = await self.repo.upsert(
             db,
             nid,
@@ -216,4 +266,9 @@ class EntityRelationService(
             relation_type,
             description=description,
         )
-        return EntityRelationResponse.model_validate(rel)
+        return EntityRelationResponse.model_validate(rel).model_copy(
+            update={
+                "source_name": source.name,
+                "target_name": target.name,
+            }
+        )

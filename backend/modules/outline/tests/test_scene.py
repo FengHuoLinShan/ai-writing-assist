@@ -249,6 +249,25 @@ class TestSceneService:
         await db_session.rollback()
 
     @pytest.mark.asyncio
+    async def test_get_next_scene_index_advances_from_zero(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=0, title="First"),
+        )
+        await db_session.flush()
+
+        assert await svc.get_next_scene_index(db_session, sample_novel_id) == 1
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
     async def test_get_ordered(
         self,
         db_session: AsyncSession,

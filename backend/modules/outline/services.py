@@ -547,7 +547,8 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             Scene.novel_id == nid,
         )
         result = await db.execute(stmt)
-        return (result.scalar() or -1) + 1
+        current_max = result.scalar()
+        return (current_max if current_max is not None else -1) + 1
 
     async def deprecate_deep_import_scenes_by_workflow(
         self,

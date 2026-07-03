@@ -29,11 +29,11 @@ import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
-const FORESHADOWING_STATUSES = ["planted", "triggered", "resolved", "abandoned"]
-const REVEAL_STATUSES = ["planned", "revealed", "resolved", "abandoned"]
+const FORESHADOWING_STATUSES = ["draft", "planted", "triggered", "resolved", "abandoned"]
+const REVEAL_STATUSES = ["draft", "planned", "revealed", "resolved", "abandoned"]
 
-const FORESHADOWING_STATUS_LABELS = { planted: "已埋下", triggered: "已触发", resolved: "已兑现", abandoned: "已废弃" }
-const REVEAL_STATUS_LABELS = { planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "已废弃" }
+const FORESHADOWING_STATUS_LABELS = { draft: "草稿", planted: "已埋下", triggered: "已触发", resolved: "已兑现", abandoned: "已废弃" }
+const REVEAL_STATUS_LABELS = { draft: "草稿", planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "已废弃" }
 const STRUCTURE_FILTER_DEFAULTS = { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 }
 const STRUCTURE_SOURCE_OPTIONS = [
   ["deep_import", "深度导入"],

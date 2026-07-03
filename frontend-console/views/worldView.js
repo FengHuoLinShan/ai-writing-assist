@@ -44,6 +44,7 @@ const worldView = {
 
   /** @type {Array} */
   _candidates: [],
+  _candidateTotal: 0,
 
   /** @type {Array} */
   _batches: [],
@@ -96,6 +97,7 @@ const worldView = {
   async onEnter() {
     this._entities = []
     this._candidates = []
+    this._candidateTotal = 0
     this._batches = []
     this._relations = []
     this._aliases = []
@@ -159,6 +161,7 @@ const worldView = {
 
   async _loadCandidates() {
     this._candidates = []
+    this._candidateTotal = 0
     if (!state.currentProjectId) return
 
     try {
@@ -166,11 +169,13 @@ const worldView = {
         novel_id: state.currentProjectId,
         status: "candidate",
         skip: 0,
-        limit: 100,
+        limit: 50,
       })
       this._candidates = data.items || data || []
+      this._candidateTotal = Number(data.total ?? this._candidates.length) || 0
     } catch {
       this._candidates = []
+      this._candidateTotal = 0
     }
   },
 
@@ -569,7 +574,7 @@ const worldView = {
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
       <div style="margin-bottom:8px;text-align:center;">
-        <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidates.length}）</button>
+        <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidateTotal || this._candidates.length}）</button>
       </div>
     `
 
@@ -991,12 +996,14 @@ const worldView = {
         const id = r.id || r.relationship_id
         const statusLabel = r.status === "candidate" ? "待确认" : "正史"
         const statusClass = r.status === "candidate" ? "badge-warning" : "badge-canonical"
+        const sourceName = r.source_name || r.source_entity_name || r.source?.name || (r.source_id ? `${String(r.source_id).slice(0, 8)}...` : "-")
+        const targetName = r.target_name || r.target_entity_name || r.target?.name || (r.target_id ? `${String(r.target_id).slice(0, 8)}...` : "-")
         html += `
         <tr data-id="${esc(id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, "选择关系")}</td>
-          <td style="color:var(--accent-dim);font-size:12px;">${esc(r.source_id || "").slice(0, 8)}...</td>
+          <td style="color:var(--accent-dim);font-size:12px;">${esc(sourceName)}</td>
           <td><span class="badge badge-canonical">${esc(r.relation_type || "-")}</span></td>
-          <td style="color:var(--accent-dim);font-size:12px;">${esc(r.target_id || "").slice(0, 8)}...</td>
+          <td style="color:var(--accent-dim);font-size:12px;">${esc(targetName)}</td>
           <td><span class="badge ${statusClass}">${statusLabel}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(r.description || "")}</td>
           <td><button class="btn btn-sm btn-danger" data-action="delete-relation" data-id="${esc(r.id || r.relationship_id)}">删除</button></td>

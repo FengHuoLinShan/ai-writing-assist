@@ -388,8 +388,7 @@ async def list_relations(
         description="每页条数",
     ),
 ) -> EntityRelationListResponse:
-    items, total = await _relation_service.list(db, novel_id, skip=skip, limit=limit)
-    return EntityRelationListResponse(items=items, total=total)
+    return await _relation_service.list(db, novel_id, skip=skip, limit=limit)
 
 
 @router.post("/relations", response_model=EntityRelationResponse, status_code=201)

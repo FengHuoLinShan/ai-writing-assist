@@ -204,3 +204,76 @@ async def test_list_aliases_handles_string_aliases(
     assert aliases[0]["entity_name"] == "Arthur"
     assert aliases[0]["alias"] == "Art"
     assert aliases[0]["alias_type"] == "name"
+
+
+@pytest.mark.asyncio
+async def test_append_candidate_alias_upgrades_existing_plain_alias(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    db = AsyncMock()
+
+    appended = await alias_service.append_candidate_alias(
+        db,
+        novel_id,
+        str(entity.id),
+        alias=" Art ",
+        alias_type="alias",
+        workflow_id="wf-1",
+        scene_id="scene-1",
+        scene_index=7,
+        confidence=0.82,
+        quote="有人称他为 Art。",
+    )
+
+    assert appended is True
+    assert entity.content_json["aliases"] == [
+        {
+            "alias": "Art",
+            "type": "nickname",
+            "status": "candidate",
+            "source": "deep_import",
+            "workflow_id": "wf-1",
+            "scene_id": "scene-1",
+            "scene_index": 7,
+            "confidence": 0.82,
+            "quote": "有人称他为 Art。",
+            "needs_review": True,
+        }
+    ]
+    db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_append_candidate_alias_keeps_enriched_duplicate_unchanged(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    existing = {
+        "alias": "Art",
+        "type": "alias",
+        "status": "candidate",
+        "source": "deep_import",
+        "workflow_id": "wf-1",
+        "needs_review": True,
+    }
+    entity = _make_entity(novel_id=novel_id, content_json={"aliases": [existing]})
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    db = AsyncMock()
+
+    appended = await alias_service.append_candidate_alias(
+        db,
+        novel_id,
+        str(entity.id),
+        alias="Art",
+        workflow_id="wf-2",
+    )
+
+    assert appended is False
+    assert entity.content_json["aliases"] == [existing]
+    db.flush.assert_not_awaited()

@@ -27,6 +27,23 @@ def _small_sample_structure_target_count() -> int:
     )
 
 
+def minimum_structure_category_targets(chapter_count: int) -> dict[str, int]:
+    if chapter_count <= 7:
+        target_count = _small_sample_structure_target_count()
+        return {
+            "threads": target_count,
+            "arcs": target_count,
+            "foreshadowing": target_count,
+            "reveals": target_count,
+        }
+    return {
+        "threads": max(3, chapter_count // 20),
+        "arcs": max(4, (chapter_count + 14) // 15),
+        "foreshadowing": max(3, chapter_count // 20),
+        "reveals": max(3, chapter_count // 20),
+    }
+
+
 class StructureAnalysisPhaseRunner:
     """Runs Phase 3 in full-pipeline and stage-only modes."""
 
@@ -199,22 +216,32 @@ class StructureAnalysisPhaseRunner:
             if not health.ok:
                 return await workflow._fail_preflight(progress, health, on_progress)
 
-        if not await workflow._has_scenes_in_range(
+        scene_coverage = await workflow._scene_chapter_coverage(
             db,
             novel_id,
             start_chapter,
             end_chapter,
-        ):
+        )
+        if not scene_coverage["coverage_complete"]:
             progress.phase = "failed"
             progress.quality_status = "failed"
             progress.current_step = None
             progress.degraded = True
-            progress.degraded_reason = "missing_scene_prerequisite"
-            progress.message = "请先执行场景（scene）自动提取"
+            progress.degraded_reason = (
+                "missing_scene_prerequisite"
+                if not scene_coverage["covered_chapters"]
+                else "missing_scene_coverage"
+            )
+            missing = scene_coverage["missing_chapters"]
+            progress.message = (
+                "请先执行场景（scene）自动提取"
+                if not scene_coverage["covered_chapters"]
+                else f"场景（scene）覆盖不完整，缺少章节：{missing}"
+            )
             progress.phase_errors.append(
                 {
                     "phase": DeepImportStep.structure_analysis.value,
-                    "error_kind": "missing_scene_prerequisite",
+                    "error_kind": progress.degraded_reason,
                     "message": progress.message,
                 }
             )
@@ -222,7 +249,7 @@ class StructureAnalysisPhaseRunner:
                 progress,
                 "structure_analysis",
                 status="failed",
-                error_kind="missing_scene_prerequisite",
+                error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
             add_phase_artifact(
@@ -234,6 +261,7 @@ class StructureAnalysisPhaseRunner:
                 quality_status="failed",
                 quality_stats={},
                 counts=_phase3_counts({}),
+                coverage=scene_coverage,
                 errors=[
                     error
                     for error in progress.phase_errors
@@ -398,12 +426,9 @@ async def ensure_minimum_structure_outputs(
     workflow_id: str | None,
 ) -> dict[str, Any]:
     chapter_count = end_chapter - start_chapter + 1
-    if chapter_count > 7:
-        return result
-
     counts = structure_category_counts(result)
-    target_count = _small_sample_structure_target_count()
-    if all(value >= target_count for value in counts.values()):
+    targets = minimum_structure_category_targets(chapter_count)
+    if all(counts[key] >= target for key, target in targets.items()):
         return result
 
     created_assets: list[dict[str, Any]] = []
@@ -430,7 +455,7 @@ async def ensure_minimum_structure_outputs(
 
         for index in range(
             counts["threads"] + 1,
-            target_count + 1,
+            targets["threads"] + 1,
         ):
             created = await thread_service.create(
                 db,
@@ -465,7 +490,7 @@ async def ensure_minimum_structure_outputs(
 
         for index in range(
             counts["arcs"] + 1,
-            target_count + 1,
+            targets["arcs"] + 1,
         ):
             created = await arc_service.create(
                 db,
@@ -507,7 +532,7 @@ async def ensure_minimum_structure_outputs(
         foreshadowing_items = extra_sections.setdefault("foreshadowing_plans", [])
         for index in range(
             counts["foreshadowing"] + 1,
-            target_count + 1,
+            targets["foreshadowing"] + 1,
         ):
             created = await foreshadowing_service.create(
                 db,
@@ -537,15 +562,15 @@ async def ensure_minimum_structure_outputs(
         reveal_target = await select_fallback_reveal_target(db, novel_id)
         if (
             reveal_target is None
-            and counts["reveals"] < target_count
+            and counts["reveals"] < targets["reveals"]
         ):
             result.setdefault("warnings", []).append(
-                "小样本揭示计划不足，但没有可关联世界对象，无法补强 reveal。"
+                "揭示计划不足，但没有可关联世界对象，无法补强 reveal。"
             )
         elif reveal_target is not None:
             for index in range(
                 counts["reveals"] + 1,
-                target_count + 1,
+                targets["reveals"] + 1,
             ):
                 created = await reveal_service.create(
                     db,
@@ -594,7 +619,7 @@ async def ensure_minimum_structure_outputs(
             created_assets
         )
         result.setdefault("warnings", []).append(
-            "小样本结构类别输出不足，已补充待复核结构候选。"
+            "结构类别输出不足，已补充待复核结构候选。"
         )
     return result
 

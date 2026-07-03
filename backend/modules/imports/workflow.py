@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.container import get as _container_get
+from modules.imports.service_phase_artifacts import coverage_summary
 from modules.imports.workflow_entity_phase import (
     EntityExtractionPhaseRunner,
     phase2_quality_stats,
@@ -53,6 +54,7 @@ from modules.imports.workflow_structure_phase import (
     StructureAnalysisPhaseRunner,
     ensure_minimum_structure_outputs,
     fallback_thread_type,
+    minimum_structure_category_targets,
     phase3_quality_stats,
     select_fallback_reveal_target,
     structure_category_counts,
@@ -71,6 +73,7 @@ __all__ = [
     "PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS",
     "PHASE3_STRUCTURE_TIMEOUT_SECONDS",
     "SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
+    "minimum_structure_category_targets",
 ]
 
 
@@ -879,6 +882,21 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ) -> bool:
+        coverage = await self._scene_chapter_coverage(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+        )
+        return bool(coverage["covered_chapters"])
+
+    async def _scene_chapter_coverage(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> dict[str, Any]:
         from modules.outline.facade import get_scenes_by_novel
 
         scenes = await get_scenes_by_novel(
@@ -887,10 +905,38 @@ class DeepImportWorkflow:
             status_filter=["draft", "canonical"],
             exclude_narrative_tags=["valley", "transition"],
         )
-        return any(
-            self._scene_overlaps_chapter_range(scene, start_chapter, end_chapter)
+        covered = {
+            chapter
             for scene in scenes
+            for chapter in self._scene_chapter_indices(scene)
+            if start_chapter <= chapter <= end_chapter
+        }
+        return coverage_summary(
+            covered,
+            start_chapter,
+            end_chapter,
         )
+
+    @staticmethod
+    def _scene_chapter_indices(scene: dict[str, Any]) -> list[int]:
+        chapters: set[int] = set()
+        for raw in scene.get("chapter_ids") or []:
+            try:
+                chapter = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if chapter > 0:
+                chapters.add(chapter)
+        for chunk in scene.get("scene_chunks") or []:
+            if not isinstance(chunk, dict):
+                continue
+            try:
+                chapter = int(chunk.get("chapter_index"))
+            except (TypeError, ValueError):
+                continue
+            if chapter > 0:
+                chapters.add(chapter)
+        return sorted(chapters)
 
     @staticmethod
     async def _count_world_objects(db: AsyncSession, novel_id: str) -> int:

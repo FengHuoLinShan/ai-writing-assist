@@ -79,6 +79,7 @@ from modules.imports.workflow import (
 )
 from modules.imports.workflow_entity_phase import phase2_quality_stats
 from modules.imports.workflow_schemas import DeepImportProgress
+from modules.imports.workflow_structure_phase import minimum_structure_category_targets
 from modules.outline.models import (
     ForeshadowingPlan,
     OutlineArc,
@@ -3725,10 +3726,18 @@ def _phase3_only_acceptance_checks(
         checks,
         issues,
         name="phase3_structure_output",
-        ok=any(int(count or 0) > 0 for count in structure_counts.values()),
-        expected="at least one structure output",
+        ok=all(
+            int(structure_counts.get(name, 0) or 0) >= minimum
+            for name, minimum in minimum_structure_category_targets(
+                expected_chapter_count
+            ).items()
+        ),
+        expected=minimum_structure_category_targets(expected_chapter_count),
         actual=structure_counts,
-        message=f"phase3 expected structure outputs, got {structure_counts}",
+        message=(
+            "phase3 structure counts below expected minimums: "
+            f"{structure_counts}"
+        ),
     )
     return checks, issues
 
@@ -5915,6 +5924,104 @@ def test_phase2b_only_acceptance_reports_guardrail_failures(
     )
 
     assert any(expected_issue in issue for issue in issues)
+
+
+def test_phase3_only_acceptance_requires_long_form_structure_coverage() -> None:
+    result = {
+        "source_phase2b_result": {
+            "total_scenes": 60,
+            "alias_relation_scenes": 60,
+            "alias_relation_failed_scenes": [],
+            "degraded": False,
+            "error_kind": None,
+        },
+        "source_phase2b_has_world_snapshot": True,
+        "scene_commit": {"created_count": 60, "skipped_count": 0},
+        "hydrate_summary": {"created_entities": 292},
+        "phase": "done",
+        "quality_status": "complete",
+        "completed_steps": ["structure_analysis"],
+        "degraded": False,
+        "quality_stats": {"error_kind": None},
+        "phase_errors": [],
+    }
+    output_counts = {
+        "scene_count": 60,
+        "entity_count": 292,
+        "structure_counts": {
+            "threads": 3,
+            "arcs": 3,
+            "foreshadowing": 1,
+            "reveals": 1,
+        },
+    }
+    scene_coverage = {
+        "covered_chapters": list(range(1, 61)),
+        "missing_chapters": [],
+        "expected_chapters": list(range(1, 61)),
+    }
+
+    checks, issues = _phase3_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        scene_coverage=scene_coverage,
+        expected_chapter_count=60,
+    )
+
+    structure_check = next(
+        check for check in checks if check["name"] == "phase3_structure_output"
+    )
+    assert structure_check["status"] == "failed"
+    assert any(
+        "phase3 structure counts below expected minimums" in issue
+        for issue in issues
+    )
+
+
+def test_phase3_only_acceptance_passes_long_form_structure_minimums() -> None:
+    result = {
+        "source_phase2b_result": {
+            "total_scenes": 60,
+            "alias_relation_scenes": 60,
+            "alias_relation_failed_scenes": [],
+            "degraded": False,
+            "error_kind": None,
+        },
+        "source_phase2b_has_world_snapshot": True,
+        "scene_commit": {"created_count": 60, "skipped_count": 0},
+        "hydrate_summary": {"created_entities": 292},
+        "phase": "done",
+        "quality_status": "complete",
+        "completed_steps": ["structure_analysis"],
+        "degraded": False,
+        "quality_stats": {"error_kind": None},
+        "phase_errors": [],
+    }
+    output_counts = {
+        "scene_count": 60,
+        "entity_count": 292,
+        "structure_counts": {
+            "threads": 3,
+            "arcs": 4,
+            "foreshadowing": 3,
+            "reveals": 3,
+        },
+    }
+    scene_coverage = {
+        "covered_chapters": list(range(1, 61)),
+        "missing_chapters": [],
+        "expected_chapters": list(range(1, 61)),
+    }
+
+    checks, issues = _phase3_only_acceptance_checks(
+        result=result,
+        output_counts=output_counts,
+        scene_coverage=scene_coverage,
+        expected_chapter_count=60,
+    )
+
+    assert issues == []
+    assert {check["status"] for check in checks} == {"passed"}
 
 
 @pytest.mark.asyncio

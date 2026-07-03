@@ -88,6 +88,40 @@ class TestSceneWorkbenchApi:
             "needs_organize",
         ]
 
+    async def test_workbench_health_uses_all_matching_scenes_not_only_current_page(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        for chapter in range(1, 26):
+            await _create_draft(async_client, test_project_id, chapter)
+            await _create_scene(
+                async_client,
+                test_project_id,
+                {
+                    "scene_index": chapter,
+                    "title": f"第{chapter}章 Scene",
+                    "goal": "推进剧情",
+                    "core_conflict": "冲突",
+                    "must_happen": "必须发生",
+                    "must_not_happen": "禁止发生",
+                    "source": "deep_import",
+                    "status": "draft",
+                    "chapter_ids": [str(chapter)],
+                },
+            )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id, "skip": 0, "limit": 20},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert len(data["items"]) == 20
+        assert data["unassigned_chapters"] == []
+        assert data["health"]["unassigned"]["count"] == 0
+
     async def test_cross_chapter_detector_extends_until_unrelated_chapter(
         self,
         db_session: AsyncSession,

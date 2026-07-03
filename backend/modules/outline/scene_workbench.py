@@ -68,9 +68,25 @@ class SceneWorkbenchService:
             skip=skip,
             limit=limit,
         )
+        all_matching_scenes = await self.repo.get_by_novel_ordered(
+            db,
+            nid,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            boundary_status=boundary_status,
+            phase=phase,
+            phase1a_fallback=phase1a_fallback,
+            skip=0,
+            limit=None,
+        )
         chapter_indices = await list_chapter_indices(db, novel_id)
-        unassigned_chapters = self._unassigned_chapters(chapter_indices, scenes)
-        duplicate_chapter_ids = self._duplicate_scene_chapter_ids(scenes)
+        unassigned_chapters = self._unassigned_chapters(
+            chapter_indices,
+            all_matching_scenes,
+        )
+        duplicate_chapter_ids = self._duplicate_scene_chapter_ids(all_matching_scenes)
 
         items = [
             SceneWorkbenchItem(
@@ -83,8 +99,8 @@ class SceneWorkbenchService:
         ]
 
         counts = {key: 0 for key in HEALTH_DEFS}
-        for item in items:
-            for key in item.health:
+        for scene in all_matching_scenes:
+            for key in self._scene_health(scene, duplicate_chapter_ids):
                 counts[key] += 1
         counts["unassigned"] += len(unassigned_chapters)
 

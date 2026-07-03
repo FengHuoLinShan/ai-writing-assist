@@ -181,6 +181,23 @@ describe("outlineView render", () => {
     expect(html).toContain(expected)
   })
 
+  it("深度导入草稿伏笔和揭示显示中文状态", async () => {
+    outlineView._loading = false
+    state.currentProjectId = "p1"
+
+    state.currentSubView = "foreshadowing"
+    outlineView._foreshadowing = [{ id: "f1", summary: "线索", status: "draft", planned_seed_chapter: 3 }]
+    let html = await outlineView.render()
+    expect(html).toContain("草稿")
+    expect(html).not.toContain(">draft<")
+
+    state.currentSubView = "reveals"
+    outlineView._reveals = [{ id: "r1", secret_summary: "秘密", status: "draft", reveal_stages: [{ stage_index: 0, chapter_index: 5 }] }]
+    html = await outlineView.render()
+    expect(html).toContain("草稿")
+    expect(html).not.toContain(">draft<")
+  })
+
   it("结构资产列表显示深度导入和需复核标记", async () => {
     outlineView._loading = false
     state.currentSubView = "threads"

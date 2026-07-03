@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import Text, delete, func, or_, select, text, update
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
@@ -797,6 +798,10 @@ class EntityRelationRepository:
 
         stmt = (
             select(EntityRelation)
+            .options(
+                selectinload(EntityRelation.source),
+                selectinload(EntityRelation.target),
+            )
             .where(*conditions)
             .offset(skip)
             .limit(limit)
@@ -824,6 +829,10 @@ class EntityRelationRepository:
 
         stmt = (
             select(EntityRelation)
+            .options(
+                selectinload(EntityRelation.source),
+                selectinload(EntityRelation.target),
+            )
             .where(*conditions)
             .limit(limit)
             .order_by(EntityRelation.strength.desc())
@@ -850,6 +859,10 @@ class EntityRelationRepository:
 
         stmt = (
             select(EntityRelation)
+            .options(
+                selectinload(EntityRelation.source),
+                selectinload(EntityRelation.target),
+            )
             .where(*conditions)
             .limit(limit)
             .order_by(EntityRelation.strength.desc())
@@ -867,6 +880,10 @@ class EntityRelationRepository:
         """获取某章节建立的所有可追溯关系"""
         stmt = (
             select(EntityRelation)
+            .options(
+                selectinload(EntityRelation.source),
+                selectinload(EntityRelation.target),
+            )
             .where(
                 EntityRelation.novel_id == novel_id,
                 EntityRelation.source_chapter_id == chapter_id,

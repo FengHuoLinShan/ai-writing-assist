@@ -11,6 +11,7 @@ beforeEach(() => {
   resetState()
   worldView._entities = []
   worldView._candidates = []
+  worldView._candidateTotal = 0
   worldView._batches = []
   worldView._total = 0
   worldView._entitiesLoadError = null
@@ -41,8 +42,15 @@ describe("onEnter", () => {
     await worldView.onEnter()
 
     expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20 })
+    expect(api.world.listEntities).toHaveBeenCalledWith({
+      novel_id: "p1",
+      status: "candidate",
+      skip: 0,
+      limit: 50,
+    })
     expect(api.world.listEntityBatches).toHaveBeenCalledWith({ novel_id: "p1" })
     expect(worldView._entities).toHaveLength(1)
+    expect(worldView._candidateTotal).toBe(1)
     expect(worldView._total).toBe(1)
     expect(worldView._batches).toHaveLength(1)
   })
@@ -434,9 +442,12 @@ describe("关系", () => {
 
     it("渲染关系列表", async () => {
       state.currentProjectId = "p1"
-      api.world.listRelationships.mockResolvedValue({ items: [{ id: "r1", source_id: "src", target_id: "tgt", relation_type: "friend_of" }] })
+      api.world.listRelationships.mockResolvedValue({ items: [{ id: "r1", source_id: "src", source_name: "克莱恩", target_id: "tgt", target_name: "邓恩", relation_type: "friend_of" }] })
       const html = await worldView._renderRelations()
       expect(html).toContain('data-action="delete-relation"')
+      expect(html).toContain("克莱恩")
+      expect(html).toContain("邓恩")
+      expect(html).not.toContain("src...")
     })
 
     it("渲染待确认关系状态", async () => {

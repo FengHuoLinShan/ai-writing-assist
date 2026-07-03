@@ -265,6 +265,8 @@ async def test_persist_entities_writes_auto_ingested_meta(
         name="克莱恩",
         entity_type="character",
         suggested_action="create_new",
+        aliases=["周明瑞"],
+        confidence=0.77,
     )
 
     with patch(
@@ -303,6 +305,20 @@ async def test_persist_entities_writes_auto_ingested_meta(
     assert meta.get("scene_id") is None
     assert meta.get("scene_provenance_key") == "wf-test-1:scene:1"
     assert meta.get("suggested_action") == "create_new"
+    assert (found.content_json or {}).get("aliases") == [
+        {
+            "alias": "周明瑞",
+            "type": "name",
+            "status": "candidate",
+            "source": "deep_import",
+            "workflow_id": "wf-test-1",
+            "scene_id": None,
+            "scene_index": 1,
+            "confidence": 0.77,
+            "quote": None,
+            "needs_review": True,
+        }
+    ]
 
 
 @pytest.mark.asyncio

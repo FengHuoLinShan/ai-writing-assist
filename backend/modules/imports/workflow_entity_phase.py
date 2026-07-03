@@ -243,22 +243,32 @@ class EntityExtractionPhaseRunner:
             if not health.ok:
                 return await workflow._fail_preflight(progress, health, on_progress)
 
-        if not await workflow._has_scenes_in_range(
+        scene_coverage = await workflow._scene_chapter_coverage(
             db,
             novel_id,
             start_chapter,
             end_chapter,
-        ):
+        )
+        if not scene_coverage["coverage_complete"]:
             progress.phase = "failed"
             progress.quality_status = "failed"
             progress.current_step = None
             progress.degraded = True
-            progress.degraded_reason = "missing_scene_prerequisite"
-            progress.message = "请先执行场景（scene）自动提取"
+            progress.degraded_reason = (
+                "missing_scene_prerequisite"
+                if not scene_coverage["covered_chapters"]
+                else "missing_scene_coverage"
+            )
+            missing = scene_coverage["missing_chapters"]
+            progress.message = (
+                "请先执行场景（scene）自动提取"
+                if not scene_coverage["covered_chapters"]
+                else f"场景（scene）覆盖不完整，缺少章节：{missing}"
+            )
             progress.phase_errors.append(
                 {
                     "phase": DeepImportStep.entity_extraction.value,
-                    "error_kind": "missing_scene_prerequisite",
+                    "error_kind": progress.degraded_reason,
                     "message": progress.message,
                 }
             )
@@ -266,7 +276,7 @@ class EntityExtractionPhaseRunner:
                 progress,
                 "entity_extraction",
                 status="failed",
-                error_kind="missing_scene_prerequisite",
+                error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
             add_phase_artifact(
@@ -278,6 +288,7 @@ class EntityExtractionPhaseRunner:
                 quality_status="failed",
                 quality_stats={},
                 counts={},
+                coverage=scene_coverage,
                 repair_summary=phase2_repair_summary({"total_scenes": 0}),
                 errors=[
                     error

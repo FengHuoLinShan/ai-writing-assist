@@ -28,6 +28,39 @@ class EntityAliasService:
             return alias_item.strip(), "name"
         return alias_item.get("alias", "").strip(), alias_item.get("type", "name")
 
+    def _candidate_alias_payload(
+        self,
+        *,
+        alias: str,
+        alias_type: str,
+        workflow_id: str | None,
+        scene_id: str | None,
+        scene_index: int | None,
+        confidence: float,
+        quote: str | None,
+    ) -> dict:
+        return {
+            "alias": alias,
+            "type": alias_type or "alias",
+            "status": "candidate",
+            "source": "deep_import",
+            "workflow_id": workflow_id,
+            "scene_id": scene_id,
+            "scene_index": scene_index,
+            "confidence": confidence,
+            "quote": quote,
+            "needs_review": True,
+        }
+
+    def _alias_needs_candidate_metadata(self, alias_item: str | dict) -> bool:
+        if not isinstance(alias_item, dict):
+            return True
+        return (
+            alias_item.get("source") != "deep_import"
+            or alias_item.get("status") != "candidate"
+            or alias_item.get("needs_review") is not True
+        )
+
     async def list_aliases(
         self,
         db: AsyncSession,
@@ -130,24 +163,40 @@ class EntityAliasService:
         if not normalized_alias:
             return False
         normalized_key = normalized_alias.lower()
-        for alias_item in aliases:
+        for index, alias_item in enumerate(aliases):
             existing, _ = self._normalize_alias_item(alias_item)
             if " ".join(existing.strip().split()).lower() == normalized_key:
-                return False
+                if not self._alias_needs_candidate_metadata(alias_item):
+                    return False
+                _, existing_type = self._normalize_alias_item(alias_item)
+                enriched = self._candidate_alias_payload(
+                    alias=normalized_alias,
+                    alias_type=existing_type or alias_type or "alias",
+                    workflow_id=workflow_id,
+                    scene_id=scene_id,
+                    scene_index=scene_index,
+                    confidence=confidence,
+                    quote=quote,
+                )
+                if isinstance(alias_item, dict):
+                    enriched = {**alias_item, **enriched}
+                    enriched["type"] = alias_item.get("type") or enriched["type"]
+                aliases[index] = enriched
+                content["aliases"] = aliases
+                entity.content_json = content
+                await db.flush()
+                return True
 
         aliases.append(
-            {
-                "alias": normalized_alias,
-                "type": alias_type or "alias",
-                "status": "candidate",
-                "source": "deep_import",
-                "workflow_id": workflow_id,
-                "scene_id": scene_id,
-                "scene_index": scene_index,
-                "confidence": confidence,
-                "quote": quote,
-                "needs_review": True,
-            }
+            self._candidate_alias_payload(
+                alias=normalized_alias,
+                alias_type=alias_type,
+                workflow_id=workflow_id,
+                scene_id=scene_id,
+                scene_index=scene_index,
+                confidence=confidence,
+                quote=quote,
+            )
         )
         content["aliases"] = aliases
         entity.content_json = content
