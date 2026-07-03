@@ -35,11 +35,11 @@ Phase 0 / Phase 1a 都是 workflow 中间候选层，不写正式 `scenes` 表�
 
 ### Phase 0 / 1a / 1b: Scene 候选与融合（40%）
 - Phase 0 使用两轮错位 batch 并发预取候选 Scene，默认并发较高，允许缺失和错误。
-- Phase 1a 是受控正文补强器，不是最终 Scene 切分器；它按 budget 收敛正文和 Phase 0 reference，输出短候选锚点供 Phase 1b 使用。
+- Phase 1a 是受控正文补强器，不是最终 Scene 切分器；它按 budget 收敛正文和 Phase 0 reference，输出带 `title / goal / core_conflict / emotional_beat / must_happen / must_not_happen / scene_chunks` 的短候选锚点供 Phase 1b 使用。
 - Phase 1a 对 `network / rate_limit / empty_result` 做短重试；最终仍失败的 `timeout / schema_error` 等非 422 错误会生成 `degraded_fallback` 低质量中间候选，保留章节锚点继续推进。
 - Phase 1a 的 422 错误率超过阈值仍阻断，避免不兼容 API 通道污染后续流程。
 - Phase 1b 不带正文，以补强后的两轮结果做智能融合 / 切分建议，再提交正式 Scene。
-- 正式 Scene 写入携带 provenance / workflow 信息；恢复或重跑时按 provenance 跳过已提交结果。
+- 正式 Scene 写入携带 provenance / workflow 信息；恢复或重跑时按 provenance 跳过已提交结果。提交前必须补齐 Scene 工作台健康检查依赖的 `core_conflict / must_happen / must_not_happen`，缺失时由来源目标和冲突保守派生。
 - Phase 0 / 1a 的最终 422 错误率超过 40% 时阻断深度导入，并提示使用稳定官方 API；Phase 1b 超阈值时降级使用 Phase 1a 结果继续。
 
 ### Phase 2: 实体增量提取（串行，40%）

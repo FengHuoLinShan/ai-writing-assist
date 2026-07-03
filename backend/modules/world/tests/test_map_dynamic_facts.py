@@ -184,6 +184,274 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
 
 
 @pytest.mark.asyncio
+async def test_dashboard_formats_deep_import_delta_candidates_for_authors(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "廷根", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        nid,
+        event={
+            "category": "ENTITY_CREATED",
+            "field": "entities[4]",
+            "old": None,
+            "new": {
+                "entity_type": "concept",
+                "name": "公务员考试制度",
+                "summary": "克莱恩在塔罗会提出的政治改革方案。",
+            },
+            "meta": {
+                "dynamic_type": "entity_created",
+                "target_name": "entity_created",
+                "confidence": 0.5,
+            },
+        },
+        scene_index=0,
+        context_snapshot_id="snapshot-entity",
+        delta_log_id="delta-entity",
+    )
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["dynamic_queue"][0]
+    assert item["title"] == "公务员考试制度"
+    assert item["object_type"] == "concept"
+    assert item["type_label"] == "概念"
+    assert (
+        item["source_summary"]
+        == "deep_import_delta_event · 对象候选：公务员考试制度（concept）："
+        "克莱恩在塔罗会提出的政治改革方案。"
+    )
+    assert "entities[4]" not in item["source_summary"]
+    assert "{" not in item["source_summary"]
+
+    playback_resp = await async_client.get(
+        f"/api/world/maps/{map_id}/playback",
+        params={"novel_id": nid},
+    )
+    assert playback_resp.status_code == 200, playback_resp.text
+    event = playback_resp.json()["events"][0]
+    assert event["title"] == "公务员考试制度"
+    assert event["change_summary"] == (
+        "对象候选：公务员考试制度（concept）："
+        "克莱恩在塔罗会提出的政治改革方案。"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_uses_scalar_delta_candidate_as_title(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "廷根", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        nid,
+        event={
+            "category": "ENTITY_CREATED",
+            "field": "entities",
+            "old": None,
+            "new": "离奇自杀事件",
+            "meta": {
+                "dynamic_type": "entity_created",
+                "confidence": 0.5,
+            },
+        },
+        scene_index=0,
+        context_snapshot_id="snapshot-scalar-entity",
+        delta_log_id="delta-scalar-entity",
+    )
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["dynamic_queue"][0]
+    assert item["title"] == "离奇自杀事件"
+    assert item["source_summary"] == "deep_import_delta_event · 对象候选：离奇自杀事件"
+
+    playback_resp = await async_client.get(
+        f"/api/world/maps/{map_id}/playback",
+        params={"novel_id": nid},
+    )
+    assert playback_resp.status_code == 200, playback_resp.text
+    assert playback_resp.json()["events"][0]["title"] == "离奇自杀事件"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_uses_named_delta_field_as_title(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "廷根", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        nid,
+        event={
+            "category": "ENTITY_CREATED",
+            "field": "序列途径",
+            "old": None,
+            "new": {
+                "summary": "魔药序列的晋升途径，每途径有多个序列。",
+            },
+            "meta": {
+                "dynamic_type": "entity_created",
+                "confidence": 0.5,
+            },
+        },
+        scene_index=0,
+        context_snapshot_id="snapshot-field-entity",
+        delta_log_id="delta-field-entity",
+    )
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["dynamic_queue"][0]
+    assert item["title"] == "序列途径"
+    assert item["object_type"] == "entity_candidate"
+    assert item["type_label"] == "对象候选"
+    assert item["source_summary"] == (
+        "deep_import_delta_event · 序列途径：summary："
+        "魔药序列的晋升途径，每途径有多个序列。"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_uses_scalar_when_delta_field_is_technical(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "廷根", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        nid,
+        event={
+            "category": "ENTITY_CREATED",
+            "field": "entity",
+            "old": None,
+            "new": "占卜家扮演法",
+            "meta": {
+                "dynamic_type": "entity_created",
+                "confidence": 0.5,
+            },
+        },
+        scene_index=0,
+        context_snapshot_id="snapshot-technical-field",
+        delta_log_id="delta-technical-field",
+    )
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["dynamic_queue"][0]
+    assert item["title"] == "占卜家扮演法"
+    assert item["type_label"] == "对象候选"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_formats_entity_updated_delta_title(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "廷根", "map_type": "world", "grid_width": 4, "grid_height": 4},
+    )
+    map_id = map_resp.json()["id"]
+
+    from modules.world.services.map_service import MapDynamicFactService
+
+    await MapDynamicFactService().create_observation_from_delta_event(
+        db_session,
+        nid,
+        event={
+            "category": "ENTITY_UPDATED",
+            "field": "普利兹号的状态",
+            "old": "未下水",
+            "new": "已下水并试射",
+            "meta": {
+                "dynamic_type": "entity_updated",
+                "confidence": 0.5,
+            },
+        },
+        scene_index=0,
+        context_snapshot_id="snapshot-updated-field",
+        delta_log_id="delta-updated-field",
+    )
+
+    resp = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid},
+    )
+
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["dynamic_queue"][0]
+    assert item["title"] == "普利兹号的状态"
+    assert item["object_type"] == "entity_candidate"
+    assert item["type_label"] == "对象候选"
+    assert item["source_summary"] == (
+        "deep_import_delta_event · 普利兹号的状态：未下水 → 已下水并试射"
+    )
+
+
+@pytest.mark.asyncio
 async def test_dashboard_deduplicates_confirmed_observations_and_main_characters(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -753,3 +1021,47 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
     )
     assert confirmed_only.status_code == 200
     assert [event["track"] for event in confirmed_only.json()["events"]] == ["journey"]
+
+
+@pytest.mark.asyncio
+async def test_playback_accepts_structured_change_values(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+
+    observation_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_entity_type": "location",
+            "target_name": "廷根",
+            "dynamic_type": "status_change",
+            "value_json": {
+                "field": "地点状态",
+                "new": {"danger": "升高", "source": "深度导入"},
+            },
+            "confidence": 0.72,
+            "source_ref": {"source": "deep_import"},
+            "evidence_text": "廷根的危险等级发生变化。",
+        },
+    )
+    assert observation_resp.status_code == 201, observation_resp.text
+
+    playback = await async_client.get(
+        f"/api/world/maps/{map_id}/playback",
+        params={"novel_id": nid},
+    )
+
+    assert playback.status_code == 200, playback.text
+    assert (
+        playback.json()["events"][0]["change_summary"]
+        == "地点状态：danger：升高；source：深度导入"
+    )

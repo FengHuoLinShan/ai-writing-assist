@@ -127,6 +127,10 @@ async def test_scene_commit_writes_complete_structure_meta(
     assert scene["source"] == "deep_import"
     assert scene["status"] == "draft"
     assert scene["scene_index"] == 0
+    assert scene["must_happen"] == "Commit the fused scene"
+    assert scene["must_not_happen"] == (
+        "不得绕过既有冲突：Two observations describe one scene"
+    )
 
     provenance_key = build_scene_provenance_key(
         "wf-meta",
@@ -152,6 +156,35 @@ async def test_scene_commit_writes_complete_structure_meta(
         "provenance_key": provenance_key,
         "phase1a_fallback": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_scene_commit_creates_workbench_complete_setup(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline.scene_workbench import SceneWorkbenchService
+
+    result = await SceneCommitter().commit(
+        db_session,
+        sample_novel_id,
+        [make_final_scene_candidate(source_chapter_indices=[1])],
+        workflow_id="wf-workbench-health",
+    )
+
+    workbench = await SceneWorkbenchService().get_workbench(
+        db_session,
+        sample_novel_id,
+    )
+    item = next(
+        entry
+        for entry in workbench.items
+        if entry.scene.id == result.created_scene_ids[0]
+    )
+
+    assert "missing_setup" not in item.health
+    assert workbench.health["missing_setup"].count == 0
 
 
 @pytest.mark.asyncio

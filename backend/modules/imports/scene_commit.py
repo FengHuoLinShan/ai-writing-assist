@@ -119,6 +119,8 @@ def _build_scene_data(
         "goal": candidate.goal,
         "core_conflict": candidate.core_conflict,
         "emotional_beat": candidate.emotional_beat,
+        "must_happen": candidate.must_happen,
+        "must_not_happen": candidate.must_not_happen,
         "narrative_tag": candidate.narrative_tag,
         "source": "deep_import",
         "scene_chunks": scene_chunks,

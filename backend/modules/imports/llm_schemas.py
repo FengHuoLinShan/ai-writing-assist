@@ -68,6 +68,8 @@ class SceneItem(BaseModel):
     goal: str = Field(default="")
     core_conflict: str = Field(default="")
     emotional_beat: str = Field(default="")
+    must_happen: str = Field(default="")
+    must_not_happen: str = Field(default="")
     narrative_tag: str = Field(default="draft")
     scene_chunks: list[SceneChunk] = Field(default_factory=list)
 
