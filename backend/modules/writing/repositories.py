@@ -240,6 +240,68 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return [row[0] for row in result.all()]
 
+    async def list_chapter_summaries(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> Sequence[WritingDraft]:
+        """列出每章最新版本草稿，用于章节列表摘要。"""
+        latest_versions = (
+            select(
+                WritingDraft.chapter_index.label("chapter_index"),
+                func.max(WritingDraft.version_number).label("version_number"),
+            )
+            .where(WritingDraft.novel_id == novel_id)
+            .group_by(WritingDraft.chapter_index)
+            .subquery()
+        )
+        stmt = (
+            select(WritingDraft)
+            .join(
+                latest_versions,
+                (WritingDraft.chapter_index == latest_versions.c.chapter_index)
+                & (WritingDraft.version_number == latest_versions.c.version_number),
+            )
+            .where(WritingDraft.novel_id == novel_id)
+            .order_by(WritingDraft.chapter_index)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().all()
+
+    async def project_stats(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> tuple[int, int]:
+        """统计该小说每章最新版本的章节数和正文长度。"""
+        latest_versions = (
+            select(
+                WritingDraft.chapter_index.label("chapter_index"),
+                func.max(WritingDraft.version_number).label("version_number"),
+            )
+            .where(WritingDraft.novel_id == novel_id)
+            .group_by(WritingDraft.chapter_index)
+            .subquery()
+        )
+        stmt = (
+            select(
+                func.count(WritingDraft.id),
+                func.coalesce(
+                    func.sum(func.length(func.coalesce(WritingDraft.content, ""))),
+                    0,
+                ),
+            )
+            .join(
+                latest_versions,
+                (WritingDraft.chapter_index == latest_versions.c.chapter_index)
+                & (WritingDraft.version_number == latest_versions.c.version_number),
+            )
+            .where(WritingDraft.novel_id == novel_id)
+        )
+        result = await db.execute(stmt)
+        chapter_count, word_count = result.one()
+        return int(chapter_count or 0), int(word_count or 0)
+
     async def update_latest_content(
         self,
         db: AsyncSession,

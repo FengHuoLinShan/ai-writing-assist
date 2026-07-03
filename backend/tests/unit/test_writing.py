@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from modules.writing.contracts import WritingDraftContract
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
+    ChapterSummaryItem,
     DraftListItem,
     VersionHistoryResponse,
     WritingDraftCreate,
@@ -485,6 +486,14 @@ class TestWritingAPI:
             svc.get_latest_draft = AsyncMock()
             svc.get_version_history = AsyncMock()
             svc.list_chapter_indices = AsyncMock()
+            svc.list_chapter_summaries = AsyncMock()
+            svc.set_conflict_check_snapshot = AsyncMock()
+            yield svc
+
+    @pytest.fixture
+    def mock_conflict_service(self):
+        with patch("modules.writing.api._conflict_service") as svc:
+            svc.latest_snapshot = AsyncMock(return_value=None)
             yield svc
 
     @pytest.fixture
@@ -524,11 +533,14 @@ class TestWritingAPI:
         mock_facade,
         mock_enqueue,
         mock_service,
+        mock_conflict_service,
     ):
         """verify facade is called with correct args"""
         from modules.writing.api import create_draft
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
         data = WritingDraftCreate(
             novel_id=str(uuid.uuid4()),
             chapter_index=1,
@@ -664,11 +676,16 @@ class TestWritingAPI:
         from modules.writing.api import list_chapters
 
         mock_db = AsyncMock()
-        mock_service.list_chapter_indices.return_value = [1, 3, 5]
+        mock_service.list_chapter_summaries.return_value = [
+            ChapterSummaryItem(id=str(uuid.uuid4()), chapter_index=1),
+            ChapterSummaryItem(id=str(uuid.uuid4()), chapter_index=3),
+            ChapterSummaryItem(id=str(uuid.uuid4()), chapter_index=5),
+        ]
 
         result = await list_chapters(mock_db, novel_id="nid")
         assert result.chapter_indices == [1, 3, 5]
-        mock_service.list_chapter_indices.assert_awaited_once_with(mock_db, "nid")
+        assert [item.chapter_index for item in result.chapters] == [1, 3, 5]
+        mock_service.list_chapter_summaries.assert_awaited_once_with(mock_db, "nid")
 
 
 # ============================================================

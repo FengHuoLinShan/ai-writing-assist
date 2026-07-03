@@ -9,15 +9,19 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Path, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
-from modules.context.facade import attach_result_ref, require_fresh_confirmation
+from modules.context.facade import (
+    bind_confirmed_action_result,
+    prepare_confirmed_ai_action,
+)
 from modules.writing.facade import create_draft_only as _create_draft_only
 from modules.writing.schemas import (
     ChapterSplitRequest,
     ChapterSplitResponse,
+    ChapterSummaryItem,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
     WritingConflictAiSuggestionRequest,
@@ -40,6 +44,7 @@ class ChapterIndicesResponse(BaseModel):
     """章节索引列表响应"""
 
     chapter_indices: list[int]
+    chapters: list[ChapterSummaryItem] = Field(default_factory=list)
 
 
 class PublishResponse(BaseModel):
@@ -196,7 +201,7 @@ async def generate_writing_candidate(
 ) -> WritingGenerateResponse:
     """提交 AI 正文候选草稿生成任务。"""
     try:
-        await require_fresh_confirmation(
+        await prepare_confirmed_ai_action(
             db,
             novel_id=data.novel_id,
             action="writing.generate",
@@ -218,7 +223,7 @@ async def generate_writing_candidate(
             "context_confirmation_id": data.context_confirmation_id,
         },
     )
-    await attach_result_ref(
+    await bind_confirmed_action_result(
         db,
         confirmation_id=data.context_confirmation_id,
         result_type="task",
@@ -355,8 +360,11 @@ async def list_chapters(
     novel_id: str = Query(..., description="小说项目 ID"),
 ) -> ChapterIndicesResponse:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
-    indices = await _service.list_chapter_indices(db, novel_id)
-    return ChapterIndicesResponse(chapter_indices=indices)
+    chapters = await _service.list_chapter_summaries(db, novel_id)
+    return ChapterIndicesResponse(
+        chapter_indices=[item.chapter_index for item in chapters],
+        chapters=chapters,
+    )
 
 
 @router.post(

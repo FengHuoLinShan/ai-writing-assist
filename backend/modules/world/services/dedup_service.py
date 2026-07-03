@@ -463,7 +463,7 @@ class EntityDedupService:
         ) else ("draft", "candidate")
         if candidate.status not in allowed_source_statuses:
             raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "Merge candidate must be draft or candidate"
                     f"{' or canonical' if allow_canonical_source else ''}, "

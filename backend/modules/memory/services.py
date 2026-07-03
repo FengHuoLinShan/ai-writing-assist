@@ -6,13 +6,18 @@ Memory 业务逻辑层
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.contracts import MemoryContinuityEvidenceContract
+from modules.memory.contracts import (
+    MemoryContinuityEvidenceContract,
+    MemoryDeltaEventIngest,
+    MemoryDeltaIngestResult,
+)
 from modules.memory.models import DeltaLog
 from modules.memory.repositories import EventRepository, SnapshotRepository
 from modules.memory.schemas import (
@@ -179,6 +184,65 @@ class MemoryService:
             "scene_index": delta.scene_index,
             "field_path": delta.field_path,
         }
+
+    async def ingest_delta_events(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        events: list[MemoryDeltaEventIngest],
+        *,
+        result_refs: list[dict[str, str]] | None = None,
+    ) -> MemoryDeltaIngestResult:
+        """Create DeltaLog rows from typed delta events."""
+        delta_logs: list[dict[str, Any]] = []
+        for event in events:
+            provenance_key = (
+                event.scene_provenance_key
+                or f"{event.workflow_id or 'manual'}:scene:{event.scene_index}"
+            )
+            source_ref = {
+                "workflow_id": event.workflow_id,
+                "scene_id": event.scene_id,
+                "scene_provenance_key": provenance_key,
+                "auto_ingested": True,
+            }
+            meta = {
+                **(event.meta or {}),
+                "source": event.source,
+                "workflow_id": event.workflow_id,
+                "scene_id": event.scene_id,
+                "scene_provenance_key": provenance_key,
+                "auto_ingested": True,
+                "source_ref": {
+                    **((event.meta or {}).get("source_ref") or {}),
+                    **source_ref,
+                },
+            }
+            if event.context_snapshot_id:
+                meta["context_snapshot_id"] = event.context_snapshot_id
+            delta = await self.create_delta_log(
+                db,
+                novel_id,
+                scene_index=event.scene_index,
+                category=event.category,
+                field_path=event.field_path,
+                old_value=self._delta_value(event.old_value),
+                new_value=self._delta_value(event.new_value),
+                source=event.source,
+                meta=meta,
+            )
+            delta_logs.append(delta)
+            if result_refs is not None and delta.get("id"):
+                result_refs.append({"type": "delta_log", "id": delta["id"]})
+        return MemoryDeltaIngestResult(count=len(delta_logs), delta_logs=delta_logs)
+
+    @staticmethod
+    def _delta_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
 
     async def count_deep_import_delta_logs_by_workflow(
         self,

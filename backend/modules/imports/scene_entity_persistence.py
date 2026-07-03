@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -16,6 +15,7 @@ from modules.imports.llm_schemas import (
     ExtractedEntity,
     ExtractedRelation,
 )
+from modules.imports.scene_entity_runtime import SceneEntityExtractionRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def normalize_candidate_alias_item(
 class SceneEntityPersistenceGateway:
     """Persists Phase 2 entities, aliases, relations, deltas, and map observations."""
 
-    def __init__(self, service: Any) -> None:
+    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
         self.service = service
 
     async def persist_alias_relation_output(
@@ -380,63 +380,63 @@ class SceneEntityPersistenceGateway:
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
     ) -> int:
-        from modules.memory.facade import create_delta_log
+        from modules.memory.contracts import MemoryDeltaEventIngest
+        from modules.memory.facade import ingest_delta_events
         from modules.world.facade import create_map_observation_from_delta_event
 
-        count = 0
+        ingest_events: list[MemoryDeltaEventIngest] = []
+        map_payloads: list[dict] = []
         for event in delta_events or []:
             event_meta = event.meta or {}
-            provenance_meta = {
-                "source": "deep_import",
-                "workflow_id": workflow_id,
-                "scene_id": scene_id,
-                "scene_provenance_key": (
-                    scene_provenance_key
-                    or f"{workflow_id or 'manual'}:scene:{scene_index}"
-                ),
-                "auto_ingested": True,
-            }
+            scene_key = (
+                scene_provenance_key or f"{workflow_id or 'manual'}:scene:{scene_index}"
+            )
+            ingest_events.append(
+                MemoryDeltaEventIngest(
+                    scene_index=scene_index,
+                    category=event.category,
+                    field_path=event.field,
+                    old_value=event.old,
+                    new_value=event.new,
+                    source="deep_import",
+                    meta=event_meta,
+                    workflow_id=workflow_id,
+                    scene_id=scene_id,
+                    scene_provenance_key=scene_key,
+                    context_snapshot_id=context_snapshot_id,
+                )
+            )
             source_ref = {
                 "workflow_id": workflow_id,
                 "scene_id": scene_id,
-                "scene_provenance_key": provenance_meta["scene_provenance_key"],
+                "scene_provenance_key": scene_key,
                 "auto_ingested": True,
             }
-            merged_meta = {
+            observation_meta = {
                 **event_meta,
-                **provenance_meta,
+                "source": "deep_import",
+                "workflow_id": workflow_id,
+                "scene_provenance_key": scene_key,
+                "auto_ingested": True,
                 "source_ref": {
                     **(event_meta.get("source_ref") or {}),
                     **source_ref,
                 },
             }
-            delta = await create_delta_log(
-                db,
-                str(nid),
-                scene_index=scene_index,
-                category=event.category,
-                field_path=event.field,
-                old_value=json.dumps(event.old) if event.old is not None else None,
-                new_value=json.dumps(event.new) if event.new is not None else None,
-                source="deep_import",
-                meta={
-                    **merged_meta,
-                    **(
-                        {"context_snapshot_id": context_snapshot_id}
-                        if context_snapshot_id
-                        else {}
-                    ),
-                },
-            )
-            count += 1
+            map_payload = event.model_dump()
+            observation_meta.pop("scene_id", None)
+            map_payload["meta"] = observation_meta
+            map_payloads.append(map_payload)
+
+        result = await ingest_delta_events(
+            db,
+            str(nid),
+            ingest_events,
+            result_refs=result_refs,
+        )
+        for event_payload, delta in zip(map_payloads, result.delta_logs):
             delta_log_id = delta.get("id")
-            if result_refs is not None and delta.get("id"):
-                result_refs.append(build_result_ref("delta_log", delta_log_id))
             try:
-                event_payload = event.model_dump()
-                observation_meta = {**merged_meta}
-                observation_meta.pop("scene_id", None)
-                event_payload["meta"] = observation_meta
                 observation = await create_map_observation_from_delta_event(
                     db,
                     str(nid),
@@ -447,12 +447,12 @@ class SceneEntityPersistenceGateway:
                 )
                 if result_refs is not None:
                     result_refs.append(
-                        build_result_ref("map_observation", observation["id"])
+                    build_result_ref("map_observation", observation["id"])
                     )
             except Exception as exc:
                 logger.warning(
                     "Failed to create map observation for delta event %s: %s",
-                    event.category,
+                    event_payload.get("category"),
                     exc,
                 )
-        return count
+        return result.count

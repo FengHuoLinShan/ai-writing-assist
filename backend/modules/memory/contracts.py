@@ -45,3 +45,28 @@ class MemoryContinuityEvidenceContract:
     source_field: str
     source_excerpt: str
     open_target: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class MemoryDeltaEventIngest:
+    """Typed delta event input owned by memory ingestion."""
+
+    scene_index: int
+    category: str
+    field_path: str | None
+    old_value: Any = None
+    new_value: Any = None
+    source: str = "deep_import"
+    meta: dict[str, Any] = field(default_factory=dict)
+    workflow_id: str | None = None
+    scene_id: str | None = None
+    scene_provenance_key: str | None = None
+    context_snapshot_id: str | None = None
+
+
+@dataclass(frozen=True)
+class MemoryDeltaIngestResult:
+    """Stable result of a delta event ingestion batch."""
+
+    count: int
+    delta_logs: list[dict[str, Any]]

@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.enqueuer import enqueue_task
-from modules.writing.contracts import WritingDraftContract
+from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
 from modules.writing.schemas import WritingDraftCreate, WritingDraftResponse
 from modules.writing.services import WritingDraftService
 
@@ -79,3 +79,11 @@ async def list_chapter_indices(
 ) -> list[int]:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     return await _service.list_chapter_indices(db, novel_id)
+
+
+async def get_project_writing_stats(
+    db: AsyncSession,
+    novel_id: str,
+) -> WritingProjectStatsContract:
+    """获取项目正文统计（每章只统计最新版本）。"""
+    return await _service.get_project_stats(db, novel_id)

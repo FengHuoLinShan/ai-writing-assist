@@ -158,6 +158,20 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
         context_snapshot_id="snapshot-1",
         delta_log_id="delta-1",
     )
+    create_resp = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_name": "偏门哨塔",
+            "target_entity_type": "location",
+            "dynamic_type": "position_change",
+            "confidence": 0.6,
+            "source_ref": {"source": "manual_test"},
+            "evidence_text": "偏门哨塔亮起火光。",
+            "scene_index": 13,
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
 
     resp = await async_client.get(
         f"/api/world/maps/{map_id}/dashboard",
@@ -174,13 +188,25 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
     assert body["first_visual_layer"]["main_crisis"] == "洛阳外城"
     assert body["inspector"]["ai_candidates"][0]["title"] == "洛阳外城"
     assert body["batch_groups"][0]["group_label"] == "地点"
-    assert body["risk_summary"] == ["洛阳外城：待确认"]
+    assert "洛阳外城：待确认" in body["risk_summary"]
 
     facts = await async_client.get(
         f"/api/world/maps/{map_id}/facts",
         params={"novel_id": nid},
     )
     assert facts.json()["total"] == 0
+
+    focus_item_id = next(
+        item["item_id"] for item in body["dynamic_queue"] if item["title"] == "偏门哨塔"
+    )
+    focused = await async_client.get(
+        f"/api/world/maps/{map_id}/dashboard",
+        params={"novel_id": nid, "focus_item_id": focus_item_id},
+    )
+    assert focused.status_code == 200, focused.text
+    focused_body = focused.json()
+    assert focused_body["inspector"]["title"] == "偏门哨塔"
+    assert focused_body["inspector"]["ai_candidates"][0]["item_id"] == focus_item_id
 
 
 @pytest.mark.asyncio

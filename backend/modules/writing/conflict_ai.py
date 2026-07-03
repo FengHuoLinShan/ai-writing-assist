@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.context.markdown_renderer import render_compiled_context
 from modules.writing.repositories import WritingConflictCheckRepository
 from modules.writing.schemas import (
     WritingConflictAiReviewIssue,
@@ -47,9 +46,8 @@ class ConflictCheckAiReviewService:
         context_confirmation_id: str,
     ) -> tuple[object, list[object]]:
         from modules.context.facade import (
-            attach_result_ref,
-            compile_from_confirmation,
-            require_fresh_confirmation,
+            bind_confirmed_action_result,
+            prepare_confirmed_ai_action,
         )
 
         nid = parse_uuid(novel_id, "novel_id")
@@ -64,13 +62,13 @@ class ConflictCheckAiReviewService:
         check, current_items = existing
 
         try:
-            confirmation = await require_fresh_confirmation(
+            confirmed_context = await prepare_confirmed_ai_action(
                 db,
                 novel_id=novel_id,
                 action=AI_REVIEW_ACTION,
                 confirmation_id=context_confirmation_id,
             )
-            _validate_confirmation_scope(confirmation, check)
+            _validate_confirmation_scope(confirmed_context.confirmation, check)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -85,13 +83,6 @@ class ConflictCheckAiReviewService:
         )
 
         try:
-            compiled = await compile_from_confirmation(
-                db,
-                novel_id=novel_id,
-                action=AI_REVIEW_ACTION,
-                confirmation_id=context_confirmation_id,
-            )
-            context_markdown = render_compiled_context(compiled)
             output = await self._llm.generate_structured(
                 LLMCallRequest(
                     model=getattr(self._llm, "model_name", "gpt-4o"),
@@ -105,7 +96,7 @@ class ConflictCheckAiReviewService:
                             content=_build_ai_review_prompt(
                                 check=check,
                                 items=current_items,
-                                context_markdown=context_markdown,
+                                context_markdown=confirmed_context.rendered_markdown,
                             ),
                         ),
                     ],
@@ -118,7 +109,9 @@ class ConflictCheckAiReviewService:
                 output,
                 check=check,
                 confirmation_id=confirmation_uuid,
-                include_pending_objects=confirmation.include_pending_objects,
+                include_pending_objects=(
+                    confirmed_context.confirmation.include_pending_objects
+                ),
             )
             if ai_items:
                 await self._repo.append_items(
@@ -145,7 +138,7 @@ class ConflictCheckAiReviewService:
                 model=getattr(self._llm, "model_name", None),
                 error=None,
             )
-            await attach_result_ref(
+            await bind_confirmed_action_result(
                 db,
                 confirmation_id=context_confirmation_id,
                 result_type="writing_conflict_check",
@@ -173,7 +166,7 @@ class ConflictCheckAiReviewService:
                 error=str(exc),
             )
             try:
-                await attach_result_ref(
+                await bind_confirmed_action_result(
                     db,
                     confirmation_id=context_confirmation_id,
                     result_type="writing_conflict_check",
@@ -205,9 +198,8 @@ class ConflictSuggestionService:
         context_confirmation_id: str,
     ) -> object:
         from modules.context.facade import (
-            attach_result_ref,
-            compile_from_confirmation,
-            require_fresh_confirmation,
+            bind_confirmed_action_result,
+            prepare_confirmed_ai_action,
         )
 
         nid = parse_uuid(novel_id, "novel_id")
@@ -225,13 +217,13 @@ class ConflictSuggestionService:
         check, check_items = check_result
 
         try:
-            confirmation = await require_fresh_confirmation(
+            confirmed_context = await prepare_confirmed_ai_action(
                 db,
                 novel_id=novel_id,
                 action=AI_SUGGESTION_ACTION,
                 confirmation_id=context_confirmation_id,
             )
-            _validate_confirmation_scope(confirmation, check)
+            _validate_confirmation_scope(confirmed_context.confirmation, check)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -245,12 +237,6 @@ class ConflictSuggestionService:
         )
 
         try:
-            compiled = await compile_from_confirmation(
-                db,
-                novel_id=novel_id,
-                action=AI_SUGGESTION_ACTION,
-                confirmation_id=context_confirmation_id,
-            )
             output = await self._llm.generate_structured(
                 LLMCallRequest(
                     model=getattr(self._llm, "model_name", "gpt-4o"),
@@ -265,7 +251,7 @@ class ConflictSuggestionService:
                                 check=check,
                                 item=item,
                                 items=check_items,
-                                context_markdown=render_compiled_context(compiled),
+                                context_markdown=confirmed_context.rendered_markdown,
                             ),
                         ),
                     ],
@@ -285,7 +271,7 @@ class ConflictSuggestionService:
                 llm_rationale=output.suggestion.rationale,
                 error=None,
             )
-            await attach_result_ref(
+            await bind_confirmed_action_result(
                 db,
                 confirmation_id=context_confirmation_id,
                 result_type="writing_conflict_item",
@@ -304,7 +290,7 @@ class ConflictSuggestionService:
                 error=str(exc),
             )
             try:
-                await attach_result_ref(
+                await bind_confirmed_action_result(
                     db,
                     confirmation_id=context_confirmation_id,
                     result_type="writing_conflict_item",

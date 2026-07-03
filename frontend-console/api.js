@@ -465,8 +465,13 @@ const api = {
       if (sceneId) params.scene_id = sceneId
       return request(`/world/maps/${mapId}/state${buildQueryString(params)}`)
     },
-    async getMapDashboard(mapId, novelId, sceneId = null, focusEntityId = null) {
-      const params = { novel_id: novelId, scene_id: sceneId, focus_entity_id: focusEntityId }
+    async getMapDashboard(mapId, novelId, sceneId = null, focusEntityId = null, focusItemId = null) {
+      const params = {
+        novel_id: novelId,
+        scene_id: sceneId,
+        focus_entity_id: focusEntityId,
+        focus_item_id: focusItemId,
+      }
       return request(`/world/maps/${mapId}/dashboard${buildQueryString(params)}`)
     },
     async getMapPlayback(mapId, novelId, sceneId = null, focusEntityId = null, includeCandidates = true) {

@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from modules.project.schemas import (
     ProjectUpdate,
 )
 from modules.project.services import ProjectService
+from modules.writing.facade import create_draft_only
 
 _repo = ProjectRepository()
 
@@ -184,6 +186,49 @@ class TestProjectCrud:
         items, total = await _repo.list(db_session, skip=0, limit=2)
         assert total == 5
         assert len(items) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_projects_includes_writing_stats(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """项目列表返回每章最新版本统计，供前端项目卡片展示。"""
+        project = await _repo.create(db_session, ProjectCreate(title="统计项目"))
+        await create_draft_only(
+            db_session,
+            str(project.id),
+            1,
+            title="第一章",
+            content="旧稿",
+        )
+        await create_draft_only(
+            db_session,
+            str(project.id),
+            1,
+            title="第一章",
+            content="新稿内容",
+        )
+        await create_draft_only(
+            db_session,
+            str(project.id),
+            2,
+            title="第二章",
+            content="第二章",
+        )
+
+        response = await async_client.get("/api/projects")
+
+        assert response.status_code == 200, response.text
+        item = next(
+            item for item in response.json()["items"] if item["id"] == str(project.id)
+        )
+        assert item["chapter_count"] == 2
+        assert item["total_chapters"] == 2
+        assert item["word_count"] == 7
+        assert item["total_words"] == 7
+        assert item["stats"]["chapter_count"] == 2
+        assert item["stats"]["word_count"] == 7
 
     @pytest.mark.asyncio
     async def test_update(

@@ -97,9 +97,14 @@ async def test_vector_search_orders_pgvector_inner_product_distance_ascending():
         uuid.uuid4(),
         [0.1, 0.2],
         top_k=3,
+        ef_search=40,
     )
 
+    setup_sql = str(statements[0]).lower()
     query_sql = str(statements[1]).lower()
+    assert "set local hnsw.ef_search = 40" in setup_sql
+    assert ":ef" not in setup_sql
+    assert "cast(" in query_sql
     assert "order by score asc" in query_sql
 
 

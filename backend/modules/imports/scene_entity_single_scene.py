@@ -9,6 +9,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.scene_entity_runtime import SceneEntityExtractionRuntime
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,7 +26,7 @@ async def _optional_lock(lock):
 class SingleSceneEntityExtractor:
     """Processes one Scene through Phase 2a entity and delta extraction."""
 
-    def __init__(self, service: Any) -> None:
+    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
         self.service = service
 
     async def process(

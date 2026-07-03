@@ -736,7 +736,10 @@ async def test_phase1b_llm_prompt_requires_compact_scene_contract(monkeypatch):
 
     assert "目标输出9个Scene" in system_content
     assert "必须覆盖1-7章" in system_content
-    assert "每个Scene只输出短字段：title、goal、scene_chunks" in system_content
+    assert (
+        "每个Scene只输出短字段：title、goal、must_happen、"
+        "must_not_happen、scene_chunks"
+    ) in system_content
     assert "不要重写成长摘要" in system_content
     assert "不要补 core_conflict、emotional_beat、narrative_tag" in system_content
     assert "scene_chunks 内必须有 chapter_index" in system_content
@@ -1173,7 +1176,7 @@ class TestDeepImportWorkflowAutoRun:
         )
 
         result = await workflow.run_step(
-            db=None,
+            db=Mock(),
             novel_id=str(uuid.uuid4()),
             start_chapter=1,
             end_chapter=3,
@@ -1232,15 +1235,21 @@ class TestDeepImportWorkflowAutoRun:
         workflow._extract_entities_by_scene = AsyncMock()
         workflow._analyze_structure = AsyncMock()
 
-        result = await workflow.run_step(
-            db=AsyncMock(),
-            novel_id=str(uuid.uuid4()),
-            start_chapter=1,
-            end_chapter=5,
-            progress=progress,
-            workflow_id="wf-scenes",
-            stop_after=DeepImportStep.scene_segmentation,
-        )
+        db = AsyncMock()
+        novel_id = str(uuid.uuid4())
+        with patch(
+            "modules.imports.workflow_scene_phase._enqueue_rag_reindex_after_scene_commit",
+            return_value="task-rag-reindex",
+        ) as enqueue_rag:
+            result = await workflow.run_step(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=1,
+                end_chapter=5,
+                progress=progress,
+                workflow_id="wf-scenes",
+                stop_after=DeepImportStep.scene_segmentation,
+            )
 
         assert result.phase == "done"
         assert result.workflow_type == "scene_auto_extraction"
@@ -1254,6 +1263,11 @@ class TestDeepImportWorkflowAutoRun:
             "coverage_complete"
         ] is True
         assert result.phase_artifacts["scene_commit"]["counts"]["total_scenes"] == 2
+        assert (
+            result.quality_stats["scene_commit"]["rag_reindex_task_id"]
+            == "task-rag-reindex"
+        )
+        enqueue_rag.assert_called_once_with(db, novel_id, 1, 5)
         assert any(
             event["event"] == "phase_started"
             and event["phase"] == "phase0_prefetch"

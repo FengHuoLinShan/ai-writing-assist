@@ -34,7 +34,7 @@ def _require_misconception_for_false_level(
     """false_belief / misunderstood 必须提供 misconception。"""
     if level in {"false_belief", "misunderstood"} and not misconception:
         raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="false_belief/misunderstood knowledge must provide misconception",
         )
 

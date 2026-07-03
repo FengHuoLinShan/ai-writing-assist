@@ -16,20 +16,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.context.markdown_renderer import render_compiled_context
 from modules.outline.facade import split_scene_chunk_to_new_chapter
 from modules.writing.conflict_ai import (
     ConflictCheckAiReviewService,
     ConflictSuggestionService,
 )
 from modules.writing.conflict_evidence import evidence_location
-from modules.writing.contracts import WritingDraftContract
+from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
 from modules.writing.repositories import (
     WritingConflictCheckRepository,
     WritingDraftRepository,
 )
 from modules.writing.schemas import (
     ChapterSplitResponse,
+    ChapterSummaryItem,
     DraftListItem,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
@@ -285,6 +285,41 @@ class WritingDraftService:
         """列出该小说所有有草稿的章节索引"""
         nid = parse_uuid(novel_id, "novel")
         return await self._repo.list_chapter_indices(db, nid)
+
+    async def list_chapter_summaries(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[ChapterSummaryItem]:
+        """列出每章最新版本摘要。"""
+        nid = parse_uuid(novel_id, "novel")
+        drafts = await self._repo.list_chapter_summaries(db, nid)
+        return [
+            ChapterSummaryItem(
+                id=str(draft.id),
+                chapter_index=draft.chapter_index,
+                title=draft.title,
+                word_count=len(draft.content or ""),
+                version_number=draft.version_number,
+                status=draft.status,
+                updated_at=draft.updated_at,
+            )
+            for draft in drafts
+        ]
+
+    async def get_project_stats(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> WritingProjectStatsContract:
+        """统计该小说正文草稿概览（每章只取最新版本）。"""
+        nid = parse_uuid(novel_id, "novel")
+        chapter_count, word_count = await self._repo.project_stats(db, nid)
+        return WritingProjectStatsContract(
+            novel_id=str(nid),
+            chapter_count=chapter_count,
+            word_count=word_count,
+        )
 
     async def split_chapter_at_offset(
         self,
@@ -802,19 +837,18 @@ class WritingGenerationService:
         context_confirmation_id: str,
         source_task_id: str | None = None,
     ) -> WritingDraftResponse:
-        from modules.context.facade import compile_from_confirmation
+        from modules.context.facade import prepare_confirmed_ai_action
 
-        compiled_context = await compile_from_confirmation(
+        confirmed_context = await prepare_confirmed_ai_action(
             db,
             novel_id=novel_id,
             action="writing.generate",
             confirmation_id=context_confirmation_id,
         )
-        context_markdown = render_compiled_context(compiled_context)
         prompt = _build_writing_generation_prompt(
             chapter_index=chapter_index,
             instruction=instruction,
-            context_markdown=context_markdown,
+            context_markdown=confirmed_context.rendered_markdown,
         )
         response = await self._llm.generate(
             LLMCallRequest(
@@ -844,6 +878,8 @@ class WritingGenerationService:
                     "source": "writing_generate",
                     "source_confirmation_id": context_confirmation_id,
                     "source_task_id": source_task_id,
+                    "context_action": "writing.generate",
+                    "context_result_refs": confirmed_context.result_refs,
                 },
             ),
             status="candidate",

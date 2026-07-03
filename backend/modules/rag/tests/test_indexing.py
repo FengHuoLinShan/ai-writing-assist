@@ -639,6 +639,68 @@ async def test_index_chapter_annotates_scene_id(
 
 
 @pytest.mark.asyncio
+async def test_index_chapter_uses_chapter_scene_fallback_without_offsets(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """只有段落映射、没有字符偏移时，应回退到章节级 scene_id。"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneCreate
+    from modules.rag.facade import index_chapter_with_report
+    from modules.writing.models import WritingDraft
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    scene_repo = SceneRepository()
+
+    content = "克莱恩在廷根整理线索，确认占卜与梦境的关系。" * 30
+    scene = await scene_repo.create(
+        db_session,
+        nid_uuid,
+        SceneCreate(
+            scene_index=0,
+            title="段落映射场景",
+            chapter_ids=["1"],
+            scene_chunks=[
+                {
+                    "chapter_index": 1,
+                    "start_paragraph": 0,
+                    "end_paragraph": 0,
+                }
+            ],
+            status="draft",
+        ),
+    )
+
+    db_session.add(
+        WritingDraft(
+            id=_uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章",
+            content=content,
+            version_number=1,
+        )
+    )
+    await db_session.flush()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
+        mock_client_cls.return_value = mock_client
+
+        report = await index_chapter_with_report(db_session, test_project_id, 1)
+
+    assert report.chunks_created > 0
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert chunks
+    assert all(str(c.scene_id) == str(scene.id) for c in chunks)
+
+
+@pytest.mark.asyncio
 async def test_rebuild_novel_with_chapter_range(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811

@@ -236,6 +236,23 @@ class MapDynamicHelperMixin:
             if item.target_entity_id == focus_entity_id
         ]
 
+    def _filter_queue_for_item(
+        self,
+        queue: list[MapDashboardQueueItem],
+        focus_item_id: str,
+    ) -> list[MapDashboardQueueItem]:
+        focus = next((item for item in queue if item.item_id == focus_item_id), None)
+        if focus is None:
+            return queue
+        object_key = self._dynamic_object_key(focus)
+        return [item for item in queue if self._dynamic_object_key(item) == object_key]
+
+    @staticmethod
+    def _dynamic_object_key(item: MapDashboardQueueItem) -> str:
+        if item.target_entity_id:
+            return f"entity:{item.target_entity_id}"
+        return "|".join([item.title, item.object_type or item.dynamic_type or "unknown"])
+
     def _filter_queue_for_scene(
         self,
         queue: list[MapDashboardQueueItem],

@@ -120,8 +120,8 @@ class EntityRelationService(
         created = await super().create(db, novel_id, data)
         return created.model_copy(
             update={
-                "source_name": source.name,
-                "target_name": target.name,
+                "source_name": getattr(source, "name", ""),
+                "target_name": getattr(target, "name", ""),
             }
         )
 
@@ -268,7 +268,7 @@ class EntityRelationService(
         )
         return EntityRelationResponse.model_validate(rel).model_copy(
             update={
-                "source_name": source.name,
-                "target_name": target.name,
+                "source_name": getattr(source, "name", ""),
+                "target_name": getattr(target, "name", ""),
             }
         )

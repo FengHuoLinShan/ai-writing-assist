@@ -8,6 +8,10 @@ Context 对外契约
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.context.services.compiled_context import CompiledContext
 
 
 @dataclass
@@ -67,6 +71,17 @@ class ContextConfirmationContract:
     stale_reasons: list[str]
     compiled_at: str
     created_at: str
+
+
+@dataclass
+class ConfirmedAIActionContext:
+    """Validated context materialized for an AI action."""
+
+    confirmation: ContextConfirmationContract
+    compiled: CompiledContext
+    rendered_markdown: str
+    compile_options: dict
+    result_refs: list[dict[str, str]]
 
 
 @dataclass

@@ -14,6 +14,7 @@ from modules.imports.scene_entity_config import (
     PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS,
     PHASE2_PARALLEL_SCENE_CONCURRENCY,
 )
+from modules.imports.scene_entity_runtime import SceneEntityExtractionRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class ParallelSceneEntityExtractor:
     """Runs LLM extraction concurrently, then persists results serially."""
 
-    def __init__(self, service: Any) -> None:
+    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
         self.service = service
 
     async def run(

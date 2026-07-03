@@ -411,7 +411,7 @@ async def api_create_scene(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await _scene_service.create(db, novel_id, data)
+    return await _scene_workbench_service.create_scene(db, novel_id, data)
 
 
 @router.get("/scenes", response_model=SceneListResponse)
@@ -459,7 +459,7 @@ async def api_update_scene(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    return await _scene_service.update(db, scene_id, data, novel_id=novel_id)
+    return await _scene_workbench_service.update_scene(db, novel_id, scene_id, data)
 
 
 @router.delete("/scenes/{scene_id}", status_code=http_status.HTTP_204_NO_CONTENT)
@@ -468,7 +468,7 @@ async def api_delete_scene(
     db: DbSession,
     novel_id: str = Query(..., description="项目 ID"),
 ):
-    await _scene_service.delete(db, scene_id, novel_id=novel_id)
+    await _scene_workbench_service.delete_scene(db, novel_id, scene_id)
 
 
 @router.post("/scenes/reorder", response_model=SceneReorderResponse)
@@ -478,7 +478,7 @@ async def api_reorder_scenes(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     """批量重排 Scene 顺序，按 scene_ids 列表顺序从 0 重新编号"""
-    return await _scene_service.reorder(db, novel_id, data.scene_ids)
+    return await _scene_workbench_service.reorder_scenes(db, novel_id, data.scene_ids)
 
 
 @router.post("/scenes/split", response_model=list[SceneResponse])
@@ -488,13 +488,12 @@ async def api_split_chapters(
     novel_id: str = Query(..., description="项目 ID"),
 ):
     """断章：从 chapter_index 开始将章节从当前 Scene 移到目标 Scene"""
-    contracts = await _scene_service.split_chapters(
+    return await _scene_workbench_service.split_chapters_legacy(
         db,
         novel_id,
         data.chapter_index,
         data.target_scene_id,
     )
-    return [SceneResponse.model_validate(c.__dict__) for c in contracts]
 
 
 # ============================================================

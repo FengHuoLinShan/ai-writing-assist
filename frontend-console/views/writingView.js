@@ -175,9 +175,23 @@ const writingView = {
 
     try {
       const draftData = await api.writing.listChapters(state.currentProjectId)
-      const draftIndices = draftData.chapter_indices || []
+      const chapterSummaries = Array.isArray(draftData.chapters) ? draftData.chapters : []
+      const draftIndices = chapterSummaries.length > 0
+        ? chapterSummaries.map((item) => item.chapter_index)
+        : (draftData.chapter_indices || [])
+      for (const item of chapterSummaries) {
+        const idx = item.chapter_index
+        this._chapters[idx] = {
+          title: item.title || "",
+          draftCount: item.version_number || 0,
+          wordcount: item.word_count || 0,
+          word_count: item.word_count || 0,
+          status: item.status || "draft",
+          updated_at: item.updated_at || null,
+        }
+      }
       for (const idx of draftIndices) {
-        this._chapters[idx] = { draftCount: 0 }
+        if (!this._chapters[idx]) this._chapters[idx] = { draftCount: 0 }
       }
       this._chapterList = [...draftIndices].sort((a, b) => a - b)
 
@@ -298,7 +312,7 @@ const writingView = {
 
   async render() {
     if (this._loading) {
-      return '<div class="empty-state"><p>正在加载章节数据...</p></div>'
+      return '<div class="empty-state"><p>章节数据加载中...</p></div>'
     }
 
     if (this._chapterListLoadError) {

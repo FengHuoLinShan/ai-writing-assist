@@ -305,7 +305,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
             next_status = data.patch.get("fact_status")
             if next_status not in {"confirmed", "rolled_back", "deprecated"}:
                 raise HTTPException(
-                    status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=(
                         "patch.fact_status must be confirmed, rolled_back, "
                         "or deprecated"
@@ -345,6 +345,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         map_id: str,
         scene_id: str | None = None,
         focus_entity_id: str | None = None,
+        focus_item_id: str | None = None,
     ) -> MapDashboardResponse:
         return await self._dashboard.get_dashboard(
                 db,
@@ -352,6 +353,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
                 map_id=map_id,
                 scene_id=scene_id,
                 focus_entity_id=focus_entity_id,
+                focus_item_id=focus_item_id,
             )
 
     async def get_playback(

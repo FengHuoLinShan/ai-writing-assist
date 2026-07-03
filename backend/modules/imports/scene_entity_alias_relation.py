@@ -22,6 +22,7 @@ from modules.imports.scene_entity_config import (
     phase2_alias_relation_total_timeout_seconds,
     phase2_postprocess_timeout_seconds,
 )
+from modules.imports.scene_entity_runtime import SceneEntityExtractionRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 class AliasRelationExtractor:
     """Runs alias/relation extraction against working world objects."""
 
-    def __init__(self, service: Any) -> None:
+    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
         self.service = service
 
     async def run(
@@ -522,7 +523,7 @@ def _effective_alias_relation_total_timeout_seconds(
 
 
 async def _run_alias_relation_llm_calls(
-    service: Any,
+    service: SceneEntityExtractionRuntime,
     prepared: list[dict[str, Any]],
     *,
     started_at: float,

@@ -113,7 +113,7 @@ async def handle_publish_chapter(db, task):
 @task_handler("writing_generate")
 async def handle_writing_generate(db, task):
     """处理 AI 正文候选草稿生成任务。"""
-    from modules.context.facade import attach_result_ref
+    from modules.context.facade import bind_confirmed_action_result
     from modules.writing.services import WritingGenerationService
 
     meta = task.meta or {}
@@ -138,7 +138,7 @@ async def handle_writing_generate(db, task):
         context_confirmation_id=context_confirmation_id,
         source_task_id=str(task.id),
     )
-    await attach_result_ref(
+    await bind_confirmed_action_result(
         db,
         confirmation_id=context_confirmation_id,
         result_type="writing_draft",

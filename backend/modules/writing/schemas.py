@@ -151,6 +151,18 @@ class DraftListItem(BaseModel):
         return str(v)
 
 
+class ChapterSummaryItem(BaseModel):
+    """章节列表摘要项（每章最新版本）"""
+
+    id: str
+    chapter_index: int
+    title: str | None = None
+    word_count: int = 0
+    version_number: int = 1
+    status: str = "draft"
+    updated_at: datetime | None = None
+
+
 class VersionHistoryResponse(BaseModel):
     """版本历史响应"""
 

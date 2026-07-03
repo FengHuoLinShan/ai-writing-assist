@@ -44,9 +44,6 @@ from modules.world.services.entity_types import is_entity_type_valid, map_entity
 from modules.world.tasks import handle_world_entity_extraction
 from shared.enums import CandidateAction
 
-pytestmark = [pytest.mark.asyncio]
-
-
 # ============================================================
 # entity_types.py — pure function mapping
 # ============================================================
