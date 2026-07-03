@@ -946,27 +946,16 @@ class DeepImportWorkflow:
         start_chapter: int | None = None,
         end_chapter: int | None = None,
     ) -> dict[str, Any]:
-        try:
-            handler = _container_get("world.run_scene_entity_extraction")
-            result = await handler(
-                db,
-                novel_id=novel_id,
-                workflow_id=workflow_id,
-                on_scene_progress=on_scene_progress,
-                existing_checkpoints=existing_checkpoints,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-            )
-            return result
-        except Exception as exc:
-            logger.warning("Phase 2 entity extraction failed: %s", exc)
-            return {
-                "total_created": 0,
-                "total_relations": 0,
-                "total_deltas": 0,
-                "error_kind": getattr(exc, "error_kind", "phase_error"),
-                "error_message": str(exc)[:300],
-            }
+        handler = _container_get("world.run_scene_entity_extraction")
+        return await handler(
+            db,
+            novel_id=novel_id,
+            workflow_id=workflow_id,
+            on_scene_progress=on_scene_progress,
+            existing_checkpoints=existing_checkpoints,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
 
     # ------------------------------------------------------------------
     # Phase 3: 剧情结构分析

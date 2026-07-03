@@ -18,6 +18,8 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 - `PlotThreadService`
 - `OutlineArcService`
 - `SceneService`
+- `OutlineAIWorkflowService`
+- `OutlineStructureCleanupService`
 - `SceneWorkbenchService`
 - `OutlineStructureDedupService`
 - `ForeshadowingPlanService`
@@ -123,6 +125,9 @@ async def get_scenes_by_chapter(...)
 async def suggest_structure_dedup(...)
 async def apply_structure_dedup(...)
 ```
+
+异步 AI 任务入口只解析 task meta、更新进度并委托 `OutlineAIWorkflowService`；
+facade 只保留跨模块稳定函数名和返回形状，Scene 查询/创建/清理规则由 service 层拥有。
 
 ## 测试
 

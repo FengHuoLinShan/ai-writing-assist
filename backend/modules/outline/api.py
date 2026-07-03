@@ -5,7 +5,7 @@ from fastapi import status as http_status
 
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
-from modules.context.facade import attach_result_ref, require_confirmation
+from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.outline.scene_workbench import SceneWorkbenchService
 from modules.outline.schemas import (
     CrossChapterSceneDetectRequest,
@@ -83,7 +83,7 @@ async def _enqueue_confirmed_outline_task(
     task_type: str,
 ) -> OutlineAiTaskResponse:
     try:
-        await require_confirmation(
+        await require_fresh_confirmation(
             db,
             novel_id=data.novel_id,
             action=action,

@@ -173,6 +173,10 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
         nid = parse_uuid(novel_id, "novel_id")
         existing = await self.repo.get(db, rid)
         self._assert_found_in_novel(existing, id, nid)
+        if hasattr(existing, "status"):
+            setattr(existing, "status", "deprecated")
+            await db.flush()
+            return
         ok = await self.repo.delete(db, rid)
         if not ok:
             self._raise_404(id)

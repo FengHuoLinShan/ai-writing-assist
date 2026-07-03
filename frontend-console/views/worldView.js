@@ -58,6 +58,7 @@ const worldView = {
   _filters: { ...WORLD_FILTER_DEFAULTS },
 
   _advancedFiltersOpen: false,
+  _objectViewMode: "table",
 
   _entityTypes: [
     { value: "character", label: "人物" },
@@ -573,6 +574,7 @@ const worldView = {
     `
 
     html += this._renderFilters()
+    html += this._renderObjectViewToggle()
 
     // 判断是否有自动入库批次
     const hasBatches = this._batches && this._batches.length > 0
@@ -610,7 +612,7 @@ const worldView = {
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           <span style="color:var(--accent);">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
         </summary>`
-        html += this._renderEntityTable(autoEntities, { showNewBadge: true })
+        html += this._renderEntityCollection(autoEntities, { showNewBadge: true })
         html += `</details></div>`
       }
 
@@ -620,12 +622,11 @@ const worldView = {
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           其他对象 — ${manualEntities.length} 个
         </summary>`
-        html += this._renderEntityTable(manualEntities, { showNewBadge: false })
+        html += this._renderEntityCollection(manualEntities, { showNewBadge: false })
         html += `</details>`
       }
     } else {
-      // 没有自动入库记录，用普通表格
-      html += this._renderEntityTable(this._entities, { showNewBadge: false })
+      html += this._renderEntityCollection(this._entities, { showNewBadge: false })
     }
 
     html += this._renderPagination()
@@ -672,6 +673,21 @@ const worldView = {
         ${advancedFilters}
       </div>
     `
+  },
+
+  _renderObjectViewToggle() {
+    return `
+      <div class="world-object-view-toggle" aria-label="对象库视图">
+        <button class="btn btn-sm ${this._objectViewMode === "table" ? "btn-primary" : ""}" data-action="set-object-view" data-view-mode="table">表格</button>
+        <button class="btn btn-sm ${this._objectViewMode === "card" ? "btn-primary" : ""}" data-action="set-object-view" data-view-mode="card">卡片</button>
+      </div>
+    `
+  },
+
+  _renderEntityCollection(entities, options) {
+    return this._objectViewMode === "card"
+      ? this._renderEntityCards(entities, options)
+      : this._renderEntityTable(entities, options)
   },
 
   _renderPagination() {
@@ -762,6 +778,80 @@ const worldView = {
       { action: "delete-entities", label: "批量删除", className: "btn-danger" },
     ], { noun: "对象", hint: "仅作用于当前页选中对象" }) + html
     return html
+  },
+
+  _renderEntityCards(entities, { showNewBadge }) {
+    const scope = "world-objects"
+    const ids = entities.map((entity) => this._entityId(entity))
+    reconcileBulkSelection(this, scope, ids)
+    const cards = entities.map((entity) => this._renderEntityCard(entity, { showNewBadge })).join("")
+    return renderBulkToolbar(this, scope, [
+      { action: "promote-entities", label: "批量提升为正史", className: "btn-primary" },
+      { action: "delete-entities", label: "批量删除", className: "btn-danger" },
+    ], { noun: "对象", hint: "仅作用于当前页选中对象" }) + `
+      <div class="world-object-card-grid">
+        ${cards}
+      </div>
+    `
+  },
+
+  _renderEntityCard(entity, { showNewBadge }) {
+    const scope = "world-objects"
+    const id = this._entityId(entity)
+    const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃", merged: "已合并" }
+    const typeLabel = this._entityTypes.find((item) => item.value === entity.entity_type)?.label || entity.entity_type || "-"
+    const statusClass = `badge-${entity.status || "canonical"}`
+    const isNew = showNewBadge ? '<span class="badge badge-new">新</span>' : ""
+    const canMerge = entity.status === "draft" || entity.status === "candidate"
+    const canPromote = entity.status === "draft" || entity.status === "candidate"
+    const isCharacter = entity.entity_type === "character" || entity.entity_type === "character_ref"
+    return `
+      <article class="world-object-card" data-id="${esc(id)}">
+        <div class="world-object-card__top">
+          <div class="world-object-card__avatar" style="background:${esc(this._entityAvatarColor(entity))};">
+            ${esc((entity.name || "?").slice(0, 1))}
+          </div>
+          <div class="world-object-card__identity">
+            <h3>${esc(entity.name || "未命名对象")} ${isNew}</h3>
+            <div class="world-object-card__meta">
+              <span>${esc(typeLabel)}</span>
+              <span class="badge ${statusClass}">${statusText[entity.status] || esc(entity.status || "-")}</span>
+            </div>
+          </div>
+          <div class="world-object-card__selection">
+            ${renderSelectionCell(this, scope, id, `选择 ${entity.name || "对象"}`)}
+          </div>
+        </div>
+        <p class="world-object-card__summary">${esc(entity.summary || entity.public_info || "暂无摘要")}</p>
+        <div class="world-object-card__facts">
+          <span>来源：${esc({ deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }[entity.source] || entity.source || "-")}</span>
+          <span>${entity.needs_review ? "需复核" : "已复核"}</span>
+          <span>重要度：${esc(entity.importance || entity.importance_score || "-")}</span>
+        </div>
+        <div class="world-object-card__actions">
+          <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">编辑</button>
+          <button class="btn btn-sm" data-action="open-entity-map" data-id="${esc(id)}">地图</button>
+          ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}">合并</button>` : ""}
+          ${renderActionMenu(`entity-card-actions-${esc(id)}`, [
+            ...(canPromote ? [{ action: "promote-entity", label: "提升为正史", data: { id } }] : []),
+            { action: "rollback-entity", label: "回滚", data: { id } },
+            ...(isCharacter ? [{ action: "knowledge-entity", label: "知识", data: { id } }] : []),
+            { action: "delete-entity", label: "删除", class: "danger", data: { id } },
+          ])}
+        </div>
+      </article>
+    `
+  },
+
+  _entityAvatarColor(entity) {
+    const source = `${entity?.entity_type || ""}:${entity?.name || ""}`
+    let hash = 0
+    for (let i = 0; i < source.length; i++) {
+      hash = ((hash << 5) - hash) + source.charCodeAt(i)
+      hash |= 0
+    }
+    const hue = Math.abs(hash) % 360
+    return `hsl(${hue} 58% 38%)`
   },
 
   _entityId(entity) {
@@ -884,7 +974,7 @@ const worldView = {
       const rels = data.items || data || []
       this._relations = rels
       if (rels.length === 0) {
-        return html + '<div class="empty-state"><p>暂无关系。</p></div>'
+      return html + '<div class="empty-state"><p>还没有建立人物关系。</p><p style="color:var(--text-dim);font-size:12px;">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>'
       }
       const scope = "world-relations"
       const ids = rels.map((rel) => rel.id || rel.relationship_id).filter(Boolean)
@@ -991,7 +1081,7 @@ const worldView = {
       const aliases = data.items || data || []
       this._aliases = aliases
       if (aliases.length === 0) {
-        return html + '<div class="empty-state"><p>暂无别名。</p></div>'
+        return html + '<div class="empty-state"><p>还没有设置别名。</p><p style="color:var(--text-dim);font-size:12px;">别名可以帮助你管理角色的化名、称号和绰号。</p></div>'
       }
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
       const scope = "world-aliases"
@@ -1263,6 +1353,7 @@ const worldView = {
       "bulk-toggle-all": (e, t) => this._toggleBulkAll(t),
       "bulk-clear": (_e, t) => this._clearBulkScope(t.getAttribute("data-scope")),
       "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
+      "set-object-view": (_e, t) => this._setObjectViewMode(t.getAttribute("data-view-mode")),
       "toggle-extract": () => this._toggleAutoExtract(),
       "toggle-advanced-filters": () => this._toggleAdvancedFilters(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
@@ -1287,6 +1378,11 @@ const worldView = {
 
     bindActionMenus()
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+  },
+
+  _setObjectViewMode(mode) {
+    this._objectViewMode = mode === "card" ? "card" : "table"
+    router.refresh()
   },
 
   _visibleIdsForBulkScope(scope) {

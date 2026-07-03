@@ -51,6 +51,9 @@ async def create_delta_log(db, novel_id, **kwargs)
 
 `get_continuity_evidence_for_writing(...)` 返回写作冲突检查可消费的上一章角色位置证据；它只暴露来源摘要和 `memory_chapter` 打开目标，不要求 writing 读取 memory 内部事件结构。
 
+Facade 只保留跨模块稳定函数名和返回形状；`DeltaLog` 写入与 deep-import
+统计逻辑由 `MemoryService` 拥有，避免 facade 直接持有 ORM 业务逻辑。
+
 ## 测试
 
 ```bash

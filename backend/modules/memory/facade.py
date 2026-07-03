@@ -61,25 +61,7 @@ async def create_delta_log(
     **kwargs: Any,
 ) -> dict[str, Any]:
     """创建 Delta Log 记录，返回 dict。"""
-    from modules.memory.models import DeltaLog
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    delta = DeltaLog(
-        novel_id=nid,
-        **kwargs,
-    )
-    db.add(delta)
-    await db.flush()
-    return {
-        "id": str(delta.id),
-        "novel_id": str(delta.novel_id),
-        "entity_id": str(delta.entity_id) if delta.entity_id else None,
-        "category": delta.category,
-        "source": delta.source,
-        "scene_index": delta.scene_index,
-        "field_path": delta.field_path,
-    }
+    return await _memory.create_delta_log(db, novel_id, **kwargs)
 
 
 async def count_deep_import_delta_logs_by_workflow(
@@ -88,21 +70,8 @@ async def count_deep_import_delta_logs_by_workflow(
     workflow_id: str,
 ) -> int:
     """Count deep import delta logs for cleanup reporting only."""
-    from sqlalchemy import select
-
-    from modules.memory.models import DeltaLog
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    stmt = select(DeltaLog).where(
-        DeltaLog.novel_id == nid,
-        DeltaLog.source == "deep_import",
-    )
-    result = await db.execute(stmt)
-    items = result.scalars().all()
-    return sum(
-        1
-        for item in items
-        if (item.meta or {}).get("workflow_id") == workflow_id
-        and (item.meta or {}).get("auto_ingested") is True
+    return await _memory.count_deep_import_delta_logs_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from infrastructure.llm.providers import OpenAIProvider
+from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 
 
 def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
@@ -51,3 +54,48 @@ def test_provider_uses_explicit_proxy_when_configured() -> None:
     kwargs = http_client_cls.call_args.kwargs
     assert kwargs["trust_env"] is True
     assert kwargs["proxy"] == "http://127.0.0.1:1082"
+
+
+def test_provider_rejects_reserved_extra_fields() -> None:
+    """Provider extra 不能覆盖模型、消息、流式、认证或传输字段。"""
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient"),
+        patch("infrastructure.llm.providers.AsyncOpenAI"),
+    ):
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://opencode.ai/zen/go/v1",
+            default_model="deepseek-v4-flash",
+        )
+
+    request = LLMCallRequest(
+        model="deepseek-v4-flash",
+        messages=[LLMMessage(role="user", content="hi")],
+        extra={"headers": {"Authorization": "Bearer sk-secret"}},
+    )
+
+    with pytest.raises(ValueError, match="reserved LLM extra fields"):
+        provider._build_kwargs(request, "deepseek-v4-flash")
+
+
+def test_provider_allows_non_reserved_extra_fields() -> None:
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient"),
+        patch("infrastructure.llm.providers.AsyncOpenAI"),
+    ):
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://opencode.ai/zen/go/v1",
+            default_model="deepseek-v4-flash",
+        )
+
+    kwargs = provider._build_kwargs(
+        LLMCallRequest(
+            model="deepseek-v4-flash",
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={"reasoning_effort": "low"},
+        ),
+        "deepseek-v4-flash",
+    )
+
+    assert kwargs["reasoning_effort"] == "low"

@@ -256,8 +256,8 @@ async def test_deep_import_explicit_range_valid(
         "/api/imports/deep",
         json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
     )
-    assert resp.status_code == 400
-    assert "end_chapter must be >= start_chapter" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert "end_chapter must be >= start_chapter" in resp.text
 
 
 @pytest.mark.asyncio
@@ -308,8 +308,8 @@ async def test_deep_import_stage_endpoint_validates_chapter_range(
         "/api/imports/stages/scenes",
         json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
     )
-    assert resp.status_code == 400
-    assert "end_chapter must be >= start_chapter" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert "end_chapter must be >= start_chapter" in resp.text
 
 
 @pytest.mark.asyncio

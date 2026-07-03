@@ -190,7 +190,7 @@ class TestGetTaskStatus:
         result_mock.scalar_one_or_none.return_value = task_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        response = await get_task_status(task_id, db=db)
+        response = await get_task_status(task_id, db=db, novel_id="abc")
 
         assert response.task_id == str(task_id)
         assert response.task_type == "test_type"
@@ -213,7 +213,7 @@ class TestGetTaskStatus:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_task_status(task_id, db=db)
+            await get_task_status(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 404
 
@@ -229,7 +229,7 @@ class TestGetTaskStatus:
         task_mock.task_type = "test"
         task_mock.status = None  # <-- None
         task_mock.progress = None
-        task_mock.meta = None
+        task_mock.meta = {"novel_id": "abc"}
         task_mock.result = None
         task_mock.error_message = None
         task_mock.created_at = None
@@ -241,10 +241,10 @@ class TestGetTaskStatus:
         result_mock.scalar_one_or_none.return_value = task_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        response = await get_task_status(task_id, db=db)
+        response = await get_task_status(task_id, db=db, novel_id="abc")
 
         assert response.status == "pending"
-        assert response.meta == {}
+        assert response.meta == {"novel_id": "abc"}
         assert response.result == {}
         assert response.created_at is None
 
@@ -262,6 +262,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "pending"
+        task_mock.meta = {"novel_id": "abc"}
         task_mock.mark_cancelled = MagicMock()
 
         db = AsyncMock()
@@ -270,7 +271,7 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
         db.flush = AsyncMock()
 
-        response = await cancel_task(task_id, db=db)
+        response = await cancel_task(task_id, db=db, novel_id="abc")
 
         assert response.task_id == str(task_id)
         assert response.cancelled is True
@@ -286,6 +287,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "running"
+        task_mock.meta = {"novel_id": "abc"}
         task_mock.mark_cancelled = MagicMock()
 
         db = AsyncMock()
@@ -294,7 +296,7 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
         db.flush = AsyncMock()
 
-        response = await cancel_task(task_id, db=db)
+        response = await cancel_task(task_id, db=db, novel_id="abc")
         assert response.cancelled is True
         task_mock.mark_cancelled.assert_called_once()
 
@@ -308,6 +310,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "done"
+        task_mock.meta = {"novel_id": "abc"}
 
         db = AsyncMock()
         result_mock = MagicMock()
@@ -315,7 +318,7 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_task(task_id, db=db)
+            await cancel_task(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 400
         assert "done" in exc_info.value.detail
@@ -330,6 +333,7 @@ class TestCancelTask:
         task_mock = MagicMock()
         task_mock.id = task_id
         task_mock.status = "failed"
+        task_mock.meta = {"novel_id": "abc"}
 
         db = AsyncMock()
         result_mock = MagicMock()
@@ -337,7 +341,7 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_task(task_id, db=db)
+            await cancel_task(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 400
 
@@ -354,7 +358,7 @@ class TestCancelTask:
         db.execute = AsyncMock(return_value=result_mock)
 
         with pytest.raises(HTTPException) as exc_info:
-            await cancel_task(task_id, db=db)
+            await cancel_task(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 404
 

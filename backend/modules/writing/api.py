@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
-from modules.context.facade import attach_result_ref, require_confirmation
+from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.writing.facade import create_draft_only as _create_draft_only
 from modules.writing.schemas import (
     ChapterSplitRequest,
@@ -196,7 +196,7 @@ async def generate_writing_candidate(
 ) -> WritingGenerateResponse:
     """提交 AI 正文候选草稿生成任务。"""
     try:
-        await require_confirmation(
+        await require_fresh_confirmation(
             db,
             novel_id=data.novel_id,
             action="writing.generate",

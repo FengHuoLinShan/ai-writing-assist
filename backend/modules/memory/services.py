@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.contracts import MemoryContinuityEvidenceContract
+from modules.memory.models import DeltaLog
 from modules.memory.repositories import EventRepository, SnapshotRepository
 from modules.memory.schemas import (
     ChapterPanorama,
@@ -153,6 +155,51 @@ class MemoryService:
         )
 
         return SnapshotResponse.model_validate(snapshot)
+
+    async def create_delta_log(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Create a DeltaLog record and return the stable facade shape."""
+        nid = parse_uuid(novel_id, "novel_id")
+        delta = DeltaLog(
+            novel_id=nid,
+            **kwargs,
+        )
+        db.add(delta)
+        await db.flush()
+        return {
+            "id": str(delta.id),
+            "novel_id": str(delta.novel_id),
+            "entity_id": str(delta.entity_id) if delta.entity_id else None,
+            "category": delta.category,
+            "source": delta.source,
+            "scene_index": delta.scene_index,
+            "field_path": delta.field_path,
+        }
+
+    async def count_deep_import_delta_logs_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Count auto-ingested deep import DeltaLogs for cleanup reporting."""
+        nid = parse_uuid(novel_id, "novel_id")
+        stmt = select(DeltaLog).where(
+            DeltaLog.novel_id == nid,
+            DeltaLog.source == "deep_import",
+        )
+        result = await db.execute(stmt)
+        items = result.scalars().all()
+        return sum(
+            1
+            for item in items
+            if (item.meta or {}).get("workflow_id") == workflow_id
+            and (item.meta or {}).get("auto_ingested") is True
+        )
 
     # ============================================================
     # 全景查询

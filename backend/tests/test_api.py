@@ -773,6 +773,7 @@ class TestApiTasks:
         # Act
         resp = await async_client.get(
             f"/api/tasks/{missing_id}",
+            params={"novel_id": "00000000-0000-0000-0000-000000000001"},
         )
 
         # Assert

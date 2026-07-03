@@ -46,6 +46,10 @@ class WritingDraftCreate(BaseModel):
         None,
         description="发布时关联的 Scene ID，用于归档最近冲突检查快照",
     )
+    provenance_json: dict[str, Any] | None = Field(
+        None,
+        description="草稿来源追踪信息",
+    )
 
 
 class WritingDraftUpdate(BaseModel):
@@ -85,6 +89,7 @@ class WritingDraftResponse(BaseModel):
     version_number: int = 1
     status: str = "draft"
     conflict_check_snapshot_json: dict | None = None
+    provenance_json: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -116,9 +121,9 @@ class WritingDraftResponse(BaseModel):
             return v
         return str(v)
 
-    @field_validator("conflict_check_snapshot_json", mode="before")
+    @field_validator("conflict_check_snapshot_json", "provenance_json", mode="before")
     @classmethod
-    def coerce_snapshot(cls, v: object) -> dict | None:
+    def coerce_json_dict(cls, v: object) -> dict | None:
         if v is None or isinstance(v, dict):
             return v
         return None

@@ -40,7 +40,7 @@ export async function deleteProject(id) {
 /** 永久删除项目（先软删再硬删，用于测试清理，不留回收站残留） */
 export async function cleanupProject(id) {
   try { await deleteProject(id) } catch {}
-  try { await request(`/projects/${id}/permanent`, { method: "DELETE" }) } catch {}
+  try { await request(`/projects/${id}/permanent?confirmed=true`, { method: "DELETE" }) } catch {}
 }
 
 export async function listProjects() {
@@ -65,8 +65,9 @@ export async function waitForBackend(maxWaitMs = 30000) {
   throw new Error("Backend did not become healthy in time")
 }
 
-export async function getTask(taskId) {
-  const resp = await fetch(`${API_BASE}/tasks/${taskId}`)
+export async function getTask(taskId, novelId) {
+  const query = novelId ? `?novel_id=${encodeURIComponent(novelId)}` : ""
+  const resp = await fetch(`${API_BASE}/tasks/${taskId}${query}`)
   if (!resp.ok) {
     const text = await resp.text()
     throw new Error(`Task ${taskId} failed (${resp.status}): ${text}`)

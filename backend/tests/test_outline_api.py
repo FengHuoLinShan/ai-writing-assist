@@ -112,7 +112,7 @@ class TestApiOutlineThreads:
         async_client: AsyncClient,
         test_project_id: str,
     ) -> None:
-        """删除存在的剧情线返回 204 且后续获取返回 404"""
+        """删除存在的剧情线返回 204 且后续获取为 deprecated"""
         # Arrange
         create_resp = await async_client.post(
             "/api/outline/threads",
@@ -133,7 +133,8 @@ class TestApiOutlineThreads:
             f"/api/outline/threads/{thread_id}",
             params={"novel_id": test_project_id},
         )
-        assert get_resp.status_code == 404
+        assert get_resp.status_code == 200
+        assert get_resp.json()["status"] == "deprecated"
 
     async def test_api_outline_threads_create_missing_name_returns_422(
         self,
@@ -293,7 +294,7 @@ class TestApiOutlineGenerate:
         from unittest import mock
 
         with (
-            mock.patch("modules.outline.api.require_confirmation") as mock_require,
+            mock.patch("modules.outline.api.require_fresh_confirmation") as mock_require,
             mock.patch("modules.outline.api.attach_result_ref") as mock_attach,
             mock.patch("modules.outline.api.enqueue_task") as mock_enqueue,
         ):

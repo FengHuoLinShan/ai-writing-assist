@@ -213,7 +213,7 @@ const outlineView = {
 
   _renderScenes() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
     return `
       <div class="empty-state">
@@ -352,7 +352,7 @@ const outlineView = {
 
   _renderThreads() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -418,7 +418,7 @@ const outlineView = {
 
   _renderArcs() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -487,7 +487,7 @@ const outlineView = {
 
   _renderForeshadowing() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -535,7 +535,7 @@ const outlineView = {
 
   _renderReveals() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `

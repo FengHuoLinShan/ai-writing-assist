@@ -535,7 +535,7 @@ class TestConstraintEngine:
                 AsyncMock(return_value=plans),
             ),
             patch(
-                "modules.outline.facade.get_scene",
+                "modules.outline.facade.get_scene_contract",
                 AsyncMock(return_value=None),
             ),
             patch(
@@ -572,7 +572,7 @@ class TestConstraintEngine:
                 AsyncMock(return_value=plans),
             ),
             patch(
-                "modules.outline.facade.get_scene",
+                "modules.outline.facade.get_scene_contract",
                 AsyncMock(return_value=None),
             ),
             patch(
@@ -605,7 +605,7 @@ class TestConstraintEngine:
                 AsyncMock(return_value=plans),
             ),
             patch(
-                "modules.outline.facade.get_scene",
+                "modules.outline.facade.get_scene_contract",
                 AsyncMock(return_value=None),
             ),
             patch(
@@ -629,7 +629,7 @@ class TestConstraintEngine:
         db = MagicMock()
         with (
             patch(
-                "modules.outline.facade.get_scene",
+                "modules.outline.facade.get_scene_contract",
                 AsyncMock(return_value=scene),
             ),
             patch(
@@ -675,7 +675,7 @@ class TestConstraintEngine:
                 AsyncMock(return_value=entries),
             ),
             patch(
-                "modules.outline.facade.get_scene",
+                "modules.outline.facade.get_scene_contract",
                 AsyncMock(return_value=None),
             ),
             patch(
@@ -928,7 +928,7 @@ class TestCharactersLoader:
 
         with (
             patch(
-                "modules.outline.facade.get_scene",
+                "modules.outline.facade.get_scene_contract",
                 AsyncMock(return_value={"pov_character_id": "c1"}),
             ),
             patch(
@@ -1044,7 +1044,7 @@ class TestSceneLoader:
         options = MagicMock(scene_id="missing", viewpoint_character_id=None)
 
         with patch(
-            "modules.outline.facade.get_scene",
+            "modules.outline.facade.get_scene_contract",
             AsyncMock(return_value=None),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
@@ -1060,7 +1060,7 @@ class TestSceneLoader:
         options = MagicMock(scene_id="s1", viewpoint_character_id=None)
 
         with patch(
-            "modules.outline.facade.get_scene",
+            "modules.outline.facade.get_scene_contract",
             AsyncMock(return_value={"id": "s1", "pov_character_id": "c1"}),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
@@ -1076,7 +1076,7 @@ class TestSceneLoader:
         options = MagicMock(scene_id="s1", viewpoint_character_id="c1")
 
         with patch(
-            "modules.outline.facade.get_scene",
+            "modules.outline.facade.get_scene_contract",
             AsyncMock(return_value={"id": "s1", "pov_character_id": "c1"}),
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)

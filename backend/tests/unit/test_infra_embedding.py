@@ -9,7 +9,9 @@ Infrastructure: Embedding 模块单元测试
 
 from __future__ import annotations
 
+import asyncio
 import math
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1020,6 +1022,43 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         assert result == [[0.1], [0.2]]
         # 只有 text_b 发送到 worker
         client._worker.encode.assert_called_once_with(["text_b"], is_query=False)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_uncached_calls_are_serialized(self) -> None:
+        """共享 BGE worker 的 result queue 只能串行消费。"""
+        from infrastructure.embedding.client import BgeEmbeddingClient
+
+        active_calls = 0
+
+        def _encode(texts, *, is_query=False):
+            nonlocal active_calls
+            active_calls += 1
+            try:
+                if active_calls > 1:
+                    raise RuntimeError("overlapping worker encode")
+                time.sleep(0.02)
+                return [[float(len(texts[0]))]]
+            finally:
+                active_calls -= 1
+
+        with (
+            patch("infrastructure.embedding.client.get_settings"),
+            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+        ):
+            client = BgeEmbeddingClient()
+            client._cache = MagicMock()
+            client._cache.get.return_value = None
+            client._worker = MagicMock()
+            client._worker.encode.side_effect = _encode
+
+            result_a, result_b = await asyncio.gather(
+                client.generate_embedding("alpha"),
+                client.generate_embedding("beta"),
+            )
+
+        assert result_a == [5.0]
+        assert result_b == [4.0]
+        assert client._worker.encode.call_count == 2
 
     @pytest.mark.asyncio
     async def test_worker_error_propagates(self) -> None:

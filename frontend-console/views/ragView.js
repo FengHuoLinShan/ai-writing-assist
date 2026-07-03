@@ -120,8 +120,8 @@ const ragView = {
       return `
         <div class="empty-state">
           <div class="empty-icon">&#128269;</div>
-          <p>后端未连接</p>
-          <p style="color:var(--text-dim);font-size:12px;">请确认后端已启动并连接数据库。</p>
+          <p>与服务器连接断开</p>
+          <p style="color:var(--text-dim);font-size:12px;">请检查网络或刷新页面，后端服务可能尚未启动。</p>
         </div>
       `
     }
@@ -146,8 +146,8 @@ const ragView = {
         ${!this._loading && this._totalChunks === 0 ? `
           <div class="empty-state">
             <div class="empty-icon">&#128194;</div>
-            <p>暂无索引数据</p>
-            <p style="color:var(--text-dim);font-size:12px;">请先导入正文草稿，然后使用剧情结构提取或深度导入创建索引。</p>
+            <p>还没有检索数据</p>
+            <p style="color:var(--text-dim);font-size:12px;">导入正文后，系统会自动分析内容并建立检索索引。</p>
           </div>
         ` : ""}
         <div id="rag-rebuild-progress">${this._renderRebuildProgress()}</div>

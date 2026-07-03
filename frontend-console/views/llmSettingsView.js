@@ -5,6 +5,15 @@
 const llmSettingsView = {
   _templates: [],
   _settings: {},
+  _authorPreferences: {},
+  _creativeMode: "custom",
+
+  _creativePresets: {
+    creative: { label: "灵感创作", temperature: 0.9, top_p: 0.95, max_tokens: 8192 },
+    precise: { label: "精修校对", temperature: 0.25, top_p: 0.8, max_tokens: 4096 },
+    fast: { label: "快速草稿", temperature: 0.6, top_p: 0.9, max_tokens: 2048 },
+    custom: { label: "自定义" },
+  },
 
   async onEnter() {
     if (!state.currentProjectId) {
@@ -19,6 +28,8 @@ const llmSettingsView = {
       ])
       this._templates = templateResp.items || []
       this._settings = settings || {}
+      this._authorPreferences = this._loadAuthorPreferences()
+      this._creativeMode = this._detectCreativeMode(this._settings)
     } catch (err) {
       console.error("加载 LLM 配置失败:", err)
       this._templates = []
@@ -42,6 +53,8 @@ const llmSettingsView = {
     const selectedTemplate = this._findTemplate(providerId) || this._templates[0] || {}
     const modelOptions = this._renderModelOptions(selectedTemplate, settings.model)
     const parameters = this._effectiveParameters(settings, selectedTemplate)
+    const preferences = this._loadAuthorPreferences()
+    const creativeMode = this._creativeMode || this._detectCreativeMode(parameters)
     const statusText = settings.api_key_configured ? "已保存" : "未保存"
     const statusClass = settings.api_key_configured ? "success" : "muted"
 
@@ -101,6 +114,17 @@ const llmSettingsView = {
           </div>
 
           <div class="llm-advanced-panel">
+            <div class="form-group">
+              <label>创作模式</label>
+              <div class="llm-preset-list">
+                ${Object.entries(this._creativePresets).map(([id, preset]) => `
+                  <button class="llm-preset-item ${creativeMode === id ? "active" : ""}" type="button" data-preset-id="${esc(id)}">
+                    <span>${esc(preset.label)}</span>
+                    <small>${id === "custom" ? "保留当前参数" : `T ${preset.temperature} · P ${preset.top_p} · ${preset.max_tokens} tokens`}</small>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
             <div class="form-row">
               <div class="form-group">
                 <label for="llm-timeout">超时（秒）</label>
@@ -130,6 +154,32 @@ const llmSettingsView = {
           <div class="llm-template-list">
             ${this._templates.map((template) => this._renderTemplateSummary(template, providerId)).join("")}
           </div>
+
+          <div class="llm-author-preferences">
+            <h3>作者偏好</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="author-daily-goal">日更目标（字）</label>
+                <input class="form-input" id="author-daily-goal" type="number" min="0" max="100000" value="${esc(preferences.dailyGoal || "")}" placeholder="6000" />
+              </div>
+              <div class="form-group">
+                <label for="author-editor-font">编辑器字体</label>
+                <select class="form-input" id="author-editor-font">
+                  <option value="system" ${preferences.editorFont === "system" ? "selected" : ""}>系统默认</option>
+                  <option value="serif" ${preferences.editorFont === "serif" ? "selected" : ""}>宋体/衬线</option>
+                  <option value="sans" ${preferences.editorFont === "sans" ? "selected" : ""}>黑体/无衬线</option>
+                  <option value="mono" ${preferences.editorFont === "mono" ? "selected" : ""}>等宽</option>
+                </select>
+              </div>
+              <div class="form-group llm-focus-default">
+                <label>
+                  <input id="author-default-focus" type="checkbox" ${preferences.defaultFocusMode ? "checked" : ""} />
+                  默认专注模式
+                </label>
+              </div>
+            </div>
+            <button class="btn btn-sm" id="author-preferences-save" type="button">保存作者偏好</button>
+          </div>
         </div>
       </div>
     `
@@ -144,6 +194,14 @@ const llmSettingsView = {
     })
     document.getElementById("llm-toggle-api-key")?.addEventListener("click", () => {
       this.toggleApiKeyVisibility()
+    })
+    document.querySelectorAll(".llm-preset-item[data-preset-id]").forEach((item) => {
+      item.addEventListener("click", () => {
+        this.applyCreativePreset(item.dataset.presetId)
+      })
+    })
+    document.getElementById("author-preferences-save")?.addEventListener("click", () => {
+      this.saveAuthorPreferences()
     })
     document.querySelectorAll(".llm-template-item[data-template-id]").forEach((item) => {
       item.addEventListener("click", () => {
@@ -180,11 +238,82 @@ const llmSettingsView = {
     this._setInputValue("llm-temperature", params.temperature)
     this._setInputValue("llm-top-p", params.top_p)
     this._setInputValue("llm-extra", this._formatExtraParameters(params.extra))
+    this._creativeMode = this._detectCreativeMode(params)
+    this._syncPresetActiveState()
     if (datalist) {
       datalist.innerHTML = (template.models || [])
         .map((item) => `<option value="${esc(item)}"></option>`)
         .join("")
     }
+  },
+
+  applyCreativePreset(presetId) {
+    const preset = this._creativePresets[presetId]
+    if (!preset) return
+    this._creativeMode = presetId
+    if (presetId !== "custom") {
+      this._setInputValue("llm-temperature", preset.temperature)
+      this._setInputValue("llm-top-p", preset.top_p)
+      this._setInputValue("llm-max-tokens", preset.max_tokens)
+    }
+    this._syncPresetActiveState()
+  },
+
+  saveAuthorPreferences() {
+    const dailyGoalRaw = document.getElementById("author-daily-goal")?.value.trim() || ""
+    const dailyGoal = dailyGoalRaw ? Number(dailyGoalRaw) : null
+    if (dailyGoalRaw && (!Number.isInteger(dailyGoal) || dailyGoal < 0 || dailyGoal > 100000)) {
+      toast("日更目标必须是 0-100000 的整数", "warning")
+      return
+    }
+    const preferences = {
+      dailyGoal,
+      editorFont: document.getElementById("author-editor-font")?.value || "system",
+      defaultFocusMode: Boolean(document.getElementById("author-default-focus")?.checked),
+    }
+    this._authorPreferences = preferences
+    localStorage.setItem(this._authorPreferencesKey(), JSON.stringify(preferences))
+    if (dailyGoal != null) localStorage.setItem("novel_daily_goal", String(dailyGoal))
+    localStorage.setItem("novel_focus_default", preferences.defaultFocusMode ? "1" : "0")
+    localStorage.setItem("novel_editor_font", preferences.editorFont)
+    toast("作者偏好已保存", "success")
+  },
+
+  _authorPreferencesKey() {
+    return `novel_author_preferences:${state.currentProjectId || "global"}`
+  },
+
+  _loadAuthorPreferences() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(this._authorPreferencesKey()) || "{}")
+      return {
+        dailyGoal: parsed.dailyGoal ?? "",
+        editorFont: parsed.editorFont || "system",
+        defaultFocusMode: Boolean(parsed.defaultFocusMode),
+      }
+    } catch {
+      return { dailyGoal: "", editorFont: "system", defaultFocusMode: false }
+    }
+  },
+
+  _detectCreativeMode(parameters) {
+    for (const [id, preset] of Object.entries(this._creativePresets)) {
+      if (id === "custom") continue
+      if (
+        Number(parameters?.temperature) === preset.temperature
+        && Number(parameters?.top_p) === preset.top_p
+        && Number(parameters?.max_tokens) === preset.max_tokens
+      ) {
+        return id
+      }
+    }
+    return "custom"
+  },
+
+  _syncPresetActiveState() {
+    document.querySelectorAll(".llm-preset-item[data-preset-id]").forEach((item) => {
+      item.classList.toggle("active", item.dataset.presetId === this._creativeMode)
+    })
   },
 
   async save() {

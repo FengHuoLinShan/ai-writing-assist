@@ -14,6 +14,7 @@ from modules.world.models import CharacterKnowledge
 from modules.world.repositories import (
     CharacterKnowledgeRepository,
     CharacterRepository,
+    CoreEntityRepository,
 )
 from modules.world.schemas import (
     CharacterKnowledgeCreate,
@@ -59,6 +60,7 @@ class CharacterKnowledgeService(
     # 跨表校验需要 CharacterRepository — 显式注入
     def __init__(self) -> None:
         self._character_repo = CharacterRepository()
+        self._entity_repo = CoreEntityRepository()
 
     async def create(  # type: ignore[override]
         self,
@@ -75,6 +77,7 @@ class CharacterKnowledgeService(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Character not found in this novel",
             )
+        await self._assert_target_in_novel(db, nid, data.target_type, data.target_id)
         # Schema 已做基础校验；服务层再次检查作为 defense-in-depth，
         # 确保任何绕过 schema 的情况都能返回受控的 HTTP 422 错误信息。
         _require_misconception_for_false_level(
@@ -104,6 +107,36 @@ class CharacterKnowledgeService(
                 misconception,
             )
         return await super().update(db, id, data, novel_id=novel_id)
+
+    async def _assert_target_in_novel(
+        self,
+        db: AsyncSession,
+        novel_id,
+        target_type: str,
+        target_id: str,
+    ) -> None:
+        if target_type not in {
+            "entity",
+            "world_entity",
+            "character",
+            "event",
+            "location",
+            "item",
+            "faction",
+            "object",
+        }:
+            return
+        tid = parse_uuid(target_id, "target_id")
+        target = await self._entity_repo.get(db, tid)
+        if (
+            target is None
+            or target.novel_id != novel_id
+            or getattr(target, "status", None) == "deprecated"
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Knowledge target not found in this novel",
+            )
 
     # ============================================================
     # list 加按 character_id 过滤 (base 的 list 是按 novel_id 列表)

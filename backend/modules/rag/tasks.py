@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 
 from core.container import get as _container_get
@@ -117,7 +116,6 @@ async def handle_rag_reindex_novel(db, task):
 @task_handler("rag_retry_embeddings")
 async def handle_rag_retry_embeddings(db, task):
     """重试 failed / pending_vectorization chunk 的 embedding。"""
-    started_at = time.monotonic()
     meta = task.meta or {}
     novel_id = meta.get("novel_id", "")
     start_chapter = meta.get("start_chapter")
@@ -127,115 +125,16 @@ async def handle_rag_retry_embeddings(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for rag_retry_embeddings")
 
-    allowed_statuses = {"failed", "pending_vectorization"}
-    statuses = [s for s in statuses if s in allowed_statuses]
-    if not statuses:
-        statuses = ["failed", "pending_vectorization"]
+    from modules.rag.indexing import IndexingService
 
-    from infrastructure.llm.client import LLMClient
-    from modules.rag.metrics import get_metrics
-    from modules.rag.repositories import RagChunkRepository
-
-    repo = RagChunkRepository()
     nid = uuid.UUID(hex=novel_id)
     start_chapter_value = int(start_chapter) if start_chapter is not None else None
     end_chapter_value = int(end_chapter) if end_chapter is not None else None
-    initial_total = await repo.count_retryable_embeddings(
+    return await IndexingService().retry_embeddings(
         db,
         nid,
-        statuses=statuses,
         start_chapter=start_chapter_value,
         end_chapter=end_chapter_value,
-    )
-
-    total = initial_total
-    succeeded = 0
-    failed = 0
-    warnings: list[str] = []
-
-    if initial_total == 0:
-        task.update_progress(1.0)
-        await db.flush()
-        get_metrics().record_embedding_retry(
-            total=0,
-            failed=0,
-            latency_ms=(time.monotonic() - started_at) * 1000,
-        )
-        return {
-            "total": 0,
-            "succeeded": 0,
-            "failed": 0,
-            "remaining_retryable_count": 0,
-            "warnings": [],
-        }
-
-    llm = LLMClient()
-    while True:
-        candidates = await repo.find_embedding_retry_candidates(
-            db,
-            nid,
-            statuses=statuses,
-            start_chapter=start_chapter_value,
-            end_chapter=end_chapter_value,
-        )
-        if not candidates:
-            break
-
-        try:
-            texts = [chunk.text for chunk in candidates]
-            embeddings = await llm.generate_embedding(texts)
-            if not (
-                isinstance(embeddings, list)
-                and len(embeddings) == len(candidates)
-            ):
-                raise ValueError("embedding 返回格式异常")
-            validated_embeddings: list[list[float]] = []
-            for embedding in embeddings:
-                if not (
-                    isinstance(embedding, list)
-                    and embedding
-                    and isinstance(embedding[0], float)
-                ):
-                    raise ValueError("embedding 返回格式异常")
-                validated_embeddings.append(embedding)
-            for chunk, embedding in zip(candidates, validated_embeddings):
-                await repo.update_embedding(db, chunk.id, embedding)
-                chunk.embedding_status = "succeeded"
-                chunk.embedding_error = None
-                chunk.index_warnings = []
-                succeeded += 1
-            task.update_progress(min(1.0, succeeded / max(initial_total, 1)))
-            await db.flush()
-        except Exception as exc:
-            error = str(exc)
-            failed += len(candidates)
-            warnings.append(f"embedding 重试失败: {error[:200]}")
-            for chunk in candidates:
-                await repo.mark_embedding_failed(db, chunk.id, error)
-            await db.flush()
-            break
-
-    remaining_retryable_count = await repo.count_retryable_embeddings(
-        db,
-        nid,
         statuses=statuses,
-        start_chapter=start_chapter_value,
-        end_chapter=end_chapter_value,
+        progress_callback=task.update_progress,
     )
-    if remaining_retryable_count == 0:
-        task.update_progress(1.0)
-        await db.flush()
-
-    get_metrics().record_embedding_retry(
-        total=total,
-        failed=failed,
-        latency_ms=(time.monotonic() - started_at) * 1000,
-    )
-
-    return {
-        "total": total,
-        "succeeded": succeeded,
-        "failed": failed,
-        "remaining_retryable_count": remaining_retryable_count,
-        "warnings": warnings,
-    }

@@ -15,6 +15,7 @@ beforeEach(() => {
   worldView._total = 0
   worldView._entitiesLoadError = null
   worldView._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
+  worldView._objectViewMode = "table"
   worldView._autoExtractOpen = false
   if (worldView._autoExtractPoller?.stop) worldView._autoExtractPoller.stop()
   worldView._autoExtractTaskId = null
@@ -212,6 +213,23 @@ describe("对象库", () => {
       expect(row?.querySelector('[data-action="delete-entity"]')).toBeTruthy()
     })
 
+    it("卡片视图复用现有编辑和地图操作", () => {
+      worldView._objectViewMode = "card"
+      worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical", summary: "首都" }]
+
+      const html = worldView._renderEntityList()
+      const container = renderHtml(html)
+      const card = container.querySelector(".world-object-card")
+
+      expect(html).toContain('data-action="set-object-view"')
+      expect(card?.textContent).toContain("王都")
+      expect(card?.textContent).toContain("地点")
+      expect(card?.textContent).toContain("首都")
+      expect(card?.querySelector('[data-action="edit-entity"]')).toBeTruthy()
+      expect(card?.querySelector('[data-action="open-entity-map"]')).toBeTruthy()
+      expect(card?.querySelector('[data-action="delete-entity"]')).toBeTruthy()
+    })
+
     it("对象行打开地图时使用 open-target 并携带 focus_entity_id", async () => {
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
       state.currentProjectId = "p1"
@@ -334,6 +352,17 @@ describe("对象库", () => {
 
       expect(worldView._filters.skip).toBe(20)
       expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({ skip: 20, limit: 20 }))
+    })
+  })
+
+  describe("_setObjectViewMode", () => {
+    it("切换对象库视图模式并刷新", () => {
+      worldView._setObjectViewMode("card")
+      expect(worldView._objectViewMode).toBe("card")
+      expect(router.refresh).toHaveBeenCalled()
+
+      worldView._setObjectViewMode("unknown")
+      expect(worldView._objectViewMode).toBe("table")
     })
   })
 

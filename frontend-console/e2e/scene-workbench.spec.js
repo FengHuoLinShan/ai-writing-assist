@@ -119,7 +119,8 @@ test.describe("Scene 工作台", () => {
     await page.locator("#scene-detail-goal").fill("新目标")
     await page.locator('[data-action="save-scene-detail"]').click()
     await expect(page.locator("#toast-container")).toContainText("Scene 已保存", { timeout: 10000 })
-    await page.locator('[data-action="open-writing-scene"]').click()
+    await page.locator(".scene-workbench-row.is-selected .action-menu-btn").click()
+    await page.locator(".scene-workbench-row.is-selected [data-action=\"open-writing-scene\"]").click()
 
     await expect(page.locator("#view-title")).toHaveText("写作台")
     await expect(page.locator("#writing-panel-container")).toContainText("新标题")

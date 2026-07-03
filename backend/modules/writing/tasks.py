@@ -136,6 +136,7 @@ async def handle_writing_generate(db, task):
         title=meta.get("title"),
         instruction=meta.get("instruction"),
         context_confirmation_id=context_confirmation_id,
+        source_task_id=str(task.id),
     )
     await attach_result_ref(
         db,

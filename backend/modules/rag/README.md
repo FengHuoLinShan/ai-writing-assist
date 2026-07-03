@@ -34,8 +34,8 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 |----------|------|------|
 | 精确检索 | `find_by_entity/character/thread/chapter` | 按关联 ID 精确过滤 |
 | 关键词检索 | `keyword_search` | SQL LIKE 文本匹配，SQLite 兼容 |
-| 混合检索 | `hybrid_search` | 关键词 + 项目词典 + 关系 + 重要性 + 向量 |
-| 向量检索（预留） | `vector_search` | pgvector 余弦距离查询 |
+| 混合检索 | `hybrid_search` | 合并关键词 + metadata/关系 + 向量候选后统一评分 |
+| 向量检索 | `vector_search` | pgvector `<#>` inner-product 距离升序召回，返回相似度分数 |
 | 抽取检索 | `retrieve(mode="extraction")` | 明确关系命中即可召回，避免字段关键词缺失导致 no_chunks |
 
 ## 中文小说分块参数
@@ -120,8 +120,9 @@ POST /api/rag/chunks/split               — 文本分割工具
 | `scoring.py` | 纯评分函数与 `Scorer`：关键词、关系、向量、重要性、时序衰减、动态权重 |
 | `query_expansion.py` | 项目词典加载与查询扩展：`QueryExpander`（可注入 term_loader） |
 | `retrieval.py` | 检索编排：`RetrievalOrchestrator` 组装 embedding → 扩展 → 召回 → 评分 → 去重 → 重排序 |
-| `indexing.py` | 章节索引：`IndexingService` 把草稿分块、标注入库、生成 embedding |
+| `indexing.py` | 章节索引与 embedding 重试：`IndexingService` 把草稿分块、标注入库、生成/重试 embedding |
 | `facade.py` | 对外稳定入口，组装上述模块并代理公共方法 |
+| `tasks.py` | 异步任务薄入口，校验 task meta 并委托 facade/service |
 | `api.py` | FastAPI 路由，所有端点通过 facade 委托 |
 
 ## 依赖注入约定

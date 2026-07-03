@@ -106,7 +106,7 @@ const sceneWorkbenchView = {
   async render() {
     if (this._loading) return '<div class="loading">加载中...</div>'
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目开始创作。</p></div>'
     }
     if (!this._workbench) {
       return '<div class="empty-state"><p>场景工作台暂不可用。</p></div>'

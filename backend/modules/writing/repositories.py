@@ -44,6 +44,7 @@ class WritingDraftRepository:
             title=data.title,
             content=data.content,
             conflict_check_snapshot_json=None,
+            provenance_json=data.provenance_json,
             version_number=next_version,
             status="draft",
         )
@@ -71,6 +72,7 @@ class WritingDraftRepository:
             title=data.title,
             content=data.content,
             conflict_check_snapshot_json=None,
+            provenance_json=data.provenance_json,
             version_number=next_version,
             status=status,
         )

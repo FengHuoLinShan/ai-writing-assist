@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from core.config import get_settings
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
-from modules.context.facade import attach_result_ref, require_confirmation
+from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
     CharacterCreate,
@@ -139,7 +139,7 @@ async def extract_entities(
 ) -> WorldEntityExtractResponse:
     """提交确认后的手动世界对象补抽任务。"""
     try:
-        await require_confirmation(
+        await require_fresh_confirmation(
             db,
             novel_id=data.novel_id,
             action="world.entities.extract",
@@ -174,10 +174,32 @@ async def extract_alias_relations(
     data: WorldAliasRelationExtractRequest,
 ) -> WorldAliasRelationExtractResponse:
     """提交手动别名/关系补抽任务。"""
+    if not data.context_confirmation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="context_confirmation_id is required",
+        )
+    try:
+        await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action="world.alias_relations.extract",
+            confirmation_id=data.context_confirmation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     task_id = enqueue_task(
         db,
         "world_alias_relation_extraction",
         meta=data.model_dump(exclude_none=True),
+    )
+    await attach_result_ref(
+        db,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
     )
     await db.flush()
     return WorldAliasRelationExtractResponse(task_id=task_id)

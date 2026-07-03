@@ -195,6 +195,78 @@ class TestContextSnapshot:
         assert after_prune.result_refs == [{"type": "core_entity", "id": "entity-1"}]
         assert after_prune.prompt_name == "scene_entity_extraction"
 
+
+class TestContextSceneIsolation:
+    """Context scene-centric loaders must respect novel_id isolation."""
+
+    @pytest.mark.asyncio
+    async def test_scene_loader_ignores_scene_from_another_novel(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.services.loaders.scene_loader import SceneLoader
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.schemas import SceneCreate
+
+        owner_novel = str(uuid.uuid4())
+        other_novel = str(uuid.uuid4())
+        other_scene = await SceneRepository().create(
+            db_session,
+            uuid.UUID(other_novel),
+            SceneCreate(
+                scene_index=0,
+                title="Other novel scene",
+                must_not_happen="不能泄露另一个项目的设定",
+            ),
+        )
+        bundle = StructureContextBundle(
+            novel_id=owner_novel,
+            task="生成当前场景",
+            scope="scene",
+        )
+
+        await SceneLoader().load(
+            db_session,
+            CompileOptions(
+                novel_id=owner_novel,
+                task="生成当前场景",
+                scope="scene",
+                scene_id=str(other_scene.id),
+            ),
+            bundle,
+        )
+
+        assert bundle.scene is None
+        assert any(str(other_scene.id) in warning for warning in bundle.warnings)
+
+    @pytest.mark.asyncio
+    async def test_constraint_engine_ignores_scene_from_another_novel(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.services.constraint_engine import ConstraintEngine
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.schemas import SceneCreate
+
+        owner_novel = str(uuid.uuid4())
+        other_scene = await SceneRepository().create(
+            db_session,
+            uuid.uuid4(),
+            SceneCreate(
+                scene_index=0,
+                title="Other novel scene",
+                must_not_happen="不能泄露另一个项目的硬约束",
+            ),
+        )
+
+        sections = await ConstraintEngine()._scene_constraints(
+            db_session,
+            owner_novel,
+            scene_id=str(other_scene.id),
+        )
+
+        assert sections == []
+
     @pytest.mark.asyncio
     async def test_snapshot_api_isolated_by_novel_id(
         self,
@@ -1063,6 +1135,16 @@ class TestContextConfirmation:
         )
         assert stale.result_status == "stale_context"
         assert stale.stale_reasons == ["ignored"]
+
+        from modules.context.facade import require_fresh_confirmation
+
+        with pytest.raises(ValueError, match="stale_context"):
+            await require_fresh_confirmation(
+                db_session,
+                novel_id=novel_id,
+                action="world.entities.extract",
+                confirmation_id=created.id,
+            )
 
 
 # ============================================================

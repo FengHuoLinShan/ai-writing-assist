@@ -392,6 +392,11 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
         embedding: list[float],
         *,
+        entity_ids: list[str] | None = None,
+        character_ids: list[str] | None = None,
+        thread_ids: list[str] | None = None,
+        chapter_index: int | None = None,
+        visibility: str | None = None,
         top_k: int = 12,
         ef_search: int = 40,
     ) -> list[tuple[RagChunk, float]]:
@@ -405,26 +410,53 @@ class RagChunkRepository:
         """
         bind = db.get_bind()
         if bind is not None and bind.dialect.name != "postgresql":
-            return await self._vector_search_python(db, novel_id, embedding, top_k=top_k)
+            return await self._vector_search_python(
+                db,
+                novel_id,
+                embedding,
+                entity_ids=entity_ids,
+                character_ids=character_ids,
+                thread_ids=thread_ids,
+                chapter_index=chapter_index,
+                visibility=visibility,
+                top_k=top_k,
+            )
 
         # PostgreSQL: 使用 pgvector <#> 内积操作符 + HNSW 索引
         await db.execute(text("SET LOCAL hnsw.ef_search = :ef"), {"ef": ef_search})
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.embedding.is_not(None),
+        ]
+        if entity_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.entity_ids, entity_ids)
+            )
+        if character_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.character_ids, character_ids)
+            )
+        if thread_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.thread_ids, thread_ids)
+            )
+        if chapter_index is not None:
+            conditions.append(RagChunk.chapter_index == chapter_index)
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
 
         stmt = (
             select(
                 RagChunk,
                 RagChunk.embedding.op("<#>")(embedding).label("score"),
             )
-            .where(
-                RagChunk.novel_id == novel_id,
-                RagChunk.embedding.is_not(None),
-            )
-            .order_by(text("score DESC"))
+            .where(and_(*conditions))
+            .order_by(text("score ASC"))
             .limit(top_k)
         )
         result = await db.execute(stmt)
         rows = result.all()
-        return [(row[0], float(row[1])) for row in rows]
+        return [(row[0], -float(row[1])) for row in rows]
 
     async def _vector_search_python(
         self,
@@ -432,15 +464,38 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
         embedding: list[float],
         *,
+        entity_ids: list[str] | None = None,
+        character_ids: list[str] | None = None,
+        thread_ids: list[str] | None = None,
+        chapter_index: int | None = None,
+        visibility: str | None = None,
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
         """SQLite 回退：Python 层计算余弦相似度"""
         import math
 
-        stmt = select(RagChunk).where(
+        conditions = [
             RagChunk.novel_id == novel_id,
             RagChunk.embedding.is_not(None),
-        )
+        ]
+        if entity_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.entity_ids, entity_ids)
+            )
+        if character_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.character_ids, character_ids)
+            )
+        if thread_ids:
+            conditions.append(
+                self._json_array_contains_all(db, RagChunk.thread_ids, thread_ids)
+            )
+        if chapter_index is not None:
+            conditions.append(RagChunk.chapter_index == chapter_index)
+        if visibility is not None:
+            conditions.append(RagChunk.visibility == visibility)
+
+        stmt = select(RagChunk).where(and_(*conditions))
         result = await db.execute(stmt)
         chunks: list[RagChunk] = list(result.scalars().all())
 

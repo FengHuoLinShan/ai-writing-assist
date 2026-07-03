@@ -35,6 +35,7 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
@@ -43,6 +44,17 @@ from infrastructure.llm.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RESERVED_EXTRA_FIELDS = {
+    "model",
+    "messages",
+    "stream",
+    "api_key",
+    "base_url",
+    "headers",
+    "authorization",
+    "timeout",
+}
 
 
 class OpenAIProvider:
@@ -150,20 +162,20 @@ class OpenAIProvider:
                 float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
             )
             raise LLMRateLimitError(
-                f"OpenAI rate limit: {e}",
+                f"OpenAI rate limit: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
                 retry_after=retry_after,
             ) from e
         except AuthenticationError as e:
             raise LLMAuthError(
-                f"OpenAI auth failed: {e}",
+                f"OpenAI auth failed: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
             ) from e
         except BadRequestError as e:
             raise LLMInvalidResponseError(
-                f"OpenAI bad request: {e}",
+                f"OpenAI bad request: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
             ) from e
@@ -177,14 +189,14 @@ class OpenAIProvider:
         except APIConnectionError as e:
             kind = _classify_connection_error(e)
             raise LLMConnectionError(
-                f"OpenAI connection failed ({kind}): {e}",
+                f"OpenAI connection failed ({kind}): {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
                 error_kind=kind,
             ) from e
         except APIError as e:
             raise LLMError(
-                f"OpenAI API error: {e}",
+                f"OpenAI API error: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
             ) from e
@@ -238,28 +250,28 @@ class OpenAIProvider:
                 float(e.response.headers.get("retry-after", "5")) if e.response else 5.0
             )
             raise LLMRateLimitError(
-                f"OpenAI rate limit: {e}",
+                f"OpenAI rate limit: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
                 retry_after=retry_after,
             ) from e
         except AuthenticationError as e:
             raise LLMAuthError(
-                f"OpenAI auth failed: {e}",
+                f"OpenAI auth failed: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
             ) from e
         except APIConnectionError as e:
             kind = _classify_connection_error(e)
             raise LLMConnectionError(
-                f"OpenAI connection failed ({kind}): {e}",
+                f"OpenAI connection failed ({kind}): {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
                 error_kind=kind,
             ) from e
         except APIError as e:
             raise LLMError(
-                f"OpenAI API error: {e}",
+                f"OpenAI API error: {redact_diagnostic(e)}",
                 provider=self.name,
                 model=model,
             ) from e
@@ -345,7 +357,13 @@ class OpenAIProvider:
             kwargs["presence_penalty"] = request.presence_penalty
         if request.seed is not None:
             kwargs["seed"] = request.seed
-        # extra 参数直接透传
+        reserved_extra = _RESERVED_EXTRA_FIELDS.intersection(
+            key.lower() for key in request.extra
+        )
+        if reserved_extra:
+            fields = ", ".join(sorted(reserved_extra))
+            raise ValueError(f"reserved LLM extra fields are not allowed: {fields}")
+
         kwargs.update(request.extra)
         return kwargs
 

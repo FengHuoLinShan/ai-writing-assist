@@ -57,6 +57,7 @@ class BgeEmbeddingClient(EmbeddingProvider):
         )
         self._cache = EmbeddingCache()
         self._started = False
+        self._encode_lock = asyncio.Lock()
 
     @classmethod
     async def get_instance(cls) -> BgeEmbeddingClient:
@@ -148,20 +149,19 @@ class BgeEmbeddingClient(EmbeddingProvider):
         # 批量编码未缓存文本
         if uncached_texts:
             try:
-                embeddings = await asyncio.to_thread(
-                    self._worker.encode,
-                    uncached_texts,
-                    is_query=is_query,
-                )
+                async with self._encode_lock:
+                    embeddings = await asyncio.to_thread(
+                        self._worker.encode,
+                        uncached_texts,
+                        is_query=is_query,
+                    )
             except Exception:
                 logger.exception("BGE encoding failed for %d texts", len(uncached_texts))
                 raise
 
-            for idx, emb in zip(uncached_indices, embeddings):
+            for text, idx, emb in zip(uncached_texts, uncached_indices, embeddings):
                 results[idx] = emb
-                self._cache.set(
-                    uncached_texts[uncached_indices.index(idx)], emb, is_query=is_query
-                )
+                self._cache.set(text, emb, is_query=is_query)
 
         if is_single:
             return results[0]

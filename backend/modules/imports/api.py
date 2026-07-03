@@ -10,6 +10,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field, model_validator
 
 from core.dependencies import DbSession
 from modules.imports.schemas import ImportListResponse, ImportResponse
@@ -20,6 +21,36 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 _service = ImportService()
+
+
+class DeepImportRequest(BaseModel):
+    """Deep Import request shared by async, staged, and sync entrypoints."""
+
+    novel_id: str = Field(..., min_length=1)
+    start_chapter: int = Field(default=1, ge=1)
+    end_chapter: int = Field(default=0, ge=0)
+    force: bool = False
+
+    @model_validator(mode="after")
+    def validate_chapter_range(self) -> DeepImportRequest:
+        if self.end_chapter and self.end_chapter < self.start_chapter:
+            raise ValueError("end_chapter must be >= start_chapter")
+        return self
+
+
+async def _resolve_end_chapter(db: DbSession, request: DeepImportRequest) -> int:
+    if request.end_chapter != 0:
+        return request.end_chapter
+
+    from modules.writing.facade import list_chapter_indices
+
+    indices = await list_chapter_indices(db, request.novel_id)
+    if not indices:
+        raise HTTPException(
+            400,
+            detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
+        )
+    return max(indices)
 
 
 @router.post("/upload", response_model=ImportResponse, status_code=201)
@@ -81,7 +112,7 @@ async def get_import(
 @router.post("/deep", status_code=201)
 async def submit_deep_import(
     db: DbSession,
-    body: dict = Body(..., description="深度导入参数"),
+    body: DeepImportRequest = Body(..., description="深度导入参数"),
 ) -> dict:
     """提交深度导入任务
 
@@ -92,87 +123,45 @@ async def submit_deep_import(
     - start_chapter: 起始章节（默认 1）
     - end_chapter: 结束章节（必填）
 
-    返回 task_id，前端可通过 GET /api/tasks/{task_id} 查询状态。
+    返回 task_id，前端可通过 GET /api/tasks/{task_id}?novel_id=... 查询状态。
     """
     from modules.imports.facade import start_deep_import as _start
 
-    novel_id = body.get("novel_id", "")
-    start_chapter = int(body.get("start_chapter", 1))
-    end_chapter = int(body.get("end_chapter", 0))
-    force = bool(body.get("force", False))
-
-    if not novel_id:
-        from fastapi import HTTPException
-
-        raise HTTPException(400, detail="novel_id is required")
-
-    # 自动检测最后章节（end_chapter=0 表示自动）
-    if end_chapter == 0:
-        from modules.writing.facade import list_chapter_indices
-
-        indices = await list_chapter_indices(db, novel_id)
-        if not indices:
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                400,
-                detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
-            )
-        end_chapter = max(indices)
-
-    if end_chapter < start_chapter:
-        from fastapi import HTTPException
-
-        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
-
-    result = await _start(db, novel_id, start_chapter, end_chapter, force=force)
+    end_chapter = await _resolve_end_chapter(db, body)
+    result = await _start(
+        db,
+        body.novel_id,
+        body.start_chapter,
+        end_chapter,
+        force=body.force,
+    )
     return result
 
 
 async def _submit_stage(
     db: DbSession,
-    body: dict,
+    body: DeepImportRequest,
     *,
     stage: str,
 ) -> dict:
     from modules.imports.facade import start_deep_import_stage as _start_stage
 
-    novel_id = body.get("novel_id", "")
-    start_chapter = int(body.get("start_chapter", 1))
-    end_chapter = int(body.get("end_chapter", 0))
-    force = bool(body.get("force", False))
-
-    if not novel_id:
-        raise HTTPException(400, detail="novel_id is required")
-
-    if end_chapter == 0:
-        from modules.writing.facade import list_chapter_indices
-
-        indices = await list_chapter_indices(db, novel_id)
-        if not indices:
-            raise HTTPException(
-                400,
-                detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
-            )
-        end_chapter = max(indices)
-
-    if end_chapter < start_chapter:
-        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
+    end_chapter = await _resolve_end_chapter(db, body)
 
     return await _start_stage(
         db,
-        novel_id,
-        start_chapter,
+        body.novel_id,
+        body.start_chapter,
         end_chapter,
         stage=stage,
-        force=force,
+        force=body.force,
     )
 
 
 @router.post("/stages/scenes", status_code=201)
 async def submit_scene_auto_extraction(
     db: DbSession,
-    body: dict = Body(..., description="场景自动提取参数"),
+    body: DeepImportRequest = Body(..., description="场景自动提取参数"),
 ) -> dict:
     """提交场景（scene）自动提取任务。"""
     return await _submit_stage(db, body, stage="scenes")
@@ -181,7 +170,7 @@ async def submit_scene_auto_extraction(
 @router.post("/stages/world-objects", status_code=201)
 async def submit_world_object_auto_extraction(
     db: DbSession,
-    body: dict = Body(..., description="世界对象与别名/关系自动提取参数"),
+    body: DeepImportRequest = Body(..., description="世界对象与别名/关系自动提取参数"),
 ) -> dict:
     """提交世界对象与别名/关系自动提取任务。"""
     return await _submit_stage(db, body, stage="world_objects")
@@ -190,86 +179,10 @@ async def submit_world_object_auto_extraction(
 @router.post("/stages/plot-structure", status_code=201)
 async def submit_plot_structure_auto_extraction(
     db: DbSession,
-    body: dict = Body(..., description="剧情线自动提取参数"),
+    body: DeepImportRequest = Body(..., description="剧情线自动提取参数"),
 ) -> dict:
     """提交剧情线自动提取任务。"""
     return await _submit_stage(db, body, stage="plot_structure")
-
-
-@router.post("/deep/sync", status_code=201)
-async def submit_deep_import_sync(
-    db: DbSession,
-    body: dict = Body(..., description="深度导入参数（同步模式）"),
-) -> dict:
-    """同步执行深度导入 — 仅用于测试/无 Worker 场景。
-
-    不创建异步任务，直接返回结果。该端点不经过 DeepImportOrchestrator，
-    因此不执行重复导入检测和旧派生数据废弃策略；正式入口使用 `/deep`。
-
-    请求体：
-    - novel_id: 项目 ID（必填）
-    - start_chapter: 起始章节（默认 1）
-    - end_chapter: 结束章节（必填）
-    """
-    from modules.imports.workflow import DeepImportWorkflow
-    from modules.imports.workflow_schemas import DeepImportProgress
-
-    novel_id = body.get("novel_id", "")
-    start_chapter = int(body.get("start_chapter", 1))
-    end_chapter = int(body.get("end_chapter", 0))
-
-    if not novel_id:
-        from fastapi import HTTPException
-
-        raise HTTPException(400, detail="novel_id is required")
-
-    # 自动检测最后章节（end_chapter=0 表示自动）
-    if end_chapter == 0:
-        from modules.writing.facade import list_chapter_indices
-
-        indices = await list_chapter_indices(db, novel_id)
-        if not indices:
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                400,
-                detail="该项目暂无可导入的章节，请先上传小说文件或创建章节",
-            )
-        end_chapter = max(indices)
-
-    if end_chapter < start_chapter:
-        from fastapi import HTTPException
-
-        raise HTTPException(400, detail="end_chapter must be >= start_chapter")
-
-    from uuid import uuid4
-
-    workflow_id = str(uuid4())
-    workflow = DeepImportWorkflow()
-    progress = DeepImportProgress(workflow_id=workflow_id)
-    progress = await workflow.run_step(
-        db,
-        novel_id=novel_id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        progress=progress,
-        workflow_id=workflow_id,
-    )
-
-    return {
-        "workflow_id": workflow_id,
-        "phase": progress.phase,
-        "current_step": progress.current_step.value if progress.current_step else None,
-        "completed_steps": progress.completed_steps,
-        "message": progress.message,
-        "degraded": progress.degraded,
-        "degraded_batches": progress.degraded_batches,
-        "quality_status": progress.quality_status,
-        "phase_errors": progress.phase_errors,
-        "llm_health": progress.llm_health,
-        "snapshot_health_summary": progress.snapshot_health_summary,
-        "audit_summary": progress.audit_summary,
-    }
 
 
 @router.post("/deep/resume", status_code=201)

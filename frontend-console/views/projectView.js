@@ -34,7 +34,7 @@ const projectView = {
   _bulkSelections: {},
 
   async render() {
-    const projects = state.projects
+    const projects = [...state.projects].sort((a, b) => this._projectActivityMs(b) - this._projectActivityMs(a))
     let html = ''
 
     if (projects.length === 0) {
@@ -67,6 +67,8 @@ const projectView = {
         const status = p.status || "active"
         const isCanonical = status === "active" || status === "canonical"
         const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
+        const stats = this._projectStats(p)
+        const activeTime = this._projectActivityTime(p)
         html += `
           <div class="project-card ${i === 0 ? "featured" : ""}" data-id="${esc(p.id)}" data-action="open-project">
             <div class="project-card-selection" data-action="noop">
@@ -82,10 +84,16 @@ const projectView = {
               ${p.current_stage ? `<span class="pill">${esc(this._stageLabel(p.current_stage))}</span>` : ""}
             </div>
             <div class="project-desc">${esc(p.tone || p.description || "暂无描述")}</div>
+            <div class="project-stats" aria-label="项目统计">
+              <span title="${esc(stats.wordCountTitle)}"><strong>${esc(stats.wordCountText)}</strong> 字</span>
+              <span title="${esc(stats.chapterCountTitle)}"><strong>${esc(stats.chapterCountText)}</strong> 章</span>
+              <span title="${esc(activeTime.full)}">${esc(activeTime.relative)}</span>
+            </div>
             <div class="project-meta">
               ${created ? `创建于 ${created}` : "刚刚创建"}
             </div>
             <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;">
+              <button class="btn btn-sm btn-primary" data-action="continue-writing" data-id="${esc(p.id)}">继续写作</button>
               <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
               <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
             </div>
@@ -147,6 +155,66 @@ const projectView = {
     return map[stage] || stage
   },
 
+  _projectStats(project) {
+    const stats = project.stats || project.statistics || {}
+    const wordCount = project.total_words
+      ?? project.word_count
+      ?? project.total_word_count
+      ?? stats.total_words
+      ?? stats.word_count
+      ?? null
+    const chapterCount = project.chapter_count
+      ?? project.total_chapters
+      ?? stats.chapter_count
+      ?? stats.total_chapters
+      ?? null
+    return {
+      wordCount: Number(wordCount) || 0,
+      chapterCount: Number(chapterCount) || 0,
+      wordCountText: wordCount === null || wordCount === undefined ? "待接入" : this._formatNumber(wordCount),
+      chapterCountText: chapterCount === null || chapterCount === undefined ? "待接入" : this._formatNumber(chapterCount),
+      wordCountTitle: wordCount === null || wordCount === undefined ? "统计接入后显示总字数" : "总字数",
+      chapterCountTitle: chapterCount === null || chapterCount === undefined ? "统计接入后显示章节数" : "章节数",
+    }
+  },
+
+  _formatNumber(value) {
+    return (Number(value) || 0).toLocaleString("zh-CN")
+  },
+
+  _projectActivityTime(project) {
+    const raw = project.last_active_at || project.updated_at || project.created_at
+    if (!raw) return { relative: "暂无活跃", full: "暂无活跃时间" }
+    const date = new Date(raw)
+    if (Number.isNaN(date.getTime())) return { relative: "暂无活跃", full: String(raw) }
+    return {
+      relative: this._formatRelativeTime(date),
+      full: date.toLocaleString("zh-CN"),
+    }
+  },
+
+  _projectActivityMs(project) {
+    const raw = project.last_active_at || project.updated_at || project.created_at
+    if (!raw) return 0
+    const time = new Date(raw).getTime()
+    return Number.isNaN(time) ? 0 : time
+  },
+
+  _formatRelativeTime(value) {
+    const date = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(date.getTime())) return "暂无活跃"
+    const diffMs = Date.now() - date.getTime()
+    if (diffMs < 0) return "刚刚活跃"
+    const minute = 60 * 1000
+    const hour = 60 * minute
+    const day = 24 * hour
+    if (diffMs < minute) return "刚刚活跃"
+    if (diffMs < hour) return `${Math.floor(diffMs / minute)} 分钟前活跃`
+    if (diffMs < day) return `${Math.floor(diffMs / hour)} 小时前活跃`
+    if (diffMs < 7 * day) return `${Math.floor(diffMs / day)} 天前活跃`
+    return date.toLocaleDateString("zh-CN")
+  },
+
   _bindEvents() {
     document.getElementById("btn-create-project")?.addEventListener("click", (e) => {
       e.stopPropagation()
@@ -174,6 +242,7 @@ const projectView = {
         for (const project of state.projects) toggleBulkSelection(this, "project-cards", project.id, true)
         router.refresh()
       },
+      "continue-writing": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
       "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
       "delete-project": (_e, _t, ctx) => ctx.id && this.deleteProject(ctx.id),
       "new": () => this.showCreateForm(),

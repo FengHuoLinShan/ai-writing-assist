@@ -7,6 +7,7 @@ subclass override)。
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -149,6 +150,34 @@ class WorldEntityService(
             EntityRevisionService,
         )
 
+        rid = parse_uuid(id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
+        existing = await self.repo.get(db, rid)
+        self._assert_found_in_novel(existing, id, nid)
+        assert existing is not None
+
+        changed = data.model_dump(exclude_unset=True)
+        if changed.get("status") == "canonical" and existing.status != "canonical":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Use /entities/{entity_id}/promote "
+                    "to promote entities to canonical"
+                ),
+            )
+
+        if self._should_mark_user_edited(existing, changed):
+            content_json = dict(existing.content_json or {})
+            meta = dict(content_json.get("_meta") or {})
+            meta.update(
+                {
+                    "user_edited": True,
+                    "edited_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            content_json["_meta"] = meta
+            data = data.model_copy(update={"content_json": content_json})
+
         try:
             revision_service = EntityRevisionService()
             await revision_service.create_snapshot(
@@ -162,7 +191,6 @@ class WorldEntityService(
             logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
 
         result = await super().update(db, id, data, novel_id=novel_id)
-        changed = data.model_dump(exclude_unset=True)
         stale_reasons: list[str] = []
         if "name" in changed:
             stale_reasons.append("entity_renamed")
@@ -189,6 +217,16 @@ class WorldEntityService(
                     exc_info=True,
                 )
         return result
+
+    @staticmethod
+    def _should_mark_user_edited(entity: Any, changed: dict[str, Any]) -> bool:
+        meta = (getattr(entity, "content_json", None) or {}).get("_meta") or {}
+        return (
+            bool(changed)
+            and meta.get("source") == "deep_import"
+            and meta.get("auto_ingested") is True
+            and meta.get("user_edited") is not True
+        )
 
     # ============================================================
     # Promote: 将草稿/候选实体提升为正史

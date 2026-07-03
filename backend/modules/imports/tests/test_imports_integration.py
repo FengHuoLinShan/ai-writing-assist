@@ -10,6 +10,7 @@ from __future__ import annotations
 from unittest import mock
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
@@ -41,6 +42,64 @@ class TestSceneSegmentationIntegration:
         )
         assert result["total_scenes"] == 0
         assert not result["degraded"]
+
+
+class TestDeepImportApiValidation:
+    """Deep Import API should rely on typed request validation."""
+
+    async def test_deep_import_force_string_false_is_not_truthy(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        from modules.imports import facade as imports_facade
+
+        async def fake_start(
+            db,
+            novel_id: str,
+            start_chapter: int,
+            end_chapter: int,
+            *,
+            force: bool,
+        ) -> dict:
+            return {
+                "novel_id": novel_id,
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+                "force": force,
+            }
+
+        with mock.patch.object(
+            imports_facade,
+            "start_deep_import",
+            side_effect=fake_start,
+        ):
+            resp = await async_client.post(
+                "/api/imports/deep",
+                json={
+                    "novel_id": "00000000-0000-0000-0000-000000000501",
+                    "start_chapter": 1,
+                    "end_chapter": 2,
+                    "force": "false",
+                },
+            )
+
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["force"] is False
+
+    async def test_deep_import_sync_route_is_not_public(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        resp = await async_client.post(
+            "/api/imports/deep/sync",
+            json={
+                "novel_id": "00000000-0000-0000-0000-000000000502",
+                "start_chapter": 1,
+                "end_chapter": 2,
+            },
+        )
+
+        assert resp.status_code == 404
 
 
 class TestDeepImportWorkflowNewPipeline:

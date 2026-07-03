@@ -120,12 +120,25 @@ async def test_permanent_delete_only_after_soft_delete(
 ) -> None:
     pid = sample_project["id"]
 
-    # 未软删不能直接永久删除
+    # 缺少二次确认时不能永久删除
     resp = await async_client.delete(f"/api/projects/{pid}/permanent")
+    assert resp.status_code == 400
+
+    # 即使已确认，未软删也不能直接永久删除
+    resp = await async_client.delete(
+        f"/api/projects/{pid}/permanent",
+        params={"confirmed": True},
+    )
     assert resp.status_code == 404
 
     await async_client.delete(f"/api/projects/{pid}")
     resp = await async_client.delete(f"/api/projects/{pid}/permanent")
+    assert resp.status_code == 400
+
+    resp = await async_client.delete(
+        f"/api/projects/{pid}/permanent",
+        params={"confirmed": True},
+    )
     assert resp.status_code == 204
 
     resp = await async_client.get(f"/api/projects/{pid}")

@@ -49,7 +49,7 @@ class ConflictCheckAiReviewService:
         from modules.context.facade import (
             attach_result_ref,
             compile_from_confirmation,
-            require_confirmation,
+            require_fresh_confirmation,
         )
 
         nid = parse_uuid(novel_id, "novel_id")
@@ -64,7 +64,7 @@ class ConflictCheckAiReviewService:
         check, current_items = existing
 
         try:
-            confirmation = await require_confirmation(
+            confirmation = await require_fresh_confirmation(
                 db,
                 novel_id=novel_id,
                 action=AI_REVIEW_ACTION,
@@ -207,7 +207,7 @@ class ConflictSuggestionService:
         from modules.context.facade import (
             attach_result_ref,
             compile_from_confirmation,
-            require_confirmation,
+            require_fresh_confirmation,
         )
 
         nid = parse_uuid(novel_id, "novel_id")
@@ -225,7 +225,7 @@ class ConflictSuggestionService:
         check, check_items = check_result
 
         try:
-            confirmation = await require_confirmation(
+            confirmation = await require_fresh_confirmation(
                 db,
                 novel_id=novel_id,
                 action=AI_SUGGESTION_ACTION,

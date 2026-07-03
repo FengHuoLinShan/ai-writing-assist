@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,9 +122,20 @@ class CharactersLoader(Loader):
 
         # 1. Scene POV character
         if options.scene_id:
-            from modules.outline.facade import get_scene
+            from modules.outline.facade import get_scene_contract
 
-            scene = await get_scene(db, options.scene_id)
+            scene_contract = await get_scene_contract(
+                db,
+                options.novel_id,
+                options.scene_id,
+            )
+            scene = (
+                scene_contract
+                if isinstance(scene_contract, dict)
+                else asdict(scene_contract)
+                if scene_contract is not None
+                else None
+            )
             pov = scene.get("pov_character_id") if scene else None
             if pov:
                 ids.append(pov)

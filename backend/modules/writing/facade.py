@@ -57,10 +57,11 @@ async def create_draft(
 
 async def get_draft(
     db: AsyncSession,
+    novel_id: str,
     draft_id: str,
 ) -> WritingDraftContract | None:
     """获取单个草稿的契约信息"""
-    return await _service.get_draft_contract(db, draft_id)
+    return await _service.get_draft_contract(db, novel_id, draft_id)
 
 
 async def get_latest_draft_for_chapter(

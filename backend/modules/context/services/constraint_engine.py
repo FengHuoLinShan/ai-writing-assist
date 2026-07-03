@@ -10,6 +10,7 @@ Generates ContextSection objects from 4 constraint sources:
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,9 +81,16 @@ class ConstraintEngine:
         if not scene_id:
             return []
 
-        from modules.outline.facade import get_scene
+        from modules.outline.facade import get_scene_contract
 
-        scene = await get_scene(db, scene_id)
+        scene_contract = await get_scene_contract(db, novel_id, scene_id)
+        scene = (
+            scene_contract
+            if isinstance(scene_contract, dict)
+            else asdict(scene_contract)
+            if scene_contract is not None
+            else None
+        )
 
         if not scene or not scene.get("must_not_happen"):
             return []

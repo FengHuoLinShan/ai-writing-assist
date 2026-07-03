@@ -26,10 +26,26 @@
         <span class="separator">&#183;</span>
         <span id="topbar-module">项目</span>
         <span id="topbar-submodule" class="topbar-submodule hidden"></span>
+        <span id="topbar-chapter" class="topbar-chapter hidden"></span>
       </div>
       <div class="topbar-right">
-        <span id="topbar-status-dot" class="status-indicator disconnected"></span>
-        <span id="topbar-status" class="status-text">未连接</span>
+        <span id="topbar-status-dot" class="status-indicator disconnected" title="后端连接状态"></span>
+        <span id="topbar-status" class="status-text hidden">未连接</span>
+        <div id="topbar-wordcount" class="topbar-wordcount hidden" aria-label="写作字数仪表盘">
+          <span id="topbar-chapter-wc" title="本章字数">0</span>
+          <span class="wc-separator">/</span>
+          <span id="topbar-today-wc" title="今日字数">0</span>
+          <span id="topbar-save-state" class="save-state" title="保存状态">&#9670;</span>
+        </div>
+        <div class="topbar-theme" style="position:relative;">
+          <button id="theme-toggle" class="btn-icon" title="切换主题" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:14px;padding:4px 8px;border-radius:4px;">&#9728;</button>
+          <div id="theme-menu" class="hidden" style="position:absolute;right:0;top:36px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:6px 0;box-shadow:0 4px 12px rgba(0,0,0,0.15);min-width:140px;z-index:1000;">
+            <button data-theme-value="light" class="theme-option" style="display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:none;color:var(--text);font-size:13px;cursor:pointer;">&#9728; 浅色（默认）</button>
+            <button data-theme-value="dark" class="theme-option" style="display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:none;color:var(--text);font-size:13px;cursor:pointer;">&#9790; 暗色</button>
+            <button data-theme-value="dark-soft" class="theme-option" style="display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:none;color:var(--text);font-size:13px;cursor:pointer;">&#9788; 护眼暗色</button>
+            <button data-theme-value="paper" class="theme-option" style="display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:none;color:var(--text);font-size:13px;cursor:pointer;">&#128220; 纸张</button>
+          </div>
+        </div>
         <div class="avatar">U</div>
       </div>
     </header>
@@ -189,6 +205,8 @@
           <tr><td><kbd>Enter</kbd></td><td>打开 / 选中</td></tr>
           <tr><td><kbd>n</kbd></td><td>新建</td></tr>
           <tr><td><kbd>e</kbd></td><td>编辑</td></tr>
+          <tr><td><kbd>Ctrl+S</kbd> / <kbd>Cmd+S</kbd></td><td>保存当前章节</td></tr>
+          <tr><td><kbd>Ctrl+Shift+O</kbd> / <kbd>Cmd+Shift+O</kbd></td><td>打开 / 关闭大纲浮窗</td></tr>
           <tr><td><kbd>s</kbd></td><td>保存</td></tr>
           <tr><td><kbd>g</kbd></td><td>生成</td></tr>
           <tr><td><kbd>x</kbd></td><td>删除（需二次确认）</td></tr>
