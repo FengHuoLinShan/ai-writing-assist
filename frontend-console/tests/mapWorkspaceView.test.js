@@ -8,6 +8,7 @@ beforeEach(() => {
   localStorage.clear()
   vi.useRealTimers()
   vi.clearAllMocks()
+  window.location.hash = ""
   mapWorkspaceView._maps = []
   mapWorkspaceView._locations = []
   mapWorkspaceView._mode = "overview"
@@ -64,13 +65,106 @@ describe("mapWorkspaceView overview", () => {
       map_type: "world",
     })
     api.world.getMap.mockResolvedValue({ id: "m1", name: "九州世界", map_type: "world" })
-    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap").mockImplementation(() => {})
+    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap")
 
     await mapWorkspaceView._openRecentMap()
 
     expect(openSpy).toHaveBeenCalledWith("m1", {
       sceneId: "s1",
       focusEntityId: "f1",
+    })
+    openSpy.mockRestore()
+  })
+
+  it("opens recent route context in live view when requested", async () => {
+    mapWorkspaceView._activeSceneId = "s1"
+    mapWorkspaceView._focusEntityId = "f1"
+    mapWorkspaceView._saveRecentMap({
+      id: "m1",
+      name: "九州世界",
+      map_type: "world",
+    })
+    api.world.getMap.mockResolvedValue({ id: "m1", name: "九州世界", map_type: "world" })
+    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap")
+
+    await mapWorkspaceView._openRecentMap({ viewMode: "live" })
+
+    expect(openSpy).toHaveBeenCalledWith("m1", {
+      sceneId: "s1",
+      focusEntityId: "f1",
+      viewMode: "live",
+    })
+    openSpy.mockRestore()
+  })
+
+  it("does not reopen recent route after it has resolved to an active map", async () => {
+    window.location.hash = "#workbench/p1/map?focus_entity_id=f1&mode=recent"
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+    const recentSpy = vi.spyOn(mapWorkspaceView, "_openRecentMap").mockResolvedValue()
+    const mountSpy = vi.spyOn(mapWorkspaceView, "_mountMap").mockImplementation(() => {})
+
+    const html = await mapWorkspaceView.render()
+
+    expect(html).toContain("map-workspace-active")
+    expect(mapWorkspaceView._focusEntityId).toBe("f1")
+    expect(recentSpy).not.toHaveBeenCalled()
+    recentSpy.mockRestore()
+    mountSpy.mockRestore()
+  })
+
+  it("falls back to backend open target when recent route has no recent map", async () => {
+    mapWorkspaceView._activeSceneId = "s1"
+    mapWorkspaceView._focusEntityId = "f1"
+    api.world.getMapOpenTarget.mockResolvedValue({
+      map_id: "m2",
+      scene_id: "s1",
+      focus_entity_id: "f1",
+      mode: "dashboard",
+    })
+    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap")
+
+    await mapWorkspaceView._openRecentMap({ viewMode: "live" })
+
+    expect(api.world.getMapOpenTarget).toHaveBeenCalledWith("p1", {
+      sceneId: "s1",
+      focusEntityId: "f1",
+    })
+    expect(openSpy).toHaveBeenCalledWith("m2", {
+      sceneId: "s1",
+      focusEntityId: "f1",
+      viewMode: "live",
+    })
+    expect(toast).not.toHaveBeenCalledWith("最近地图不可用，已返回地图总览", "warning")
+    openSpy.mockRestore()
+  })
+
+  it("falls back to backend open target when stale recent map has route context", async () => {
+    mapWorkspaceView._activeSceneId = "s1"
+    mapWorkspaceView._saveRecentMap({
+      id: "missing",
+      name: "旧地图",
+      map_type: "world",
+    })
+    api.world.getMap.mockRejectedValue(new Error("404"))
+    api.world.getMapOpenTarget.mockResolvedValue({
+      map_id: "m2",
+      scene_id: "s1",
+      mode: "live",
+    })
+    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap")
+
+    await mapWorkspaceView._openRecentMap({ viewMode: "live" })
+
+    expect(localStorage.getItem("novel_map_recent:p1")).toBeNull()
+    expect(api.world.getMapOpenTarget).toHaveBeenCalledWith("p1", {
+      sceneId: "s1",
+      focusEntityId: null,
+    })
+    expect(openSpy).toHaveBeenCalledWith("m2", {
+      sceneId: "s1",
+      focusEntityId: null,
+      viewMode: "live",
     })
     openSpy.mockRestore()
   })
@@ -344,11 +438,46 @@ describe("mapWorkspaceView overview", () => {
 
     await mapWorkspaceView._loadDynamicSummary({ force: true })
 
-    expect(api.world.getMapDashboard).toHaveBeenCalledWith("m1", "p1", null, null)
+    expect(api.world.getMapDashboard).toHaveBeenCalledWith("m1", "p1", null, null, null)
     expect(api.world.getMapPlayback).toHaveBeenCalledWith("m1", "p1", null, null, true)
     expect(mapWorkspaceView._dynamicSummary.observations).toHaveLength(1)
     expect(mapWorkspaceView._dynamicSummary.facts).toHaveLength(1)
     expect(mapWorkspaceView._playback.playback.events).toHaveLength(1)
+  })
+
+  it("retries dynamic summary after a cached load error", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      mapId: "m1",
+      loading: false,
+      loaded: true,
+      dashboard: null,
+      observations: [],
+      facts: [],
+      error: "地图动态事实暂不可用",
+    }
+    mapWorkspaceView._playback = {
+      loading: false,
+      loaded: true,
+      playback: null,
+      error: "世界动态播放暂不可用",
+      playing: false,
+      activeIndex: 0,
+    }
+    api.world.getMapDashboard.mockResolvedValue({
+      dynamic_queue: [{ item_id: "obs1", item_kind: "observation", title: "沈砚" }],
+    })
+    api.world.getMapPlayback.mockResolvedValue({
+      events: [{ event_id: "play1", title: "沈砚入城", track: "journey" }],
+      tracks: [{ track: "journey", label: "人物旅程", count: 1 }],
+    })
+
+    await mapWorkspaceView._loadDynamicSummary()
+
+    expect(api.world.getMapDashboard).toHaveBeenCalledWith("m1", "p1", null, null, null)
+    expect(api.world.getMapPlayback).toHaveBeenCalledWith("m1", "p1", null, null, true)
+    expect(mapWorkspaceView._dynamicSummary.error).toBeNull()
+    expect(mapWorkspaceView._playback.error).toBeNull()
   })
 
   it("renders and starts cinematic playback without exposing event ids", () => {
@@ -553,7 +682,8 @@ describe("mapWorkspaceView overview", () => {
     await mapWorkspaceView._openFocusedInspector("char-1")
     await mapWorkspaceView._batchReviewGroup("character", "confirm")
 
-    expect(api.world.getMapDashboard).toHaveBeenCalledWith("m1", "p1", null, "char-1")
+    expect(api.world.getMapDashboard)
+      .toHaveBeenCalledWith("m1", "p1", null, "char-1", null)
     expect(api.world.runMapBatchAction).toHaveBeenCalledWith(
       "m1",
       "p1",
@@ -582,6 +712,30 @@ describe("mapWorkspaceView overview", () => {
     expect(html).toContain("Scene 1")
     expect(html).toContain("Scene 2")
     expect(html).toContain("2 待确认")
+  })
+
+  it("requests focused dashboard for dynamic items without entity ids", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    api.world.getMapDashboard.mockResolvedValue({
+      dynamic_queue: [{ item_id: "obs1", item_kind: "observation", title: "东门密道" }],
+      inspector: {
+        title: "东门密道",
+        status_label: "待确认",
+        debug_ref: { id: "obs1" },
+      },
+    })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+
+    await mapWorkspaceView._openFocusedInspector(null, "obs1")
+
+    expect(api.world.getMapDashboard).toHaveBeenCalledWith(
+      "m1",
+      "p1",
+      null,
+      null,
+      "obs1",
+    )
+    expect(mapWorkspaceView._dynamicSummary.dashboard.inspector.title).toBe("东门密道")
   })
 
   it("locally focuses inspector for dynamic items without entity ids", () => {

@@ -69,6 +69,58 @@ def _make_snapshot(**overrides: object) -> MagicMock:
     return snapshot
 
 
+@pytest.mark.asyncio
+async def test_ingest_delta_events_owns_provenance_and_result_refs(
+    db_session: AsyncSession,
+    memory_service: MemoryService,
+) -> None:
+    from sqlalchemy import select
+
+    from modules.memory.contracts import MemoryDeltaEventIngest
+    from modules.memory.models import DeltaLog
+
+    novel_id = str(uuid.uuid4())
+    result_refs: list[dict[str, str]] = []
+
+    result = await memory_service.ingest_delta_events(
+        db_session,
+        novel_id,
+        [
+            MemoryDeltaEventIngest(
+                scene_index=3,
+                category="location_changed",
+                field_path="location",
+                old_value={"name": "旧城"},
+                new_value={"name": "新城"},
+                source="deep_import",
+                meta={"confidence": 0.8},
+                workflow_id="wf-1",
+                scene_id="scene-1",
+                scene_provenance_key="wf-1:scene:3",
+                context_snapshot_id="ctx-1",
+            )
+        ],
+        result_refs=result_refs,
+    )
+
+    assert result.count == 1
+    assert result.delta_logs[0]["category"] == "location_changed"
+    assert result_refs == [{"type": "delta_log", "id": result.delta_logs[0]["id"]}]
+
+    row = (
+        await db_session.execute(
+            select(DeltaLog).where(DeltaLog.id == uuid.UUID(result.delta_logs[0]["id"]))
+        )
+    ).scalar_one()
+    assert row.old_value == '{"name": "旧城"}'
+    assert row.new_value == '{"name": "新城"}'
+    assert row.source == "deep_import"
+    assert row.meta["auto_ingested"] is True
+    assert row.meta["workflow_id"] == "wf-1"
+    assert row.meta["context_snapshot_id"] == "ctx-1"
+    assert row.meta["source_ref"]["scene_provenance_key"] == "wf-1:scene:3"
+
+
 class TestApplyEvents:
     """_apply_events 纯逻辑测试（不依赖 DB）"""
 

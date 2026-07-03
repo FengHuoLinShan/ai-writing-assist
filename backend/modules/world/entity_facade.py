@@ -185,6 +185,8 @@ async def get_entity_relations(
     limit: int = 100,
 ) -> tuple[list[EntityRelationResponse], int]:
     response = await _relation_service.list(db, novel_id, skip=skip, limit=limit)
+    if isinstance(response, tuple):
+        return response
     return response.items, response.total
 
 

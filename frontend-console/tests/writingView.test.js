@@ -337,11 +337,45 @@ describe("writingView onEnter", () => {
 
   it("有项目时加载数据", async () => {
     state.currentProjectId = "p1"
-    api.writing.listChapters.mockResolvedValue({ chapter_indices: [1, 3] })
+    api.writing.listChapters.mockResolvedValue({
+      chapter_indices: [1, 3],
+      chapters: [
+        {
+          chapter_index: 1,
+          title: "第一章",
+          word_count: 1234,
+          version_number: 2,
+          status: "draft",
+        },
+        {
+          chapter_index: 3,
+          title: "第三章",
+          word_count: 3456,
+          version_number: 1,
+          status: "published",
+        },
+      ],
+    })
     api.outline.listScenesOrdered.mockResolvedValue([])
     await writingView.onEnter()
     expect(writingView._chapterList).toEqual([1, 3])
-    expect(writingView._chapters[1]).toBeDefined()
+    expect(writingView._chapters[1]).toMatchObject({
+      title: "第一章",
+      draftCount: 2,
+      wordcount: 1234,
+      status: "draft",
+    })
+    expect(writingView._chapterWordcount(3)).toBe("3,456")
+  })
+
+  it("有项目时兼容旧章节索引响应", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({ chapter_indices: [1, 3] })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    await writingView.onEnter()
+
+    expect(writingView._chapterList).toEqual([1, 3])
+    expect(writingView._chapters[1]).toEqual({ draftCount: 0 })
   })
 
   it("API 失败时显示章节列表加载失败提示", async () => {

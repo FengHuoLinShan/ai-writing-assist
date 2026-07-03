@@ -25,7 +25,8 @@ class MapDynamicHelperMixin:
     """Private dynamic-map helper methods kept as a compatibility mixin."""
 
     def _queue_item_from_observation(self, item: Any) -> MapDashboardQueueItem:
-        title = item.target_name or item.target_entity_type or item.dynamic_type
+        title = self._display_title(item)
+        object_type = self._display_object_type(item)
         status_label = self._status_label(item.review_state)
         risk_level = self._risk_level(
             dynamic_type=item.dynamic_type,
@@ -39,10 +40,8 @@ class MapDynamicHelperMixin:
             target_entity_id=(
                 str(item.target_entity_id) if item.target_entity_id else None
             ),
-            object_type=item.target_entity_type,
-            type_label=self._object_type_label(
-                item.target_entity_type or item.dynamic_type
-            ),
+            object_type=object_type,
+            type_label=self._object_type_label(object_type or item.dynamic_type),
             dynamic_type=item.dynamic_type,
             time_label=self._time_label(item),
             status_label=status_label,
@@ -66,7 +65,8 @@ class MapDynamicHelperMixin:
         )
 
     def _queue_item_from_fact(self, item: Any) -> MapDashboardQueueItem:
-        title = item.target_name or item.target_entity_type or item.dynamic_type
+        title = self._display_title(item)
+        object_type = self._display_object_type(item)
         return MapDashboardQueueItem(
             item_id=str(item.id),
             item_kind="fact",
@@ -74,10 +74,8 @@ class MapDynamicHelperMixin:
             target_entity_id=(
                 str(item.target_entity_id) if item.target_entity_id else None
             ),
-            object_type=item.target_entity_type,
-            type_label=self._object_type_label(
-                item.target_entity_type or item.dynamic_type
-            ),
+            object_type=object_type,
+            type_label=self._object_type_label(object_type or item.dynamic_type),
             dynamic_type=item.dynamic_type,
             time_label=self._time_label(item),
             status_label=self._status_label(item.fact_status),
@@ -238,6 +236,23 @@ class MapDynamicHelperMixin:
             if item.target_entity_id == focus_entity_id
         ]
 
+    def _filter_queue_for_item(
+        self,
+        queue: list[MapDashboardQueueItem],
+        focus_item_id: str,
+    ) -> list[MapDashboardQueueItem]:
+        focus = next((item for item in queue if item.item_id == focus_item_id), None)
+        if focus is None:
+            return queue
+        object_key = self._dynamic_object_key(focus)
+        return [item for item in queue if self._dynamic_object_key(item) == object_key]
+
+    @staticmethod
+    def _dynamic_object_key(item: MapDashboardQueueItem) -> str:
+        if item.target_entity_id:
+            return f"entity:{item.target_entity_id}"
+        return "|".join([item.title, item.object_type or item.dynamic_type or "unknown"])
+
     def _filter_queue_for_scene(
         self,
         queue: list[MapDashboardQueueItem],
@@ -278,7 +293,7 @@ class MapDynamicHelperMixin:
             event_kind="observation" if kind == "observation" else "fact",
             typed_observation=dynamic_type,
             track=self._playback_track(dynamic_type),
-            title=item.target_name or item.target_entity_type or dynamic_type,
+            title=self._display_title(item),
             time_label=self._time_label(item),
             status_label=self._status_label(status),
             change_summary=self._change_summary(item),
@@ -316,13 +331,275 @@ class MapDynamicHelperMixin:
         old_value = value.get("old")
         new_value = value.get("new")
         field = value.get("field") or value.get("category") or item.dynamic_type
-        if old_value not in {None, ""} and new_value not in {None, ""}:
-            return f"{field}：{old_value} → {new_value}"
-        if new_value not in {None, ""}:
-            return f"{field}：{new_value}"
+        field_label = self._change_field_label(field)
+        if not self._is_blank_change_value(old_value) and not self._is_blank_change_value(
+            new_value
+        ):
+            return (
+                f"{field_label}：{self._format_change_value(old_value)} → "
+                f"{self._format_change_value(new_value)}"
+            )
+        if not self._is_blank_change_value(new_value):
+            return f"{field_label}：{self._format_change_value(new_value)}"
         if item.evidence_text:
             return item.evidence_text
         return "状态变化待确认"
+
+    @staticmethod
+    def _is_blank_change_value(value: Any) -> bool:
+        return value is None or value == ""
+
+    def _format_change_value(self, value: Any) -> str:
+        if isinstance(value, dict | list):
+            return self._format_structured_change_value(value)
+        return str(value)
+
+    def _format_structured_change_value(self, value: Any) -> str:
+        if isinstance(value, list):
+            items = [
+                self._format_structured_change_value(item)
+                for item in value[:3]
+                if not self._is_blank_change_value(item)
+            ]
+            suffix = f"等 {len(value)} 项" if len(value) > 3 else ""
+            return "；".join([*items, suffix]) if suffix else "；".join(items)
+        if not isinstance(value, dict):
+            return str(value)
+        name = self._first_text(
+            value,
+            "name",
+            "title",
+            "target_name",
+            "entity_name",
+            "object_name",
+            "source_name",
+        )
+        value_type = self._first_text(
+            value,
+            "entity_type",
+            "target_entity_type",
+            "object_type",
+            "type",
+            "relation_type",
+        )
+        summary = self._first_text(
+            value,
+            "summary",
+            "description",
+            "public_info",
+            "evidence_text",
+        )
+        if name:
+            label = name
+            if value_type:
+                label = f"{label}（{value_type}）"
+            return f"{label}：{summary}" if summary else label
+        if value_type:
+            return f"{value_type}：{summary}" if summary else value_type
+        scalar_pairs = [
+            f"{key}：{raw}"
+            for key, raw in value.items()
+            if raw is not None and not isinstance(raw, dict | list)
+        ][:3]
+        return "；".join(scalar_pairs) if scalar_pairs else "结构化候选"
+
+    def _display_title(self, item: Any) -> str:
+        value = item.value_json or {}
+        structured_title = None
+        for key in ("new", "old"):
+            structured_title = self._structured_value_name(value.get(key))
+            if structured_title:
+                break
+        field_title = None
+        if structured_title is None and self._uses_delta_value_as_title(item):
+            field_title = self._field_value_title(value.get("field"))
+        scalar_title = None
+        if structured_title is None and self._uses_delta_value_as_title(item):
+            for key in ("new", "old"):
+                scalar_title = self._scalar_value_title(value.get(key))
+                if scalar_title:
+                    break
+        if item.target_name:
+            target_name = str(item.target_name).strip()
+            if target_name and not self._is_generic_dynamic_name(
+                target_name,
+                item.dynamic_type,
+            ):
+                return target_name
+        if structured_title:
+            return structured_title
+        if field_title:
+            return field_title
+        if scalar_title:
+            return scalar_title
+        return item.target_entity_type or self._object_type_label(item.dynamic_type)
+
+    def _structured_value_name(self, value: Any) -> str | None:
+        if isinstance(value, dict):
+            return self._first_text(
+                value,
+                "name",
+                "title",
+                "target_name",
+                "entity_name",
+                "object_name",
+                "source_name",
+            )
+        if isinstance(value, list):
+            for item in value:
+                name = self._structured_value_name(item)
+                if name:
+                    return name
+        return None
+
+    def _scalar_value_title(self, value: Any) -> str | None:
+        if isinstance(value, str):
+            text = value.strip()
+            return text or None
+        if isinstance(value, list):
+            for item in value:
+                text = self._scalar_value_title(item)
+                if text:
+                    return text
+        return None
+
+    def _field_value_title(self, value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        normalized = self._normalize_dynamic_type(text)
+        if (
+            text.startswith(("entities", "relations", "aliases"))
+            or normalized
+            in {
+                "name",
+                "title",
+                "summary",
+                "description",
+                "entity_created",
+                "entity_updated",
+                "relation_created",
+                "relation_updated",
+                "alias_created",
+                "alias_updated",
+                "entity",
+                "status",
+            }
+            or "_" in normalized
+        ):
+            return None
+        return text
+
+    def _display_object_type(self, item: Any) -> str | None:
+        if item.target_entity_type:
+            return str(item.target_entity_type)
+        value = item.value_json or {}
+        for key in ("new", "old"):
+            value_type = self._structured_value_type(value.get(key))
+            if value_type:
+                return value_type
+        return self._delta_candidate_object_type(item)
+
+    def _structured_value_type(self, value: Any) -> str | None:
+        if isinstance(value, dict):
+            return self._first_text(
+                value,
+                "entity_type",
+                "target_entity_type",
+                "object_type",
+                "type",
+            )
+        if isinstance(value, list):
+            for item in value:
+                value_type = self._structured_value_type(item)
+                if value_type:
+                    return value_type
+        return None
+
+    def _is_generic_dynamic_name(self, target_name: str, dynamic_type: str) -> bool:
+        normalized_target = self._normalize_dynamic_type(target_name)
+        normalized_dynamic = self._normalize_dynamic_type(dynamic_type)
+        return normalized_target in {
+            normalized_dynamic,
+            "entity_created",
+            "entity_updated",
+            "relation_created",
+            "relation_updated",
+            "alias_created",
+            "alias_updated",
+            "delta_event",
+            "change",
+        }
+
+    def _uses_delta_value_as_title(self, item: Any) -> bool:
+        dynamic_type = self._normalize_dynamic_type(item.dynamic_type)
+        value = item.value_json or {}
+        field = str(value.get("field") or "").strip()
+        category = self._normalize_dynamic_type(value.get("category"))
+        candidate_types = {
+            "entity_created",
+            "entity_updated",
+            "relation_created",
+            "relation_updated",
+            "alias_created",
+            "alias_updated",
+        }
+        return (
+            dynamic_type in candidate_types
+            or category in candidate_types
+            or field.startswith(("entities", "relations", "aliases"))
+        )
+
+    def _delta_candidate_object_type(self, item: Any) -> str | None:
+        dynamic_type = self._normalize_dynamic_type(item.dynamic_type)
+        value = item.value_json or {}
+        field = str(value.get("field") or "").strip()
+        category = self._normalize_dynamic_type(value.get("category"))
+        if (
+            dynamic_type in {"entity_created", "entity_updated"}
+            or category in {"entity_created", "entity_updated"}
+            or field.startswith("entities")
+        ):
+            return "entity_candidate"
+        if (
+            dynamic_type in {"relation_created", "relation_updated"}
+            or category in {"relation_created", "relation_updated"}
+            or field.startswith("relations")
+        ):
+            return "relation_candidate"
+        if (
+            dynamic_type in {"alias_created", "alias_updated"}
+            or category in {"alias_created", "alias_updated"}
+            or field.startswith("aliases")
+        ):
+            return "alias_candidate"
+        return None
+
+    @staticmethod
+    def _first_text(value: dict[str, Any], *keys: str) -> str | None:
+        for key in keys:
+            raw = value.get(key)
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _change_field_label(field: Any) -> str:
+        text = str(field or "").strip()
+        if text.startswith("entities[") or text in {"entities", "entity"}:
+            return "对象候选"
+        if text.startswith("relations[") or text in {"relations", "relation"}:
+            return "关系候选"
+        if text.startswith("aliases[") or text in {"aliases", "alias"}:
+            return "别名候选"
+        if text.startswith("deltas[") or text in {"delta", "delta_event"}:
+            return "世界动态"
+        return text or "状态变化"
 
     def _playback_track(self, dynamic_type: str) -> str:
         if dynamic_type in {"location", "position_change", "movement"}:
@@ -411,7 +688,7 @@ class MapDynamicHelperMixin:
         evidence = item.evidence_text or ""
         if evidence:
             return f"{source} · {evidence}"
-        return str(source)
+        return f"{source} · {self._change_summary(item)}"
 
     def _location_label(self, item: Any) -> str | None:
         anchor = item.spatial_anchor or {}
@@ -434,6 +711,12 @@ class MapDynamicHelperMixin:
             "organization": "组织",
             "event": "事件",
             "item": "物品",
+            "concept": "概念",
+            "faction": "势力",
+            "person": "人物",
+            "entity_candidate": "对象候选",
+            "relation_candidate": "关系候选",
+            "alias_candidate": "别名候选",
             "resource": "资源",
             "crisis": "危机",
             "status": "状态",

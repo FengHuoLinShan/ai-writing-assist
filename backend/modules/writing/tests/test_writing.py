@@ -388,6 +388,49 @@ class TestWritingDraftRepository:
         indices = await repo.list_chapter_indices(db_session, uuid.uuid4())
         assert indices == []
 
+    @pytest.mark.asyncio
+    async def test_list_chapter_summaries_uses_latest_versions(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        nid = uuid.UUID(hex=novel_id)
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="旧标题",
+                content="旧",
+            ),
+        )
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="新标题",
+                content="新版正文",
+            ),
+        )
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=2,
+                title="第二章",
+                content="第二章正文",
+            ),
+        )
+
+        summaries = await repo.list_chapter_summaries(db_session, nid)
+
+        assert [item.chapter_index for item in summaries] == [1, 2]
+        assert summaries[0].title == "新标题"
+        assert summaries[0].version_number == 2
+        assert summaries[0].content == "新版正文"
+
 
 # ============================================================
 # Service 测试
@@ -805,6 +848,32 @@ class TestWritingDraftService:
         indices = await service.list_chapter_indices(db, str(uuid.uuid4()))
 
         assert indices == []
+
+    @pytest.mark.asyncio
+    async def test_list_chapter_summaries_returns_word_counts(self) -> None:
+        novel_id = str(uuid.uuid4())
+        draft = _make_draft(
+            novel_id=uuid.UUID(hex=novel_id),
+            chapter_index=3,
+            title="第三章",
+            content="一二三四",
+            version_number=4,
+            status="published",
+            updated_at=datetime(2026, 7, 3, tzinfo=UTC),
+        )
+        repo = MagicMock()
+        repo.list_chapter_summaries = AsyncMock(return_value=[draft])
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        items = await service.list_chapter_summaries(db, novel_id)
+
+        assert len(items) == 1
+        assert items[0].chapter_index == 3
+        assert items[0].title == "第三章"
+        assert items[0].word_count == 4
+        assert items[0].version_number == 4
+        assert items[0].status == "published"
 
     @pytest.mark.asyncio
     async def test_delete_chapter(
@@ -1239,6 +1308,8 @@ async def test_writing_generation_creates_candidate_without_publish_task(
         "source": "writing_generate",
         "source_confirmation_id": confirmation.id,
         "source_task_id": None,
+        "context_action": "writing.generate",
+        "context_result_refs": confirmation.result_refs,
     }
 
     tasks_result = await db_session.execute(select(AsyncTask))
@@ -1289,6 +1360,8 @@ async def test_writing_generate_task_records_task_provenance(
         "source": "writing_generate",
         "source_confirmation_id": confirmation.id,
         "source_task_id": str(task.id),
+        "context_action": "writing.generate",
+        "context_result_refs": confirmation.result_refs,
     }
 
 

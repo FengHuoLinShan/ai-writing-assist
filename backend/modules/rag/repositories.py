@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import and_, delete, func, or_, select, text
+from sqlalchemy import Float, and_, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -422,8 +422,9 @@ class RagChunkRepository:
                 top_k=top_k,
             )
 
-        # PostgreSQL: 使用 pgvector <#> 内积操作符 + HNSW 索引
-        await db.execute(text("SET LOCAL hnsw.ef_search = :ef"), {"ef": ef_search})
+        # PostgreSQL SET does not accept bind parameters in this position.
+        ef_search_value = max(1, int(ef_search))
+        await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search_value}"))
         conditions = [
             RagChunk.novel_id == novel_id,
             RagChunk.embedding.is_not(None),
@@ -448,7 +449,7 @@ class RagChunkRepository:
         stmt = (
             select(
                 RagChunk,
-                RagChunk.embedding.op("<#>")(embedding).label("score"),
+                RagChunk.embedding.op("<#>")(embedding).cast(Float).label("score"),
             )
             .where(and_(*conditions))
             .order_by(text("score ASC"))

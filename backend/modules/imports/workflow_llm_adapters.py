@@ -311,7 +311,8 @@ class _SingleChapterSceneCandidateLLM:
                     content=(
                         "请将以下单章正文切分为叙事 Scene。每个 Scene 必须"
                         "包含 title、goal、core_conflict、emotional_beat、"
-                        "narrative_tag、scene_chunks。\n\n"
+                        "must_happen、must_not_happen、narrative_tag、"
+                        "scene_chunks。\n\n"
                         f"{service._build_chapters_text([chapter])}"
                     ),
                 ),
@@ -329,7 +330,8 @@ class _SingleChapterSceneCandidateLLM:
             fix_prompt=(
                 "上一轮输出无法通过 SceneSegmentationOutput 校验。请只输出一个 JSON "
                 "object，必须包含 scenes 数组；每个 scene 必须包含 title、goal、"
-                "core_conflict、emotional_beat、narrative_tag、scene_chunks。"
+                "core_conflict、emotional_beat、must_happen、must_not_happen、"
+                "narrative_tag、scene_chunks。"
             ),
         )
 
@@ -385,10 +387,13 @@ class _Phase1bSceneFusionLLM:
             else "按窗口推荐数量输出Scene，必须覆盖窗口核心章节。"
         )
         scene_contract = (
-            "每个Scene只输出短字段：title、goal、scene_chunks，以及追溯字段："
+            "每个Scene只输出短字段：title、goal、must_happen、"
+            "must_not_happen、scene_chunks，以及追溯字段："
             "source_candidate_ids、source_rounds、source_chapter_indices、operation、"
             "confidence、fallback_required、boundary_status、boundary_reason、"
             "needs_review、review_reason。scene_chunks 内必须有 chapter_index。"
+            "如果候选已有 must_happen/must_not_happen，需短句保留；缺失时可"
+            "根据 goal/core_conflict 生成一句源文本约束。"
             "所有输出 Scene 的 source_chapter_indices 并集必须覆盖输入的"
             " source_chapter_indices。除非候选确实不可用，不要输出"
             " fallback_required=true。优先沿用 Phase1a 候选的 title/goal/chunks，"
@@ -421,6 +426,7 @@ class _Phase1bSceneFusionLLM:
                         "5. 只把真正重复或被融合的候选写入 discarded_candidates。\n"
                         "输出示例形状：{\"scenes\":[{\"title\":\"...\","
                         "\"goal\":\"...\","
+                        "\"must_happen\":\"...\",\"must_not_happen\":\"...\","
                         "\"scene_chunks\":[{\"chapter_index\":1}],"
                         "\"source_candidate_ids\":[\"...\"],"
                         "\"source_rounds\":[\"A\"],"
@@ -665,6 +671,11 @@ def _phase1b_scenes_for_candidate(
                 ),
                 "title": scene.get("title") or f"Scene {owned_chapters[0]}",
                 "goal": scene.get("goal") or "沿用 Phase1a 候选。",
+                "core_conflict": scene.get("core_conflict") or "",
+                "emotional_beat": scene.get("emotional_beat") or "",
+                "must_happen": scene.get("must_happen") or "",
+                "must_not_happen": scene.get("must_not_happen") or "",
+                "narrative_tag": scene.get("narrative_tag") or "imported",
                 "scene_chunks": _phase1b_materialized_chunks(
                     scene.get("scene_chunks"),
                     owned_chapters,
@@ -696,6 +707,8 @@ def _phase1b_scenes_for_candidate(
             "candidate_id": f"phase1b-kept-{candidate.get('candidate_id')}-{chapter}",
             "title": f"Chapter {chapter}",
             "goal": "沿用 Phase1a 候选。",
+            "must_happen": "沿用 Phase1a 候选。",
+            "must_not_happen": "不得与已导入章节正文冲突",
             "scene_chunks": [{"chapter_index": chapter}],
             "source_candidate_ids": [str(candidate.get("candidate_id"))],
             "source_rounds": [str(candidate.get("source_round") or "A")],
@@ -794,6 +807,8 @@ def _compact_phase1b_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "required_scene_fields": [
                 "title",
                 "goal",
+                "must_happen",
+                "must_not_happen",
                 "scene_chunks",
                 "source_candidate_ids",
                 "source_rounds",
@@ -850,6 +865,11 @@ def _compact_phase1b_scene(scene: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": _compact_text(scene.get("title"), limit=80),
         "goal": _compact_text(scene.get("goal")),
+        "core_conflict": _compact_text(scene.get("core_conflict")),
+        "emotional_beat": _compact_text(scene.get("emotional_beat")),
+        "must_happen": _compact_text(scene.get("must_happen")),
+        "must_not_happen": _compact_text(scene.get("must_not_happen")),
+        "narrative_tag": _compact_text(scene.get("narrative_tag"), limit=40),
         "scene_chunks": [
             _compact_scene_chunk(chunk)
             for chunk in scene.get("scene_chunks", [])

@@ -4,6 +4,8 @@ Project Service
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +28,8 @@ from modules.project.schemas import (
     ProjectResponse,
     ProjectUpdate,
 )
+from modules.writing.contracts import WritingProjectStatsContract
+from modules.writing.facade import get_project_writing_stats
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
 
@@ -33,8 +37,19 @@ from shared.utils import parse_uuid
 class ProjectService:
     """业务服务层 — project 为根聚合，只做 response 转换与 404 抛错"""
 
-    def __init__(self, repo: ProjectRepository | None = None) -> None:
+    def __init__(
+        self,
+        repo: ProjectRepository | None = None,
+        writing_stats_provider: Callable[
+            [AsyncSession, str],
+            Awaitable[WritingProjectStatsContract],
+        ]
+        | None = None,
+    ) -> None:
         self._repo = repo or ProjectRepository()
+        self._writing_stats_provider = writing_stats_provider or (
+            get_project_writing_stats if repo is None else _empty_project_writing_stats
+        )
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
         return LLMProviderTemplateListResponse(items=list_provider_templates())
@@ -43,7 +58,7 @@ class ProjectService:
         self, db: AsyncSession, data: ProjectCreate
     ) -> ProjectResponse:
         project = await self._repo.create(db, data)
-        return ProjectResponse.model_validate(project)
+        return await self._response_with_stats(db, project)
 
     async def get_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         pid = parse_uuid(project_id, "project_id")
@@ -53,7 +68,7 @@ class ProjectService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Project {project_id} not found",
             )
-        return ProjectResponse.model_validate(project)
+        return await self._response_with_stats(db, project)
 
     async def list_projects(
         self,
@@ -64,7 +79,7 @@ class ProjectService:
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.list(db, skip=skip, limit=limit)
         return ProjectListResponse(
-            items=[ProjectResponse.model_validate(p) for p in items],
+            items=[await self._response_with_stats(db, p) for p in items],
             total=total,
         )
 
@@ -81,7 +96,7 @@ class ProjectService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Project {project_id} not found",
             )
-        return ProjectResponse.model_validate(project)
+        return await self._response_with_stats(db, project)
 
     async def get_llm_settings(
         self,
@@ -166,7 +181,7 @@ class ProjectService:
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"Project {project_id} not found after restore",
             )
-        return ProjectResponse.model_validate(project)
+        return await self._response_with_stats(db, project)
 
     async def permanent_delete_project(
         self,
@@ -200,7 +215,7 @@ class ProjectService:
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.list_deleted(db, skip=skip, limit=limit)
         return ProjectListResponse(
-            items=[ProjectResponse.model_validate(p) for p in items],
+            items=[await self._response_with_stats(db, p) for p in items],
             total=total,
         )
 
@@ -234,3 +249,32 @@ class ProjectService:
                 detail=f"Project {project_id} not found",
             )
         return project
+
+    async def _response_with_stats(
+        self,
+        db: AsyncSession,
+        project: object,
+    ) -> ProjectResponse:
+        response = ProjectResponse.model_validate(project)
+        stats = await self._writing_stats_provider(db, response.id)
+        return response.model_copy(
+            update={
+                "word_count": stats.word_count,
+                "total_words": stats.word_count,
+                "chapter_count": stats.chapter_count,
+                "total_chapters": stats.chapter_count,
+                "stats": {
+                    "word_count": stats.word_count,
+                    "total_words": stats.word_count,
+                    "chapter_count": stats.chapter_count,
+                    "total_chapters": stats.chapter_count,
+                },
+            },
+        )
+
+
+async def _empty_project_writing_stats(
+    _db: AsyncSession,
+    novel_id: str,
+) -> WritingProjectStatsContract:
+    return WritingProjectStatsContract(novel_id=novel_id)

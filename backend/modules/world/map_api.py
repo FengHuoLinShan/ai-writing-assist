@@ -229,6 +229,7 @@ async def get_map_dashboard(
     novel_id: str = Query(..., description="项目 ID"),
     scene_id: str | None = Query(None, description="Scene ID"),
     focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
+    focus_item_id: str | None = Query(None, description="聚焦动态项 ID"),
 ) -> MapDashboardResponse:
     return await _dynamic_fact_service.get_dashboard(
         db,
@@ -236,6 +237,7 @@ async def get_map_dashboard(
         map_id=map_id,
         scene_id=scene_id,
         focus_entity_id=focus_entity_id,
+        focus_item_id=focus_item_id,
     )
 
 

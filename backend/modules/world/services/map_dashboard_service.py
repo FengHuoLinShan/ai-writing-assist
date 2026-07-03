@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from typing import Any
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.map_schemas import (
     MapDashboardResponse,
 )
 from modules.world.services.helpers import parse_uuid
+from modules.world.services.map_dynamic_lifecycle import MapDynamicLifecycle
 
 
 class MapDashboardService:
     """Delegated dynamic-map service."""
 
-    def __init__(self, owner: Any) -> None:
+    def __init__(self, owner: MapDynamicLifecycle) -> None:
         self.owner = owner
 
     async def get_dashboard(
@@ -24,6 +23,7 @@ class MapDashboardService:
         map_id: str,
         scene_id: str | None = None,
         focus_entity_id: str | None = None,
+        focus_item_id: str | None = None,
     ) -> MapDashboardResponse:
         owner = self.owner
         """构建世界动态总控台派生视图。"""
@@ -62,11 +62,12 @@ class MapDashboardService:
         queue = queue[:80]
         if scene_id:
             queue = owner._filter_queue_for_scene(queue, scene_id)
-        dashboard_queue = (
-            owner._filter_queue_for_focus(queue, str(focus_id))
-            if focus_id
-            else queue
-        )
+        if focus_item_id:
+            dashboard_queue = owner._filter_queue_for_item(queue, focus_item_id)
+        elif focus_id:
+            dashboard_queue = owner._filter_queue_for_focus(queue, str(focus_id))
+        else:
+            dashboard_queue = queue
 
         inspector = owner._build_dashboard_inspector(
             dashboard_queue,

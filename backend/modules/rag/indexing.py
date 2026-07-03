@@ -13,28 +13,16 @@ from collections.abc import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.container import get as _container_get
+from modules.rag.chunk_annotation import build_chunk_create
 from modules.rag.chunking import ChineseNovelChunk, ChunkingService
 from modules.rag.contracts import RagIndexReport
+from modules.rag.embedding_writer import EmbeddingWriter
 from modules.rag.models import RagChunk
-from modules.rag.query_expansion import _load_project_terms, _match_project_terms
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.schemas import RagChunkCreate
-
-RAG_INDEX_VERSION = "cn-novel-v1"
-
-
-def _scenes_for_chapter(scenes: list[dict], chapter_index: int) -> list[dict]:
-    """筛选出与指定章节关联且包含 scene_chunks 的 scenes。"""
-    return [
-        s
-        for s in scenes
-        if str(chapter_index) in (s.get("chapter_ids") or [])
-        and any(
-            sc.get("chapter_index") == chapter_index
-            for sc in (s.get("scene_chunks") or [])
-        )
-    ]
+from modules.rag.source_collection import (
+    collect_annotation_sources,
+    collect_chapter_sources,
+)
 
 
 class IndexingService:
@@ -50,27 +38,6 @@ class IndexingService:
     ) -> None:
         self._repo = repo or RagChunkRepository()
         self._chunking = chunking or ChunkingService()
-
-    @staticmethod
-    def _resolve_scene_id_for_chunk(
-        cn_chunk: ChineseNovelChunk,
-        scenes_for_chapter: list[dict],
-    ) -> uuid.UUID | None:
-        """根据 scene_chunks 区间，返回与 chunk 范围第一个重叠的 Scene ID。"""
-        chunk_start = cn_chunk.start_offset
-        chunk_end = cn_chunk.end_offset
-        for scene in scenes_for_chapter:
-            scene_id_str = scene.get("id")
-            if not scene_id_str:
-                continue
-            for sc in scene.get("scene_chunks", []):
-                sc_start = sc.get("start_pos")
-                sc_end = sc.get("end_pos")
-                if sc_start is None or sc_end is None:
-                    continue
-                if chunk_start < sc_end and chunk_end > sc_start:
-                    return uuid.UUID(hex=scene_id_str)
-        return None
 
     async def index_chapter(
         self,
@@ -90,127 +57,48 @@ class IndexingService:
     ) -> RagIndexReport:
         """索引指定章节并返回诊断报告。"""
         started_at = time.monotonic()
-        _get_latest_draft = _container_get("writing.get_latest_draft_for_chapter")
-
-        draft = await _get_latest_draft(db, str(novel_id), chapter_index)
-        if not draft or not draft.content:
+        sources = await collect_chapter_sources(db, novel_id, chapter_index)
+        if sources is None:
             return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
 
-        chunks = self._chunking.split_chinese_novel(draft.content)
+        chunks = self._chunking.split_chinese_novel(sources.content)
         if not chunks:
             return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
 
-        from modules.outline.facade import get_scenes_by_novel
-
-        scenes = await get_scenes_by_novel(db, str(novel_id))
-        scenes_for_chapter = _scenes_for_chapter(scenes, chapter_index)
-
-        project_terms = await _load_project_terms(db, novel_id)
         await self._repo.delete_by_chapter(db, novel_id, "chapter_text", chapter_index)
 
-        entity_importance_map: dict[str, dict[str, object]] = {}
-        try:
-            _get_importance_map = _container_get("world.get_entity_importance_map")
-            entity_importance_map = await _get_importance_map(db, str(novel_id))
-        except Exception:
-            pass
-
         created_chunks: list[RagChunk] = []
-        warnings: list[str] = []
-
         for cn_chunk in chunks:
-            character_ids, entity_ids, thread_ids = _match_project_terms(
-                cn_chunk.text,
-                project_terms,
-            )
-
-            chunk_importance = 0.5
-            if entity_ids and entity_importance_map:
-                max_imp = 0.5
-                has_core = False
-                for eid in entity_ids:
-                    info = entity_importance_map.get(eid)
-                    if info:
-                        imp_val = float(info["importance"])
-                        if imp_val > max_imp:
-                            max_imp = imp_val
-                        if info.get("importance_level") == "core":
-                            has_core = True
-                chunk_importance = min(1.0, max_imp + (0.2 if has_core else 0.0))
-
-            scene_id = self._resolve_scene_id_for_chunk(cn_chunk, scenes_for_chapter)
-            chunk_data = RagChunkCreate(
-                source_type="chapter_text",
+            chunk_data = build_chunk_create(
+                cn_chunk,
                 chapter_index=chapter_index,
-                chunk_index=cn_chunk.chunk_index,
-                start_offset=cn_chunk.start_offset,
-                end_offset=cn_chunk.end_offset,
-                char_count=cn_chunk.char_count,
-                text=cn_chunk.text,
-                summary=self._chunking.extract_summary(cn_chunk.text),
-                entity_ids=entity_ids,
-                character_ids=character_ids,
-                thread_ids=thread_ids,
-                scene_id=str(scene_id) if scene_id else None,
-                visibility="author_only",
-                importance=chunk_importance,
-                index_version=RAG_INDEX_VERSION,
-                embedding_status="pending",
-                meta={
-                    "chapter_index": chapter_index,
-                    "chunk_index": cn_chunk.chunk_index,
-                },
+                chunking=self._chunking,
+                project_terms=sources.project_terms,
+                entity_importance_map=sources.entity_importance_map,
+                scenes_for_chapter=sources.scenes_for_chapter,
             )
             chunk = await self._repo.create(db, novel_id, chunk_data)
             created_chunks.append(chunk)
 
         await db.flush()
-
-        embedding_failed_count = 0
-        if created_chunks:
-            from infrastructure.llm.client import LLMClient
-
-            llm = LLMClient()
-
-            for chunk in created_chunks:
-                try:
-                    embedding = await llm.generate_embedding(chunk.text)
-                    if (
-                        isinstance(embedding, list)
-                        and embedding
-                        and isinstance(embedding[0], float)
-                    ):
-                        await self._repo.update_embedding(db, chunk.id, embedding)
-                        chunk.embedding_status = "succeeded"
-                    else:
-                        raise ValueError("embedding 返回格式异常")
-                except Exception as exc:
-                    chunk.embedding_status = "failed"
-                    chunk.embedding_error = str(exc)[:1000]
-                    chunk.index_warnings = [f"embedding 生成失败: {exc}"]
-                    embedding_failed_count += 1
-
-            await db.flush()
-
-            if embedding_failed_count > 0:
-                warnings.append(
-                    f"本章 {embedding_failed_count}/{len(created_chunks)} "
-                    "个片段 embedding 失败，检索将降级为关键词匹配",
-                )
+        embedding_result = await EmbeddingWriter(self._repo).write_per_chunk(
+            db,
+            created_chunks,
+        )
 
         from modules.rag.metrics import get_metrics
 
         get_metrics().record_indexing(
             chunks_created=len(created_chunks),
-            embedding_failed_count=embedding_failed_count,
+            embedding_failed_count=embedding_result.failed_count,
             latency_ms=(time.monotonic() - started_at) * 1000,
         )
 
         return RagIndexReport(
             chapter_index=chapter_index,
             chunks_created=len(created_chunks),
-            warnings=warnings,
-            embedding_failed_count=embedding_failed_count,
+            warnings=embedding_result.warnings,
+            embedding_failed_count=embedding_result.failed_count,
             chunks_created_ids=[str(c.id) for c in created_chunks],
         )
 
@@ -247,12 +135,9 @@ class IndexingService:
             if c.start_offset is not None and c.end_offset is not None:
                 old_by_offset[(c.start_offset, c.end_offset)] = c
 
-        project_terms = await _load_project_terms(db, novel_id)
-
-        from modules.outline.facade import get_scenes_by_novel
-
-        scenes = await get_scenes_by_novel(db, str(novel_id))
-        scenes_for_chapter = _scenes_for_chapter(scenes, chapter_index)
+        scenes_for_chapter, project_terms, entity_importance_map = (
+            await collect_annotation_sources(db, novel_id, chapter_index)
+        )
 
         created_chunks: list[RagChunk] = []
         reused_old_ids: set[uuid.UUID] = set()
@@ -273,10 +158,6 @@ class IndexingService:
 
                 cn_chunks = self._chunking.split_chinese_novel(new_text)
                 for cn_chunk in cn_chunks:
-                    character_ids, entity_ids, thread_ids = _match_project_terms(
-                        cn_chunk.text,
-                        project_terms,
-                    )
                     adjusted_chunk = ChineseNovelChunk(
                         chunk_index=cn_chunk.chunk_index,
                         text=cn_chunk.text,
@@ -284,26 +165,14 @@ class IndexingService:
                         end_offset=j1 + cn_chunk.end_offset,
                         char_count=cn_chunk.char_count,
                     )
-                    scene_id = self._resolve_scene_id_for_chunk(
-                        adjusted_chunk, scenes_for_chapter
-                    )
-                    chunk_data = RagChunkCreate(
-                        source_type="chapter_text",
+                    chunk_data = build_chunk_create(
+                        adjusted_chunk,
                         chapter_index=chapter_index,
+                        chunking=self._chunking,
+                        project_terms=project_terms,
+                        entity_importance_map=entity_importance_map,
+                        scenes_for_chapter=scenes_for_chapter,
                         chunk_index=len(created_chunks),
-                        start_offset=adjusted_chunk.start_offset,
-                        end_offset=adjusted_chunk.end_offset,
-                        char_count=cn_chunk.char_count,
-                        text=cn_chunk.text,
-                        summary=self._chunking.extract_summary(cn_chunk.text),
-                        entity_ids=entity_ids,
-                        character_ids=character_ids,
-                        thread_ids=thread_ids,
-                        scene_id=str(scene_id) if scene_id else None,
-                        visibility="author_only",
-                        importance=0.5,
-                        index_version=RAG_INDEX_VERSION,
-                        embedding_status="pending",
                     )
                     chunk = await self._repo.create(db, novel_id, chunk_data)
                     created_chunks.append(chunk)
@@ -316,24 +185,13 @@ class IndexingService:
 
         new_chunks = [c for c in created_chunks if c.embedding_status == "pending"]
         if new_chunks:
-            try:
-                from infrastructure.llm.client import LLMClient
-
-                texts = [c.text for c in new_chunks]
-                embeddings = await LLMClient().generate_embedding(texts)
-                if isinstance(embeddings, list) and len(embeddings) == len(new_chunks):
-                    for chunk, emb in zip(new_chunks, embeddings):
-                        await self._repo.update_embedding(db, chunk.id, emb)
-                        chunk.embedding_status = "succeeded"
-                    await db.flush()
-            except Exception as exc:
-                warning = f"增量 embedding 失败: {exc}"
-                warnings.append(warning)
-                embedding_failed_count = len(new_chunks)
-                for chunk in new_chunks:
-                    chunk.embedding_status = "failed"
-                    chunk.embedding_error = str(exc)[:1000]
-                await db.flush()
+            embedding_result = await EmbeddingWriter(self._repo).write_batch(
+                db,
+                new_chunks,
+                warning_prefix="增量 embedding 失败",
+            )
+            warnings.extend(embedding_result.warnings)
+            embedding_failed_count = embedding_result.failed_count
 
         return RagIndexReport(
             chapter_index=chapter_index,
@@ -395,9 +253,7 @@ class IndexingService:
                 "warnings": [],
             }
 
-        from infrastructure.llm.client import LLMClient
-
-        llm = LLMClient()
+        embedding_writer = EmbeddingWriter(self._repo)
         while True:
             candidates = await self._repo.find_embedding_retry_candidates(
                 db,
@@ -409,40 +265,19 @@ class IndexingService:
             if not candidates:
                 break
 
-            try:
-                texts = [chunk.text for chunk in candidates]
-                embeddings = await llm.generate_embedding(texts)
-                if not (
-                    isinstance(embeddings, list)
-                    and len(embeddings) == len(candidates)
-                ):
-                    raise ValueError("embedding 返回格式异常")
-                validated_embeddings: list[list[float]] = []
-                for embedding in embeddings:
-                    if not (
-                        isinstance(embedding, list)
-                        and embedding
-                        and isinstance(embedding[0], float)
-                    ):
-                        raise ValueError("embedding 返回格式异常")
-                    validated_embeddings.append(embedding)
-                for chunk, embedding in zip(candidates, validated_embeddings):
-                    await self._repo.update_embedding(db, chunk.id, embedding)
-                    chunk.embedding_status = "succeeded"
-                    chunk.embedding_error = None
-                    chunk.index_warnings = []
-                    succeeded += 1
+            embedding_result = await embedding_writer.write_batch(
+                db,
+                candidates,
+                warning_prefix="embedding 重试失败",
+            )
+            if embedding_result.failed_count == 0:
+                succeeded += len(candidates)
                 if progress_callback is not None:
                     progress_callback(min(1.0, succeeded / max(initial_total, 1)))
-                await db.flush()
-            except Exception as exc:
-                error = str(exc)
-                failed += len(candidates)
-                warnings.append(f"embedding 重试失败: {error[:200]}")
-                for chunk in candidates:
-                    await self._repo.mark_embedding_failed(db, chunk.id, error)
-                await db.flush()
-                break
+                continue
+            failed += embedding_result.failed_count
+            warnings.extend(embedding_result.warnings)
+            break
 
         remaining_retryable_count = await self._repo.count_retryable_embeddings(
             db,

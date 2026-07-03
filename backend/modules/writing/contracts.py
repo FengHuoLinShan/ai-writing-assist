@@ -24,3 +24,12 @@ class WritingDraftContract:
     content: str | None = None
     version_number: int = 1
     status: str = "draft"
+
+
+@dataclass(frozen=True)
+class WritingProjectStatsContract:
+    """项目正文统计契约。只统计每章最新版本。"""
+
+    novel_id: str
+    chapter_count: int = 0
+    word_count: int = 0

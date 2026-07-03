@@ -17,7 +17,7 @@
 | 场景卡 | Scene | `scenes` | 最小叙事单元。旧 `chapter_cards.scene_cards` JSONB 仅作历史兼容/冗余上下文，不是当前权威来源 |
 | 伏笔计划 | ForeshadowingPlan | `foreshadowing_plans` | 埋点→加强→收束 三阶段。含 surface_meaning, hidden_meaning |
 | 揭示计划 | RevealPlan | `reveal_plans` | 秘密的分阶段揭示。含 target 和 reveal_stages |
-| 长期记忆 | MemoryRecord | `memory_records` | 章节状态快照、事件记录、角色变化、知识变更、伏笔进展、资源变化 |
+| 长期记忆 | Memory | `memory_events` / `memory_snapshots` / `delta_log` | 章节事件、时间性快照和结构化字段差分。memory 拥有 temporal delta/snapshot 与 delta ingestion；world 拥有 canonical state assembly |
 | 正文草稿 | WritingDraft | `writing_drafts` | 人工写作的章节正文。支持 version_number 递增的多版本管理 |
 | RAG 分块 | RagChunk | `rag_chunks` | 正文分块 + embedding 向量 + 元信息标注（entity_ids, character_ids, thread_ids） |
 | 事件 | Event | `core_entities` (entity_type="event") | 小说时间线事件。timeline_order 存于 content_json |
@@ -91,11 +91,16 @@ core > important > normal > temporary > alias
 
 | 层 | 模块 | 说明 |
 |---|------|------|
-| **事实层** | `project`, `world`, `memory` | 小说的正史事实。world 拥有 CoreEntity + Character + Event + EntityRelation；memory 拥有事件溯源快照 |
+| **事实层** | `project`, `world`, `memory` | 小说的正史事实。world 拥有 CoreEntity + Character + Event + EntityRelation 以及 canonical state assembly；memory 拥有事件溯源、temporal snapshot 和 `delta_log` ingestion |
 | **结构层** | `outline` | 把事实组织为可执行的剧情计划。PlotThread + OutlineArc + ChapterCard |
 | **辅助层** | `rag`, `context`, `writing`, `imports` | 检索增强（RAG 分块）、上下文编译（跨模块组装 LLM context）、正文草稿承载、文件导入 |
 
 模块通信：跨模块生产代码只能导入 `contracts.py`、`facade.py` 或 DI port。`api.py` 是 HTTP 入口，不作为模块间调用接口。Facade/API 不写复杂业务逻辑。
+
+结构化差分边界：`delta_log` 归 memory 模块。deep import、world map 等模块需要记录
+字段变化时，通过 `memory.facade.ingest_delta_events(...)` 或兼容 shim 委托 memory
+完成 JSON 编码、provenance 合并和 row creation；world map 只接收已形成的 delta
+event/delta_log 引用并组装地图候选观察，不拥有 memory provenance 拼装。
 
 ## 5. 关键流程约定（Key Conventions）
 

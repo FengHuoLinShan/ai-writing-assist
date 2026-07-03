@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import (
     CompileOptions,
+    ConfirmedAIActionContext,
     ContextConfirmationContract,
     ContextSnapshotContract,
     StructureContextBundle,
@@ -27,9 +28,11 @@ from modules.context.services import (
     ContextSnapshotService,
 )
 from modules.context.services.compiled_context import CompiledContext
+from modules.context.services.confirmed_ai_action import ConfirmedAIActionService
 
 _compiler = ContextCompiler()
 _confirmation_service = ContextConfirmationService()
+_confirmed_ai_action_service = ConfirmedAIActionService(_confirmation_service)
 _snapshot_service = ContextSnapshotService()
 
 
@@ -239,6 +242,22 @@ async def require_fresh_confirmation(
     )
 
 
+async def prepare_confirmed_ai_action(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    action: str,
+    confirmation_id: str,
+) -> ConfirmedAIActionContext:
+    """Return validated, rendered context for an AI action."""
+    return await _confirmed_ai_action_service.prepare(
+        db,
+        novel_id=novel_id,
+        action=action,
+        confirmation_id=confirmation_id,
+    )
+
+
 async def compile_from_confirmation(
     db: AsyncSession,
     *,
@@ -263,6 +282,24 @@ async def attach_result_ref(
     status: str = "running",
 ) -> ContextConfirmationContract:
     return await _confirmation_service.attach_result_ref(
+        db,
+        confirmation_id=confirmation_id,
+        result_type=result_type,
+        result_id=result_id,
+        status=status,
+    )
+
+
+async def bind_confirmed_action_result(
+    db: AsyncSession,
+    *,
+    confirmation_id: str,
+    result_type: str,
+    result_id: str,
+    status: str = "running",
+) -> ContextConfirmationContract:
+    """Attach an AI action result reference to a context confirmation."""
+    return await _confirmed_ai_action_service.bind_result(
         db,
         confirmation_id=confirmation_id,
         result_type=result_type,

@@ -93,6 +93,11 @@ class ProjectResponse(BaseModel):
     current_stage: str | None = None
     default_reveal_policy: str = "author_safe"
     settings: dict = {}
+    word_count: int | None = None
+    total_words: int | None = None
+    chapter_count: int | None = None
+    total_chapters: int | None = None
+    stats: dict[str, int] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     deleted_at: datetime | None = None
@@ -112,6 +117,11 @@ class ProjectResponse(BaseModel):
         if isinstance(v, dict):
             return sanitize_project_settings(v)
         return {}
+
+    @field_validator("stats", mode="before")
+    @classmethod
+    def sanitize_stats(cls, v: object) -> dict[str, int] | None:
+        return v if isinstance(v, dict) else None
 
 
 class ProjectListResponse(BaseModel):

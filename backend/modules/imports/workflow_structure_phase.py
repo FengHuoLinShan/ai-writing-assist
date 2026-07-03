@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.service_phase_artifacts import add_phase_artifact
+from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 PHASE3_STRUCTURE_TIMEOUT_SECONDS = 300
@@ -47,7 +48,7 @@ def minimum_structure_category_targets(chapter_count: int) -> dict[str, int]:
 class StructureAnalysisPhaseRunner:
     """Runs Phase 3 in full-pipeline and stage-only modes."""
 
-    def __init__(self, workflow: Any) -> None:
+    def __init__(self, workflow: DeepImportWorkflowRuntime) -> None:
         self.workflow = workflow
 
     async def run_full_pipeline_phase(

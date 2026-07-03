@@ -14,12 +14,13 @@ from modules.world.map_schemas import (
     MapObservationReviewUpdate,
 )
 from modules.world.services.helpers import parse_uuid
+from modules.world.services.map_dynamic_lifecycle import MapDynamicLifecycle
 
 
 class MapObservationService:
     """Delegated dynamic-map service."""
 
-    def __init__(self, owner: Any) -> None:
+    def __init__(self, owner: MapDynamicLifecycle) -> None:
         self.owner = owner
 
     async def list_observations(

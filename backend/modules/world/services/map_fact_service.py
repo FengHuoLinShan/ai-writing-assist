@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.map_schemas import (
@@ -10,12 +8,13 @@ from modules.world.map_schemas import (
     MapFactStatusUpdate,
 )
 from modules.world.services.helpers import parse_uuid
+from modules.world.services.map_dynamic_lifecycle import MapDynamicLifecycle
 
 
 class MapFactService:
     """Delegated dynamic-map service."""
 
-    def __init__(self, owner: Any) -> None:
+    def __init__(self, owner: MapDynamicLifecycle) -> None:
         self.owner = owner
 
     async def list_facts(

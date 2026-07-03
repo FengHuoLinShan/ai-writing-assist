@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from modules.context.models import ContextConfirmation
 
 
 @pytest.fixture
@@ -145,3 +146,12 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     assert task.meta["novel_id"] == novel_id
     assert task.meta["chapter_index"] == 2
     assert task.meta["context_confirmation_id"] == confirmation_id
+
+    confirmation_result = await db_session.execute(
+        select(ContextConfirmation).where(
+            ContextConfirmation.id == uuid.UUID(confirmation_id)
+        )
+    )
+    confirmation = confirmation_result.scalar_one()
+    assert confirmation.result_status == "running"
+    assert {"type": "task", "id": data["task_id"]} in confirmation.result_refs

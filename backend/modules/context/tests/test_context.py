@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import (
     CONTEXT_BUDGET,
+    ContextConfirmationContract,
     StructureContextBundle,
 )
 from modules.context.facade import (
@@ -36,6 +37,168 @@ from modules.context.services import CompileOptions
 # ============================================================
 # Context Confirmation 测试
 # ============================================================
+
+
+class TestConfirmedAiAction:
+    """测试确认后的 AI 动作上下文 materialization。"""
+
+    @pytest.mark.asyncio
+    async def test_prepare_confirmed_ai_action_materializes_markdown(self) -> None:
+        from modules.context.services.compiled_context import (
+            CompiledContext,
+            ContextSection,
+            Tier,
+        )
+        from modules.context.services.confirmed_ai_action import (
+            ConfirmedAIActionService,
+        )
+
+        confirmation = ContextConfirmationContract(
+            id="conf-1",
+            novel_id="novel-1",
+            action="writing.generate",
+            task="写作",
+            scope="chapter",
+            context_mode="canonical",
+            include_pending_objects=False,
+            excluded_asset_ids={},
+            selected_asset_ids={"context_sections": ["project"]},
+            user_note=None,
+            compile_options={"budget_tokens": 1200},
+            warnings=[],
+            sections=[],
+            budget_events=[],
+            result_refs=[{"type": "task", "id": "old-task"}],
+            result_status="pending",
+            stale_reasons=[],
+            compiled_at="2026-07-03T00:00:00+00:00",
+            created_at="2026-07-03T00:00:00+00:00",
+        )
+        compiled = CompiledContext(
+            sections=[
+                ContextSection(
+                    key="project",
+                    tier=Tier.P0,
+                    title="项目",
+                    content="确认后的上下文",
+                    token_count=8,
+                )
+            ],
+            total_tokens=8,
+            budget_tokens=1200,
+        )
+
+        class FakeConfirmationService:
+            async def require_fresh_confirmation(self, db, **kwargs):
+                assert kwargs == {
+                    "novel_id": "novel-1",
+                    "action": "writing.generate",
+                    "confirmation_id": "conf-1",
+                }
+                return confirmation
+
+            async def compile_from_confirmation(self, db, **kwargs):
+                assert kwargs["confirmation_id"] == "conf-1"
+                return compiled
+
+        service = ConfirmedAIActionService(
+            confirmation_service=FakeConfirmationService()
+        )
+
+        result = await service.prepare(
+            object(),
+            novel_id="novel-1",
+            action="writing.generate",
+            confirmation_id="conf-1",
+        )
+
+        assert result.confirmation is confirmation
+        assert result.compiled is compiled
+        assert "确认后的上下文" in result.rendered_markdown
+        assert result.compile_options == {"budget_tokens": 1200}
+        assert result.result_refs == [{"type": "task", "id": "old-task"}]
+
+    @pytest.mark.asyncio
+    async def test_prepare_confirmed_ai_action_rejects_stale_confirmation(self) -> None:
+        from modules.context.services.confirmed_ai_action import (
+            ConfirmedAIActionService,
+        )
+
+        class FakeConfirmationService:
+            async def require_fresh_confirmation(self, db, **kwargs):
+                raise ValueError("context confirmation is stale_context")
+
+        service = ConfirmedAIActionService(
+            confirmation_service=FakeConfirmationService()
+        )
+
+        with pytest.raises(ValueError, match="stale_context"):
+            await service.prepare(
+                object(),
+                novel_id="novel-1",
+                action="writing.generate",
+                confirmation_id="conf-1",
+            )
+
+
+class TestContextReviewProjection:
+    """测试 Context review projection 保持现有 API shape。"""
+
+    def test_context_review_projection_builds_tier_response(self) -> None:
+        from modules.context.schemas import ContextCompileRequest
+        from modules.context.services.compiled_context import (
+            CompiledContext,
+            ContextBudgetEvent,
+            ContextSection,
+            Tier,
+        )
+        from modules.context.services.review_projection import (
+            build_tier_compile_response,
+        )
+
+        request = ContextCompileRequest(
+            novel_id="novel-1",
+            task="写作",
+            scope="chapter",
+            chapter_index=1,
+            budget_tokens=500,
+        )
+        context = CompiledContext(
+            sections=[
+                ContextSection(
+                    key="project",
+                    tier=Tier.P0,
+                    content="项目内容",
+                    token_count=4,
+                    title="项目",
+                    status="canonical",
+                    can_exclude=True,
+                )
+            ],
+            total_tokens=4,
+            budget_tokens=500,
+            truncated_keys=["project"],
+            budget_events=[
+                ContextBudgetEvent(
+                    section_key="project",
+                    event_type="truncated",
+                    reason="测试",
+                    before_tokens=8,
+                    after_tokens=4,
+                    tier=0,
+                )
+            ],
+            warnings=["warn"],
+        )
+
+        response = build_tier_compile_response(request, context)
+
+        assert response.novel_id == "novel-1"
+        assert response.sections[0].key == "project"
+        assert response.sections[0].truncated is True
+        assert response.sections[0].can_exclude is False
+        assert response.budget_events[0].event_type == "truncated"
+        assert response.warnings == ["warn"]
 
 
 class TestContextSnapshot:

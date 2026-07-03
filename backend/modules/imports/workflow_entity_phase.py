@@ -12,13 +12,14 @@ from modules.imports.service_phase_artifacts import (
     phase2_checkpoint_summary,
     phase2_repair_summary,
 )
+from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 
 class EntityExtractionPhaseRunner:
     """Runs Phase 2 in full-pipeline and stage-only modes."""
 
-    def __init__(self, workflow: Any) -> None:
+    def __init__(self, workflow: DeepImportWorkflowRuntime) -> None:
         self.workflow = workflow
 
     async def run_full_pipeline_phase(

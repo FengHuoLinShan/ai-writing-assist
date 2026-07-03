@@ -23,7 +23,6 @@ from modules.context.schemas import (
     ContextConfirmRequest,
     ContextRenderRequest,
     ContextRenderResponse,
-    ContextSectionItem,
     ContextSnapshotListItemResponse,
     ContextSnapshotListResponse,
     ContextSnapshotMaintenanceRequest,
@@ -31,7 +30,7 @@ from modules.context.schemas import (
     ContextSnapshotResponse,
     ContextTierCompileResponse,
 )
-from modules.context.services.compiled_context import CompiledContext
+from modules.context.services.review_projection import build_tier_compile_response
 
 _VALID_SCOPES: frozenset[str] = frozenset(
     {"project", "world", "world_character", "arc", "chapter", "full"}
@@ -42,43 +41,10 @@ router = APIRouter(prefix="/api/context", tags=["context"])
 
 def _build_tier_compile_response(
     request: ContextCompileRequest | ContextRenderRequest,
-    ctx: CompiledContext,
+    ctx,
 ) -> ContextTierCompileResponse:
     """从 CompiledContext IR 构建 ContextTierCompileResponse。"""
-    warnings: list[str] = list(ctx.warnings)
-
-    return ContextTierCompileResponse(
-        novel_id=request.novel_id,
-        task=request.task,
-        scope=request.scope,
-        reveal_mode=request.reveal_mode,
-        scene_id=request.scene_id,
-        viewpoint_character_id=request.viewpoint_character_id,
-        total_tokens=ctx.total_tokens,
-        budget_tokens=ctx.budget_tokens,
-        sections=[
-            ContextSectionItem(
-                key=s.key,
-                tier=int(s.tier),
-                content=s.content,
-                token_count=s.token_count,
-                truncated=s.key in ctx.truncated_keys,
-                title=s.title,
-                preview=s.preview or s.content[:160],
-                status=s.status,
-                activation_reason=s.activation_reason,
-                sources=s.sources,
-                can_exclude=s.can_exclude and int(s.tier) != 0,
-                excluded=s.excluded,
-                truncated_reason=s.truncated_reason,
-            )
-            for s in ctx.sections
-        ],
-        evicted=ctx.evicted_keys,
-        truncated=ctx.truncated_keys,
-        budget_events=[event.model_dump() for event in ctx.budget_events],
-        warnings=warnings,
-    )
+    return build_tier_compile_response(request, ctx)
 
 
 def _validate_scope(

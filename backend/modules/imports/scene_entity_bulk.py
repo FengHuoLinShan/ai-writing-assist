@@ -21,6 +21,7 @@ from modules.imports.scene_entity_config import (
     PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS,
     PHASE2_SMALL_SAMPLE_TARGET_ENTITIES,
 )
+from modules.imports.scene_entity_runtime import SceneEntityExtractionRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def bulk_entity_memory_context(scenes: list[dict[str, Any]]) -> str:
 class BulkSceneEntityExtractor:
     """Runs bulk extraction and small-sample supplementation."""
 
-    def __init__(self, service: Any) -> None:
+    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
         self.service = service
 
     async def run(

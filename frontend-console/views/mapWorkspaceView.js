@@ -73,7 +73,10 @@ const mapWorkspaceView = {
     } else if (context.mode === "recent") {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
-      this._defer(() => this._openRecentMap())
+      if (!(this._mode === "map" && this._activeMapId)) {
+        const preferredViewMode = context.sceneId || context.focusEntityId ? "live" : null
+        this._defer(() => this._openRecentMap({ viewMode: preferredViewMode }))
+      }
     } else if (context.projectId && !context.mapId && !this._activeMapId) {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
@@ -168,32 +171,56 @@ const mapWorkspaceView = {
     localStorage.removeItem(this._recentKey())
   },
 
-  async _openRecentMap() {
+  _showOverviewFallback(message = "最近地图不可用，已返回地图总览") {
+    this._message = message
+    toast(this._message, "warning")
+    this._mode = "overview"
+    router.refresh?.()
+  },
+
+  async _openRecentMap({
+    fallbackToDefault = true,
+    viewMode = null,
+  } = {}) {
     const recent = this._getRecentMap()
+    const canUseRouteTarget = fallbackToDefault && (this._activeSceneId || this._focusEntityId)
     if (!recent?.mapId) {
-      this._message = "最近地图不可用，已返回地图总览"
-      toast(this._message, "warning")
-      this._mode = "overview"
-      router.refresh?.()
+      if (canUseRouteTarget) {
+        await this._openDefaultTarget({
+          fallbackToRecent: false,
+          preferredViewMode: viewMode,
+        })
+        if (this._mode === "map" && this._activeMapId) return
+      }
+      this._showOverviewFallback()
       return
     }
     try {
       const map = await api.world.getMap(recent.mapId, state.currentProjectId)
-      this._openMap(map.id, {
+      const options = {
         sceneId: this._activeSceneId,
         focusEntityId: this._focusEntityId,
-      })
+      }
+      if (viewMode) options.viewMode = viewMode
+      this._openMap(map.id, options)
       this._saveRecentMap(map)
     } catch {
       this._clearRecentMap()
-      this._message = "最近地图不可用，已返回地图总览"
-      toast(this._message, "warning")
-      this._mode = "overview"
-      router.refresh?.()
+      if (canUseRouteTarget) {
+        await this._openDefaultTarget({
+          fallbackToRecent: false,
+          preferredViewMode: viewMode,
+        })
+        if (this._mode === "map" && this._activeMapId) return
+      }
+      this._showOverviewFallback()
     }
   },
 
-  async _openDefaultTarget() {
+  async _openDefaultTarget({
+    fallbackToRecent = true,
+    preferredViewMode = null,
+  } = {}) {
     if (!state.currentProjectId) return
     try {
       const target = await api.world.getMapOpenTarget(state.currentProjectId, {
@@ -205,11 +232,15 @@ const mapWorkspaceView = {
         this._openMap(target.map_id, {
           sceneId: target.scene_id || this._activeSceneId,
           focusEntityId: target.focus_entity_id || this._focusEntityId,
-          viewMode: target.mode || "dashboard",
+          viewMode: preferredViewMode || target.mode || "dashboard",
         })
       }
     } catch {
-      await this._openRecentMap()
+      if (fallbackToRecent) {
+        await this._openRecentMap({ fallbackToDefault: false })
+      } else {
+        this._showOverviewFallback("地图打开目标不可用，已返回地图总览")
+      }
     }
   },
 
@@ -598,6 +629,9 @@ const mapWorkspaceView = {
     if (!this._focusedDynamicItemId || this._focusEntityId) {
       return dashboard.inspector
     }
+    if (dashboard.inspector?.debug_ref?.id === this._focusedDynamicItemId) {
+      return dashboard.inspector
+    }
     const queue = dashboard.dynamic_queue || []
     const focus = queue.find((item) => item.item_id === this._focusedDynamicItemId)
     if (!focus) return dashboard.inspector
@@ -731,7 +765,13 @@ const mapWorkspaceView = {
 
   async _loadDynamicSummary({ force = false } = {}) {
     if (!state.currentProjectId || !this._activeMapId) return
-    if (!force && this._dynamicSummary?.mapId === this._activeMapId && this._dynamicSummary?.loaded) {
+    if (
+      !force
+      && this._dynamicSummary?.mapId === this._activeMapId
+      && this._dynamicSummary?.loaded
+      && !this._dynamicSummary?.error
+      && !this._playback?.error
+    ) {
       return
     }
     const mapId = this._activeMapId
@@ -760,6 +800,7 @@ const mapWorkspaceView = {
           state.currentProjectId,
           this._activeSceneId,
           this._focusEntityId,
+          this._focusedDynamicItemId,
         ),
         api.world.getMapPlayback(
           mapId,
@@ -1123,7 +1164,7 @@ const mapWorkspaceView = {
   async _openFocusedInspector(focusEntityId, dynamicItemId = null) {
     this._focusedDynamicItemId = dynamicItemId
     if (!focusEntityId) {
-      this._updateWorkspaceLayoutDom()
+      await this._loadDynamicSummary({ force: true })
       toast("检查器已在右侧显示", "info")
       return
     }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from importlib import import_module
@@ -9,12 +10,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.enqueuer import enqueue_task
 from modules.imports.service_phase_artifacts import (
     add_phase_artifact,
     candidate_chapter_coverage,
     phase_error,
     scene_phase_repair_summary,
 )
+from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 PHASE0_422_RECOMMENDATION = (
@@ -22,6 +25,26 @@ PHASE0_422_RECOMMENDATION = (
     "强推 DeepSeek-v4-flash，质量高价格低并发超快。"
 )
 PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING = 12
+
+
+def _enqueue_rag_reindex_after_scene_commit(
+    db: AsyncSession | None,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+) -> str | None:
+    if db is None or inspect.iscoroutinefunction(getattr(db, "add", None)):
+        return None
+    return enqueue_task(
+        db,
+        "rag_reindex_novel",
+        meta={
+            "novel_id": novel_id,
+            "start_chapter": start_chapter,
+            "end_chapter": end_chapter,
+            "source": "deep_import_scene_commit",
+        },
+    )
 
 
 def _phase0_422_recommendation() -> str:
@@ -44,7 +67,7 @@ class ScenePhaseOutcome:
 class ScenePhaseRunner:
     """Runs Phase 0/1a/1b and formal Scene commit."""
 
-    def __init__(self, workflow: Any) -> None:
+    def __init__(self, workflow: DeepImportWorkflowRuntime) -> None:
         self.workflow = workflow
 
     async def run(
@@ -566,6 +589,16 @@ class ScenePhaseRunner:
             coverage=scene_commit_coverage,
         )
         if total_scenes > 0 and scene_commit_coverage["coverage_complete"]:
+            rag_task_id = _enqueue_rag_reindex_after_scene_commit(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+            )
+            if rag_task_id is not None:
+                progress.quality_stats["scene_commit"][
+                    "rag_reindex_task_id"
+                ] = rag_task_id
             workflow._mark_step_completed(progress, DeepImportStep.scene_segmentation)
             workflow._finish_phase(
                 progress,

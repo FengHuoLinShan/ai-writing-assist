@@ -11,7 +11,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.contracts import MemoryContinuityEvidenceContract
+from modules.memory.contracts import (
+    MemoryContinuityEvidenceContract,
+    MemoryDeltaEventIngest,
+    MemoryDeltaIngestResult,
+)
 from modules.memory.services import MemoryService
 
 _memory = MemoryService()
@@ -62,6 +66,22 @@ async def create_delta_log(
 ) -> dict[str, Any]:
     """创建 Delta Log 记录，返回 dict。"""
     return await _memory.create_delta_log(db, novel_id, **kwargs)
+
+
+async def ingest_delta_events(
+    db: AsyncSession,
+    novel_id: str,
+    events: list[MemoryDeltaEventIngest],
+    *,
+    result_refs: list[dict[str, str]] | None = None,
+) -> MemoryDeltaIngestResult:
+    """Ingest typed delta events into DeltaLog rows."""
+    return await _memory.ingest_delta_events(
+        db,
+        novel_id,
+        events,
+        result_refs=result_refs,
+    )
 
 
 async def count_deep_import_delta_logs_by_workflow(

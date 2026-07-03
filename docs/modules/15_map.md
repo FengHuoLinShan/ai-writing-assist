@@ -191,6 +191,8 @@
 | GET | `/{map_id}/playback?novel_id={}&scene_id={}&focus_entity_id={}&include_candidates={}` | 世界动态播放：typed observation 轨道和播放事件 |
 | GET | `/{map_id}/focus?novel_id={}&faction_entity_id={}` | 聚焦模式（仅返回该组织势力范围） |
 
+`dashboard` 和 `playback` 是作者可见的只读派生视图。深度导入接入的通用 `delta_event` 必须在这里归一化为对象名、关系名、可读类型和来源摘要，不能把 `entity_created`、`entities[4]` 或原始 JSON 结构暴露给前端。
+
 ### 地形编辑
 
 | 方法 | 路径 | 说明 |

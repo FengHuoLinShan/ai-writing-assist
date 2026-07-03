@@ -45,6 +45,7 @@ backend/data/dedup_training/*.jsonl
 .worktrees/
 
 # Session/debug artifacts
+.test-logs/
 chaos-*.png
 chaos_test_*.py
 click-*.json

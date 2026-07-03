@@ -135,6 +135,8 @@ class FinalSceneCandidate(BaseModel):
     goal: str = ""
     core_conflict: str = ""
     emotional_beat: str = ""
+    must_happen: str = ""
+    must_not_happen: str = ""
     narrative_tag: str = "imported"
     scene_chunks: list[SceneChunk] = Field(default_factory=list)
     source_candidate_ids: list[str] = Field(..., min_length=1)
@@ -148,6 +150,25 @@ class FinalSceneCandidate(BaseModel):
     boundary_reason: str = ""
     needs_review: bool = True
     review_reason: str = ""
+
+    @field_validator(
+        "title",
+        "goal",
+        "core_conflict",
+        "emotional_beat",
+        "must_happen",
+        "must_not_happen",
+        "narrative_tag",
+        "boundary_status",
+        "boundary_reason",
+        "review_reason",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value)
 
     @field_validator("source_candidate_ids", "source_rounds", mode="before")
     @classmethod
@@ -246,6 +267,12 @@ class FinalSceneCandidate(BaseModel):
             self.boundary_reason = "Phase 1b reducer normalized this Scene."
         if self.needs_review and not self.review_reason:
             self.review_reason = "Phase 1b reducer output should be reviewed."
+        if not self.core_conflict.strip():
+            self.core_conflict = _derive_core_conflict(self)
+        if not self.must_happen.strip():
+            self.must_happen = _derive_must_happen(self)
+        if not self.must_not_happen.strip():
+            self.must_not_happen = _derive_must_not_happen(self)
         if not self.candidate_id:
             source_key = "-".join(self.source_candidate_ids)
             chapter_key = "-".join(str(index) for index in self.source_chapter_indices)
@@ -869,6 +896,8 @@ def _scene_summary(scene: dict[str, Any]) -> dict[str, Any]:
         "goal": scene.get("goal", ""),
         "core_conflict": scene.get("core_conflict", ""),
         "emotional_beat": scene.get("emotional_beat", ""),
+        "must_happen": scene.get("must_happen", ""),
+        "must_not_happen": scene.get("must_not_happen", ""),
         "narrative_tag": scene.get("narrative_tag", ""),
         "scene_chunks": scene.get("scene_chunks", []),
     }
@@ -918,6 +947,8 @@ def _fallback_candidates_for(
                     goal=scene_data.get("goal", ""),
                     core_conflict=scene_data.get("core_conflict", ""),
                     emotional_beat=scene_data.get("emotional_beat", ""),
+                    must_happen=scene_data.get("must_happen", ""),
+                    must_not_happen=scene_data.get("must_not_happen", ""),
                     narrative_tag=scene_data.get("narrative_tag", "imported"),
                     scene_chunks=scene_chunks,
                     source_candidate_ids=[candidate.candidate_id],
@@ -1091,6 +1122,8 @@ def _with_minimum_scene_count_fallbacks(
                 goal=event["goal"],
                 core_conflict=event["core_conflict"],
                 emotional_beat=event["emotional_beat"],
+                must_happen=event.get("must_happen", ""),
+                must_not_happen=event.get("must_not_happen", ""),
                 narrative_tag=event["narrative_tag"],
                 scene_chunks=[
                     {
@@ -1131,6 +1164,8 @@ def _chapter_fallback_candidates(
             goal=_chapter_event_anchor(chapter)["goal"],
             core_conflict=_chapter_event_anchor(chapter)["core_conflict"],
             emotional_beat=_chapter_event_anchor(chapter)["emotional_beat"],
+            must_happen=_chapter_event_anchor(chapter).get("must_happen", ""),
+            must_not_happen=_chapter_event_anchor(chapter).get("must_not_happen", ""),
             narrative_tag=_chapter_event_anchor(chapter)["narrative_tag"],
             scene_chunks=[
                 {
@@ -1176,6 +1211,9 @@ def _chapter_scene_payload_from(scene: dict[str, Any], chapter: int) -> dict[str
         "goal": scene.get("goal") or event["goal"],
         "core_conflict": scene.get("core_conflict") or event["core_conflict"],
         "emotional_beat": scene.get("emotional_beat") or event["emotional_beat"],
+        "must_happen": scene.get("must_happen") or event.get("must_happen", ""),
+        "must_not_happen": scene.get("must_not_happen")
+        or event.get("must_not_happen", ""),
         "narrative_tag": scene.get("narrative_tag") or event["narrative_tag"],
         "scene_chunks": [{"chapter_index": chapter, "start_paragraph": 0}],
     }
@@ -1350,6 +1388,35 @@ def _confidence_for(candidate: SceneCandidate) -> float:
     if isinstance(confidence, int | float):
         return max(0.0, min(float(confidence), 1.0))
     return 0.5
+
+
+def _derive_must_happen(candidate: FinalSceneCandidate) -> str:
+    return (
+        _compact_setup_text(candidate.goal)
+        or _compact_setup_text(candidate.title)
+        or "保留本 Scene 的已识别叙事事件"
+    )
+
+
+def _derive_core_conflict(candidate: FinalSceneCandidate) -> str:
+    goal = _compact_setup_text(candidate.goal, limit=70)
+    if goal:
+        return f"围绕目标推进的阻碍待复核：{goal}"
+    return "源章节事件的阻力与风险待复核"
+
+
+def _derive_must_not_happen(candidate: FinalSceneCandidate) -> str:
+    conflict = _compact_setup_text(candidate.core_conflict)
+    if conflict and conflict != "待校验":
+        return f"不得绕过既有冲突：{conflict}"
+    return "不得与已导入章节正文冲突"
+
+
+def _compact_setup_text(value: Any, *, limit: int = 90) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip()
 
 
 def _recommended_scene_count(chapter_indices: Sequence[int]) -> int:

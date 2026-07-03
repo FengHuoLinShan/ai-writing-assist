@@ -43,6 +43,79 @@ async def _create_draft(
 
 
 class TestSceneWorkbenchApi:
+    async def test_legacy_scene_create_route_delegates_to_workbench(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.outline import api as outline_api
+
+        called = {}
+
+        async def fake_create_scene(db, novel_id, data):
+            called["novel_id"] = novel_id
+            return {
+                "id": str(uuid.uuid4()),
+                "novel_id": novel_id,
+                "scene_index": data.scene_index,
+                "title": data.title,
+                "goal": None,
+                "core_conflict": None,
+                "emotional_beat": None,
+                "must_happen": None,
+                "must_not_happen": None,
+                "narrative_tag": "draft",
+                "source": "manual",
+                "scene_chunks": [],
+                "chapter_ids": [],
+                "pov_character_id": None,
+                "structure_meta": {},
+                "status": "draft",
+                "created_at": None,
+                "updated_at": None,
+            }
+
+        monkeypatch.setattr(
+            outline_api._scene_workbench_service,
+            "create_scene",
+            fake_create_scene,
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scenes",
+            params={"novel_id": test_project_id},
+            json={"scene_index": 9, "title": "Workbench adapter"},
+        )
+
+        assert resp.status_code == 201, resp.text
+        assert called["novel_id"] == test_project_id
+        assert resp.json()["title"] == "Workbench adapter"
+
+    async def test_legacy_scene_delete_deprecates_scene(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "待废弃 Scene", "status": "canonical"},
+        )
+
+        resp = await async_client.delete(
+            f"/api/outline/scenes/{scene['id']}",
+            params={"novel_id": test_project_id},
+        )
+
+        assert resp.status_code == 204, resp.text
+        get_resp = await async_client.get(
+            f"/api/outline/scenes/{scene['id']}",
+            params={"novel_id": test_project_id},
+        )
+        assert get_resp.status_code == 200, get_resp.text
+        assert get_resp.json()["status"] == "deprecated"
+
     async def test_workbench_derives_fixed_health_and_unassigned_chapters(
         self,
         async_client: AsyncClient,

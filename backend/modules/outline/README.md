@@ -58,6 +58,11 @@ GET /api/outline/reveals
 Scene 工作台是 Scene 管理、章节映射和结构整理的主入口。旧大纲页
 “场景卡”子标签只保留跳转，不再维护第二套管理 UI。
 
+Scene mutation 的稳定内部接口是 `SceneWorkbenchService`。旧
+`/api/outline/scenes/*` 路由仅作为兼容 adapter，创建、更新、删除、重排和
+legacy split 都应委托 Workbench，以统一章节映射校验、健康摘要和地图影响摘要。
+默认删除语义是把 Scene 标记为 `deprecated`，不硬删除正史结构资产。
+
 工作台 API：
 
 ```http
@@ -127,7 +132,9 @@ async def apply_structure_dedup(...)
 ```
 
 异步 AI 任务入口只解析 task meta、更新进度并委托 `OutlineAIWorkflowService`；
-facade 只保留跨模块稳定函数名和返回形状，Scene 查询/创建/清理规则由 service 层拥有。
+facade 只保留跨模块稳定函数名和返回形状。Scene 读取继续通过 facade 暴露给跨模块
+调用；Scene mutation 统一归 Workbench service 拥有，API/facade 不直接拼装
+Scene 业务规则。
 
 ## 测试
 

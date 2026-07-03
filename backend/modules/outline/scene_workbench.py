@@ -23,6 +23,7 @@ from modules.outline.schemas import (
     SceneWorkbenchItem,
     SceneWorkbenchResponse,
 )
+from modules.outline.services import SceneService
 from modules.writing.facade import list_chapter_indices
 from shared.utils import parse_uuid
 
@@ -37,6 +38,60 @@ HEALTH_DEFS = {
 class SceneWorkbenchService:
     def __init__(self) -> None:
         self.repo = SceneRepository()
+        self._scene_service = SceneService()
+
+    async def create_scene(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneCreate,
+    ) -> SceneResponse:
+        return await self._scene_service.create(db, novel_id, data)
+
+    async def update_scene(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        data: SceneUpdate,
+    ) -> SceneResponse:
+        return await self._scene_service.update(
+            db,
+            scene_id,
+            data,
+            novel_id=novel_id,
+        )
+
+    async def delete_scene(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+    ) -> None:
+        await self._scene_service.delete(db, scene_id, novel_id=novel_id)
+
+    async def reorder_scenes(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_ids: list[str],
+    ) -> dict:
+        return await self._scene_service.reorder(db, novel_id, scene_ids)
+
+    async def split_chapters_legacy(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        target_scene_id: str | None = None,
+    ) -> list[SceneResponse]:
+        contracts = await self._scene_service.split_chapters(
+            db,
+            novel_id,
+            chapter_index,
+            target_scene_id,
+        )
+        return [SceneResponse.model_validate(c.__dict__) for c in contracts]
 
     async def get_workbench(
         self,
