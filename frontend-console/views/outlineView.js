@@ -3,6 +3,20 @@
  *
  * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
  */
+import {
+  bulkResultMessage,
+  clearAllBulkSelections,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  renderSelectionHeader,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleAllBulkSelection,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import {
@@ -40,6 +54,7 @@ const outlineView = {
   _plotAutoExtractProgress: null,
   _plotAutoExtractPoller: null,
   _plotAutoExtractMeta: null,
+  _bulkSelections: {},
 
   async onEnter() {
     this._loading = true
@@ -47,6 +62,7 @@ const outlineView = {
     this._arcs = []
     this._foreshadowing = []
     this._reveals = []
+    clearAllBulkSelections(this)
 
     if (!state.currentProjectId) {
       this._loading = false
@@ -127,7 +143,7 @@ const outlineView = {
 
     html += `
       <div class="subnav">
-        <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景卡</span>
+        <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
         <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
         <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
         <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
@@ -197,13 +213,13 @@ const outlineView = {
 
   _renderScenes() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
     return `
       <div class="empty-state">
         <div class="empty-icon">&#128209;</div>
-        <p>Scene 管理已迁移到场景工作台</p>
-        <p style="color:var(--text-dim);font-size:12px;">这里保留为旧路径跳转页。</p>
+        <p>场景工作台已作为一级工作区</p>
+        <p style="color:var(--text-dim);font-size:12px;">这里保留旧路径兼容入口，点击后进入完整 Scene 管理。</p>
         <button class="btn btn-primary" data-action="open-scene-workbench">打开场景工作台</button>
       </div>
     `
@@ -336,7 +352,7 @@ const outlineView = {
 
   _renderThreads() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -350,11 +366,17 @@ const outlineView = {
     if (this._threads.length === 0) {
       return html + this._renderStructureEmptyState("剧情线", "threads")
     }
+    const scope = "outline-threads"
+    const ids = this._threads.map((item) => item.id || item.thread_id).filter(Boolean)
+    reconcileBulkSelection(this, scope, ids)
 
-    html += `
-      <table class="data-table">
+    html += renderBulkToolbar(this, scope, [
+      { action: "delete-threads", label: "批量删除", className: "btn-danger" },
+    ], { noun: "剧情线" }) + `
+      <table class="data-table table-card-list">
         <thead>
           <tr>
+            <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前剧情线")}</th>
             <th>状态</th>
             <th>名称</th>
             <th>类型</th>
@@ -374,12 +396,13 @@ const outlineView = {
       const statusClass = `badge-${safeStatus}`
       html += `
         <tr data-id="${esc(t.id || t.thread_id)}">
-          <td><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
-          <td>${esc(t.name || t.title)}</td>
-          <td style="color:var(--accent-dim);font-size:12px;">${esc(t.thread_type || "-")}</td>
-          <td>${this._renderStructureAssetBadges(t) || "-"}</td>
-          <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
-          <td>
+          <td class="selection-cell">${renderSelectionCell(this, scope, t.id || t.thread_id, `选择 ${t.name || t.title || "剧情线"}`)}</td>
+          <td data-label="状态"><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
+          <td data-label="名称">${esc(t.name || t.title)}</td>
+          <td data-label="类型" style="color:var(--accent-dim);font-size:12px;">${esc(t.thread_type || "-")}</td>
+          <td data-label="标记">${this._renderStructureAssetBadges(t) || "-"}</td>
+          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
+          <td data-label="操作">
             <button class="btn btn-sm btn-primary" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
             ${renderActionMenu(`thread-actions-${esc(t.id || t.thread_id)}`, [
               { action: "delete-thread", label: "删除", class: "danger", data: { id: t.id || t.thread_id } },
@@ -395,7 +418,7 @@ const outlineView = {
 
   _renderArcs() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -409,11 +432,17 @@ const outlineView = {
     if (this._arcs.length === 0) {
       return html + this._renderStructureEmptyState("篇章纲", "arcs")
     }
+    const scope = "outline-arcs"
+    const ids = this._arcs.map((item) => item.id || item.arc_id).filter(Boolean)
+    reconcileBulkSelection(this, scope, ids)
 
-    html += `
-      <table class="data-table">
+    html += renderBulkToolbar(this, scope, [
+      { action: "delete-arcs", label: "批量删除", className: "btn-danger" },
+    ], { noun: "篇章纲" }) + `
+      <table class="data-table table-card-list">
         <thead>
           <tr>
+            <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前篇章纲")}</th>
             <th>状态</th>
             <th>名称</th>
             <th>章节范围</th>
@@ -436,12 +465,13 @@ const outlineView = {
         : "-"
       html += `
         <tr data-id="${esc(a.id || a.arc_id)}">
-          <td><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
-          <td>${esc(a.name || a.title)}</td>
-          <td style="font-family:var(--font-mono);font-size:12px;">${esc(range)}</td>
-          <td>${this._renderStructureAssetBadges(a) || "-"}</td>
-          <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
-          <td>
+          <td class="selection-cell">${renderSelectionCell(this, scope, a.id || a.arc_id, `选择 ${a.name || a.title || "篇章纲"}`)}</td>
+          <td data-label="状态"><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
+          <td data-label="名称">${esc(a.name || a.title)}</td>
+          <td data-label="章节范围" style="font-family:var(--font-mono);font-size:12px;">${esc(range)}</td>
+          <td data-label="标记">${this._renderStructureAssetBadges(a) || "-"}</td>
+          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
+          <td data-label="操作">
             <button class="btn btn-sm btn-primary" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
             ${renderActionMenu(`arc-actions-${esc(a.id || a.arc_id)}`, [
               { action: "delete-arc", label: "删除", class: "danger", data: { id: a.id || a.arc_id } },
@@ -457,7 +487,7 @@ const outlineView = {
 
   _renderForeshadowing() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -472,16 +502,23 @@ const outlineView = {
       return html + this._renderStructureEmptyState("伏笔", "foreshadowing")
     }
 
-    let tableHtml = '<table class="data-table"><thead><tr><th>状态</th><th>描述</th><th>目标章节</th><th>标记</th><th>操作</th></tr></thead><tbody>'
+    const scope = "outline-foreshadowing"
+    const ids = this._foreshadowing.map((item) => item.id).filter(Boolean)
+    reconcileBulkSelection(this, scope, ids)
+    let tableHtml = renderBulkToolbar(this, scope, [
+      { action: "delete-foreshadowing", label: "批量删除", className: "btn-danger" },
+    ], { noun: "伏笔" })
+    tableHtml += `<table class="data-table table-card-list"><thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前伏笔")}</th><th>状态</th><th>描述</th><th>目标章节</th><th>标记</th><th>操作</th></tr></thead><tbody>`
     for (const f of this._foreshadowing) {
       const st = FORESHADOWING_STATUS_LABELS[f.status] || f.status
       const description = f.summary || f.name || "-"
       tableHtml += `<tr data-id="${esc(f.id)}">
-        <td><span class="badge badge-${esc(f.status || "planted")}">${esc(st)}</span></td>
-        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(description)}</td>
-        <td style="font-family:var(--font-mono);font-size:12px;">${f.planned_seed_chapter != null ? esc(String(f.planned_seed_chapter)) : "-"}</td>
-        <td>${this._renderStructureAssetBadges(f) || "-"}</td>
-        <td>
+        <td class="selection-cell">${renderSelectionCell(this, scope, f.id, `选择 ${description}`)}</td>
+        <td data-label="状态"><span class="badge badge-${esc(f.status || "planted")}">${esc(st)}</span></td>
+        <td data-label="描述" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(description)}</td>
+        <td data-label="目标章节" style="font-family:var(--font-mono);font-size:12px;">${f.planned_seed_chapter != null ? esc(String(f.planned_seed_chapter)) : "-"}</td>
+        <td data-label="标记">${this._renderStructureAssetBadges(f) || "-"}</td>
+        <td data-label="操作">
           <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
             ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${FORESHADOWING_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
@@ -498,7 +535,7 @@ const outlineView = {
 
   _renderReveals() {
     if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先选择项目。</p></div>'
+      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
     let html = `
@@ -513,16 +550,23 @@ const outlineView = {
       return html + this._renderStructureEmptyState("揭示", "reveals")
     }
 
-    html += '<table class="data-table"><thead><tr><th>状态</th><th>描述</th><th>揭示章节</th><th>标记</th><th>操作</th></tr></thead><tbody>'
+    const scope = "outline-reveals"
+    const ids = this._reveals.map((item) => item.id).filter(Boolean)
+    reconcileBulkSelection(this, scope, ids)
+    html += renderBulkToolbar(this, scope, [
+      { action: "delete-reveals", label: "批量删除", className: "btn-danger" },
+    ], { noun: "揭示" })
+    html += `<table class="data-table table-card-list"><thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前揭示")}</th><th>状态</th><th>描述</th><th>揭示章节</th><th>标记</th><th>操作</th></tr></thead><tbody>`
     for (const r of this._reveals) {
       const st = REVEAL_STATUS_LABELS[r.status] || r.status || "计划中"
       const revealChapter = (r.reveal_stages && r.reveal_stages[0] && r.reveal_stages[0].chapter_index) || "-"
       html += `<tr data-id="${esc(r.id)}">
-        <td><span class="badge badge-${esc(r.status || "planned")}">${esc(st)}</span></td>
-        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary || "-")}</td>
-        <td style="font-family:var(--font-mono);font-size:12px;">${revealChapter !== "-" ? esc(String(revealChapter)) : "-"}</td>
-        <td>${this._renderStructureAssetBadges(r) || "-"}</td>
-        <td>
+        <td class="selection-cell">${renderSelectionCell(this, scope, r.id, "选择揭示")}</td>
+        <td data-label="状态"><span class="badge badge-${esc(r.status || "planned")}">${esc(st)}</span></td>
+        <td data-label="描述" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary || "-")}</td>
+        <td data-label="揭示章节" style="font-family:var(--font-mono);font-size:12px;">${revealChapter !== "-" ? esc(String(revealChapter)) : "-"}</td>
+        <td data-label="标记">${this._renderStructureAssetBadges(r) || "-"}</td>
+        <td data-label="操作">
           <select class="form-select reveal-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(r.id)}">
             ${REVEAL_STATUSES.map((s) => `<option value="${s}" ${r.status === s ? "selected" : ""}>${REVEAL_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
@@ -1364,6 +1408,10 @@ const outlineView = {
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
       "open-scene-workbench": () => router.navigate("scene", null),
+      "bulk-toggle-one": (e, t) => this._toggleBulkOne(t),
+      "bulk-toggle-all": (e, t) => this._toggleBulkAll(t),
+      "bulk-clear": (_e, t) => this._clearBulkScope(t.getAttribute("data-scope")),
+      "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
       "create-thread": () => this._showCreateThreadForm(),
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),
@@ -1413,6 +1461,75 @@ const outlineView = {
         } catch (err) { toast(err.message || "更新失败", "error") }
       }
     })
+  },
+
+  _visibleIdsForBulkScope(scope) {
+    if (scope === "outline-threads") return this._threads.map((item) => item.id || item.thread_id).filter(Boolean)
+    if (scope === "outline-arcs") return this._arcs.map((item) => item.id || item.arc_id).filter(Boolean)
+    if (scope === "outline-foreshadowing") return this._foreshadowing.map((item) => item.id).filter(Boolean)
+    if (scope === "outline-reveals") return this._reveals.map((item) => item.id).filter(Boolean)
+    return []
+  },
+
+  _itemsForBulkScope(scope) {
+    const selection = getBulkSelection(this, scope)
+    if (scope === "outline-threads") return selectedItemsFrom(this._threads, selection, (item) => item.id || item.thread_id)
+    if (scope === "outline-arcs") return selectedItemsFrom(this._arcs, selection, (item) => item.id || item.arc_id)
+    if (scope === "outline-foreshadowing") return selectedItemsFrom(this._foreshadowing, selection)
+    if (scope === "outline-reveals") return selectedItemsFrom(this._reveals, selection)
+    return []
+  },
+
+  _toggleBulkOne(input) {
+    toggleBulkSelection(this, input.getAttribute("data-scope"), input.getAttribute("data-id"), input.checked)
+    router.refresh()
+  },
+
+  _toggleBulkAll(input) {
+    const scope = input.getAttribute("data-scope")
+    toggleAllBulkSelection(this, scope, this._visibleIdsForBulkScope(scope), input.checked)
+    router.refresh()
+  },
+
+  _clearBulkScope(scope) {
+    clearBulkSelection(this, scope)
+    router.refresh()
+  },
+
+  _runBulkAction(scope, action) {
+    const items = this._itemsForBulkScope(scope)
+    if (!items.length) {
+      toast("请先选择要处理的项目", "warning")
+      return
+    }
+    const labels = {
+      "delete-threads": "批量删除剧情线",
+      "delete-arcs": "批量删除篇章纲",
+      "delete-foreshadowing": "批量删除伏笔",
+      "delete-reveals": "批量删除揭示",
+    }
+    confirmAction(`确定对选中的 ${items.length} 项执行「${labels[action] || "批量删除"}」吗？`, async () => {
+      await this._executeBulkAction(scope, action, items)
+    }, "确认删除")
+  },
+
+  async _executeBulkAction(scope, action, items) {
+    const labels = {
+      "delete-threads": "批量删除剧情线",
+      "delete-arcs": "批量删除篇章纲",
+      "delete-foreshadowing": "批量删除伏笔",
+      "delete-reveals": "批量删除揭示",
+    }
+    const result = await runBulkAction(items, async (item) => {
+      if (action === "delete-threads") await api.outline.deleteThread(item.id || item.thread_id, state.currentProjectId)
+      else if (action === "delete-arcs") await api.outline.deleteArc(item.id || item.arc_id, state.currentProjectId)
+      else if (action === "delete-foreshadowing") await api.outline.deleteForeshadowing(item.id, state.currentProjectId)
+      else if (action === "delete-reveals") await api.outline.deleteReveal(item.id, state.currentProjectId)
+    })
+    toast(bulkResultMessage(result, labels[action] || "批量删除", (item) => item.name || item.title || item.summary || item.secret_summary || item.id), result.failed.length ? "warning" : "success")
+    clearBulkSelection(this, scope)
+    await this.onEnter()
+    router.refresh()
   },
 }
 

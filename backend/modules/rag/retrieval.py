@@ -124,10 +124,44 @@ class RetrievalOrchestrator:
             limit=top_k * 2,
         )
 
-        # 去重（同一 chunk 可能被多个关键词匹配）
+        candidate_chunks = list(keyword_chunks)
+
+        vector_search = getattr(self._repo, "vector_search", None)
+        if query_embedding and vector_search is not None:
+            vector_chunks = await vector_search(
+                db,
+                novel_id,
+                query_embedding,
+                entity_ids=entity_ids,
+                character_ids=character_ids,
+                thread_ids=thread_ids,
+                chapter_index=chapter_index,
+                visibility=visibility,
+                top_k=top_k * 2,
+            )
+            candidate_chunks.extend(chunk for chunk, _score in vector_chunks)
+
+        has_metadata_filter = bool(
+            entity_ids or character_ids or thread_ids or chapter_index is not None
+        )
+        if has_metadata_filter and not relation_only:
+            metadata_chunks = await self._repo.keyword_search(
+                db,
+                novel_id,
+                "",
+                entity_ids=entity_ids,
+                character_ids=character_ids,
+                thread_ids=thread_ids,
+                chapter_index=chapter_index,
+                visibility=visibility,
+                limit=top_k * 2,
+            )
+            candidate_chunks.extend(metadata_chunks)
+
+        # 去重（同一 chunk 可能被多个召回路径匹配）
         seen_ids: set[uuid.UUID] = set()
         unique_chunks: list[RagChunk] = []
-        for chunk in keyword_chunks:
+        for chunk in candidate_chunks:
             if chunk.id not in seen_ids:
                 seen_ids.add(chunk.id)
                 unique_chunks.append(chunk)
@@ -221,6 +255,14 @@ class RetrievalOrchestrator:
             if kw_check > 0:
                 has_meaningful_match = True
                 break
+            if query_embedding:
+                vector_check = self._scorer.vector_score(
+                    chunk.embedding,
+                    query_embedding,
+                )
+                if vector_check > 0:
+                    has_meaningful_match = True
+                    break
 
         if not has_meaningful_match and mode == "extraction":
             has_meaningful_match = any(

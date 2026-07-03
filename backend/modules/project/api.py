@@ -171,6 +171,7 @@ async def api_restore_project(
 async def api_permanent_delete_project(
     db: DbSession,
     project_id: str,
+    confirmed: bool = Query(default=False, description="二次确认永久删除"),
 ) -> None:
     """永久删除项目（级联删除所有关联数据，不可恢复）"""
-    await _service.permanent_delete_project(db, project_id)
+    await _service.permanent_delete_project(db, project_id, confirmed=confirmed)

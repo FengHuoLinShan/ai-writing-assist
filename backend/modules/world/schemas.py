@@ -110,7 +110,7 @@ class WorldEntityExtractRequest(BaseModel):
     """手动世界对象补抽请求。"""
 
     novel_id: str
-    context_confirmation_id: str
+    context_confirmation_id: str | None = None
     start_chapter: int = Field(..., ge=1)
     end_chapter: int = Field(..., ge=1)
     batch_size: int = Field(default=5, ge=1, le=50)
@@ -131,6 +131,7 @@ class WorldAliasRelationExtractRequest(BaseModel):
     """手动别名/关系补抽请求。"""
 
     novel_id: str
+    context_confirmation_id: str
     start_chapter: int = Field(..., ge=1)
     end_chapter: int = Field(..., ge=1)
     scene_ids: list[str] | None = Field(default=None)

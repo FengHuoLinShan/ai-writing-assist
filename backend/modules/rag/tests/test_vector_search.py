@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.engine.default import DefaultDialect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.repositories import RagChunkRepository
@@ -65,6 +66,41 @@ async def test_vector_search_returns_empty_without_pgvector(
 
     results = await repo.vector_search(db_session, nid, [0.1] * 4, top_k=5)
     assert results == [], "无 pgvector 时应返回空列表"
+
+
+@pytest.mark.asyncio
+async def test_vector_search_orders_pgvector_inner_product_distance_ascending():
+    """pgvector <#> 返回距离，越小越相关，因此 SQL 必须升序。"""
+    repo = RagChunkRepository()
+    statements = []
+
+    class _PgDialect(DefaultDialect):
+        name = "postgresql"
+
+    class _Bind:
+        dialect = _PgDialect()
+
+    class _Result:
+        def all(self):
+            return []
+
+    class _Db:
+        def get_bind(self):
+            return _Bind()
+
+        async def execute(self, statement, params=None):
+            statements.append(statement)
+            return _Result()
+
+    await repo.vector_search(  # type: ignore[arg-type]
+        _Db(),
+        uuid.uuid4(),
+        [0.1, 0.2],
+        top_k=3,
+    )
+
+    query_sql = str(statements[1]).lower()
+    assert "order by score asc" in query_sql
 
 
 @pytest.mark.asyncio

@@ -51,6 +51,82 @@ class TestRetrievalOrchestratorDedup:
 
 class TestRetrievalOrchestratorInjected:
     @pytest.mark.asyncio
+    async def test_retrieve_includes_vector_only_candidates(self) -> None:
+        fake_chunk = type(
+            "Chunk",
+            (),
+            {
+                "id": uuid.uuid4(),
+                "novel_id": uuid.uuid4(),
+                "source_type": "chapter_text",
+                "source_id": None,
+                "chapter_index": 1,
+                "chunk_index": 0,
+                "start_offset": 0,
+                "end_offset": 12,
+                "char_count": 12,
+                "text": "完全不同的片段文本",
+                "summary": None,
+                "entity_ids": [],
+                "character_ids": [],
+                "thread_ids": [],
+                "visibility": "author_only",
+                "importance": 0.5,
+                "index_version": "cn-novel-v1",
+                "embedding_status": "succeeded",
+                "embedding_error": None,
+                "index_warnings": [],
+                "meta": {},
+                "embedding": [1.0, 0.0],
+            },
+        )()
+
+        repo = type(
+            "Repo",
+            (),
+            {
+                "has_embeddings": AsyncMock(return_value=True),
+                "keyword_search": AsyncMock(return_value=[]),
+                "vector_search": AsyncMock(return_value=[(fake_chunk, 0.99)]),
+            },
+        )()
+
+        class _Metrics:
+            def record(self, **kwargs) -> None:
+                pass
+
+        async def _fake_expand(db, novel_id, query, **kwargs):
+            return query
+
+        expander = QueryExpander(term_loader=lambda db, nid: [])
+        expander.expand = _fake_expand  # type: ignore[method-assign]
+
+        orch = RetrievalOrchestrator(
+            repo=repo,  # type: ignore[arg-type]
+            query_expander=expander,
+            embedder_fn=AsyncMock(return_value=[1.0, 0.0]),
+            metrics=lambda: _Metrics(),
+            circuit_breaker=lambda: type(
+                "CB",
+                (),
+                {
+                    "allow_request": lambda self: True,
+                    "record_success": lambda self: None,
+                    "record_failure": lambda self: None,
+                },
+            )(),
+        )
+
+        bundle = await orch.retrieve(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "语义相关但无关键词",
+        )
+
+        assert [chunk.id for chunk in bundle.chunks] == [str(fake_chunk.id)]
+        repo.vector_search.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_retrieve_uses_injected_embedder_and_metrics(self) -> None:
         fake_chunk = type(
             "Chunk",

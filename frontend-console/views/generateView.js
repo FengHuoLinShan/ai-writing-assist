@@ -116,6 +116,11 @@ const generateView = {
     bindWorkspaceClick(this, {
       "select-type": (_e, t) => this._selectType(t.getAttribute("data-type")),
       "start-generate": () => this._startGenerate(),
+      "open-generated-destination": (_e, t) => {
+        const view = t.getAttribute("data-target-view")
+        const subview = t.getAttribute("data-target-subview") || null
+        if (view) router.navigate(view, subview)
+      },
     })
   },
 
@@ -171,14 +176,43 @@ const generateView = {
     }[type] || "完成后可在对应模块查看结果。"
   },
 
+  _destinationActionsFor(type) {
+    return {
+      world_character: [
+        { label: "查看候选", view: "world", subview: "candidates" },
+        { label: "查看世界对象", view: "world", subview: "objects" },
+      ],
+      plot: [
+        { label: "查看大纲", view: "outline", subview: "threads" },
+        { label: "查看伏笔", view: "outline", subview: "foreshadowing" },
+      ],
+      chapter: [
+        { label: "查看大纲", view: "outline", subview: "threads" },
+        { label: "去写作台", view: "writing", subview: "" },
+      ],
+    }[type] || [{ label: "去写作台", view: "writing", subview: "" }]
+  },
+
   _renderTaskProgress(progress, type) {
     const resultEl = document.getElementById("generate-result")
     if (!resultEl || !progress) return
     const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节卡" }
+    const actionHtml = progress.done ? `
+      <div class="generate-result-actions">
+        ${this._destinationActionsFor(type).map((action) => `
+          <button
+            class="btn btn-sm"
+            data-action="open-generated-destination"
+            data-target-view="${esc(action.view)}"
+            data-target-subview="${esc(action.subview || "")}"
+          >${esc(action.label)}</button>
+        `).join("")}
+      </div>
+    ` : ""
     resultEl.innerHTML = renderWorkflowCard(progress, {
       title: `生成${typeNames[type] || "内容"}`,
       destinationLabel: this._destinationHintFor(type),
-    })
+    }) + actionHtml
   },
 
   _startTaskPolling(taskId, workflowType, type) {

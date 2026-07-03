@@ -47,6 +47,7 @@ class CharacterService(
     # knowledge 业务方法不属 base 5 verb, 显式注入第二个 repo
     def __init__(self) -> None:
         self._knowledge_repo = CharacterKnowledgeRepository()
+        self._entity_repo = CoreEntityRepository()
 
     # ============================================================
     # 5 verb 继承自 base
@@ -62,9 +63,12 @@ class CharacterService(
         """创建人物前校验关联 CoreEntity 存在且属于当前项目。"""
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(data.entity_id, "entity_id")
-        entity_repo = CoreEntityRepository()
-        entity = await entity_repo.get(db, eid)
-        if entity is None or entity.novel_id != nid:
+        entity = await self._entity_repo.get(db, eid)
+        if (
+            entity is None
+            or entity.novel_id != nid
+            or getattr(entity, "status", None) == "deprecated"
+        ):
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail=f"CoreEntity {data.entity_id} not found",
@@ -300,12 +304,12 @@ class CharacterService(
     ) -> str | None:
         """按核心实体 ID 查 character entity_id。返 str 或 None。
 
-        注: novel_id 接收但不传给 repo — character PK 是 entity_id,
-        repo.get 不需 novel_id 过滤。novel_id 参数保留是为了 facade 跨模块契约稳定。
+        novel_id 是跨模块契约的一部分，必须用于归属校验。
         """
+        nid = parse_uuid(novel_id, "novel_id")
         weid = parse_uuid(world_entity_id, "entity_id")
         char = await self.repo.get(db, weid)
-        if char is None:
+        if char is None or char.novel_id != nid:
             return None
         return str(char.entity_id)
 
@@ -329,8 +333,22 @@ class CharacterService(
         chapter_index: int,
     ) -> None:
         """更新 character 的位置元数据。"""
+        nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(character_id, "character_id")
         loc_id = parse_uuid(location_id, "location_id")
+        char = await self.repo.get(db, cid)
+        if char is None or char.novel_id != nid:
+            self._raise_404(character_id)
+        location = await self._entity_repo.get(db, loc_id)
+        if (
+            location is None
+            or location.novel_id != nid
+            or getattr(location, "status", None) == "deprecated"
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Location not found in this novel",
+            )
         await self.repo.update_character_meta_location(
             db,
             cid,
@@ -357,5 +375,9 @@ class CharacterService(
         character_id: str,
     ) -> str | None:
         """查 character 的 location_id, 返 str 或 None。"""
+        nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(character_id, "character_id")
+        char = await self.repo.get(db, cid)
+        if char is None or char.novel_id != nid:
+            return None
         return await self.repo.get_character_location_id(db, cid)

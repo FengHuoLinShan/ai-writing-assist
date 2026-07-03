@@ -177,8 +177,8 @@ class TestWorldEntityCRUD:
         assert data["summary"] == "仅更新摘要"
         assert data["name"] == "值夜者"  # 原名称不变
 
-    async def test_world_entity_delete_removes_entity_and_returns_404(self, ctx):
-        """删除实体后再次获取应返回 404"""
+    async def test_world_entity_delete_deprecates_entity(self, ctx):
+        """删除实体后保留记录并标记为 deprecated"""
         client, pid, _ = ctx
 
         # Arrange
@@ -198,7 +198,8 @@ class TestWorldEntityCRUD:
         get_resp = await client.get(f"/api/world/entities/{eid}?novel_id={pid}")
 
         # Assert
-        assert get_resp.status_code == 404
+        assert get_resp.status_code == 200
+        assert get_resp.json()["status"] == "deprecated"
 
 
 class TestRelationshipCRUD:
@@ -326,7 +327,7 @@ class TestWorldCandidateAndGraphFlows:
         submit_resp = await client.post(
             "/api/tasks",
             json={
-                "task_type": "world_entity_extraction",
+                "task_type": "publish_chapter",
                 "meta": {
                     "novel_id": pid,
                     "start_chapter": 1,
@@ -343,12 +344,15 @@ class TestWorldCandidateAndGraphFlows:
 
         # Act — 查询任务详情
         task_id = data["task_id"]
-        status_resp = await client.get(f"/api/tasks/{task_id}")
+        status_resp = await client.get(
+            f"/api/tasks/{task_id}",
+            params={"novel_id": pid},
+        )
 
         # Assert
         assert status_resp.status_code == 200
         status_data = status_resp.json()
-        assert status_data["task_type"] == "world_entity_extraction"
+        assert status_data["task_type"] == "publish_chapter"
         assert status_data["status"] in ("pending", "running", "completed", "failed")
 
     async def test_world_entity_related_graph_returns_list_with_expected_fields(

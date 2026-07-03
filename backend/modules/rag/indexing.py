@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -254,14 +255,16 @@ class IndexingService:
         scenes_for_chapter = _scenes_for_chapter(scenes, chapter_index)
 
         created_chunks: list[RagChunk] = []
+        reused_old_ids: set[uuid.UUID] = set()
         embedding_failed_count = 0
 
         for tag, i1, i2, j1, j2 in opcodes:
             if tag == "equal":
-                for (start, end), chunk in old_by_offset.items():
+                for (start, end), chunk in list(old_by_offset.items()):
                     if start >= i1 and end <= i2:
                         created_chunks.append(chunk)
-                        del old_by_offset[(start, end)]
+                        reused_old_ids.add(chunk.id)
+                        old_by_offset.pop((start, end), None)
 
             elif tag in ("replace", "insert"):
                 new_text = new_content[j1:j2]
@@ -305,8 +308,8 @@ class IndexingService:
                     chunk = await self._repo.create(db, novel_id, chunk_data)
                     created_chunks.append(chunk)
 
-        for (start, end), chunk in old_by_offset.items():
-            if chunk.id not in {c.id for c in created_chunks}:
+        for chunk in old_by_offset.values():
+            if chunk.id not in reused_old_ids:
                 await self._repo.delete(db, chunk.id)
 
         await db.flush()
@@ -339,3 +342,130 @@ class IndexingService:
             embedding_failed_count=embedding_failed_count,
             chunks_created_ids=[str(c.id) for c in created_chunks],
         )
+
+    async def retry_embeddings(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+        statuses: list[str] | None = None,
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> dict:
+        """Retry failed or pending chunk embeddings for one novel."""
+        started_at = time.monotonic()
+        allowed_statuses = {"failed", "pending_vectorization"}
+        retry_statuses = [
+            status for status in (statuses or ["failed", "pending_vectorization"])
+            if status in allowed_statuses
+        ]
+        if not retry_statuses:
+            retry_statuses = ["failed", "pending_vectorization"]
+
+        initial_total = await self._repo.count_retryable_embeddings(
+            db,
+            novel_id,
+            statuses=retry_statuses,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
+
+        total = initial_total
+        succeeded = 0
+        failed = 0
+        warnings: list[str] = []
+
+        from modules.rag.metrics import get_metrics
+
+        if initial_total == 0:
+            if progress_callback is not None:
+                progress_callback(1.0)
+            await db.flush()
+            get_metrics().record_embedding_retry(
+                total=0,
+                failed=0,
+                latency_ms=(time.monotonic() - started_at) * 1000,
+            )
+            return {
+                "total": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "remaining_retryable_count": 0,
+                "warnings": [],
+            }
+
+        from infrastructure.llm.client import LLMClient
+
+        llm = LLMClient()
+        while True:
+            candidates = await self._repo.find_embedding_retry_candidates(
+                db,
+                novel_id,
+                statuses=retry_statuses,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+            if not candidates:
+                break
+
+            try:
+                texts = [chunk.text for chunk in candidates]
+                embeddings = await llm.generate_embedding(texts)
+                if not (
+                    isinstance(embeddings, list)
+                    and len(embeddings) == len(candidates)
+                ):
+                    raise ValueError("embedding 返回格式异常")
+                validated_embeddings: list[list[float]] = []
+                for embedding in embeddings:
+                    if not (
+                        isinstance(embedding, list)
+                        and embedding
+                        and isinstance(embedding[0], float)
+                    ):
+                        raise ValueError("embedding 返回格式异常")
+                    validated_embeddings.append(embedding)
+                for chunk, embedding in zip(candidates, validated_embeddings):
+                    await self._repo.update_embedding(db, chunk.id, embedding)
+                    chunk.embedding_status = "succeeded"
+                    chunk.embedding_error = None
+                    chunk.index_warnings = []
+                    succeeded += 1
+                if progress_callback is not None:
+                    progress_callback(min(1.0, succeeded / max(initial_total, 1)))
+                await db.flush()
+            except Exception as exc:
+                error = str(exc)
+                failed += len(candidates)
+                warnings.append(f"embedding 重试失败: {error[:200]}")
+                for chunk in candidates:
+                    await self._repo.mark_embedding_failed(db, chunk.id, error)
+                await db.flush()
+                break
+
+        remaining_retryable_count = await self._repo.count_retryable_embeddings(
+            db,
+            novel_id,
+            statuses=retry_statuses,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
+        if remaining_retryable_count == 0:
+            if progress_callback is not None:
+                progress_callback(1.0)
+            await db.flush()
+
+        get_metrics().record_embedding_retry(
+            total=total,
+            failed=failed,
+            latency_ms=(time.monotonic() - started_at) * 1000,
+        )
+
+        return {
+            "total": total,
+            "succeeded": succeeded,
+            "failed": failed,
+            "remaining_retryable_count": remaining_retryable_count,
+            "warnings": warnings,
+        }

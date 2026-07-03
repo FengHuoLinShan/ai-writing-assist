@@ -7,7 +7,7 @@
  * - mapView 列表渲染（空列表、有地图列表、XSS 转义）
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { resetState, clearDocument, createCanvasMock, renderHtml } from "./helpers.js"
+import { resetState, clearDocument, createCanvasMock, renderHtml, autoConfirm } from "./helpers.js"
 import {
   hexToPixel,
   pixelToHex,
@@ -1290,5 +1290,25 @@ describe("mapHexRenderer candidate and context layers", () => {
     ], 30, 0, 0)
 
     expect(ctx._calls.beginPath).toBe(2)
+  })
+})
+
+describe("mapView 批量地图操作", () => {
+  it("批量删除地图调用现有删除 API", async () => {
+    state.currentProjectId = "p1"
+    mapView._maps = [{ id: "m1", name: "主地图" }, { id: "m2", name: "地下城" }]
+    mapView._bulkSelections = { "map-list": new Set(["m1", "m2"]) }
+    api.world.deleteMap.mockResolvedValue({})
+    vi.spyOn(mapView, "_loadMaps").mockResolvedValue()
+    vi.spyOn(mapView, "_render").mockImplementation(() => {})
+    autoConfirm()
+
+    await mapView._runMapBulkAction("delete-maps")
+
+    await vi.waitFor(() => {
+      expect(api.world.deleteMap).toHaveBeenCalledWith("m1", "p1")
+      expect(api.world.deleteMap).toHaveBeenCalledWith("m2", "p1")
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+    })
   })
 })

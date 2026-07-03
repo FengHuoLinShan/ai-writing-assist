@@ -23,6 +23,7 @@ from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.providers import get_provider
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.retry import retry_with_backoff
 from infrastructure.llm.schemas import (
     LLMCallRequest,
@@ -233,6 +234,7 @@ class LLMClient:
                 return schema.model_validate(data)
             except json.JSONDecodeError as e:
                 raw_content = response.content if locals().get("response") else ""
+                redacted_raw_content = redact_diagnostic(raw_content)
                 finish_reason = getattr(response, "finish_reason", "")
                 completion_tokens = getattr(response.usage, "completion_tokens", 0)
                 max_tokens = req.max_tokens
@@ -251,7 +253,7 @@ class LLMClient:
                         f"kind={error_kind}): {e}"
                     ),
                     provider=self._provider.name,
-                    raw_response=raw_content,
+                    raw_response=redacted_raw_content,
                 )
                 logger.warning(
                     (
@@ -261,7 +263,7 @@ class LLMClient:
                     ),
                     attempt + 1,
                     max_fix_attempts + 1,
-                    e,
+                    redact_diagnostic(e),
                     finish_reason,
                     completion_tokens,
                     max_tokens,
@@ -311,7 +313,7 @@ class LLMClient:
 
         raw_response = ""
         if locals().get("response") is not None:
-            raw_response = getattr(response, "content", "")
+            raw_response = redact_diagnostic(getattr(response, "content", ""))
         detail = f": {last_error}" if last_error is not None else ""
         raise LLMInvalidResponseError(
             f"All {max_fix_attempts + 1} structured output attempts failed{detail}",

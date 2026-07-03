@@ -1,6 +1,20 @@
 /**
  * 世界对象视图
  */
+import {
+  bulkResultMessage,
+  clearAllBulkSelections,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  renderSelectionHeader,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleAllBulkSelection,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
 import {
   clearActiveWorkflow,
@@ -34,12 +48,17 @@ const worldView = {
   /** @type {Array} */
   _batches: [],
 
+  _relations: [],
+  _aliases: [],
+  _bulkSelections: {},
+
   _total: 0,
   _entitiesLoadError: null,
 
   _filters: { ...WORLD_FILTER_DEFAULTS },
 
   _advancedFiltersOpen: false,
+  _objectViewMode: "table",
 
   _entityTypes: [
     { value: "character", label: "人物" },
@@ -78,7 +97,10 @@ const worldView = {
     this._entities = []
     this._candidates = []
     this._batches = []
+    this._relations = []
+    this._aliases = []
     this._total = 0
+    clearAllBulkSelections(this)
 
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
@@ -529,6 +551,10 @@ const worldView = {
           <div class="empty-icon">&#127758;</div>
           <p>还没有世界对象。</p>
           <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
+          <div class="actions">
+            <button class="btn btn-primary" data-action="toggle-extract">自动提取世界对象</button>
+            <button class="btn" data-action="new">手动新建对象</button>
+          </div>
         </div>
         `}
       `
@@ -548,6 +574,7 @@ const worldView = {
     `
 
     html += this._renderFilters()
+    html += this._renderObjectViewToggle()
 
     // 判断是否有自动入库批次
     const hasBatches = this._batches && this._batches.length > 0
@@ -585,7 +612,7 @@ const worldView = {
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           <span style="color:var(--accent);">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
         </summary>`
-        html += this._renderEntityTable(autoEntities, { showNewBadge: true })
+        html += this._renderEntityCollection(autoEntities, { showNewBadge: true })
         html += `</details></div>`
       }
 
@@ -595,12 +622,11 @@ const worldView = {
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           其他对象 — ${manualEntities.length} 个
         </summary>`
-        html += this._renderEntityTable(manualEntities, { showNewBadge: false })
+        html += this._renderEntityCollection(manualEntities, { showNewBadge: false })
         html += `</details>`
       }
     } else {
-      // 没有自动入库记录，用普通表格
-      html += this._renderEntityTable(this._entities, { showNewBadge: false })
+      html += this._renderEntityCollection(this._entities, { showNewBadge: false })
     }
 
     html += this._renderPagination()
@@ -649,6 +675,21 @@ const worldView = {
     `
   },
 
+  _renderObjectViewToggle() {
+    return `
+      <div class="world-object-view-toggle" aria-label="对象库视图">
+        <button class="btn btn-sm ${this._objectViewMode === "table" ? "btn-primary" : ""}" data-action="set-object-view" data-view-mode="table">表格</button>
+        <button class="btn btn-sm ${this._objectViewMode === "card" ? "btn-primary" : ""}" data-action="set-object-view" data-view-mode="card">卡片</button>
+      </div>
+    `
+  },
+
+  _renderEntityCollection(entities, options) {
+    return this._objectViewMode === "card"
+      ? this._renderEntityCards(entities, options)
+      : this._renderEntityTable(entities, options)
+  },
+
   _renderPagination() {
     if (this._total <= this._filters.limit) return ""
     const currentPage = Math.floor(this._filters.skip / this._filters.limit) + 1
@@ -674,9 +715,13 @@ const worldView = {
   },
 
   _renderEntityTable(entities, { showNewBadge }) {
-    let html = `<table class="data-table" style="border-top:none;">
+    const scope = "world-objects"
+    const ids = entities.map((entity) => this._entityId(entity))
+    reconcileBulkSelection(this, scope, ids)
+    let html = `<table class="data-table table-card-list" style="border-top:none;">
       <thead>
         <tr>
+          <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前页对象")}</th>
           <th>状态</th>
           <th>类型</th>
           <th>名称</th>
@@ -699,32 +744,118 @@ const worldView = {
       const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
       const canMerge = e.status === "draft" || e.status === "candidate"
       const canPromote = e.status === "draft" || e.status === "candidate"
+      const id = this._entityId(e)
       html += `
-        <tr data-id="${esc(e.id || e.entity_id)}" class="clickable">
-          <td><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
-          <td style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
-          <td>${esc(e.name)}${isNew}</td>
-          <td style="color:var(--text-muted);font-size:12px;">${esc(sourceText[e.source] || e.source || "-")}</td>
-          <td style="color:${e.needs_review ? "var(--warning)" : "var(--text-muted)"};font-size:12px;">${reviewText}</td>
-          <td>${esc(e.importance || e.importance_score || "-")}</td>
-          <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
-          <td>
-            <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(e.id || e.entity_id)}">编辑</button>
-            ${renderActionMenu(`entity-actions-${esc(e.id || e.entity_id)}`, [
-              { action: "open-entity-map", label: "打开地图", data: { id: e.id || e.entity_id } },
-              ...(canPromote ? [{ action: "promote-entity", label: "提升为正史", data: { id: e.id || e.entity_id } }] : []),
-              ...(canMerge ? [{ action: "merge-entity", label: "合并", data: { id: e.id || e.entity_id } }] : []),
-              { action: "rollback-entity", label: "回滚", data: { id: e.id || e.entity_id } },
-              ...(isCharacter ? [{ action: "knowledge-entity", label: "知识", data: { id: e.id || e.entity_id } }] : []),
-              { action: "delete-entity", label: "删除", class: "danger", data: { id: e.id || e.entity_id } },
-            ])}
+        <tr data-id="${esc(id)}" class="clickable">
+          <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择 ${e.name || "对象"}`)}</td>
+          <td data-label="状态"><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
+          <td data-label="类型" style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
+          <td data-label="名称">${esc(e.name)}${isNew}</td>
+          <td data-label="来源" style="color:var(--text-muted);font-size:12px;">${esc(sourceText[e.source] || e.source || "-")}</td>
+          <td data-label="复核" style="color:${e.needs_review ? "var(--warning)" : "var(--text-muted)"};font-size:12px;">${reviewText}</td>
+          <td data-label="重要度">${esc(e.importance || e.importance_score || "-")}</td>
+          <td data-label="摘要" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
+          <td data-label="操作">
+            <div class="row-actions">
+              <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">编辑</button>
+              ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}">合并</button>` : ""}
+              ${renderActionMenu(`entity-actions-${esc(id)}`, [
+                { action: "open-entity-map", label: "打开地图", data: { id } },
+                ...(canPromote ? [{ action: "promote-entity", label: "提升为正史", data: { id } }] : []),
+                { action: "rollback-entity", label: "回滚", data: { id } },
+                ...(isCharacter ? [{ action: "knowledge-entity", label: "知识", data: { id } }] : []),
+                { action: "delete-entity", label: "删除", class: "danger", data: { id } },
+              ])}
+            </div>
           </td>
         </tr>
       `
     }
 
     html += '</tbody></table>'
+    html = renderBulkToolbar(this, scope, [
+      { action: "promote-entities", label: "批量提升为正史", className: "btn-primary" },
+      { action: "delete-entities", label: "批量删除", className: "btn-danger" },
+    ], { noun: "对象", hint: "仅作用于当前页选中对象" }) + html
     return html
+  },
+
+  _renderEntityCards(entities, { showNewBadge }) {
+    const scope = "world-objects"
+    const ids = entities.map((entity) => this._entityId(entity))
+    reconcileBulkSelection(this, scope, ids)
+    const cards = entities.map((entity) => this._renderEntityCard(entity, { showNewBadge })).join("")
+    return renderBulkToolbar(this, scope, [
+      { action: "promote-entities", label: "批量提升为正史", className: "btn-primary" },
+      { action: "delete-entities", label: "批量删除", className: "btn-danger" },
+    ], { noun: "对象", hint: "仅作用于当前页选中对象" }) + `
+      <div class="world-object-card-grid">
+        ${cards}
+      </div>
+    `
+  },
+
+  _renderEntityCard(entity, { showNewBadge }) {
+    const scope = "world-objects"
+    const id = this._entityId(entity)
+    const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃", merged: "已合并" }
+    const typeLabel = this._entityTypes.find((item) => item.value === entity.entity_type)?.label || entity.entity_type || "-"
+    const statusClass = `badge-${entity.status || "canonical"}`
+    const isNew = showNewBadge ? '<span class="badge badge-new">新</span>' : ""
+    const canMerge = entity.status === "draft" || entity.status === "candidate"
+    const canPromote = entity.status === "draft" || entity.status === "candidate"
+    const isCharacter = entity.entity_type === "character" || entity.entity_type === "character_ref"
+    return `
+      <article class="world-object-card" data-id="${esc(id)}">
+        <div class="world-object-card__top">
+          <div class="world-object-card__avatar" style="background:${esc(this._entityAvatarColor(entity))};">
+            ${esc((entity.name || "?").slice(0, 1))}
+          </div>
+          <div class="world-object-card__identity">
+            <h3>${esc(entity.name || "未命名对象")} ${isNew}</h3>
+            <div class="world-object-card__meta">
+              <span>${esc(typeLabel)}</span>
+              <span class="badge ${statusClass}">${statusText[entity.status] || esc(entity.status || "-")}</span>
+            </div>
+          </div>
+          <div class="world-object-card__selection">
+            ${renderSelectionCell(this, scope, id, `选择 ${entity.name || "对象"}`)}
+          </div>
+        </div>
+        <p class="world-object-card__summary">${esc(entity.summary || entity.public_info || "暂无摘要")}</p>
+        <div class="world-object-card__facts">
+          <span>来源：${esc({ deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }[entity.source] || entity.source || "-")}</span>
+          <span>${entity.needs_review ? "需复核" : "已复核"}</span>
+          <span>重要度：${esc(entity.importance || entity.importance_score || "-")}</span>
+        </div>
+        <div class="world-object-card__actions">
+          <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">编辑</button>
+          <button class="btn btn-sm" data-action="open-entity-map" data-id="${esc(id)}">地图</button>
+          ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}">合并</button>` : ""}
+          ${renderActionMenu(`entity-card-actions-${esc(id)}`, [
+            ...(canPromote ? [{ action: "promote-entity", label: "提升为正史", data: { id } }] : []),
+            { action: "rollback-entity", label: "回滚", data: { id } },
+            ...(isCharacter ? [{ action: "knowledge-entity", label: "知识", data: { id } }] : []),
+            { action: "delete-entity", label: "删除", class: "danger", data: { id } },
+          ])}
+        </div>
+      </article>
+    `
+  },
+
+  _entityAvatarColor(entity) {
+    const source = `${entity?.entity_type || ""}:${entity?.name || ""}`
+    let hash = 0
+    for (let i = 0; i < source.length; i++) {
+      hash = ((hash << 5) - hash) + source.charCodeAt(i)
+      hash |= 0
+    }
+    const hue = Math.abs(hash) % 360
+    return `hsl(${hue} 58% 38%)`
+  },
+
+  _entityId(entity) {
+    return entity?.id || entity?.entity_id || ""
   },
 
   _candidateMeta(candidate) {
@@ -743,6 +874,12 @@ const worldView = {
       || ""
   },
 
+  _candidateTargetId(candidate) {
+    return candidate?.suggested_existing_entity_id
+      || this._candidateMeta(candidate).suggested_existing_entity_id
+      || ""
+  },
+
   _renderCandidatesList() {
     if (this._candidates.length === 0) {
       return `
@@ -753,6 +890,9 @@ const worldView = {
         </div>
       `
     }
+    const scope = "world-candidates"
+    const ids = this._candidates.map((candidate) => this._entityId(candidate))
+    reconcileBulkSelection(this, scope, ids)
 
     const actionMap = {
       create_new: "创建新对象",
@@ -767,9 +907,10 @@ const worldView = {
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
         以下是从文本中抽取的候选对象。请检查并决定如何处理。
       </p>
-      <table class="data-table">
+      <table class="data-table table-card-list">
         <thead>
           <tr>
+            <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前候选")}</th>
             <th>名称</th>
             <th>类型</th>
             <th>重要度</th>
@@ -795,20 +936,25 @@ const worldView = {
       const canMerge = ["link_to_existing", "alias_of_existing", "merge_with_existing"].includes(action)
       html += `
         <tr data-id="${esc(id)}">
-          <td>${esc(c.name)}</td>
-          <td style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
-          <td>${esc(c.importance || c.importance_score || "-")}</td>
-          <td style="color:var(--warning)">${esc(actionLabel)}</td>
-          <td style="display:flex;gap:4px;flex-wrap:wrap;">
+          <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择 ${c.name || "候选"}`)}</td>
+          <td data-label="名称">${esc(c.name)}</td>
+          <td data-label="类型" style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
+          <td data-label="重要度">${esc(c.importance || c.importance_score || "-")}</td>
+          <td data-label="建议动作"><span class="candidate-action-badge candidate-action-badge--${esc(action)}">${esc(actionLabel)}</span></td>
+          <td data-label="操作"><div class="row-actions">
             ${canAccept ? `<button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(id)}">确认</button>` : ""}
             ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}" data-target-name="${esc(targetName)}">合并到</button>` : ""}
             <button class="btn btn-sm ${isTemporary ? "" : "btn-danger"}" data-action="ignore-candidate" data-id="${esc(id)}">${isTemporary ? "设为临时" : "忽略"}</button>
-          </td>
+          </div></td>
         </tr>
       `
     }
 
     html += '</tbody></table>'
+    html = renderBulkToolbar(this, scope, [
+      { action: "accept-candidates", label: "批量确认", className: "btn-primary" },
+      { action: "ignore-candidates", label: "批量忽略/临时", className: "btn-danger" },
+    ], { noun: "候选", hint: "合并候选需逐条确认目标对象" }) + html
     return html
   },
 
@@ -826,19 +972,28 @@ const worldView = {
     try {
       const data = await api.world.listRelationships({ novel_id: state.currentProjectId })
       const rels = data.items || data || []
+      this._relations = rels
       if (rels.length === 0) {
-        return html + '<div class="empty-state"><p>暂无关系。</p></div>'
+      return html + '<div class="empty-state"><p>还没有建立人物关系。</p><p style="color:var(--text-dim);font-size:12px;">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>'
       }
+      const scope = "world-relations"
+      const ids = rels.map((rel) => rel.id || rel.relationship_id).filter(Boolean)
+      reconcileBulkSelection(this, scope, ids)
+      html += renderBulkToolbar(this, scope, [
+        { action: "delete-relations", label: "批量删除", className: "btn-danger" },
+      ], { noun: "关系" })
       html += `
       <table class="data-table">
-        <thead><tr><th>源对象</th><th>关系类型</th><th>目标对象</th><th>状态</th><th>描述</th><th>操作</th></tr></thead>
+        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前关系")}</th><th>源对象</th><th>关系类型</th><th>目标对象</th><th>状态</th><th>描述</th><th>操作</th></tr></thead>
         <tbody>
       `
       for (const r of rels) {
+        const id = r.id || r.relationship_id
         const statusLabel = r.status === "candidate" ? "待确认" : "正史"
         const statusClass = r.status === "candidate" ? "badge-warning" : "badge-canonical"
         html += `
-        <tr data-id="${esc(r.id || r.relationship_id)}">
+        <tr data-id="${esc(id)}">
+          <td class="selection-cell">${renderSelectionCell(this, scope, id, "选择关系")}</td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(r.source_id || "").slice(0, 8)}...</td>
           <td><span class="badge badge-canonical">${esc(r.relation_type || "-")}</span></td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(r.target_id || "").slice(0, 8)}...</td>
@@ -924,21 +1079,30 @@ const worldView = {
     try {
       const data = await api.world.listAliases({ novel_id: state.currentProjectId })
       const aliases = data.items || data || []
+      this._aliases = aliases
       if (aliases.length === 0) {
-        return html + '<div class="empty-state"><p>暂无别名。</p></div>'
+        return html + '<div class="empty-state"><p>还没有设置别名。</p><p style="color:var(--text-dim);font-size:12px;">别名可以帮助你管理角色的化名、称号和绰号。</p></div>'
       }
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
+      const scope = "world-aliases"
+      const ids = aliases.map((alias) => this._aliasKey(alias)).filter(Boolean)
+      reconcileBulkSelection(this, scope, ids)
+      html += renderBulkToolbar(this, scope, [
+        { action: "delete-aliases", label: "批量删除", className: "btn-danger" },
+      ], { noun: "别名" })
       html += `
       <table class="data-table">
-        <thead><tr><th>对象</th><th>别名</th><th>类型</th><th>状态</th><th>来源</th><th>置信度</th><th>操作</th></tr></thead>
+        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前别名")}</th><th>对象</th><th>别名</th><th>类型</th><th>状态</th><th>来源</th><th>置信度</th><th>操作</th></tr></thead>
         <tbody>
       `
       for (const a of aliases) {
+        const id = this._aliasKey(a)
         const statusLabel = a.status === "candidate" || a.needs_review ? "待确认" : "正史"
         const statusClass = statusLabel === "待确认" ? "badge-warning" : "badge-canonical"
         const sourceLabel = a.source === "deep_import" ? "深度导入" : (a.source || "-")
         html += `
-        <tr data-id="${esc(a.id || a.alias_id)}">
+        <tr data-id="${esc(id)}">
+          <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择别名 ${a.alias || ""}`)}</td>
           <td style="color:var(--accent-dim);font-size:12px;">${esc(a.entity_name || (a.entity_id || "").slice(0, 8) + "...")}</td>
           <td>${esc(a.alias)}</td>
           <td>${typeMap[a.alias_type] || esc(a.alias_type)}</td>
@@ -951,6 +1115,11 @@ const worldView = {
       html += '</tbody></table>'
     } catch { html += '<div class="empty-state"><p>加载别名失败。</p></div>' }
     return html
+  },
+
+  _aliasKey(alias) {
+    if (!alias) return ""
+    return `${alias.entity_id || ""}::${alias.alias || ""}`
   },
 
   showAliasCreateForm() {
@@ -1180,6 +1349,11 @@ const worldView = {
       "nav-aliases": () => router.navigate("world", "aliases"),
       "nav-map": () => router.navigate("world", "map"),
       "nav-generate": () => router.navigate("generate"),
+      "bulk-toggle-one": (e, t) => this._toggleBulkOne(t),
+      "bulk-toggle-all": (e, t) => this._toggleBulkAll(t),
+      "bulk-clear": (_e, t) => this._clearBulkScope(t.getAttribute("data-scope")),
+      "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
+      "set-object-view": (_e, t) => this._setObjectViewMode(t.getAttribute("data-view-mode")),
       "toggle-extract": () => this._toggleAutoExtract(),
       "toggle-advanced-filters": () => this._toggleAdvancedFilters(),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
@@ -1204,6 +1378,116 @@ const worldView = {
 
     bindActionMenus()
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+  },
+
+  _setObjectViewMode(mode) {
+    this._objectViewMode = mode === "card" ? "card" : "table"
+    router.refresh()
+  },
+
+  _visibleIdsForBulkScope(scope) {
+    if (scope === "world-objects") return this._entities.map((item) => this._entityId(item)).filter(Boolean)
+    if (scope === "world-candidates") return this._candidates.map((item) => this._entityId(item)).filter(Boolean)
+    if (scope === "world-relations") return this._relations.map((item) => item.id || item.relationship_id).filter(Boolean)
+    if (scope === "world-aliases") return this._aliases.map((item) => this._aliasKey(item)).filter(Boolean)
+    return []
+  },
+
+  _itemsForBulkScope(scope) {
+    const selection = getBulkSelection(this, scope)
+    if (scope === "world-objects") return selectedItemsFrom(this._entities, selection, (item) => this._entityId(item))
+    if (scope === "world-candidates") return selectedItemsFrom(this._candidates, selection, (item) => this._entityId(item))
+    if (scope === "world-relations") return selectedItemsFrom(this._relations, selection, (item) => item.id || item.relationship_id)
+    if (scope === "world-aliases") return selectedItemsFrom(this._aliases, selection, (item) => this._aliasKey(item))
+    return []
+  },
+
+  _toggleBulkOne(input) {
+    const scope = input.getAttribute("data-scope")
+    const id = input.getAttribute("data-id")
+    toggleBulkSelection(this, scope, id, input.checked)
+    router.refresh()
+  },
+
+  _toggleBulkAll(input) {
+    const scope = input.getAttribute("data-scope")
+    toggleAllBulkSelection(this, scope, this._visibleIdsForBulkScope(scope), input.checked)
+    router.refresh()
+  },
+
+  _clearBulkScope(scope) {
+    clearBulkSelection(this, scope)
+    router.refresh()
+  },
+
+  _runBulkAction(scope, action) {
+    const items = this._itemsForBulkScope(scope)
+    if (items.length === 0) {
+      toast("请先选择要处理的项目", "warning")
+      return
+    }
+
+    const labelByAction = {
+      "promote-entities": "批量提升为正史",
+      "delete-entities": "批量删除对象",
+      "accept-candidates": "批量确认候选",
+      "ignore-candidates": "批量忽略/临时候选",
+      "delete-relations": "批量删除关系",
+      "delete-aliases": "批量删除别名",
+    }
+    const danger = action?.includes("delete") || action?.includes("ignore")
+    confirmAction(
+      `确定对选中的 ${items.length} 项执行「${labelByAction[action] || action}」吗？`,
+      async () => {
+        await this._executeBulkAction(scope, action, items)
+      },
+      danger ? "确认执行" : "确认",
+    )
+  },
+
+  async _executeBulkAction(scope, action, items) {
+    const label = {
+      "promote-entities": "批量提升为正史",
+      "delete-entities": "批量删除对象",
+      "accept-candidates": "批量确认候选",
+      "ignore-candidates": "批量忽略/临时候选",
+      "delete-relations": "批量删除关系",
+      "delete-aliases": "批量删除别名",
+    }[action] || "批量操作"
+
+    let actionable = items
+    if (action === "promote-entities") {
+      actionable = items.filter((item) => item.status === "draft" || item.status === "candidate")
+    } else if (action === "accept-candidates") {
+      actionable = items.filter((item) => {
+        const candidateAction = this._candidateAction(item)
+        return !["temporary_only", "ignore", "link_to_existing", "alias_of_existing", "merge_with_existing"].includes(candidateAction)
+      })
+    }
+
+    if (actionable.length === 0) {
+      toast("所选项目没有可执行的批量动作", "warning")
+      return
+    }
+
+    const result = await runBulkAction(actionable, async (item) => {
+      if (action === "promote-entities" || action === "accept-candidates") {
+        await api.world.promoteEntity(this._entityId(item), state.currentProjectId)
+      } else if (action === "delete-entities") {
+        await api.world.deleteEntity(this._entityId(item), state.currentProjectId)
+      } else if (action === "ignore-candidates") {
+        await api.world.updateEntity(this._entityId(item), { status: "ignored" }, state.currentProjectId)
+      } else if (action === "delete-relations") {
+        await api.world.deleteRelationship(item.id || item.relationship_id, { novel_id: state.currentProjectId })
+      } else if (action === "delete-aliases") {
+        await api.world.deleteAlias(item.entity_id, item.alias, { novel_id: state.currentProjectId })
+      }
+    })
+
+    toast(bulkResultMessage(result, label, (item) => item.name || item.alias || item.relation_type || this._entityId(item)), result.failed.length ? "warning" : "success")
+    clearBulkSelection(this, scope)
+    await this._reloadWorldLists()
+    router.refresh()
   },
 
   _toggleAdvancedFilters() {
@@ -1312,12 +1596,25 @@ const worldView = {
     const entity = this._entities.find((e) => (e.id || e.entity_id) === candidateId)
       || this._candidates.find((e) => (e.id || e.entity_id) === candidateId)
     if (!entity) return
+    const targetId = this._candidateTargetId(entity)
+    const targetName = this._candidateTargetName(entity)
+    const initialTargets = this._mergeTargetCandidates(entity, targetId, targetName)
 
     const formHtml = `
       <p style="margin-bottom:10px;">将 <strong>${esc(entity.name)}</strong> 合并到目标正史对象。</p>
       <div class="form-group">
-        <label>目标对象 ID *</label>
-        <input class="form-input" id="merge-target-id" placeholder="目标对象 ID" />
+        <label>搜索目标对象</label>
+        <div class="row-actions">
+          <input class="form-input" id="merge-target-query" placeholder="输入目标对象名称" value="${esc(targetName)}" />
+          <button class="btn btn-sm" id="merge-target-search" type="button">搜索</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>选择目标对象 *</label>
+        <select class="form-select" id="merge-target-id">
+          ${this._mergeTargetOptionsHtml(initialTargets, targetId)}
+        </select>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">显示名称、类型、状态和摘要；没有明确目标时请先搜索再选择。</p>
       </div>
     `
     showModal("合并对象", formHtml, [{
@@ -1333,6 +1630,60 @@ const worldView = {
         }
       },
     }])
+    setTimeout(() => this._bindMergeTargetSearch(entity, targetId), 0)
+  },
+
+  _mergeTargetCandidates(sourceEntity, targetId, targetName) {
+    const sourceId = this._entityId(sourceEntity)
+    const query = String(targetName || "").trim().toLowerCase()
+    const items = this._entities
+      .filter((item) => this._entityId(item) !== sourceId)
+      .filter((item) => !query || String(item.name || "").toLowerCase().includes(query) || this._entityId(item) === targetId)
+      .slice(0, 20)
+    if (targetId && !items.some((item) => this._entityId(item) === targetId)) {
+      items.unshift({
+        id: targetId,
+        name: targetName || "建议目标对象",
+        entity_type: "unknown",
+        status: "canonical",
+        summary: "来自候选建议，请确认后合并",
+      })
+    }
+    return items
+  },
+
+  _mergeTargetOptionsHtml(items, selectedId = "") {
+    if (!items.length) {
+      return '<option value="">未找到目标对象，请搜索</option>'
+    }
+    return items.map((item) => {
+      const id = this._entityId(item)
+      const summary = item.summary || item.public_info || ""
+      const label = `${item.name || "未命名"} · ${item.entity_type || "-"} · ${item.status || "-"}${summary ? ` · ${summary}` : ""}`
+      return `<option value="${esc(id)}" ${id === selectedId ? "selected" : ""}>${esc(label)}</option>`
+    }).join("")
+  },
+
+  _bindMergeTargetSearch(sourceEntity, selectedId = "") {
+    const button = document.getElementById("merge-target-search")
+    const input = document.getElementById("merge-target-query")
+    const select = document.getElementById("merge-target-id")
+    if (!button || !input || !select) return
+    button.onclick = async () => {
+      const query = input.value || ""
+      try {
+        const data = await api.world.listEntities({
+          novel_id: state.currentProjectId,
+          q: query,
+          limit: 20,
+        })
+        const sourceId = this._entityId(sourceEntity)
+        const items = (data.items || data || []).filter((item) => this._entityId(item) !== sourceId)
+        select.innerHTML = this._mergeTargetOptionsHtml(items, selectedId)
+      } catch (err) {
+        toast(err.message || "搜索目标对象失败", "error")
+      }
+    }
   },
 
   async _mergeEntity(candidateId, targetId) {

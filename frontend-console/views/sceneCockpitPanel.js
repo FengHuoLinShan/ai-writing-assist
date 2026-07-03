@@ -55,23 +55,89 @@ export function renderSceneCockpitPanel({
 } = {}) {
   const order = loadSceneCockpitOrder(projectId)
   const modules = order
-    .map((key) => renderModule(key, scene, mapSummaryHtml, compact))
+    .filter((key) => key !== "map_summary")
+    .map((key) => renderModule(key, scene, "", compact))
     .filter(Boolean)
     .join("")
+  const people = Array.isArray(scene?.scene_characters) ? scene.scene_characters : []
+  const location = scene?.primary_location || scene?.location || scene?.location_id || null
 
   return `
     <div class="scene-cockpit" data-scene-cockpit-project="${esc(projectId || "")}">
       <div class="scene-cockpit__title">
-        <span>Scene 驾驶舱</span>
+        <span>写作副驾驶</span>
         <button class="btn btn-sm scene-cockpit-organize" data-action="open-scene-workbench">整理</button>
       </div>
-      ${scene ? modules : `
+      ${!scene ? `
         <div class="scene-cockpit-empty">
           当前章节未关联 Scene。${projectId ? "请从左侧选择 Scene 或到场景工作台整理。" : ""}
         </div>
-      `}
+      ` : ""}
+      ${scene ? `
+        <div class="cockpit-tabs" role="tablist" aria-label="Scene 参考">
+          <button class="cockpit-tab active" data-action="switch-cockpit-tab" data-tab="people" type="button">人物</button>
+          <button class="cockpit-tab" data-action="switch-cockpit-tab" data-tab="place" type="button">地点</button>
+          <button class="cockpit-tab" data-action="switch-cockpit-tab" data-tab="lore" type="button">设定</button>
+          <button class="cockpit-tab" data-action="switch-cockpit-tab" data-tab="map" type="button">地图</button>
+        </div>
+        <div class="cockpit-body">
+          <section class="cockpit-panel" data-panel="people">
+            ${renderPeoplePanel(people)}
+          </section>
+          <section class="cockpit-panel hidden" data-panel="place">
+            ${renderPlacePanel(location)}
+          </section>
+          <section class="cockpit-panel hidden" data-panel="lore">
+            ${modules || '<div class="cockpit-empty">暂无关联设定</div>'}
+          </section>
+          <section class="cockpit-panel hidden" data-panel="map">
+            ${mapSummaryHtml || '<div class="cockpit-empty">暂无地图摘要</div>'}
+          </section>
+        </div>
+      ` : ""}
     </div>
   `
+}
+
+function renderPeoplePanel(people) {
+  if (!people.length) return '<div class="cockpit-empty">暂无出场人物</div>'
+  return `
+    <div class="cockpit-people-list">
+      ${people.map((person) => {
+        const name = person.name || person.title || "未命名"
+        return `
+          <article class="cockpit-person-card">
+            <div class="person-avatar" style="background:${avatarColor(name)}">${esc(name.slice(0, 1) || "?")}</div>
+            <div class="person-info">
+              <div class="person-name">${esc(name)}</div>
+              <div class="person-status">${esc(person.status || person.role || "无状态")}</div>
+            </div>
+            <button class="btn btn-sm btn-insert" data-action="insert-person" data-name="${esc(name)}" type="button">插入</button>
+          </article>
+        `
+      }).join("")}
+    </div>
+  `
+}
+
+function renderPlacePanel(location) {
+  if (!location) return '<div class="cockpit-empty">暂无地点信息</div>'
+  if (typeof location === "string") {
+    return `<div class="cockpit-place-card"><div class="place-name">${esc(location)}</div></div>`
+  }
+  return `
+    <div class="cockpit-place-card">
+      <div class="place-name">${esc(location.name || location.title || "未知地点")}</div>
+      <div class="place-desc">${esc(location.description || location.summary || "")}</div>
+    </div>
+  `
+}
+
+function avatarColor(name) {
+  const colors = ["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"]
+  let hash = 0
+  for (let i = 0; i < (name || "").length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return colors[Math.abs(hash) % colors.length]
 }
 
 function renderModule(key, scene, mapSummaryHtml, compact) {

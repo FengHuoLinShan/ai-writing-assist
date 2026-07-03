@@ -410,7 +410,8 @@ class TestApiForeshadowingPlans:
             f"/api/outline/foreshadowing/{plan_id}",
             params={"novel_id": test_project_id},
         )
-        assert after_get.status_code == 404
+        assert after_get.status_code == 200
+        assert after_get.json()["status"] == "deprecated"
 
 
 class TestApiRevealPlans:
@@ -842,4 +843,5 @@ class TestPlotStructureGenerateDuplicateRange:
             f"/api/outline/reveals/{plan_id}",
             params={"novel_id": test_project_id},
         )
-        assert after_get.status_code == 404
+        assert after_get.status_code == 200
+        assert after_get.json()["status"] == "deprecated"

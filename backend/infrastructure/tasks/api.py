@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -22,6 +22,19 @@ from infrastructure.tasks.registry import TaskRegistry
 from shared.enums import TaskStatus as TaskStatusEnum
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+_MODULE_API_ONLY_TASK_TYPES = {
+    "deep_import",
+    "deep_import_resume",
+    "scene_auto_extraction",
+    "world_object_auto_extraction",
+    "plot_structure_auto_extraction",
+    "world_entity_extraction",
+    "world_alias_relation_extraction",
+    "writing_generate",
+    "outline_structure_generation",
+    "outline_chapter_scenes_extract",
+}
 
 
 # ============================================================
@@ -83,6 +96,11 @@ async def submit_task(
     - 返回 task_id
     """
     registry = TaskRegistry()
+    if request.task_type in _MODULE_API_ONLY_TASK_TYPES:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Task type {request.task_type} must be submitted through module API",
+        )
     if request.task_type not in registry:
         registered = registry.registered_types
         raise HTTPException(
@@ -111,6 +129,7 @@ async def submit_task(
 async def get_task_status(
     task_id: uuid.UUID,
     db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> TaskStatusResponse:
     """查询任务状态
 
@@ -120,7 +139,7 @@ async def get_task_status(
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
-    if task is None:
+    if task is None or not _task_belongs_to_novel(task, novel_id):
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return TaskStatusResponse(
@@ -141,6 +160,7 @@ async def get_task_status(
 async def cancel_task(
     task_id: uuid.UUID,
     db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
 ) -> TaskCancelResponse:
     """取消一个 pending 或 running 的任务
 
@@ -150,7 +170,7 @@ async def cancel_task(
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
-    if task is None:
+    if task is None or not _task_belongs_to_novel(task, novel_id):
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     if task.status not in ("pending", "running"):
@@ -167,3 +187,7 @@ async def cancel_task(
         status=str(task.status),
         cancelled=True,
     )
+
+
+def _task_belongs_to_novel(task: AsyncTask, novel_id: str) -> bool:
+    return str((task.meta or {}).get("novel_id") or "") == str(novel_id)

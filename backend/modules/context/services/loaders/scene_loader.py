@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import StructureContextBundle
@@ -25,9 +27,16 @@ class SceneLoader(Loader):
         if not options.scene_id:
             return
 
-        from modules.outline.facade import get_scene
+        from modules.outline.facade import get_scene_contract
 
-        scene = await get_scene(db, options.scene_id)
+        scene_contract = await get_scene_contract(db, options.novel_id, options.scene_id)
+        scene = (
+            scene_contract
+            if isinstance(scene_contract, dict)
+            else asdict(scene_contract)
+            if scene_contract is not None
+            else None
+        )
         if scene is None:
             bundle.warnings.append(f"Scene {options.scene_id} 不存在")
             return

@@ -11,10 +11,12 @@ from modules.outline.schemas import (
     OutlineArcCreate,
     PlotThreadCreate,
     PlotThreadUpdate,
+    SceneUpdate,
 )
 from modules.outline.services import (
     OutlineArcService,
     PlotThreadService,
+    SceneService,
 )
 
 
@@ -81,6 +83,37 @@ def _make_arc(
     for key, value in overrides.items():
         setattr(arc, key, value)
     return arc
+
+
+def _make_scene(
+    *,
+    scene_id: str | None = None,
+    novel_id: str | None = None,
+    title: str = "Scene",
+    **overrides: object,
+) -> MagicMock:
+    scene = MagicMock()
+    scene.id = uuid.UUID(scene_id) if scene_id else uuid.uuid4()
+    scene.novel_id = uuid.UUID(novel_id) if novel_id else uuid.uuid4()
+    scene.scene_index = 1
+    scene.title = title
+    scene.goal = None
+    scene.core_conflict = None
+    scene.emotional_beat = None
+    scene.must_happen = None
+    scene.must_not_happen = None
+    scene.narrative_tag = "draft"
+    scene.source = "deep_import"
+    scene.scene_chunks = []
+    scene.chapter_ids = []
+    scene.pov_character_id = None
+    scene.structure_meta = {}
+    scene.status = "draft"
+    scene.created_at = datetime.now(UTC)
+    scene.updated_at = datetime.now(UTC)
+    for key, value in overrides.items():
+        setattr(scene, key, value)
+    return scene
 
 
 class TestPlotThreadService:
@@ -204,6 +237,47 @@ class TestPlotThreadService:
         assert result.current_stage == "初期"
 
     @pytest.mark.asyncio
+    async def test_update_marks_auto_ingested_thread_user_edited(
+        self,
+        sample_novel_id: str,
+    ) -> None:
+        thread = _make_thread(
+            novel_id=sample_novel_id,
+            name="自动导入线",
+            provenance_meta={
+                "source": "deep_import",
+                "workflow_id": "wf-edit",
+                "auto_ingested": True,
+                "user_edited": False,
+            },
+        )
+        updated = _make_thread(
+            id=str(thread.id),
+            novel_id=sample_novel_id,
+            name="人工编辑线",
+            provenance_meta={
+                **thread.provenance_meta,
+                "user_edited": True,
+            },
+        )
+        svc = PlotThreadService()
+        svc.repo = MagicMock()
+        svc.repo.get = AsyncMock(return_value=thread)
+        svc.repo.update = AsyncMock(return_value=updated)
+        db = MagicMock()
+
+        await svc.update(
+            db,
+            str(thread.id),
+            PlotThreadUpdate(name="人工编辑线"),
+            novel_id=sample_novel_id,
+        )
+
+        update_data = svc.repo.update.await_args.args[2]
+        assert update_data.provenance_meta["user_edited"] is True
+        assert update_data.provenance_meta["edited_at"]
+
+    @pytest.mark.asyncio
     async def test_delete_on_correct_novel(
         self,
         sample_novel_id: str,
@@ -212,12 +286,54 @@ class TestPlotThreadService:
         svc = PlotThreadService()
         svc.repo = MagicMock()
         svc.repo.get = AsyncMock(return_value=thread)
-        svc.repo.delete = AsyncMock(return_value=True)
         db = MagicMock()
+        db.flush = AsyncMock()
 
         await svc.delete(db, str(thread.id), novel_id=sample_novel_id)
 
-        svc.repo.delete.assert_awaited_once()
+        assert thread.status == "deprecated"
+        db.flush.assert_awaited_once()
+
+
+class TestSceneService:
+    @pytest.mark.asyncio
+    async def test_update_marks_auto_ingested_scene_user_edited(
+        self,
+        sample_novel_id: str,
+    ) -> None:
+        scene = _make_scene(
+            novel_id=sample_novel_id,
+            structure_meta={
+                "workflow_id": "wf-scene-edit",
+                "auto_ingested": True,
+                "user_edited": False,
+            },
+        )
+        updated = _make_scene(
+            scene_id=str(scene.id),
+            novel_id=sample_novel_id,
+            title="人工编辑 Scene",
+            structure_meta={
+                **scene.structure_meta,
+                "user_edited": True,
+            },
+        )
+        svc = SceneService()
+        svc.repo = MagicMock()
+        svc.repo.get = AsyncMock(return_value=scene)
+        svc.repo.update = AsyncMock(return_value=updated)
+        db = MagicMock()
+
+        await svc.update(
+            db,
+            str(scene.id),
+            SceneUpdate(title="人工编辑 Scene"),
+            novel_id=sample_novel_id,
+        )
+
+        update_data = svc.repo.update.await_args.args[2]
+        assert update_data.structure_meta["user_edited"] is True
+        assert update_data.structure_meta["edited_at"]
 
     @pytest.mark.asyncio
     async def test_get_active_contract(

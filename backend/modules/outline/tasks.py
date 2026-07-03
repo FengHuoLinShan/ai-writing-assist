@@ -2,33 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import BaseModel, Field
-
-from core.config import get_settings
-from infrastructure.llm.client import LLMClient
-from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.tasks.registry import task_handler
-from modules.context import facade as context_facade
-from modules.outline.schemas import SceneCreate
-from modules.outline.services import SceneService
 
 logger = logging.getLogger(__name__)
-
-
-class _ExtractedScene(BaseModel):
-    title: str = "未命名 Scene"
-    goal: str | None = None
-    core_conflict: str | None = None
-    emotional_beat: str | None = None
-    must_happen: str | None = None
-    must_not_happen: str | None = None
-    narrative_tag: str = "draft"
-    chapter_ids: list[str] = Field(default_factory=list)
-    scene_chunks: list[dict] = Field(default_factory=list)
-
-
-class _ExtractedScenesResponse(BaseModel):
-    scenes: list[_ExtractedScene] = Field(default_factory=list)
 
 
 def _require_str(meta: dict, key: str, task_type: str) -> str:
@@ -177,6 +153,8 @@ async def handle_scene_cross_chapter_detection(db, task):
 @task_handler("outline_analyze")
 async def handle_outline_analyze(db, task):
     """处理确认后的剧情分析任务。"""
+    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
+
     meta = task.meta or {}
     novel_id = _require_str(meta, "novel_id", "outline_analyze")
     confirmation_id = _require_str(
@@ -184,55 +162,21 @@ async def handle_outline_analyze(db, task):
         "context_confirmation_id",
         "outline_analyze",
     )
-
-    compiled = await context_facade.compile_from_confirmation(
+    return await OutlineAIWorkflowService().analyze(
         db,
         novel_id=novel_id,
-        action="outline.analyze",
         confirmation_id=confirmation_id,
+        task_id=str(task.id),
+        instruction=meta.get("instruction"),
+        progress_callback=task.update_progress,
     )
-    markdown = context_facade.render_compiled_context(compiled)
-    instruction = meta.get("instruction") or "分析当前剧情结构、冲突推进和风险。"
-    settings = get_settings()
-    response = await LLMClient().generate(
-        LLMCallRequest(
-            model=settings.llm_model,
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content=(
-                        "你是长篇小说结构分析助手。只输出可供作者决策的分析，"
-                        "不要改写正文，不要写入正史。"
-                    ),
-                ),
-                LLMMessage(
-                    role="user",
-                    content=(
-                        f"{markdown}\n\n"
-                        f"## 本次分析要求\n{instruction}\n\n"
-                        "请给出剧情推进、冲突强度、伏笔回收和需要用户确认的问题。"
-                    ),
-                ),
-            ],
-            temperature=0.3,
-        )
-    )
-
-    await context_facade.attach_result_ref(
-        db,
-        confirmation_id=confirmation_id,
-        result_type="outline_analysis",
-        result_id=str(task.id),
-        status="done",
-    )
-    task.update_progress(1.0)
-    await db.flush()
-    return {"analysis": response.content}
 
 
 @task_handler("outline_generate")
 async def handle_outline_generate(db, task):
     """处理确认后的剧情结构生成任务。"""
+    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
+
     meta = task.meta or {}
     novel_id = _require_str(meta, "novel_id", "outline_generate")
     confirmation_id = _require_str(
@@ -243,30 +187,15 @@ async def handle_outline_generate(db, task):
     start_chapter = _int_or_default(meta.get("start_chapter"), 1)
     end_chapter = _int_or_default(meta.get("end_chapter"), 10)
 
-    await context_facade.compile_from_confirmation(
+    result = await OutlineAIWorkflowService().generate(
         db,
         novel_id=novel_id,
-        action="outline.generate",
         confirmation_id=confirmation_id,
-    )
-
-    from modules.outline.generator import PlotStructureGenerator
-
-    result = await PlotStructureGenerator().generate(
-        db,
-        novel_id=novel_id,
+        task_id=str(task.id),
         start_chapter=start_chapter,
         end_chapter=end_chapter,
+        progress_callback=task.update_progress,
     )
-    await context_facade.attach_result_ref(
-        db,
-        confirmation_id=confirmation_id,
-        result_type="outline_generation",
-        result_id=str(task.id),
-        status="done",
-    )
-    task.update_progress(1.0)
-    await db.flush()
     logger.info(
         "Outline generation complete: %d threads, %d arcs",
         result["total_threads"],
@@ -278,6 +207,8 @@ async def handle_outline_generate(db, task):
 @task_handler("outline_chapter_scenes_extract")
 async def handle_outline_chapter_scenes_extract(db, task):
     """处理确认后的章节/Scene 卡提取任务。"""
+    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
+
     meta = task.meta or {}
     novel_id = _require_str(meta, "novel_id", "outline_chapter_scenes_extract")
     confirmation_id = _require_str(
@@ -287,88 +218,12 @@ async def handle_outline_chapter_scenes_extract(db, task):
     )
     chapter_index = _int_or_default(meta.get("chapter_index"), 1)
 
-    compiled = await context_facade.compile_from_confirmation(
+    return await OutlineAIWorkflowService().extract_chapter_scenes(
         db,
         novel_id=novel_id,
-        action="outline.chapter_scenes.extract",
         confirmation_id=confirmation_id,
+        task_id=str(task.id),
+        chapter_index=chapter_index,
+        instruction=meta.get("instruction"),
+        progress_callback=task.update_progress,
     )
-    markdown = context_facade.render_compiled_context(compiled)
-    instruction = meta.get("instruction") or "从参考资料中提取当前章节的 Scene 卡。"
-    settings = get_settings()
-    extracted = await LLMClient().generate_structured(
-        LLMCallRequest(
-            model=settings.llm_model,
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content=(
-                        "你是长篇小说 Scene 卡提取助手。只输出 JSON，"
-                        "产物必须是 draft Scene，不要恢复 chapter_cards。"
-                    ),
-                ),
-                LLMMessage(
-                    role="user",
-                    content=(
-                        f"{markdown}\n\n"
-                        f"## 本次提取要求\n{instruction}\n\n"
-                        "输出格式：{\"scenes\": [{\"title\": \"...\", "
-                        "\"goal\": \"...\", \"core_conflict\": \"...\", "
-                        "\"emotional_beat\": \"...\", \"must_happen\": \"...\", "
-                        "\"must_not_happen\": \"...\", \"narrative_tag\": \"draft\", "
-                        "\"chapter_ids\": [\"章节编号\"], \"scene_chunks\": []}]}"
-                    ),
-                ),
-            ],
-            temperature=0.2,
-        ),
-        _ExtractedScenesResponse,
-    )
-
-    scene_service = SceneService()
-    existing = await scene_service.get_ordered(db, novel_id)
-    next_index = max((scene.scene_index for scene in existing), default=-1) + 1
-    created_ids: list[str] = []
-    for scene in extracted.scenes:
-        chapter_ids = scene.chapter_ids or [str(chapter_index)]
-        created = await scene_service.create(
-            db,
-            novel_id,
-            SceneCreate(
-                scene_index=next_index,
-                title=scene.title[:255],
-                goal=scene.goal,
-                core_conflict=scene.core_conflict,
-                emotional_beat=scene.emotional_beat,
-                must_happen=scene.must_happen,
-                must_not_happen=scene.must_not_happen,
-                narrative_tag=scene.narrative_tag or "draft",
-                source="ai",
-                scene_chunks=scene.scene_chunks,
-                chapter_ids=chapter_ids,
-                status="draft",
-            ),
-        )
-        created_ids.append(created.id)
-        next_index += 1
-
-    for scene_id in created_ids:
-        await context_facade.attach_result_ref(
-            db,
-            confirmation_id=confirmation_id,
-            result_type="outline_scene",
-            result_id=scene_id,
-            status="done",
-        )
-    if not created_ids:
-        await context_facade.attach_result_ref(
-            db,
-            confirmation_id=confirmation_id,
-            result_type="outline_scene_extraction",
-            result_id=str(task.id),
-            status="done",
-        )
-
-    task.update_progress(1.0)
-    await db.flush()
-    return {"scene_ids": created_ids, "total_scenes": len(created_ids)}

@@ -778,30 +778,30 @@ class TestImportApi:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_deep_import_missing_novel_id_returns_400(
+    async def test_deep_import_missing_novel_id_returns_422(
         self,
         async_client: AsyncClient,
     ):
-        """POST /api/imports/deep 缺 novel_id 应返回 400"""
+        """POST /api/imports/deep 缺 novel_id 应返回 422"""
         resp = await async_client.post(
             "/api/imports/deep",
             json={},
         )
-        assert resp.status_code == 400
-        assert "novel_id" in resp.json()["detail"]
+        assert resp.status_code == 422
+        assert "novel_id" in resp.text
 
     @pytest.mark.asyncio
-    async def test_deep_import_end_before_start_returns_400(
+    async def test_deep_import_end_before_start_returns_422(
         self,
         async_client: AsyncClient,
     ):
-        """POST /api/imports/deep end_chapter < start_chapter 应返回 400"""
+        """POST /api/imports/deep end_chapter < start_chapter 应返回 422"""
         resp = await async_client.post(
             "/api/imports/deep",
             json={"novel_id": str(uuid.uuid4()), "start_chapter": 5, "end_chapter": 3},
         )
-        assert resp.status_code == 400
-        assert "end_chapter must be >= start_chapter" in resp.json()["detail"]
+        assert resp.status_code == 422
+        assert "end_chapter must be >= start_chapter" in resp.text
 
     @pytest.mark.asyncio
     async def test_resume_deep_missing_task_id_returns_400(

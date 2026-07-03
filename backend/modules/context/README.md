@@ -33,6 +33,7 @@ async def compile_with_tiers(...) -> CompiledContext
 async def render_compiled_context_markdown(...) -> str
 async def confirm_context(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
+async def require_fresh_confirmation(...) -> ContextConfirmationContract
 async def attach_result_ref(...) -> ContextConfirmationContract
 async def mark_asset_context_changed(...) -> int
 async def create_context_snapshot(...) -> ContextSnapshotContract

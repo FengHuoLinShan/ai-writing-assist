@@ -728,7 +728,11 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        contract = await service.get_draft_contract(db, str(draft.id))
+        contract = await service.get_draft_contract(
+            db,
+            sample_draft_data.novel_id,
+            str(draft.id),
+        )
 
         assert contract is not None
         assert isinstance(contract, WritingDraftContract)
@@ -743,7 +747,11 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        contract = await service.get_draft_contract(db, str(uuid.uuid4()))
+        contract = await service.get_draft_contract(
+            db,
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
+        )
 
         assert contract is None
 
@@ -978,17 +986,33 @@ class TestWritingFacade:
             sample_draft_data.title,
             sample_draft_data.content or "",
         )
-        contract = await get_draft(db_session, draft.id)
+        contract = await get_draft(db_session, sample_draft_data.novel_id, draft.id)
         assert contract is not None
         assert isinstance(contract, WritingDraftContract)
         assert contract.novel_id == sample_draft_data.novel_id
+
+    @pytest.mark.asyncio
+    async def test_get_draft_returns_none_for_other_novel(
+        self,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        draft, _ = await create_draft(
+            db_session,
+            sample_draft_data.novel_id,
+            sample_draft_data.chapter_index,
+            sample_draft_data.title,
+            sample_draft_data.content or "",
+        )
+        contract = await get_draft(db_session, str(uuid.uuid4()), draft.id)
+        assert contract is None
 
     @pytest.mark.asyncio
     async def test_get_draft_not_found(
         self,
         db_session: AsyncSession,
     ) -> None:
-        contract = await get_draft(db_session, str(uuid.uuid4()))
+        contract = await get_draft(db_session, str(uuid.uuid4()), str(uuid.uuid4()))
         assert contract is None
 
     @pytest.mark.asyncio
@@ -1211,9 +1235,61 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     assert draft.chapter_index == 3
     assert draft.title == "第三章"
     assert draft.content == "这是 AI 生成的候选正文。"
+    assert draft.provenance_json == {
+        "source": "writing_generate",
+        "source_confirmation_id": confirmation.id,
+        "source_task_id": None,
+    }
 
     tasks_result = await db_session.execute(select(AsyncTask))
     assert tasks_result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_writing_generate_task_records_task_provenance(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI 正文生成任务创建的候选稿可追踪到确认记录与任务。"""
+    from modules.context.facade import confirm_context
+    from modules.writing import services as writing_services
+    from modules.writing.tasks import handle_writing_generate
+
+    monkeypatch.setattr(writing_services, "LLMClient", lambda: FakeLLMClient())
+
+    novel_id = "00000000-0000-0000-0000-00000000a202"
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="生成第 4 章候选正文",
+        scope="chapter",
+        chapter_index=4,
+    )
+    task = AsyncTask(
+        task_type="writing_generate",
+        status="pending",
+        meta={
+            "novel_id": novel_id,
+            "chapter_index": 4,
+            "context_confirmation_id": confirmation.id,
+        },
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    result = await handle_writing_generate(db_session, task)
+
+    draft = await WritingDraftRepository().get(
+        db_session,
+        uuid.UUID(result["draft_id"]),
+    )
+    assert draft is not None
+    assert draft.provenance_json == {
+        "source": "writing_generate",
+        "source_confirmation_id": confirmation.id,
+        "source_task_id": str(task.id),
+    }
 
 
 @pytest.mark.asyncio

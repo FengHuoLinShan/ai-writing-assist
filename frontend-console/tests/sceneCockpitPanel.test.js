@@ -33,7 +33,30 @@ describe("sceneCockpitPanel", () => {
     expect(secondGoal).toBeLessThan(thirdTitle)
     expect(html).toContain("data-action=\"open-scene-workbench\"")
     expect(html).toContain("整理")
+    expect(html).toContain("写作副驾驶")
+    expect(html).toContain("data-action=\"switch-cockpit-tab\"")
     expect(html).not.toContain("<script>alert")
+  })
+
+  it("renders cockpit tabs with escaped people and place references", () => {
+    const html = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: {
+        id: "s1",
+        title: "东门",
+        scene_characters: [{ name: "<img src=x>", status: "受伤" }],
+        primary_location: { name: "旧城门", description: "<b>危险</b>" },
+      },
+      mapSummaryHtml: "<div>地图摘要</div>",
+    })
+
+    expect(html).toContain("人物")
+    expect(html).toContain("地点")
+    expect(html).toContain("设定")
+    expect(html).toContain("地图")
+    expect(html).toContain("&lt;img src=x&gt;")
+    expect(html).toContain("&lt;b&gt;危险&lt;/b&gt;")
+    expect(html).not.toContain("<img src=x>")
   })
 
   it("collapses tail modules when compact mode is requested", () => {

@@ -3,6 +3,8 @@ import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
+const generatedTaskId = "00000000-0000-0000-0000-0000000000b1"
+
 test.describe("生成中心模块", () => {
   let testProjectId = null
 
@@ -47,6 +49,26 @@ test.describe("生成中心模块", () => {
       })
     })
 
+    await page.route("**/api/tasks/**", async (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname === `/api/tasks/${generatedTaskId}`) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: generatedTaskId,
+            task_id: generatedTaskId,
+            task_type: "plot_structure_generate",
+            status: "done",
+            progress: 100,
+            result: { summary: "剧情结构生成完成" },
+          }),
+        })
+        return
+      }
+      await route.continue()
+    })
+
     // Mock 领域生成任务提交 API
     await page.route("**/api/outline/generate", async (route) => {
       const postBody = route.request().postDataJSON()
@@ -54,7 +76,7 @@ test.describe("生成中心模块", () => {
         await route.fulfill({
           status: 200,
           body: JSON.stringify({
-            task_id: `mock-task-${Date.now()}`,
+            task_id: generatedTaskId,
             status: "pending",
           }),
         })
@@ -94,8 +116,8 @@ test.describe("生成中心模块", () => {
     await page.getByRole("button", { name: "确认使用" }).click()
 
     // 验证进度步骤显示
-    await expect(page.locator("#generate-result")).toContainText("任务已提交", { timeout: 15000 })
-    await expect(page.locator("#generate-result")).toContainText("任务正在后台运行")
+    await expect(page.locator("#generate-result")).toContainText("剧情结构生成完成", { timeout: 15000 })
+    await expect(page.locator("#generate-result")).toContainText("查看大纲")
   })
 
   test("未填写意图时给出警告", async ({ page }) => {

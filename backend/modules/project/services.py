@@ -172,8 +172,15 @@ class ProjectService:
         self,
         db: AsyncSession,
         project_id: str,
+        *,
+        confirmed: bool = False,
     ) -> None:
         """永久删除项目（级联删除所有关联数据，不可恢复）"""
+        if not confirmed:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="permanent delete requires confirmed=true",
+            )
         pid = parse_uuid(project_id, "project_id")
         deleted = await self._repo.permanent_delete(db, pid)
         if not deleted:

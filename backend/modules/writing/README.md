@@ -54,6 +54,7 @@ class WritingDraftContract:
     content: str | None
     version_number: int
     status: str
+    provenance_json: dict | None
 ```
 
 ## Facade 入口
@@ -61,12 +62,13 @@ class WritingDraftContract:
 ```python
 async def create_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftResponse
 async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftResponse, str]
-async def get_draft(db: AsyncSession, draft_id: str) -> WritingDraftContract | None
+async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
 ```
 
 通过 `facade.create_draft` 创建草稿会提交 `publish_chapter` 章节发布任务；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
+AI 生成候选稿会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。
 
 ## API
 

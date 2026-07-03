@@ -136,5 +136,19 @@ describe("generateView", () => {
 
       expect(document.getElementById("generate-result")?.innerHTML).toContain("生成剧情结构")
     })
+
+    it("任务完成后结果区提供模块直达入口", () => {
+      document.body.innerHTML = '<div id="generate-result"></div>'
+
+      generateView._renderTaskProgress({
+        taskId: "task-done",
+        statusLabel: "已完成",
+        done: true,
+      }, "world_character")
+
+      const html = document.getElementById("generate-result")?.innerHTML || ""
+      expect(html).toContain("查看候选")
+      expect(html).toContain('data-action="open-generated-destination"')
+    })
   })
 })

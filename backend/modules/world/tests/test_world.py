@@ -25,12 +25,18 @@ from modules.world.repositories import (
     EntityRelationRepository,
 )
 from modules.world.schemas import (
+    CharacterCreate,
+    CharacterKnowledgeCreate,
     EntityRelationCreate,
+    EventCreate,
     WorldContextBundle,
     WorldEntityCreate,
     WorldEntityUpdate,
 )
 from modules.world.services import (
+    CharacterKnowledgeService,
+    CharacterService,
+    EventService,
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
@@ -179,6 +185,145 @@ class TestWorldEntityService:
             )
         assert exc.value.status_code == 404
 
+
+class TestWorldNovelIsolation:
+    @pytest.mark.asyncio
+    async def test_event_create_rejects_location_from_another_novel(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        other_novel_id = str(uuid.uuid4())
+        event_entity = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="event",
+                name="同项目事件",
+                status="draft",
+                force_create=True,
+            ),
+        )
+        other_location = await entity_service.create(
+            db_session,
+            other_novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="其他项目地点",
+                status="draft",
+                force_create=True,
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await EventService().create(
+                db_session,
+                novel_id,
+                EventCreate(
+                    entity_id=event_entity.id,
+                    source_chapter_id=str(uuid.uuid4()),
+                    location_entity_id=other_location.id,
+                    timeline_order=1,
+                ),
+            )
+
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_character_update_location_rejects_other_novel_location(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        other_novel_id = str(uuid.uuid4())
+        character_entity = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="同项目人物",
+                status="draft",
+                force_create=True,
+            ),
+        )
+        character = await CharacterService().create(
+            db_session,
+            novel_id,
+            CharacterCreate(entity_id=character_entity.id, name="同项目人物"),
+        )
+        other_location = await entity_service.create(
+            db_session,
+            other_novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="其他项目地点",
+                status="draft",
+                force_create=True,
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await CharacterService().update_location(
+                db_session,
+                novel_id,
+                character.id,
+                other_location.id,
+                "抵达错误地点",
+                1,
+            )
+
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_character_knowledge_rejects_target_from_another_novel(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        other_novel_id = str(uuid.uuid4())
+        character_entity = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="同项目人物",
+                status="draft",
+                force_create=True,
+            ),
+        )
+        character = await CharacterService().create(
+            db_session,
+            novel_id,
+            CharacterCreate(entity_id=character_entity.id, name="同项目人物"),
+        )
+        other_target = await entity_service.create(
+            db_session,
+            other_novel_id,
+            WorldEntityCreate(
+                entity_type="item",
+                name="其他项目秘密",
+                status="draft",
+                force_create=True,
+            ),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await CharacterKnowledgeService().create(
+                db_session,
+                novel_id,
+                CharacterKnowledgeCreate(
+                    character_id=character.id,
+                    target_type="entity",
+                    target_id=other_target.id,
+                    knowledge_level="full",
+                ),
+            )
+
+        assert exc.value.status_code == 404
+
     @pytest.mark.asyncio
     async def test_list_entities(
         self,
@@ -226,8 +371,6 @@ class TestWorldEntityService:
         update_data = WorldEntityUpdate(
             name="创世大陆（更新版）",
             importance=0.98,
-            status="canonical",
-            approved_by="审核员",
         )
         result = await entity_service.update(
             db_session,
@@ -238,8 +381,64 @@ class TestWorldEntityService:
 
         assert result.name == "创世大陆（更新版）"
         assert result.importance == 0.98
-        assert result.status == "canonical"
-        assert result.approved_by == "审核员"
+        assert result.status == "draft"
+
+    @pytest.mark.asyncio
+    async def test_update_entity_rejects_direct_promote_to_canonical(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+        sample_entity_data: WorldEntityCreate,
+    ) -> None:
+        """PUT 不能绕过 promote 将候选资产提升为正史。"""
+        created = await entity_service.create(db_session, novel_id, sample_entity_data)
+
+        with pytest.raises(HTTPException) as exc:
+            await entity_service.update(
+                db_session,
+                created.id,
+                WorldEntityUpdate(status="canonical", approved_by="审核员"),
+                novel_id=novel_id,
+            )
+
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_update_auto_ingested_entity_marks_user_edited(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        created = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="自动导入地点",
+                content_json={
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-world-edit",
+                        "auto_ingested": True,
+                        "user_edited": False,
+                    }
+                },
+                force_create=True,
+            ),
+        )
+
+        result = await entity_service.update(
+            db_session,
+            created.id,
+            WorldEntityUpdate(summary="人工修订摘要"),
+            novel_id=novel_id,
+        )
+
+        meta = result.content_json["_meta"]
+        assert meta["user_edited"] is True
+        assert meta["edited_at"]
 
     @pytest.mark.asyncio
     async def test_delete_entity(
@@ -253,13 +452,12 @@ class TestWorldEntityService:
         created = await entity_service.create(db_session, novel_id, sample_entity_data)
         await entity_service.delete(db_session, created.id, novel_id=novel_id)
 
-        with pytest.raises(HTTPException) as exc:
-            await entity_service.get(
-                db_session,
-                created.id,
-                novel_id=novel_id,
-            )
-        assert exc.value.status_code == 404
+        deleted = await entity_service.get(
+            db_session,
+            created.id,
+            novel_id=novel_id,
+        )
+        assert deleted.status == "deprecated"
 
 
 class TestEntityDedupService:
@@ -1185,17 +1383,24 @@ class TestFacadeLeakUpdateCharacterLocation:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.models import Character
+        from modules.world.models import Character, CoreEntity
 
         entity_id = uuid.uuid4()
         loc_id = uuid.uuid4()
+        location = CoreEntity(
+            id=loc_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="location",
+            name="城门口",
+            status="canonical",
+        )
         char = Character(
             entity_id=entity_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="主角",
             status="canonical",
         )
-        db_session.add(char)
+        db_session.add_all([location, char])
         await db_session.flush()
 
         await update_character_location(

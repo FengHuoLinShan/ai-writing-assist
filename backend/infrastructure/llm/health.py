@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from core.config import get_settings
 from infrastructure.llm.profiles import resolve_llm_profile
+from infrastructure.llm.redaction import redact_diagnostic
 
 
 class LLMHealthResult(BaseModel):
@@ -161,7 +162,7 @@ class LLMHealthChecker:
             ok=False,
             host=urlparse(self.base_url).hostname or "",
             error_kind=_classify_http_status(response.status_code),
-            message=response.text[:300],
+            message=redact_diagnostic(response.text, limit=300),
         )
 
     def _exception_result(self, exc: Exception) -> LLMHealthResult:
@@ -169,7 +170,7 @@ class LLMHealthChecker:
             ok=False,
             host=urlparse(self.base_url).hostname or "",
             error_kind=_classify_exception(exc),
-            message=str(exc)[:300],
+            message=redact_diagnostic(exc, limit=300),
         )
 
     def _result(

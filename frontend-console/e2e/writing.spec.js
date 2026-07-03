@@ -335,6 +335,7 @@ test.describe("写作台模块", () => {
     await page.locator('[data-action="run-conflict-check"]').click()
 
     await expect(page.locator("#modal-overlay")).toContainText("剧情设定冲突检查", { timeout: 10000 })
+    await page.locator("#modal-footer").getByRole("button", { name: "开始检查" }).click()
     await expect(page.locator(".writing-conflict-item", { hasText: "禁止项出现在正文" })).toBeVisible()
     await expect(page.locator(".writing-conflict-item", { hasText: "必须发生项缺失" })).toBeVisible()
 
@@ -507,13 +508,18 @@ test.describe("写作台模块", () => {
   test("写作台响应式宽度不出现页面级横向溢出", async ({ page }) => {
     await createDraft(testProjectId, 1, "响应式章节", "响应式正文")
 
-    for (const width of [1280, 900, 600, 390]) {
+    for (const width of [1280, 900, 760, 600, 390]) {
       await page.setViewportSize({ width, height: 900 })
       await reloadWorkbench(page, "writing")
       await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
       await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
-      await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
-      await expect(page.locator("#btn-conflict-check")).toBeVisible()
+      if (width < 600) {
+        await expect(page.locator("#mobile-note-editor")).toBeVisible({ timeout: 5000 })
+        await expect(page.locator(".mobile-quick-note")).toContainText("完整编辑器")
+      } else {
+        await expect(page.locator("#writing-editor")).toBeVisible({ timeout: 5000 })
+        await expect(page.locator("#btn-conflict-check")).toBeVisible()
+      }
 
       const overflow = await page.evaluate(() => {
         const doc = document.documentElement

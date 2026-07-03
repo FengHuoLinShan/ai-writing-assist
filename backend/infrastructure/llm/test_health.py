@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from infrastructure.llm.health import LLMHealthChecker, LLMHealthResult
@@ -78,3 +79,26 @@ async def test_health_reports_chat_error_kind() -> None:
     assert result.ok is False
     assert result.error_kind == "auth_error"
     assert "Invalid API key" in result.message
+
+
+def test_health_error_message_redacts_secrets() -> None:
+    checker = LLMHealthChecker(
+        api_key="sk-live-secret-value",
+        base_url="https://opencode.ai/zen/go/v1",
+        model="deepseek-v4-flash",
+    )
+    response = httpx.Response(
+        401,
+        text=(
+            "Authorization: Bearer sk-live-secret-value "
+            "api_key=sk-another-secret"
+        ),
+    )
+
+    result = checker._http_error_result(response)
+
+    assert result is not None
+    assert "sk-live-secret-value" not in result.message
+    assert "sk-another-secret" not in result.message
+    assert "Bearer" not in result.message
+    assert "[REDACTED]" in result.message

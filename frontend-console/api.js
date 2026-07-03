@@ -1275,13 +1275,17 @@ const api = {
     },
 
     /** 查询任务状态 */
-    async getStatus(taskId) {
-      return request(`/tasks/${taskId}`)
+    async getStatus(taskId, novelId = null) {
+      const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
+      const query = resolvedNovelId
+        ? `?novel_id=${encodeURIComponent(resolvedNovelId)}`
+        : ""
+      return request(`/tasks/${taskId}${query}`)
     },
 
     /** 查询任务详情（getStatus 的别名，供长轮询流程使用） */
-    async get(taskId) {
-      return this.getStatus(taskId)
+    async get(taskId, novelId = null) {
+      return this.getStatus(taskId, novelId)
     },
   },
 }

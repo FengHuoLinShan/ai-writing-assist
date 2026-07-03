@@ -58,6 +58,7 @@ const templates = [
 
 beforeEach(() => {
   resetState()
+  localStorage.clear()
   vi.clearAllMocks()
   api.projects.listLlmProviderTemplates = vi.fn()
   api.projects.getLlmSettings = vi.fn()
@@ -85,7 +86,23 @@ describe("llmSettingsView", () => {
     expect(html).toContain("Kimi / Moonshot")
     expect(html).toContain("MiMo")
     expect(html).toContain("已保存")
+    expect(html).toContain("显示 Key")
     expect(html).not.toContain("sk-")
+  })
+
+  it("可以切换 API Key 输入框显示状态", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({})
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    llmSettingsView.bindEvents()
+
+    const keyInput = document.getElementById("llm-api-key")
+    document.getElementById("llm-toggle-api-key").click()
+
+    expect(keyInput.type).toBe("text")
+    expect(document.getElementById("llm-toggle-api-key").textContent).toContain("隐藏")
   })
 
   it("切换模板时填充 base URL 和默认模型", async () => {
@@ -109,6 +126,43 @@ describe("llmSettingsView", () => {
     expect(maxTokens.value).toBe("8192")
     expect(temperature.value).toBe("0.2")
     expect(topP.value).toBe("0.9")
+  })
+
+  it("切换创作模式预设时调整生成参数", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({})
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    llmSettingsView.applyCreativePreset("creative")
+
+    expect(document.getElementById("llm-temperature").value).toBe("0.9")
+    expect(document.getElementById("llm-top-p").value).toBe("0.95")
+    expect(document.getElementById("llm-max-tokens").value).toBe("8192")
+    expect(document.querySelector('[data-preset-id="creative"]').classList.contains("active")).toBe(true)
+  })
+
+  it("作者偏好保存到 localStorage", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({})
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    document.getElementById("author-daily-goal").value = "6000"
+    document.getElementById("author-editor-font").value = "serif"
+    document.getElementById("author-default-focus").checked = true
+
+    llmSettingsView.saveAuthorPreferences()
+
+    expect(JSON.parse(localStorage.getItem("novel_author_preferences:p1"))).toEqual({
+      dailyGoal: 6000,
+      editorFont: "serif",
+      defaultFocusMode: true,
+    })
+    expect(localStorage.getItem("novel_daily_goal")).toBe("6000")
+    expect(localStorage.getItem("novel_focus_default")).toBe("1")
+    expect(localStorage.getItem("novel_editor_font")).toBe("serif")
+    expect(toast).toHaveBeenCalledWith("作者偏好已保存", "success")
   })
 
   it("保存时提交项目级 LLM 配置", async () => {

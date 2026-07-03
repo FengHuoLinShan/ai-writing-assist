@@ -55,20 +55,15 @@ async def get_scenes_by_novel(
     exclude_narrative_tags: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """获取 novel 的所有 Scene（按 scene_index 排序），支持过滤。"""
-    from modules.outline.repositories import SceneRepository
-    from shared.utils import parse_uuid
+    from modules.outline.services import SceneService
 
-    nid = parse_uuid(novel_id, "novel_id")
-    repo = SceneRepository()
-    scenes = await repo.get_by_novel_ordered(db, nid)
-    result = []
-    for s in scenes:
-        if status_filter and s.status not in status_filter:
-            continue
-        if exclude_narrative_tags and s.narrative_tag in exclude_narrative_tags:
-            continue
-        result.append(_scene_to_dict(s))
-    return result
+    scenes = await SceneService().get_ordered_models(
+        db,
+        novel_id,
+        status_filter=status_filter,
+        exclude_narrative_tags=exclude_narrative_tags,
+    )
+    return [_scene_to_dict(scene) for scene in scenes]
 
 
 async def get_scenes_by_provenance_key(
@@ -77,13 +72,11 @@ async def get_scenes_by_provenance_key(
     provenance_key: str,
 ) -> list[dict[str, Any]]:
     """按 deep import provenance_key 获取 Scene，包含 deprecated。"""
-    from modules.outline.repositories import SceneRepository
-    from shared.utils import parse_uuid
+    from modules.outline.services import SceneService
 
-    nid = parse_uuid(novel_id, "novel_id")
-    scenes = await SceneRepository().get_by_provenance_key(
+    scenes = await SceneService().get_by_provenance_key_models(
         db,
-        nid,
+        novel_id,
         provenance_key,
     )
     return [_scene_to_dict(scene) for scene in scenes]
@@ -96,18 +89,13 @@ async def count_scenes_by_novel(
     status_filter: list[str] | None = None,
 ) -> int:
     """统计 novel 的 Scene 数量。"""
-    from sqlalchemy import func, select
+    from modules.outline.services import SceneService
 
-    from modules.outline.models import Scene
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    conditions = [Scene.novel_id == nid]
-    if status_filter:
-        conditions.append(Scene.status.in_(status_filter))
-    stmt = select(func.count(Scene.id)).where(*conditions)
-    result = await db.execute(stmt)
-    return result.scalar() or 0
+    return await SceneService().count_by_novel(
+        db,
+        novel_id,
+        status_filter=status_filter,
+    )
 
 
 async def create_scene(
@@ -116,13 +104,9 @@ async def create_scene(
     data: dict[str, Any],
 ) -> dict[str, Any]:
     """创建单个 Scene，返回 dict。"""
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
-    from shared.utils import parse_uuid
+    from modules.outline.services import SceneService
 
-    nid = parse_uuid(novel_id, "novel_id")
-    scene_data = SceneCreate(**data)
-    scene = await SceneRepository().create(db, nid, scene_data)
+    scene = await SceneService().create_model_from_dict(db, novel_id, data)
     return _scene_to_dict(scene)
 
 
@@ -132,18 +116,14 @@ async def batch_create_scenes(
     scenes_data: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """批量创建 Scene，返回 dict 列表。"""
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneCreate
-    from shared.utils import parse_uuid
+    from modules.outline.services import SceneService
 
-    nid = parse_uuid(novel_id, "novel_id")
-    repo = SceneRepository()
-    results = []
-    for data in scenes_data:
-        scene_data = SceneCreate(**data)
-        scene = await repo.create(db, nid, scene_data)
-        results.append(_scene_to_dict(scene))
-    return results
+    scenes = await SceneService().batch_create_models_from_dicts(
+        db,
+        novel_id,
+        scenes_data,
+    )
+    return [_scene_to_dict(scene) for scene in scenes]
 
 
 async def update_scene(
@@ -153,18 +133,14 @@ async def update_scene(
     data: dict[str, Any],
 ) -> dict[str, Any] | None:
     """更新 Scene 字段（仅允许 status 等少量字段），返回 dict 或 None。"""
-    from modules.outline.repositories import SceneRepository
-    from modules.outline.schemas import SceneUpdate
-    from shared.utils import parse_uuid
+    from modules.outline.services import SceneService
 
-    nid = parse_uuid(novel_id, "novel_id")
-    sid = parse_uuid(scene_id, "scene_id")
-    repo = SceneRepository()
-    scene = await repo.get(db, sid)
-    if scene is None or scene.novel_id != nid:
-        return None
-    update_data = SceneUpdate(**data)
-    updated = await repo.update(db, sid, update_data)
+    updated = await SceneService().update_model_from_dict(
+        db,
+        novel_id,
+        scene_id,
+        data,
+    )
     if updated is None:
         return None
     return _scene_to_dict(updated)
@@ -172,17 +148,9 @@ async def update_scene(
 
 async def get_next_scene_index(db: AsyncSession, novel_id: str) -> int:
     """获取该 novel 的下一个 scene_index（当前最大 + 1）。"""
-    from sqlalchemy import func, select
+    from modules.outline.services import SceneService
 
-    from modules.outline.models import Scene
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    stmt = select(func.coalesce(func.max(Scene.scene_index), -1)).where(
-        Scene.novel_id == nid,
-    )
-    result = await db.execute(stmt)
-    return (result.scalar() or -1) + 1
+    return await SceneService().get_next_scene_index(db, novel_id)
 
 
 async def split_scene_chunk_to_new_chapter(
@@ -259,43 +227,13 @@ async def deprecate_deep_import_scenes_by_workflow(
     workflow_id: str,
 ) -> int:
     """Soft-deprecate auto-ingested Scenes created by one deep import workflow."""
-    from sqlalchemy import select, update
+    from modules.outline.services import SceneService
 
-    from modules.outline.models import Scene
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    stmt = select(Scene).where(
-        Scene.novel_id == nid,
-        Scene.status.in_(["candidate", "proposal", "draft", "canonical"]),
+    return await SceneService().deprecate_deep_import_scenes_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )
-    result = await db.execute(stmt)
-    scenes = result.scalars().all()
-
-    deprecated = 0
-    for scene in scenes:
-        meta = scene.structure_meta or {}
-        if scene.source != "deep_import" or not _is_cleanup_eligible_deep_import_meta(
-            meta,
-            workflow_id,
-            require_source=False,
-        ):
-            continue
-        updated_meta = {
-            **meta,
-            "cleanup_status": "deprecated",
-            "cleanup_reason": "abandoned_deep_import_recovery",
-        }
-        await db.execute(
-            update(Scene)
-            .where(Scene.id == scene.id, Scene.novel_id == nid)
-            .values(status="deprecated", structure_meta=updated_meta)
-        )
-        deprecated += 1
-
-    if deprecated:
-        await db.flush()
-    return deprecated
 
 
 async def deprecate_deep_import_structure_assets_by_workflow(
@@ -304,44 +242,15 @@ async def deprecate_deep_import_structure_assets_by_workflow(
     workflow_id: str,
 ) -> int:
     """Soft-deprecate outline structure assets from one deep import workflow."""
-    from sqlalchemy import select, update
+    from modules.outline.services import OutlineStructureCleanupService
 
-    from modules.outline.models import (
-        ForeshadowingPlan,
-        OutlineArc,
-        PlotThread,
-        RevealPlan,
-    )
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    deprecated = 0
-    for model in (PlotThread, OutlineArc, ForeshadowingPlan, RevealPlan):
-        stmt = select(model).where(
-            model.novel_id == nid,
-            model.status.in_(["candidate", "proposal", "draft", "canonical"]),
+    return await (
+        OutlineStructureCleanupService().deprecate_deep_import_structure_assets_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
         )
-        result = await db.execute(stmt)
-        assets = result.scalars().all()
-        for asset in assets:
-            meta = asset.provenance_meta or {}
-            if not _is_cleanup_eligible_deep_import_meta(meta, workflow_id):
-                continue
-            updated_meta = {
-                **meta,
-                "cleanup_status": "deprecated",
-                "cleanup_reason": "abandoned_deep_import_recovery",
-            }
-            await db.execute(
-                update(model)
-                .where(model.id == asset.id, model.novel_id == nid)
-                .values(status="deprecated", provenance_meta=updated_meta)
-            )
-            deprecated += 1
-
-    if deprecated:
-        await db.flush()
-    return deprecated
+    )
 
 
 # ============================================================

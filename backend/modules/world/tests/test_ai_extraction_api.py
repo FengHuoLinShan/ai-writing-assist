@@ -83,9 +83,8 @@ async def test_world_extract_enqueues_domain_task_after_confirmation(
 
 
 @pytest.mark.asyncio
-async def test_world_alias_relation_extract_enqueues_domain_task(
+async def test_world_alias_relation_extract_rejects_invalid_context_confirmation(
     async_client: AsyncClient,
-    db_session: AsyncSession,
 ) -> None:
     project_resp = await async_client.post(
         "/api/projects",
@@ -98,6 +97,46 @@ async def test_world_alias_relation_extract_enqueues_domain_task(
         "/api/world/alias-relations/extract",
         json={
             "novel_id": novel_id,
+            "context_confirmation_id": "00000000-0000-0000-0000-000000009999",
+            "start_chapter": 1,
+            "end_chapter": 3,
+            "scene_ids": ["scene-a"],
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "context_confirmation_id" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmation(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "别名关系补抽"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    confirmation_resp = await async_client.post(
+        "/api/context/confirm",
+        json={
+            "novel_id": novel_id,
+            "action": "world.alias_relations.extract",
+            "task": "确认别名/关系补抽参考资料",
+            "scope": "chapter",
+            "chapter_index": 1,
+        },
+    )
+    assert confirmation_resp.status_code == 201
+    confirmation_id = confirmation_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/world/alias-relations/extract",
+        json={
+            "novel_id": novel_id,
+            "context_confirmation_id": confirmation_id,
             "start_chapter": 1,
             "end_chapter": 3,
             "scene_ids": ["scene-a"],
@@ -113,6 +152,7 @@ async def test_world_alias_relation_extract_enqueues_domain_task(
     task = result.scalar_one()
     assert task.task_type == "world_alias_relation_extraction"
     assert task.meta["novel_id"] == novel_id
+    assert task.meta["context_confirmation_id"] == confirmation_id
     assert task.meta["start_chapter"] == 1
     assert task.meta["end_chapter"] == 3
     assert task.meta["scene_ids"] == ["scene-a"]

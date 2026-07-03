@@ -91,6 +91,18 @@ describe("sceneWorkbenchView", () => {
 
     expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain('data-action="scene-auto-extract"')
+    expect(html).toContain("再选 2 个即可融合")
+    expect(html).toContain("拆分/整理")
+    expect(html).not.toContain(">整理</button>")
+  })
+
+  it("selects visible scenes for manual fusion", () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    sceneWorkbenchView._selectVisibleFusionScenes()
+
+    expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s1", "s2"]))
+    expect(router.renderCurrentView).toHaveBeenCalled()
   })
 
   it("submits scene auto extraction stage task", async () => {

@@ -111,6 +111,27 @@ class ContextConfirmationService:
             raise ValueError("context confirmation action mismatch")
         return self._to_contract(record)
 
+    async def require_fresh_confirmation(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        action: str,
+        confirmation_id: str | uuid.UUID,
+    ) -> ContextConfirmationContract:
+        confirmation = await self.require_confirmation(
+            db,
+            novel_id=novel_id,
+            action=action,
+            confirmation_id=confirmation_id,
+        )
+        if confirmation.result_status in {"stale_context", "needs_review"}:
+            raise ValueError(
+                f"context confirmation is {confirmation.result_status}; "
+                "please review and confirm the latest context",
+            )
+        return confirmation
+
     async def compile_from_confirmation(
         self,
         db: AsyncSession,

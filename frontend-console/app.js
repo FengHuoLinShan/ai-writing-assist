@@ -41,6 +41,7 @@ const App = {
     this._bindModalClose()
     this._bindHelpClose()
     this._bindCommandBarDismiss()
+    this._bindThemeToggle()
 
     // 主题初始化
     this._initTheme()
@@ -112,6 +113,37 @@ const App = {
         ${esc(label)}
       </button>
     `
+  },
+
+  updateWordcountDashboard({
+    chapterIndex = null,
+    chapterWords = 0,
+    todayWords = 0,
+    saveState = "saved",
+  } = {}) {
+    const chapterEl = document.getElementById("topbar-chapter")
+    const wcEl = document.getElementById("topbar-wordcount")
+    const chapterWcEl = document.getElementById("topbar-chapter-wc")
+    const todayWcEl = document.getElementById("topbar-today-wc")
+    const saveStateEl = document.getElementById("topbar-save-state")
+    if (!chapterEl || !wcEl) return
+
+    const visible = state.currentView === "writing" && state.currentProjectId && chapterIndex != null
+    chapterEl.classList.toggle("hidden", !visible)
+    wcEl.classList.toggle("hidden", !visible)
+    if (!visible) return
+
+    chapterEl.textContent = `第 ${chapterIndex} 章`
+    if (chapterWcEl) chapterWcEl.textContent = Number(chapterWords || 0).toLocaleString()
+    if (todayWcEl) todayWcEl.textContent = Number(todayWords || 0).toLocaleString()
+    if (saveStateEl) {
+      saveStateEl.className = `save-state ${saveState || "saved"}`
+      saveStateEl.title = {
+        saving: "保存中",
+        unsaved: "未保存",
+        saved: "已保存",
+      }[saveState] || "保存状态"
+    }
   },
 
   _recoverSmartDedupWorkflow() {
@@ -488,6 +520,14 @@ const App = {
         return
       }
 
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault()
+        if (state.currentView === "writing" && typeof window.writingView?._toggleOutlineFloat === "function") {
+          window.writingView._toggleOutlineFloat()
+        }
+        return
+      }
+
       // 忽略输入框中的其他快捷键（除 Esc）
       const tag = e.target.tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
@@ -736,7 +776,41 @@ const App = {
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
       const theme = saved || (prefersDark ? "dark" : "light")
       document.documentElement.setAttribute("data-theme", theme)
+      document.body.classList.toggle("theme-paper", theme === "paper")
     } catch {}
+  },
+
+  /**
+   * 切换主题
+   */
+  _switchTheme(theme) {
+    try {
+      document.documentElement.setAttribute("data-theme", theme)
+      document.body.classList.toggle("theme-paper", theme === "paper")
+      localStorage.setItem("novel_theme", theme)
+      toast(`已切换至「${{ light: "浅色", dark: "暗色", "dark-soft": "护眼暗色", paper: "纸张" }[theme] || theme}」主题`, "success")
+    } catch {}
+  },
+
+  /**
+   * 绑定主题切换按钮
+   */
+  _bindThemeToggle() {
+    const btn = document.getElementById("theme-toggle")
+    const menu = document.getElementById("theme-menu")
+    if (!btn || !menu) return
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation()
+      menu.classList.toggle("hidden")
+    })
+    menu.querySelectorAll("[data-theme-value]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation()
+        this._switchTheme(el.dataset.themeValue)
+        menu.classList.add("hidden")
+      })
+    })
+    document.addEventListener("click", () => menu.classList.add("hidden"))
   },
 
   /**

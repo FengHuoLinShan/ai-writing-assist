@@ -32,6 +32,19 @@ import {
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
 import { drawTerrainLayers } from "./mapTerrainRenderer.js"
+import {
+  bulkResultMessage,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  renderSelectionHeader,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleAllBulkSelection,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import {
   mapState,
@@ -65,6 +78,7 @@ const mapView = {
   /** 当前 novel 下的地图列表 */
   _maps: [],
   _mapsLoadError: null,
+  _bulkSelections: {},
   /** 可绑定的 location 实体列表 */
   _locations: [],
   /** 所有实体列表（用于标记下拉） */
@@ -341,8 +355,12 @@ const mapView = {
   },
 
   _renderList() {
+    const scope = "map-list"
+    const ids = this._maps.map((m) => m.id).filter(Boolean)
+    reconcileBulkSelection(this, scope, ids)
     const rows = this._maps.map((m) => `
       <tr class="clickable" data-action="map-open" data-id="${esc(m.id)}">
+        <td class="selection-cell">${renderSelectionCell(this, scope, m.id, `选择 ${m.name || "地图"}`)}</td>
         <td>${esc(m.name)}</td>
         <td>${esc(m.map_type)}</td>
         <td>${m.grid_width}×${m.grid_height}</td>
@@ -356,8 +374,11 @@ const mapView = {
       <div class="map-toolbar">
         <button class="btn btn-primary" data-action="map-create-world">+ 创建世界地图</button>
       </div>
+      ${renderBulkToolbar(this, scope, [
+        { action: "delete-maps", label: "批量删除地图", className: "btn-danger" },
+      ], { noun: "地图", hint: "只处理当前地图列表" })}
       <table class="data-table">
-        <thead><tr><th>名称</th><th>类型</th><th>尺寸</th><th>操作</th></tr></thead>
+        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前地图")}</th><th>名称</th><th>类型</th><th>尺寸</th><th>操作</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `
@@ -375,10 +396,10 @@ const mapView = {
 
     return `
       <div class="map-scene-bar">
-        <button class="btn btn-sm" data-action="map-scene-prev" ${currentIdx <= 0 ? "disabled" : ""}>←</button>
+        <button class="btn btn-sm" data-action="map-scene-prev" ${currentIdx <= 0 ? "disabled" : ""} title="${currentIdx <= 0 ? "没有上一个 Scene" : "上一个 Scene"}">←</button>
         <span class="map-scene-label" data-action="map-scene-pick">${sceneLabel}</span>
-        <button class="btn btn-sm" data-action="map-scene-next" ${currentIdx >= scenes.length - 1 ? "disabled" : ""}>→</button>
-        <button class="btn btn-sm" data-action="map-scene-clear" ${!mapState.currentSceneId ? "disabled" : ""}>清除</button>
+        <button class="btn btn-sm" data-action="map-scene-next" ${currentIdx >= scenes.length - 1 ? "disabled" : ""} title="${currentIdx >= scenes.length - 1 ? "没有下一个 Scene" : "下一个 Scene"}">→</button>
+        <button class="btn btn-sm" data-action="map-scene-clear" ${!mapState.currentSceneId ? "disabled" : ""} title="${!mapState.currentSceneId ? "当前未选择 Scene" : "清除 Scene 聚焦"}">清除</button>
       </div>
     `
   },
@@ -1010,6 +1031,21 @@ const mapView = {
 
   _bindListEvents() {
     bindWorkspaceClick(this, {
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
+        this._render("map-root")
+      },
+      "bulk-toggle-all": (e, t) => {
+        e.stopPropagation()
+        toggleAllBulkSelection(this, t.getAttribute("data-scope"), this._maps.map((m) => m.id).filter(Boolean), t.checked)
+        this._render("map-root")
+      },
+      "bulk-clear": (_e, t) => {
+        clearBulkSelection(this, t.getAttribute("data-scope"))
+        this._render("map-root")
+      },
+      "bulk-run": (_e, t) => this._runMapBulkAction(t.getAttribute("data-bulk-action")),
       "map-create-world": () => this._showCreateWorldForm(),
       "map-open": (_e, t) => {
         const id = t.getAttribute("data-id")
@@ -1159,6 +1195,24 @@ const mapView = {
       },
       "删除"
     )
+  },
+
+  _runMapBulkAction(action) {
+    if (action !== "delete-maps") return
+    const items = selectedItemsFrom(this._maps, getBulkSelection(this, "map-list"))
+    if (!items.length) {
+      toast("请先选择地图", "warning")
+      return
+    }
+    return confirmAction(`确定删除选中的 ${items.length} 张地图？该操作不可恢复。`, async () => {
+      const result = await runBulkAction(items, async (map) => {
+        await api.world.deleteMap(map.id, state.currentProjectId)
+      })
+      toast(bulkResultMessage(result, "批量删除地图", (item) => item.name || item.id), result.failed.length ? "warning" : "success")
+      clearBulkSelection(this, "map-list")
+      await this._loadMaps()
+      this._render("map-root")
+    }, "删除")
   },
 
   async _enterEdit() {

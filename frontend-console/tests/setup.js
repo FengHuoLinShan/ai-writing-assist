@@ -96,6 +96,8 @@ globalThis.api = {
     listLlmProviderTemplates: vi.fn(),
     getLlmSettings: vi.fn(),
     updateLlmSettings: vi.fn(),
+    restore: vi.fn(),
+    permanentDelete: vi.fn(),
     startSmartDedupScan: vi.fn(),
     applySmartDedup: vi.fn(),
   },

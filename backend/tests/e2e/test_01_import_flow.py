@@ -524,7 +524,7 @@ class TestAsyncTaskSubmission:
         resp = await async_client.post(
             "/api/tasks",
             json={
-                "task_type": "world_entity_extraction",
+                "task_type": "publish_chapter",
                 "meta": {
                     "novel_id": pid,
                     "start_chapter": 1,
@@ -542,7 +542,10 @@ class TestAsyncTaskSubmission:
 
         # Act — 查询任务状态
         task_id = data["task_id"]
-        status_resp = await async_client.get(f"/api/tasks/{task_id}")
+        status_resp = await async_client.get(
+            f"/api/tasks/{task_id}",
+            params={"novel_id": pid},
+        )
 
         # Assert
         assert status_resp.status_code == 200
@@ -573,12 +576,14 @@ class TestAsyncTaskSubmission:
     ):
         """取消 pending 状态的任务应返回 cancelled"""
         # Arrange
+        meta = await create_base_scene(db_session)
+        pid = meta["project_id"]
         resp = await async_client.post(
             "/api/tasks",
             json={
-                "task_type": "world_entity_extraction",
+                "task_type": "publish_chapter",
                 "meta": {
-                    "novel_id": str(uuid.uuid4()),
+                    "novel_id": pid,
                     "start_chapter": 1,
                     "end_chapter": 1,
                 },
@@ -587,7 +592,10 @@ class TestAsyncTaskSubmission:
         task_id = resp.json()["task_id"]
 
         # Act
-        cancel_resp = await async_client.post(f"/api/tasks/{task_id}/cancel")
+        cancel_resp = await async_client.post(
+            f"/api/tasks/{task_id}/cancel",
+            params={"novel_id": pid},
+        )
 
         # Assert
         assert cancel_resp.status_code == 200
@@ -602,7 +610,10 @@ class TestAsyncTaskSubmission:
         fake_task_id = str(uuid.uuid4())
 
         # Act
-        resp = await async_client.get(f"/api/tasks/{fake_task_id}")
+        resp = await async_client.get(
+            f"/api/tasks/{fake_task_id}",
+            params={"novel_id": str(uuid.uuid4())},
+        )
 
         # Assert
         assert resp.status_code == 404

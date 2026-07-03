@@ -233,6 +233,45 @@ async def test_index_chapter_with_embeddings(
 
 
 @pytest.mark.asyncio
+async def test_incremental_index_reuses_equal_chunks_without_mutating_iteration(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """增量索引复用 unchanged chunk 时不能边遍历 dict 边删除 key。"""
+    from modules.rag.indexing import IndexingService
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    old_chunk = await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            chunk_index=0,
+            start_offset=0,
+            end_offset=4,
+            char_count=4,
+            text="完全相同",
+            embedding_status="succeeded",
+        ),
+    )
+    await db_session.flush()
+
+    report = await IndexingService(repo=repo).index_chapter_incremental(
+        db_session,
+        nid_uuid,
+        1,
+        old_content="完全相同",
+        new_content="完全相同",
+    )
+
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert report.chunks_created_ids == [str(old_chunk.id)]
+    assert [chunk.id for chunk in chunks] == [old_chunk.id]
+
+
+@pytest.mark.asyncio
 async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     db_session: AsyncSession,
     repo: RagChunkRepository,

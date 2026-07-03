@@ -30,12 +30,12 @@ test.skip(
   "requires RUN_WORKER_E2E=1 and a running backend worker",
 )
 
-async function waitForTaskDone(taskId, timeoutMs = 180_000) {
+async function waitForTaskDone(taskId, novelId, timeoutMs = 180_000) {
   const deadline = Date.now() + timeoutMs
   let lastTask = null
 
   while (Date.now() < deadline) {
-    lastTask = await getTask(taskId)
+    lastTask = await getTask(taskId, novelId)
     if (TERMINAL_TASK_STATUSES.has(lastTask.status)) {
       return lastTask
     }
@@ -136,7 +136,7 @@ test.describe("深度导入异步 Worker 受理", () => {
 
     await page.close()
 
-    const task = await waitForTaskDone(taskId)
+    const task = await waitForTaskDone(taskId, testProjectId)
 
     expect(task.status).toBe("done")
     expect(task.error_message || "").toBe("")

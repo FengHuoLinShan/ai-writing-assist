@@ -1115,6 +1115,23 @@ class TestDeepImportWorkflowAutoRun:
         )
 
     @pytest.mark.asyncio
+    async def test_extract_entities_by_scene_propagates_handler_errors(self):
+        workflow = DeepImportWorkflow()
+
+        async def broken_handler(*_args, **_kwargs):
+            raise RuntimeError("phase2 boom")
+
+        with patch(
+            "modules.imports.workflow._container_get",
+            return_value=broken_handler,
+        ):
+            with pytest.raises(RuntimeError, match="phase2 boom"):
+                await workflow._extract_entities_by_scene(
+                    Mock(),
+                    "00000000-0000-0000-0000-00000000b201",
+                )
+
+    @pytest.mark.asyncio
     async def test_pending_to_done(self):
         """pending 直接跑完三步到达 done"""
         workflow = DeepImportWorkflow()

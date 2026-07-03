@@ -224,6 +224,21 @@ async def require_confirmation(
     )
 
 
+async def require_fresh_confirmation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    action: str,
+    confirmation_id: str,
+) -> ContextConfirmationContract:
+    return await _confirmation_service.require_fresh_confirmation(
+        db,
+        novel_id=novel_id,
+        action=action,
+        confirmation_id=confirmation_id,
+    )
+
+
 async def compile_from_confirmation(
     db: AsyncSession,
     *,

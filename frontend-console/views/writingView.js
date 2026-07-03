@@ -4,6 +4,18 @@
  * 左侧章节树 → 中间编辑器 → 版本管理。
  * 支持暂存、发布、版本切换、整章删除。
  */
+import {
+  bulkResultMessage,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleAllBulkSelection,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import { renderFixedProgress } from "../shared/progressRenderer.js"
 import {
@@ -77,6 +89,10 @@ const writingView = {
   _conflictChecks: [],
   _latestConflictCheck: null,
   _checkingConflicts: false,
+  _bulkSelections: {},
+  _focusMode: false,
+  _forceDesktopMode: false,
+  _showBulkActions: false,
 
   _autoExtractionWorkflowTypes() {
     return Object.values(AUTO_EXTRACTION_STAGES).map((item) => item.taskType)
@@ -137,6 +153,8 @@ const writingView = {
     this._conflictChecks = []
     this._latestConflictCheck = null
     this._checkingConflicts = false
+    this._focusMode = this._getFocusDefault()
+    this._forceDesktopMode = false
 
     // beforeunload 处理：有未保存内容时弹出确认
     this._beforeUnloadHandler = (e) => {
@@ -280,7 +298,7 @@ const writingView = {
 
   async render() {
     if (this._loading) {
-      return '<div class="empty-state"><p>加载中...</p></div>'
+      return '<div class="empty-state"><p>正在加载章节数据...</p></div>'
     }
 
     if (this._chapterListLoadError) {
@@ -310,6 +328,11 @@ const writingView = {
       `
     }
 
+    if (this._shouldRenderMobileQuickNote()) {
+      setTimeout(() => this._bindEvents(), 0)
+      return this._renderMobileQuickNote()
+    }
+
     let html = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px;">
         手动工作台 — 选择章节，撰写正文。
@@ -318,6 +341,15 @@ const writingView = {
         <div id="writing-tree-container">${this._renderSceneTree()}</div>
         <div id="writing-editor-container">${this._renderEditor()}</div>
         <div id="writing-panel-container">${this._renderScenePanel()}</div>
+      </div>
+      <div id="outline-float-panel" class="outline-float-panel hidden">
+        <div class="outline-float-header">
+          <span>大纲</span>
+          <button class="btn-icon" data-action="close-outline-float" title="关闭大纲浮窗">&times;</button>
+        </div>
+        <div class="outline-float-body" id="outline-float-body">
+          <p class="muted">加载中...</p>
+        </div>
       </div>
       <div id="writing-publish-bar-container">${this._renderPublishBar()}</div>
       <div id="writing-deep-import-bar-container">${this._renderDeepImportBar()}</div>
@@ -381,6 +413,109 @@ const writingView = {
     if (titleInput) {
       this._currentTitle = titleInput.value
     }
+  },
+
+  _shouldRenderMobileQuickNote() {
+    return typeof window !== "undefined"
+      && window.innerWidth < 600
+      && this._currentChapter !== null
+      && !this._forceDesktopMode
+      && !document.body.classList.contains("force-desktop")
+  },
+
+  _renderMobileQuickNote() {
+    const currentText = this._currentContent || ""
+    return `
+      <div class="mobile-quick-note">
+        <div class="mobile-note-header">
+          <span class="mobile-note-chapter">第 ${esc(this._currentChapter)} 章</span>
+          <span class="mobile-note-wc" id="mobile-note-wc">${esc(currentText.length.toLocaleString())} 字</span>
+        </div>
+        <textarea id="mobile-note-editor" class="mobile-note-editor" placeholder="在此记录灵感...">${esc(currentText)}</textarea>
+        <div class="mobile-note-actions">
+          <button class="btn btn-primary" data-action="save-mobile-note">保存为草稿</button>
+          <button class="btn btn-ghost" data-action="switch-desktop-mode">完整编辑器</button>
+        </div>
+      </div>
+    `
+  },
+
+  async _saveMobileNote() {
+    const editor = document.getElementById("mobile-note-editor")
+    if (!editor || this._currentChapter == null) return
+    this._currentContent = editor.value
+    const title = this._currentTitle || `第 ${this._currentChapter} 章`
+    try {
+      if (this._currentDraftId) {
+        const result = await api.writing.autosave(
+          this._currentDraftId,
+          {
+            title,
+            content: editor.value,
+            expected_version: this._currentVersionNumber,
+            expected_updated_at: this._currentUpdatedAt,
+          },
+          state.currentProjectId,
+        )
+        this._currentVersionNumber = result.version_number
+        this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
+      } else {
+        const created = await api.writing.autosaveDraftOnly({
+          novel_id: state.currentProjectId,
+          chapter_index: this._currentChapter,
+          title,
+          content: editor.value,
+        })
+        this._currentDraftId = created.id
+        this._currentVersionNumber = created.version_number
+        this._currentUpdatedAt = created.updated_at || null
+      }
+      this._currentTitle = title
+      this._lastSavedContent = editor.value
+      this._saveBackup(null, null)
+      toast("已保存到草稿", "success")
+    } catch (err) {
+      this._saveBackup(editor.value, title)
+      toast(err.message || "移动记录保存失败，已保留本地暂存", "error")
+    }
+  },
+
+  async _aiContinue() {
+    const panel = document.getElementById("ai-suggestion-panel")
+    if (!panel) return
+    panel.classList.remove("hidden")
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;color:var(--text-dim);font-size:13px;">
+        <span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;"></span>
+        AI 正在分析上下文...
+      </div>
+    `
+    setTimeout(() => {
+      panel.classList.add("hidden")
+      toast("AI 续写功能即将上线，敬请期待 🚀", "info")
+    }, 2000)
+  },
+
+  _exportChapter() {
+    const title = this._currentTitle || `第 ${this._currentChapter} 章`
+    const content = this._currentContent || ""
+    const text = `${title}\n\n${content}`
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${title.replace(/[\\/:*?"<>|]/g, "")}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast(`已导出「${title}」`, "success")
+  },
+
+  async _switchDesktopMode() {
+    this._forceDesktopMode = true
+    document.body.classList.add("force-desktop")
+    await this._rerender()
   },
 
   // ============================================================
@@ -458,6 +593,18 @@ const writingView = {
   _updateSaveStatus() {
     const el = document.getElementById("writing-save-status")
     if (el) el.textContent = this._saveStatusText()
+    this._updateTopbarWordcount()
+  },
+
+  _updateTopbarWordcount() {
+    const editor = typeof document !== "undefined" ? document.getElementById("writing-editor") : null
+    const content = editor ? editor.value : (this._currentContent || "")
+    globalThis.App?.updateWordcountDashboard?.({
+      chapterIndex: this._currentChapter,
+      chapterWords: content.length,
+      todayWords: this._getDailyWordcount() + content.length,
+      saveState: this._saveStateForDashboard(),
+    })
   },
 
   /** 安排自动保存（3 秒防抖） */
@@ -502,31 +649,51 @@ const writingView = {
     }
   },
 
+  async _maybeRestoreBackup(chapterIndex) {
+    const backup = this._loadBackup(chapterIndex)
+    if (!backup || !backup.content) return false
+
+    const age = ((Date.now() - (backup.timestamp || 0)) / 1000 / 60).toFixed(0)
+    const confirmed = await new Promise((resolve) => {
+      confirmAction(
+        `检测到本地暂存的第 ${chapterIndex} 章内容（${age} 分钟前）。是否恢复？`,
+        () => resolve(true),
+        "恢复本地内容",
+      )
+      setTimeout(() => {
+        const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
+        if (cancelBtn) cancelBtn.onclick = () => resolve(false)
+      }, 50)
+    })
+
+    if (!confirmed) return false
+    this._currentContent = backup.content
+    this._currentTitle = backup.title || ""
+    return true
+  },
+
   // ============================================================
   // 左侧：章节树
   // ============================================================
 
   _renderChapterTree() {
+    reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
     let html = `
       <div class="card" style="max-height:600px;overflow-y:auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;font-weight:bold;">章节（${this._chapterList.length}）</span>
-          <button class="btn btn-sm" data-action="new-chapter" style="font-size:11px;">+ 新建</button>
+        <div class="chapter-tree-header">
+          <span class="chapter-tree-title">章节（${this._chapterList.length}）</span>
+          <div class="chapter-tree-actions">
+            <button class="btn btn-sm" data-action="prev-chapter" title="上一章">&#8592;</button>
+            <button class="btn btn-sm" data-action="next-chapter" title="下一章">&#8594;</button>
+            <button class="btn btn-sm" data-action="new-chapter">+ 新建</button>
+          </div>
         </div>
         <div style="margin-top:6px;">
     `
 
     for (const idx of this._chapterList) {
       const isActive = idx === this._currentChapter
-      html += `
-        <div style="display:flex;align-items:center;padding:6px 8px;border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};margin-bottom:2px;background:${isActive ? 'var(--hover-bg)' : 'transparent'};border-radius:0 4px 4px 0;">
-          <div class="clickable" data-action="select-chapter" data-chapter="${idx}" style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-            <strong>第 ${idx} 章</strong>
-            ${this._chapters[idx].title ? `<span style="color:var(--text-dim);font-size:11px;margin-left:6px;">${esc(this._chapters[idx].title)}</span>` : ''}
-          </div>
-          <button class="btn btn-sm" data-action="delete-chapter" data-chapter="${idx}" title="删除整章" style="font-size:11px;color:var(--danger);margin-left:4px;">✕</button>
-        </div>
-      `
+      html += this._renderChapterRow(idx)
     }
 
     html += '</div></div>'
@@ -557,12 +724,17 @@ const writingView = {
     })
 
     const unassigned = this._chapterList.filter((idx) => !assignedChapters.has(idx))
+    reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
 
     let html = `
       <div class="card" style="max-height:600px;overflow-y:auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;font-weight:bold;">Scene 树</span>
-          <button class="btn btn-sm" data-action="new-chapter" style="font-size:11px;">+ 新建章</button>
+        <div class="chapter-tree-header">
+          <span class="chapter-tree-title">章节</span>
+          <div class="chapter-tree-actions">
+            <button class="btn btn-sm" data-action="prev-chapter" title="上一章">&#8592;</button>
+            <button class="btn btn-sm" data-action="next-chapter" title="下一章">&#8594;</button>
+            <button class="btn btn-sm" data-action="new-chapter">+ 新建</button>
+          </div>
         </div>
         <div style="margin-top:6px;">
     `
@@ -616,14 +788,65 @@ const writingView = {
   _renderChapterRow(idx) {
     const isActive = idx === this._currentChapter
     return `
-      <div style="display:flex;align-items:center;padding:4px 6px;border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};margin-bottom:1px;background:${isActive ? 'var(--hover-bg)' : 'transparent'};border-radius:0 4px 4px 0;}">
-        <div class="clickable" data-action="select-chapter" data-chapter="${idx}" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-          第 ${idx} 章
-          ${this._chapters[idx] && this._chapters[idx].title ? `<span style="color:var(--text-dim);font-size:10px;margin-left:4px;">${esc(this._chapters[idx].title)}</span>` : ''}
+      <div class="chapter-row ${isActive ? "chapter-row--active" : ""}" data-action="select-chapter" data-chapter="${idx}">
+        <div class="chapter-row__status">
+          <span class="chapter-status chapter-status--${esc(this._chapterStatus(idx))}" title="${esc(this._chapterStatusLabel(idx))}"></span>
         </div>
-        <button class="btn btn-sm" data-action="delete-chapter" data-chapter="${idx}" title="删除整章" style="font-size:10px;color:var(--danger);margin-left:2px;">✕</button>
+        <div class="chapter-row__info">
+          <div class="chapter-row__title">
+            <span class="chapter-number">第 ${idx} 章</span>
+            ${this._chapters[idx]?.title ? `<span class="chapter-title-text">${esc(this._chapters[idx].title)}</span>` : ""}
+          </div>
+          <div class="chapter-row__meta">
+            <span class="chapter-wc">${esc(this._chapterWordcount(idx))} 字</span>
+          </div>
+        </div>
       </div>
     `
+  },
+
+  _chapterStatus(idx) {
+    const chapter = this._chapters[idx]
+    if (!chapter) return "empty"
+    if (chapter.published || chapter.status === "published") return "published"
+    if ((chapter.draftCount || 0) > 0 || chapter.title) return "draft"
+    return "empty"
+  },
+
+  _chapterStatusLabel(idx) {
+    return { empty: "未写", draft: "草稿", published: "已发布" }[this._chapterStatus(idx)] || "未知"
+  },
+
+  _chapterWordcount(idx) {
+    if (idx === this._currentChapter) {
+      const editor = typeof document !== "undefined" ? document.getElementById("writing-editor") : null
+      const content = editor ? editor.value : (this._currentContent || "")
+      return String(content.length || this._chapters[idx]?.wordcount || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+    }
+    const count = this._chapters[idx]?.wordcount || this._chapters[idx]?.word_count || 0
+    return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  },
+
+  _renderChapterBulkToolbar() {
+    if (!this._showBulkActions) {
+      return `<div style="margin:4px 0;text-align:right;"><button class="btn btn-sm btn-ghost" data-action="toggle-bulk-actions" title="批量管理">管理 ▾</button></div>`
+    }
+    return `
+      <div class="row-actions" style="margin:8px 0;">
+        <button class="btn btn-sm btn-ghost" data-action="toggle-bulk-actions">收起管理 ▴</button>
+        <button class="btn btn-sm" data-action="select-visible-chapters" ${this._chapterList.length === 0 ? "disabled" : ""}>全选当前章节</button>
+      </div>
+    ` + renderBulkToolbar(this, "writing-chapters", [
+      { action: "delete-chapters", label: "批量删除章节", className: "btn-danger" },
+    ], { noun: "章节", hint: "只删除当前可见章节" })
+  },
+
+  _switchChapter(delta) {
+    if (this._currentChapter == null || this._chapterList.length === 0) return
+    const currentIndex = this._chapterList.indexOf(this._currentChapter)
+    const nextIndex = currentIndex + delta
+    if (nextIndex < 0 || nextIndex >= this._chapterList.length) return
+    this._selectChapter(this._chapterList[nextIndex])
   },
 
   // ============================================================
@@ -635,6 +858,8 @@ const writingView = {
     const versionInfo = this._currentVersionNumber ? `v${this._currentVersionNumber}` : ''
     const readOnlyLabel = this._isReadonly ? '（只读）' : ''
     const draftLabel = this._currentDraftId ? `${versionInfo} ${readOnlyLabel}` : ''
+    const saveStatus = this._saveStatusText()
+    const disabledReason = hasSelection ? "当前版本只读，需基于此版本创建后再编辑" : "请先选择章节"
 
     let html = `
       <div>
@@ -643,14 +868,18 @@ const writingView = {
             <span id="writing-chapter-title" style="font-size:14px;font-weight:bold;">
               ${hasSelection ? `第 ${this._currentChapter} 章` : '选择章节开始编辑'}
             </span>
-            <span id="writing-version-info" style="color:var(--text-dim);font-size:11px;">${esc(draftLabel)}</span>
-            <span id="writing-save-status" style="color:var(--text-dim);font-size:11px;">${esc(this._saveStatusText())}</span>
+            <span id="writing-version-info" class="writing-version-badge">${esc(draftLabel || "未选择版本")}</span>
+            <span id="writing-save-status" class="writing-save-badge">${esc(saveStatus)}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${this._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ''}
-            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
-            <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'}>发布</button>
-            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly && !this._checkingConflicts ? '' : 'disabled'}>剧情设定冲突检查</button>
+            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !this._isReadonly ? '' : 'disabled'} title="${hasSelection && !this._isReadonly ? "暂存当前编辑内容" : esc(disabledReason)}">${this._restoreSourceVersion ? '发布为新版本' : '暂存'}</button>
+            <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !this._isReadonly ? '' : 'disabled'} title="${hasSelection && !this._isReadonly ? "发布当前章节版本" : esc(disabledReason)}">发布</button>
+            <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !this._isReadonly && !this._checkingConflicts ? '' : 'disabled'} title="${this._checkingConflicts ? "冲突检查正在运行" : hasSelection && !this._isReadonly ? "检查当前章节设定冲突" : esc(disabledReason)}">剧情设定冲突检查</button>
+            <button class="btn btn-sm btn-ghost" data-action="ai-continue" title="AI 续写：基于当前上下文生成后续内容">AI 续写</button>
+            <button class="btn btn-sm btn-ghost" data-action="export-chapter" title="导出当前章节为 .txt">导出</button>
+            <button class="btn btn-sm btn-ghost" data-action="toggle-outline-float" ${hasSelection ? "" : "disabled"} title="大纲浮窗 (Ctrl+Shift+O)">大纲</button>
+            <button class="btn btn-sm" data-action="toggle-focus-mode" ${hasSelection ? "" : "disabled"} title="专注模式（隐藏两侧面板）">${this._focusMode ? "退出专注" : "专注模式"}</button>
             ${this._renderEditorToolsMenu(hasSelection)}
           </div>
         </div>
@@ -664,12 +893,10 @@ const writingView = {
       html += `
         <input id="writing-title-input" type="text" value="${esc(this._currentTitle || '')}" placeholder="章节标题" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:4px;font-size:13px;margin-bottom:6px;" ${this._isReadonly ? 'readonly' : ''} />
 
-        <textarea id="writing-editor" style="
-          width:100%;height:450px;background:var(--bg);color:var(--text);
-          border:1px solid var(--border);border-radius:4px;padding:12px;
-          font-family:var(--font-mono);font-size:13px;line-height:1.8;
-          resize:vertical;
-        " placeholder="在此书写正文..." ${this._isReadonly ? 'readonly' : ''}>${this._currentContent ? esc(this._currentContent) : ''}</textarea>
+        <textarea id="writing-editor" class="novel-editor ${this._focusMode ? "novel-editor--focus" : ""}"
+          placeholder="在此书写正文..." ${this._isReadonly ? 'readonly' : ''}>${this._currentContent ? esc(this._currentContent) : ''}</textarea>
+        ${this._renderWordcountBar()}
+        <div id="ai-suggestion-panel" class="ai-suggestion-panel hidden" aria-live="polite"></div>
       `
     } else {
       html += `
@@ -683,19 +910,220 @@ const writingView = {
     return html
   },
 
+  _renderWordcountBar() {
+    const chars = (this._currentContent || "").length
+    const paragraphs = this._paragraphCount(this._currentContent || "")
+    const readTime = this._readTimeMinutes(chars)
+    const dailyGoal = this._getDailyGoal()
+    const daily = this._getDailyWordcount() + chars
+    const dailyPercent = dailyGoal > 0 ? Math.min(100, Math.round((daily / dailyGoal) * 100)) : 0
+    const chapterGoal = this._getChapterGoal()
+    const chapterPercent = chapterGoal > 0 ? Math.min(100, Math.round((chars / chapterGoal) * 100)) : 0
+    let chapterGoalColor = "var(--text-secondary)"
+    if (chapterPercent >= 100) chapterGoalColor = "var(--success, #22c55e)"
+    else if (chapterPercent >= 80) chapterGoalColor = "var(--warning, #f59e0b)"
+    return `
+      <div class="writing-wordcount-bar" id="writing-wordcount-bar">
+        <div class="wc-bar-left">
+          <span id="wc-chapter" style="color:${chapterGoalColor};">${esc(chars.toLocaleString())}</span> / ${esc(chapterGoal.toLocaleString())} 字
+          <span class="wc-divider">|</span>
+          <span id="wc-paragraphs">${esc(paragraphs)}</span> 段落
+          <span class="wc-divider">|</span>
+          预计阅读 <span id="wc-readtime">${esc(readTime)}</span> 分钟
+        </div>
+        <div class="wc-bar-right">
+          <div class="wc-daily-goal">
+            <span class="wc-goal-label">今日</span>
+            <div class="wc-goal-progress">
+              <div class="wc-goal-fill" id="wc-goal-fill" style="width:${esc(dailyPercent)}%"></div>
+            </div>
+            <span id="wc-daily">${esc(daily.toLocaleString())} / ${esc(dailyGoal.toLocaleString())}</span>
+          </div>
+        </div>
+      </div>
+    `
+  },
+
+  _paragraphCount(text) {
+    return (text || "").split(/\n{2,}/).filter((part) => part.trim()).length
+  },
+
+  _readTimeMinutes(chars) {
+    return Math.max(1, Math.ceil((chars || 0) / 300))
+  },
+
+  _getDailyWordcount() {
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      const key = `novel_daily_wc_${today}_${state.currentProjectId || "global"}`
+      return Number(localStorage.getItem(key) || 0) || 0
+    } catch {
+      return 0
+    }
+  },
+
+  _getDailyGoal() {
+    try {
+      const projectPrefs = this._loadAuthorPreferences()
+      return Number(projectPrefs.dailyGoal || localStorage.getItem("novel_daily_goal") || 4000) || 4000
+    } catch {
+      return 4000
+    }
+  },
+
+  _getChapterGoal() {
+    try {
+      const projectPrefs = this._loadAuthorPreferences()
+      return Number(projectPrefs.chapterGoal || localStorage.getItem("novel_chapter_goal") || 3000) || 3000
+    } catch {
+      return 3000
+    }
+  },
+
+  _getFocusDefault() {
+    try {
+      const projectPrefs = this._loadAuthorPreferences()
+      if (typeof projectPrefs.defaultFocusMode === "boolean") return projectPrefs.defaultFocusMode
+      return localStorage.getItem("novel_focus_default") === "1"
+    } catch {
+      return false
+    }
+  },
+
+  _loadAuthorPreferences() {
+    try {
+      const raw = localStorage.getItem(`novel_author_preferences:${state.currentProjectId || "global"}`)
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  },
+
+  _saveStateForDashboard() {
+    if (this._autoSaving) return "saving"
+    return this._saveStatusText() === "未保存" ? "unsaved" : "saved"
+  },
+
+  _updateWordcount() {
+    const editor = document.getElementById("writing-editor")
+    if (!editor) return
+    const text = editor.value || ""
+    const chars = text.length
+    const paragraphs = this._paragraphCount(text)
+    const readTime = this._readTimeMinutes(chars)
+    const dailyGoal = this._getDailyGoal()
+    const daily = this._getDailyWordcount() + chars
+    const percent = dailyGoal > 0 ? Math.min(100, (daily / dailyGoal) * 100) : 0
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id)
+      if (el) el.textContent = value
+    }
+    setText("wc-chapter", chars.toLocaleString())
+    setText("wc-paragraphs", String(paragraphs))
+    setText("wc-readtime", String(readTime))
+    setText("wc-daily", `${daily.toLocaleString()} / ${dailyGoal.toLocaleString()}`)
+    const fill = document.getElementById("wc-goal-fill")
+    if (fill) fill.style.width = `${percent}%`
+
+    const chapterGoal = this._getChapterGoal()
+    const chapterPercent = chapterGoal > 0 ? Math.min(100, Math.round((chars / chapterGoal) * 100)) : 0
+    const chapterEl = document.getElementById("wc-chapter")
+    if (chapterEl) {
+      chapterEl.textContent = chars.toLocaleString()
+      if (chapterPercent >= 100) chapterEl.style.color = "var(--success, #22c55e)"
+      else if (chapterPercent >= 80) chapterEl.style.color = "var(--warning, #f59e0b)"
+      else chapterEl.style.color = ""
+    }
+
+    globalThis.App?.updateWordcountDashboard?.({
+      chapterIndex: this._currentChapter,
+      chapterWords: chars,
+      todayWords: daily,
+      saveState: this._saveStateForDashboard(),
+    })
+    this._updateSaveStatus()
+  },
+
+  _toggleFocusMode() {
+    this._focusMode = !this._focusMode
+    const editor = document.getElementById("writing-editor")
+    document.body.classList.toggle("focus-mode-active", this._focusMode)
+    editor?.classList.toggle("novel-editor--focus", this._focusMode)
+    for (const id of ["writing-tree-container", "writing-panel-container", "sidebar"]) {
+      document.getElementById(id)?.classList.toggle("focus-hidden", this._focusMode)
+    }
+    editor?.focus()
+    this._updateEditorMeta()
+  },
+
+  async _toggleOutlineFloat() {
+    const panel = document.getElementById("outline-float-panel")
+    if (!panel) return
+    const opening = panel.classList.contains("hidden")
+    panel.classList.toggle("hidden", !opening)
+    document.body.classList.toggle("outline-float-open", opening)
+    if (opening) await this._loadOutlineFloat()
+  },
+
+  _closeOutlineFloat() {
+    document.getElementById("outline-float-panel")?.classList.add("hidden")
+    document.body.classList.remove("outline-float-open")
+  },
+
+  async _loadOutlineFloat() {
+    const body = document.getElementById("outline-float-body")
+    if (!body || !state.currentProjectId) return
+    try {
+      const response = await api.outline.listThreads(state.currentProjectId, { limit: 50 })
+      const threads = response.items || response || []
+      body.innerHTML = threads.length ? `
+        <div class="outline-float-list">
+          ${threads.map((thread) => `
+            <article class="outline-float-item">
+              <div class="outline-float-title">${esc(thread.title || thread.name || "未命名剧情线")}</div>
+              <div class="outline-float-chapters">
+                ${(thread.chapter_ids || thread.chapters || []).map((chapter) => `
+                  <button class="outline-float-chapter ${String(chapter) === String(this._currentChapter) ? "current" : ""}"
+                    data-action="select-chapter" data-chapter="${esc(chapter)}">${esc(chapter)}</button>
+                `).join("") || '<span class="muted">暂无章节映射</span>'}
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      ` : '<p class="muted">暂无大纲条目</p>'
+    } catch {
+      body.innerHTML = '<p class="muted">大纲加载失败</p>'
+    }
+  },
+
   _renderEditorToolsMenu(hasSelection) {
     const disabled = hasSelection && !this._isReadonly ? "" : "disabled"
+    const disabledTitle = hasSelection ? "当前版本只读，需基于此版本创建后再使用" : "请先选择章节"
     return `
       <details class="writing-tools-menu">
         <summary class="btn btn-sm">AI 工具</summary>
         <div class="writing-tools-menu__body">
-          <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled}>AI 生成草稿</button>
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="open-map">打开地图</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>` : ""}
-          ${state.currentProjectId ? `<button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>` : ""}
-          ${this._findCurrentScene() && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene">断章至此</button>` : ""}
-          ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">AI 提取章节卡</button>` : ""}
+          <div class="writing-tools-menu__group">
+            <strong>生成</strong>
+            <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled} title="${disabled ? esc(disabledTitle) : "基于上下文生成当前章节草稿"}">AI 生成草稿</button>
+          </div>
+          ${state.currentProjectId ? `<div class="writing-tools-menu__group">
+            <strong>提取</strong>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>
+            <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>
+            ${this._chapterList.length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">AI 提取章节卡</button>` : ""}
+          </div>` : ""}
+          <div class="writing-tools-menu__group">
+            <strong>检查</strong>
+            <span class="writing-tools-menu__hint">剧情设定冲突检查在编辑器顶部执行。</span>
+            ${this._findCurrentScene() && this._currentChapter ? `<button class="btn btn-sm" data-action="split-scene">断章至此</button>` : ""}
+          </div>
+          ${state.currentProjectId ? `<div class="writing-tools-menu__group">
+            <strong>地图</strong>
+            <button class="btn btn-sm" data-action="open-map">打开地图</button>
+          </div>` : ""}
         </div>
       </details>
     `
@@ -1075,29 +1503,18 @@ const writingView = {
         this._lastSavedContent = null
         this._isReadonly = false
 
-        // 检查 localStorage 后备（仅在首次加载且无服务端版本时）
-        const backup = this._loadBackup(chapterIndex)
-        if (backup && backup.content) {
-          const age = ((Date.now() - (backup.timestamp || 0)) / 1000 / 60).toFixed(0)
-          const confirmed = await new Promise((resolve) => {
-            confirmAction(
-              `检测到本地暂存的第 ${chapterIndex} 章内容（${age} 分钟前）。是否恢复？`,
-              () => resolve(true),
-              "恢复本地内容",
-            )
-            setTimeout(() => {
-              const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-              if (cancelBtn) cancelBtn.onclick = () => resolve(false)
-            }, 50)
-          })
-          if (confirmed) {
-            this._currentContent = backup.content
-            this._currentTitle = backup.title || ""
-          }
-        }
+        await this._maybeRestoreBackup(chapterIndex)
       }
     } catch {
       this._versions = []
+      this._currentDraftId = null
+      this._currentContent = ""
+      this._currentTitle = ""
+      this._currentVersionNumber = null
+      this._currentUpdatedAt = null
+      this._lastSavedContent = null
+      this._isReadonly = false
+      await this._maybeRestoreBackup(chapterIndex)
     }
   },
 
@@ -1810,6 +2227,39 @@ const writingView = {
     } catch (err) {
       toast(err.message || "删除失败", "error")
     }
+  },
+
+  _runChapterBulkAction(action) {
+    if (action !== "delete-chapters") return
+    const selected = selectedItemsFrom(
+      this._chapterList.map((index) => ({ id: String(index), index })),
+      getBulkSelection(this, "writing-chapters"),
+    )
+    if (!selected.length) {
+      toast("请先选择章节", "warning")
+      return
+    }
+    return confirmAction(`确定删除选中的 ${selected.length} 个章节及其全部版本？此操作不可恢复。`, async () => {
+      const result = await runBulkAction(selected, async (item) => {
+        await api.writing.deleteChapter(item.index, state.currentProjectId)
+      })
+      for (const item of result.success) {
+        delete this._chapters[item.index]
+      }
+      const deleted = new Set(result.success.map((item) => item.index))
+      this._chapterList = this._chapterList.filter((index) => !deleted.has(index))
+      if (deleted.has(this._currentChapter)) {
+        this._currentChapter = null
+        this._currentDraftId = null
+        this._currentContent = null
+        this._currentTitle = null
+        this._versions = []
+        delete state.viewStates.writing
+      }
+      clearBulkSelection(this, "writing-chapters")
+      toast(bulkResultMessage(result, "批量删除章节", (item) => `第 ${item.index} 章`), result.failed.length ? "warning" : "success")
+      await this._rerender()
+    }, "确认删除")
   },
 
   // ============================================================
@@ -2637,10 +3087,33 @@ const writingView = {
   _bindEvents() {
     bindWorkspaceClick(this, {
       "select-chapter": (_e, t) => this._selectChapter(parseInt(t.getAttribute("data-chapter"), 10)),
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
+        this._rerender()
+      },
+      "bulk-clear": (_e, t) => {
+        clearBulkSelection(this, t.getAttribute("data-scope"))
+        this._rerender()
+      },
+      "bulk-run": (_e, t) => this._runChapterBulkAction(t.getAttribute("data-bulk-action")),
+      "select-visible-chapters": () => {
+        toggleAllBulkSelection(this, "writing-chapters", this._chapterList.map(String), true)
+        this._rerender()
+      },
+      "toggle-bulk-actions": () => { this._showBulkActions = !this._showBulkActions; this._rerender() },
+      "next-chapter": () => this._switchChapter(1),
       "new-chapter": () => this._newChapter(),
       "delete-chapter": (_e, t) => this._deleteChapter(parseInt(t.getAttribute("data-chapter"), 10)),
       "autosave": () => this._autosave(),
       "publish": () => this._publish(),
+      "toggle-focus-mode": () => this._toggleFocusMode(),
+      "toggle-outline-float": () => this._toggleOutlineFloat(),
+      "close-outline-float": () => this._closeOutlineFloat(),
+      "ai-continue": () => this._aiContinue(),
+      "export-chapter": () => this._exportChapter(),
+      "save-mobile-note": () => this._saveMobileNote(),
+      "switch-desktop-mode": () => this._switchDesktopMode(),
       "ai-generate-draft": () => this._generateDraft(),
       "restore-from-version": () => this._restoreFromVersion(),
       "version-history": () => this._showVersionHistory(),
@@ -2667,6 +3140,8 @@ const writingView = {
         const module = t.closest(".scene-cockpit-module")
         if (module) module.classList.toggle("is-collapsed")
       },
+      "switch-cockpit-tab": (_e, t) => this._switchCockpitTab(t.getAttribute("data-tab")),
+      "insert-person": (_e, t) => this._insertTextAtCursor(t.getAttribute("data-name") || ""),
       "toggle-scene-group": (_e, t) => {
         const chapters = t.parentElement.querySelector(".scene-tree-chapters")
         const icon = t.querySelector(".toggle-icon")
@@ -2700,6 +3175,7 @@ const writingView = {
       this._clearCursorDebounceTimer()
       editorEl.oninput = () => {
         this._currentContent = editorEl.value
+        this._updateWordcount()
         this._scheduleAutoSave()
       }
       editorEl.onclick = null
@@ -2721,6 +3197,39 @@ const writingView = {
         this._cursorDebounceTimer = setTimeout(updateCursorScene, 150)
       }
     }
+
+    const mobileEditor = document.getElementById("mobile-note-editor")
+    if (mobileEditor) {
+      mobileEditor.oninput = () => {
+        const count = mobileEditor.value.length
+        const countEl = document.getElementById("mobile-note-wc")
+        if (countEl) countEl.textContent = `${count.toLocaleString()} 字`
+      }
+    }
+  },
+
+  _switchCockpitTab(tab) {
+    if (!tab) return
+    document.querySelectorAll(".cockpit-tab").forEach((item) => {
+      item.classList.toggle("active", item.getAttribute("data-tab") === tab)
+    })
+    document.querySelectorAll(".cockpit-panel").forEach((panel) => {
+      panel.classList.toggle("hidden", panel.getAttribute("data-panel") !== tab)
+    })
+  },
+
+  _insertTextAtCursor(text) {
+    if (!text) return
+    const editor = document.getElementById("writing-editor")
+    if (!editor || this._isReadonly) return
+    const start = editor.selectionStart || 0
+    const end = editor.selectionEnd || start
+    editor.value = `${editor.value.slice(0, start)}${text}${editor.value.slice(end)}`
+    editor.selectionStart = editor.selectionEnd = start + text.length
+    this._currentContent = editor.value
+    this._updateWordcount()
+    this._scheduleAutoSave()
+    editor.focus()
   },
 
   async _rerender() {
@@ -2839,6 +3348,12 @@ const writingView = {
       const hasSelection = this._currentChapter !== null
       btnPublish.disabled = !(hasSelection && !this._isReadonly)
     }
+
+    const focusBtn = document.querySelector('[data-action="toggle-focus-mode"]')
+    if (focusBtn) focusBtn.textContent = this._focusMode ? "退出专注" : "专注模式"
+
+    const editorElForFocus = document.getElementById("writing-editor")
+    editorElForFocus?.classList.toggle("novel-editor--focus", this._focusMode)
   },
 }
 

@@ -92,6 +92,30 @@ describe("projectView", () => {
     })
   })
 
+  describe("project stats and activity", () => {
+    it("按最近活跃时间排序并显示统计待接入占位", async () => {
+      state.projects = [
+        { id: "old", title: "旧项目", created_at: "2026-01-01T00:00:00Z" },
+        { id: "new", title: "新项目", updated_at: "2026-02-01T00:00:00Z" },
+      ]
+
+      const html = await projectView.render()
+
+      expect(html.indexOf("新项目")).toBeLessThan(html.indexOf("旧项目"))
+      expect(html).toContain("待接入")
+      expect(html).toContain("统计接入后显示总字数")
+      expect(html).toContain("统计接入后显示章节数")
+      expect(html).toContain('data-action="continue-writing"')
+    })
+
+    it("已有统计字段时直接显示现有字段", () => {
+      const stats = projectView._projectStats({ total_words: 12000, chapter_count: 8 })
+
+      expect(stats.wordCountText).toBe("12,000")
+      expect(stats.chapterCountText).toBe("8")
+    })
+  })
+
   // ============================================================
   // showCreateForm
   // ============================================================
@@ -300,6 +324,24 @@ describe("projectView", () => {
       expect(html).toContain("上传文件")
       expect(html).toContain("42%")
       expect(html).toContain('aria-valuenow="42"')
+    })
+  })
+
+  describe("批量项目操作", () => {
+    it("批量移入回收站调用项目删除 API", async () => {
+      state.projects = [{ id: "p1", title: "项目A" }, { id: "p2", title: "项目B" }]
+      projectView._bulkSelections = { "project-cards": new Set(["p1", "p2"]) }
+      api.projects.remove.mockResolvedValue({})
+      autoConfirm()
+      vi.spyOn(projectView, "onEnter").mockResolvedValue()
+
+      await projectView._runProjectBulkAction("delete-projects")
+
+      expect(api.projects.remove).toHaveBeenCalledWith("p1")
+      expect(api.projects.remove).toHaveBeenCalledWith("p2")
+      await vi.waitFor(() => {
+        expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+      })
     })
   })
 })

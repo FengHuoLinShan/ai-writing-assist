@@ -115,6 +115,7 @@ def _register_container_services() -> None:
         "world.run_entity_extraction": _w_extract,
         "world.list_entities": _w_list_entities,
         "world.run_scene_entity_extraction": _SceneExtSvc().extract_by_scenes,
+        "world.run_alias_relation_extraction": _SceneExtSvc().extract_alias_relations,
         "world.create_character": _w_create_char,
         "world.get_character_id_by_world_entity": _w_get_char_id,
         "rag.index_chapter": _rag_index,

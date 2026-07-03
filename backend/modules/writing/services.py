@@ -241,12 +241,14 @@ class WritingDraftService:
     async def get_draft_contract(
         self,
         db: AsyncSession,
+        novel_id: str,
         draft_id: str,
     ) -> WritingDraftContract | None:
         """获取草稿契约（供其他模块使用，不存在返回 None）"""
+        nid = parse_uuid(novel_id, "novel")
         did = parse_uuid(draft_id, "draft")
         draft = await self._repo.get(db, did)
-        if draft is None:
+        if draft is None or draft.novel_id != nid:
             return None
         return self._to_contract(draft)
 
@@ -798,6 +800,7 @@ class WritingGenerationService:
         title: str | None,
         instruction: str | None,
         context_confirmation_id: str,
+        source_task_id: str | None = None,
     ) -> WritingDraftResponse:
         from modules.context.facade import compile_from_confirmation
 
@@ -837,6 +840,11 @@ class WritingGenerationService:
                 chapter_index=chapter_index,
                 title=title or f"第{chapter_index}章 AI 候选",
                 content=response.content.strip(),
+                provenance_json={
+                    "source": "writing_generate",
+                    "source_confirmation_id": context_confirmation_id,
+                    "source_task_id": source_task_id,
+                },
             ),
             status="candidate",
         )

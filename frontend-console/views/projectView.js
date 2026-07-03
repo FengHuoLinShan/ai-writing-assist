@@ -5,6 +5,17 @@
  * 生产环境通过 index.html 的 <script type="module"> 加载。
  */
 
+import {
+  bulkResultMessage,
+  clearBulkSelection,
+  getBulkSelection,
+  reconcileBulkSelection,
+  renderBulkToolbar,
+  renderSelectionCell,
+  runBulkAction,
+  selectedItemsFrom,
+  toggleBulkSelection,
+} from "../shared/bulkSelection.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import { renderInlineProgress } from "../shared/progressRenderer.js"
 
@@ -20,9 +31,10 @@ const projectView = {
 
   /** @type {object|null} 项目导入上传进度 */
   _uploadProgress: null,
+  _bulkSelections: {},
 
   async render() {
-    const projects = state.projects
+    const projects = [...state.projects].sort((a, b) => this._projectActivityMs(b) - this._projectActivityMs(a))
     let html = ''
 
     if (projects.length === 0) {
@@ -46,6 +58,7 @@ const projectView = {
           <p>选择一个项目继续创作，或创建新项目。</p>
           <div class="divider"></div>
         </div>
+        ${this._renderProjectBulkToolbar(projects)}
         <div class="project-grid">
       `
 
@@ -54,8 +67,13 @@ const projectView = {
         const status = p.status || "active"
         const isCanonical = status === "active" || status === "canonical"
         const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
+        const stats = this._projectStats(p)
+        const activeTime = this._projectActivityTime(p)
         html += `
           <div class="project-card ${i === 0 ? "featured" : ""}" data-id="${esc(p.id)}" data-action="open-project">
+            <div class="project-card-selection" data-action="noop">
+              ${renderSelectionCell(this, "project-cards", p.id, `选择 ${p.title || p.name || "项目"}`)}
+            </div>
             <div class="project-status">
               <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
               <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${status === "canonical" ? "正史" : "草稿"}</span>
@@ -66,10 +84,16 @@ const projectView = {
               ${p.current_stage ? `<span class="pill">${esc(this._stageLabel(p.current_stage))}</span>` : ""}
             </div>
             <div class="project-desc">${esc(p.tone || p.description || "暂无描述")}</div>
+            <div class="project-stats" aria-label="项目统计">
+              <span title="${esc(stats.wordCountTitle)}"><strong>${esc(stats.wordCountText)}</strong> 字</span>
+              <span title="${esc(stats.chapterCountTitle)}"><strong>${esc(stats.chapterCountText)}</strong> 章</span>
+              <span title="${esc(activeTime.full)}">${esc(activeTime.relative)}</span>
+            </div>
             <div class="project-meta">
               ${created ? `创建于 ${created}` : "刚刚创建"}
             </div>
             <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;">
+              <button class="btn btn-sm btn-primary" data-action="continue-writing" data-id="${esc(p.id)}">继续写作</button>
               <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
               <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
             </div>
@@ -109,6 +133,18 @@ const projectView = {
     return html
   },
 
+  _renderProjectBulkToolbar(projects) {
+    const ids = projects.map((project) => project.id).filter(Boolean)
+    reconcileBulkSelection(this, "project-cards", ids)
+    return `
+      <div class="row-actions" style="margin-bottom:8px;">
+        <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
+      </div>
+    ` + renderBulkToolbar(this, "project-cards", [
+      { action: "delete-projects", label: "批量移入回收站", className: "btn-danger" },
+    ], { noun: "项目", hint: "只处理当前可见项目" })
+  },
+
   _stageLabel(stage) {
     const map = {
       world_building: "世界构建",
@@ -117,6 +153,66 @@ const projectView = {
       revising: "修订中",
     }
     return map[stage] || stage
+  },
+
+  _projectStats(project) {
+    const stats = project.stats || project.statistics || {}
+    const wordCount = project.total_words
+      ?? project.word_count
+      ?? project.total_word_count
+      ?? stats.total_words
+      ?? stats.word_count
+      ?? null
+    const chapterCount = project.chapter_count
+      ?? project.total_chapters
+      ?? stats.chapter_count
+      ?? stats.total_chapters
+      ?? null
+    return {
+      wordCount: Number(wordCount) || 0,
+      chapterCount: Number(chapterCount) || 0,
+      wordCountText: wordCount === null || wordCount === undefined ? "待接入" : this._formatNumber(wordCount),
+      chapterCountText: chapterCount === null || chapterCount === undefined ? "待接入" : this._formatNumber(chapterCount),
+      wordCountTitle: wordCount === null || wordCount === undefined ? "统计接入后显示总字数" : "总字数",
+      chapterCountTitle: chapterCount === null || chapterCount === undefined ? "统计接入后显示章节数" : "章节数",
+    }
+  },
+
+  _formatNumber(value) {
+    return (Number(value) || 0).toLocaleString("zh-CN")
+  },
+
+  _projectActivityTime(project) {
+    const raw = project.last_active_at || project.updated_at || project.created_at
+    if (!raw) return { relative: "暂无活跃", full: "暂无活跃时间" }
+    const date = new Date(raw)
+    if (Number.isNaN(date.getTime())) return { relative: "暂无活跃", full: String(raw) }
+    return {
+      relative: this._formatRelativeTime(date),
+      full: date.toLocaleString("zh-CN"),
+    }
+  },
+
+  _projectActivityMs(project) {
+    const raw = project.last_active_at || project.updated_at || project.created_at
+    if (!raw) return 0
+    const time = new Date(raw).getTime()
+    return Number.isNaN(time) ? 0 : time
+  },
+
+  _formatRelativeTime(value) {
+    const date = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(date.getTime())) return "暂无活跃"
+    const diffMs = Date.now() - date.getTime()
+    if (diffMs < 0) return "刚刚活跃"
+    const minute = 60 * 1000
+    const hour = 60 * minute
+    const day = 24 * hour
+    if (diffMs < minute) return "刚刚活跃"
+    if (diffMs < hour) return `${Math.floor(diffMs / minute)} 分钟前活跃`
+    if (diffMs < day) return `${Math.floor(diffMs / hour)} 小时前活跃`
+    if (diffMs < 7 * day) return `${Math.floor(diffMs / day)} 天前活跃`
+    return date.toLocaleDateString("zh-CN")
   },
 
   _bindEvents() {
@@ -131,6 +227,22 @@ const projectView = {
   _bindCardDelegation() {
     bindWorkspaceClick(this, {
       "open-project": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
+      "noop": (e) => e.stopPropagation(),
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
+        router.refresh()
+      },
+      "bulk-clear": (_e, t) => {
+        clearBulkSelection(this, t.getAttribute("data-scope"))
+        router.refresh()
+      },
+      "bulk-run": (_e, t) => this._runProjectBulkAction(t.getAttribute("data-bulk-action")),
+      "select-visible-projects": () => {
+        for (const project of state.projects) toggleBulkSelection(this, "project-cards", project.id, true)
+        router.refresh()
+      },
+      "continue-writing": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
       "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
       "delete-project": (_e, _t, ctx) => ctx.id && this.deleteProject(ctx.id),
       "new": () => this.showCreateForm(),
@@ -139,6 +251,24 @@ const projectView = {
       "upload-file": () => this._uploadFile(),
       "recycle-bin": () => this.showRecycleBin(),
     })
+  },
+
+  _runProjectBulkAction(action) {
+    if (action !== "delete-projects") return
+    const items = selectedItemsFrom(state.projects, getBulkSelection(this, "project-cards"))
+    if (!items.length) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    return confirmAction(`确定将选中的 ${items.length} 个项目移入回收站吗？`, async () => {
+      const result = await runBulkAction(items, async (project) => {
+        await api.projects.remove(project.id)
+      })
+      toast(bulkResultMessage(result, "批量移入回收站", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+      clearBulkSelection(this, "project-cards")
+      await this.onEnter()
+      router.refresh()
+    }, "移入回收站")
   },
 
   _bindImportButtons() {
@@ -286,7 +416,17 @@ const projectView = {
         showModal("回收站", "<p>回收站为空。</p>")
         return
       }
-      let listHtml = '<div style="max-height:400px;overflow-y:auto;">'
+      let listHtml = `
+        <div class="bulk-toolbar">
+          <div class="bulk-toolbar__status"><span>回收站项目</span></div>
+          <div class="bulk-toolbar__actions">
+            <button class="btn btn-sm" id="recycle-select-all">全选当前列表</button>
+            <button class="btn btn-sm btn-primary" id="recycle-bulk-restore">批量恢复</button>
+            <button class="btn btn-sm btn-danger" id="recycle-bulk-delete">批量永久删除</button>
+          </div>
+        </div>
+        <div style="max-height:400px;overflow-y:auto;">
+      `
       for (const p of items) {
         const name = p.title || p.name || "未命名"
         const deletedDate = p.deleted_at
@@ -294,7 +434,11 @@ const projectView = {
           : ""
         listHtml += `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);">
-            <div>
+            <label class="selection-checkbox" title="选择 ${esc(name)}">
+              <input type="checkbox" class="recycle-project-checkbox" data-id="${esc(p.id)}" />
+              <span class="sr-only">选择 ${esc(name)}</span>
+            </label>
+            <div style="flex:1;min-width:0;margin-left:8px;">
               <div style="font-weight:500;">${esc(name)}</div>
               <div style="font-size:11px;color:var(--text-dim);">删除于 ${deletedDate}</div>
             </div>
@@ -309,6 +453,30 @@ const projectView = {
       showModal("回收站", listHtml)
 
       setTimeout(() => {
+        const selectedRecycleProjects = () => {
+          const ids = new Set(Array.from(document.querySelectorAll(".recycle-project-checkbox:checked")).map((input) => input.dataset.id))
+          return items.filter((item) => ids.has(item.id))
+        }
+        document.getElementById("recycle-select-all")?.addEventListener("click", () => {
+          document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
+        })
+        document.getElementById("recycle-bulk-restore")?.addEventListener("click", async () => {
+          const selected = selectedRecycleProjects()
+          if (!selected.length) { toast("请先选择项目", "warning"); return }
+          const result = await runBulkAction(selected, async (project) => api.projects.restore(project.id))
+          toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+          router.refresh()
+          this.showRecycleBin()
+        })
+        document.getElementById("recycle-bulk-delete")?.addEventListener("click", () => {
+          const selected = selectedRecycleProjects()
+          if (!selected.length) { toast("请先选择项目", "warning"); return }
+          confirmAction(`确定永久删除选中的 ${selected.length} 个项目？此操作不可恢复。`, async () => {
+            const result = await runBulkAction(selected, async (project) => api.projects.permanentDelete(project.id))
+            toast(bulkResultMessage(result, "批量永久删除项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+            this.showRecycleBin()
+          }, "永久删除")
+        })
         document.querySelectorAll(".restore-project-btn").forEach((btn) => {
           btn.onclick = async () => {
             try {

@@ -401,6 +401,10 @@ class TestEventService:
         # Arrange
         svc, repo = _make_event_service()
         ev = _mock_event()
+        svc._entity_repo = MagicMock()
+        svc._entity_repo.get = AsyncMock(
+            return_value=MagicMock(novel_id=ev.novel_id, status="canonical")
+        )
         repo.create = AsyncMock(return_value=ev)
         db = MagicMock()
         nid = str(ev.novel_id)
@@ -447,12 +451,14 @@ class TestEventService:
         repo.get = AsyncMock(return_value=ev)
         repo.delete = AsyncMock(return_value=True)
         db = MagicMock()
+        db.flush = AsyncMock()
 
         # Act
         await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
 
         # Assert
-        repo.delete.assert_awaited_once_with(db, ev.entity_id)
+        assert ev.status == "deprecated"
+        db.flush.assert_awaited_once()
 
     async def test_delete_repo_false_raises_404(self):
         """Inherited CrudService.delete: repo.delete False raises 404."""
@@ -462,11 +468,12 @@ class TestEventService:
         repo.get = AsyncMock(return_value=ev)
         repo.delete = AsyncMock(return_value=False)
         db = MagicMock()
+        db.flush = AsyncMock()
 
-        # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
-            await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
-        assert exc_info.value.status_code == 404
+        await svc.delete(db, str(ev.entity_id), novel_id=str(ev.novel_id))
+
+        assert ev.status == "deprecated"
+        repo.delete.assert_not_awaited()
 
 
 # ============================================================

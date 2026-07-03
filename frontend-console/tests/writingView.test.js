@@ -30,6 +30,10 @@ beforeEach(() => {
   writingView._publishProgress = null
   writingView._deepImportTaskId = null
   writingView._deepImportProgress = null
+  writingView._focusMode = false
+  writingView._forceDesktopMode = false
+  document.body.className = ""
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 })
   api.world.getMapSceneSummary = vi.fn()
   vi.clearAllMocks()
   confirmAction.mockReset()
@@ -68,10 +72,199 @@ describe("writingView render", () => {
 
     const html = writingView._renderEditorToolsMenu(true)
 
+    expect(html).toContain("生成")
+    expect(html).toContain("提取")
+    expect(html).toContain("检查")
+    expect(html).toContain("地图")
     expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain("世界对象与别名/关系自动提取")
     expect(html).toContain("剧情线自动提取")
     expect(html).not.toContain('data-action="deep-import"')
+  })
+
+  it("编辑器显示保存状态徽章", () => {
+    writingView._currentChapter = 1
+    writingView._currentDraftId = "d1"
+    writingView._currentVersionNumber = 2
+    writingView._currentTitle = "第一章"
+    writingView._currentContent = "正文"
+    writingView._isReadonly = false
+
+    const html = writingView._renderEditor()
+
+    expect(html).toContain("writing-save-badge")
+    expect(html).toContain("writing-version-badge")
+  })
+
+  it("编辑器使用写作字体、字数条和专注模式入口", () => {
+    writingView._currentChapter = 1
+    writingView._currentDraftId = "d1"
+    writingView._currentContent = "第一段\n\n第二段"
+    writingView._currentTitle = "第一章"
+    writingView._isReadonly = false
+
+    const html = writingView._renderEditor()
+
+    expect(html).toContain("novel-editor")
+    expect(html).toContain("writing-wordcount-bar")
+    expect(html).toContain('data-action="toggle-focus-mode"')
+    expect(html).toContain("专注模式")
+  })
+
+  it("章节树主视图显示简化行、状态点和上下章按钮", () => {
+    writingView._chapterList = [1, 2]
+    writingView._chapters = {
+      1: { title: "开篇", draftCount: 1, wordcount: 1200 },
+      2: { title: "转折", draftCount: 0 },
+    }
+    writingView._currentChapter = 1
+    writingView._scenes = []
+
+    const html = writingView._renderSceneTree()
+
+    expect(html).toContain('data-action="prev-chapter"')
+    expect(html).toContain('data-action="next-chapter"')
+    expect(html).toContain("chapter-row")
+    expect(html).toContain("1,200 字")
+    expect(html).not.toContain("批量删除章节")
+  })
+
+  it("更新字数统计会同步底部和顶部仪表盘", () => {
+    const updateDashboard = vi.fn()
+    globalThis.App = { updateWordcountDashboard: updateDashboard }
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 1
+    document.body.innerHTML = `
+      <textarea id="writing-editor">一二三\n\n四五</textarea>
+      <span id="wc-chapter"></span>
+      <span id="wc-paragraphs"></span>
+      <span id="wc-readtime"></span>
+      <span id="wc-daily"></span>
+      <div id="wc-goal-fill"></div>
+    `
+
+    writingView._updateWordcount()
+
+    expect(document.getElementById("wc-chapter").textContent).toBe("7")
+    expect(document.getElementById("wc-paragraphs").textContent).toBe("2")
+    expect(updateDashboard).toHaveBeenCalledWith(expect.objectContaining({
+      chapterIndex: 1,
+      chapterWords: 7,
+      todayWords: 7,
+    }))
+  })
+
+  it("专注模式切换隐藏两侧面板并保留编辑器聚焦", () => {
+    writingView._focusMode = false
+    document.body.innerHTML = `
+      <header id="topbar"></header>
+      <nav id="sidebar"></nav>
+      <div id="writing-tree-container"></div>
+      <textarea id="writing-editor"></textarea>
+      <div id="writing-panel-container"></div>
+    `
+
+    writingView._toggleFocusMode()
+
+    expect(writingView._focusMode).toBe(true)
+    expect(document.body.classList.contains("focus-mode-active")).toBe(true)
+    expect(document.getElementById("writing-tree-container").classList.contains("focus-hidden")).toBe(true)
+  })
+
+  it("移动窄屏渲染快速记录模式", async () => {
+    writingView._loading = false
+    writingView._chapterList = [1]
+    writingView._currentChapter = 1
+    writingView._currentContent = "灵感"
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
+
+    const html = await writingView.render()
+
+    expect(html).toContain("mobile-quick-note")
+    expect(html).toContain("mobile-note-editor")
+  })
+
+  it("移动快速记录在无草稿时使用现有草稿创建接口", async () => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 3
+    writingView._currentDraftId = null
+    writingView._currentTitle = null
+    api.writing.autosaveDraftOnly.mockResolvedValue({
+      id: "d3",
+      version_number: 1,
+      updated_at: "2026-07-03T00:00:00Z",
+    })
+    document.body.innerHTML = '<textarea id="mobile-note-editor">新灵感</textarea>'
+
+    await writingView._saveMobileNote()
+
+    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 3,
+      title: "第 3 章",
+      content: "新灵感",
+    })
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+    expect(writingView._currentDraftId).toBe("d3")
+    expect(toast).toHaveBeenCalledWith("已保存到草稿", "success")
+  })
+
+  it("移动快速记录保存失败时只保留本地暂存并提示失败", async () => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 4
+    writingView._currentDraftId = null
+    api.writing.autosaveDraftOnly.mockRejectedValue(new Error("接口失败"))
+    document.body.innerHTML = '<textarea id="mobile-note-editor">离线灵感</textarea>'
+
+    await writingView._saveMobileNote()
+
+    expect(toast).toHaveBeenCalledWith("接口失败", "error")
+    expect(toast).not.toHaveBeenCalledWith("已保存到草稿", "success")
+    expect(JSON.parse(localStorage.getItem("draft_backup_p1_4"))).toEqual(expect.objectContaining({
+      content: "离线灵感",
+      title: "第 4 章",
+    }))
+  })
+
+  it("写作台读取项目级作者偏好并兼容旧偏好", () => {
+    state.currentProjectId = "p1"
+    localStorage.setItem("novel_author_preferences:p1", JSON.stringify({
+      dailyGoal: 6500,
+      defaultFocusMode: true,
+    }))
+
+    expect(writingView._getDailyGoal()).toBe(6500)
+    expect(writingView._getFocusDefault()).toBe(true)
+
+    localStorage.removeItem("novel_author_preferences:p1")
+    localStorage.setItem("novel_daily_goal", "3200")
+    localStorage.setItem("novel_focus_default", "1")
+
+    expect(writingView._getDailyGoal()).toBe(3200)
+    expect(writingView._getFocusDefault()).toBe(true)
+  })
+
+  it("版本接口失败时仍提示恢复本地暂存", async () => {
+    state.currentProjectId = "p1"
+    autoConfirm()
+    api.writing.getVersionHistory.mockRejectedValue(new Error("backend failed"))
+    localStorage.setItem("draft_backup_p1_1", JSON.stringify({
+      content: "本地暂存正文",
+      title: "本地暂存标题",
+      chapter_index: 1,
+      timestamp: Date.now(),
+    }))
+
+    await writingView._refreshVersions(1)
+
+    expect(writingView._versions).toEqual([])
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("检测到本地暂存的第 1 章内容"),
+      expect.any(Function),
+      "恢复本地内容",
+    )
+    expect(writingView._currentContent).toBe("本地暂存正文")
+    expect(writingView._currentTitle).toBe("本地暂存标题")
   })
 
   it("编辑器工具栏显示打开地图按钮", async () => {
@@ -1019,6 +1212,32 @@ describe("deep import recovery actions", () => {
     expect(rerenderSpy).toHaveBeenCalled()
 
     rerenderSpy.mockRestore()
+  })
+})
+
+describe("writingView 章节批量操作", () => {
+  it("批量删除选中章节并清空当前章状态", async () => {
+    state.currentProjectId = "p1"
+    writingView._chapterList = [1, 2]
+    writingView._chapters = { 1: { title: "一" }, 2: { title: "二" } }
+    writingView._currentChapter = 2
+    writingView._currentDraftId = "d2"
+    writingView._bulkSelections = { "writing-chapters": new Set(["1", "2"]) }
+    api.writing.deleteChapter.mockResolvedValue({})
+    vi.spyOn(writingView, "_rerender").mockResolvedValue()
+    autoConfirm()
+
+    await writingView._runChapterBulkAction("delete-chapters")
+
+    await vi.waitFor(() => {
+      expect(api.writing.deleteChapter).toHaveBeenCalledWith(1, "p1")
+      expect(api.writing.deleteChapter).toHaveBeenCalledWith(2, "p1")
+      expect(writingView._chapterList).toEqual([])
+    })
+    expect(writingView._currentChapter).toBeNull()
+    await vi.waitFor(() => {
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
+    })
   })
 })
 

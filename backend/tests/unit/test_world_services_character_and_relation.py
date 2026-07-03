@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -575,13 +575,14 @@ class TestCharacterServiceFacadeLeaks:
         """Happy path: returns entity_id as str."""
         # Arrange
         svc = CharacterService()
+        nid = str(uuid.uuid4())
         weid = str(uuid.uuid4())
-        char = _make_character(entity_id=uuid.UUID(weid))
+        char = _make_character(entity_id=uuid.UUID(weid), novel_id=uuid.UUID(nid))
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
 
         # Act
-        result = await svc.get_id_by_world_entity(db_session, str(uuid.uuid4()), weid)
+        result = await svc.get_id_by_world_entity(db_session, nid, weid)
 
         # Assert
         assert result == weid
@@ -640,12 +641,20 @@ class TestCharacterServiceFacadeLeaks:
         """Happy path: delegates to repo.update_character_meta_location."""
         # Arrange
         svc = CharacterService()
+        nid = str(uuid.uuid4())
         cid = str(uuid.uuid4())
         loc_id = str(uuid.uuid4())
+        char = _make_character(entity_id=uuid.UUID(cid), novel_id=uuid.UUID(nid))
         svc.repo = AsyncMock()
+        svc.repo.get.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = SimpleNamespace(
+            novel_id=uuid.UUID(nid),
+            status="canonical",
+        )
 
         # Act
-        await svc.update_location(db_session, str(uuid.uuid4()), cid, loc_id, "forest", 3)
+        await svc.update_location(db_session, nid, cid, loc_id, "forest", 3)
 
         # Assert
         svc.repo.update_character_meta_location.assert_awaited_once()
@@ -672,14 +681,20 @@ class TestCharacterServiceFacadeLeaks:
         """Happy path: returns location_id string."""
         # Arrange
         svc = CharacterService()
+        nid = str(uuid.uuid4())
         cid = str(uuid.uuid4())
         loc_id = str(uuid.uuid4())
-        _ = _make_character(entity_id=uuid.UUID(cid), meta={"location_id": loc_id})
+        char = _make_character(
+            entity_id=uuid.UUID(cid),
+            novel_id=uuid.UUID(nid),
+            meta={"location_id": loc_id},
+        )
         svc.repo = AsyncMock()
+        svc.repo.get.return_value = char
         svc.repo.get_character_location_id.return_value = loc_id
 
         # Act
-        result = await svc.get_location_id(db_session, str(uuid.uuid4()), cid)
+        result = await svc.get_location_id(db_session, nid, cid)
 
         # Assert
         assert result == loc_id
@@ -745,13 +760,12 @@ class TestCharacterServiceInheritedVerbs:
         data = CharacterCreate(entity_id=str(entity_id), name="New")
 
         # Act
-        with patch(
-            "modules.world.services.character_service.CoreEntityRepository"
-        ) as repo_cls:
-            entity_repo = AsyncMock()
-            entity_repo.get.return_value = SimpleNamespace(novel_id=uuid.UUID(nid))
-            repo_cls.return_value = entity_repo
-            result = await svc.create(db_session, nid, data)
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = SimpleNamespace(
+            novel_id=uuid.UUID(nid),
+            status="canonical",
+        )
+        result = await svc.create(db_session, nid, data)
 
         # Assert
         assert isinstance(result, CharacterResponse)
@@ -771,7 +785,7 @@ class TestCharacterServiceInheritedVerbs:
         await svc.delete(db_session, cid, novel_id=nid)
 
         # Assert
-        svc.repo.delete.assert_awaited_once()
+        assert char.status == "deprecated"
 
 
 # ============================================================
@@ -789,6 +803,11 @@ class TestCharacterKnowledgeServiceCreate:
         char = _make_character(entity_id=uuid.UUID(cid), novel_id=uuid.UUID(nid))
         svc._character_repo = AsyncMock()
         svc._character_repo.get.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = SimpleNamespace(
+            novel_id=uuid.UUID(nid),
+            status="canonical",
+        )
         svc.repo = AsyncMock()
         kn = _make_knowledge(novel_id=uuid.UUID(nid), character_id=uuid.UUID(cid))
         svc.repo.create.return_value = kn
@@ -942,7 +961,7 @@ class TestCharacterKnowledgeServiceInheritedVerbs:
         await svc.delete(db_session, kid, novel_id=nid)
 
         # Assert
-        svc.repo.delete.assert_awaited_once()
+        assert kn.status == "deprecated"
 
 
 # ============================================================
@@ -1212,4 +1231,4 @@ class TestEntityRelationServiceInheritedVerbs:
         await svc.delete(db_session, rid, novel_id=nid)
 
         # Assert
-        svc.repo.delete.assert_awaited_once()
+        assert rel.status == "deprecated"

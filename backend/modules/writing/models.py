@@ -61,6 +61,11 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=True,
         comment="发布时归档的最近一次冲突检查快照",
     )
+    provenance_json: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="草稿来源追踪信息",
+    )
     version_number: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

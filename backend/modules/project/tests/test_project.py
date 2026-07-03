@@ -385,7 +385,11 @@ class TestProjectCrud:
         await _repo.soft_delete(db_session, created.id)
         await db_session.flush()
 
-        await ProjectService().permanent_delete_project(db_session, str(created.id))
+        await ProjectService().permanent_delete_project(
+            db_session,
+            str(created.id),
+            confirmed=True,
+        )
 
         result = await db_session.execute(select(AsyncTask))
         tasks = result.scalars().all()
@@ -472,7 +476,7 @@ class TestProjectService:
             elif operation == "restore_project":
                 await service.restore_project(db, fake_id)
             else:
-                await service.permanent_delete_project(db, fake_id)
+                await service.permanent_delete_project(db, fake_id, confirmed=True)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -532,7 +536,11 @@ class TestProjectService:
         service = ProjectService(repo=repo)
         db = MagicMock()
 
-        result = await service.permanent_delete_project(db, project_id)
+        result = await service.permanent_delete_project(
+            db,
+            project_id,
+            confirmed=True,
+        )
 
         assert result is None
         repo.permanent_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
