@@ -10,19 +10,20 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 上传并解析 txt / epub / html / mobi / azw3 格式的小说文件
 - 自动检测文本编码
 - 按章节模式（第X章、Chapter X、卷X 等）自动分章
-- 将解析结果写入 writing_drafts（每章一个 draft）
+- 将解析结果写入 writing_drafts（每章一个已发布正文版本），上传响应返回已保存章节摘要
 - 记录导入历史
 - 提交并编排深度导入任务（基于 async_tasks）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入 Scene 阶段执行 Phase 0 双轮预取、Phase 1a 正文补强、Phase 1b 融合提交，并记录质量统计
 - Phase 0 / Phase 1a 是 workflow 中间候选层，不写正式 Scene；真实 LLM 验收会持久化 JSONL / Markdown / artifact 作为测试证据，供复跑和失败 batch repair
-- Phase 1a 默认作为受控正文补强器：输入正文按预算收敛，输出短候选锚点；最终仍失败的非 422 LLM 错误会生成 `degraded_fallback` 低质量中间候选，保留每章锚点给 Phase 1b 融合
+- Phase 1a 默认作为受控正文补强器：输入正文按预算收敛，输出短候选锚点；真正跨章的候选必须用同一个 Scene 的多条 `scene_chunks.chapter_index` 显式表达；最终仍失败的非 422 LLM 错误会生成 `degraded_fallback` 低质量中间候选，保留每章锚点给 Phase 1b 融合
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；真实 LLM 调参可用 `PHASE2_BATCH_SIZE_SCENES` / `PHASE2_BATCH_CONCURRENCY` 临时覆盖；每个 batch 保留局部 rolling context
 - Phase 2 只对相邻 batch 边界执行补充抽取：前批最后 2 个 Scene + 后批最前 2 个 Scene；不做全局对象融合扫描
-- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
+- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体会自动融合到已有对象，重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
+- Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
 
@@ -105,7 +106,7 @@ RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
   PHASE01_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
 
 RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
-  PHASE1A_SCENE_MAX_TOKENS=6144 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
+  PHASE1A_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
 
 RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM=1 LLM_TIMEOUT=180 \
   pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
@@ -130,7 +131,9 @@ Phase 1b-only 默认会自动使用最近一个完整通过的 Phase 1a artifact
 显式覆盖。60 章 Phase 1b 默认使用确定性 reducer，不调用 LLM；若需要复测 LLM reducer，
 显式设置 `PHASE1B_USE_LLM=1`。LLM reducer 使用最小决策输出，只让模型回答
 `use_primary_round`，再由代码物化 Phase 1a 的短候选字段，避免长 JSON 或候选
-ID 列表超时。
+ID 列表超时。物化时只保留 Phase 1a 明确给出的多章 `scene_chunks` 作为跨章
+Scene；若多个 Scene 缺失 chunks，不把整批章节套给每个 Scene，而是按候选顺序
+保守分配到具体章节并保留复核标记。
 
 Phase 2a-only 默认读取最近完整通过的 `phase1b_real_llm_*.artifact.json`，把
 `FinalSceneCandidate` 通过 `SceneCommitter` 写入 draft Scene 后，只调用

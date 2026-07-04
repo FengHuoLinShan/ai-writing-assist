@@ -23,6 +23,15 @@ class _StructuredPayload(BaseModel):
     value: str = Field(..., min_length=1)
 
 
+class _StructuredItemsPayload(BaseModel):
+    items: list[_StructuredPayload]
+
+
+class _StructuredScenesPayload(BaseModel):
+    scenes: list[_StructuredPayload]
+    notes: list[str] = []
+
+
 class _FakeEnvSettings:
     llm_api_key = "sk-env"
     llm_base_url = "https://env.example/v1"
@@ -312,4 +321,294 @@ async def test_generate_structured_can_bypass_transport_retries() -> None:
     )
 
     assert result.value == "direct"
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_accepts_markdown_json() -> None:
+    client = LLMClient()
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='```json\n{"value": "from fence"}\n```',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=9, total_tokens=9),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredPayload,
+        max_fix_attempts=0,
+        diagnostics=diagnostics,
+    )
+
+    assert result.value == "from fence"
+    assert diagnostics == [
+        {
+            "kind": "structured_parse",
+            "strategy": "markdown_code_block",
+            "attempt": 1,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_extracts_json_from_explanatory_text() -> None:
+    client = LLMClient()
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='好的，结果如下：{"value": "inside prose"}\n请查收。',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=12, total_tokens=12),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredPayload,
+        max_fix_attempts=0,
+    )
+
+    assert result.value == "inside prose"
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_wraps_bare_list_for_single_list_schema() -> None:
+    client = LLMClient()
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='[{"value": "one"}]',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=8, total_tokens=8),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredItemsPayload,
+        max_fix_attempts=0,
+    )
+
+    assert [item.value for item in result.items] == ["one"]
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_wraps_bare_list_for_primary_scenes_field() -> None:
+    client = LLMClient()
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='[{"value": "scene one"}]',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=8, total_tokens=8),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredScenesPayload,
+        max_fix_attempts=0,
+    )
+
+    assert [item.value for item in result.scenes] == ["scene one"]
+    assert result.notes == []
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_recovers_lightly_unclosed_json() -> None:
+    client = LLMClient()
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"items": [{"value": "one"}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=10, total_tokens=10),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredItemsPayload,
+        max_fix_attempts=0,
+        diagnostics=diagnostics,
+    )
+
+    assert [item.value for item in result.items] == ["one"]
+    assert diagnostics[0]["strategy"] == "balanced_truncated_json"
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_partial_list_keeps_valid_items() -> None:
+    client = LLMClient()
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"items": [{"value": "valid"}, {"value": ""}]}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=12, total_tokens=12),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredItemsPayload,
+        max_fix_attempts=0,
+        partial_list_fields={"items"},
+        diagnostics=diagnostics,
+    )
+
+    assert [item.value for item in result.items] == ["valid"]
+    assert diagnostics[0]["kind"] == "partial_list_validation"
+    assert diagnostics[0]["field"] == "items"
+    assert diagnostics[0]["kept"] == 1
+    assert diagnostics[0]["skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_default_strict_mode_keeps_list_item_errors() -> None:
+    client = LLMClient()
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"items": [{"value": "valid"}, {"value": ""}]}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=12, total_tokens=12),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMInvalidResponseError):
+        await client.generate_structured(
+            LLMCallRequest(model="fake", messages=[]),
+            _StructuredItemsPayload,
+            max_fix_attempts=0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_format_repair_after_validation_failure() -> None:
+    client = LLMClient()
+    requests: list[LLMCallRequest] = []
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        requests.append(request.model_copy(deep=True))
+        if len(requests) == 1:
+            return LLMCallResponse(
+                content='{"value": ""}',
+                finish_reason="stop",
+                usage=LLMUsage(completion_tokens=5, total_tokens=5),
+                model="fake",
+                provider="fake",
+            )
+        return LLMCallResponse(
+            content='{"value": "repaired"}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake", messages=[]),
+        _StructuredPayload,
+        max_fix_attempts=0,
+        format_repair_attempts=1,
+        diagnostics=diagnostics,
+    )
+
+    assert result.value == "repaired"
+    assert len(requests) == 2
+    assert "JSON 格式转换器" in requests[1].messages[0].content
+    assert diagnostics[-1]["kind"] == "format_repair"
+    assert diagnostics[-1]["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_format_repair_failure_keeps_detail() -> None:
+    client = LLMClient()
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"value": ""}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMInvalidResponseError) as exc_info:
+        await client.generate_structured(
+            LLMCallRequest(model="fake", messages=[]),
+            _StructuredPayload,
+            max_fix_attempts=0,
+            format_repair_attempts=1,
+            diagnostics=diagnostics,
+        )
+
+    assert "Format repair failed" in str(exc_info.value)
+    assert diagnostics[-1]["kind"] == "format_repair"
+    assert diagnostics[-1]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_truncated_json_does_not_format_repair() -> None:
+    client = LLMClient()
+    requests: list[LLMCallRequest] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        requests.append(request.model_copy(deep=True))
+        return LLMCallResponse(
+            content='{"value": "unfinished',
+            finish_reason="length",
+            usage=LLMUsage(completion_tokens=20000, total_tokens=20000),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMInvalidResponseError):
+        await client.generate_structured(
+            LLMCallRequest(
+                model="fake",
+                messages=[],
+                max_tokens=20000,
+            ),
+            _StructuredPayload,
+            max_fix_attempts=0,
+            format_repair_attempts=1,
+        )
+
     assert len(requests) == 1

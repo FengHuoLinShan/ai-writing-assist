@@ -38,7 +38,7 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 | content | TEXT nullable | 草稿正文 |
 | conflict_check_snapshot_json | JSON nullable | 发布时归档的最近一次冲突检查快照 |
 | version_number | INT | 版本号（从 1 递增） |
-| status | TEXT | 状态：draft / candidate / canonical / deprecated |
+| status | TEXT | 状态：draft / published / candidate / canonical / deprecated |
 | created_at | TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | 更新时间 |
 
@@ -61,13 +61,14 @@ class WritingDraftContract:
 
 ```python
 async def create_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftResponse
+async def create_published_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftResponse
 async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftResponse, str]
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
 ```
 
-通过 `facade.create_draft` 创建草稿会提交 `publish_chapter` 章节发布任务；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
+通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
 AI 生成候选稿会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。
 
 ## API

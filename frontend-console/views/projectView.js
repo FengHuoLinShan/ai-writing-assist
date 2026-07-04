@@ -286,13 +286,22 @@ const projectView = {
         if (match) {
           state.currentProject = match
         } else {
-          state.currentProjectId = null
-          state.currentProject = null
+          this._clearCurrentProjectSelection()
         }
       }
     } catch {
       state.projects = []
     }
+  },
+
+  _clearCurrentProjectSelection() {
+    state.currentProjectId = null
+    state.currentProject = null
+    delete state.viewStates.writing
+    try {
+      localStorage.removeItem("novel_currentProjectId")
+      localStorage.removeItem("novel_currentProject")
+    } catch {}
   },
 
   openProject(id) {
@@ -398,8 +407,7 @@ const projectView = {
           await api.projects.remove(id)
           toast(`项目「${name}」已移至回收站`, "success")
           if (state.currentProjectId === id) {
-            state.currentProjectId = null
-            state.currentProject = null
+            this._clearCurrentProjectSelection()
           }
           router.refresh()
         } catch (err) {
@@ -602,7 +610,7 @@ const projectView = {
         state.projects = data.items || data || []
 
         const result = await api.imports.upload(project.id, file)
-        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，成功 ${result.imported_chapters || 0} 章`, "success")
+        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节草稿`, "success")
         api.clearCache()
         await router.navigate("writing")
         await router.refresh()
@@ -760,7 +768,7 @@ const projectView = {
         xhr.send(formData)
       })
 
-      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，成功 ${result.imported_chapters || 0} 章`, "success")
+      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节草稿`, "success")
       api.clearCache()
       this._setUploadProgress("刷新项目", 100, "正在刷新项目...")
       await router.navigate("writing")

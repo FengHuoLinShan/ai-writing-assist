@@ -67,6 +67,15 @@ class WritingDraftService:
         draft = await self._repo.create(db, data)
         return WritingDraftResponse.model_validate(draft)
 
+    async def create_published_draft(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate,
+    ) -> WritingDraftResponse:
+        """创建已发布的正文版本。"""
+        draft = await self._repo.create_with_status(db, data, status="published")
+        return WritingDraftResponse.model_validate(draft)
+
     async def get_draft(
         self,
         db: AsyncSession,

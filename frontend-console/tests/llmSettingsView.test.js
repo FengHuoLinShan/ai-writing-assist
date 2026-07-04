@@ -90,6 +90,54 @@ describe("llmSettingsView", () => {
     expect(html).not.toContain("sk-")
   })
 
+  it("opencode 配置显示官方 DeepSeek-v4-flash 建议", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({
+      provider_id: "deepseek",
+      base_url: "https://opencode.ai/zen/go/v1",
+      model: "deepseek-v4-flash",
+      api_key_configured: true,
+    })
+
+    await llmSettingsView.onEnter()
+    const html = await llmSettingsView.render()
+
+    expect(html).toContain("建议使用官方 DeepSeek-v4-flash")
+    expect(html).toContain("503")
+  })
+
+  it("官方 DeepSeek 配置不显示聚合服务限流建议", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({
+      provider_id: "deepseek",
+      base_url: "https://api.deepseek.com/v1",
+      model: "deepseek-v4-flash",
+      api_key_configured: true,
+    })
+
+    await llmSettingsView.onEnter()
+    const html = await llmSettingsView.render()
+
+    expect(html).not.toContain("第三方聚合服务可能对高并发深度导入限流")
+  })
+
+  it("手动输入 opencode 配置后同步显示官方 DeepSeek-v4-flash 建议", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({})
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    document.getElementById("llm-base-url").value = "https://opencode.ai/zen/go/v1"
+    document.getElementById("llm-base-url").dispatchEvent(new Event("input"))
+    document.getElementById("llm-model").value = "deepseek-v4-flash"
+    document.getElementById("llm-model").dispatchEvent(new Event("input"))
+
+    expect(document.querySelector(".llm-provider-advice").textContent).toContain(
+      "建议使用官方 DeepSeek-v4-flash",
+    )
+  })
+
   it("可以切换 API Key 输入框显示状态", async () => {
     api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
     api.projects.getLlmSettings.mockResolvedValue({})

@@ -492,6 +492,12 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
                 continue
             status = str(checkpoint.get("status") or "unknown")
             status_counts[status] = status_counts.get(status, 0) + 1
+    phase2_format = _format_diagnostic_summary(
+        phase2_result.get("structured_format_diagnostics") or []
+    )
+    phase2b_format = _format_diagnostic_summary(
+        phase2_result.get("alias_relation_format_diagnostics") or []
+    )
     return {
         "total_created": int(phase2_result.get("total_created", 0) or 0),
         "total_relations": int(phase2_result.get("total_relations", 0) or 0),
@@ -547,6 +553,8 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         ),
         "phase2_action_counts": phase2_result.get("phase2_action_counts") or {},
         "phase2_dedup_counts": phase2_result.get("phase2_dedup_counts") or {},
+        "structured_format_diagnostics": phase2_format,
+        "alias_relation_format_diagnostics": phase2b_format,
         "phase2_boundary_supplement_counts": (
             phase2_result.get("phase2_boundary_supplement_counts") or {}
         ),
@@ -568,6 +576,35 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "degraded": bool(phase2_result.get("degraded")),
         "error_kind": phase2_result.get("error_kind"),
         "checkpoint_status_counts": status_counts,
+    }
+
+
+def _format_diagnostic_summary(diagnostics: list[Any]) -> dict[str, Any]:
+    kind_counts: dict[str, int] = {}
+    skipped_items = 0
+    format_repair_succeeded = 0
+    for entry in diagnostics:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or "unknown")
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        skipped_items += int(entry.get("skipped", 0) or 0)
+        if kind == "format_repair" and entry.get("status") == "succeeded":
+            format_repair_succeeded += 1
+    return {
+        "total": len([entry for entry in diagnostics if isinstance(entry, dict)]),
+        "kind_counts": kind_counts,
+        "skipped_items": skipped_items,
+        "format_repair_succeeded": format_repair_succeeded,
+        "samples": [
+            {
+                key: value
+                for key, value in entry.items()
+                if key in {"kind", "field", "strategy", "status", "kept", "skipped"}
+            }
+            for entry in diagnostics
+            if isinstance(entry, dict)
+        ][:5],
     }
 
 

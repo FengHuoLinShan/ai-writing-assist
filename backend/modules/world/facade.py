@@ -28,6 +28,7 @@ from modules.world.entity_facade import (  # noqa: F401
     backfill_entity_embeddings,
     count_entities,
     create_entity,
+    create_or_merge_relation,
     create_relation,
     deprecate_deep_import_entities_by_workflow,
     expand_related_entities,

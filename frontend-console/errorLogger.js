@@ -1,7 +1,7 @@
 /**
  * 错误日志系统
  *
- * 自动拦截 toast error/warning 和 API 请求失败，按编号记入 localStorage。
+ * 自动拦截 toast error 和 API 请求失败，按编号记入 localStorage。
  * 前端只显示错误计数，AI 通过编号查询完整记录。
  *
  * 用法：
@@ -58,7 +58,141 @@
     const entries = _read()
     entries.push(full)
     _write(entries)
+    _syncToBackend(full)
     return full
+  }
+
+  function _debugApiBaseUrl() {
+    const host = typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000"
+    return `${host}/api/debug`
+  }
+
+  function _syncToBackend(entry) {
+    if (!entry || entry.level !== "error" || typeof fetch !== "function") return
+    const payload = {
+      frontendId: entry.id,
+      level: entry.level,
+      type: entry.type || "runtime",
+      message: String(entry.message || ""),
+      timestamp: entry.timestamp,
+      view: entry.view || "",
+      subView: entry.subView || "",
+      stack: entry.stack || "",
+      request: entry.request || undefined,
+      page: {
+        url: window.location?.href || "",
+        title: document.title || "",
+      },
+      browser: {
+        userAgent: navigator.userAgent || "",
+        language: navigator.language || "",
+      },
+    }
+
+    fetch(`${_debugApiBaseUrl()}/frontend-errors`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {})
+  }
+
+  function _isFixedBulkSelectionExportError(entry) {
+    const message = String(entry?.message || "")
+    return message.includes("bulkSelection.js")
+      && message.includes("syncBulkSelectionUi")
+      && message.includes("does not provide an export named")
+  }
+
+  async function _pruneFixedStartupErrors() {
+    const entries = _read()
+    if (!entries.some(_isFixedBulkSelectionExportError)) return
+
+    try {
+      const bulkSelection = await import("./shared/bulkSelection.js")
+      if (typeof bulkSelection.syncBulkSelectionUi !== "function") return
+    } catch {
+      return
+    }
+
+    const kept = entries.filter((entry) => !_isFixedBulkSelectionExportError(entry))
+    if (kept.length !== entries.length) _write(kept)
+  }
+
+  function _pruneNonErrorEntries() {
+    const entries = _read()
+    const kept = entries.filter((entry) => entry?.level === "error")
+    if (kept.length !== entries.length) _write(kept)
+    return kept
+  }
+
+  function _hidePanel() {
+    const panel = document.getElementById("error-log-panel")
+    if (panel) panel.remove()
+  }
+
+  function _appendText(parent, tagName, text, style = "") {
+    const node = document.createElement(tagName)
+    if (style) node.style.cssText = style
+    node.textContent = text
+    parent.appendChild(node)
+    return node
+  }
+
+  function _showPanel() {
+    _hidePanel()
+
+    const log = _read()
+    const panel = document.createElement("div")
+    panel.id = "error-log-panel"
+    panel.style.cssText =
+      "position:fixed;right:12px;bottom:32px;z-index:9999;width:min(520px,calc(100vw - 24px));" +
+      "max-height:min(440px,calc(100vh - 80px));overflow:auto;background:var(--bg,#fff);" +
+      "color:var(--text,#111827);border:1px solid var(--border,#d1d5db);border-radius:8px;" +
+      "box-shadow:0 16px 40px rgba(15,23,42,0.24);font:12px/1.5 system-ui,sans-serif;"
+
+    const header = document.createElement("div")
+    header.style.cssText =
+      "position:sticky;top:0;display:flex;align-items:center;gap:8px;justify-content:space-between;" +
+      "padding:10px 12px;background:var(--bg,#fff);border-bottom:1px solid var(--border,#d1d5db);"
+    _appendText(header, "strong", `错误日志（共 ${log.length} 条）`)
+
+    const actions = document.createElement("div")
+    actions.style.cssText = "display:flex;gap:6px;"
+    const clearButton = document.createElement("button")
+    clearButton.type = "button"
+    clearButton.textContent = "清空"
+    clearButton.style.cssText = "font-size:12px;padding:4px 8px;cursor:pointer;"
+    clearButton.addEventListener("click", () => {
+      window.errorLog.clear()
+      _hidePanel()
+    })
+    const closeButton = document.createElement("button")
+    closeButton.type = "button"
+    closeButton.textContent = "关闭"
+    closeButton.style.cssText = "font-size:12px;padding:4px 8px;cursor:pointer;"
+    closeButton.addEventListener("click", _hidePanel)
+    actions.append(clearButton, closeButton)
+    header.appendChild(actions)
+    panel.appendChild(header)
+
+    const body = document.createElement("div")
+    body.style.cssText = "padding:10px 12px;display:grid;gap:8px;"
+    for (const entry of log.slice(-10).reverse()) {
+      const item = document.createElement("article")
+      item.style.cssText = "border:1px solid var(--border,#e5e7eb);border-radius:6px;padding:8px;background:rgba(15,23,42,0.03);"
+      _appendText(item, "div", `#${entry.id} [${entry.level}] ${entry.timestamp || ""}`, "font-weight:600;margin-bottom:4px;")
+      _appendText(item, "div", String(entry.message || ""))
+      if (entry.request) {
+        _appendText(item, "pre", JSON.stringify(entry.request, null, 2), "white-space:pre-wrap;margin:6px 0 0;color:var(--text-secondary,#4b5563);")
+      }
+      if (entry.stack) {
+        _appendText(item, "pre", String(entry.stack), "white-space:pre-wrap;margin:6px 0 0;color:var(--text-secondary,#4b5563);")
+      }
+      body.appendChild(item)
+    }
+    panel.appendChild(body)
+    document.body.appendChild(panel)
   }
 
   // ── 页面小 badge ──
@@ -78,16 +212,7 @@
         "padding:2px 6px;border-radius:8px;cursor:pointer;opacity:0.5;" +
         "line-height:1.4;"
       badge.addEventListener("click", () => {
-        const log = _read()
-        const last5 = log.slice(-5)
-        const text = last5
-          .map((e) => `#${e.id} [${e.level}] ${e.message} (${e.timestamp.slice(11, 19)})`)
-          .join("\n")
-        if (confirm(
-          `错误日志（共 ${log.length} 条）\n---\n${text}\n---\n点击「确定」清空所有日志\n点击「取消」关闭`,
-        )) {
-          window.errorLog.clear()
-        }
+        _showPanel()
       })
       badge.addEventListener("contextmenu", (e) => {
         e.preventDefault()
@@ -99,29 +224,27 @@
     badge.textContent = `⚠ ${count}`
   }
 
-  // ── 拦截 toast ──
-  const _origToast = typeof window.toast === "function" ? window.toast : null
-
-  function _patchedToast(message, type) {
-    if (type === "error" || type === "warning") {
+  // ── 记录 error toast ──
+  function _recordToastError(message, type) {
+    if (type === "error") {
       const reqCtx = window.errorLog._lastApiError || undefined
       window.errorLog._lastApiError = null // 消费后清除
       _add({
-        type: reqCtx ? "api_error" : type === "error" ? "runtime" : "validation",
+        type: reqCtx ? "api_error" : "runtime",
         level: type,
         message: String(message),
         request: reqCtx,
         stack: new Error().stack?.split("\n").slice(2, 5).join("\n") || "",
       })
     }
-    if (_origToast) _origToast(message, type)
   }
 
-  // 延迟挂载 patch（state.js 先加载，toast 定义在后）
-  function _installToastPatch() {
-    if (typeof window.toast === "function" && window.toast !== _patchedToast) {
-      window.toast = _patchedToast
-    }
+  function _installToastStateListener() {
+    if (typeof onStateChange !== "function") return
+    onStateChange((key, value) => {
+      if (key === "toast") _recordToastError(value?.message, value?.type)
+      if (key === "error" && value) _recordToastError(String(value), "error")
+    })
   }
 
   // ── 捕获未处理的 Promise 异常 ──
@@ -153,6 +276,7 @@
       try { localStorage.removeItem(STORAGE_KEY) } catch {}
       _idCounter = 0
       _updateBadge(0)
+      _hidePanel()
     },
     get latestId() { return _idCounter || null },
     // 内部跨模块数据通道（api.js 写入请求上下文）
@@ -160,18 +284,11 @@
   }
 
   // ── 初始化 ──
-  _installToastPatch()
-  // setInterval 兜底：state.js 可能还未加载
-  const _retryInt = setInterval(() => {
-    if (typeof window.toast === "function") {
-      _installToastPatch()
-      clearInterval(_retryInt)
-    }
-  }, 100)
-  setTimeout(() => clearInterval(_retryInt), 5000)
+  _installToastStateListener()
 
-  const count = _read().length
+  const count = _pruneNonErrorEntries().length
   _updateBadge(count)
+  _pruneFixedStartupErrors()
 
   console.log("[errorLogger] 已加载，当前日志数:", count)
 })()

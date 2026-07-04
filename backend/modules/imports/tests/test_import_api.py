@@ -48,8 +48,23 @@ async def test_upload_txt_success(
     assert data["total_chapters"] == 2
     assert data["imported_chapters"] == 2
     assert data["status"] == "done"
+    assert data["chapters"] == [
+        {
+            "chapter_index": 1,
+            "title": "第一章 开始",
+            "word_count": len("这是第一章的内容。"),
+            "draft_id": data["chapters"][0]["draft_id"],
+        },
+        {
+            "chapter_index": 2,
+            "title": "第二章 继续",
+            "word_count": len("这是第二章的内容。"),
+            "draft_id": data["chapters"][1]["draft_id"],
+        },
+    ]
+    assert all(ch["draft_id"] for ch in data["chapters"])
 
-    # 验证 writing_drafts 已创建，且状态为 draft
+    # 验证 writing_drafts 已创建，且导入章节默认已发布
     chapters_resp = await async_client.get(f"/api/writing/chapters?novel_id={novel_id}")
     assert chapters_resp.status_code == 200
     chapter_indices = chapters_resp.json()["chapter_indices"]
@@ -59,7 +74,7 @@ async def test_upload_txt_success(
         f"/api/writing/chapters/1/draft?novel_id={novel_id}"
     )
     assert draft_resp.status_code == 200
-    assert draft_resp.json()["status"] == "draft"
+    assert draft_resp.json()["status"] == "published"
     assert draft_resp.json()["version_number"] == 1
 
 

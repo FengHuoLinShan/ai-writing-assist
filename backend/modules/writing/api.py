@@ -17,7 +17,12 @@ from modules.context.facade import (
     bind_confirmed_action_result,
     prepare_confirmed_ai_action,
 )
-from modules.writing.facade import create_draft_only as _create_draft_only
+from modules.writing.facade import (
+    create_draft_only as _create_draft_only,
+)
+from modules.writing.facade import (
+    create_published_draft_only as _create_published_draft_only,
+)
 from modules.writing.schemas import (
     ChapterSplitRequest,
     ChapterSplitResponse,
@@ -250,7 +255,7 @@ async def create_draft(
         )
     except Exception as exc:
         logger.warning("writing conflict snapshot lookup failed: %s", exc)
-    result = await _create_draft_only(
+    result = await _create_published_draft_only(
         db,
         novel_id=data.novel_id,
         chapter_index=data.chapter_index,

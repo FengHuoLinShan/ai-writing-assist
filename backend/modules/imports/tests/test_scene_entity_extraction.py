@@ -863,9 +863,9 @@ async def test_persist_relations_resolves_entities_in_one_batch() -> None:
             side_effect=AssertionError("relations should batch entity name resolution"),
         ) as mock_single_resolve,
         patch(
-            "modules.world.facade.create_relation",
+            "modules.world.facade.create_or_merge_relation",
             new_callable=AsyncMock,
-            return_value=Mock(id="relation-1"),
+            return_value={"action": "created", "relation": Mock(id="relation-1")},
         ),
     ):
         created = await svc._persist_relations(
@@ -880,6 +880,42 @@ async def test_persist_relations_resolves_entities_in_one_batch() -> None:
     mock_batch_resolve.assert_awaited_once()
     assert set(mock_batch_resolve.await_args.args[2]) == {"克莱恩", "梅丽莎"}
     mock_single_resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_persist_relations_records_relation_merge_stats() -> None:
+    svc = SceneEntityExtractionService()
+    stats = svc._empty_phase2_persistence_stats()
+    relation = ExtractedRelation(
+        source_name="克莱恩",
+        target_name="梅丽莎",
+        relation_type="sibling",
+        description="兄妹",
+    )
+
+    with (
+        patch(
+            "modules.world.facade.find_working_entity_ids_by_names",
+            new_callable=AsyncMock,
+            return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
+        ),
+        patch(
+            "modules.world.facade.create_or_merge_relation",
+            new_callable=AsyncMock,
+            return_value={"action": "merged", "relation": Mock(id="relation-1")},
+        ),
+    ):
+        created = await svc._persist_relations(
+            Mock(),
+            "novel-1",
+            [relation],
+            scene_index=1,
+            workflow_id="wf-test",
+            persistence_stats=stats,
+        )
+
+    assert created == 0
+    assert stats["dedup_counts"]["relation_merged"] == 1
 
 
 @pytest.mark.asyncio
@@ -1063,9 +1099,9 @@ async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> N
             return_value=True,
         ),
         patch(
-            "modules.world.facade.create_relation",
+            "modules.world.facade.create_or_merge_relation",
             new_callable=AsyncMock,
-            return_value=relation,
+            return_value={"action": "created", "relation": relation},
         ),
     ):
         result = await svc._persist_alias_relation_output(
@@ -2630,6 +2666,7 @@ async def test_bulk_llm_extractions_use_fast_no_retry_calls() -> None:
             ),
             "max_fix_attempts": 0,
             "transport_retries": False,
+            "diagnostics": [],
         }
     ]
 

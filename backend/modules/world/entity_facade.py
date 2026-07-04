@@ -317,6 +317,17 @@ async def create_relation(
     return await _relation_service.create(db, novel_id, rel_data)
 
 
+async def create_or_merge_relation(
+    db: AsyncSession,
+    novel_id: str,
+    data: dict,
+) -> dict[str, Any]:
+    from modules.world.schemas import EntityRelationCreate
+
+    rel_data = EntityRelationCreate(**data)
+    return await _relation_service.create_or_merge(db, novel_id, rel_data)
+
+
 async def upsert_relation(
     db: AsyncSession,
     novel_id: str,

@@ -11,6 +11,15 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class ImportChapterItem(BaseModel):
+    """导入后已保存的章节信息"""
+
+    chapter_index: int = Field(..., description="章节索引")
+    title: str | None = Field(None, description="章节标题")
+    word_count: int = Field(0, description="字数")
+    draft_id: str = Field(..., description="关联草稿 ID")
+
+
 class ImportResponse(BaseModel):
     """导入记录响应"""
 
@@ -24,6 +33,10 @@ class ImportResponse(BaseModel):
     status: str = Field(..., description="状态")
     error_message: str | None = Field(None, description="错误信息")
     created_at: datetime | None = Field(None, description="创建时间")
+    chapters: list[ImportChapterItem] = Field(
+        default_factory=list,
+        description="本次导入后已保存为草稿的章节",
+    )
 
 
 class ImportListResponse(BaseModel):
@@ -31,15 +44,6 @@ class ImportListResponse(BaseModel):
 
     items: list[ImportResponse]
     total: int
-
-
-class ImportChapterItem(BaseModel):
-    """导入后的章节信息"""
-
-    chapter_index: int = Field(..., description="章节索引")
-    title: str | None = Field(None, description="章节标题")
-    word_count: int = Field(0, description="字数")
-    draft_id: str = Field(..., description="关联草稿 ID")
 
 
 class ImportedChapterResponse(BaseModel):

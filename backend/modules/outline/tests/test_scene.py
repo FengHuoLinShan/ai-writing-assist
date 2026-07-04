@@ -205,7 +205,7 @@ class TestSceneRepository:
         first = await repo.create(
             db_session,
             nid,
-            SceneCreate(scene_index=2, title="范围内 B", chapter_ids=["3", "4"]),
+            SceneCreate(scene_index=2, title="范围内 B", chapter_ids=["2", "3"]),
         )
         second = await repo.create(
             db_session,
@@ -231,6 +231,7 @@ class TestSceneRepository:
         scenes = await repo.get_by_chapter_range(db_session, nid, 2, 3)
 
         assert [scene.id for scene in scenes] == [second.id, first.id]
+        assert len({scene.id for scene in scenes}) == len(scenes)
         assert outside.id not in {scene.id for scene in scenes}
         assert deprecated.id not in {scene.id for scene in scenes}
 

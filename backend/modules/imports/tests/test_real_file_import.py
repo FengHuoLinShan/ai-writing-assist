@@ -155,7 +155,7 @@ class TestRealFileImportService:
         real_project: str,
         real_file_bytes: bytes,
     ):
-        """导入后 writing_drafts 应创建 10 条草稿"""
+        """导入后 writing_drafts 应创建已发布正文版本"""
         await service.upload_and_import(
             db_session,
             real_project,
@@ -178,7 +178,7 @@ class TestRealFileImportService:
             assert isinstance(draft.title, str) and draft.title.startswith("第"), (
                 f"第 {i + 1} 条草稿标题格式不正确: '{draft.title}'"
             )
-            assert draft.status == "draft"
+            assert draft.status == "published"
             assert draft.version_number == 1
             assert draft.content and len(draft.content) > 500, (
                 f"第 {i + 1} 章草稿正文过短"

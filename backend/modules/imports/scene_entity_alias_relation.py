@@ -228,7 +228,9 @@ class AliasRelationExtractor:
             llm_timeout_seconds=llm_timeout_seconds,
             on_result=_on_llm_result if on_scene_progress is not None else None,
         )
+        structured_format_diagnostics: list[dict[str, Any]] = []
         for item, output, exc in llm_results:
+            structured_format_diagnostics.extend(item.get("format_diagnostics") or [])
             scene_index = int(item["scene_index"])
             snapshot_id = item.get("snapshot_id")
             result_refs: list[dict[str, str]] = []
@@ -369,6 +371,7 @@ class AliasRelationExtractor:
             "alias_relation_total_timeout_s": total_timeout_seconds,
             "alias_relation_concurrency": concurrency,
             "alias_relation_llm_timeout_s": llm_timeout_seconds,
+            "alias_relation_format_diagnostics": structured_format_diagnostics[:20],
             "alias_relation_checkpoints": {
                 "phase2b": {
                     "scenes": sorted(
@@ -548,18 +551,20 @@ async def _run_alias_relation_llm_calls(
 
     async def call(item: dict[str, Any]):
         async with semaphore:
+            format_diagnostics: list[dict[str, Any]] = []
             try:
                 output = await asyncio.wait_for(
                     service._call_alias_relation_extraction(
                         item["chapters_text"],
                         item["entity_index"],
                         client_timeout=llm_timeout_seconds,
+                        diagnostics=format_diagnostics,
                     ),
                     timeout=llm_timeout_seconds,
                 )
             except Exception as exc:
-                return item, None, exc
-            return item, output, None
+                return {**item, "format_diagnostics": format_diagnostics}, None, exc
+            return {**item, "format_diagnostics": format_diagnostics}, output, None
 
     for item in prepared:
         task = asyncio.create_task(call(item))

@@ -414,6 +414,62 @@ class TestRelationValidation:
             )
         assert exc.value.status_code == 409
 
+    @pytest.mark.asyncio
+    async def test_create_or_merge_relation_merges_duplicate_evidence(
+        self,
+        db_session: AsyncSession,
+        relation_service: EntityRelationService,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        entity_service = WorldEntityService()
+        source = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="克莱恩"),
+        )
+        target = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="梅丽莎"),
+        )
+
+        first = await relation_service.create_or_merge(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="sibling",
+                description="兄妹",
+                quote="哥哥与妹妹",
+                strength=0.4,
+                status="candidate",
+            ),
+        )
+        second = await relation_service.create_or_merge(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="sibling",
+                description="共同生活",
+                quote="家人相依",
+                strength=0.8,
+                status="candidate",
+            ),
+        )
+
+        assert first["action"] == "created"
+        assert second["action"] == "merged"
+        relation = second["relation"]
+        assert "兄妹" in relation.description
+        assert "共同生活" in relation.description
+        assert "哥哥与妹妹" in relation.quote
+        assert "家人相依" in relation.quote
+        assert relation.strength == 0.8
+
 
 # ============================================================
 # 人物知识边界 false_belief 校验

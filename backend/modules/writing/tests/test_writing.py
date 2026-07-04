@@ -6,8 +6,11 @@ Writing 模块测试
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,6 +43,35 @@ from tests.conftest import test_project_id  # noqa: F401
 # ============================================================
 # Fixtures
 # ============================================================
+
+
+def test_writing_facade_cold_import_does_not_cycle_through_worker() -> None:
+    """writing facade 可被 worker 冷导入，不应触发 project/writing 循环导入。"""
+    backend_root = Path(__file__).resolve().parents[3]
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from modules.writing.facade import "
+                "list_latest_drafts_for_chapters, get_project_writing_stats; "
+                "from infrastructure.tasks.worker import TaskWorker; "
+                "print(list_latest_drafts_for_chapters.__name__, "
+                "get_project_writing_stats.__name__, TaskWorker.__name__)"
+            ),
+        ],
+        cwd=backend_root,
+        check=False,
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "list_latest_drafts_for_chapters get_project_writing_stats TaskWorker" in (
+        result.stdout
+    )
 
 
 @pytest.fixture
@@ -1290,6 +1322,7 @@ class TestWritingPublishApi:
         assert response1.status_code == 201
         data1 = response1.json()
         assert data1["draft"]["version_number"] == 1
+        assert data1["draft"]["status"] == "published"
         task_id_1 = data1["task_id"]
         assert task_id_1 is not None
 
@@ -1305,6 +1338,7 @@ class TestWritingPublishApi:
         assert response2.status_code == 201
         data2 = response2.json()
         assert data2["draft"]["version_number"] == 2
+        assert data2["draft"]["status"] == "published"
         task_id_2 = data2["task_id"]
         assert task_id_2 is not None
         assert task_id_2 != task_id_1

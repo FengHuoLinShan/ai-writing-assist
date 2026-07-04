@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.enqueuer import enqueue_task
 from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
 from modules.writing.schemas import WritingDraftCreate, WritingDraftResponse
 from modules.writing.services import WritingDraftService
@@ -34,6 +33,23 @@ async def create_draft_only(
     return await _service.create_draft(db, data)
 
 
+async def create_published_draft_only(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    title: str | None = None,
+    content: str = "",
+) -> WritingDraftResponse:
+    """创建已发布正文版本（纯持久化，不入队任务）"""
+    data = WritingDraftCreate(
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        title=title or f"第{chapter_index}章",
+        content=content,
+    )
+    return await _service.create_published_draft(db, data)
+
+
 async def create_draft(
     db: AsyncSession,
     novel_id: str,
@@ -46,7 +62,9 @@ async def create_draft(
     Returns:
         (WritingDraftResponse, task_id) — 草稿信息 + 发布任务 ID
     """
-    draft = await create_draft_only(db, novel_id, chapter_index, title, content)
+    from infrastructure.tasks.enqueuer import enqueue_task
+
+    draft = await create_published_draft_only(db, novel_id, chapter_index, title, content)
     task_id = enqueue_task(
         db,
         "publish_chapter",

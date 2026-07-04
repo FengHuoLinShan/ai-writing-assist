@@ -19,7 +19,7 @@ worker. Enable it only for explicit quality runs:
         modules/imports/tests/test_deep_import_real_llm.py -q -s
 
     RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
-        PHASE1A_SCENE_MAX_TOKENS=6144 pytest \
+        PHASE1A_SCENE_MAX_TOKENS=8192 pytest \
         modules/imports/tests/test_deep_import_real_llm.py -q -s
 
     RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM=1 LLM_TIMEOUT=180 \

@@ -45,6 +45,17 @@ async for chunk in client.generate_stream(request):
 # 结构化 JSON 输出
 result = await client.generate_structured(request, MyPydanticSchema)
 
+# 可选容错：默认仍严格；业务方显式开启时可保留顶层列表中的有效项，
+# 并在常规重试失败后做一次“只改格式、不改事实”的格式转换兜底。
+diagnostics = []
+result = await client.generate_structured(
+    request,
+    MyPydanticSchema,
+    partial_list_fields={"items"},
+    diagnostics=diagnostics,
+    format_repair_attempts=1,
+)
+
 # 简化调用
 text = await client.generate_simple(system, user)
 ```

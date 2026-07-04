@@ -273,6 +273,19 @@ class TestImportService:
         assert resp.imported_chapters == 4
         assert resp.file_name == "novel.txt"
         assert resp.file_type == "txt"
+        assert len(resp.chapters) == 4
+        assert [chapter.chapter_index for chapter in resp.chapters] == [1, 2, 3, 4]
+        assert resp.chapters[0].title == "序章"
+        assert resp.chapters[0].draft_id
+        assert resp.chapters[0].word_count > 0
+        from modules.writing.models import WritingDraft
+
+        result = await db_session.execute(
+            select(WritingDraft).where(
+                WritingDraft.id == uuid.UUID(resp.chapters[0].draft_id)
+            )
+        )
+        assert result.scalar_one().status == "published"
 
     @pytest.mark.asyncio
     async def test_upload_and_import_enqueues_publish_tasks_only(
@@ -532,7 +545,7 @@ class TestImportService:
         monkeypatch.setattr(service._repo, "update_status", _broken_update_status)
 
         with patch(
-            "modules.imports.services.create_draft_only",
+            "modules.imports.services.create_published_draft_only",
             side_effect=RuntimeError("draft write failed"),
         ):
             with pytest.raises(DomainError) as exc:

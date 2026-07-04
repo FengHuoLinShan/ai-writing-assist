@@ -16,9 +16,11 @@ from sqlalchemy import select
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.deep_import_retry import DeepImportRetryResult
 from modules.imports.llm_schemas import (
+    AliasRelationExtractionOutput,
     ExtractedEntity,
     SceneCandidateOutput,
     SceneChunk,
+    SceneEntityExtractionOutput,
     SceneItem,
     SceneSegmentationOutput,
 )
@@ -44,8 +46,93 @@ from modules.imports.workflow import (
     _Phase1bSceneFusionLLM,
     _run_deep_import_structured_call,
 )
+from modules.imports.workflow_llm_adapters import (
+    _materialize_phase1b_decision_output,
+    _Phase1bDecisionOutput,
+)
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from modules.writing.contracts import WritingDraftContract
+
+
+def test_scene_item_accepts_constraint_lists_from_llm() -> None:
+    output = SceneSegmentationOutput.model_validate(
+        {
+            "scenes": [
+                {
+                    "title": "旧钟楼",
+                    "must_happen": ["林澈拿到铜钥匙", "发现北境航道"],
+                    "must_not_happen": ["钥匙丢失", "航线图被毁"],
+                    "scene_chunks": [{"chapter_index": 1}],
+                }
+            ]
+        }
+    )
+
+    scene = output.scenes[0]
+    assert scene.must_happen == "林澈拿到铜钥匙；发现北境航道"
+    assert scene.must_not_happen == "钥匙丢失；航线图被毁"
+
+
+def test_scene_entity_output_accepts_singletons_and_text_variants_from_llm() -> None:
+    output = SceneEntityExtractionOutput.model_validate(
+        {
+            "entities": {
+                "name": "旧钟楼",
+                "entity_type": {"name": "location"},
+                "summary": ["藏有钥匙", "连接北境航道"],
+                "aliases": "钟楼",
+            },
+            "relations": {
+                "source_name": "林澈",
+                "target_name": "旧钟楼",
+                "relation_type": {"value": "发现"},
+                "description": ["第一次发现", "尚未公开"],
+                "strength": "较高",
+            },
+            "delta_events": {
+                "category": "ENTITY_UPDATED",
+                "meta": "安提哥努斯笔记被重新定位为1级封印物",
+            },
+        }
+    )
+
+    assert len(output.entities) == 1
+    assert output.entities[0].entity_type == "location"
+    assert output.entities[0].summary == "藏有钥匙；连接北境航道"
+    assert output.entities[0].aliases == [{"alias": "钟楼", "type": "name"}]
+    assert len(output.relations) == 1
+    assert output.relations[0].relation_type == "发现"
+    assert output.relations[0].description == "第一次发现；尚未公开"
+    assert output.relations[0].strength == 0.8
+    assert len(output.delta_events) == 1
+    assert output.delta_events[0].meta == {
+        "note": "安提哥努斯笔记被重新定位为1级封印物"
+    }
+
+
+def test_alias_relation_output_accepts_single_alias_and_relation() -> None:
+    output = AliasRelationExtractionOutput.model_validate(
+        {
+            "aliases": {
+                "entity_name": "周明瑞",
+                "alias": "克莱恩",
+                "alias_type": None,
+                "quote": ["自称", "新身份"],
+                "confidence": "90%",
+            },
+            "relations": {
+                "source_name": "克莱恩",
+                "target_name": "灰雾",
+                "relation_type": "进入",
+            },
+        }
+    )
+
+    assert len(output.aliases) == 1
+    assert output.aliases[0].alias_type == "alias"
+    assert output.aliases[0].quote == "自称；新身份"
+    assert output.aliases[0].confidence == 0.9
+    assert len(output.relations) == 1
 
 
 def test_phase1b_workflow_uses_deterministic_reducer_for_large_samples_by_default(
@@ -391,7 +478,7 @@ async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_phase0_adapter_uses_bounded_phase0_budget(monkeypatch):
+async def test_phase0_adapter_uses_phase0_budget_by_default(monkeypatch):
     captured: dict[str, object] = {}
 
     async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
@@ -431,7 +518,7 @@ async def test_phase0_adapter_uses_bounded_phase0_budget(monkeypatch):
     )(batch)
 
     request = captured["request"]
-    assert request.max_tokens == 4096
+    assert request.max_tokens == 8192
     assert captured["kwargs"]["timeout_seconds"] == 120
 
 
@@ -505,7 +592,7 @@ async def test_phase1a_adapter_uses_controlled_prompt_and_budget(monkeypatch):
     request = captured["request"]
     system_prompt = request.messages[0].content
     user_prompt = request.messages[1].content
-    assert request.max_tokens == 6144
+    assert request.max_tokens == 8192
     assert captured["kwargs"]["max_fix_attempts"] == 1
     assert "正文级 Scene 候选补强器" in system_prompt
     assert "不是最终 Scene 切分器" in system_prompt
@@ -525,13 +612,13 @@ def test_phase1a_scene_max_tokens_env_override(
     from modules.imports import workflow_llm_adapters
 
     monkeypatch.delenv("PHASE1A_SCENE_MAX_TOKENS", raising=False)
-    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 6144
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 8192
 
     monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "4096")
     assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 4096
 
     monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "nope")
-    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 6144
+    assert workflow_llm_adapters._phase1a_scene_max_tokens(8192) == 8192
 
 
 def test_phase1a_structured_max_fix_attempts_env_override(
@@ -582,6 +669,9 @@ async def test_deep_import_structured_call_uses_configured_fix_attempts(monkeypa
     assert captured["max_fix_attempts"] == 3
     assert captured["transport_retries"] is False
     assert captured["fix_prompt"] == "fix"
+    assert "scenes" in captured["partial_list_fields"]
+    assert "missing_or_uncertain_items" in captured["partial_list_fields"]
+    assert captured["format_repair_attempts"] == 1
 
 
 @pytest.mark.asyncio
@@ -745,7 +835,7 @@ async def test_phase1b_llm_prompt_requires_compact_scene_contract(monkeypatch):
     assert "不要补 core_conflict、emotional_beat、narrative_tag" in system_content
     assert "scene_chunks 内必须有 chapter_index" in system_content
     assert "source_chapter_indices 并集必须覆盖" in system_content
-    assert "小样本 1-7 章不足 9 个时优先拆分跨章候选" in user_content
+    assert "不要拆散同一目标/冲突/行动链延续的跨章 Scene" in user_content
     assert "\"scene_chunks\":[{\"chapter_index\":1}]" in user_content
     assert request.max_tokens == 6144
     assert kwargs["timeout_seconds"] == 90
@@ -802,6 +892,77 @@ async def test_phase1b_llm_uses_compact_budget_for_regular_window(monkeypatch):
     assert "candidates=" in request.messages[1].content
     assert "payload=" not in request.messages[1].content
     assert kwargs["timeout_seconds"] == 45
+
+
+def test_phase1b_decision_materializer_distributes_missing_chunks() -> None:
+    output = _materialize_phase1b_decision_output(
+        {
+            "window": {"core_range": [106, 110]},
+            "candidates": [
+                {
+                    "candidate_id": "a-1",
+                    "source_round": "A",
+                    "source_chapter_indices": [106, 107, 108, 109, 110],
+                    "scenes": [
+                        {"title": "佛尔思", "goal": "沙龙与营救请求"},
+                        {"title": "推理", "goal": "查尼斯门事件推理"},
+                        {"title": "深夜", "goal": "值守异常"},
+                        {"title": "画家克莱恩", "goal": "委托调查"},
+                        {"title": "确认", "goal": "圣堂确认问题"},
+                    ],
+                }
+            ],
+        },
+        decision=_Phase1bDecisionOutput(use_primary_round=True),
+    )
+
+    assert [scene.source_chapter_indices for scene in output.scenes] == [
+        [106],
+        [107],
+        [108],
+        [109],
+        [110],
+    ]
+
+
+def test_phase1b_decision_materializer_preserves_explicit_cross_chapter_chunks() -> None:
+    output = _materialize_phase1b_decision_output(
+        {
+            "window": {"core_range": [113, 115]},
+            "candidates": [
+                {
+                    "candidate_id": "a-1",
+                    "source_round": "A",
+                    "source_chapter_indices": [113, 114, 115],
+                    "scenes": [
+                        {
+                            "title": "塔罗会规则",
+                            "goal": "塔罗会规则延续",
+                            "scene_chunks": [
+                                {"chapter_index": 113},
+                                {"chapter_index": 114},
+                            ],
+                        },
+                        {
+                            "title": "诈骗案调查",
+                            "goal": "兰尔乌斯线索",
+                            "scene_chunks": [{"chapter_index": 115}],
+                        },
+                    ],
+                }
+            ],
+        },
+        decision=_Phase1bDecisionOutput(use_primary_round=True),
+    )
+
+    assert [scene.source_chapter_indices for scene in output.scenes] == [
+        [113, 114],
+        [115],
+    ]
+    assert [
+        [chunk.chapter_index for chunk in scene.scene_chunks]
+        for scene in output.scenes
+    ] == [[113, 114], [115]]
 
 
 @pytest.mark.asyncio
@@ -1100,6 +1261,24 @@ class TestDeepImportWorkflowAutoRun:
                     "conflicts": 0,
                     "failed": 0,
                 },
+                "structured_format_diagnostics": [
+                    {
+                        "kind": "partial_list_validation",
+                        "field": "entities",
+                        "kept": 2,
+                        "skipped": 1,
+                    },
+                    {
+                        "kind": "format_repair",
+                        "status": "succeeded",
+                    },
+                ],
+                "alias_relation_format_diagnostics": [
+                    {
+                        "kind": "structured_parse",
+                        "strategy": "markdown_code_block",
+                    }
+                ],
                 "phase2_failed_batches": [],
                 "failed_scene_ids": ["scene-3"],
                 "phase2_degraded_batches": [],
@@ -1119,6 +1298,16 @@ class TestDeepImportWorkflowAutoRun:
         assert stats["phase2_action_counts"]["create_new"] == 3
         assert stats["phase2_dedup_counts"]["skipped"] == 1
         assert stats["phase2_boundary_supplement_counts"]["created"] == 1
+        assert stats["structured_format_diagnostics"]["total"] == 2
+        assert (
+            stats["structured_format_diagnostics"]["kind_counts"][
+                "partial_list_validation"
+            ]
+            == 1
+        )
+        assert stats["structured_format_diagnostics"]["skipped_items"] == 1
+        assert stats["structured_format_diagnostics"]["format_repair_succeeded"] == 1
+        assert stats["alias_relation_format_diagnostics"]["total"] == 1
         assert stats["failed_scene_ids"] == ["scene-3"]
         assert stats["alias_relation_skipped"] is True
         assert (
@@ -4685,16 +4874,23 @@ class TestSceneEntityExtractionProgress:
         service._run_alias_relation_phase.assert_not_awaited()
 
     @pytest.mark.asyncio
+    @patch("modules.world.facade.merge_candidate_into_entity", new_callable=AsyncMock)
     @patch("modules.world.facade.find_similar_entities", new_callable=AsyncMock)
     @patch("modules.world.facade.create_entity", new_callable=AsyncMock)
     async def test_phase2_persist_entities_collects_action_and_dedup_stats(
         self,
         mock_create,
         mock_find_similar,
+        mock_merge,
     ):
         service = SceneEntityExtractionService()
+        target_id = str(uuid.uuid4())
         mock_find_similar.return_value = [
-            Mock(similarity_score=0.96, match_method="exact_name")
+            Mock(
+                similarity_score=0.96,
+                match_method="exact_name",
+                existing_entity_id=target_id,
+            )
         ]
         mock_create.return_value = {"id": str(uuid.uuid4())}
         stats = service._empty_phase2_persistence_stats()
@@ -4752,13 +4948,15 @@ class TestSceneEntityExtractionProgress:
         )
 
         assert created == 2
+        mock_merge.assert_awaited_once()
         assert stats["action_counts"] == {
             "create_new": 1,
             "link_to_existing": 1,
             "ignore": 1,
             "temporary_only": 1,
         }
-        assert stats["dedup_counts"]["skipped"] == 1
+        assert stats["dedup_counts"]["auto_merged"] == 1
+        assert stats["dedup_counts"]["skipped"] == 0
         assert stats["linked_to_existing"] == 1
         assert stats["ignored"] == 1
         assert stats["temporary_only"] == 1

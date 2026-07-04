@@ -113,7 +113,9 @@ const writingView = {
   // ============================================================
 
   async onEnter() {
-    const saved = state.viewStates.writing
+    const saved = state.viewStates.writing?.projectId === state.currentProjectId
+      ? state.viewStates.writing
+      : null
     if (saved) {
       this._currentChapter = saved.currentChapter
       this._currentContent = saved.currentContent
@@ -382,6 +384,7 @@ const writingView = {
     }
     const editor = document.getElementById("writing-editor")
     state.viewStates.writing = {
+      projectId: state.currentProjectId,
       currentChapter: this._currentChapter,
       currentContent: editor ? editor.value : this._currentContent,
       currentTitle: this._currentTitle,

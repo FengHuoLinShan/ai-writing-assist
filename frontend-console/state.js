@@ -96,10 +96,19 @@ const state = new Proxy(appState, {
 
     // 自动保存项目选择到 localStorage
     if (key === "currentProjectId") {
-      try { localStorage.setItem("novel_currentProjectId", value || "") } catch {}
+      if (target.viewStates?.writing && oldValue !== value) {
+        delete target.viewStates.writing
+      }
+      try {
+        if (value) localStorage.setItem("novel_currentProjectId", value)
+        else localStorage.removeItem("novel_currentProjectId")
+      } catch {}
     }
-    if (key === "currentProject" && value) {
-      try { localStorage.setItem("novel_currentProject", JSON.stringify(value)) } catch {}
+    if (key === "currentProject") {
+      try {
+        if (value) localStorage.setItem("novel_currentProject", JSON.stringify(value))
+        else localStorage.removeItem("novel_currentProject")
+      } catch {}
     }
 
     // 触发监听器

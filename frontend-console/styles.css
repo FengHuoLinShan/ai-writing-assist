@@ -1153,6 +1153,13 @@ html, body {
   color: var(--success);
 }
 
+.llm-provider-advice {
+  margin: var(--space-2) 0 0;
+  color: var(--warning);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
 .llm-advanced-panel {
   display: grid;
   gap: var(--space-3);

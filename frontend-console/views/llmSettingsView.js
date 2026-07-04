@@ -53,12 +53,16 @@ const llmSettingsView = {
     const selectedTemplate = this._findTemplate(providerId) || this._templates[0] || {}
     const modelOptions = this._renderModelOptions(selectedTemplate, settings.model)
     const parameters = this._effectiveParameters(settings, selectedTemplate)
+    const providerAdvice = this._renderProviderAdvice(
+      settings.base_url || selectedTemplate.base_url || "",
+      settings.model || selectedTemplate.default_model || "",
+    )
     const preferences = this._loadAuthorPreferences()
     const creativeMode = this._creativeMode || this._detectCreativeMode(parameters)
     const statusText = settings.api_key_configured ? "已保存" : "未保存"
     const statusClass = settings.api_key_configured ? "success" : "muted"
 
-    queueMicrotask(() => this.bindEvents())
+    setTimeout(() => this.bindEvents(), 0)
 
     return `
       <div class="llm-settings-view">
@@ -99,6 +103,7 @@ const llmSettingsView = {
           <div class="form-group">
             <label for="llm-base-url">Base URL</label>
             <input class="form-input" id="llm-base-url" value="${esc(settings.base_url || selectedTemplate.base_url || "")}" placeholder="https://api.example.com/v1" />
+            <div id="llm-provider-advice">${providerAdvice}</div>
           </div>
 
           <div class="form-row">
@@ -189,6 +194,12 @@ const llmSettingsView = {
     document.getElementById("llm-provider")?.addEventListener("change", (event) => {
       this.applyTemplate(event.target.value)
     })
+    document.getElementById("llm-base-url")?.addEventListener("input", () => {
+      this._syncProviderAdvice()
+    })
+    document.getElementById("llm-model")?.addEventListener("input", () => {
+      this._syncProviderAdvice()
+    })
     document.getElementById("llm-save-btn")?.addEventListener("click", () => {
       this.save()
     })
@@ -245,6 +256,7 @@ const llmSettingsView = {
         .map((item) => `<option value="${esc(item)}"></option>`)
         .join("")
     }
+    this._syncProviderAdvice()
   },
 
   applyCreativePreset(presetId) {
@@ -377,6 +389,34 @@ const llmSettingsView = {
     const models = new Set(template?.models || [])
     if (currentModel) models.add(currentModel)
     return [...models].map((model) => `<option value="${esc(model)}"></option>`).join("")
+  },
+
+  _renderProviderAdvice(baseUrl, model) {
+    const advice = this._providerAdviceText(baseUrl, model)
+    if (!advice) return ""
+    return `<p class="llm-provider-advice">${esc(advice)}</p>`
+  },
+
+  _providerAdviceText(baseUrl, model) {
+    const normalizedBaseUrl = String(baseUrl || "").toLowerCase()
+    const normalizedModel = String(model || "").toLowerCase()
+    const usesOpencode = normalizedBaseUrl.includes("opencode.ai")
+    const usesThirdPartyDeepSeekV4 = (
+      normalizedModel.includes("deepseek-v4-flash")
+      && normalizedBaseUrl
+      && !normalizedBaseUrl.includes("api.deepseek.com")
+    )
+    if (!usesOpencode && !usesThirdPartyDeepSeekV4) return ""
+    return "opencode 或第三方聚合服务可能对高并发深度导入限流；遇到 503、频繁重试或导入变慢时，建议使用官方 DeepSeek-v4-flash。"
+  },
+
+  _syncProviderAdvice() {
+    const target = document.getElementById("llm-provider-advice")
+    if (!target) return
+    target.innerHTML = this._renderProviderAdvice(
+      document.getElementById("llm-base-url")?.value || "",
+      document.getElementById("llm-model")?.value || "",
+    )
   },
 
   _effectiveParameters(settings, template) {

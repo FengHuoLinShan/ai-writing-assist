@@ -16,6 +16,7 @@ from modules.world.contracts import (
 )
 from modules.world.facade import (
     create_character,
+    create_or_merge_relation,
     expand_related_entities,
     find_similar_entities,
     get_characters_context,
@@ -91,5 +92,6 @@ __all__ = [
     "run_entity_extraction",
     "get_events_context",
     "create_character",
+    "create_or_merge_relation",
     "get_characters_context",
 ]

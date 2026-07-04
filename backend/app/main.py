@@ -409,6 +409,7 @@ import modules.project.tasks  # noqa: F401, E402 — 注册项目级任务处理
 import modules.rag.tasks  # noqa: F401, E402 — 注册 RAG 索引/重建任务处理器
 import modules.world.tasks  # noqa: F401, E402 — 注册世界模块任务处理器
 import modules.writing.tasks  # noqa: F401, E402 — 注册章节发布任务处理器
+from app import debug_api  # noqa: E402
 from infrastructure.tasks import api as tasks_api  # noqa: E402
 from modules.context import api as context_api  # noqa: E402
 
@@ -433,6 +434,7 @@ app.include_router(rag_api.router)
 app.include_router(context_api.router)
 app.include_router(writing_api.router)
 app.include_router(tasks_api.router)
+app.include_router(debug_api.router)
 
 
 # ---------------------------------------------------------------------------

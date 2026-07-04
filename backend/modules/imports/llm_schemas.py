@@ -53,6 +53,57 @@ def _coerce_score(value: Any, *, default: float = 0.5) -> float:
     return default
 
 
+def _coerce_short_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list | tuple):
+        return "；".join(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, dict):
+        for key in ("summary", "description", "text", "value", "content", "name"):
+            if value.get(key):
+                return _coerce_short_text(value[key])
+        return "；".join(
+            f"{key}: {item}"
+            for key, item in value.items()
+            if item is not None and str(item).strip()
+        )
+    return str(value)
+
+
+def _coerce_optional_short_text(value: Any) -> str | None:
+    text = _coerce_short_text(value).strip()
+    return text or None
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list | tuple | set):
+        return [
+            str(item).strip()
+            for item in value
+            if item is not None and str(item).strip()
+        ]
+    if isinstance(value, str):
+        parts = [
+            part.strip()
+            for chunk in value.splitlines()
+            for part in chunk.replace("，", ",").replace("；", ",").split(",")
+        ]
+        return [part for part in parts if part]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _coerce_list_or_empty(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
 class SceneChunk(BaseModel):
     """Scene 在章节中的物理片段。"""
 
@@ -72,6 +123,11 @@ class SceneItem(BaseModel):
     must_not_happen: str = Field(default="")
     narrative_tag: str = Field(default="draft")
     scene_chunks: list[SceneChunk] = Field(default_factory=list)
+
+    @field_validator("must_happen", "must_not_happen", mode="before")
+    @classmethod
+    def _normalize_constraint_text(cls, value: Any) -> str:
+        return _coerce_short_text(value)
 
     @field_validator("scene_chunks")
     @classmethod
@@ -120,20 +176,12 @@ class SceneCandidateOutput(BaseModel):
     @field_validator("evidence_anchors", "merge_hints", "split_hints", mode="before")
     @classmethod
     def _normalize_diagnostic_list(cls, value: Any) -> list[Any]:
-        if value is None or value == "":
-            return []
-        if isinstance(value, list):
-            return value
-        return [value]
+        return _coerce_list_or_empty(value)
 
     @field_validator("missing_or_uncertain_items", mode="before")
     @classmethod
     def _normalize_missing_items(cls, value: Any) -> list[str]:
-        if value is None or value == "":
-            return []
-        if isinstance(value, list):
-            return [str(item) for item in value if item is not None and item != ""]
-        return [str(value)]
+        return _coerce_string_list(value)
 
 
 class ExtractedEntity(BaseModel):
@@ -167,9 +215,7 @@ class ExtractedEntity(BaseModel):
     )
     @classmethod
     def _normalize_optional_text(cls, value: Any) -> str:
-        if value is None:
-            return ""
-        return str(value)
+        return _coerce_short_text(value)
 
     @field_validator("aliases", mode="before")
     @classmethod
@@ -177,7 +223,7 @@ class ExtractedEntity(BaseModel):
         if value is None:
             return None
         if not isinstance(value, list):
-            return None
+            value = [value]
         aliases: list[dict] = []
         for item in value:
             if isinstance(item, str):
@@ -212,6 +258,17 @@ class ExtractedRelation(BaseModel):
     def _normalize_strength(cls, value: Any) -> float:
         return _coerce_score(value)
 
+    @field_validator("relation_type", mode="before")
+    @classmethod
+    def _normalize_relation_type(cls, value: Any) -> str:
+        text = _coerce_short_text(value).strip()
+        return text or "related_to"
+
+    @field_validator("description", "quote", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        return _coerce_optional_short_text(value)
+
 
 class ExtractedAlias(BaseModel):
     """Phase 2b LLM 输出的实体别名候选。"""
@@ -235,6 +292,11 @@ class ExtractedAlias(BaseModel):
         text = str(value).strip()
         return text or "alias"
 
+    @field_validator("quote", mode="before")
+    @classmethod
+    def _normalize_quote(cls, value: Any) -> str | None:
+        return _coerce_optional_short_text(value)
+
 
 class AliasRelationExtractionOutput(BaseModel):
     """Phase 2b LLM 输出结构：Scene 正文 + 对象索引 → aliases/relations。"""
@@ -245,11 +307,7 @@ class AliasRelationExtractionOutput(BaseModel):
     @field_validator("aliases", "relations", mode="before")
     @classmethod
     def _normalize_optional_lists(cls, value: Any) -> list[Any]:
-        if value is None or value == "":
-            return []
-        if isinstance(value, list):
-            return value
-        return []
+        return _coerce_list_or_empty(value)
 
 
 class DeltaEvent(BaseModel):
@@ -260,6 +318,16 @@ class DeltaEvent(BaseModel):
     old: Any | None = Field(default=None)
     new: Any | None = Field(default=None)
     meta: dict = Field(default_factory=dict)
+
+    @field_validator("meta", mode="before")
+    @classmethod
+    def _normalize_meta(cls, value: Any) -> dict[str, Any]:
+        if value is None or value == "":
+            return {}
+        if isinstance(value, dict):
+            return value
+        note = _coerce_optional_short_text(value)
+        return {"note": note} if note else {}
 
 
 class SceneEntityExtractionOutput(BaseModel):
@@ -272,8 +340,4 @@ class SceneEntityExtractionOutput(BaseModel):
     @field_validator("entities", "relations", "delta_events", mode="before")
     @classmethod
     def _normalize_optional_lists(cls, value: Any) -> list[Any]:
-        if value is None or value == "":
-            return []
-        if isinstance(value, list):
-            return value
-        return []
+        return _coerce_list_or_empty(value)

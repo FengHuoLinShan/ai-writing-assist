@@ -12,6 +12,7 @@ import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
 // 清理全局状态，确保各测试隔离
 beforeEach(() => {
   resetState()
+  localStorage.clear()
   projectView._uploadProgress = null
   vi.clearAllMocks()
 })
@@ -60,11 +61,20 @@ describe("projectView", () => {
       api.projects.list.mockResolvedValue({ items: [] })
       state.currentProjectId = "p1"
       state.currentProject = { id: "p1", title: "已删除项目" }
+      state.viewStates.writing = {
+        projectId: "p1",
+        currentChapter: 1,
+        currentContent: "旧项目章节正文",
+      }
+      localStorage.setItem("novel_currentProject", JSON.stringify(state.currentProject))
 
       await projectView.onEnter()
 
       expect(state.currentProjectId).toBeNull()
       expect(state.currentProject).toBeNull()
+      expect(state.viewStates.writing).toBeUndefined()
+      expect(localStorage.getItem("novel_currentProjectId")).toBeNull()
+      expect(localStorage.getItem("novel_currentProject")).toBeNull()
     })
   })
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.deep_import_dedup import DeepImportDedupCoordinator
 from modules.imports.service_phase_artifacts import add_phase_artifact
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
@@ -34,6 +35,30 @@ def minimum_structure_category_targets(chapter_count: int) -> dict[str, int]:
     return get_deep_import_structure_category_targets(
         chapter_count,
         small_sample_target_count=_small_sample_structure_target_count(),
+    )
+
+
+async def _review_structure_dedup(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    workflow_id: str | None,
+) -> dict[str, Any]:
+    if not isinstance(db, AsyncSession):
+        return {
+            "checked": 0,
+            "suggestions_recorded": 0,
+            "auto_applied": 0,
+            "skipped_external_asset": 0,
+            "degraded": 0,
+            "skipped": True,
+            "skip_reason": "non_async_session",
+            "suggestions": [],
+        }
+    return await DeepImportDedupCoordinator().review_structure(
+        db,
+        novel_id,
+        workflow_id=workflow_id,
     )
 
 
@@ -103,6 +128,11 @@ class StructureAnalysisPhaseRunner:
             workflow._mark_step_completed(progress, DeepImportStep.structure_analysis)
             workflow._merge_audit_summary(progress, phase3_result)
             workflow._merge_snapshot_health_summary(progress, phase3_result)
+            phase3_result["structure_dedup"] = await _review_structure_dedup(
+                db,
+                novel_id,
+                workflow_id=workflow_id or progress.workflow_id,
+            )
         progress.quality_stats["phase3"] = phase3_quality_stats(
             phase3_result,
             failed=phase3_failed,
@@ -304,6 +334,11 @@ class StructureAnalysisPhaseRunner:
             workflow._mark_step_completed(progress, DeepImportStep.structure_analysis)
             workflow._merge_audit_summary(progress, phase3_result)
             workflow._merge_snapshot_health_summary(progress, phase3_result)
+            phase3_result["structure_dedup"] = await _review_structure_dedup(
+                db,
+                novel_id,
+                workflow_id=workflow_id or progress.workflow_id,
+            )
 
         progress.quality_stats["phase3"] = phase3_quality_stats(
             phase3_result,
@@ -386,6 +421,7 @@ def phase3_quality_stats(
         "total_arcs": int(phase3_result.get("total_arcs", 0) or 0),
         "total_foreshadowing": int(foreshadowing or 0),
         "total_reveals": int(reveals or 0),
+        "structure_dedup": phase3_result.get("structure_dedup") or {},
         "failed": failed,
         "error_kind": phase3_result.get("error_kind"),
     }

@@ -82,6 +82,49 @@ class TestApiSystem:
         assert "modules" in data
         assert len(data["modules"]) >= 7
 
+    async def test_api_debug_frontend_errors_store_list_and_clear(
+        self,
+        async_client: AsyncClient,
+    ):
+        """前端错误调试端点保留最近错误并支持清空。"""
+        await async_client.delete("/api/debug/frontend-errors")
+
+        payload = {
+            "frontendId": 7,
+            "level": "error",
+            "type": "runtime",
+            "message": "Uncaught TypeError: failed",
+            "view": "map",
+            "request": {"method": "POST", "Authorization": "Bearer secret-token"},
+        }
+
+        created = await async_client.post("/api/debug/frontend-errors", json=payload)
+        assert created.status_code == 202
+        assert created.json()["stored"] is True
+
+        listed = await async_client.get("/api/debug/frontend-errors")
+        assert listed.status_code == 200
+        data = listed.json()
+        assert data["total"] == 1
+        assert data["items"][0]["message"] == "Uncaught TypeError: failed"
+        assert data["items"][0]["request"]["Authorization"] == "[redacted]"
+
+        cleared = await async_client.delete("/api/debug/frontend-errors")
+        assert cleared.status_code == 200
+        assert cleared.json()["cleared"] == 1
+
+    async def test_api_debug_frontend_errors_rejects_warning_level(
+        self,
+        async_client: AsyncClient,
+    ):
+        """后端只接收真正的前端 error，warning 留给前端用户提示。"""
+        resp = await async_client.post(
+            "/api/debug/frontend-errors",
+            json={"level": "warning", "message": "当前项目暂无地图"},
+        )
+
+        assert resp.status_code == 422
+
 
 # ============================================================
 # Project

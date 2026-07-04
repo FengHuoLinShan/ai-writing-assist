@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from importlib import import_module
-from typing import Any
+from typing import Any, get_origin
 
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,9 +25,9 @@ PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS = 90
 PHASE1B_REDUCER_MAX_TOKENS = 128
 PHASE1B_REDUCER_TIMEOUT_SECONDS = 45
 PHASE1B_COMPACT_TEXT_LIMIT = 180
-PHASE0_SCENE_MAX_TOKENS = 4096
+PHASE0_SCENE_MAX_TOKENS = 8192
 PHASE0_SCENE_TIMEOUT_SECONDS = 120
-PHASE1A_SCENE_MAX_TOKENS = 6144
+PHASE1A_SCENE_MAX_TOKENS = 8192
 PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS = 1
 
 
@@ -41,8 +41,8 @@ def _phase01_scene_max_tokens(default: int) -> int:
 
 
 def _phase0_scene_max_tokens(default: int) -> int:
-    default_budget = min(default, PHASE0_SCENE_MAX_TOKENS)
-    return positive_int_env("PHASE0_SCENE_MAX_TOKENS", default_budget)
+    del default
+    return positive_int_env("PHASE0_SCENE_MAX_TOKENS", PHASE0_SCENE_MAX_TOKENS)
 
 
 def _phase0_scene_timeout_seconds(default: int | None) -> int | None:
@@ -74,6 +74,14 @@ def _deep_import_structured_max_fix_attempts() -> int:
         )
     )
     return positive_int_env("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", default)
+
+
+def _structured_list_fields(schema: type[BaseModel]) -> set[str]:
+    fields: set[str] = set()
+    for name, field in schema.model_fields.items():
+        if get_origin(field.annotation) is list:
+            fields.add(name)
+    return fields
 
 
 async def _project_settings_for_novel(
@@ -228,6 +236,12 @@ class _Phase1aSceneCandidateLLM:
                         "每个覆盖章节最多输出 1 个中间候选 Scene；"
                         "每 5 章窗口最多 5 个。优先覆盖章节推进锚点，"
                         "不追求最终完整切分。"
+                        "参考跨章 Scene 边界识别：如果相邻章节仍在同一目标、"
+                        "同一冲突或同一行动链中延续，应输出一个 Scene，并在 "
+                        "scene_chunks 中显式列出连续多个 chapter_index；"
+                        "章节号变化本身不是拆分理由。若目标/冲突/行动链已切换，"
+                        "再拆成独立 Scene。不要把同一 batch 内互不相干的事件"
+                        "强行标成跨章。"
                         "每个 scene 只允许包含 title、goal、scene_chunks、"
                         "boundary_reason。title 要短，goal 控制在约 30-60 "
                         "个中文字符。scene_chunks 每项只保留 chapter_index、"
@@ -244,7 +258,9 @@ class _Phase1aSceneCandidateLLM:
                         "请基于章节正文、Phase 0 强/弱候选和相邻批次摘要强化当前"
                         "批次候选。保持 source_round/source_batch_id/"
                         "source_chapter_indices 可追溯。不要复制正文，不要展开"
-                        "成最终 Scene，只输出可供 Phase 1b 融合的中间候选。\n\n"
+                        "成最终 Scene，只输出可供 Phase 1b 融合的中间候选。"
+                        "跨章延续必须通过一个 scene 的多个 scene_chunks 表达；"
+                        "不确定边界时在 boundary_reason 中说明。\n\n"
                         f"{json.dumps(payload, ensure_ascii=False)}"
                     ),
                 ),
@@ -264,8 +280,10 @@ class _Phase1aSceneCandidateLLM:
                 "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
                 "object，必须包含 scenes 数组；每个 scene 只保留 title、goal、"
                 "scene_chunks、boundary_reason。不要 Markdown，不要正文摘录、"
-                "长摘要、人物列表或最终 Scene 字段。保留 source_round、"
-                "source_batch_id、source_chapter_indices 等可追溯信息。"
+                "长摘要、人物列表或最终 Scene 字段。若相邻章节仍属同一目标/"
+                "冲突/行动链，用一个 scene 的多个 scene_chunks 显式保留跨章；"
+                "保留 source_round、source_batch_id、source_chapter_indices "
+                "等可追溯信息。"
             ),
         )
 
@@ -407,7 +425,8 @@ class _Phase1bSceneFusionLLM:
                         "请把窗口内候选融合为可提交的正式 Scene 候选。\n"
                         "硬性要求：\n"
                         "1. 输出 scenes 数量应接近 recommended_scene_count；"
-                        "小样本 1-7 章不足 9 个时优先拆分跨章候选。\n"
+                        "小样本 1-7 章不足 9 个时优先拆分吞并多事件的候选，"
+                        "但不要拆散同一目标/冲突/行动链延续的跨章 Scene。\n"
                         "2. 输出 Scene 必须覆盖所有 source_chapter_indices；"
                         "不能只覆盖第一个章节。\n"
                         "3. title/goal 应直接沿用或极短改写候选内容，不允许留空。\n"
@@ -644,10 +663,16 @@ def _phase1b_scenes_for_candidate(
     core_end: int,
 ) -> list[dict[str, Any]]:
     scenes = []
-    for index, scene in enumerate(candidate.get("scenes") or [], start=1):
-        if not isinstance(scene, dict):
-            continue
-        scene_chapters = _phase1b_scene_chapters(scene, candidate)
+    source_scenes = [
+        scene for scene in candidate.get("scenes") or [] if isinstance(scene, dict)
+    ]
+    for index, scene in enumerate(source_scenes, start=1):
+        scene_chapters = _phase1b_scene_chapters(
+            scene,
+            candidate,
+            scene_index=index,
+            scene_count=len(source_scenes),
+        )
         owned_chapters = [
             chapter for chapter in scene_chapters if core_start <= chapter <= core_end
         ]
@@ -717,6 +742,9 @@ def _phase1b_scenes_for_candidate(
 def _phase1b_scene_chapters(
     scene: dict[str, Any],
     candidate: dict[str, Any],
+    *,
+    scene_index: int = 1,
+    scene_count: int = 1,
 ) -> list[int]:
     chunk_chapters = [
         chunk.get("chapter_index")
@@ -724,7 +752,41 @@ def _phase1b_scene_chapters(
         if isinstance(chunk, dict)
     ]
     chapters = _compact_chapters(chunk_chapters)
-    return chapters or _compact_chapters(candidate.get("source_chapter_indices"))
+    if chapters:
+        return chapters
+
+    scene_chapters = _compact_chapters(scene.get("source_chapter_indices"))
+    if scene_chapters:
+        return scene_chapters
+
+    candidate_chapters = _compact_chapters(candidate.get("source_chapter_indices"))
+    if len(candidate_chapters) <= 1:
+        return candidate_chapters
+
+    return _phase1b_distribute_missing_scene_chapters(
+        candidate_chapters,
+        scene_index=scene_index,
+        scene_count=scene_count,
+    )
+
+
+def _phase1b_distribute_missing_scene_chapters(
+    candidate_chapters: list[int],
+    *,
+    scene_index: int,
+    scene_count: int,
+) -> list[int]:
+    """Conservatively assign missing chunks instead of broadening every Scene."""
+
+    if scene_count <= 1:
+        return [candidate_chapters[0]]
+    total = len(candidate_chapters)
+    safe_index = max(1, min(scene_index, scene_count))
+    start = (safe_index - 1) * total // scene_count
+    end = safe_index * total // scene_count
+    if end <= start:
+        end = min(total, start + 1)
+    return candidate_chapters[start:end] or [candidate_chapters[-1]]
 
 
 def _phase1b_materialized_chunks(
@@ -925,6 +987,7 @@ async def _run_deep_import_structured_call(
     fix_prompt: str,
     timeout_seconds: int | None = None,
     max_fix_attempts: int | None = None,
+    diagnostics: list[dict[str, Any]] | None = None,
 ):
     from core.config import get_settings
 
@@ -961,6 +1024,9 @@ async def _run_deep_import_structured_call(
             ),
             transport_retries=transport_retries,
             fix_prompt=fix_prompt,
+            partial_list_fields=_structured_list_fields(schema),
+            diagnostics=diagnostics,
+            format_repair_attempts=1,
         )
     )
     if result.status != StepExecutionStatus.succeeded:

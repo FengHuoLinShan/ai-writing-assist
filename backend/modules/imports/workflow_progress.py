@@ -146,6 +146,13 @@ class DeepImportProgressTracker:
         scene_commit = progress.quality_stats.get("scene_commit") or {}
         phase2 = progress.quality_stats.get("phase2") or {}
         phase3 = progress.quality_stats.get("phase3") or {}
+        scene_dedup = (
+            (scene_commit.get("dedup") or {})
+            if isinstance(scene_commit, dict)
+            else {}
+        )
+        phase2_dedup = phase2.get("phase2_dedup_counts") or {}
+        structure_dedup = phase3.get("structure_dedup") or {}
         snapshot = progress.snapshot_health_summary or {}
         snapshot_status = snapshot.get("by_status") or {}
         checkpoint_summary = cls.checkpoint_summary(progress.checkpoints)
@@ -183,6 +190,29 @@ class DeepImportProgressTracker:
                 progress.phase_artifacts
             ),
             "phase_error_count": len(progress.phase_errors),
+            "dedup_summary": {
+                "scene_same_workflow_collapsed": int(
+                    scene_dedup.get("same_workflow_collapsed", 0) or 0
+                ),
+                "entity_auto_merged": int(
+                    phase2_dedup.get("auto_merged", 0) or 0
+                ),
+                "entity_review_suggested": int(
+                    phase2_dedup.get("review_suggested", 0) or 0
+                ),
+                "relation_merged": int(
+                    phase2_dedup.get("relation_merged", 0) or 0
+                ),
+                "structure_suggestions_recorded": int(
+                    structure_dedup.get("suggestions_recorded", 0) or 0
+                ),
+                "structure_auto_applied": int(
+                    structure_dedup.get("auto_applied", 0) or 0
+                ),
+                "structure_skipped_external_asset": int(
+                    structure_dedup.get("skipped_external_asset", 0) or 0
+                ),
+            },
         }
 
     @classmethod

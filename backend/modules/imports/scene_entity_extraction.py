@@ -240,6 +240,7 @@ class SceneEntityExtractionService:
         checkpoint_by_scene = self._phase2_checkpoint_by_scene(existing_checkpoints)
         scene_checkpoints: list[dict[str, Any]] = []
         consecutive_transport_failures = 0
+        structured_format_diagnostics: list[dict[str, Any]] = []
 
         if on_scene_progress is not None:
             await on_scene_progress(0, total_scenes)
@@ -366,6 +367,10 @@ class SceneEntityExtractionService:
                     "supplemental_error_kind": supplement_result[
                         "supplemental_error_kind"
                     ],
+                    "structured_format_diagnostics": bulk_result.get(
+                        "structured_format_diagnostics",
+                        [],
+                    ),
                 }
                 alias_result = await self._phase2_alias_relation_result(
                     db,
@@ -455,6 +460,9 @@ class SceneEntityExtractionService:
                 total_created += scene_result["created"]
                 total_relations += scene_result["relations"]
                 total_deltas += scene_result["deltas"]
+                structured_format_diagnostics.extend(
+                    scene_result.get("structured_format_diagnostics") or []
+                )
                 existing_context = scene_result["updated_context"]
                 accumulated_memory = scene_result["updated_memory"]
                 completed_scenes += 1
@@ -572,6 +580,7 @@ class SceneEntityExtractionService:
             "audit_summary": audit_summary,
             "snapshot_health_summary": snapshot_health_summary,
             "checkpoints": {"phase2": {"scenes": scene_checkpoints}},
+            "structured_format_diagnostics": structured_format_diagnostics[:20],
         }
         alias_result = await self._phase2_alias_relation_result(
             db,
@@ -689,6 +698,11 @@ class SceneEntityExtractionService:
                 "checked": 0,
                 "skipped": 0,
                 "degraded": 0,
+                "auto_merged": 0,
+                "candidate_created": 0,
+                "review_suggested": 0,
+                "relation_merged": 0,
+                "relation_duplicate_skipped": 0,
             },
             "linked_to_existing": 0,
             "ignored": 0,
@@ -1318,11 +1332,14 @@ class SceneEntityExtractionService:
         scene_texts: list[str],
         existing_context: str,
         memory_context: str,
+        *,
+        diagnostics: list[dict[str, Any]] | None = None,
     ) -> list[SceneEntityExtractionOutput]:
         return await BulkSceneEntityExtractor(self).call_bulk_llm_extractions(
             scene_texts,
             existing_context,
             memory_context,
+            diagnostics=diagnostics,
         )
 
     @staticmethod
@@ -1521,6 +1538,7 @@ class SceneEntityExtractionService:
         client_timeout: int = 180,
         max_fix_attempts: int = 1,
         transport_retries: bool = True,
+        diagnostics: list[dict[str, Any]] | None = None,
     ) -> SceneEntityExtractionOutput:
         return await call_llm_extraction(
             chapters_text,
@@ -1530,6 +1548,7 @@ class SceneEntityExtractionService:
             client_timeout=client_timeout,
             max_fix_attempts=max_fix_attempts,
             transport_retries=transport_retries,
+            diagnostics=diagnostics,
         )
 
     async def _call_alias_relation_extraction(
@@ -1539,12 +1558,14 @@ class SceneEntityExtractionService:
         *,
         max_tokens: int = 3072,
         client_timeout: int = 120,
+        diagnostics: list[dict[str, Any]] | None = None,
     ) -> AliasRelationExtractionOutput:
         return await call_alias_relation_extraction(
             chapters_text,
             entity_index,
             max_tokens=max_tokens,
             client_timeout=client_timeout,
+            diagnostics=diagnostics,
         )
 
     async def _phase2_alias_relation_result(
@@ -1764,6 +1785,7 @@ class SceneEntityExtractionService:
         workflow_id: str | None = None,
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
+        persistence_stats: dict[str, Any] | None = None,
     ) -> int:
         return await SceneEntityPersistenceGateway(self).persist_relations(
             db,
@@ -1773,6 +1795,7 @@ class SceneEntityExtractionService:
             workflow_id=workflow_id,
             context_snapshot_id=context_snapshot_id,
             result_refs=result_refs,
+            persistence_stats=persistence_stats,
         )
 
     async def _record_deltas(

@@ -834,16 +834,21 @@ class SceneRepository:
         *,
         statuses: tuple[str, ...] = ("candidate", "draft", "canonical"),
     ) -> list[Scene]:
-        stmt = (
-            select(Scene)
-            .distinct()
-            .join(SceneChapterLink, SceneChapterLink.scene_id == Scene.id)
+        linked_scene_ids = (
+            select(SceneChapterLink.scene_id)
             .where(
-                Scene.novel_id == novel_id,
-                Scene.status.in_(statuses),
                 SceneChapterLink.novel_id == novel_id,
                 SceneChapterLink.chapter_index >= start_chapter,
                 SceneChapterLink.chapter_index <= end_chapter,
+            )
+            .distinct()
+        )
+        stmt = (
+            select(Scene)
+            .where(
+                Scene.novel_id == novel_id,
+                Scene.status.in_(statuses),
+                Scene.id.in_(linked_scene_ids),
             )
             .order_by(Scene.scene_index, Scene.id)
         )

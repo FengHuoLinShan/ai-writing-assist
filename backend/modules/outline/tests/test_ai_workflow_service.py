@@ -33,7 +33,7 @@ async def test_extract_chapter_scenes_uses_batch_scene_create(
     attached_refs: list[dict] = []
 
     class _FakeLLMClient:
-        async def generate_structured(self, _request, schema):
+        async def generate_structured(self, _request, schema, **_kwargs):
             return schema(
                 scenes=[
                     {

@@ -92,6 +92,17 @@ class PlotStructureParser:
                     request,
                     GeneratedOutput,
                     max_fix_attempts=1 if self._fast_structured else 2,
+                    partial_list_fields={
+                        "plot_threads",
+                        "outline_arcs",
+                        "scenes",
+                        "foreshadowing_plans",
+                        "reveal_plans",
+                        "offscreen_progress",
+                        "risks",
+                        "questions_for_user",
+                    },
+                    format_repair_attempts=1,
                     fix_prompt=(
                         "请修复为严格 JSON 对象，只包含 plot_threads、outline_arcs、"
                         "scenes、foreshadowing_plans、reveal_plans、offscreen_progress、"

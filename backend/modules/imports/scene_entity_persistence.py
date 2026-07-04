@@ -24,6 +24,36 @@ def entity_key(entity_type: str, name: str) -> tuple[str, str]:
     return (entity_type.strip().lower(), " ".join(name.strip().lower().split()))
 
 
+def _high_confidence_duplicate_id(similar_items: list[Any]) -> str | None:
+    best_score = 0.0
+    best_id: str | None = None
+    for item in similar_items:
+        if not item:
+            continue
+        if isinstance(item, dict):
+            raw_score = item.get("similarity_score", item.get("score", 0))
+            entity_id = item.get("existing_entity_id") or item.get("entity_id")
+        else:
+            raw_score = getattr(
+                item,
+                "similarity_score",
+                getattr(item, "score", 0),
+            )
+            entity_id = getattr(
+                item,
+                "existing_entity_id",
+                getattr(item, "entity_id", None),
+            )
+        try:
+            score = float(raw_score or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        if score >= 0.88 and score > best_score and entity_id:
+            best_score = score
+            best_id = str(entity_id)
+    return best_id
+
+
 def normalize_candidate_alias_item(
     alias_item: Any,
     *,
@@ -74,7 +104,7 @@ class SceneEntityPersistenceGateway:
     ) -> dict[str, int]:
         from modules.world.facade import (
             append_candidate_alias,
-            create_relation,
+            create_or_merge_relation,
             find_working_entity_ids_by_names,
         )
 
@@ -122,7 +152,7 @@ class SceneEntityPersistenceGateway:
             if not source_id or not target_id:
                 continue
             try:
-                relation = await create_relation(
+                relation_result = await create_or_merge_relation(
                     db,
                     novel_id,
                     {
@@ -143,7 +173,9 @@ class SceneEntityPersistenceGateway:
                     exc,
                 )
                 continue
-            relations_created += 1
+            if relation_result.get("action") == "created":
+                relations_created += 1
+            relation = relation_result.get("relation")
             relation_id = getattr(relation, "id", None)
             if result_refs is not None and relation_id:
                 result_refs.append(build_result_ref("entity_relation", relation_id))
@@ -166,7 +198,11 @@ class SceneEntityPersistenceGateway:
         persistence_stats: dict[str, Any] | None = None,
     ) -> int:
         service = self.service
-        from modules.world.facade import create_entity, find_similar_entities
+        from modules.world.facade import (
+            create_entity,
+            find_similar_entities,
+            merge_candidate_into_entity,
+        )
 
         created = 0
         seen_entity_keys = seen_entity_keys if seen_entity_keys is not None else set()
@@ -202,6 +238,7 @@ class SceneEntityPersistenceGateway:
             if entity_key in seen_entity_keys:
                 continue
 
+            high_confidence_target_id: str | None = None
             if action == "create_new":
                 try:
                     similar = await find_similar_entities(
@@ -222,21 +259,9 @@ class SceneEntityPersistenceGateway:
                     if persistence_stats is not None:
                         persistence_stats["dedup_counts"]["degraded"] += 1
                 similar_items = similar if isinstance(similar, list) else [similar]
-                high_confidence_duplicate = any(
-                    (
-                        item.get("similarity_score", item.get("score", 0))
-                        if isinstance(item, dict)
-                        else getattr(item, "similarity_score", 0)
-                    )
-                    >= 0.88
-                    for item in similar_items
-                    if item
+                high_confidence_target_id = _high_confidence_duplicate_id(
+                    similar_items,
                 )
-                if high_confidence_duplicate:
-                    seen_entity_keys.add(entity_key)
-                    if persistence_stats is not None:
-                        persistence_stats["dedup_counts"]["skipped"] += 1
-                    continue
 
             normalized_aliases = [
                 normalized
@@ -293,9 +318,29 @@ class SceneEntityPersistenceGateway:
             try:
                 async with db.begin_nested():
                     created_entity = await create_entity(db, str(nid), entity_payload)
-                created += 1
+                    if action == "create_new" and high_confidence_target_id:
+                        await merge_candidate_into_entity(
+                            db,
+                            str(nid),
+                            created_entity["id"],
+                            high_confidence_target_id,
+                        )
+                auto_merged = action == "create_new" and bool(high_confidence_target_id)
+                if not auto_merged:
+                    created += 1
                 seen_entity_keys.add(entity_key)
-                if result_refs is not None and created_entity.get("id"):
+                if persistence_stats is not None:
+                    if auto_merged:
+                        persistence_stats["dedup_counts"]["auto_merged"] += 1
+                    elif action == "create_new":
+                        persistence_stats["dedup_counts"]["candidate_created"] += 1
+                    elif action == "link_to_existing":
+                        persistence_stats["dedup_counts"]["review_suggested"] += 1
+                if result_refs is not None and auto_merged and high_confidence_target_id:
+                    result_refs.append(
+                        build_result_ref("core_entity", high_confidence_target_id)
+                    )
+                elif result_refs is not None and created_entity.get("id"):
                     result_refs.append(
                         build_result_ref("core_entity", created_entity["id"])
                     )
@@ -317,8 +362,12 @@ class SceneEntityPersistenceGateway:
         workflow_id: str | None = None,
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
+        persistence_stats: dict[str, Any] | None = None,
     ) -> int:
-        from modules.world.facade import create_relation, find_working_entity_ids_by_names
+        from modules.world.facade import (
+            create_or_merge_relation,
+            find_working_entity_ids_by_names,
+        )
 
         created = 0
         names_to_resolve = set()
@@ -341,7 +390,7 @@ class SceneEntityPersistenceGateway:
                 )
                 continue
             try:
-                relation = await create_relation(
+                relation_result = await create_or_merge_relation(
                     db,
                     str(nid),
                     {
@@ -354,7 +403,11 @@ class SceneEntityPersistenceGateway:
                         "status": "candidate",
                     },
                 )
-                created += 1
+                if relation_result.get("action") == "created":
+                    created += 1
+                elif persistence_stats is not None:
+                    persistence_stats["dedup_counts"]["relation_merged"] += 1
+                relation = relation_result.get("relation")
                 relation_id = getattr(relation, "id", None)
                 if result_refs is not None and relation_id:
                     result_refs.append(build_result_ref("entity_relation", relation_id))

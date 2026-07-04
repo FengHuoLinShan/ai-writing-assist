@@ -411,6 +411,26 @@ describe("writingView onEnter", () => {
     expect(writingView._chapters[1]).toEqual({ draftCount: 0 })
   })
 
+  it("切换到新项目时不恢复旧项目的章节状态", async () => {
+    state.currentProjectId = "p2"
+    state.viewStates.writing = {
+      projectId: "p1",
+      currentChapter: 1,
+      currentContent: "旧项目导入章节正文",
+      currentTitle: "旧项目章节",
+      currentDraftId: "old-draft",
+    }
+    api.writing.listChapters.mockResolvedValue({ chapter_indices: [], chapters: [] })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+
+    await writingView.onEnter()
+
+    expect(writingView._chapterList).toEqual([])
+    expect(writingView._currentChapter).toBeNull()
+    expect(writingView._currentContent).toBeNull()
+    expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
+  })
+
   it("API 失败时显示章节列表加载失败提示", async () => {
     state.currentProjectId = "p1"
     api.writing.listChapters.mockRejectedValue(new Error("fail"))
@@ -425,9 +445,11 @@ describe("writingView onEnter", () => {
 
 describe("onLeave", () => {
   it("保存编辑状态", () => {
+    state.currentProjectId = "p1"
     writingView._currentChapter = 2
     writingView._currentTitle = "title"
     writingView.onLeave()
+    expect(state.viewStates.writing.projectId).toBe("p1")
     expect(state.viewStates.writing.currentChapter).toBe(2)
     expect(state.viewStates.writing.currentTitle).toBe("title")
   })

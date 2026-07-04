@@ -81,6 +81,7 @@ class ParallelSceneEntityExtractor:
         async def extract_scene(item: dict[str, Any]) -> dict[str, Any]:
             if not item["chapters_text"]:
                 return {**item, "extraction": None, "error": None}
+            format_diagnostics: list[dict[str, Any]] = []
             try:
                 async with semaphore:
                     extraction = await asyncio.wait_for(
@@ -90,12 +91,23 @@ class ParallelSceneEntityExtractor:
                             item["memory_context"],
                             client_timeout=PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS,
                             transport_retries=False,
+                            diagnostics=format_diagnostics,
                         ),
                         timeout=PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS,
                     )
             except Exception as exc:
-                return {**item, "extraction": None, "error": exc}
-            return {**item, "extraction": extraction, "error": None}
+                return {
+                    **item,
+                    "extraction": None,
+                    "error": exc,
+                    "format_diagnostics": format_diagnostics,
+                }
+            return {
+                **item,
+                "extraction": extraction,
+                "error": None,
+                "format_diagnostics": format_diagnostics,
+            }
 
         extracted = await asyncio.gather(
             *(extract_scene(item) for item in prepared),
@@ -112,8 +124,10 @@ class ParallelSceneEntityExtractor:
         updated_context = existing_context
         error_kind: str | None = None
         error_message: str | None = None
+        structured_format_diagnostics: list[dict[str, Any]] = []
 
         for item in sorted(extracted, key=lambda entry: entry["scene_idx"]):
+            structured_format_diagnostics.extend(item.get("format_diagnostics") or [])
             scene = item["scene"]
             scene_idx = int(item["scene_idx"])
             scene_index = int(scene.get("scene_index") or scene_idx)
@@ -330,6 +344,7 @@ class ParallelSceneEntityExtractor:
             "supplemental_llm_created": supplement_result["supplemental_llm_created"],
             "fallback_created": supplement_result["fallback_created"],
             "supplemental_error_kind": supplement_result["supplemental_error_kind"],
+            "structured_format_diagnostics": structured_format_diagnostics[:20],
         }
         alias_result = await service._run_alias_relation_phase(
             db,

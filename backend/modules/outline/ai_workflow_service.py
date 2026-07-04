@@ -174,6 +174,8 @@ class OutlineAIWorkflowService:
                 temperature=0.2,
             ),
             _ExtractedScenesResponse,
+            partial_list_fields={"scenes"},
+            format_repair_attempts=1,
         )
 
         scene_service = SceneService()

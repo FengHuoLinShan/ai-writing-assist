@@ -109,6 +109,8 @@ class OutlineStructureDedupService:
                         "target_status": target.status,
                         "recommended_primary_asset_id": primary.asset_id,
                         "recommended_primary_title": primary.title,
+                        "source_workflow_id": _workflow_id_for_asset(source),
+                        "target_workflow_id": _workflow_id_for_asset(target),
                         "confidence": round(decision.confidence, 3),
                         "reason": decision.reason[:500],
                         "match_method": match.get("match_method"),
@@ -544,6 +546,17 @@ def _asset_from_reveal(item: RevealPlan) -> _StructureAsset:
         summary=_join_text(item.target_type, item.secret_summary),
         raw=item,
     )
+
+
+def _workflow_id_for_asset(asset: _StructureAsset) -> str | None:
+    raw = asset.raw
+    meta = getattr(raw, "structure_meta", None)
+    if not isinstance(meta, dict):
+        meta = getattr(raw, "provenance_meta", None)
+    if not isinstance(meta, dict):
+        return None
+    workflow_id = meta.get("workflow_id") or meta.get("deep_import_workflow_id")
+    return str(workflow_id) if workflow_id else None
 
 
 def _chapter_indices_from_scene(item: Scene) -> list[int]:

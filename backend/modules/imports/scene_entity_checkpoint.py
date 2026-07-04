@@ -58,6 +58,10 @@ def merge_alias_relation_result(
     merged["alias_relation_skip_reason"] = alias_result.get(
         "alias_relation_skip_reason"
     )
+    merged["alias_relation_format_diagnostics"] = alias_result.get(
+        "alias_relation_format_diagnostics",
+        [],
+    )
     if alias_result.get("degraded"):
         merged["degraded"] = True
         merged["error_kind"] = merged.get("error_kind") or alias_result.get(

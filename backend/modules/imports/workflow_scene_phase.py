@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.enqueuer import enqueue_task
+from modules.imports.deep_import_dedup import DeepImportDedupCoordinator
 from modules.imports.service_phase_artifacts import (
     add_phase_artifact,
     candidate_chapter_coverage,
@@ -432,6 +433,11 @@ class ScenePhaseRunner:
             start_chapter=start_chapter,
             end_chapter=end_chapter,
         )
+        scene_dedup_result = DeepImportDedupCoordinator().dedupe_scenes(
+            list(phase1b_result.candidates),
+        )
+        phase1b_result.candidates = scene_dedup_result.candidates
+        phase1b_result.quality_stats["dedup"] = scene_dedup_result.quality_stats
         progress.quality_stats["phase1b"] = phase1b_result.quality_stats
         if phase1b_diagnostics := workflow._diagnostic_samples(
             phase1b_result.diagnostics
@@ -566,6 +572,9 @@ class ScenePhaseRunner:
             commit_completed=True,
         )
         progress.quality_stats["scene_commit"] = commit_result.model_dump(mode="json")
+        progress.quality_stats["scene_commit"]["dedup"] = (
+            scene_dedup_result.quality_stats
+        )
         total_scenes = commit_result.created_count + commit_result.skipped_count
         scene_commit_coverage = phase1b_coverage
         add_phase_artifact(

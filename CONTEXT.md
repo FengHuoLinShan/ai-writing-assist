@@ -26,6 +26,13 @@
 | ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。候选对象不再使用独立候选表，改由对应资产表的状态与自动入库元数据表达 |
 | 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
+| 世界设定工作台 | Worldbuilding Workspace | `core_entities` / `entity_relations` / `map_*` / `context_*` | 作者在开书前和写作过程中维护世界观的创作工作台。它不是独立世界观数据库，而是面向 CoreEntity、关系、地图事实和 AI 参考资料激活规则的统一入口 |
+| 上下文激活规则 | ContextActivationRule | `context_activation_rules` | 描述某个重要世界对象、规则或地图事实在什么任务、Scene、人物、地点、地图焦点或关键词下应进入 AI 参考资料。激活规则只决定上下文选择和解释，不改变对象本身的正史状态 |
+| 导入上下文激活 | ImportContextActivation | 跨模块概念 | 深度导入中每个 LLM 步骤运行前的确定性上下文预检。它基于 Scene、章节范围、地图焦点、已知世界对象、关系、结构资产、关键词和递归激活规则选择 `ContextSection`，记录 activation_reason、sources、token 占比和裁剪原因；它不直接生成事实、不写正史，也不替代 Pydantic schema 校验 |
+| 创设建议队列 | CreationSuggestionQueue | 待建队列表 | LLM 对世界设定提出的新对象、补全、关系、地图候选或规则建议集合。建议默认等待作者确认，确认前不写入正史 |
+| 冲突检查队列 | ConflictCheckQueue | 待建队列表 | LLM 或确定性检查发现的设定矛盾与叙事风险集合。队列项按事实冲突和叙事风险分级，作者确认处理后才修改正史或地图事实 |
+| 事实冲突 | FactConflict | 冲突检查队列 | 与已确认正史、时间线、人物知识边界或地图事实直接矛盾的问题。事实冲突需要修正、改写、废弃候选或显式解释 |
+| 叙事风险 | NarrativeRisk | 冲突检查队列 | 不一定违反正史、但可能削弱故事张力、重复设定、提前泄露秘密或破坏规则边界的风险提示。叙事风险默认非阻断，由作者决定是否采纳 |
 | 空间连续性地图 | Spatial Continuity Map | `map_*` | 写作伴随的空间连续性工具，用于表达 Scene 中地点、人物/事件位置、势力范围和相邻 Scene 的移动合理性。它是作者校对空间事实的辅助资产，不是自动推演、战棋模拟或地图美术系统 |
 | Scene 级空间连续性 | Scene Spatial Continuity | `scenes` + `map_*` | 单个 Scene 及其相邻 Scene 之间的空间事实一致性，包括主地点、在场人物/事件、所属势力范围和移动跳变是否合理。第一版只提供轻提示，不阻断写作、发布或 AI 生成；它优先服务写作时的事实校对，不替代剧情因果、时间线或路线规划 |
 | 空间连续性提示 | Spatial Continuity Hint | `scenes` + `map_*` | 面向作者的非阻断提示，用于指出 Scene 空间事实缺失或可疑跳变。第一版只基于结构化地图事实，不读正文、不调用 LLM、不推断未记录位置；只覆盖缺少主地点、缺少地图上下文和人物跨地图；主入口在写作页 Scene 面板，地图页用于展开查看和修正 |

@@ -138,6 +138,7 @@ class BulkSceneEntityExtractor:
         chapters_text = "\n\n".join(scene_texts)
         memory_context = service._bulk_entity_memory_context(scenes)
         snapshot_id: str | None = None
+        format_diagnostics: list[dict[str, Any]] = []
         try:
             snapshot = await service._create_phase2_snapshot(
                 db,
@@ -155,6 +156,7 @@ class BulkSceneEntityExtractor:
                 scene_texts,
                 existing_context,
                 memory_context,
+                diagnostics=format_diagnostics,
             )
         except Exception as exc:
             if snapshot_id is not None:
@@ -239,6 +241,7 @@ class BulkSceneEntityExtractor:
                 "entity_relation",
             ),
             "created_delta_ids": service._result_ref_ids(result_refs, "delta_log"),
+            "structured_format_diagnostics": format_diagnostics[:20],
         }
 
     async def supplement_small_sample(
@@ -442,6 +445,8 @@ class BulkSceneEntityExtractor:
         scene_texts: list[str],
         existing_context: str,
         memory_context: str,
+        *,
+        diagnostics: list[dict[str, Any]] | None = None,
     ) -> list[SceneEntityExtractionOutput]:
         service = self.service
         groups = [
@@ -450,7 +455,8 @@ class BulkSceneEntityExtractor:
         ]
 
         async def call_group(group: list[str]) -> SceneEntityExtractionOutput:
-            return await asyncio.wait_for(
+            group_diagnostics: list[dict[str, Any]] = []
+            result = await asyncio.wait_for(
                 service._call_llm_extraction(
                     "\n\n".join(group),
                     existing_context,
@@ -459,9 +465,13 @@ class BulkSceneEntityExtractor:
                     client_timeout=PHASE2_BULK_PROVIDER_TIMEOUT_SECONDS,
                     max_fix_attempts=0,
                     transport_retries=False,
+                    diagnostics=group_diagnostics,
                 ),
                 timeout=PHASE2_BULK_LLM_TIMEOUT_SECONDS,
             )
+            if diagnostics is not None:
+                diagnostics.extend(group_diagnostics)
+            return result
 
         results = await asyncio.gather(
             *(call_group(group) for group in groups),

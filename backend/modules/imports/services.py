@@ -18,8 +18,8 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from modules.imports.models import ImportRecord
 from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_file
 from modules.imports.repositories import ImportRecordRepository
-from modules.imports.schemas import ImportListResponse, ImportResponse
-from modules.writing.facade import create_draft_only
+from modules.imports.schemas import ImportChapterItem, ImportListResponse, ImportResponse
+from modules.writing.facade import create_published_draft_only
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
@@ -74,15 +74,24 @@ class ImportService:
                 if total == 0:
                     raise _NoEffectiveChaptersError()
 
-                # 逐章创建 WritingDraft + 排发布任务；发布任务统一负责 RAG 索引。
+                # 逐章创建已发布 WritingDraft + 排发布任务；发布任务统一负责 RAG 索引。
                 imported = 0
+                imported_chapters: list[ImportChapterItem] = []
                 for idx, ch in enumerate(chapters, start=1):
-                    _draft = await create_draft_only(
+                    draft = await create_published_draft_only(
                         db,
                         novel_id=novel_id,
                         chapter_index=idx,
                         title=ch.get("title"),
                         content=ch.get("content", ""),
+                    )
+                    imported_chapters.append(
+                        ImportChapterItem(
+                            chapter_index=draft.chapter_index,
+                            title=draft.title,
+                            word_count=len(draft.content or ""),
+                            draft_id=draft.id,
+                        )
                     )
                     imported += 1
 
@@ -164,6 +173,7 @@ class ImportService:
             status=record.status,
             error_message=record.error_message,
             created_at=record.created_at,
+            chapters=imported_chapters,
         )
 
     async def get_import_record(

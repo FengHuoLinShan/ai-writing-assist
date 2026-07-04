@@ -22,6 +22,18 @@ from modules.world.services.helpers import parse_uuid
 from shared.constants import MAX_PAGE_SIZE
 
 
+def _merge_text(existing: str | None, incoming: str | None) -> str | None:
+    current = (existing or "").strip()
+    addition = (incoming or "").strip()
+    if not addition:
+        return current or None
+    if not current:
+        return addition
+    if addition in current:
+        return current
+    return f"{current}\n{addition}"
+
+
 class EntityRelationService(
     CrudService[
         EntityRelation, EntityRelationCreate, EntityRelationUpdate, EntityRelationResponse
@@ -114,6 +126,60 @@ class EntityRelationService(
                 "target_name": getattr(target, "name", ""),
             }
         )
+
+    async def create_or_merge(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: EntityRelationCreate,
+    ) -> dict[str, object]:
+        """Create a relation or merge evidence into an existing same edge."""
+
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(data.source_id, "source_id")
+        tid = parse_uuid(data.target_id, "target_id")
+        source, target = await self._require_distinct_entities_in_novel(
+            db,
+            nid,
+            sid,
+            tid,
+        )
+
+        existing = await self.repo.find_duplicate_relation(
+            db,
+            nid,
+            sid,
+            tid,
+            data.relation_type,
+        )
+        if existing is None:
+            created = await super().create(db, novel_id, data)
+            response = created.model_copy(
+                update={
+                    "source_name": getattr(source, "name", ""),
+                    "target_name": getattr(target, "name", ""),
+                }
+            )
+            return {"action": "created", "relation": response}
+
+        existing.description = _merge_text(existing.description, data.description)
+        existing.quote = _merge_text(existing.quote, data.quote)
+        existing.strength = max(float(existing.strength or 0.0), float(data.strength))
+        if existing.status != "canonical" and data.status:
+            existing.status = data.status
+        if existing.source_chapter_id is None and data.source_chapter_id:
+            existing.source_chapter_id = parse_uuid(data.source_chapter_id)
+        if existing.caused_by_event_id is None and data.caused_by_event_id:
+            existing.caused_by_event_id = parse_uuid(data.caused_by_event_id)
+        db.add(existing)
+        await db.flush()
+        response = EntityRelationResponse.model_validate(existing).model_copy(
+            update={
+                "source_name": getattr(source, "name", ""),
+                "target_name": getattr(target, "name", ""),
+            }
+        )
+        return {"action": "merged", "relation": response}
 
     async def list(  # type: ignore[override]
         self,

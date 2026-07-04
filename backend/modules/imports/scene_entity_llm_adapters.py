@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     SceneEntityExtractionOutput,
@@ -17,6 +19,7 @@ async def call_llm_extraction(
     client_timeout: int = 180,
     max_fix_attempts: int = 1,
     transport_retries: bool = True,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> SceneEntityExtractionOutput:
     from core.config import get_settings
     from infrastructure.llm.client import LLMClient
@@ -56,6 +59,9 @@ async def call_llm_extraction(
         SceneEntityExtractionOutput,
         max_fix_attempts=max_fix_attempts,
         transport_retries=transport_retries,
+        partial_list_fields={"entities", "relations", "delta_events"},
+        diagnostics=diagnostics,
+        format_repair_attempts=1,
         fix_prompt=(
             "上一轮实体抽取输出不是合法 JSON 或不符合 schema。"
             "请重新输出一个完整 JSON 对象，只包含 entities、relations、"
@@ -70,6 +76,7 @@ async def call_alias_relation_extraction(
     max_tokens: int = 3072,
     client_timeout: int = 120,
     max_fix_attempts: int = 0,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> AliasRelationExtractionOutput:
     from core.config import get_settings
     from infrastructure.llm.client import LLMClient
@@ -106,6 +113,9 @@ async def call_alias_relation_extraction(
         AliasRelationExtractionOutput,
         max_fix_attempts=max_fix_attempts,
         transport_retries=True,
+        partial_list_fields={"aliases", "relations"},
+        diagnostics=diagnostics,
+        format_repair_attempts=1,
         fix_prompt=(
             "上一轮别名/关系抽取输出不是合法 JSON 或不符合 schema。"
             "请重新输出一个完整 JSON 对象，只包含 aliases 和 relations，"

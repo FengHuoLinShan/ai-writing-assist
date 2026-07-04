@@ -63,6 +63,7 @@ class SingleSceneEntityExtractor:
 
         memory_context = service._build_memory_context(accumulated_memory)
         snapshot_id: str | None = None
+        format_diagnostics: list[dict[str, Any]] = []
         try:
             async with _optional_lock(db_lock):
                 snapshot = await service._create_phase2_snapshot(
@@ -82,6 +83,7 @@ class SingleSceneEntityExtractor:
                     chapters_text,
                     existing_context,
                     memory_context,
+                    diagnostics=format_diagnostics,
                 ),
                 timeout=service._phase2_scene_llm_timeout_seconds(),
             )
@@ -124,6 +126,7 @@ class SingleSceneEntityExtractor:
                     workflow_id=workflow_id,
                     context_snapshot_id=context_snapshot_id,
                     result_refs=result_refs,
+                    persistence_stats=persistence_stats,
                 )
                 delta_count = await service._record_deltas(
                     db,
@@ -204,4 +207,5 @@ class SingleSceneEntityExtractor:
             "created_delta_ids": service._result_ref_ids(result_refs, "delta_log"),
             "updated_context": updated_context,
             "updated_memory": updated_memory,
+            "structured_format_diagnostics": format_diagnostics[:20],
         }
