@@ -177,14 +177,11 @@ class OutlineAIWorkflowService:
         )
 
         scene_service = SceneService()
-        existing = await scene_service.get_ordered(db, novel_id)
-        next_index = max((scene.scene_index for scene in existing), default=-1) + 1
-        created_ids: list[str] = []
+        next_index = await scene_service.get_next_scene_index(db, novel_id)
+        scene_payloads: list[dict] = []
         for scene in extracted.scenes:
             chapter_ids = scene.chapter_ids or [str(chapter_index)]
-            created = await scene_service.create(
-                db,
-                novel_id,
+            scene_payloads.append(
                 SceneCreate(
                     scene_index=next_index,
                     title=scene.title[:255],
@@ -198,20 +195,29 @@ class OutlineAIWorkflowService:
                     scene_chunks=scene.scene_chunks,
                     chapter_ids=chapter_ids,
                     status="draft",
-                ),
+                ).model_dump()
             )
-            created_ids.append(created.id)
             next_index += 1
+        created_scenes = []
+        if scene_payloads:
+            created_scenes = await scene_service.batch_create_models_from_dicts(
+                db,
+                novel_id,
+                scene_payloads,
+            )
+        created_ids = [str(scene.id) for scene in created_scenes]
 
-        for scene_id in created_ids:
-            await context_facade.attach_result_ref(
+        if created_ids:
+            await context_facade.attach_result_refs(
                 db,
                 confirmation_id=confirmation_id,
-                result_type="outline_scene",
-                result_id=scene_id,
+                result_refs=[
+                    {"type": "outline_scene", "id": scene_id}
+                    for scene_id in created_ids
+                ],
                 status="done",
             )
-        if not created_ids:
+        else:
             await context_facade.attach_result_ref(
                 db,
                 confirmation_id=confirmation_id,

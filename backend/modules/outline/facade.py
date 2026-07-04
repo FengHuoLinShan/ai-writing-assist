@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.outline.contracts import SceneContract
 
 # ============================================================
@@ -36,13 +37,11 @@ async def get_scene_contract(
     scene_id: str,
 ) -> SceneContract | None:
     """按 novel + ID 获取 SceneContract，供其他模块跨 seam 使用。"""
-    from fastapi import HTTPException
-
     from modules.outline.services import SceneService
 
     try:
         scene = await SceneService().get(db, scene_id, novel_id=novel_id)
-    except HTTPException:
+    except NotFoundError:
         return None
     return _scene_to_contract(scene)
 
@@ -66,6 +65,22 @@ async def get_scenes_by_novel(
     return [_scene_to_dict(scene) for scene in scenes]
 
 
+async def get_scenes_by_chapter(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+) -> list[dict[str, Any]]:
+    """获取指定章节相关 Scene（按 scene_index 排序）。"""
+    from modules.outline.services import SceneService
+
+    scenes = await SceneService().get_by_chapter_models(
+        db,
+        novel_id,
+        chapter_index,
+    )
+    return [_scene_to_dict(scene) for scene in scenes]
+
+
 async def get_scenes_by_provenance_key(
     db: AsyncSession,
     novel_id: str,
@@ -80,6 +95,28 @@ async def get_scenes_by_provenance_key(
         provenance_key,
     )
     return [_scene_to_dict(scene) for scene in scenes]
+
+
+async def get_scenes_by_provenance_keys(
+    db: AsyncSession,
+    novel_id: str,
+    provenance_keys: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """按 deep import provenance_key 批量获取 Scene，包含 deprecated。"""
+    from modules.outline.services import SceneService
+
+    unique_keys = list(dict.fromkeys(key for key in provenance_keys if key))
+    scenes = await SceneService().get_by_provenance_keys_models(
+        db,
+        novel_id,
+        unique_keys,
+    )
+    grouped = {key: [] for key in unique_keys}
+    for scene in scenes:
+        key = (scene.structure_meta or {}).get("provenance_key")
+        if key in grouped:
+            grouped[key].append(_scene_to_dict(scene))
+    return grouped
 
 
 async def count_scenes_by_novel(
@@ -250,6 +287,137 @@ async def deprecate_deep_import_structure_assets_by_workflow(
             novel_id,
             workflow_id,
         )
+    )
+
+
+async def reindex_scenes_for_deep_import_repair(
+    db: AsyncSession,
+    novel_id: str,
+) -> int:
+    """Reorder Scenes by chapter membership for deterministic deep-import display."""
+    from modules.outline.deep_import_repair_service import (
+        OutlineDeepImportRepairService,
+    )
+
+    return await OutlineDeepImportRepairService().reindex_scenes(db, novel_id)
+
+
+async def get_deep_import_structure_counts(
+    db: AsyncSession,
+    novel_id: str,
+) -> dict[str, int]:
+    """Count outline-owned structure assets for deep-import display repair."""
+    from modules.outline.deep_import_repair_service import (
+        OutlineDeepImportRepairService,
+    )
+
+    return await OutlineDeepImportRepairService().structure_counts(db, novel_id)
+
+
+async def get_deep_import_structure_payload(
+    db: AsyncSession,
+    novel_id: str,
+) -> dict[str, Any]:
+    """Return the structure-analysis payload shape consumed by import fallback logic."""
+    from modules.outline.deep_import_repair_service import (
+        OutlineDeepImportRepairService,
+    )
+
+    return await OutlineDeepImportRepairService().structure_payload(db, novel_id)
+
+
+async def ensure_deep_import_structure_outputs(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    result: dict[str, Any],
+    *,
+    workflow_id: str | None,
+    service_resolver: Any | None = None,
+    small_sample_target_count: int | None = None,
+) -> dict[str, Any]:
+    from modules.outline.deep_import_repair_service import (
+        SMALL_SAMPLE_STRUCTURE_TARGET_COUNT,
+        OutlineDeepImportRepairService,
+    )
+
+    list_entities_func = None
+    if service_resolver is not None:
+        try:
+            list_entities_func = service_resolver("world.list_entities")
+        except KeyError:
+            list_entities_func = None
+
+    return await OutlineDeepImportRepairService(
+        service_resolver=service_resolver,
+        list_entities=list_entities_func,
+    ).ensure_minimum_structure_outputs(
+        db,
+        novel_id,
+        start_chapter,
+        end_chapter,
+        result,
+        workflow_id=workflow_id,
+        small_sample_target_count=(
+            small_sample_target_count or SMALL_SAMPLE_STRUCTURE_TARGET_COUNT
+        ),
+    )
+
+
+def get_deep_import_structure_category_targets(
+    chapter_count: int,
+    *,
+    small_sample_target_count: int,
+) -> dict[str, int]:
+    from modules.outline.deep_import_repair_service import (
+        minimum_structure_category_targets,
+    )
+
+    return minimum_structure_category_targets(
+        chapter_count,
+        small_sample_target_count=small_sample_target_count,
+    )
+
+
+def get_deep_import_structure_category_counts(
+    result: dict[str, Any],
+) -> dict[str, int]:
+    from modules.outline.deep_import_repair_service import structure_category_counts
+
+    return structure_category_counts(result)
+
+
+def get_deep_import_structure_output_count(result: dict[str, Any]) -> int:
+    from modules.outline.deep_import_repair_service import structure_output_count
+
+    return structure_output_count(result)
+
+
+def get_deep_import_fallback_thread_type(index: int) -> str:
+    from modules.outline.deep_import_repair_service import fallback_thread_type
+
+    return fallback_thread_type(index)
+
+
+async def ensure_deep_import_structure_minimums(
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    workflow_id: str | None,
+) -> dict[str, int]:
+    """Ensure outline structure minimums for repaired deep-import runs."""
+    from modules.outline.deep_import_repair_service import (
+        OutlineDeepImportRepairService,
+    )
+
+    return await OutlineDeepImportRepairService().ensure_structure_minimum_counts(
+        db,
+        novel_id,
+        start_chapter,
+        end_chapter,
+        workflow_id=workflow_id,
     )
 
 

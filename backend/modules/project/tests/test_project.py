@@ -12,12 +12,13 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.project.contracts import ProjectContext
 from modules.project.facade import get_project_context
@@ -27,6 +28,7 @@ from modules.project.schemas import (
     ProjectUpdate,
 )
 from modules.project.services import ProjectService
+from modules.writing.contracts import WritingProjectStatsContract
 from modules.writing.facade import create_draft_only
 
 _repo = ProjectRepository()
@@ -488,6 +490,29 @@ class TestProjectService:
         assert resp.title == "测试小说"
         repo.create.assert_awaited_once_with(db, sample_create_data)
 
+    @pytest.mark.asyncio
+    async def test_list_projects_batches_writing_stats(self) -> None:
+        """项目列表不应对每个项目逐个查询写作统计。"""
+        projects = [
+            _make_project(id=uuid.uuid4(), title="项目一"),
+            _make_project(id=uuid.uuid4(), title="项目二"),
+        ]
+        repo = MagicMock()
+        repo.list = AsyncMock(return_value=(projects, 2))
+        single_calls: list[str] = []
+
+        async def single_stats(_db: AsyncSession, novel_id: str):
+            single_calls.append(novel_id)
+            return WritingProjectStatsContract(novel_id=novel_id)
+
+        service = ProjectService(repo=repo, writing_stats_provider=single_stats)
+        db = MagicMock()
+
+        resp = await service.list_projects(db, skip=0, limit=10)
+
+        assert resp.total == 2
+        assert single_calls == []
+
     @pytest.mark.parametrize(
         "operation",
         [
@@ -513,7 +538,7 @@ class TestProjectService:
         service = ProjectService(repo=repo)
         db = MagicMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             if operation == "get_project":
                 await service.get_project(db, fake_id)
             elif operation == "delete_project":
@@ -630,11 +655,11 @@ class TestProjectService:
         assert ctx is None
 
     @pytest.mark.asyncio
-    async def test_invalid_uuid(self) -> None:
+    async def test_invalid_uuid_raises_domain_validation_error(self) -> None:
         """测试无效 UUID 格式"""
         service = ProjectService()
         db = MagicMock()
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(DomainValidationError) as exc_info:
             await service.get_project(db, "not-a-uuid")
         assert exc_info.value.status_code == 422
 
@@ -653,7 +678,7 @@ class TestProjectService:
         service = ProjectService(repo=repo)
         db = MagicMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await service.get_project(db, project_id)
         assert exc_info.value.status_code == 404
 

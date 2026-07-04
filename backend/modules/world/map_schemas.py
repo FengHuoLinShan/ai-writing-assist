@@ -544,6 +544,19 @@ class MapStateResponse(BaseModel):
     scene: dict | None = None  # P1
 
 
+class MapDynamicStateResponse(BaseModel):
+    """Scene-related dynamic map layers without static tiles/layout/terrain."""
+
+    markers: list[MapMarkerResponse] = Field(default_factory=list)
+    territories: list[MapTerritoryResponse] = Field(default_factory=list)
+    candidate_location_bindings: list[MapLocationBindingResponse] = Field(
+        default_factory=list,
+    )
+    candidate_markers: list[MapMarkerResponse] = Field(default_factory=list)
+    candidate_territories: list[MapTerritoryResponse] = Field(default_factory=list)
+    scene: dict | None = None
+
+
 # ============================================================
 # MapSceneSummary — 写作页轻量地图摘要
 # ============================================================
@@ -782,7 +795,29 @@ class MapObservationCreate(BaseModel):
 
 
 class MapObservationReviewUpdate(BaseModel):
-    review_state: Literal["candidate", "confirmed", "ignored", "conflicted"]
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    review_state: Literal["candidate", "ignored", "conflicted"] | None = None
+    target_entity_id: str | None = None
+    target_entity_type: str | None = Field(None, max_length=64)
+    target_name: str | None = Field(None, max_length=255)
+    dynamic_type: str | None = Field(None, min_length=1, max_length=64)
+    time_anchor: dict | None = None
+    spatial_anchor: dict | None = None
+    value_json: dict | None = None
+    confidence: float | None = Field(None, ge=0.0, le=1.0)
+    source_ref: dict | None = None
+    evidence_text: str | None = None
+    scene_id: str | None = None
+    scene_index: int | None = Field(None, ge=0)
+    source_chapter_index: int | None = Field(None, ge=0)
+
+    @field_validator("target_entity_id", "scene_id")
+    @classmethod
+    def _coerce_optional_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return str(uuid.UUID(v))
 
 
 class MapObservationBatchReviewRequest(BaseModel):

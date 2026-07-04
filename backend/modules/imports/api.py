@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFil
 from pydantic import BaseModel, Field, model_validator
 
 from core.dependencies import DbSession
+from core.errors import DomainError
 from modules.imports.schemas import ImportListResponse, ImportResponse
 from modules.imports.services import ImportService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -68,7 +69,7 @@ async def upload_file(
             os.path.basename(file.filename or "unknown"),
             content,
         )
-    except HTTPException:
+    except (DomainError, HTTPException):
         # service 已创建/更新 import_records 状态，需要提交才能持久化失败记录。
         # 但事务可能已被底层数据库错误污染，提交失败时不应抛新的 500，
         # 回滚后仍然抛出原始业务异常。

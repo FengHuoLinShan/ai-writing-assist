@@ -104,7 +104,7 @@ modules/<name>/
 
 - Backend API: `backend/app/main.py`（`uvicorn app.main:app`）
 - Worker: `backend/run_worker.py`（PostgreSQL 任务队列，无 Redis/Celery）
-- Frontend: `frontend-console/index.html`（`python -m http.server 8080`）
+- Frontend: `frontend-console/index.html`（`npm run dev` / Vite dev server, port 8080）
 
 ### 8 个活跃模块
 

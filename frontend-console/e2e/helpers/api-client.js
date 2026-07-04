@@ -43,10 +43,6 @@ export async function cleanupProject(id) {
   try { await request(`/projects/${id}/permanent?confirmed=true`, { method: "DELETE" }) } catch {}
 }
 
-export async function listProjects() {
-  return request("/projects")
-}
-
 export async function healthCheck() {
   try {
     const resp = await fetch(`${API_BASE}/health`)

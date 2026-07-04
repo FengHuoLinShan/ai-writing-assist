@@ -15,6 +15,7 @@ os.environ.setdefault("LLM_HEALTH_REQUIRED", "false")
 from collections.abc import AsyncGenerator
 
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -35,7 +36,9 @@ import modules.rag.models  # noqa: F401
 import modules.world.map_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
+from app.main import app
 from core.base import Base
+from core.dependencies import get_db
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -57,3 +60,17 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """FastAPI test client with SQLite db override."""
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.clear()

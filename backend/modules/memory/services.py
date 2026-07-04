@@ -70,21 +70,27 @@ class MemoryService:
         # 先清除该章的旧事件（如果存在）
         await self._event_repo.delete_by_chapter(db, nid, chapter_index)
 
-        results: list[MemoryEventResponse] = []
-        for seq, evt in enumerate(events, start=1):
-            record = await self._event_repo.create(
-                db,
-                novel_id=nid,
-                chapter_index=chapter_index,
-                sequence=seq,
-                event_type=evt["event_type"],
-                entity_id=parse_uuid(evt["entity_id"]) if evt.get("entity_id") else None,
-                entity_type=evt.get("entity_type"),
-                snapshot_before=evt.get("snapshot_before"),
-                snapshot_after=evt.get("snapshot_after", evt.get("payload", {})),
-                source=evt.get("source", "ai_extraction"),
-            )
-            results.append(MemoryEventResponse.model_validate(record))
+        rows = [
+            {
+                "novel_id": nid,
+                "chapter_index": chapter_index,
+                "sequence": seq,
+                "event_type": evt["event_type"],
+                "entity_id": parse_uuid(evt["entity_id"])
+                if evt.get("entity_id")
+                else None,
+                "entity_type": evt.get("entity_type"),
+                "snapshot_before": evt.get("snapshot_before"),
+                "snapshot_after": evt.get("snapshot_after", evt.get("payload", {})),
+                "source": evt.get("source", "ai_extraction"),
+            }
+            for seq, evt in enumerate(events, start=1)
+        ]
+        records = await self._event_repo.create_many(db, rows)
+        results = [
+            MemoryEventResponse.model_validate(record)
+            for record in records
+        ]
 
         await db.flush()
         return results

@@ -10,11 +10,13 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
+from modules.imports.env_helpers import positive_float_env, positive_int_env
 from modules.imports.llm_schemas import SceneCandidateOutput
 from modules.imports.scene_candidates import (
     SceneCandidate,
     SceneCandidateBatch,
     SceneReinforcementResult,
+    build_scene_candidate_quality_stats,
 )
 
 PHASE1A_REINFORCE_CONCURRENCY = 6
@@ -51,12 +53,12 @@ class Phase1aSceneReinforcer:
             1,
             concurrency
             if concurrency is not None
-            else _positive_int_env(
+            else positive_int_env(
                 "PHASE1A_REINFORCE_CONCURRENCY",
                 PHASE1A_REINFORCE_CONCURRENCY,
             ),
         )
-        self.batch_timeout_seconds = _positive_float_env(
+        self.batch_timeout_seconds = positive_float_env(
             "PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS",
             _llm_timeout_default(PHASE1A_REINFORCE_BATCH_TIMEOUT_SECONDS),
         )
@@ -119,9 +121,10 @@ class Phase1aSceneReinforcer:
             for candidate in candidates
             if candidate.diagnostics
         ]
-        quality_stats = _build_quality_stats(
+        quality_stats = build_scene_candidate_quality_stats(
             candidates,
             total_batches=len(ordered_batches),
+            include_degraded_fallback=True,
         )
         blocked = quality_stats["final_422_rate"] > DEEP_IMPORT_422_BLOCK_THRESHOLD
         return SceneReinforcementResult(
@@ -376,7 +379,6 @@ def _chapter_payload(chapter: Mapping[str, Any]) -> dict[str, Any]:
         "content_truncated": len(str(content)) > char_limit,
     }
 
-
 def _classify_references(candidates: Sequence[SceneCandidate]) -> dict[str, list[dict]]:
     strong = []
     weak = []
@@ -576,7 +578,7 @@ def _bounded_chapter_text(value: Any, *, limit: int) -> str:
 
 
 def _phase1a_chapter_text_char_limit() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE1A_CHAPTER_TEXT_CHAR_LIMIT",
         PHASE1A_CHAPTER_TEXT_CHAR_LIMIT,
     )
@@ -638,30 +640,8 @@ def _quality_for_output(output: SceneCandidateOutput) -> str:
     return "high"
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
 def _llm_timeout_default(default: float) -> float:
-    return _positive_float_env("LLM_TIMEOUT", default)
+    return positive_float_env("LLM_TIMEOUT", default)
 
 
 def _total_timeout_seconds(
@@ -671,7 +651,7 @@ def _total_timeout_seconds(
     concurrency: int,
     batch_timeout_seconds: float,
 ) -> float:
-    env_timeout = _positive_float_env(env_name, 0.0)
+    env_timeout = positive_float_env(env_name, 0.0)
     if env_timeout > 0:
         return env_timeout
     waves = max(
@@ -744,50 +724,3 @@ def _timeout_diagnostics(*, message: str) -> dict[str, Any]:
             }
         ],
     }
-
-
-def _build_quality_stats(
-    candidates: Sequence[SceneCandidate],
-    *,
-    total_batches: int,
-) -> dict[str, Any]:
-    stats = {
-        "total_batches": total_batches,
-        "completed_batches": len(candidates),
-        "success": 0,
-        "failed": 0,
-        "high_quality": 0,
-        "low_quality": 0,
-        "empty_result": 0,
-        "schema_error": 0,
-        "timeout": 0,
-        "network": 0,
-        "rate_limit": 0,
-        "quality_gate": 0,
-        "http_error": 0,
-        "unknown": 0,
-        "degraded_fallback": 0,
-        "final_422": 0,
-    }
-    for candidate in candidates:
-        if candidate.quality == "failed":
-            stats["failed"] += 1
-        else:
-            stats["success"] += 1
-        if candidate.quality == "high":
-            stats["high_quality"] += 1
-        if candidate.quality == "low":
-            stats["low_quality"] += 1
-        if candidate.diagnostics.get("degraded"):
-            stats["degraded_fallback"] += 1
-
-        final_error_type = candidate.diagnostics.get("final_error_type")
-        if final_error_type in stats:
-            stats[final_error_type] += 1
-        if final_error_type == "422":
-            stats["final_422"] += 1
-
-    stats["final_422_rate"] = (
-        stats["final_422"] / total_batches if total_batches > 0 else 0.0
-    )
-    return stats

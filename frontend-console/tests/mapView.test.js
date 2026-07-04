@@ -582,6 +582,124 @@ describe("mapView 列表渲染", () => {
   })
 })
 
+describe("mapView Leaflet overlay alignment", () => {
+  it("mounts the canvas as a fixed container overlay, not inside a movable Leaflet pane", () => {
+    const overlayPane = document.createElement("div")
+    overlayPane.className = "leaflet-overlay-pane"
+    const container = document.createElement("div")
+    container.id = "map-leaflet"
+    container.appendChild(overlayPane)
+    Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
+    Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
+    document.body.appendChild(container)
+
+    const originalGetContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => createCanvasMock({
+      methods: ["setTransform", "clearRect", "translate", "scale"],
+    }))
+
+    window.L = {
+      CRS: { Simple: {} },
+      map: vi.fn(() => ({
+        fitBounds: vi.fn(),
+        on: vi.fn(),
+        getZoom: vi.fn(() => 0),
+        latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
+        eachLayer: vi.fn(),
+        removeLayer: vi.fn(),
+        getContainer: vi.fn(() => container),
+        remove: vi.fn(),
+      })),
+      latLngBounds: vi.fn((bounds) => bounds),
+    }
+
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+    }
+
+    try {
+      mapView._initLeaflet()
+
+      expect(mapView._canvas?.parentElement).toBe(container)
+      expect(overlayPane.contains(mapView._canvas)).toBe(false)
+    } finally {
+      mapView._teardownInteractiveSurface()
+      mapView._state = null
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+      delete window.L
+    }
+  })
+
+  it("throttles viewport redraws through requestAnimationFrame", () => {
+    const queued = []
+    const originalRaf = globalThis.requestAnimationFrame
+    const originalCancel = globalThis.cancelAnimationFrame
+    globalThis.requestAnimationFrame = vi.fn((callback) => {
+      queued.push(callback)
+      return queued.length
+    })
+    globalThis.cancelAnimationFrame = vi.fn()
+    const redraw = vi.spyOn(mapView, "_redraw").mockImplementation(() => {})
+
+    try {
+      mapView._scheduleRedraw()
+      mapView._scheduleRedraw()
+
+      expect(globalThis.requestAnimationFrame).toHaveBeenCalledTimes(1)
+      expect(redraw).not.toHaveBeenCalled()
+
+      queued[0]()
+      expect(redraw).toHaveBeenCalledTimes(1)
+    } finally {
+      redraw.mockRestore()
+      globalThis.requestAnimationFrame = originalRaf
+      globalThis.cancelAnimationFrame = originalCancel
+      mapView._redrawFrame = null
+    }
+  })
+})
+
+describe("mapView dynamic state loading", () => {
+  it("switching Scene refreshes dynamic layers without reloading static state", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 0, hex_r: 0, terrain_type: "grassland" }],
+      location_bindings: [{ location_entity_id: "loc1", hex_q: 0, hex_r: 0, is_center: true }],
+      markers: [{ id: "old-marker" }],
+      territories: [],
+      candidate_location_bindings: [],
+      candidate_markers: [],
+      candidate_territories: [],
+    }
+    mapView._rebuildIndexes()
+    setCurrentScene("s2")
+    api.world.getMapDynamicState.mockResolvedValue({
+      markers: [{ id: "new-marker", entity_id: "c1" }],
+      territories: [{ id: "territory-1", faction_entity_id: "f1" }],
+      candidate_location_bindings: [{ id: "candidate-binding", hex_q: 1, hex_r: 1 }],
+      candidate_markers: [{ id: "candidate-marker" }],
+      candidate_territories: [],
+      scene: { id: "s2", index: 2, title: "第二 Scene" },
+    })
+
+    await mapView._reloadWithScene()
+
+    expect(api.world.getMapDynamicState).toHaveBeenCalledWith("m1", "p1", "s2")
+    expect(api.world.getMapState).not.toHaveBeenCalled()
+    expect(mapView._state.tiles).toEqual([{ hex_q: 0, hex_r: 0, terrain_type: "grassland" }])
+    expect(mapView._state.location_bindings).toEqual([
+      { location_entity_id: "loc1", hex_q: 0, hex_r: 0, is_center: true },
+    ])
+    expect(mapView._state.markers).toEqual([{ id: "new-marker", entity_id: "c1" }])
+    expect(mapView._state.scene).toEqual({ id: "s2", index: 2, title: "第二 Scene" })
+  })
+})
+
 describe("mapView 地图设置", () => {
   it("_renderMapShell 显示设置按钮", () => {
     mapView._state = {
@@ -747,6 +865,37 @@ describe("mapView 详情面板", () => {
     expect(html).toContain("洛阳")
     expect(html).toContain("古都")
     expect(html).toContain("创建详图")
+  })
+
+  it("_renderDetailPanel 使用索引缓存避免热路径数组扫描", () => {
+    const bindings = [
+      { hex_q: 1, hex_r: 1, location_entity_id: "loc1", is_center: true },
+      { hex_q: 1, hex_r: 2, location_entity_id: "loc1", is_center: false },
+    ]
+    const locations = [{ id: "loc1", name: "洛阳", summary: "古都" }]
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+      location_bindings: bindings,
+    }
+    mapView._maps = []
+    mapView._locations = locations
+    mapView._rebuildIndexes()
+    mapView._state.location_bindings.find = () => {
+      throw new Error("location_bindings.find should not be used after indexing")
+    }
+    mapView._state.location_bindings.filter = () => {
+      throw new Error("location_bindings.filter should not be used for binding counts")
+    }
+    mapView._locations.find = () => {
+      throw new Error("locations.find should not be used after indexing")
+    }
+
+    const html = mapView._renderDetailPanel(1, 1)
+
+    expect(html).toContain("洛阳")
+    expect(html).toContain("古都")
+    expect(html).toContain(">2<")
   })
 })
 
@@ -1088,6 +1237,34 @@ describe("mapView marker 提示", () => {
     for (const text of contain) {
       expect(html).toContain(text)
     }
+  })
+
+  it("_buildTooltipContent 使用 marker 索引避免 hover 热路径数组扫描", () => {
+    mapState.currentSceneId = "scene-1"
+    const markers = [
+      { hex_q: 1, hex_r: 1, marker_type: "character", label: "张三", visible: true },
+      { hex_q: 2, hex_r: 2, marker_type: "event", label: "会战", visible: true, start_scene_id: "scene-1" },
+    ]
+    mapView._state = {
+      map: { hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "grassland" }],
+      location_bindings: [],
+      markers,
+    }
+    mapView._locations = []
+    mapView._rebuildIndexes()
+
+    markers.find = () => {
+      throw new Error("marker find should not run during tooltip rendering")
+    }
+    markers.filter = () => {
+      throw new Error("marker filter should not run during tooltip rendering")
+    }
+
+    const html = mapView._buildTooltipContent(1, 1)
+
+    expect(html).toContain("张三")
+    expect(html).toContain("会战")
   })
 })
 

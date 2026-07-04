@@ -12,8 +12,7 @@ import logging
 import re
 import uuid
 
-from fastapi import HTTPException
-from fastapi import status as http_status
+from core.errors import ValidationError as DomainValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +28,14 @@ def parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
         uuid.UUID
 
     Raises:
-        HTTPException 422: UUID 格式无效
+        DomainValidationError 422: UUID 格式无效
     """
     try:
         return uuid.UUID(hex=value)
     except ValueError:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Invalid {field_name}: {value}",
+        raise DomainValidationError(
+            f"Invalid {field_name}: {value}",
+            status_code=422,
         )
 
 

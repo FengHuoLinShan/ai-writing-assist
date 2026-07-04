@@ -346,6 +346,90 @@ class TestWritingDraftRepository:
         assert result is not None
         assert result.id == draft_id
 
+    async def test_update_reuses_loaded_draft(
+        self,
+        repo: WritingDraftRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        draft_id = uuid.uuid4()
+        draft = MagicMock()
+        draft.id = draft_id
+        draft.title = "旧标题"
+        draft.content = "旧正文"
+        get_calls = 0
+
+        async def fake_get(_db, requested_id):
+            nonlocal get_calls
+            get_calls += 1
+            assert requested_id == draft_id
+            return draft
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(repo, "get", fake_get)
+        db = Session()
+
+        result = await repo.update(
+            db,  # type: ignore[arg-type]
+            draft_id,
+            WritingDraftUpdate(title="新标题", content="新正文"),
+        )
+
+        assert result is draft
+        assert draft.title == "新标题"
+        assert draft.content == "新正文"
+        assert get_calls == 1
+        assert db.added == [draft]
+        assert db.flush_count == 1
+
+    async def test_update_loaded_draft_does_not_fetch_again(
+        self,
+        repo: WritingDraftRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        draft = MagicMock()
+        draft.id = uuid.uuid4()
+        draft.title = "旧标题"
+        draft.content = "旧正文"
+
+        async def fail_get(*_args, **_kwargs):
+            raise AssertionError("loaded draft should not be fetched again")
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(repo, "get", fail_get)
+        db = Session()
+
+        result = await repo.update(
+            db,  # type: ignore[arg-type]
+            draft,
+            WritingDraftUpdate(title="新标题", content="新正文"),
+        )
+
+        assert result is draft
+        assert draft.title == "新标题"
+        assert draft.content == "新正文"
+        assert db.added == [draft]
+        assert db.flush_count == 1
+
     async def test_update_not_found(
         self,
         repo: WritingDraftRepository,

@@ -5,6 +5,7 @@ TB1: RAG 章节索引 — 测试
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,188 @@ from tests.conftest import test_character_id, test_project_id  # noqa: F401
 @pytest.fixture
 def repo() -> RagChunkRepository:
     return RagChunkRepository()
+
+
+@pytest.mark.asyncio
+async def test_embedding_writer_updates_loaded_chunks_without_refetching() -> None:
+    """Embedding writer 已持有 chunk，不应每个 embedding 再按 id 查询。"""
+    from modules.rag.embedding_writer import EmbeddingWriter
+
+    class Repo:
+        async def update_embedding(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("writer should update loaded chunks directly")
+
+    class DB:
+        def __init__(self) -> None:
+            self.flush_count = 0
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    class BatchLLM:
+        async def generate_embedding(self, texts):  # type: ignore[no-untyped-def]
+            assert texts == ["甲", "乙"]
+            return [[0.1, 0.2], [0.3, 0.4]]
+
+    class PerChunkLLM:
+        async def generate_embedding(self, text):  # type: ignore[no-untyped-def]
+            assert text == "丙"
+            return [0.5, 0.6]
+
+    db = DB()
+    batch_chunks = [
+        SimpleNamespace(id=uuid.uuid4(), text="甲"),
+        SimpleNamespace(id=uuid.uuid4(), text="乙"),
+    ]
+    result = await EmbeddingWriter(Repo(), BatchLLM()).write_batch(  # type: ignore[arg-type]
+        db,  # type: ignore[arg-type]
+        batch_chunks,  # type: ignore[arg-type]
+        warning_prefix="batch",
+    )
+
+    assert result.failed_count == 0
+    assert [chunk.embedding for chunk in batch_chunks] == [[0.1, 0.2], [0.3, 0.4]]
+    assert [chunk.embedding_status for chunk in batch_chunks] == [
+        "succeeded",
+        "succeeded",
+    ]
+
+    per_chunk = SimpleNamespace(id=uuid.uuid4(), text="丙")
+    result = await EmbeddingWriter(Repo(), PerChunkLLM()).write_per_chunk(  # type: ignore[arg-type]
+        db,  # type: ignore[arg-type]
+        [per_chunk],  # type: ignore[list-item]
+    )
+
+    assert result.failed_count == 0
+    assert per_chunk.embedding == [0.5, 0.6]
+    assert per_chunk.embedding_status == "succeeded"
+    assert db.flush_count == 2
+
+
+@pytest.mark.asyncio
+async def test_collect_annotation_sources_uses_chapter_scene_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RAG indexing should not load all scenes for every chapter."""
+    from modules.rag import source_collection
+
+    novel_id = uuid.uuid4()
+    calls: list[str] = []
+    scene = {
+        "id": "scene-1",
+        "chapter_ids": ["2"],
+        "scene_chunks": [{"chapter_index": 2, "start_offset": 0, "end_offset": 10}],
+    }
+
+    async def _fail_get_scenes_by_novel(*args, **kwargs):
+        calls.append("all_scenes")
+        raise AssertionError("chapter indexing should not load all scenes")
+
+    async def _get_scenes_by_chapter(db, novel_id_arg: str, chapter_index: int):
+        calls.append("chapter_scenes")
+        assert novel_id_arg == str(novel_id)
+        assert chapter_index == 2
+        return [scene]
+
+    async def _load_terms(*args, **kwargs):
+        return []
+
+    async def _importance_map(*args, **kwargs):
+        return {}
+
+    import modules.outline.facade as outline_facade
+
+    monkeypatch.setattr(
+        outline_facade,
+        "get_scenes_by_novel",
+        _fail_get_scenes_by_novel,
+    )
+    monkeypatch.setattr(
+        outline_facade,
+        "get_scenes_by_chapter",
+        _get_scenes_by_chapter,
+        raising=False,
+    )
+    monkeypatch.setattr(source_collection, "_load_project_terms", _load_terms)
+    monkeypatch.setattr(
+        source_collection,
+        "_container_get",
+        lambda name: _importance_map,
+    )
+
+    scenes, terms, importance = await source_collection.collect_annotation_sources(
+        None,  # type: ignore[arg-type]
+        novel_id,
+        2,
+    )
+
+    assert calls == ["chapter_scenes"]
+    assert scenes == [scene]
+    assert terms == []
+    assert importance == {}
+
+
+@pytest.mark.asyncio
+async def test_index_chapter_bulk_creates_chunks(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    """全量章节索引不应逐 chunk create/flush。"""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, patch
+
+    from modules.rag.indexing import IndexingService
+    from modules.writing.models import WritingDraft
+
+    class BulkOnlyRepo(RagChunkRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.create_many_calls = 0
+
+        async def create(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("index_chapter should bulk-create chunks")
+
+        async def create_many(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.create_many_calls += 1
+            return await super().create_many(*args, **kwargs)
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    db_session.add(
+        WritingDraft(
+            id=_uuid.uuid4(),
+            novel_id=nid_uuid,
+            chapter_index=1,
+            title="第一章",
+            content="用于批量创建 RAG chunk 的正文。" * 120,
+            version_number=1,
+        )
+    )
+    await db_session.flush()
+
+    repo = BulkOnlyRepo()
+    fake_embedding = [0.1] * 768
+
+    async def _fake_batch_embedding(texts):
+        assert isinstance(texts, list)
+        return [fake_embedding for _ in texts]
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=_fake_batch_embedding)
+        mock_client_cls.return_value = mock_client
+
+        report = await IndexingService(repo=repo).index_chapter_with_report(
+            db_session,
+            nid_uuid,
+            1,
+        )
+
+    assert repo.create_many_calls == 1
+    assert report.chunks_created > 0
+    assert mock_client.generate_embedding.call_count == 1
+    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    assert len(chunks) == report.chunks_created
+    assert [str(chunk.id) for chunk in chunks] == report.chunks_created_ids
 
 
 @pytest.mark.asyncio
@@ -204,12 +387,13 @@ async def test_index_chapter_with_embeddings(
     # mock embedding provider（使用 768 维匹配 Vector(768) 列定义）
     fake_embedding = [0.1] * 768
 
-    with patch(
-        "infrastructure.llm.client.LLMClient",
-    ) as mock_client_cls:
+    async def _fake_batch_embedding(texts):
+        assert isinstance(texts, list), "应接收文本列表（批量 embedding）"
+        return [fake_embedding for _ in texts]
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
         mock_client = AsyncMock()
-        # 逐 chunk 调用：单个字符串 → 返回 list[float]
-        mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
+        mock_client.generate_embedding = AsyncMock(side_effect=_fake_batch_embedding)
         mock_client_cls.return_value = mock_client
 
         chunk_count = await index_chapter(db_session, test_project_id, 1)
@@ -221,15 +405,10 @@ async def test_index_chapter_with_embeddings(
     for c in chunks:
         assert c.embedding is not None, f"chunk {c.id} 应有 embedding"
 
-    # 验证 generate_embedding 按逐 chunk 模式被调用
-    call_count = mock_client.generate_embedding.call_count
-    assert call_count > 0, "generate_embedding 应被调用"
-    assert call_count == len(chunks), (
-        f"应为 {len(chunks)} 次调用（逐 chunk），实际 {call_count} 次"
-    )
-    for call_args in mock_client.generate_embedding.call_args_list:
-        input_text = call_args[0][0] if call_args else ""
-        assert isinstance(input_text, str), "应接收字符串（逐 chunk）"
+    assert mock_client.generate_embedding.call_count == 1
+    input_texts = mock_client.generate_embedding.call_args.args[0]
+    assert isinstance(input_texts, list)
+    assert len(input_texts) == len(chunks)
 
 
 @pytest.mark.asyncio
@@ -269,6 +448,85 @@ async def test_incremental_index_reuses_equal_chunks_without_mutating_iteration(
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert report.chunks_created_ids == [str(old_chunk.id)]
     assert [chunk.id for chunk in chunks] == [old_chunk.id]
+
+
+@pytest.mark.asyncio
+async def test_incremental_index_bulk_deletes_stale_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """增量索引清理旧 chunk 时不应逐个 delete/flush。"""
+    from modules.rag import indexing
+    from modules.rag.indexing import IndexingService
+
+    reused_id = uuid.uuid4()
+    stale_id = uuid.uuid4()
+    created_id = uuid.uuid4()
+    novel_id = uuid.uuid4()
+    old_chunks = [
+        SimpleNamespace(
+            id=reused_id,
+            start_offset=0,
+            end_offset=5,
+            text="aaaaa",
+            embedding_status="succeeded",
+        ),
+        SimpleNamespace(
+            id=stale_id,
+            start_offset=5,
+            end_offset=10,
+            text="bbbbb",
+            embedding_status="succeeded",
+        ),
+    ]
+
+    class Repo:
+        def __init__(self) -> None:
+            self.deleted_many: list[list[uuid.UUID]] = []
+
+        async def find_by_chapter(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return old_chunks
+
+        async def create(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return SimpleNamespace(
+                id=created_id,
+                start_offset=5,
+                end_offset=10,
+                text="ccccc",
+                embedding_status="succeeded",
+            )
+
+        async def delete_many(self, _db, chunk_ids):  # type: ignore[no-untyped-def]
+            self.deleted_many.append(list(chunk_ids))
+            return len(chunk_ids)
+
+        async def delete(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("incremental index should bulk-delete stale chunks")
+
+    class DB:
+        def __init__(self) -> None:
+            self.flush_count = 0
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    async def empty_annotation_sources(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return [], [], {}
+
+    repo = Repo()
+    db = DB()
+    monkeypatch.setattr(indexing, "collect_annotation_sources", empty_annotation_sources)
+
+    report = await IndexingService(repo=repo).index_chapter_incremental(  # type: ignore[arg-type]
+        db,  # type: ignore[arg-type]
+        novel_id,
+        1,
+        old_content="aaaaabbbbb",
+        new_content="aaaaaccccc",
+    )
+
+    assert repo.deleted_many == [[stale_id]]
+    assert report.chunks_created_ids == [str(reused_id), str(created_id)]
+    assert db.flush_count == 1
 
 
 @pytest.mark.asyncio

@@ -8,12 +8,16 @@ World 模块测试
 from __future__ import annotations
 
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.dml import Update
+from sqlalchemy.sql.selectable import Select
 
+from core.errors import NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.world.facade import (
     expand_related_entities,
     find_entity_id_by_name,
@@ -23,12 +27,16 @@ from modules.world.facade import (
 from modules.world.repositories import (
     CoreEntityRepository,
     EntityRelationRepository,
+    EventRepository,
 )
 from modules.world.schemas import (
     CharacterCreate,
     CharacterKnowledgeCreate,
+    CoreEntityUpdate,
     EntityRelationCreate,
+    EntityRelationUpdate,
     EventCreate,
+    EventUpdate,
     WorldContextBundle,
     WorldEntityCreate,
     WorldEntityUpdate,
@@ -41,6 +49,153 @@ from modules.world.services import (
 )
 from modules.world.services.dedup_service import EntityDedupService
 from modules.world.services.entity_relation_service import EntityRelationService
+
+
+@pytest.mark.asyncio
+async def test_deprecate_deep_import_entities_uses_unit_of_work() -> None:
+    workflow_id = "wf-cleanup"
+    entity = MagicMock()
+    entity.content_json = {
+        "_meta": {
+            "source": "deep_import",
+            "workflow_id": workflow_id,
+            "auto_ingested": True,
+        }
+    }
+    entity.status = "candidate"
+
+    class Result:
+        def scalars(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def all(self):  # type: ignore[no-untyped-def]
+            return [entity]
+
+    class Session:
+        def __init__(self) -> None:
+            self.statements: list[object] = []
+            self.flushes = 0
+
+        async def execute(self, stmt):  # type: ignore[no-untyped-def]
+            self.statements.append(stmt)
+            return Result()
+
+        def add(self, item):  # type: ignore[no-untyped-def]
+            assert item is entity
+
+        async def flush(self) -> None:
+            self.flushes += 1
+
+    session = Session()
+
+    deprecated = await CoreEntityRepository().deprecate_deep_import_entities_by_workflow(
+        session,  # type: ignore[arg-type]
+        uuid.uuid4(),
+        workflow_id,
+    )
+
+    assert deprecated == 1
+    assert session.flushes == 1
+    assert all(isinstance(stmt, Select) for stmt in session.statements)
+    assert not any(isinstance(stmt, Update) for stmt in session.statements)
+    assert entity.status == "deprecated"
+    assert entity.content_json["_meta"]["cleanup_status"] == "deprecated"
+
+
+@pytest.mark.asyncio
+async def test_core_entity_update_reuses_loaded_entity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = CoreEntityRepository()
+    entity_id = uuid.uuid4()
+    entity = MagicMock()
+    entity.id = entity_id
+    entity.name = "旧名"
+    entity.summary = None
+    entity.status = "draft"
+    entity.content_json = {}
+    get_calls = 0
+
+    async def fake_get(_db, requested_id):
+        nonlocal get_calls
+        get_calls += 1
+        assert requested_id == entity_id
+        return entity
+
+    class Session:
+        def __init__(self) -> None:
+            self.added = []
+            self.flush_count = 0
+
+        def add(self, obj):  # type: ignore[no-untyped-def]
+            self.added.append(obj)
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    monkeypatch.setattr(repo, "get", fake_get)
+    db = Session()
+
+    updated = await repo.update(
+        db,  # type: ignore[arg-type]
+        entity_id,
+        CoreEntityUpdate(
+            name="新名",
+            summary="新摘要",
+            content_json={"aliases": []},
+        ),
+    )
+
+    assert updated is entity
+    assert entity.name == "新名"
+    assert entity.summary == "新摘要"
+    assert entity.content_json == {"aliases": []}
+    assert get_calls == 1
+    assert db.added == [entity]
+    assert db.flush_count == 1
+
+
+@pytest.mark.asyncio
+async def test_core_entity_update_loaded_entity_does_not_fetch_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = CoreEntityRepository()
+    entity = MagicMock()
+    entity.id = uuid.uuid4()
+    entity.name = "旧名"
+    entity.summary = None
+    entity.status = "draft"
+    entity.content_json = {}
+
+    async def fail_get(*_args, **_kwargs):
+        raise AssertionError("loaded entity should not be fetched again")
+
+    class Session:
+        def __init__(self) -> None:
+            self.added = []
+            self.flush_count = 0
+
+        def add(self, obj):  # type: ignore[no-untyped-def]
+            self.added.append(obj)
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    monkeypatch.setattr(repo, "get", fail_get)
+    db = Session()
+
+    updated = await repo.update(
+        db,  # type: ignore[arg-type]
+        entity,
+        CoreEntityUpdate(name="新名", summary="新摘要"),
+    )
+
+    assert updated is entity
+    assert entity.name == "新名"
+    assert entity.summary == "新摘要"
+    assert db.added == [entity]
+    assert db.flush_count == 1
+
 
 # ============================================================
 # Fixtures
@@ -177,7 +332,7 @@ class TestWorldEntityService:
         novel_id: str,
     ) -> None:
         """测试获取不存在的对象返回 404"""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await entity_service.get(
                 db_session,
                 str(uuid.uuid4()),
@@ -187,6 +342,59 @@ class TestWorldEntityService:
 
 
 class TestWorldNovelIsolation:
+    @pytest.mark.asyncio
+    async def test_event_update_reuses_loaded_event(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repo = EventRepository()
+        entity_id = uuid.uuid4()
+        location_id = uuid.uuid4()
+        event = MagicMock()
+        event.entity_id = entity_id
+        event.timeline_order = 1
+        event.location_entity_id = None
+        event.occurrence_time_label = None
+        get_calls = 0
+
+        async def fake_get(_db, requested_id):
+            nonlocal get_calls
+            get_calls += 1
+            assert requested_id == entity_id
+            return event
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(repo, "get", fake_get)
+        db = Session()
+
+        updated = await repo.update(
+            db,  # type: ignore[arg-type]
+            entity_id,
+            EventUpdate(
+                location_entity_id=str(location_id),
+                timeline_order=3,
+                occurrence_time_label="第三章夜晚",
+            ),
+        )
+
+        assert updated is event
+        assert event.location_entity_id == location_id
+        assert event.timeline_order == 3
+        assert event.occurrence_time_label == "第三章夜晚"
+        assert get_calls == 1
+        assert db.added == [event]
+        assert db.flush_count == 1
+
     @pytest.mark.asyncio
     async def test_event_create_rejects_location_from_another_novel(
         self,
@@ -216,7 +424,7 @@ class TestWorldNovelIsolation:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await EventService().create(
                 db_session,
                 novel_id,
@@ -264,7 +472,7 @@ class TestWorldNovelIsolation:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await CharacterService().update_location(
                 db_session,
                 novel_id,
@@ -310,7 +518,7 @@ class TestWorldNovelIsolation:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await CharacterKnowledgeService().create(
                 db_session,
                 novel_id,
@@ -394,7 +602,7 @@ class TestWorldNovelIsolation:
         """PUT 不能绕过 promote 将候选资产提升为正史。"""
         created = await entity_service.create(db_session, novel_id, sample_entity_data)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await entity_service.update(
                 db_session,
                 created.id,
@@ -1202,6 +1410,173 @@ class TestUpsertRelationship:
         assert total == 1
         assert rels[0].description == "更新描述"
 
+    @pytest.mark.asyncio
+    async def test_deprecate_many_relations(
+        self,
+        db_session: AsyncSession,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        first = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(uuid.uuid4()),
+                target_id=str(uuid.uuid4()),
+                relation_type="controls",
+                status="canonical",
+            ),
+        )
+        second = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(uuid.uuid4()),
+                target_id=str(uuid.uuid4()),
+                relation_type="knows",
+                status="canonical",
+            ),
+        )
+
+        updated = await rel_repo.deprecate_many(
+            db_session,
+            [first.id, first.id, second.id],
+        )
+
+        assert updated == 2
+        assert (await rel_repo.get(db_session, first.id)).status == "deprecated"
+        assert (await rel_repo.get(db_session, second.id)).status == "deprecated"
+        assert await rel_repo.deprecate_many(db_session, []) == 0
+
+    @pytest.mark.asyncio
+    async def test_relation_update_reuses_loaded_object(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rel_repo = EntityRelationRepository()
+        relation = MagicMock()
+        relation.id = uuid.uuid4()
+        relation.description = "old"
+        relation.status = "canonical"
+        get_calls = 0
+
+        async def fake_get(_db, rel_id):
+            nonlocal get_calls
+            get_calls += 1
+            assert rel_id == relation.id
+            return relation
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(rel_repo, "get", fake_get)
+        db = Session()
+
+        updated = await rel_repo.update(
+            db,  # type: ignore[arg-type]
+            relation.id,
+            EntityRelationUpdate(description="new", status="deprecated"),
+        )
+
+        assert updated is relation
+        assert relation.description == "new"
+        assert relation.status == "deprecated"
+        assert get_calls == 1
+        assert db.added == [relation]
+        assert db.flush_count == 1
+
+    @pytest.mark.asyncio
+    async def test_relation_update_loaded_object_does_not_fetch_again(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rel_repo = EntityRelationRepository()
+        relation = MagicMock()
+        relation.description = "old"
+        relation.status = "canonical"
+
+        async def fail_get(_db, _rel_id):
+            raise AssertionError("loaded relation should be reused")
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(rel_repo, "get", fail_get)
+        db = Session()
+
+        updated = await rel_repo.update(
+            db,  # type: ignore[arg-type]
+            relation,  # type: ignore[arg-type]
+            EntityRelationUpdate(description="new", status="deprecated"),
+        )
+
+        assert updated is relation
+        assert relation.description == "new"
+        assert relation.status == "deprecated"
+        assert db.added == [relation]
+        assert db.flush_count == 1
+
+    @pytest.mark.asyncio
+    async def test_get_related_entity_ids_uses_batched_seed_lookup(
+        self,
+        db_session: AsyncSession,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source_id = uuid.uuid4()
+        middle_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+        await rel_repo.upsert(
+            db_session,
+            nid,
+            source_id,
+            middle_id,
+            "knows",
+            "A-B",
+        )
+        await rel_repo.upsert(
+            db_session,
+            nid,
+            middle_id,
+            target_id,
+            "knows",
+            "B-C",
+        )
+
+        async def fail_single_hop(*_args, **_kwargs):
+            raise AssertionError("single-seed related lookup must use batched helper")
+
+        monkeypatch.setattr(rel_repo, "_get_one_hop_ids", fail_single_hop)
+
+        related = await rel_repo.get_related_entity_ids(
+            db_session,
+            nid,
+            source_id,
+            depth=2,
+            limit=10,
+        )
+
+        assert {middle_id, target_id}.issubset(related)
+
 
 # ============================================================
 # Characterization tests for facade leaks (PR 2)
@@ -1772,7 +2147,7 @@ class TestEntityRelationServiceUpsert:
             status="canonical",
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await EntityRelationService().upsert(
                 db_session,
                 novel_id,

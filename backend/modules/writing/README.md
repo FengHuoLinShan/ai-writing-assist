@@ -107,6 +107,7 @@ Phase 2 AI 能力是显式追加，不影响规则层检查：
 - AI 软冲突判断保存为 `is_ai_judgment=true` 的问题项，保留 `source_confirmation_id`、`confidence`、`llm_rationale`；包含待确认对象或依赖待确认对象时标记 `needs_review=true`。
 - LLM 输出逐条校验；非法条目丢弃并记录到 `summary_json.ai_review.discarded_count`，LLM 失败只把 `ai_review_status` 置为 `failed`，不删除规则层结果。
 - `POST /api/writing/conflict-check-items/{id}/ai-suggestion` 需要 action 为 `writing.conflict_check.ai_suggestion` 的确认记录，只把最新建议写入该问题项，不修改正文、Scene、地图、世界对象、记忆或正史资产。
+- 前端把 AI 修复建议当作可编辑草稿展示；用户可修改后显式插入当前正文编辑器，插入只影响当前草稿和自动保存队列，不发布章节，也不自动把问题标记为已解决。
 
 ## 后续扩展方向
 

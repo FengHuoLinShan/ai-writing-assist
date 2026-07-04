@@ -308,6 +308,21 @@ async def bind_confirmed_action_result(
     )
 
 
+async def attach_result_refs(
+    db: AsyncSession,
+    *,
+    confirmation_id: str,
+    result_refs: list[dict[str, str]],
+    status: str = "running",
+) -> ContextConfirmationContract:
+    return await _confirmation_service.attach_result_refs(
+        db,
+        confirmation_id=confirmation_id,
+        result_refs=result_refs,
+        status=status,
+    )
+
+
 async def mark_asset_context_changed(
     db: AsyncSession,
     *,

@@ -7,10 +7,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import CoreEntityCreate
 from modules.world.services.dedup_service import EntityDedupService
@@ -99,10 +98,7 @@ class EntityExtractionService:
         # 2. 单章读取 WritingDraft
         chapters = await self._load_chapters(db, novel_id, start_chapter, end_chapter)
         if not chapters:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"未找到章节 {start_chapter}-{end_chapter} 的正文",
-            )
+            raise ValidationError(f"未找到章节 {start_chapter}-{end_chapter} 的正文")
 
         # 3. 单章顺序抽取
         from pydantic import BaseModel

@@ -8,15 +8,15 @@ FRONTEND_DIR := $(ROOT_DIR)frontend-console
 
 dev: kill-processes db  ## Start all dev services
 	@echo "=== Starting all services ==="
-	@(cd $(BACKEND_DIR) && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000) & backend_pid=$$!; \
+	@(cd $(BACKEND_DIR) && python scripts/dev_server.py --host 0.0.0.0 --port 8000) & backend_pid=$$!; \
 	(cd $(BACKEND_DIR) && python run_worker.py --reload) & worker_pid=$$!; \
-	(cd $(FRONTEND_DIR) && python -m http.server 8080) & frontend_pid=$$!; \
+	(cd $(FRONTEND_DIR) && FRONTEND_PORT=8080 npm run dev) & frontend_pid=$$!; \
 	trap 'kill $$backend_pid $$worker_pid $$frontend_pid 2>/dev/null || true' INT TERM EXIT; \
 	sleep 2; \
 	echo ""; \
 	echo "=== Services started ==="; \
 	echo "  Backend:  http://localhost:8000 (--reload)"; \
-	echo "  Frontend: http://localhost:8080"; \
+	echo "  Frontend: http://localhost:8080 (Vite hot reload)"; \
 	echo "  Worker:   running with --reload"; \
 	echo "  Press Ctrl+C to stop all"; \
 	wait
@@ -24,13 +24,13 @@ dev: kill-processes db  ## Start all dev services
 # ─── Individual Services ────────────────────────────
 
 dev-backend:  ## Start backend API server (foreground, --reload)
-	cd $(BACKEND_DIR) && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	cd $(BACKEND_DIR) && python scripts/dev_server.py --host 0.0.0.0 --port 8000
 
 dev-worker:  ## Start task worker (foreground, --reload)
 	cd $(BACKEND_DIR) && python run_worker.py --reload
 
-dev-frontend:  ## Start frontend HTTP server (foreground)
-	cd $(FRONTEND_DIR) && python -m http.server 8080
+dev-frontend:  ## Start frontend Vite dev server (foreground, hot reload)
+	cd $(FRONTEND_DIR) && FRONTEND_PORT=8080 npm run dev
 
 # ─── Database ───────────────────────────────────────
 
@@ -84,15 +84,13 @@ kill:  ## Stop all services
 	@echo "=== Stopping services ==="
 	-pkill -f "uvicorn app.main:app" 2>/dev/null || true
 	-pkill -f "run_worker.py" 2>/dev/null || true
-	-pkill -f "python -m http.server 8080" 2>/dev/null || true
-	-pkill -f "python3 -m http.server 8080" 2>/dev/null || true
+	-pkill -f "vite.*8080" 2>/dev/null || true
 	@echo "Done."
 
 kill-processes:
 	-pkill -f "uvicorn app.main:app" 2>/dev/null || true
 	-pkill -f "run_worker.py" 2>/dev/null || true
-	-pkill -f "python -m http.server 8080" 2>/dev/null || true
-	-pkill -f "python3 -m http.server 8080" 2>/dev/null || true
+	-pkill -f "vite.*8080" 2>/dev/null || true
 
 # ─── Help ───────────────────────────────────────────
 

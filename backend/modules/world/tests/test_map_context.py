@@ -11,9 +11,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from modules.world.map_models import MapConfig
 from modules.world.services.map_context import MapContext
 from modules.world.tests.helpers import _create_entity, _create_map_config
@@ -50,7 +50,7 @@ async def test_require_missing_returns_404(
     ctx = MapContext()
     fake_id = uuid.uuid4().hex
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         if target == "map":
             await ctx.require_map(db_session, project_novel_id, fake_id)
         else:
@@ -71,7 +71,7 @@ async def test_require_cross_novel_returns_404(
     nid1, nid2 = two_projects
     ctx = MapContext()
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         if target == "map":
             await ctx.require_map(db_session, nid2, str(world_map_config.id))
         else:
@@ -107,7 +107,7 @@ async def test_require_entity_with_allowed_types(
     )
     assert result.id == uuid.UUID(hex=organization_entity_id)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await ctx.require_entity(
             db_session,
             project_novel_id,
@@ -154,7 +154,7 @@ async def test_assert_hex_in_bounds_out_of_range_returns_400(
 
     ctx = MapContext()
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         ctx.assert_hex_in_bounds(config, hex_q, hex_r)
     assert exc.value.status_code == 400
     assert expected_field in exc.value.detail

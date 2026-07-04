@@ -48,6 +48,36 @@ class TestRetrievalOrchestratorDedup:
         result = orch._deduplicate_by_embedding([(chunk_a, 0.9), (chunk_b, 0.8)])
         assert len(result) == 2
 
+    def test_deduplicate_limits_embedding_comparison_window(self, monkeypatch) -> None:
+        calls = 0
+
+        def _count_similarity(_a, _b):
+            nonlocal calls
+            calls += 1
+            return 0.0
+
+        monkeypatch.setattr("modules.rag.scoring.cosine_similarity", _count_similarity)
+        chunks = [
+            type(
+                "Chunk",
+                (),
+                {
+                    "embedding": [1.0 if i == j else 0.0 for j in range(80)],
+                    "char_count": 100 + i,
+                },
+            )()
+            for i in range(80)
+        ]
+        orch = RetrievalOrchestrator()
+
+        result = orch._deduplicate_by_embedding(
+            [(chunk, 1.0) for chunk in chunks],
+            max_candidates=20,
+        )
+
+        assert len(result) == 80
+        assert calls <= 190
+
 
 class TestRetrievalOrchestratorInjected:
     @pytest.mark.asyncio

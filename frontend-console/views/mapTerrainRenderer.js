@@ -28,25 +28,6 @@ export function drawTerrainLayers(ctx, terrainState = {}, { hexSize = 30, editMo
   }
 }
 
-export function buildTerrainHitObjects(terrainState = {}, toPoint) {
-  return (terrainState.patches || []).map((patch) => {
-    const point = typeof toPoint === "function"
-      ? toPoint(patch.hex_q, patch.hex_r)
-      : { x: patch.hex_q, y: patch.hex_r }
-    return {
-      id: patch.id || `${patch.region_id}:${patch.hex_q},${patch.hex_r}`,
-      type: "terrain_patch",
-      region_id: patch.region_id,
-      layer_id: patch.layer_id,
-      hex_q: patch.hex_q,
-      hex_r: patch.hex_r,
-      point,
-      radius: 18,
-      priority: 10,
-    }
-  })
-}
-
 function drawPatch(ctx, patch, layer, hexSize, editMode) {
   const [x, y] = hexToPixel(patch.hex_q, patch.hex_r, hexSize)
   const corners = hexCorners(hexSize)

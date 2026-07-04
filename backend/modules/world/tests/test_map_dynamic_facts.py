@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.services.map_open_target_service import MapOpenTargetService
 from modules.world.tests.helpers import _create_entity, _create_project
 
 
@@ -677,6 +680,27 @@ async def test_open_target_falls_back_with_visible_message(
 
 
 @pytest.mark.asyncio
+async def test_open_target_default_map_uses_first_lookup_without_count() -> None:
+    owner = MagicMock()
+    map_config = MagicMock()
+    map_config.id = uuid.uuid4()
+    owner._map_repo.first_by_novel = AsyncMock(return_value=map_config)
+    owner._map_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("open target should not count maps")
+    )
+
+    target = await MapOpenTargetService(owner).get_open_target(
+        MagicMock(),
+        uuid.uuid4().hex,
+    )
+
+    assert target.mode == "map"
+    assert target.map_id == str(map_config.id)
+    owner._map_repo.first_by_novel.assert_awaited_once()
+    owner._map_repo.get_by_novel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_dashboard_scene_filter_and_object_labels_are_author_facing(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -775,6 +799,13 @@ async def test_observation_review_rejects_cross_map_and_public_confirmed_create(
     )
     assert patch_resp.status_code == 404
 
+    direct_confirm = await async_client.patch(
+        f"/api/world/maps/{map_a_id}/observations/{observation_id}",
+        params={"novel_id": nid},
+        json={"review_state": "confirmed"},
+    )
+    assert direct_confirm.status_code == 422
+
     ignore_resp = await async_client.post(
         f"/api/world/maps/{map_b_id}/observations/{observation_id}/ignore",
         params={"novel_id": nid},
@@ -786,6 +817,67 @@ async def test_observation_review_rejects_cross_map_and_public_confirmed_create(
         params={"novel_id": nid},
     )
     assert confirm_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_observation_field_patch_is_copied_to_confirmed_fact(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+    created = await async_client.post(
+        f"/api/world/maps/{map_id}/observations",
+        params={"novel_id": nid},
+        json={
+            "target_name": "沈砚",
+            "target_entity_type": "character",
+            "dynamic_type": "position_change",
+            "time_anchor": {"chapter": 1},
+            "spatial_anchor": {"q": 1, "r": 1},
+            "value_json": {"field": "location", "old": "东门", "new": "内城"},
+            "confidence": 0.4,
+            "evidence_text": "原始证据",
+        },
+    )
+    assert created.status_code == 201, created.text
+    observation_id = created.json()["id"]
+
+    patched = await async_client.patch(
+        f"/api/world/maps/{map_id}/observations/{observation_id}",
+        params={"novel_id": nid},
+        json={
+            "review_state": "candidate",
+            "target_name": "沈砚修订",
+            "time_anchor": {"chapter": 2},
+            "spatial_anchor": {"q": 2, "r": 3},
+            "value_json": {"field": "location", "old": "东门", "new": "内城西侧"},
+            "confidence": 0.88,
+            "evidence_text": "用户修订证据",
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["target_name"] == "沈砚修订"
+    assert patched.json()["value_json"]["new"] == "内城西侧"
+
+    confirmed = await async_client.post(
+        f"/api/world/maps/{map_id}/observations/{observation_id}/confirm",
+        params={"novel_id": nid},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    fact = confirmed.json()
+    assert fact["target_name"] == "沈砚修订"
+    assert fact["time_anchor"] == {"chapter": 2}
+    assert fact["spatial_anchor"] == {"q": 2, "r": 3}
+    assert fact["value_json"]["new"] == "内城西侧"
+    assert fact["confidence"] == 0.88
+    assert fact["evidence_text"] == "用户修订证据"
 
 
 @pytest.mark.asyncio
@@ -870,6 +962,154 @@ async def test_batch_review_and_fact_status_soft_updates_dashboard_and_playback(
 
 
 @pytest.mark.asyncio
+async def test_batch_review_ignore_updates_observations_in_one_statement(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+    created_ids = []
+    for name in ["沈砚", "林照", "陆离"]:
+        resp = await async_client.post(
+            f"/api/world/maps/{map_id}/observations",
+            params={"novel_id": nid},
+            json={
+                "target_name": name,
+                "target_entity_type": "character",
+                "dynamic_type": "position_change",
+                "confidence": 0.8,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        created_ids.append(resp.json()["id"])
+
+    engine = db_session.bind.sync_engine
+    observation_selects: list[str] = []
+    observation_updates: list[str] = []
+
+    def count_observation_statements(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.lower().split())
+        if (
+            normalized.startswith("select")
+            and " from map_observations" in normalized
+        ):
+            observation_selects.append(normalized)
+        if normalized.startswith("update map_observations"):
+            observation_updates.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", count_observation_statements)
+    try:
+        batch = await async_client.post(
+            f"/api/world/maps/{map_id}/observations/batch-review",
+            params={"novel_id": nid},
+            json={"observation_ids": created_ids, "action": "ignore"},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_observation_statements)
+
+    assert batch.status_code == 200, batch.text
+    batch_body = batch.json()
+    assert batch_body["updated_count"] == 3
+    assert [item["review_state"] for item in batch_body["observations"]] == [
+        "ignored",
+        "ignored",
+        "ignored",
+    ]
+    assert len(observation_selects) == 2
+    assert len(observation_updates) == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_review_confirm_reuses_prefetched_observations(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+    created_ids = []
+    for name in ["沈砚", "林照", "陆离"]:
+        resp = await async_client.post(
+            f"/api/world/maps/{map_id}/observations",
+            params={"novel_id": nid},
+            json={
+                "target_name": name,
+                "target_entity_type": "character",
+                "dynamic_type": "position_change",
+                "confidence": 0.8,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        created_ids.append(resp.json()["id"])
+
+    engine = db_session.bind.sync_engine
+    observation_selects: list[str] = []
+    observation_updates: list[str] = []
+    fact_selects: list[str] = []
+
+    def count_batch_confirm_statements(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.lower().split())
+        if (
+            normalized.startswith("select")
+            and " from map_observations" in normalized
+        ):
+            observation_selects.append(normalized)
+        if normalized.startswith("update map_observations"):
+            observation_updates.append(normalized)
+        if normalized.startswith("select") and " from map_facts" in normalized:
+            fact_selects.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", count_batch_confirm_statements)
+    try:
+        batch = await async_client.post(
+            f"/api/world/maps/{map_id}/observations/batch-review",
+            params={"novel_id": nid},
+            json={"observation_ids": created_ids, "action": "confirm"},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_batch_confirm_statements)
+
+    assert batch.status_code == 200, batch.text
+    batch_body = batch.json()
+    assert batch_body["updated_count"] == 3
+    assert batch_body["created_fact_count"] == 3
+    assert [item["review_state"] for item in batch_body["observations"]] == [
+        "confirmed",
+        "confirmed",
+        "confirmed",
+    ]
+    assert len(batch_body["facts"]) == 3
+    assert len(observation_selects) == 2
+    assert len(observation_updates) == 1
+    assert len(fact_selects) == 1
+
+
+@pytest.mark.asyncio
 async def test_batch_actions_review_candidates_and_update_fact_status(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -923,6 +1163,84 @@ async def test_batch_actions_review_candidates_and_update_fact_status(
 
     assert rolled_back.status_code == 200, rolled_back.text
     assert rolled_back.json()["facts"][0]["fact_status"] == "rolled_back"
+
+
+@pytest.mark.asyncio
+async def test_batch_action_update_fact_status_updates_facts_in_one_statement(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    map_resp = await async_client.post(
+        "/api/world/maps",
+        params={"novel_id": nid},
+        json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
+    )
+    map_id = map_resp.json()["id"]
+    fact_ids = []
+    for name in ["沈砚", "林照", "陆离"]:
+        obs_resp = await async_client.post(
+            f"/api/world/maps/{map_id}/observations",
+            params={"novel_id": nid},
+            json={
+                "target_name": name,
+                "target_entity_type": "character",
+                "dynamic_type": "position_change",
+                "confidence": 0.8,
+            },
+        )
+        fact_resp = await async_client.post(
+            f"/api/world/maps/{map_id}/observations/{obs_resp.json()['id']}/confirm",
+            params={"novel_id": nid},
+        )
+        assert fact_resp.status_code == 200, fact_resp.text
+        fact_ids.append(fact_resp.json()["id"])
+
+    engine = db_session.bind.sync_engine
+    fact_selects: list[str] = []
+    fact_updates: list[str] = []
+
+    def count_fact_statements(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from map_facts" in normalized:
+            fact_selects.append(normalized)
+        if normalized.startswith("update map_facts"):
+            fact_updates.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", count_fact_statements)
+    try:
+        response = await async_client.post(
+            f"/api/world/maps/{map_id}/batch-actions",
+            params={"novel_id": nid},
+            json={
+                "action": "update_fact_status",
+                "fact_ids": fact_ids,
+                "patch": {"fact_status": "rolled_back"},
+                "confirmation_text": "确认批量修改",
+            },
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_fact_statements)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["requested_count"] == 3
+    assert body["updated_count"] == 3
+    assert [fact["fact_status"] for fact in body["facts"]] == [
+        "rolled_back",
+        "rolled_back",
+        "rolled_back",
+    ]
+    assert len(fact_selects) == 2
+    assert len(fact_updates) == 1
 
 
 @pytest.mark.asyncio

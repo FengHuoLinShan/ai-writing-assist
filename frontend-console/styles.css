@@ -198,6 +198,10 @@ html, body {
   letter-spacing: var(--tracking-normal);
 }
 
+.hidden {
+  display: none !important;
+}
+
 /* 滚动条 */
 ::-webkit-scrollbar {
   width: 6px;
@@ -2113,8 +2117,15 @@ html, body {
 #modal-footer {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-6) var(--space-8);
+  overflow: visible;
+}
+
+#modal-footer .btn {
+  max-width: 100%;
+  white-space: normal;
 }
 
 /* ===== Toast 通知 ===== */
@@ -3773,6 +3784,26 @@ kbd {
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+}
+
+.scene-workbench-pagination {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px 8px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.scene-workbench-pagination span {
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 .scene-workbench-row {

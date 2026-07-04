@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
+from sqlalchemy.sql.dml import Update
+from sqlalchemy.sql.selectable import Select
 
+from core.errors import NotFoundError
 from modules.outline.schemas import (
     OutlineArcCreate,
     PlotThreadCreate,
@@ -15,9 +18,82 @@ from modules.outline.schemas import (
 )
 from modules.outline.services import (
     OutlineArcService,
+    OutlineStructureCleanupService,
     PlotThreadService,
     SceneService,
 )
+
+
+def test_outline_facade_has_no_direct_http_exception_dependency() -> None:
+    source = Path("backend/modules/outline/facade.py").read_text()
+
+    assert "from fastapi import HTTPException" not in source
+    assert "except HTTPException" not in source
+
+
+@pytest.mark.asyncio
+async def test_structure_cleanup_uses_unit_of_work_instead_of_per_asset_update() -> None:
+    workflow_id = "wf-cleanup"
+    asset = MagicMock()
+    asset.provenance_meta = {
+        "source": "deep_import",
+        "workflow_id": workflow_id,
+        "auto_ingested": True,
+    }
+    asset.status = "draft"
+
+    class Result:
+        def scalars(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def all(self):  # type: ignore[no-untyped-def]
+            return [asset]
+
+    class Session:
+        def __init__(self) -> None:
+            self.statements: list[object] = []
+            self.flushes = 0
+
+        async def execute(self, stmt):  # type: ignore[no-untyped-def]
+            self.statements.append(stmt)
+            return Result()
+
+        def add(self, item):  # type: ignore[no-untyped-def]
+            assert item is asset
+
+        async def flush(self) -> None:
+            self.flushes += 1
+
+    session = Session()
+
+    deprecated = await (
+        OutlineStructureCleanupService()
+        .deprecate_deep_import_structure_assets_by_workflow(
+            session,  # type: ignore[arg-type]
+            str(uuid.uuid4()),
+            workflow_id,
+        )
+    )
+
+    assert deprecated == 4
+    assert session.flushes == 1
+    assert all(isinstance(stmt, Select) for stmt in session.statements)
+    assert not any(isinstance(stmt, Update) for stmt in session.statements)
+    assert asset.status == "deprecated"
+    assert asset.provenance_meta["cleanup_status"] == "deprecated"
+
+
+@pytest.mark.asyncio
+async def test_get_scene_contract_returns_none_for_domain_not_found(monkeypatch) -> None:
+    from modules.outline.facade import get_scene_contract
+
+    service = MagicMock()
+    service.get = AsyncMock(side_effect=NotFoundError("Scene missing"))
+    monkeypatch.setattr("modules.outline.services.SceneService", lambda: service)
+
+    result = await get_scene_contract(MagicMock(), str(uuid.uuid4()), str(uuid.uuid4()))
+
+    assert result is None
 
 
 def _make_thread(
@@ -140,6 +216,34 @@ class TestPlotThreadService:
         svc.repo.create.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_create_batch_delegates_to_repository_batch(
+        self,
+        sample_novel_id: str,
+    ) -> None:
+        threads = [
+            _make_thread(novel_id=sample_novel_id, name="批量线 1"),
+            _make_thread(novel_id=sample_novel_id, name="批量线 2"),
+        ]
+        svc = PlotThreadService()
+        svc.repo = MagicMock()
+        svc.repo.create = AsyncMock(side_effect=AssertionError("should use create_many"))
+        svc.repo.create_many = AsyncMock(return_value=threads)
+        db = MagicMock()
+
+        result = await svc.create_batch(
+            db,
+            sample_novel_id,
+            [
+                PlotThreadCreate(name="批量线 1", thread_type="main"),
+                PlotThreadCreate(name="批量线 2", thread_type="secondary"),
+            ],
+        )
+
+        assert [item.name for item in result] == ["批量线 1", "批量线 2"]
+        svc.repo.create.assert_not_awaited()
+        svc.repo.create_many.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_list_returns_paginated(
         self,
         sample_novel_id: str,
@@ -178,7 +282,7 @@ class TestPlotThreadService:
         svc.repo.delete = AsyncMock(return_value=True)
         db = MagicMock()
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             if operation == "get":
                 await svc.get(db, str(thread.id), novel_id=other_novel_id)
             else:
@@ -384,6 +488,34 @@ class TestOutlineArcService:
         assert fetched.title == "第一卷：启程"
 
     @pytest.mark.asyncio
+    async def test_create_batch_delegates_to_repository_batch(
+        self,
+        sample_novel_id: str,
+    ) -> None:
+        arcs = [
+            _make_arc(novel_id=sample_novel_id, title="批量篇章 1"),
+            _make_arc(novel_id=sample_novel_id, title="批量篇章 2"),
+        ]
+        svc = OutlineArcService()
+        svc.repo = MagicMock()
+        svc.repo.create = AsyncMock(side_effect=AssertionError("should use create_many"))
+        svc.repo.create_many = AsyncMock(return_value=arcs)
+        db = MagicMock()
+
+        result = await svc.create_batch(
+            db,
+            sample_novel_id,
+            [
+                OutlineArcCreate(title="批量篇章 1", arc_index=1),
+                OutlineArcCreate(title="批量篇章 2", arc_index=2),
+            ],
+        )
+
+        assert [item.title for item in result] == ["批量篇章 1", "批量篇章 2"]
+        svc.repo.create.assert_not_awaited()
+        svc.repo.create_many.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_get_by_chapter(
         self,
         sample_novel_id: str,
@@ -431,7 +563,7 @@ class TestOutlineArcService:
         db = MagicMock()
 
         # wrong novel_id should raise 404
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.get(db, str(arc.id), novel_id=other_novel_id)
         assert exc.value.status_code == 404
         # correct novel_id returns the arc

@@ -4,10 +4,9 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError, NotFoundError
 from modules.world.map_schemas import (
     MapDashboardBatchGroup,
     MapDashboardInspector,
@@ -759,9 +758,9 @@ class MapDynamicHelperMixin:
         novel_id: uuid.UUID,
     ) -> None:
         if observation is None or observation.novel_id != novel_id:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapObservation {observation_id} not found",
+            raise NotFoundError(
+                f"MapObservation {observation_id} not found",
+                code="map_observation_not_found",
             )
 
     def _assert_observation_in_map(
@@ -771,9 +770,9 @@ class MapDynamicHelperMixin:
         map_id: uuid.UUID,
     ) -> None:
         if observation.map_id is not None and observation.map_id != map_id:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapObservation {observation_id} not found",
+            raise NotFoundError(
+                f"MapObservation {observation_id} not found",
+                code="map_observation_not_found",
             )
 
     def _assert_fact_access(
@@ -784,10 +783,7 @@ class MapDynamicHelperMixin:
         map_id: uuid.UUID,
     ) -> None:
         if fact is None or fact.novel_id != novel_id or fact.map_id != map_id:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapFact {fact_id} not found",
-            )
+            raise NotFoundError(f"MapFact {fact_id} not found", code="map_fact_not_found")
 
     def _assert_spatial_anchor_in_bounds(self, config: Any, spatial_anchor: dict) -> None:
         if "hex_q" not in spatial_anchor or "hex_r" not in spatial_anchor:
@@ -809,7 +805,7 @@ class MapDynamicHelperMixin:
         try:
             config = await self._ctx.require_map(db, novel_id, str(raw_map_id))
             return config.id
-        except (HTTPException, TypeError, ValueError):
+        except (DomainError, TypeError, ValueError):
             logger.warning("Ignoring invalid map_id in map observation: %r", raw_map_id)
             return None
 

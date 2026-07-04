@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
+from core.errors import NotFoundError, ValidationError
 from modules.world.models import CharacterKnowledge
 from modules.world.repositories import (
     CharacterKnowledgeRepository,
@@ -22,7 +22,6 @@ from modules.world.schemas import (
     CharacterKnowledgeResponse,
     CharacterKnowledgeUpdate,
 )
-from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -33,9 +32,9 @@ def _require_misconception_for_false_level(
 ) -> None:
     """false_belief / misunderstood 必须提供 misconception。"""
     if level in {"false_belief", "misunderstood"} and not misconception:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="false_belief/misunderstood knowledge must provide misconception",
+        raise ValidationError(
+            "false_belief/misunderstood knowledge must provide misconception",
+            status_code=422,
         )
 
 
@@ -73,10 +72,7 @@ class CharacterKnowledgeService(
         cid = parse_uuid(data.character_id, "character_id")
         char = await self._character_repo.get(db, cid)
         if char is None or char.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Character not found in this novel",
-            )
+            raise NotFoundError("Character not found in this novel")
         await self._assert_target_in_novel(db, nid, data.target_type, data.target_id)
         # Schema 已做基础校验；服务层再次检查作为 defense-in-depth，
         # 确保任何绕过 schema 的情况都能返回受控的 HTTP 422 错误信息。
@@ -133,10 +129,7 @@ class CharacterKnowledgeService(
             or target.novel_id != novel_id
             or getattr(target, "status", None) == "deprecated"
         ):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Knowledge target not found in this novel",
-            )
+            raise NotFoundError("Knowledge target not found in this novel")
 
     # ============================================================
     # list 加按 character_id 过滤 (base 的 list 是按 novel_id 列表)

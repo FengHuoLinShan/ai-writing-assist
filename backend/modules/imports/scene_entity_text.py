@@ -12,6 +12,7 @@ from modules.imports.scene_entity_config import (
     PHASE2_SMALL_SAMPLE_SUPPLEMENT_CHAPTER_CHAR_LIMIT,
     PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT,
 )
+from modules.writing.contracts import WritingDraftContract
 
 
 async def get_scenes(db: AsyncSession, nid) -> list[dict[str, Any]]:
@@ -29,15 +30,19 @@ async def load_small_sample_chapters_text(
     db: AsyncSession,
     scenes: list[dict[str, Any]],
 ) -> str:
-    from modules.writing.facade import get_latest_draft_for_chapter
+    from modules.writing.facade import list_latest_drafts_for_chapters
 
+    if not scenes:
+        return ""
+    chapter_indices = service._small_sample_chapter_indices(scenes)
+    if not chapter_indices:
+        return ""
+    novel_id = scenes[0]["novel_id"]
+    drafts = await list_latest_drafts_for_chapters(db, novel_id, chapter_indices)
+    draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
     parts: list[str] = []
-    for chapter_index in service._small_sample_chapter_indices(scenes):
-        draft = await get_latest_draft_for_chapter(
-            db,
-            scenes[0]["novel_id"],
-            chapter_index,
-        )
+    for chapter_index in chapter_indices:
+        draft = draft_by_chapter.get(chapter_index)
         if draft and draft.content:
             parts.append(
                 f"## 第{chapter_index}章\n\n"
@@ -76,21 +81,48 @@ def scene_source_chapter_index(scene: dict[str, Any]) -> int:
     return max(indices) if indices else scene.get("scene_index", 0)
 
 async def load_scene_chapters(service, db: AsyncSession, scene: dict[str, Any]) -> str:
-    from modules.writing.facade import get_latest_draft_for_chapter
+    from modules.writing.facade import list_latest_drafts_for_chapters
 
-    parts: list[str] = []
     chunk_by_chapter = service._scene_chunks_by_chapter(scene)
     chapter_ids = service._scene_chapter_ids(scene, chunk_by_chapter)
+    chapter_indices = scene_chapter_indices(chapter_ids)
+
+    drafts = await list_latest_drafts_for_chapters(
+        db,
+        scene["novel_id"],
+        chapter_indices,
+    )
+    draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
+    return scene_text_from_drafts(
+        service,
+        scene,
+        chapter_indices,
+        chunk_by_chapter,
+        draft_by_chapter,
+    )
+
+
+def scene_chapter_indices(chapter_ids: list[str] | tuple[str, ...]) -> list[int]:
+    chapter_indices: list[int] = []
     for ch_id_str in chapter_ids:
         try:
             ch_idx = int(ch_id_str)
         except (ValueError, TypeError):
             continue
-        draft = await get_latest_draft_for_chapter(
-            db,
-            scene["novel_id"],
-            ch_idx,
-        )
+        chapter_indices.append(ch_idx)
+    return chapter_indices
+
+
+def scene_text_from_drafts(
+    service,
+    scene: dict[str, Any],
+    chapter_indices: list[int],
+    chunk_by_chapter: dict[int, list[dict[str, Any]]],
+    draft_by_chapter: dict[int, WritingDraftContract],
+) -> str:
+    parts: list[str] = []
+    for ch_idx in chapter_indices:
+        draft = draft_by_chapter.get(ch_idx)
         if draft and draft.content:
             selected = service._select_scene_text(
                 draft.content,

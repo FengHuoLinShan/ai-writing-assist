@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.models import ImportRecord
 from modules.imports.parsers import parse_txt
@@ -258,7 +258,7 @@ class TestRealFileImportService:
             real_file_bytes,
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(DomainValidationError) as exc_info:
             await service.upload_and_import(
                 db_session,
                 real_project,

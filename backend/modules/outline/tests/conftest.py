@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.main import app
-from core.dependencies import get_db
 from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
 
 
@@ -21,22 +17,6 @@ def sample_novel_id() -> str:
 @pytest.fixture
 def other_novel_id() -> str:
     return str(uuid.uuid4())
-
-
-@pytest_asyncio.fixture
-async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """FastAPI test client with SQLite db override"""
-
-    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-
-    app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture

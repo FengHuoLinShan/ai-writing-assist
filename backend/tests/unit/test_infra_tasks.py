@@ -371,6 +371,18 @@ class TestCancelTask:
 class TestTaskWorkerInitAndProps:
     """TaskWorker 初始化和属性"""
 
+    def test_worker_registers_batched_writing_draft_provider_dependency(self) -> None:
+        """Worker DI 注册集必须覆盖后台世界抽取需要的正文批量接口。"""
+        from core.container import get, reset
+        from infrastructure.tasks.worker import _register_container_services
+
+        reset()
+        try:
+            _register_container_services()
+            assert callable(get("writing.list_latest_drafts_for_chapters"))
+        finally:
+            reset()
+
     def test_init_defaults(self) -> None:
         """GREEN: 默认初始化使用全局常量"""
         from infrastructure.tasks.worker import TaskWorker

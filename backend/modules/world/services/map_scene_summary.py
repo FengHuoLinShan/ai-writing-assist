@@ -6,10 +6,9 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.world.map_models import MapLocationBinding, MapMarker
 from modules.world.map_repositories import (
     MapFactRepository,
@@ -78,10 +77,7 @@ class MapSceneSummaryService:
     ) -> MapSceneSummaryResponse:
         scene = await self._scene_lookup(db, novel_id, scene_id)
         if scene is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Scene {scene_id} not found",
-            )
+            raise NotFoundError(f"Scene {scene_id} not found", code="scene_not_found")
 
         nid = parse_uuid(novel_id, "novel_id")
         sid = parse_uuid(scene_id, "scene_id")
@@ -89,9 +85,13 @@ class MapSceneSummaryService:
         markers = await self._marker_repo.get_by_scene(
             db, nid, scene_id=sid, scene_index=scene_index
         )
-        marker_statuses = await self._load_entity_statuses(
+        marker_entities = await self._load_entities_by_id(
             db, nid, [m.entity_id for m in markers]
         )
+        marker_statuses = {
+            entity_id: getattr(entity, "status", None)
+            for entity_id, entity in marker_entities.items()
+        }
         markers = [
             m for m in markers if marker_statuses.get(m.entity_id) == "canonical"
         ]
@@ -108,7 +108,11 @@ class MapSceneSummaryService:
                 nid,
                 sid,
             )
-        entity_names = await self._load_entity_names(db, nid, markers)
+        entity_names = {
+            marker.entity_id: getattr(marker_entities[marker.entity_id], "name", "")
+            for marker in markers
+            if marker.entity_id in marker_entities
+        }
         warnings: list[MapSceneSummaryWarning] = []
 
         if selected_map_id is None:
@@ -190,25 +194,17 @@ class MapSceneSummaryService:
         source = explicit or markers
         return source[0].map_id if source else None
 
-    async def _load_entity_names(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        markers: list[MapMarker],
-    ) -> dict[uuid.UUID, str]:
-        ids = list({m.entity_id for m in markers})
-        entities = await self._entity_repo.get_by_ids(db, novel_id, ids)
-        return {e.id: e.name for e in entities}
-
-    async def _load_entity_statuses(
+    async def _load_entities_by_id(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         entity_ids: list[Any],
-    ) -> dict[uuid.UUID, str]:
+    ) -> dict[uuid.UUID, Any]:
         ids = list({entity_id for entity_id in entity_ids if entity_id is not None})
+        if not ids:
+            return {}
         entities = await self._entity_repo.get_by_ids(db, novel_id, ids)
-        return {e.id: e.status for e in entities}
+        return {e.id: e for e in entities}
 
     def _marker_items(
         self,
@@ -244,15 +240,16 @@ class MapSceneSummaryService:
         map_id: uuid.UUID,
         markers: list[MapMarker],
     ) -> MapSceneSummaryItem | None:
-        bindings = await self._binding_repo.get_by_map(db, novel_id, map_id)
-        binding_statuses = await self._load_entity_statuses(
-            db, novel_id, [b.location_entity_id for b in bindings]
+        marker_hexes = list(
+            dict.fromkeys((marker.hex_q, marker.hex_r) for marker in markers)
         )
-        bindings = [
-            b
-            for b in bindings
-            if binding_statuses.get(b.location_entity_id) == "canonical"
-        ]
+        bindings = await self._binding_repo.get_by_hexes_for_entity_statuses(
+            db,
+            novel_id,
+            map_id,
+            marker_hexes,
+            statuses=["canonical"],
+        )
         by_hex: dict[tuple[int, int], list[MapLocationBinding]] = {}
         for binding in bindings:
             by_hex.setdefault((binding.hex_q, binding.hex_r), []).append(binding)
@@ -283,12 +280,12 @@ class MapSceneSummaryService:
         markers: list[MapMarker],
     ) -> list[MapSceneSummaryItem]:
         seen: set[uuid.UUID] = set()
-        territory_rows = []
-        for marker in markers:
-            rows = await self._territory_repo.get_by_hex(
-                db, novel_id, map_id, marker.hex_q, marker.hex_r
-            )
-            territory_rows.extend(rows)
+        marker_hexes = list(
+            dict.fromkeys((marker.hex_q, marker.hex_r) for marker in markers)
+        )
+        territory_rows = await self._territory_repo.get_by_hexes(
+            db, novel_id, map_id, marker_hexes
+        )
         entity_ids = [t.faction_entity_id for t in territory_rows]
         entities = await self._entity_repo.get_by_ids(db, novel_id, entity_ids)
         statuses = {e.id: e.status for e in entities}

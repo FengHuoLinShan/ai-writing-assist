@@ -132,9 +132,12 @@ Scene 工作台是 Scene 管理、章节映射和结构整理的主入口；大�
 不自动阻断。合并来源 Scene 标记为 `deprecated` 而不是硬删除；拆分只调整映射并
 创建新 Scene，不修改正文内容。
 
-手动 Scene 融合先走 `fusion/preview`，再由用户选择保留原 Scene、保存并废弃原
+Scene 工作台区分机械合并和 AI 融合草稿。机械合并由目标 Scene 吸收来源 Scene，
+来源标记为 `deprecated`；AI 融合先由用户选择 `primary_scene_id`，`fusion/preview`
+返回可编辑草稿、字段来源引用和冲突提示，再由用户选择保留原 Scene、保存并废弃原
 Scene、放弃结果或继续编辑后保存。只有“保存并废弃原 Scene”会把来源 Scene 标记为
-`deprecated`；所有融合新 Scene 都记录 `structure_meta.fused_from_scene_ids`。
+`deprecated`；所有融合新 Scene 都记录 `structure_meta.fused_from_scene_ids` 和主
+Scene 信息。
 
 剧情线、篇章纲、伏笔和揭示列表支持按 `status`、`source`、`workflow_id`、
 `needs_review`、分页参数筛选；`source` / `workflow_id` / `needs_review` 来自

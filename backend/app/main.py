@@ -22,6 +22,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from core.config import get_settings
 from core.container import register as _register
 from core.database import get_manager
+from core.errors import DomainError
 from infrastructure.embedding.client import (
     BgeEmbeddingClient,
     prewarm_embedding_worker,
@@ -48,6 +49,7 @@ from modules.rag.facade import (
 )
 from modules.writing.facade import (
     get_latest_draft_for_chapter as _writing_get_draft,
+    list_latest_drafts_for_chapters as _writing_list_latest_drafts,
     list_chapter_indices as _writing_list_indices,
 )
 from modules.world.facade import (
@@ -91,6 +93,7 @@ def _register_container_services() -> None:
 
     _register("writing.list_chapter_indices", _writing_list_indices)
     _register("writing.get_latest_draft_for_chapter", _writing_get_draft)
+    _register("writing.list_latest_drafts_for_chapters", _writing_list_latest_drafts)
     _register("outline.generate_structure", _PSG().generate)
     _register("outline.arc_service", _OAS())
     _register("outline.thread_service", _PTS())
@@ -288,6 +291,20 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         status_code=exc.status_code,
         content={
             "error": exc.__class__.__name__,
+            "message": exc.message,
+            "status_code": exc.status_code,
+        },
+    )
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
+    """领域异常 → HTTP JSON 响应。"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.code,
+            "detail": exc.message,
             "message": exc.message,
             "status_code": exc.status_code,
         },

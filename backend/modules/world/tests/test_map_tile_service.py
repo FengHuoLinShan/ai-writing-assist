@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapTileBatchUpdate,
@@ -63,7 +63,7 @@ class TestMapTileService:
         )
         tile_svc = MapTileService()
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await tile_svc.batch_update(
                 db_session,
                 nid,

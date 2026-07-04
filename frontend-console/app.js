@@ -19,6 +19,8 @@ import {
 } from "./shared/workflowProgress.js"
 import { renderWorkflowCard } from "./shared/progressRenderer.js"
 
+const SMART_DEDUP_PAGE_SIZE = 6
+
 const App = {
   /** @type {boolean} */
   _initialized: false,
@@ -26,6 +28,8 @@ const App = {
   _smartDedupTaskId: null,
   _smartDedupProgress: null,
   _smartDedupPoller: null,
+  _smartDedupSuggestionPage: 0,
+  _smartDedupSuggestionDraft: {},
 
   /**
    * 初始化应用
@@ -170,6 +174,8 @@ const App = {
       return
     }
     try {
+      this._smartDedupSuggestionPage = 0
+      this._smartDedupSuggestionDraft = {}
       const result = await api.projects.startSmartDedupScan(state.currentProjectId, {})
       this._smartDedupTaskId = result.task_id
       this._smartDedupProgress = normalizeTaskProgress({
@@ -241,25 +247,75 @@ const App = {
     }), [])
   },
 
-  _showSmartDedupSuggestions() {
+  _showSmartDedupSuggestions(page = this._smartDedupSuggestionPage || 0) {
+    this._captureSmartDedupSuggestionDraft()
     const result = this._smartDedupProgress?.raw?.result || {}
     const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
     if (!suggestions.length) {
       showModal("智能去重", "<p>没有发现可处理的重复资产。</p>", [])
       return
     }
-    const rows = suggestions.map((item, index) => this._renderSmartDedupSuggestion(item, index)).join("")
-    const summary = `
-      <div style="margin-bottom:12px;color:var(--text-dim);font-size:13px;">
-        扫描 ${esc(result.total_assets_scanned || 0)} 个资产，
-        发现 ${esc(result.suggestion_count || suggestions.length)} 条建议。
-      </div>
-    `
-    showModal("智能去重建议", summary + rows, [{
+    const totalPages = Math.max(1, Math.ceil(suggestions.length / SMART_DEDUP_PAGE_SIZE))
+    this._smartDedupSuggestionPage = Math.max(0, Math.min(Number(page) || 0, totalPages - 1))
+    const body = this._renderSmartDedupSuggestionsBody(
+      result,
+      suggestions,
+      this._smartDedupSuggestionPage
+    )
+    showModal("智能去重建议", body, [{
       text: "应用选中建议",
       class: "btn-primary",
       handler: async () => this._applySmartDedupSuggestions(suggestions),
     }])
+    this._bindSmartDedupSuggestionControls(suggestions)
+  },
+
+  _renderSmartDedupSuggestionsBody(result, suggestions, page = 0) {
+    const totalPages = Math.max(1, Math.ceil(suggestions.length / SMART_DEDUP_PAGE_SIZE))
+    const currentPage = Math.max(0, Math.min(Number(page) || 0, totalPages - 1))
+    const start = currentPage * SMART_DEDUP_PAGE_SIZE
+    const visible = suggestions.slice(start, start + SMART_DEDUP_PAGE_SIZE)
+    const rows = visible
+      .map((item, offset) => this._renderSmartDedupSuggestion(item, start + offset))
+      .join("")
+    return `
+      <div style="margin-bottom:12px;color:var(--text-dim);font-size:13px;">
+        扫描 ${esc(result.total_assets_scanned || 0)} 个资产，
+        发现 ${esc(result.suggestion_count || suggestions.length)} 条建议。
+        第 ${esc(currentPage + 1)} / ${esc(totalPages)} 页。
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+        <span style="font-size:12px;color:var(--text-muted);">
+          本页 ${esc(start + 1)}-${esc(Math.min(start + visible.length, suggestions.length))} / ${esc(suggestions.length)}
+        </span>
+        <span style="display:flex;gap:6px;">
+          <button type="button" class="btn btn-sm" data-smart-dedup-page="prev" ${currentPage <= 0 ? "disabled" : ""}>上一页</button>
+          <button type="button" class="btn btn-sm" data-smart-dedup-page="next" ${currentPage >= totalPages - 1 ? "disabled" : ""}>下一页</button>
+        </span>
+      </div>
+      ${rows}
+    `
+  },
+
+  _bindSmartDedupSuggestionControls(suggestions) {
+    document.querySelectorAll("[data-smart-dedup-page]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.disabled) return
+        this._captureSmartDedupSuggestionDraft()
+        const delta = button.getAttribute("data-smart-dedup-page") === "next" ? 1 : -1
+        this._showSmartDedupSuggestions(this._smartDedupSuggestionPage + delta)
+      })
+    })
+    const bindings = [
+      ["[data-smart-dedup-primary-mode]", "change"],
+      ["[data-smart-dedup-manual-primary]", "input"],
+      ["[data-smart-dedup-index], [data-smart-dedup-canonical]", "change"],
+    ]
+    bindings.forEach(([selector, eventName]) => {
+      document.querySelectorAll(selector).forEach((input) => {
+        input.addEventListener(eventName, () => this._captureSmartDedupSuggestionDraft())
+      })
+    })
   },
 
   _renderSmartDedupSuggestion(item, index) {
@@ -281,17 +337,31 @@ const App = {
       .map((anchor) => anchor.snippet || anchor.reason || anchor.source_type || "")
       .filter(Boolean)
       .join(" / ")
+    const draft = this._smartDedupDraftFor(index, item)
+    const selected = draft.selected ? "checked" : ""
+    const sourceTitle = item.source_title || item.source_asset_id || "左侧对象"
+    const targetTitle = item.target_title || item.target_asset_id || "右侧对象"
+    const recommended = this._recommendedSmartDedupPrimary(item)
+    const primary = this._resolveSmartDedupPrimaryChoice(item, draft)
+    const sourcePrimary = draft.primaryMode === "source" ? "checked" : ""
+    const targetPrimary = draft.primaryMode === "target" ? "checked" : ""
+    const manualPrimary = draft.primaryMode === "manual" ? "checked" : ""
+    const operationText = {
+      merge: `保留「${primary.primaryTitle}」，合并「${primary.duplicateTitle}」`,
+      alias_only: `登记为别名：将「${primary.duplicateTitle}」登记到「${primary.primaryTitle}」`,
+      deprecate_duplicate: `废弃「${primary.duplicateTitle}」，关联到「${primary.primaryTitle}」`,
+      needs_review: "仅复核，不会直接应用",
+    }[item.action] || "需要复核后处理"
     const canonical = item.requires_canonical_confirmation ? `
       <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
-        <input type="checkbox" data-smart-dedup-canonical="${esc(index)}" />
+        <input type="checkbox" data-smart-dedup-canonical="${esc(index)}" ${draft.allowCanonicalMerge ? "checked" : ""} />
         确认合并两个正史对象
       </label>
     ` : ""
-    const checked = item.action === "needs_review" ? "" : "checked"
     return `
-      <article style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:10px;">
+      <article style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px;" data-smart-dedup-card="${esc(index)}">
         <label style="display:flex;gap:8px;align-items:flex-start;">
-          <input type="checkbox" data-smart-dedup-index="${esc(index)}" ${checked} />
+          <input type="checkbox" data-smart-dedup-index="${esc(index)}" ${selected} />
           <span>
             <strong>${esc(assetLabel)} · ${esc(actionLabel)}：</strong>
             ${esc(item.source_title || item.source_asset_id)} → ${esc(item.target_title || item.target_asset_id)}
@@ -301,32 +371,141 @@ const App = {
           置信度 ${esc(item.confidence ?? "-")} · ${esc(item.match_method || "-")}
         </div>
         <p style="margin:6px 0 0;">${esc(item.reason || "无说明")}</p>
+        <div style="margin-top:8px;padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--bg-alt);">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+            操作路径：${esc(operationText)}
+          </div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">
+            主体对象 <span style="font-weight:400;color:var(--accent);">推荐主体：${esc(recommended.title || recommended.id || "-")}</span>
+          </div>
+          <label style="display:block;font-size:12px;margin-bottom:4px;">
+            <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="target" ${targetPrimary} />
+            保留右侧：${esc(targetTitle)} <span style="color:var(--text-dim);">(${esc(item.target_asset_id || "-")})</span>
+          </label>
+          <label style="display:block;font-size:12px;margin-bottom:4px;">
+            <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="source" ${sourcePrimary} />
+            保留左侧：${esc(sourceTitle)} <span style="color:var(--text-dim);">(${esc(item.source_asset_id || "-")})</span>
+          </label>
+          <label style="display:block;font-size:12px;">
+            <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="manual" ${manualPrimary} />
+            手动主体 ID
+            <input class="form-input" data-smart-dedup-manual-primary="${esc(index)}" value="${esc(draft.manualPrimaryId || "")}" placeholder="输入要保留/登记到的对象 ID" style="margin-top:4px;" />
+          </label>
+        </div>
         ${canonical}
         <details style="margin-top:6px;"><summary>证据</summary><p>${esc(evidence || "无")}</p></details>
       </article>
     `
   },
 
+  _smartDedupDraftFor(index, item) {
+    const existing = this._smartDedupSuggestionDraft[index] || {}
+    const recommended = this._recommendedSmartDedupPrimary(item)
+    let primaryMode = existing.primaryMode
+    let manualPrimaryId = existing.manualPrimaryId || ""
+    if (!primaryMode) {
+      if (recommended.id && recommended.id === item.source_asset_id) {
+        primaryMode = "source"
+      } else if (recommended.id && recommended.id !== item.target_asset_id) {
+        primaryMode = "manual"
+        manualPrimaryId = recommended.id
+      } else {
+        primaryMode = "target"
+      }
+    }
+    return {
+      selected: existing.selected ?? item.action !== "needs_review",
+      primaryMode,
+      manualPrimaryId,
+      allowCanonicalMerge: Boolean(existing.allowCanonicalMerge),
+    }
+  },
+
+  _recommendedSmartDedupPrimary(item) {
+    const id = item.recommended_primary_asset_id
+      || item.recommended_target_asset_id
+      || item.primary_asset_id
+      || item.target_asset_id
+    const title = item.recommended_primary_title
+      || item.recommended_target_title
+      || item.primary_title
+      || (id === item.source_asset_id ? item.source_title : item.target_title)
+    return { id, title }
+  },
+
+  _resolveSmartDedupPrimaryChoice(item, draft) {
+    const source = {
+      id: item.source_asset_id,
+      title: item.source_title || item.source_asset_id,
+    }
+    const target = {
+      id: item.target_asset_id,
+      title: item.target_title || item.target_asset_id,
+    }
+    const [primary, duplicate] = draft.primaryMode === "source"
+      ? [source, target]
+      : [target, source]
+    if (draft.primaryMode === "manual" && draft.manualPrimaryId) {
+      primary.id = draft.manualPrimaryId
+      primary.title = draft.manualPrimaryId
+    }
+    return {
+      primaryId: primary.id,
+      primaryTitle: primary.title,
+      duplicateId: duplicate.id,
+      duplicateTitle: duplicate.title,
+    }
+  },
+
+  _captureSmartDedupSuggestionDraft() {
+    if (typeof document === "undefined") return
+    document.querySelectorAll("[data-smart-dedup-index]").forEach((input) => {
+      const index = Number(input.getAttribute("data-smart-dedup-index"))
+      if (!Number.isFinite(index)) return
+      const primary = document.querySelector(`input[name="smart-dedup-primary-${index}"]:checked`)
+      const manual = document.querySelector(`[data-smart-dedup-manual-primary="${index}"]`)
+      const canonical = document.querySelector(`[data-smart-dedup-canonical="${index}"]`)
+      this._smartDedupSuggestionDraft[index] = {
+        ...(this._smartDedupSuggestionDraft[index] || {}),
+        selected: Boolean(input.checked),
+        primaryMode: primary?.value || this._smartDedupSuggestionDraft[index]?.primaryMode,
+        manualPrimaryId: manual?.value?.trim() || "",
+        allowCanonicalMerge: Boolean(canonical?.checked),
+      }
+    })
+  },
+
+  _buildSmartDedupApplyItem(item, draft) {
+    const primary = this._resolveSmartDedupPrimaryChoice(item, draft)
+    if (!primary.primaryId || !primary.duplicateId) return null
+    return {
+      asset_type: item.asset_type,
+      action: item.action,
+      source_asset_id: primary.duplicateId,
+      target_asset_id: primary.primaryId,
+      alias: item.alias || primary.duplicateTitle,
+      allow_canonical_merge: Boolean(draft.allowCanonicalMerge),
+    }
+  },
+
   async _applySmartDedupSuggestions(suggestions) {
-    const selected = Array.from(document.querySelectorAll("[data-smart-dedup-index]:checked"))
-      .map((input) => {
-        const index = Number(input.getAttribute("data-smart-dedup-index"))
-        return { index, item: suggestions[index] }
-      })
+    this._captureSmartDedupSuggestionDraft()
+    const selected = suggestions
+      .map((item, index) => ({
+        index,
+        item,
+        draft: this._smartDedupDraftFor(index, item),
+      }))
       .filter((entry) => entry.item)
+      .filter((entry) => entry.draft.selected)
       .filter((entry) => ["merge", "alias_only", "deprecate_duplicate"].includes(entry.item.action))
     if (!selected.length) {
       toast("请选择可应用的建议", "warning")
       return
     }
-    const payload = selected.map(({ index, item }) => ({
-      asset_type: item.asset_type,
-      action: item.action,
-      source_asset_id: item.source_asset_id,
-      target_asset_id: item.target_asset_id,
-      alias: item.alias || item.source_title,
-      allow_canonical_merge: Boolean(document.querySelector(`[data-smart-dedup-canonical="${index}"]`)?.checked),
-    }))
+    const payload = selected
+      .map(({ item, draft }) => this._buildSmartDedupApplyItem(item, draft))
+      .filter(Boolean)
     try {
       const applied = await api.projects.applySmartDedup(state.currentProjectId, {
         confirmed: true,
@@ -335,6 +514,8 @@ const App = {
       closeModal()
       toast(`已应用 ${applied.applied || 0} 条智能去重建议`, "success")
       this._smartDedupProgress = null
+      this._smartDedupSuggestionPage = 0
+      this._smartDedupSuggestionDraft = {}
       api.clearCache()
       this._renderGlobalActions()
       router.refresh()

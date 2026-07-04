@@ -75,17 +75,23 @@ class SceneEntityPersistenceGateway:
         from modules.world.facade import (
             append_candidate_alias,
             create_relation,
-            find_working_entity_id_by_name,
+            find_working_entity_ids_by_names,
+        )
+
+        names_to_resolve = {alias.entity_name for alias in output.aliases}
+        for rel in output.relations:
+            names_to_resolve.add(rel.source_name)
+            names_to_resolve.add(rel.target_name)
+        entity_ids = await find_working_entity_ids_by_names(
+            db,
+            novel_id,
+            names_to_resolve,
         )
 
         aliases_created = 0
         relations_created = 0
         for alias in output.aliases:
-            entity_id = await find_working_entity_id_by_name(
-                db,
-                novel_id,
-                alias.entity_name,
-            )
+            entity_id = entity_ids.get(alias.entity_name)
             if not entity_id:
                 continue
             added = await append_candidate_alias(
@@ -111,16 +117,8 @@ class SceneEntityPersistenceGateway:
                     )
 
         for rel in output.relations:
-            source_id = await find_working_entity_id_by_name(
-                db,
-                novel_id,
-                rel.source_name,
-            )
-            target_id = await find_working_entity_id_by_name(
-                db,
-                novel_id,
-                rel.target_name,
-            )
+            source_id = entity_ids.get(rel.source_name)
+            target_id = entity_ids.get(rel.target_name)
             if not source_id or not target_id:
                 continue
             try:
@@ -320,20 +318,21 @@ class SceneEntityPersistenceGateway:
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
     ) -> int:
-        from modules.world.facade import create_relation, find_working_entity_id_by_name
+        from modules.world.facade import create_relation, find_working_entity_ids_by_names
 
         created = 0
+        names_to_resolve = set()
         for rel in relations:
-            source_id = await find_working_entity_id_by_name(
-                db,
-                str(nid),
-                rel.source_name,
-            )
-            target_id = await find_working_entity_id_by_name(
-                db,
-                str(nid),
-                rel.target_name,
-            )
+            names_to_resolve.add(rel.source_name)
+            names_to_resolve.add(rel.target_name)
+        entity_ids = await find_working_entity_ids_by_names(
+            db,
+            str(nid),
+            names_to_resolve,
+        )
+        for rel in relations:
+            source_id = entity_ids.get(rel.source_name)
+            target_id = entity_ids.get(rel.target_name)
             if not source_id or not target_id:
                 logger.debug(
                     "Skipping relation %s -> %s: entity not found",

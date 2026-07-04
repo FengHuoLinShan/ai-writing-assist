@@ -18,6 +18,7 @@ from modules.world.map_schemas import (
     MapConfigResponse,
     MapConfigUpdate,
     MapDashboardResponse,
+    MapDynamicStateResponse,
     MapFactListResponse,
     MapFactResponse,
     MapFactStatusUpdate,
@@ -219,6 +220,21 @@ async def get_map_state(
 ) -> MapStateResponse:
     return await _map_config_service.get_state(
         db, novel_id, map_id, filter_types=filter_types, scene_id=scene_id
+    )
+
+
+@router.get("/{map_id}/state/dynamic", response_model=MapDynamicStateResponse)
+async def get_map_dynamic_state(
+    db: DbSession,
+    map_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    scene_id: str | None = Query(None, description="Scene ID"),
+) -> MapDynamicStateResponse:
+    return await _map_config_service.get_dynamic_state(
+        db,
+        novel_id,
+        map_id,
+        scene_id=scene_id,
     )
 
 

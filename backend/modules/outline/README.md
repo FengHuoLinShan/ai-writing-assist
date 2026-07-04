@@ -21,6 +21,7 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 - `OutlineAIWorkflowService`
 - `OutlineStructureCleanupService`
 - `SceneWorkbenchService`
+- `SceneDraftReviewService`
 - `OutlineStructureDedupService`
 - `ForeshadowingPlanService`
 - `RevealPlanService`
@@ -94,17 +95,19 @@ preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘
 也不因存在关联资产自动阻断。合并不硬删除来源 Scene，只把来源 Scene 标记为
 `deprecated` 并保留可追踪 meta。拆分不修改正文内容，只调整 Scene 映射并创建新 Scene。
 
-LLM Scene 融合先走 `fusion/preview` 返回本地确定性融合草稿，后续可替换为真实
-LLM 结果；preview 不修改来源 Scene。`fusion/save` 支持 `keep_originals`、
-`deprecate_originals`、`discard` 和 `edit_then_save`。只有
-`deprecate_originals` 会把来源 Scene 标记为 `deprecated`，新 Scene 记录
-`source="manual_fusion"` 与 `structure_meta.fused_from_scene_ids`，来源 Scene 记录
-`fused_into_scene_id`。
+AI Scene 草稿统一由 `SceneDraftReviewService` 生成。`fusion/preview` 要求传入
+`primary_scene_id`，返回统一审稿形状：`draft_scene` / `draft_scenes`、
+`field_references`、`field_sources`、`source_scene_summaries`、`conflicts`、
+`warnings`、`confidence` 和 `reason`。preview 不修改来源 Scene；章节映射和
+`scene_chunks` 由系统确定性合并或拆分，LLM 不拥有这些事实字段。
+`fusion/save` 支持 `keep_originals`、`deprecate_originals`、`discard` 和
+`edit_then_save`。只有 `deprecate_originals` 会把来源 Scene 标记为
+`deprecated`，新 Scene 记录 `source="manual_fusion"` 与
+`structure_meta.fused_from_scene_ids`，来源 Scene 记录 `fused_into_scene_id`。
 
 跨章 Scene 识别通过 `cross-chapter/detect` 创建异步任务，只生成相邻 Scene
-递归扩展建议，不直接改库。用户确认后复用 `fusion/save` 保存融合 Scene，并在
-`structure_meta` 记录 `fusion_kind="cross_chapter_llm_detection"`、扫描轨迹和
-`source_task_id`。
+递归扩展建议，不直接改库。前端打开建议后进入同一个 Scene 草稿审稿界面，
+由用户选择主 Scene 并确认编辑后再复用 `fusion/save` 保存。
 
 ## 结构资产智能去重
 

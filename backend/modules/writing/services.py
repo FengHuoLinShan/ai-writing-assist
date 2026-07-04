@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from datetime import UTC, datetime
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.outline.facade import split_scene_chunk_to_new_chapter
@@ -43,9 +43,13 @@ from modules.writing.schemas import (
     WritingDraftResponse,
     WritingDraftUpdate,
 )
-from shared.utils import parse_uuid
+from shared.utils import parse_uuid as _shared_parse_uuid
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
+    return _shared_parse_uuid(value, field_name)
 
 
 class WritingDraftService:
@@ -70,14 +74,11 @@ class WritingDraftService:
         novel_id: str,
     ) -> WritingDraftResponse:
         """获取草稿详情"""
-        did = parse_uuid(draft_id, "draft")
-        nid = parse_uuid(novel_id, "novel")
+        did = _parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Draft {draft_id} not found",
-            )
+            raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(draft)
 
     async def update_draft(
@@ -88,14 +89,11 @@ class WritingDraftService:
         novel_id: str,
     ) -> WritingDraftResponse:
         """暂存草稿（原地更新最新版本，不创建新版本）"""
-        did = parse_uuid(draft_id, "draft")
-        nid = parse_uuid(novel_id, "novel")
+        did = _parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Draft {draft_id} not found",
-            )
+            raise NotFoundError(f"Draft {draft_id} not found")
         # 多 Tab 冲突检测：以章节最新版本为准
         latest = await self._repo.get_latest_by_chapter(
             db, draft.novel_id, draft.chapter_index
@@ -107,28 +105,19 @@ class WritingDraftService:
             db_updated_at = _as_utc_aware(latest_updated_at)
             expected_updated_at = _as_utc_aware(data.expected_updated_at)
             if db_updated_at > expected_updated_at:
-                raise HTTPException(
-                    status_code=http_status.HTTP_409_CONFLICT,
-                    detail=(
-                        "该章节已被其他会话更新（当前修改时间晚于期望时间，"
-                        "请刷新后重新编辑。"
-                    ),
+                raise ConflictError(
+                    "该章节已被其他会话更新（当前修改时间晚于期望时间，"
+                    "请刷新后重新编辑。"
                 )
 
         if data.expected_version is not None and latest_version != data.expected_version:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail=(
-                    f"该章节已被其他会话更新（当前版本 v{latest_version}，"
-                    f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
-                ),
+            raise ConflictError(
+                f"该章节已被其他会话更新（当前版本 v{latest_version}，"
+                f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
             )
-        updated = await self._repo.update(db, did, data)
+        updated = await self._repo.update(db, draft, data)
         if updated is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Draft {draft_id} not found",
-            )
+            raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(updated)
 
     async def delete_draft(
@@ -138,14 +127,11 @@ class WritingDraftService:
         novel_id: str,
     ) -> None:
         """删除单个版本（至少保留 1 个版本），并自动重排后续版本号"""
-        did = parse_uuid(draft_id, "draft")
-        nid = parse_uuid(novel_id, "novel")
+        did = _parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
         if draft is None or str(draft.novel_id) != str(nid):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Draft {draft_id} not found",
-            )
+            raise NotFoundError(f"Draft {draft_id} not found")
 
         # 业务规则：至少保留 1 个版本
         version_count = await self._repo.count_versions(
@@ -154,17 +140,11 @@ class WritingDraftService:
             draft.chapter_index,
         )
         if version_count <= 1:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="Cannot delete the last version of a chapter",
-            )
+            raise ValidationError("Cannot delete the last version of a chapter")
 
         deleted = await self._repo.delete(db, did)
         if deleted is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Draft {draft_id} not found",
-            )
+            raise NotFoundError(f"Draft {draft_id} not found")
 
         # 数据完整性：重排后续版本号
         await self._repo.renumber_versions_after_delete(
@@ -181,7 +161,7 @@ class WritingDraftService:
         chapter_index: int,
     ) -> int:
         """删除整章所有版本。返回删除的版本数。"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         return await self._repo.delete_all_versions(db, nid, chapter_index)
 
     async def get_latest_draft(
@@ -191,12 +171,11 @@ class WritingDraftService:
         chapter_index: int,
     ) -> WritingDraftResponse:
         """获取章节最新草稿"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if draft is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"No draft found for chapter {chapter_index} in novel {novel_id}",
+            raise NotFoundError(
+                f"No draft found for chapter {chapter_index} in novel {novel_id}"
             )
         return WritingDraftResponse.model_validate(draft)
 
@@ -207,7 +186,7 @@ class WritingDraftService:
         chapter_index: int,
     ) -> VersionHistoryResponse:
         """获取章节版本历史"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         versions = await self._repo.get_version_history(db, nid, chapter_index)
         items = []
         for v in versions:
@@ -228,14 +207,14 @@ class WritingDraftService:
         novel_id: str,
         snapshot: dict,
     ) -> WritingDraftResponse:
-        did = parse_uuid(draft_id, "draft")
-        nid = parse_uuid(novel_id, "novel")
+        did = _parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
         if draft is None or draft.novel_id != nid:
-            raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+            raise NotFoundError(f"Draft {draft_id} not found")
         updated = await self._repo.set_conflict_check_snapshot(db, did, snapshot)
         if updated is None:
-            raise HTTPException(status_code=404, detail=f"Draft {draft_id} not found")
+            raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(updated)
 
     async def get_draft_contract(
@@ -245,8 +224,8 @@ class WritingDraftService:
         draft_id: str,
     ) -> WritingDraftContract | None:
         """获取草稿契约（供其他模块使用，不存在返回 None）"""
-        nid = parse_uuid(novel_id, "novel")
-        did = parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
+        did = _parse_uuid(draft_id, "draft")
         draft = await self._repo.get(db, did)
         if draft is None or draft.novel_id != nid:
             return None
@@ -259,11 +238,25 @@ class WritingDraftService:
         chapter_index: int,
     ) -> WritingDraftContract | None:
         """获取章节最新草稿契约（供其他模块使用，不存在返回 None）"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if draft is None:
             return None
         return self._to_contract(draft)
+
+    async def list_latest_draft_contracts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_indices: list[int],
+    ) -> list[WritingDraftContract]:
+        """批量获取章节最新草稿契约（供跨模块范围加载使用）。"""
+        nid = _parse_uuid(novel_id, "novel")
+        requested = sorted({idx for idx in chapter_indices if idx >= 1})
+        if not requested:
+            return []
+        drafts = await self._repo.list_latest_by_chapters(db, nid, requested)
+        return [self._to_contract(draft) for draft in drafts]
 
     @staticmethod
     def _to_contract(draft: object) -> WritingDraftContract:
@@ -283,7 +276,7 @@ class WritingDraftService:
         novel_id: str,
     ) -> list[int]:
         """列出该小说所有有草稿的章节索引"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         return await self._repo.list_chapter_indices(db, nid)
 
     async def list_chapter_summaries(
@@ -292,7 +285,7 @@ class WritingDraftService:
         novel_id: str,
     ) -> list[ChapterSummaryItem]:
         """列出每章最新版本摘要。"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         drafts = await self._repo.list_chapter_summaries(db, nid)
         return [
             ChapterSummaryItem(
@@ -313,13 +306,30 @@ class WritingDraftService:
         novel_id: str,
     ) -> WritingProjectStatsContract:
         """统计该小说正文草稿概览（每章只取最新版本）。"""
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         chapter_count, word_count = await self._repo.project_stats(db, nid)
         return WritingProjectStatsContract(
             novel_id=str(nid),
             chapter_count=chapter_count,
             word_count=word_count,
         )
+
+    async def list_project_stats(
+        self,
+        db: AsyncSession,
+        novel_ids: list[str],
+    ) -> dict[str, WritingProjectStatsContract]:
+        """批量统计多个项目正文概览（每章只取最新版本）。"""
+        parsed_ids = [_parse_uuid(novel_id, "novel") for novel_id in novel_ids]
+        raw_stats = await self._repo.project_stats_many(db, parsed_ids)
+        return {
+            str(novel_id): WritingProjectStatsContract(
+                novel_id=str(novel_id),
+                chapter_count=raw_stats.get(novel_id, (0, 0))[0],
+                word_count=raw_stats.get(novel_id, (0, 0))[1],
+            )
+            for novel_id in parsed_ids
+        }
 
     async def split_chapter_at_offset(
         self,
@@ -330,18 +340,15 @@ class WritingDraftService:
         split_pos: int,
         source_scene_id: str | None,
     ) -> ChapterSplitResponse:
-        nid = parse_uuid(novel_id, "novel")
+        nid = _parse_uuid(novel_id, "novel")
         latest = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if latest is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No draft found for chapter {chapter_index}",
-            )
+            raise NotFoundError(f"No draft found for chapter {chapter_index}")
         content = latest.content or ""
         if not (0 < split_pos < len(content)):
-            raise HTTPException(
+            raise ValidationError(
+                "split_pos must be inside the chapter content",
                 status_code=422,
-                detail="split_pos must be inside the chapter content",
             )
 
         head = content[:split_pos]
@@ -407,13 +414,13 @@ class WritingConflictCheckService:
         db: AsyncSession,
         data: WritingConflictCheckCreate,
     ) -> WritingConflictCheckResponse:
-        nid = parse_uuid(data.novel_id, "novel_id")
-        scene_uuid = parse_uuid(data.scene_id, "scene_id") if data.scene_id else None
-        draft_uuid = parse_uuid(data.draft_id, "draft_id") if data.draft_id else None
+        nid = _parse_uuid(data.novel_id, "novel_id")
+        scene_uuid = _parse_uuid(data.scene_id, "scene_id") if data.scene_id else None
+        draft_uuid = _parse_uuid(data.draft_id, "draft_id") if data.draft_id else None
         if draft_uuid is not None:
             draft = await self._draft_repo.get(db, draft_uuid)
             if draft is None or draft.novel_id != nid:
-                raise HTTPException(status_code=404, detail="Draft not found")
+                raise NotFoundError("Draft not found")
 
         items: list[dict] = []
         degraded_sources: list[str] = []
@@ -480,8 +487,8 @@ class WritingConflictCheckService:
         scene_id: str | None,
         limit: int,
     ) -> WritingConflictCheckListResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+        nid = _parse_uuid(novel_id, "novel_id")
+        sid = _parse_uuid(scene_id, "scene_id") if scene_id else None
         pairs, total = await self._repo.list_checks(
             db,
             novel_id=nid,
@@ -501,11 +508,11 @@ class WritingConflictCheckService:
         novel_id: str,
         check_id: str,
     ) -> WritingConflictCheckResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        cid = parse_uuid(check_id, "check_id")
+        nid = _parse_uuid(novel_id, "novel_id")
+        cid = _parse_uuid(check_id, "check_id")
         result = await self._repo.get_check(db, cid, nid)
         if result is None:
-            raise HTTPException(status_code=404, detail="Conflict check not found")
+            raise NotFoundError("Conflict check not found")
         check, items = result
         return self._to_check_response(check, items)
 
@@ -517,8 +524,8 @@ class WritingConflictCheckService:
         item_id: str,
         data: WritingConflictItemUpdate,
     ) -> WritingConflictItemResponse:
-        nid = parse_uuid(novel_id, "novel_id")
-        iid = parse_uuid(item_id, "item_id")
+        nid = _parse_uuid(novel_id, "novel_id")
+        iid = _parse_uuid(item_id, "item_id")
         item = await self._repo.update_item_status(
             db,
             item_id=iid,
@@ -526,7 +533,7 @@ class WritingConflictCheckService:
             status=data.status,
         )
         if item is None:
-            raise HTTPException(status_code=404, detail="Conflict item not found")
+            raise NotFoundError("Conflict item not found")
         return WritingConflictItemResponse.model_validate(item)
 
     async def run_ai_review(
@@ -567,8 +574,8 @@ class WritingConflictCheckService:
         chapter_index: int,
         scene_id: str | None,
     ) -> dict | None:
-        nid = parse_uuid(novel_id, "novel_id")
-        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+        nid = _parse_uuid(novel_id, "novel_id")
+        sid = _parse_uuid(scene_id, "scene_id") if scene_id else None
         return await self._repo.build_latest_snapshot(
             db,
             novel_id=nid,

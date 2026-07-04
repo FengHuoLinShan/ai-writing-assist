@@ -9,7 +9,11 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import CONTEXT_BUDGET, StructureContextBundle
+from modules.context.contracts import (
+    CONTEXT_BUDGET,
+    CompileOptions,
+    StructureContextBundle,
+)
 from modules.context.services.compiled_context import (
     CompiledContext,
     ContextSection,
@@ -28,7 +32,6 @@ from modules.context.services.loaders import (
     WorldEntitiesLoader,
 )
 from modules.context.services.protocol import Loader
-from modules.context.services.types import CompileOptions
 
 logger = logging.getLogger(__name__)
 

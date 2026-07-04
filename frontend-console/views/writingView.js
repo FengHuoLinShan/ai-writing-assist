@@ -13,6 +13,7 @@ import {
   renderSelectionCell,
   runBulkAction,
   selectedItemsFrom,
+  syncBulkSelectionUi,
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
@@ -1195,7 +1196,7 @@ const writingView = {
     for (const v of this._versions) {
       const selected = v.version_number === this._currentVersionNumber
       const isCurLatest = v.version_number === this._versions[0]?.version_number
-      html += `<option value="${v.id}" data-version="${v.version_number}" data-latest="${isCurLatest ? 1 : 0}" ${selected ? 'selected' : ''}>v${v.version_number}${isCurLatest ? ' (最新)' : ''}</option>`
+      html += `<option value="${esc(v.id)}" data-version="${esc(v.version_number)}" data-latest="${isCurLatest ? 1 : 0}" ${selected ? 'selected' : ''}>v${esc(v.version_number)}${isCurLatest ? ' (最新)' : ''}</option>`
     }
 
     html += `
@@ -1605,14 +1606,14 @@ const writingView = {
       listHtml += `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? 'background:var(--hover-bg);border-radius:4px;padding:8px;' : ''}">
           <div>
-            <span style="font-weight:500;">v${v.version_number}</span>
+            <span style="font-weight:500;">v${esc(v.version_number)}</span>
             ${isLatest ? ' <span class="badge badge-canonical">最新</span>' : ''}
             ${isCurrent ? ' <span style="color:var(--accent);font-size:11px;">当前</span>' : ''}
             <div style="font-size:11px;color:var(--text-dim);">${created} · ${wordCount} 字</div>
           </div>
           <div style="display:flex;gap:6px;">
-            <button class="btn btn-sm version-preview-btn" data-draft-id="${esc(v.id)}" data-version="${v.version_number}" data-is-latest="${isLatest ? 1 : 0}">预览</button>
-            ${!isCurrent ? `<button class="btn btn-sm version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${v.version_number}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ''}
+            <button class="btn btn-sm version-preview-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">预览</button>
+            ${!isCurrent ? `<button class="btn btn-sm version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ''}
           </div>
         </div>
       `
@@ -1907,6 +1908,10 @@ const writingView = {
         await this._rerender()
         const refreshed = this._conflictChecks.find((item) => item.id === updatedItem?.check_id) || check
         if (refreshed) this._openConflictCheck(refreshed)
+      },
+      onApplySuggestion: (_itemId, text) => {
+        this._insertTextAtCursor(text)
+        toast("AI 建议草稿已插入当前正文", "success")
       },
       onLocate: (itemId) => this._locateConflictItem(check, itemId),
       onOpenSource: (itemId) => this._openConflictSource(check, itemId),
@@ -3104,16 +3109,17 @@ const writingView = {
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()
         toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
-        this._rerender()
+        syncBulkSelectionUi(this, t.getAttribute("data-scope"))
       },
       "bulk-clear": (_e, t) => {
-        clearBulkSelection(this, t.getAttribute("data-scope"))
-        this._rerender()
+        const scope = t.getAttribute("data-scope")
+        clearBulkSelection(this, scope)
+        syncBulkSelectionUi(this, scope)
       },
       "bulk-run": (_e, t) => this._runChapterBulkAction(t.getAttribute("data-bulk-action")),
       "select-visible-chapters": () => {
         toggleAllBulkSelection(this, "writing-chapters", this._chapterList.map(String), true)
-        this._rerender()
+        syncBulkSelectionUi(this, "writing-chapters")
       },
       "toggle-bulk-actions": () => { this._showBulkActions = !this._showBulkActions; this._rerender() },
       "next-chapter": () => this._switchChapter(1),

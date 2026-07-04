@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CharacterKnowledgeCreate,
@@ -323,9 +324,7 @@ class TestRelationValidation:
             WorldEntityCreate(entity_type="character", name="主角"),
         )
 
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(ValidationError) as exc:
             await relation_service.create(
                 db_session,
                 novel_id,
@@ -360,9 +359,7 @@ class TestRelationValidation:
             WorldEntityCreate(entity_type="faction", name="B"),
         )
 
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await relation_service.create(
                 db_session,
                 novel_a,
@@ -405,9 +402,7 @@ class TestRelationValidation:
             ),
         )
 
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(ConflictError) as exc:
             await relation_service.create(
                 db_session,
                 novel_id,

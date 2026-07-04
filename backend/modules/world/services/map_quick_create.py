@@ -13,7 +13,6 @@ from modules.world.map_schemas import (
     BindingHex,
     MapConfigCreate,
     MapLocationBindingCreate,
-    MapLocationBindingResponse,
     MapLocationLayoutItem,
     MapLocationLayoutReplaceRequest,
     MapQuickCreateConfirmRequest,
@@ -76,12 +75,12 @@ class MapQuickCreateService:
         include_candidates: bool = False,
     ) -> MapQuickCreateContextResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        canonical_locations, _ = await self._entity_repo.get_by_novel(
+        canonical_locations = await self._entity_repo.list_by_novel(
             db, nid, entity_type="location", status="canonical", limit=500
         )
         candidate_locations = []
         if include_candidates:
-            candidate_locations, _ = await self._entity_repo.get_by_novel(
+            candidate_locations = await self._entity_repo.list_by_novel(
                 db, nid, entity_type="location", status="candidate", limit=500
             )
         maps = await self._config_service.list(db, novel_id)
@@ -110,7 +109,7 @@ class MapQuickCreateService:
     ) -> MapQuickCreatePreviewResponse:
         locations = await self._load_locations(db, novel_id, data.include_candidates)
         grid_width, grid_height = self._grid_size(data.target)
-        relations, _ = await self._relation_repo.get_by_novel(
+        relations = await self._relation_repo.list_by_novel(
             db, parse_uuid(novel_id, "novel_id"), limit=500
         )
         geo_relations = self._geo_relations(relations, {item["id"] for item in locations})
@@ -179,12 +178,11 @@ class MapQuickCreateService:
             created_map.id,
             MapLocationLayoutReplaceRequest(layouts=layouts),
         )
-        created_bindings: list[MapLocationBindingResponse] = []
-        for layout in layouts:
-            bindings = await self._binding_service.batch_create(
-                db,
-                novel_id,
-                created_map.id,
+        created_bindings = await self._binding_service.batch_create_many(
+            db,
+            novel_id,
+            created_map.id,
+            [
                 MapLocationBindingCreate(
                     location_entity_id=layout.location_entity_id,
                     hexes=[
@@ -194,9 +192,10 @@ class MapQuickCreateService:
                             is_center=True,
                         )
                     ],
-                ),
-            )
-            created_bindings.extend(bindings)
+                )
+                for layout in layouts
+            ],
+        )
         return MapQuickCreateConfirmResponse(
             map=created_map,
             location_layouts=layout_response.items,
@@ -212,12 +211,12 @@ class MapQuickCreateService:
         include_candidates: bool,
     ) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        canonical, _ = await self._entity_repo.get_by_novel(
+        canonical = await self._entity_repo.list_by_novel(
             db, nid, entity_type="location", status="canonical", limit=500
         )
         locations = [self._entity_summary(item) for item in canonical]
         if include_candidates:
-            candidates, _ = await self._entity_repo.get_by_novel(
+            candidates = await self._entity_repo.list_by_novel(
                 db, nid, entity_type="location", status="candidate", limit=500
             )
             locations.extend(self._entity_summary(item) for item in candidates)

@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapTerritoryCreate,
@@ -57,6 +57,53 @@ class TestMapTerritoryService:
         assert territories[0].hex_q == 1
 
     @pytest.mark.asyncio
+    async def test_repository_get_by_hexes_batches_unique_hexes(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        organization_entity_id: str,
+    ):
+        from modules.world.map_repositories import MapTerritoryRepository
+
+        svc = MapTerritoryService()
+        await svc.create(
+            db_session,
+            world_map.novel_id,
+            str(world_map.id),
+            MapTerritoryCreate(
+                faction_entity_id=organization_entity_id,
+                hexes=[
+                    {"hex_q": 1, "hex_r": 1},
+                    {"hex_q": 1, "hex_r": 2},
+                    {"hex_q": 2, "hex_r": 1},
+                ],
+            ),
+        )
+        other_map = await MapConfigService().create(
+            db_session,
+            world_map.novel_id,
+            MapConfigCreate(name="other", map_type="world", grid_width=5, grid_height=5),
+        )
+        await svc.create(
+            db_session,
+            world_map.novel_id,
+            str(other_map.id),
+            MapTerritoryCreate(
+                faction_entity_id=organization_entity_id,
+                hexes=[{"hex_q": 1, "hex_r": 1}],
+            ),
+        )
+
+        rows = await MapTerritoryRepository().get_by_hexes(
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
+            [(1, 1), (1, 2), (1, 1)],
+        )
+
+        assert [(row.hex_q, row.hex_r) for row in rows] == [(1, 1), (1, 2)]
+
+    @pytest.mark.asyncio
     async def test_create_territory_non_org(self, db_session: AsyncSession, world_map):
         char_id = uuid.uuid4()
         db_session.add(
@@ -71,7 +118,7 @@ class TestMapTerritoryService:
         await db_session.flush()
 
         svc = MapTerritoryService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create(
                 db_session,
                 world_map.novel_id,
@@ -106,7 +153,7 @@ class TestMapTerritoryService:
         await db_session.flush()
 
         svc = MapTerritoryService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create(
                 db_session,
                 nid,
@@ -232,7 +279,7 @@ class TestMapTerritoryService:
         )
         tid = territories[0].id
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.delete(db_session, nid2, tid)
         assert exc.value.status_code == 404
 

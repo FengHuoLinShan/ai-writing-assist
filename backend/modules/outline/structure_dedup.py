@@ -46,6 +46,7 @@ class StructureDedupDecision(BaseModel):
     action: DedupAction = "needs_review"
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     reason: str = ""
+    recommended_primary_side: Literal["source", "target"] = "target"
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,9 @@ class OutlineStructureDedupService:
                 decision = await self._decide(source, target, match, evidence)
                 if decision.action == "keep_separate":
                     continue
+                primary = (
+                    source if decision.recommended_primary_side == "source" else target
+                )
                 suggestions.append(
                     {
                         "asset_type": asset_type,
@@ -103,6 +107,8 @@ class OutlineStructureDedupService:
                         "target_asset_id": target.asset_id,
                         "target_title": target.title,
                         "target_status": target.status,
+                        "recommended_primary_asset_id": primary.asset_id,
+                        "recommended_primary_title": primary.title,
                         "confidence": round(decision.confidence, 3),
                         "reason": decision.reason[:500],
                         "match_method": match.get("match_method"),
@@ -309,7 +315,9 @@ class OutlineStructureDedupService:
                             content=(
                                 "你判断两个长篇小说结构资产是否重复。只输出 JSON。"
                                 "action 为 merge、deprecate_duplicate、keep_separate "
-                                "或 needs_review。不要创造新资产。"
+                                "或 needs_review。recommended_primary_side 必须是 source "
+                                "或 target，表示建议保留/关联到哪个主体；不确定时选 "
+                                "target。不要创造新资产。"
                             ),
                         ),
                         LLMMessage(

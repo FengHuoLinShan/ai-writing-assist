@@ -384,3 +384,59 @@ class TestCharacterServiceFilterContextByKnowledgeLevel:
         assert filtered[0]["content"] == "正史内容"
         assert filtered[0]["character_known_content"] == "街头传闻"
         assert filtered[0]["knowledge_level"] == "rumor"
+
+    async def test_filter_multiple_target_types_fetches_knowledge_once(
+        self, db_session: AsyncSession
+    ) -> None:
+        svc = CharacterService()
+        nid = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+
+        svc._knowledge_repo = AsyncMock()
+        svc._knowledge_repo.get_by_target.return_value = [
+            _make_knowledge(
+                novel_id=uuid.UUID(nid),
+                character_id=uuid.UUID(cid),
+                target_id=uuid.UUID(entity_id),
+                target_type="entity",
+                knowledge_level="partial",
+                known_content="知道实体表层信息",
+            ),
+            _make_knowledge(
+                novel_id=uuid.UUID(nid),
+                character_id=uuid.UUID(cid),
+                target_id=uuid.UUID(event_id),
+                target_type="event",
+                knowledge_level="restricted",
+                known_content="只知道事件传闻",
+            ),
+        ]
+
+        filtered, removed, replaced = await svc.filter_context_by_character_knowledge(
+            db_session,
+            nid,
+            cid,
+            [
+                {
+                    "target_type": "entity",
+                    "target_id": entity_id,
+                    "content": "实体正史",
+                },
+                {
+                    "target_type": "event",
+                    "target_id": event_id,
+                    "content": "事件正史",
+                    "hidden_truth": "事件真相",
+                },
+            ],
+        )
+
+        assert len(filtered) == 2
+        assert removed == 0
+        assert replaced == 0
+        assert filtered[0]["character_known_content"] == "知道实体表层信息"
+        assert filtered[1]["content"] == "只知道事件传闻"
+        assert "hidden_truth" not in filtered[1]
+        svc._knowledge_repo.get_by_target.assert_awaited_once()

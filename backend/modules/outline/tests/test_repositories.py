@@ -63,6 +63,31 @@ class TestPlotThreadRepository:
         assert fetched.id == created.id
         assert fetched.name == "主角成长之路"
 
+    @pytest.mark.asyncio
+    async def test_create_many(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=sample_novel_id)
+        repo = PlotThreadRepository()
+
+        created = await repo.create_many(
+            db_session,
+            nid,
+            [
+                PlotThreadCreate(name="批量线 1", thread_type="main"),
+                PlotThreadCreate(name="批量线 2", thread_type="secondary"),
+            ],
+        )
+
+        assert [item.name for item in created] == ["批量线 1", "批量线 2"]
+        fetched = [await repo.get(db_session, item.id) for item in created]
+        assert [item.name for item in fetched if item is not None] == [
+            "批量线 1",
+            "批量线 2",
+        ]
+
     @pytest.mark.parametrize(
         "operation,expected",
         [
@@ -163,6 +188,63 @@ class TestPlotThreadRepository:
         assert updated.summary == "原有概要"
 
     @pytest.mark.asyncio
+    async def test_update_reuses_loaded_thread(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repo = PlotThreadRepository()
+        thread_id = uuid.uuid4()
+        thread = type(
+            "Thread",
+            (),
+            {
+                "id": thread_id,
+                "name": "旧线程",
+                "current_stage": "初期",
+                "related_entity_ids": [],
+            },
+        )()
+        get_calls = 0
+
+        async def fake_get(_db, requested_id):
+            nonlocal get_calls
+            get_calls += 1
+            assert requested_id == thread_id
+            return thread
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(repo, "get", fake_get)
+        db = Session()
+
+        updated = await repo.update(
+            db,  # type: ignore[arg-type]
+            thread_id,
+            PlotThreadUpdate(
+                name="新线程",
+                current_stage="中期",
+                related_entity_ids=["e1"],
+            ),
+        )
+
+        assert updated is thread
+        assert thread.name == "新线程"
+        assert thread.current_stage == "中期"
+        assert thread.related_entity_ids == ["e1"]
+        assert get_calls == 1
+        assert db.added == [thread]
+        assert db.flush_count == 1
+
+    @pytest.mark.asyncio
     async def test_delete(
         self,
         db_session: AsyncSession,
@@ -230,6 +312,31 @@ class TestOutlineArcRepository:
         assert fetched.title == "第一卷：启程"
 
     @pytest.mark.asyncio
+    async def test_create_many(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=sample_novel_id)
+        repo = OutlineArcRepository()
+
+        created = await repo.create_many(
+            db_session,
+            nid,
+            [
+                OutlineArcCreate(title="批量篇章 1", arc_index=1),
+                OutlineArcCreate(title="批量篇章 2", arc_index=2),
+            ],
+        )
+
+        assert [item.title for item in created] == ["批量篇章 1", "批量篇章 2"]
+        fetched = [await repo.get(db_session, item.id) for item in created]
+        assert [item.title for item in fetched if item is not None] == [
+            "批量篇章 1",
+            "批量篇章 2",
+        ]
+
+    @pytest.mark.asyncio
     async def test_get_by_chapter(
         self,
         db_session: AsyncSession,
@@ -276,6 +383,63 @@ class TestOutlineArcRepository:
         assert updated.title == "新标题"
         assert updated.core_conflict == "新冲突"
         assert updated.arc_goal == "原目标"
+
+    @pytest.mark.asyncio
+    async def test_update_reuses_loaded_arc(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repo = OutlineArcRepository()
+        arc_id = uuid.uuid4()
+        arc = type(
+            "Arc",
+            (),
+            {
+                "id": arc_id,
+                "title": "旧篇章",
+                "core_conflict": None,
+                "related_thread_ids": [],
+            },
+        )()
+        get_calls = 0
+
+        async def fake_get(_db, requested_id):
+            nonlocal get_calls
+            get_calls += 1
+            assert requested_id == arc_id
+            return arc
+
+        class Session:
+            def __init__(self) -> None:
+                self.added = []
+                self.flush_count = 0
+
+            def add(self, obj):
+                self.added.append(obj)
+
+            async def flush(self) -> None:
+                self.flush_count += 1
+
+        monkeypatch.setattr(repo, "get", fake_get)
+        db = Session()
+
+        updated = await repo.update(
+            db,  # type: ignore[arg-type]
+            arc_id,
+            OutlineArcUpdate(
+                title="新篇章",
+                core_conflict="新冲突",
+                related_thread_ids=["t1"],
+            ),
+        )
+
+        assert updated is arc
+        assert arc.title == "新篇章"
+        assert arc.core_conflict == "新冲突"
+        assert arc.related_thread_ids == ["t1"]
+        assert get_calls == 1
+        assert db.added == [arc]
+        assert db.flush_count == 1
 
     @pytest.mark.asyncio
     async def test_delete_arc(

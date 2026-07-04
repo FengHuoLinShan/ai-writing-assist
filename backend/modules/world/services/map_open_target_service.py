@@ -3,10 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.world.map_schemas import (
     MapOpenTarget,
 )
@@ -39,9 +38,9 @@ class MapOpenTargetService:
             fid = parse_uuid(focus_entity_id, "focus_entity_id")
             entity = await owner._entity_repo.get(db, fid)
             if entity is None or entity.novel_id != nid:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"CoreEntity {focus_entity_id} not found",
+                raise NotFoundError(
+                    f"CoreEntity {focus_entity_id} not found",
+                    code="entity_not_found",
                 )
             map_id = await owner._map_id_for_entity_focus(
                 db,
@@ -62,9 +61,9 @@ class MapOpenTargetService:
                 fallback_message="该对象暂无地图位置，已回退到最近地图",
             )
 
-        maps, _ = await owner._map_repo.get_by_novel(db, nid, limit=1)
-        if maps:
-            return MapOpenTarget(mode="map", map_id=str(maps[0].id))
+        first_map = await owner._map_repo.first_by_novel(db, nid)
+        if first_map is not None:
+            return MapOpenTarget(mode="map", map_id=str(first_map.id))
         return MapOpenTarget(
             mode="overview",
             fallback_reason="no_map",

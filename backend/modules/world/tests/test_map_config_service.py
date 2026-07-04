@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
@@ -113,7 +113,7 @@ class TestMapConfigService:
 
         # map 已删（404）
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.get(db_session, created.id, novel_id=nid)
         assert exc.value.status_code == 404
 
@@ -131,7 +131,7 @@ class TestMapConfigService:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.get(db_session, created.id, novel_id=nid2)
         assert exc.value.status_code == 404
 
@@ -225,7 +225,7 @@ class TestMapConfigValidation:
             nid,
             MapConfigCreate(name="同名", map_type="world", grid_width=3, grid_height=3),
         )
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create(
                 db_session,
                 nid,
@@ -254,7 +254,7 @@ class TestMapConfigValidation:
                 ),
             )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create(
                 db_session,
                 nid,
@@ -287,7 +287,7 @@ class TestMapConfigValidation:
         await db_session.flush()
 
         svc = MapConfigService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create(
                 db_session,
                 nid,
@@ -313,7 +313,7 @@ class TestMapConfigValidation:
         loc_id = await _create_location_entity(db_session, nid2, "异界")
 
         svc = MapConfigService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.create(
                 db_session,
                 nid1,
@@ -339,7 +339,7 @@ class TestMapConfigValidation:
             nid,
             MapConfigCreate(name="世界", map_type="world", grid_width=5, grid_height=5),
         )
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await svc.generate(db_session, nid, created.id)
         assert exc.value.status_code == 400
 

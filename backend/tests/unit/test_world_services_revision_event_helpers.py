@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 
 from core.container import register, reset
+from core.errors import NotFoundError
 from modules.world.services.draft_provider import WritingDraftProvider
 from modules.world.services.entity_revision_service import EntityRevisionService
 from modules.world.services.event_service import EventService
@@ -109,6 +110,16 @@ def _mock_revision(**overrides):
 class TestEntityRevisionService:
     pytestmark = [pytest.mark.asyncio]
 
+    async def test_entity_revision_service_has_no_direct_http_exception_dependency(self):
+        service_path = (
+            Path(__file__).parents[2]
+            / "modules/world/services/entity_revision_service.py"
+        )
+        source = service_path.read_text()
+
+        assert "from fastapi import HTTPException" not in source
+        assert "raise HTTPException" not in source
+
     async def test_create_snapshot_happy_path_returns_revision_dict(self):
         """Happy path: snapshot created and returned as dict."""
         # Arrange
@@ -134,15 +145,15 @@ class TestEntityRevisionService:
         assert call_kwargs["novel_id"] == uuid.UUID(hex=nid)
         assert call_kwargs["snapshot"]["name"] == entity.name
 
-    async def test_create_snapshot_entity_not_found_raises_404(self):
-        """Exception path: entity missing raises HTTPException 404."""
+    async def test_create_snapshot_entity_not_found_raises_domain_not_found(self):
+        """Exception path: entity missing raises domain NotFoundError."""
         # Arrange
         svc, _repo, entity_repo = _make_revision_service()
         entity_repo.get = AsyncMock(return_value=None)
         db = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.create_snapshot(db, str(uuid.uuid4()), str(uuid.uuid4()))
         assert exc_info.value.status_code == 404
 
@@ -187,17 +198,32 @@ class TestEntityRevisionService:
         assert result["items"][0]["revision_id"] == str(revision.id)
         repo.get_revisions.assert_awaited_once_with(db, entity.id, skip=0, limit=10)
 
-    async def test_get_revisions_entity_not_found_raises_404(self):
-        """Exception path: missing entity raises HTTPException 404."""
+    async def test_get_revisions_entity_not_found_raises_domain_not_found(self):
+        """Exception path: missing entity raises domain NotFoundError."""
         # Arrange
         svc, _repo, entity_repo = _make_revision_service()
         entity_repo.get = AsyncMock(return_value=None)
         db = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.get_revisions(db, str(uuid.uuid4()), str(uuid.uuid4()))
         assert exc_info.value.status_code == 404
+
+    async def test_get_revisions_cross_novel_entity_raises_domain_not_found(self):
+        """Boundary: revision list does not leak across novel_id."""
+        # Arrange
+        svc, repo, entity_repo = _make_revision_service()
+        entity = _mock_entity(novel_id=uuid.uuid4())
+        entity_repo.get = AsyncMock(return_value=entity)
+        repo.get_revisions = AsyncMock(return_value=([], 0))
+        db = MagicMock()
+
+        # Act & Assert
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.get_revisions(db, str(entity.id), str(uuid.uuid4()))
+        assert exc_info.value.status_code == 404
+        repo.get_revisions.assert_not_called()
 
     async def test_rollback_to_revision_happy_path_returns_entity_dict(self):
         """Happy path: rollback creates snapshot, updates entity, returns dict."""
@@ -205,6 +231,8 @@ class TestEntityRevisionService:
         svc, repo, entity_repo = _make_revision_service()
         entity = _mock_entity(status="canonical")
         revision = _mock_revision(
+            entity_id=entity.id,
+            novel_id=entity.novel_id,
             snapshot={
                 "entity_type": "character",
                 "name": "Old Name",
@@ -238,8 +266,8 @@ class TestEntityRevisionService:
         assert result["id"] == str(entity.id)
         assert result["name"] == entity.name
 
-    async def test_rollback_to_revision_not_found_raises_404(self):
-        """Exception path: missing revision raises HTTPException 404."""
+    async def test_rollback_to_revision_not_found_raises_domain_not_found(self):
+        """Exception path: missing revision raises domain NotFoundError."""
         # Arrange
         svc, repo, _entity_repo = _make_revision_service()
         repo.get_revision = AsyncMock(return_value=None)
@@ -247,18 +275,43 @@ class TestEntityRevisionService:
         db = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.rollback_to_revision(
                 db, str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
             )
         assert exc_info.value.status_code == 404
         assert "Revision" in exc_info.value.detail
 
-    async def test_rollback_to_revision_entity_update_none_raises_404(self):
-        """Exception path: entity disappears after update raises HTTPException 404."""
+    async def test_rollback_to_revision_cross_entity_revision_raises_domain_not_found(
+        self,
+    ):
+        """Boundary: rollback rejects a revision owned by another entity."""
         # Arrange
         svc, repo, entity_repo = _make_revision_service()
+        entity_id = uuid.uuid4()
+        revision = _mock_revision(entity_id=uuid.uuid4(), novel_id=uuid.uuid4())
+        repo.get_revision = AsyncMock(return_value=revision)
+        entity_repo.update = AsyncMock()
+        svc.create_snapshot = AsyncMock(return_value={})
+        db = MagicMock()
+
+        # Act & Assert
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.rollback_to_revision(
+                db, str(entity_id), str(revision.id), str(uuid.uuid4())
+            )
+        assert exc_info.value.status_code == 404
+        entity_repo.update.assert_not_called()
+
+    async def test_rollback_to_revision_entity_update_none_raises_domain_not_found(self):
+        """Exception path: entity disappears after update raises domain NotFoundError."""
+        # Arrange
+        svc, repo, entity_repo = _make_revision_service()
+        entity_id = uuid.uuid4()
+        novel_id = uuid.uuid4()
         revision = _mock_revision(
+            entity_id=entity_id,
+            novel_id=novel_id,
             snapshot={"entity_type": "character", "name": "Old Name"}
         )
         repo.get_revision = AsyncMock(return_value=revision)
@@ -267,12 +320,92 @@ class TestEntityRevisionService:
         db = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.rollback_to_revision(
-                db, str(uuid.uuid4()), str(revision.id), str(uuid.uuid4())
+                db, str(entity_id), str(revision.id), str(novel_id)
             )
         assert exc_info.value.status_code == 404
         assert "not found after rollback" in exc_info.value.detail
+
+    async def test_rollback_to_scene_index_archive_update_reuses_loaded_entity(self):
+        """Performance: TextArchive rollback updates the entity already validated."""
+        # Arrange
+        svc, _repo, entity_repo = _make_revision_service()
+        entity = _mock_entity(summary="current")
+        archive = MagicMock(
+            field_name="summary",
+            text_content="archived summary",
+        )
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [archive]
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+        db.flush = AsyncMock()
+        entity_repo.get = AsyncMock(return_value=entity)
+        entity_repo.update = AsyncMock(return_value=entity)
+
+        # Act
+        response = await svc.rollback_to_scene_index(
+            db,
+            str(entity.id),
+            target_scene_index=7,
+            novel_id=str(entity.novel_id),
+        )
+
+        # Assert
+        assert response["restored_fields"] == ["summary"]
+        entity_repo.get.assert_awaited_once_with(db, entity.id)
+        entity_repo.update.assert_awaited_once()
+        assert entity_repo.update.await_args.args[1] is entity
+        update_data = entity_repo.update.await_args.args[2]
+        assert update_data.summary == "archived summary"
+
+    async def test_rollback_to_scene_index_revision_fallback_reuses_loaded_entity(self):
+        """Performance: revision fallback also updates the entity already validated."""
+        # Arrange
+        svc, repo, entity_repo = _make_revision_service()
+        entity = _mock_entity(summary="current")
+        revision = _mock_revision(
+            entity_id=entity.id,
+            novel_id=entity.novel_id,
+            snapshot={
+                "entity_type": "character",
+                "name": "Old Name",
+                "summary": "Old summary",
+                "public_info": None,
+                "hidden_truth": None,
+                "content_json": {},
+                "importance": 0.8,
+                "importance_level": "core",
+                "reveal_level": "author_only",
+                "status": "canonical",
+            },
+        )
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+        db.flush = AsyncMock()
+        entity_repo.get = AsyncMock(return_value=entity)
+        entity_repo.update = AsyncMock(return_value=entity)
+        repo.get_revisions = AsyncMock(return_value=([revision], 1))
+
+        # Act
+        response = await svc.rollback_to_scene_index(
+            db,
+            str(entity.id),
+            target_scene_index=7,
+            novel_id=str(entity.novel_id),
+        )
+
+        # Assert
+        assert "summary" in response["restored_fields"]
+        assert any("EntityRevision" in warning for warning in response["warnings"])
+        entity_repo.get.assert_awaited_once_with(db, entity.id)
+        entity_repo.update.assert_awaited_once()
+        assert entity_repo.update.await_args.args[1] is entity
+        update_data = entity_repo.update.await_args.args[2]
+        assert update_data.summary == "Old summary"
 
 
 # ============================================================
@@ -362,7 +495,7 @@ class TestEventService:
         db = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.get(db, str(uuid.uuid4()), novel_id=str(uuid.uuid4()))
         assert exc_info.value.status_code == 404
 
@@ -375,7 +508,7 @@ class TestEventService:
         db = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.get(db, str(ev.entity_id), novel_id=str(uuid.uuid4()))
         assert exc_info.value.status_code == 404
 
@@ -423,6 +556,31 @@ class TestEventService:
         # Assert
         assert result.entity_id == str(ev.entity_id)
         repo.create.assert_awaited_once()
+
+    async def test_create_missing_event_entity_raises_domain_not_found(self):
+        """EventService.create: missing event entity raises domain NotFoundError."""
+        # Arrange
+        svc, repo = _make_event_service()
+        ev = _mock_event()
+        svc._entity_repo = MagicMock()
+        svc._entity_repo.get = AsyncMock(return_value=None)
+        repo.create = AsyncMock()
+        db = MagicMock()
+        from modules.world.schemas import EventCreate
+
+        data = EventCreate(
+            entity_id=str(ev.entity_id),
+            source_chapter_id=str(ev.source_chapter_id),
+            location_entity_id=str(ev.location_entity_id),
+            timeline_order=ev.timeline_order,
+        )
+
+        # Act & Assert
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.create(db, str(ev.novel_id), data)
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.message == "Event entity not found in this novel"
+        repo.create.assert_not_called()
 
     async def test_update_happy_path_returns_event_response(self):
         """Inherited CrudService.update: returns EventResponse."""
@@ -624,15 +782,20 @@ class TestDraftProvider:
         db = MagicMock()
         novel_id = str(uuid.uuid4())
         draft = MagicMock()
+        draft.chapter_index = 1
         draft.content = "draft text"
         draft.title = "Chapter One"
         chunk = MagicMock()
+        chunk.chapter_index = 1
         chunk.chunk_index = 0
         chunk.text = "rag text"
         report = MagicMock()
         report.warnings = []
 
-        register("writing.get_latest_draft_for_chapter", AsyncMock(return_value=draft))
+        register(
+            "writing.list_latest_drafts_for_chapters",
+            AsyncMock(return_value=[draft]),
+        )
         register("rag.index_chapter", AsyncMock(return_value=report))
         register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[chunk]))
 
@@ -649,12 +812,16 @@ class TestDraftProvider:
         db = MagicMock()
         novel_id = str(uuid.uuid4())
         draft = MagicMock()
+        draft.chapter_index = 2
         draft.content = "fallback content"
         draft.title = None
         report = MagicMock()
         report.warnings = ["warn"]
 
-        register("writing.get_latest_draft_for_chapter", AsyncMock(return_value=draft))
+        register(
+            "writing.list_latest_drafts_for_chapters",
+            AsyncMock(return_value=[draft]),
+        )
         register("rag.index_chapter", AsyncMock(return_value=report))
         register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[]))
 
@@ -671,7 +838,10 @@ class TestDraftProvider:
         db = MagicMock()
         novel_id = str(uuid.uuid4())
 
-        register("writing.get_latest_draft_for_chapter", AsyncMock(return_value=None))
+        register(
+            "writing.list_latest_drafts_for_chapters",
+            AsyncMock(return_value=[]),
+        )
         register("rag.index_chapter", AsyncMock())
         register("rag.get_ordered_chapter_chunks", AsyncMock())
 
@@ -688,15 +858,17 @@ class TestDraftProvider:
             1: MagicMock(content="c1", title="T1"),
             2: MagicMock(content="c2", title="T2"),
         }
+        drafts[1].chapter_index = 1
+        drafts[2].chapter_index = 2
         report = MagicMock()
         report.warnings = []
 
-        async def _get_draft(_db, _nid, idx):
-            return drafts.get(idx)
+        async def _list_drafts(_db, _nid, indices):
+            return [drafts[idx] for idx in indices if idx in drafts]
 
         register(
-            "writing.get_latest_draft_for_chapter",
-            AsyncMock(side_effect=_get_draft),
+            "writing.list_latest_drafts_for_chapters",
+            AsyncMock(side_effect=_list_drafts),
         )
         register("rag.index_chapter", AsyncMock(return_value=report))
         register("rag.get_ordered_chapter_chunks", AsyncMock(return_value=[]))

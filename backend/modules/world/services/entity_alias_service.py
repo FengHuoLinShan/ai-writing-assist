@@ -6,9 +6,9 @@ string 两种格式。
 
 from __future__ import annotations
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError, NotFoundError
 from modules.world.repositories import CoreEntityRepository
 from modules.world.services.helpers import parse_uuid
 
@@ -70,8 +70,27 @@ class EntityAliasService:
         limit: int = 100,
     ) -> list[dict]:
         """列出项目下所有实体的别名。"""
+        result = await self._collect_aliases(db, novel_id)
+        return result[skip : skip + limit]
+
+    async def list_aliases_page(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> dict:
+        """列出项目下所有实体的别名，返回标准分页结构。"""
+        result = await self._collect_aliases(db, novel_id)
+        return {
+            "items": result[skip : skip + limit],
+            "total": len(result),
+        }
+
+    async def _collect_aliases(self, db: AsyncSession, novel_id: str) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self.repo.get_by_novel(db, nid, limit=MAX_LIST_ALIAS_ENTITIES)
+        entities = await self.repo.list_by_novel(db, nid, limit=MAX_LIST_ALIAS_ENTITIES)
         result: list[dict] = []
         for entity in entities:
             aliases = (entity.content_json or {}).get("aliases", [])
@@ -103,7 +122,7 @@ class EntityAliasService:
                         else None,
                     }
                 )
-        return result[skip : skip + limit]
+        return result
 
     async def create_alias(
         self,
@@ -118,7 +137,7 @@ class EntityAliasService:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(status_code=404, detail="Entity not found")
+            raise NotFoundError("Entity not found")
 
         content = entity.content_json or {}
         aliases = content.get("aliases", [])
@@ -126,9 +145,7 @@ class EntityAliasService:
         for alias_item in aliases:
             existing, _ = self._normalize_alias_item(alias_item)
             if existing == normalized_alias:
-                raise HTTPException(
-                    status_code=409, detail=f"Alias already exists: {alias}"
-                )
+                raise ConflictError(f"Alias already exists: {alias}")
 
         aliases.append({"alias": alias, "type": alias_type})
         content["aliases"] = aliases
@@ -155,7 +172,7 @@ class EntityAliasService:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(status_code=404, detail="Entity not found")
+            raise NotFoundError("Entity not found")
 
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))
@@ -218,7 +235,7 @@ class EntityAliasService:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(status_code=404, detail="Entity not found")
+            raise NotFoundError("Entity not found")
 
         content = entity.content_json or {}
         aliases = content.get("aliases", [])
@@ -233,7 +250,7 @@ class EntityAliasService:
             new_aliases.append(alias_item)
 
         if not found:
-            raise HTTPException(status_code=404, detail=f"Alias not found: {alias}")
+            raise NotFoundError(f"Alias not found: {alias}")
 
         content["aliases"] = new_aliases
         entity.content_json = content

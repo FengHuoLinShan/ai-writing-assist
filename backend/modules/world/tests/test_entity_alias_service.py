@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 
+from core.errors import ConflictError, NotFoundError
 from modules.world.services.entity_alias_service import EntityAliasService
 
 
@@ -19,6 +20,14 @@ def novel_id() -> str:
 @pytest.fixture
 def alias_service() -> EntityAliasService:
     return EntityAliasService(repo=MagicMock())
+
+
+@pytest.mark.asyncio
+async def test_entity_alias_service_has_no_direct_http_exception_dependency() -> None:
+    source = Path("backend/modules/world/services/entity_alias_service.py").read_text()
+
+    assert "from fastapi import HTTPException" not in source
+    assert "raise HTTPException" not in source
 
 
 def _make_entity(
@@ -44,7 +53,8 @@ async def test_list_aliases_returns_alias_for_entity(
     entity = _make_entity(
         content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
     )
-    alias_service.repo.get_by_novel = AsyncMock(return_value=([entity], 1))
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.get_by_novel = AsyncMock()
     db = MagicMock()
 
     aliases = await alias_service.list_aliases(db, novel_id)
@@ -54,6 +64,8 @@ async def test_list_aliases_returns_alias_for_entity(
     assert aliases[0]["entity_name"] == "Arthur"
     assert aliases[0]["alias"] == "Art"
     assert aliases[0]["alias_type"] == "nickname"
+    alias_service.repo.list_by_novel.assert_awaited_once()
+    alias_service.repo.get_by_novel.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -69,14 +81,20 @@ async def test_list_aliases_pagination(
         name="Bella",
         content_json={"aliases": ["Bell", "Bells"]},
     )
-    alias_service.repo.get_by_novel = AsyncMock(return_value=([arthur, bella], 2))
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[arthur, bella])
+    alias_service.repo.get_by_novel = AsyncMock()
     db = MagicMock()
 
     paginated = await alias_service.list_aliases(db, novel_id, skip=1, limit=2)
+    page = await alias_service.list_aliases_page(db, novel_id, skip=1, limit=2)
 
     assert len(paginated) == 2
     assert paginated[0]["alias"] == "Athy"
     assert paginated[1]["alias"] == "Bell"
+    assert page["total"] == 4
+    assert [item["alias"] for item in page["items"]] == ["Athy", "Bell"]
+    assert alias_service.repo.list_by_novel.await_count == 2
+    alias_service.repo.get_by_novel.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -134,10 +152,10 @@ async def test_create_alias_not_found_variants(
         alias_service.repo.get = AsyncMock(return_value=None)
 
     db = MagicMock()
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await alias_service.create_alias(db, novel_id, str(uuid.uuid4()), "Art")
     assert exc_info.value.status_code == 404
-    assert "Entity not found" in exc_info.value.detail
+    assert "Entity not found" in exc_info.value.message
 
 
 @pytest.mark.asyncio
@@ -152,10 +170,10 @@ async def test_create_alias_duplicate_returns_409(
     alias_service.repo.get = AsyncMock(return_value=entity)
     db = MagicMock()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ConflictError) as exc_info:
         await alias_service.create_alias(db, novel_id, str(entity.id), "Art")
     assert exc_info.value.status_code == 409
-    assert "Alias already exists: Art" in exc_info.value.detail
+    assert "Alias already exists: Art" in exc_info.value.message
 
 
 @pytest.mark.parametrize(
@@ -182,10 +200,10 @@ async def test_delete_alias_not_found_variants(
     alias_service.repo.get = AsyncMock(return_value=entity)
     db = MagicMock()
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(NotFoundError) as exc_info:
         await alias_service.delete_alias(db, novel_id, str(entity.id), "Art")
     assert exc_info.value.status_code == 404
-    assert expected_detail in exc_info.value.detail
+    assert expected_detail in exc_info.value.message
 
 
 @pytest.mark.asyncio
@@ -194,7 +212,8 @@ async def test_list_aliases_handles_string_aliases(
     alias_service: EntityAliasService,
 ) -> None:
     entity = _make_entity(content_json={"aliases": ["Art"]})
-    alias_service.repo.get_by_novel = AsyncMock(return_value=([entity], 1))
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.get_by_novel = AsyncMock()
     db = MagicMock()
 
     aliases = await alias_service.list_aliases(db, novel_id)
@@ -204,6 +223,7 @@ async def test_list_aliases_handles_string_aliases(
     assert aliases[0]["entity_name"] == "Arthur"
     assert aliases[0]["alias"] == "Art"
     assert aliases[0]["alias_type"] == "name"
+    alias_service.repo.get_by_novel.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -247,6 +267,26 @@ async def test_append_candidate_alias_upgrades_existing_plain_alias(
         }
     ]
     db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_append_candidate_alias_missing_entity_raises_domain_not_found(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    alias_service.repo.get = AsyncMock(return_value=None)
+    db = MagicMock()
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await alias_service.append_candidate_alias(
+            db,
+            novel_id,
+            str(uuid.uuid4()),
+            alias="Art",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.message == "Entity not found"
 
 
 @pytest.mark.asyncio

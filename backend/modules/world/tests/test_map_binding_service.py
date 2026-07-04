@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapLocationBindingCreate,
@@ -90,6 +90,82 @@ class TestMapLocationBindingService:
         assert centers[0].hex_q == 6 and centers[0].hex_r == 6
 
     @pytest.mark.asyncio
+    async def test_repository_get_by_hexes_for_entity_statuses(
+        self,
+        db_session: AsyncSession,
+        world_map,
+        location_entity_id: str,
+    ):
+        from modules.world.map_repositories import MapLocationBindingRepository
+
+        bind_svc = MapLocationBindingService()
+        await bind_svc.batch_create(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+            MapLocationBindingCreate(
+                location_entity_id=location_entity_id,
+                hexes=[
+                    {"hex_q": 5, "hex_r": 5, "is_center": True},
+                    {"hex_q": 5, "hex_r": 6, "is_center": False},
+                    {"hex_q": 6, "hex_r": 6, "is_center": False},
+                ],
+            ),
+        )
+        candidate_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=candidate_id,
+                novel_id=uuid.UUID(hex=world_map.novel_id),
+                entity_type="location",
+                name="候选地点",
+                status="candidate",
+            )
+        )
+        await db_session.flush()
+        await bind_svc.batch_create(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+            MapLocationBindingCreate(
+                location_entity_id=str(candidate_id),
+                hexes=[{"hex_q": 5, "hex_r": 5}],
+            ),
+        )
+        other_map = await MapConfigService().create(
+            db_session,
+            world_map.novel_id,
+            MapConfigCreate(
+                name="other",
+                map_type="world",
+                grid_width=10,
+                grid_height=10,
+            ),
+        )
+        await bind_svc.batch_create(
+            db_session,
+            world_map.novel_id,
+            other_map.id,
+            MapLocationBindingCreate(
+                location_entity_id=location_entity_id,
+                hexes=[{"hex_q": 5, "hex_r": 5}],
+            ),
+        )
+
+        rows = await MapLocationBindingRepository().get_by_hexes_for_entity_statuses(
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
+            [(5, 5), (5, 6), (5, 5)],
+            statuses=["canonical"],
+        )
+
+        assert [(row.hex_q, row.hex_r) for row in rows] == [(5, 5), (5, 6)]
+        assert {row.location_entity_id for row in rows} == {
+            uuid.UUID(hex=location_entity_id)
+        }
+
+    @pytest.mark.asyncio
     async def test_bind_non_location_entity_returns_400(
         self, db_session: AsyncSession, world_map
     ):
@@ -108,7 +184,7 @@ class TestMapLocationBindingService:
 
         bind_svc = MapLocationBindingService()
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await bind_svc.batch_create(
                 db_session,
                 world_map.novel_id,
@@ -137,7 +213,7 @@ class TestMapLocationBindingService:
 
         bind_svc = MapLocationBindingService()
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await bind_svc.batch_create(
                 db_session,
                 nid1,
@@ -224,7 +300,7 @@ class TestMapLocationBindingService:
         )
         binding_id = result[0].id
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             if operation == "update":
                 await bind_svc.update(
                     db_session,
@@ -259,6 +335,6 @@ class TestMapLocationBindingService:
 
         # 再删应 404
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await bind_svc.delete(db_session, world_map.novel_id, binding_id)
         assert exc.value.status_code == 404

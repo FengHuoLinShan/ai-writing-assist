@@ -25,10 +25,11 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
+from core.errors import ValidationError as DomainValidationError
 from modules.imports.parsers import (
     CHUNK_SIZE,
     _looks_like_chapter,
@@ -506,7 +507,7 @@ class TestImportServiceHelpers:
     )
     def test_validate_file_unsupported_types(self, file_name: str):
         """白名单外文件类型应抛出 400"""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             self.service._validate_file(file_name, 1000)
         assert exc.value.status_code == 400
         assert "不支持的文件类型" in exc.value.detail
@@ -514,7 +515,7 @@ class TestImportServiceHelpers:
     def test_validate_file_oversized_raises_413(self):
         """超过 50MB 的文件应抛出 413"""
         oversized = 51 * 1024 * 1024
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             self.service._validate_file("test.txt", oversized)
         assert exc.value.status_code == 413
         assert "文件过大" in exc.value.detail
@@ -616,7 +617,7 @@ class TestImportServiceErrors:
     ):
         """解析出零章节应抛出 400"""
         with patch("modules.imports.services.parse_file", return_value=[]):
-            with pytest.raises(HTTPException) as exc:
+            with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
                     db_session,
                     test_project_id,
@@ -638,7 +639,7 @@ class TestImportServiceErrors:
             "modules.imports.services.parse_file",
             side_effect=ValueError("bad format"),
         ):
-            with pytest.raises(HTTPException) as exc:
+            with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
                     db_session,
                     test_project_id,
@@ -660,7 +661,7 @@ class TestImportServiceErrors:
             "modules.imports.services.parse_file",
             side_effect=RuntimeError("OOM"),
         ):
-            with pytest.raises(HTTPException) as exc:
+            with pytest.raises(DomainError) as exc:
                 await service.upload_and_import(
                     db_session,
                     test_project_id,
@@ -677,13 +678,13 @@ class TestImportServiceErrors:
         db_session: AsyncSession,
         test_project_id: str,
     ):
-        """从 _validate_file 抛出的 HTTPException 应原样传递"""
+        """从 _validate_file 抛出的领域错误应原样传递"""
         with patch.object(
             service,
             "_validate_file",
-            side_effect=HTTPException(status_code=400, detail="custom error"),
+            side_effect=DomainValidationError("custom error"),
         ):
-            with pytest.raises(HTTPException) as exc:
+            with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
                     db_session,
                     test_project_id,

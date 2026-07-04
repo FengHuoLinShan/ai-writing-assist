@@ -86,7 +86,6 @@ network / rate_limit / empty_result 可短重试，最终仍失败的 timeout / 
 - `scene_reinforcement.py` — Phase 1a 正文补强、compact payload、短候选 normalize 和 degraded fallback
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
 - `agent_step_harness.py` — imports 内部受控 LLM step envelope / journal / 输出守门；由 `workflow_llm_adapters.py` 使用，不提供自治 agent loop 或工具自主选择
-- `agent_text_tools.py` — imports 内部只读正文 Search/Read 工具 adapter，复用 RAG 检索和 writing draft 权威正文
 
 这些文件不改变 HTTP API 或数据库 schema。`async_tasks.result` 会额外返回
 向后兼容的 `phase_artifacts`，用于记录真实服务分阶段 compact artifact、

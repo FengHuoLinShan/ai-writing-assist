@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -27,6 +28,220 @@ from modules.world.services.map_service import (
     MapTerritoryService,
 )
 from modules.world.tests.helpers import _create_entity, _create_project
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_batches_territory_lookup_for_marker_hexes(
+    db_session: AsyncSession,
+) -> None:
+    """Scene 摘要应批量查询 marker 所在 hex 的势力范围，避免 per-marker 查询。"""
+    from modules.world.services.map_scene_summary import MapSceneSummaryService
+
+    novel_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    faction_id = uuid.uuid4()
+    batch_calls: list[list[tuple[int, int]]] = []
+
+    class FakeTerritoryRepo:
+        async def get_by_hex(self, *args, **kwargs):
+            raise AssertionError("should not query territories one marker at a time")
+
+        async def get_by_hexes(self, db, nid, mid, hexes):
+            batch_calls.append(list(hexes))
+            return [
+                SimpleNamespace(
+                    faction_entity_id=faction_id,
+                    map_id=map_id,
+                    hex_q=1,
+                    hex_r=1,
+                )
+            ]
+
+    class FakeEntityRepo:
+        async def get_by_ids(self, db, nid, ids):
+            return [
+                SimpleNamespace(
+                    id=faction_id,
+                    name="东门守军",
+                    status="canonical",
+                )
+            ]
+
+    markers = [
+        SimpleNamespace(map_id=map_id, hex_q=1, hex_r=1),
+        SimpleNamespace(map_id=map_id, hex_q=2, hex_r=1),
+        SimpleNamespace(map_id=map_id, hex_q=1, hex_r=1),
+    ]
+    service = MapSceneSummaryService(
+        territory_repo=FakeTerritoryRepo(),  # type: ignore[arg-type]
+        entity_repo=FakeEntityRepo(),  # type: ignore[arg-type]
+    )
+
+    items = await service._faction_items(db_session, novel_id, map_id, markers)
+
+    assert batch_calls == [[(1, 1), (2, 1)]]
+    assert [item.name for item in items] == ["东门守军"]
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_batches_primary_location_binding_lookup(
+    db_session: AsyncSession,
+) -> None:
+    """主地点只应批量查询 marker 所在 hex 的 canonical 地点绑定。"""
+    from modules.world.services.map_scene_summary import MapSceneSummaryService
+
+    novel_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    location_id = uuid.uuid4()
+    batch_calls: list[list[tuple[int, int]]] = []
+
+    class FakeBindingRepo:
+        async def get_by_map(self, *args, **kwargs):
+            raise AssertionError("should not load every binding on the map")
+
+        async def get_by_hexes_for_entity_statuses(
+            self,
+            db,
+            nid,
+            mid,
+            hexes,
+            *,
+            statuses,
+        ):
+            batch_calls.append(list(hexes))
+            assert statuses == ["canonical"]
+            return [
+                SimpleNamespace(
+                    location_entity_id=uuid.uuid4(),
+                    map_id=map_id,
+                    hex_q=1,
+                    hex_r=1,
+                    is_center=False,
+                ),
+                SimpleNamespace(
+                    location_entity_id=location_id,
+                    map_id=map_id,
+                    hex_q=1,
+                    hex_r=1,
+                    is_center=True,
+                ),
+            ]
+
+    class FakeEntityRepo:
+        async def get_by_ids(self, db, nid, ids):
+            return [
+                SimpleNamespace(
+                    id=location_id,
+                    name="东门",
+                    status="canonical",
+                )
+            ]
+
+    markers = [
+        SimpleNamespace(map_id=map_id, hex_q=1, hex_r=1),
+        SimpleNamespace(map_id=map_id, hex_q=2, hex_r=1),
+        SimpleNamespace(map_id=map_id, hex_q=1, hex_r=1),
+    ]
+    service = MapSceneSummaryService(
+        binding_repo=FakeBindingRepo(),  # type: ignore[arg-type]
+        entity_repo=FakeEntityRepo(),  # type: ignore[arg-type]
+    )
+
+    item = await service._primary_location(db_session, novel_id, map_id, markers)
+
+    assert batch_calls == [[(1, 1), (2, 1)]]
+    assert item is not None
+    assert item.entity_id == str(location_id)
+    assert item.name == "东门"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_loads_marker_entities_once(
+    db_session: AsyncSession,
+) -> None:
+    """marker 状态和展示名称应复用同一次实体加载结果。"""
+    from modules.world.services.map_scene_summary import MapSceneSummaryService
+
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    non_empty_entity_calls: list[list[uuid.UUID]] = []
+
+    class FakeMarkerRepo:
+        async def get_by_scene(self, db, nid, *, scene_id, scene_index):
+            return [
+                SimpleNamespace(
+                    entity_id=entity_id,
+                    marker_type="character",
+                    map_id=map_id,
+                    hex_q=1,
+                    hex_r=1,
+                    start_scene_id=scene_id,
+                    end_scene_id=None,
+                    label="备用名",
+                )
+            ]
+
+        async def get_latest_before_scene_for_entities(self, *args, **kwargs):
+            return {}
+
+    class FakeBindingRepo:
+        async def get_by_hexes_for_entity_statuses(self, *args, **kwargs):
+            return []
+
+    class FakeTerritoryRepo:
+        async def get_by_hexes(self, *args, **kwargs):
+            return []
+
+    class FakeFactRepo:
+        async def find_map_for_scene(self, *args, **kwargs):
+            return None
+
+        async def list_for_scene_summary(self, *args, **kwargs):
+            return []
+
+    class FakeObservationRepo:
+        async def find_map_for_scene(self, *args, **kwargs):
+            return None
+
+        async def list_for_scene_summary(self, *args, **kwargs):
+            return []
+
+    class FakeEntityRepo:
+        async def get_by_ids(self, db, nid, ids):
+            requested = list(ids)
+            if requested:
+                non_empty_entity_calls.append(requested)
+            return [
+                SimpleNamespace(
+                    id=entity_id,
+                    name="林照",
+                    status="canonical",
+                )
+            ]
+
+    async def fake_scene_lookup(db, nid, sid):
+        return SimpleNamespace(scene_index=None)
+
+    service = MapSceneSummaryService(
+        marker_repo=FakeMarkerRepo(),  # type: ignore[arg-type]
+        binding_repo=FakeBindingRepo(),  # type: ignore[arg-type]
+        territory_repo=FakeTerritoryRepo(),  # type: ignore[arg-type]
+        fact_repo=FakeFactRepo(),  # type: ignore[arg-type]
+        observation_repo=FakeObservationRepo(),  # type: ignore[arg-type]
+        entity_repo=FakeEntityRepo(),  # type: ignore[arg-type]
+        scene_lookup=fake_scene_lookup,
+    )
+
+    summary = await service.summarize(
+        db_session,
+        novel_id.hex,
+        str(scene_id),
+    )
+
+    assert non_empty_entity_calls == [[entity_id]]
+    assert summary.characters[0].name == "林照"
 
 
 async def _create_scene(

@@ -63,6 +63,7 @@ const TAG_OPTIONS = [
 const sceneWorkbenchView = {
   _loading: true,
   _workbench: null,
+  _total: 0,
   _activeHealth: null,
   _filters: { ...SCENE_FILTER_DEFAULTS },
   _advancedFiltersOpen: false,
@@ -74,10 +75,12 @@ const sceneWorkbenchView = {
   _crossChapterTaskId: null,
   _crossChapterProgress: null,
   _crossChapterPoller: null,
+  _activeDraftReview: null,
 
   async onEnter() {
     this._loading = true
     this._workbench = null
+    this._total = 0
     this._selectedFusionSceneIds = new Set()
     if (!state.currentProjectId) {
       this._loading = false
@@ -128,6 +131,7 @@ const sceneWorkbenchView = {
           ${this._renderHealthFilters()}
           ${this._renderFusionToolbar()}
           ${this._renderSceneList()}
+          ${this._renderPagination()}
         </section>
         ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
         ${narrow && selected ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
@@ -144,6 +148,7 @@ const sceneWorkbenchView = {
       state.currentSubView || null,
       this._sceneWorkbenchParams(),
     )
+    this._total = Number(this._workbench?.total ?? this._workbench?.items?.length ?? 0) || 0
   },
 
   _sceneWorkbenchParams() {
@@ -231,6 +236,21 @@ const sceneWorkbenchView = {
     return `<div class="scene-workbench-list">${rows}${unassigned}</div>`
   },
 
+  _renderPagination() {
+    if (this._total <= this._filters.limit) return ""
+    const currentPage = Math.floor(this._filters.skip / this._filters.limit) + 1
+    const totalPages = Math.ceil(this._total / this._filters.limit)
+    const prevDisabled = this._filters.skip <= 0 ? "disabled" : ""
+    const nextDisabled = this._filters.skip + this._filters.limit >= this._total ? "disabled" : ""
+    return `
+      <div class="scene-workbench-pagination">
+        <button class="btn btn-sm" data-action="prev-scene-page" ${prevDisabled}>上一页</button>
+        <span>第 ${currentPage} / ${totalPages} 页，共 ${esc(this._total)} 条</span>
+        <button class="btn btn-sm" data-action="next-scene-page" ${nextDisabled}>下一页</button>
+      </div>
+    `
+  },
+
   _renderSceneRow(item, selectedId) {
     const scene = item.scene || {}
     const selected = selectedId === scene.id ? "is-selected" : ""
@@ -285,8 +305,11 @@ const sceneWorkbenchView = {
         </div>
         <button class="btn btn-sm" data-action="select-visible-fusion-scenes">全选当前列表</button>
         <button class="btn btn-sm" data-action="clear-fusion-selection" ${count === 0 ? "disabled" : ""} title="${count === 0 ? "当前没有选中的 Scene" : "清空当前选择"}">清空</button>
-        <button class="btn btn-sm btn-primary" data-action="start-manual-fusion" ${disabled} title="${count < 2 ? hint : "融合选中的 Scene"}">
-          手动融合 / LLM 融合
+        <button class="btn btn-sm" data-action="start-selected-merge" ${disabled} title="${count < 2 ? hint : "机械合并：目标 Scene 吸收其他 Scene"}">
+          机械合并
+        </button>
+        <button class="btn btn-sm btn-primary" data-action="start-ai-fusion-draft" ${disabled} title="${count < 2 ? hint : "为选中的 Scene 生成 AI 融合草稿"}">
+          AI 融合草稿
         </button>
       </div>
     `
@@ -408,6 +431,7 @@ const sceneWorkbenchView = {
     if (!sceneId) return
     if (selected) this._selectedFusionSceneIds.add(sceneId)
     else this._selectedFusionSceneIds.delete(sceneId)
+    this._syncFusionSelectionUi()
   },
 
   _selectVisibleFusionScenes() {
@@ -415,12 +439,22 @@ const sceneWorkbenchView = {
       const id = item.scene?.id
       if (id) this._selectedFusionSceneIds.add(id)
     }
-    router.renderCurrentView()
+    this._syncFusionSelectionUi()
   },
 
   _clearFusionSelection() {
     this._selectedFusionSceneIds = new Set()
-    router.renderCurrentView()
+    this._syncFusionSelectionUi()
+  },
+
+  _syncFusionSelectionUi() {
+    if (typeof document === "undefined") return
+    const toolbar = document.querySelector(".scene-fusion-toolbar")
+    if (toolbar) toolbar.outerHTML = this._renderFusionToolbar()
+    document.querySelectorAll('input[data-action="toggle-fusion-selection"]').forEach((input) => {
+      const id = input.getAttribute("data-id")
+      input.checked = this._selectedFusionSceneIds.has(id)
+    })
   },
 
   async _saveSceneDetails(sceneId) {
@@ -495,9 +529,102 @@ const sceneWorkbenchView = {
       toast("请至少选择 2 个 Scene 再融合", "warning")
       return
     }
+    this._showPrimaryScenePicker(sourceSceneIds)
+  },
+
+  async _startSelectedMerge() {
+    const sourceSceneIds = Array.from(this._selectedFusionSceneIds)
+    if (sourceSceneIds.length < 2) {
+      toast("请至少选择 2 个 Scene 再合并", "warning")
+      return
+    }
+    this._showMergeTargetPicker(sourceSceneIds)
+  },
+
+  _showMergeTargetPicker(sourceSceneIds) {
+    const scenes = sourceSceneIds
+      .map((id) => this._findScene(id))
+      .filter(Boolean)
+    if (scenes.length < 2) {
+      toast("请至少选择 2 个 Scene 再合并", "warning")
+      return
+    }
+    const cards = scenes.map((scene, index) => `
+      <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+        <input type="radio" name="merge-target-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
+        <strong>${esc(scene.title || "未命名 Scene")}</strong>
+        <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
+        <p style="margin:6px 0 0;">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
+      </label>
+    `).join("")
+    showModal("选择目标 Scene", cards, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "预览机械合并",
+        class: "btn-primary",
+        handler: async () => {
+          const targetSceneId = document.querySelector('input[name="merge-target-scene-id"]:checked')?.value
+          if (!targetSceneId) {
+            toast("请选择目标 Scene", "warning")
+            return
+          }
+          const sourceIds = sourceSceneIds.filter((id) => id !== targetSceneId)
+          closeModal()
+          await this._previewAndMerge(targetSceneId, sourceIds)
+        },
+      },
+    ])
+  },
+
+  _showPrimaryScenePicker(sourceSceneIds) {
+    const scenes = sourceSceneIds
+      .map((id) => this._findScene(id))
+      .filter(Boolean)
+    if (scenes.length < 2) {
+      toast("请至少选择 2 个 Scene 再融合", "warning")
+      return
+    }
+    const cards = scenes.map((scene, index) => {
+      const meta = scene.structure_meta || {}
+      const flags = [
+        meta.needs_review ? "需复核" : "",
+        meta.phase1a_fallback ? "fallback" : "",
+        meta.boundary_status ? `边界:${meta.boundary_status}` : "",
+        meta.confidence != null ? `置信度:${meta.confidence}` : "",
+      ].filter(Boolean)
+      return `
+        <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+          <input type="radio" name="primary-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
+          <strong>${esc(scene.title || "未命名 Scene")}</strong>
+          <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
+          <p style="margin:6px 0 0;">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
+          ${flags.length ? `<div style="margin-top:6px;color:var(--text-dim);font-size:12px;">${esc(flags.join(" · "))}</div>` : ""}
+        </label>
+      `
+    }).join("")
+    showModal("选择主 Scene", cards, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "生成 AI 融合草稿",
+        class: "btn-primary",
+        handler: async () => {
+          const primarySceneId = document.querySelector('input[name="primary-scene-id"]:checked')?.value
+          if (!primarySceneId) {
+            toast("请选择主 Scene", "warning")
+            return
+          }
+          closeModal()
+          await this._previewFusionWithPrimary(sourceSceneIds, primarySceneId)
+        },
+      },
+    ])
+  },
+
+  async _previewFusionWithPrimary(sourceSceneIds, primarySceneId) {
     try {
       const preview = await api.outline.previewSceneFusion(state.currentProjectId, {
         source_scene_ids: sourceSceneIds,
+        primary_scene_id: primarySceneId,
       })
       this._showFusionPreview(preview, sourceSceneIds)
     } catch (err) {
@@ -509,7 +636,8 @@ const sceneWorkbenchView = {
     const sourceSceneIds = preview?.source_scene_ids?.length
       ? preview.source_scene_ids
       : fallbackSourceIds
-    showModal("手动 Scene 融合", this._renderFusionPreview(preview), [
+    this._activeDraftReview = preview || null
+    showModal("Scene AI 草稿审稿", this._renderDraftReview(preview), [
       {
         text: "保留原 Scene + 保存融合 Scene",
         class: "btn-primary",
@@ -533,52 +661,101 @@ const sceneWorkbenchView = {
     ])
   },
 
-  _renderFusionPreview(preview) {
-    const fused = preview?.fused_scene || preview?.preview_scene || {}
+  _renderDraftReview(preview) {
+    const fused = preview?.draft_scene || preview?.fused_scene || preview?.preview_scene || {}
     const sourceIds = preview?.source_scene_ids || []
     const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
+    const conflicts = (preview?.conflicts || []).map((item) => `<li>${esc(item.message || item.field || "")}</li>`).join("")
+    const refs = preview?.field_references || {}
+    const row = (field, label, editorHtml) => {
+      const fieldRefs = refs[field] || []
+      const primaryRefs = fieldRefs.filter((item) => item.role === "primary")
+      const otherRefs = fieldRefs.filter((item) => item.role !== "primary")
+      const renderRef = (item) => `<div class="scene-draft-ref"><strong>${esc(item.title || item.scene_id)}</strong><p>${esc(this._formatDraftRefValue(item.value))}</p></div>`
+      return `
+        <div class="scene-draft-review-row">
+          <div class="scene-draft-review-row__label">${esc(label)}</div>
+          <div>${editorHtml}</div>
+          <div>${primaryRefs.map(renderRef).join("") || '<span class="muted">无</span>'}</div>
+          <div>${otherRefs.map(renderRef).join("") || '<span class="muted">无</span>'}</div>
+        </div>
+      `
+    }
     return `
       <div class="scene-fusion-preview">
         <section class="scene-fusion-preview__meta">
           <div><strong>来源 Scene</strong><span>${esc(sourceIds.join(", "))}</span></div>
+          ${preview?.primary_scene_id ? `<div><strong>主 Scene</strong><span>${esc(preview.primary_scene_id)}</span></div>` : ""}
+          ${preview?.reason ? `<p>${esc(preview.reason)}</p>` : ""}
           ${warnings ? `<ul>${warnings}</ul>` : ""}
+          ${conflicts ? `<ul>${conflicts}</ul>` : ""}
         </section>
-        <div class="scene-detail-grid">
-          ${this._input("标题", "scene-fusion-title", fused.title || "")}
-          ${this._textarea("目标", "scene-fusion-goal", fused.goal || "")}
-          ${this._textarea("核心冲突", "scene-fusion-conflict", fused.core_conflict || "")}
-          ${this._textarea("情感节奏", "scene-fusion-emotion", fused.emotional_beat || "")}
-          ${this._textarea("必须发生", "scene-fusion-must", fused.must_happen || "")}
-          ${this._textarea("禁止发生", "scene-fusion-must-not", fused.must_not_happen || "")}
-          ${this._input("章节 IDs", "scene-fusion-chapters", (fused.chapter_ids || []).join(", "))}
+        <div class="scene-draft-review-grid">
+          <div class="scene-draft-review-head">字段</div>
+          <div class="scene-draft-review-head">AI 草稿</div>
+          <div class="scene-draft-review-head">主 Scene 原值</div>
+          <div class="scene-draft-review-head">其他 Scene 原值</div>
+          ${row("title", "标题", `<input class="form-input" id="scene-fusion-title" value="${esc(fused.title || "")}" />`)}
+          ${row("goal", "目标", `<textarea class="form-textarea" id="scene-fusion-goal" rows="3">${esc(fused.goal || "")}</textarea>`)}
+          ${row("core_conflict", "核心冲突", `<textarea class="form-textarea" id="scene-fusion-conflict" rows="3">${esc(fused.core_conflict || "")}</textarea>`)}
+          ${row("emotional_beat", "情感节奏", `<textarea class="form-textarea" id="scene-fusion-emotion" rows="3">${esc(fused.emotional_beat || "")}</textarea>`)}
+          ${row("must_happen", "必须发生", `<textarea class="form-textarea" id="scene-fusion-must" rows="3">${esc(fused.must_happen || "")}</textarea>`)}
+          ${row("must_not_happen", "禁止发生", `<textarea class="form-textarea" id="scene-fusion-must-not" rows="3">${esc(fused.must_not_happen || "")}</textarea>`)}
+          ${row("chapter_ids", "章节 IDs", `<input class="form-input" id="scene-fusion-chapters" value="${esc((fused.chapter_ids || []).join(", "))}" />`)}
         </div>
       </div>
     `
   },
 
+  _formatDraftRefValue(value) {
+    if (Array.isArray(value)) return value.map((item) => typeof item === "object" ? JSON.stringify(item) : String(item)).join("；")
+    if (value && typeof value === "object") return JSON.stringify(value)
+    return value == null ? "" : String(value)
+  },
+
+  _sceneChapterLabel(scene) {
+    const chapterIds = scene?.chapter_ids || []
+    if (!chapterIds.length) return "未关联章节"
+    return chapterIds.map((id) => `第 ${String(id)} 章`).join(" / ")
+  },
+
   _readFusionDraftFields() {
-    const value = (id) => document.getElementById(id)?.value?.trim() || null
-    const chapters = (value("scene-fusion-chapters") || "")
+    const draft = this._activeDraftReview?.draft_scene || this._activeDraftReview?.fused_scene || {}
+    const value = (id, fallback = null) => {
+      const el = document.getElementById(id)
+      if (!el) return fallback
+      return el.value?.trim() || null
+    }
+    const chaptersText = value("scene-fusion-chapters", (draft.chapter_ids || []).join(", ")) || ""
+    const chapters = chaptersText
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
     return {
-      title: value("scene-fusion-title"),
-      goal: value("scene-fusion-goal"),
-      core_conflict: value("scene-fusion-conflict"),
-      emotional_beat: value("scene-fusion-emotion"),
-      must_happen: value("scene-fusion-must"),
-      must_not_happen: value("scene-fusion-must-not"),
+      title: value("scene-fusion-title", draft.title || null),
+      goal: value("scene-fusion-goal", draft.goal || null),
+      core_conflict: value("scene-fusion-conflict", draft.core_conflict || null),
+      emotional_beat: value("scene-fusion-emotion", draft.emotional_beat || null),
+      must_happen: value("scene-fusion-must", draft.must_happen || null),
+      must_not_happen: value("scene-fusion-must-not", draft.must_not_happen || null),
       chapter_ids: chapters,
+      structure_meta: {
+        draft_review_mode: this._activeDraftReview?.mode || "fusion",
+        primary_scene_id: this._activeDraftReview?.primary_scene_id || null,
+        confidence: this._activeDraftReview?.confidence ?? null,
+        draft_review_warnings: this._activeDraftReview?.warnings || [],
+        draft_review_conflicts: this._activeDraftReview?.conflicts || [],
+      },
     }
   },
 
   async _saveFusionResult(mode, sourceSceneIds) {
     const payload = {
       source_scene_ids: sourceSceneIds,
+      primary_scene_id: this._activeDraftReview?.primary_scene_id || null,
       mode,
     }
-    if (mode === "edit_then_save") {
+    if (mode !== "discard") {
       payload.fused_scene = this._readFusionDraftFields()
     }
     try {
@@ -605,7 +782,7 @@ const sceneWorkbenchView = {
       split_chapter_index: splitChapterIndex,
     }
     const preview = await api.outline.previewSceneSplit(state.currentProjectId, request)
-    showModal("拆分 Scene 影响预览", this._renderPreview(preview), [
+    showModal("Scene AI 草稿审稿", this._renderSplitDraftReview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认拆分",
@@ -613,6 +790,7 @@ const sceneWorkbenchView = {
         handler: async () => {
           await api.outline.splitScene(state.currentProjectId, {
             ...request,
+            draft_scenes: this._readSplitDraftScenes(),
             confirmed: true,
           })
           toast("Scene 已拆分", "success")
@@ -621,6 +799,67 @@ const sceneWorkbenchView = {
         },
       },
     ])
+  },
+
+  _renderSplitDraftReview(preview) {
+    const drafts = preview?.draft_scenes || []
+    const sourceRefs = preview?.field_references || {}
+    const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
+    const fields = [
+      ["title", "标题"],
+      ["goal", "目标"],
+      ["core_conflict", "核心冲突"],
+      ["emotional_beat", "情感节奏"],
+      ["must_happen", "必须发生"],
+      ["must_not_happen", "禁止发生"],
+      ["chapter_ids", "章节 IDs"],
+    ]
+    const refValue = (field) => (sourceRefs[field] || [])
+      .map((item) => `${item.title || item.scene_id}: ${this._formatDraftRefValue(item.value)}`)
+      .join("；") || "无"
+    const splitEditor = (draftIndex, field, value) => {
+      const id = `scene-split-${draftIndex}-${field}`
+      if (field === "chapter_ids") {
+        return `<input class="form-input" id="${esc(id)}" value="${esc(this._formatDraftRefValue(value))}" readonly />`
+      }
+      return `<textarea class="form-textarea" id="${esc(id)}" rows="2">${esc(value || "")}</textarea>`
+    }
+    const rows = fields.map(([field, label]) => `
+      <div class="scene-draft-review-row">
+        <div class="scene-draft-review-row__label">${esc(label)}</div>
+        <div>${esc(refValue(field))}</div>
+        <div>${splitEditor(0, field, drafts[0]?.[field])}</div>
+        <div>${splitEditor(1, field, drafts[1]?.[field])}</div>
+      </div>
+    `).join("")
+    return `
+      <div class="scene-fusion-preview">
+        <section class="scene-fusion-preview__meta">
+          <div><strong>操作</strong><span>AI 拆分草稿</span></div>
+          ${warnings ? `<ul>${warnings}</ul>` : ""}
+        </section>
+        <div class="scene-draft-review-grid">
+          <div class="scene-draft-review-head">字段</div>
+          <div class="scene-draft-review-head">原 Scene</div>
+          <div class="scene-draft-review-head">草稿 A</div>
+          <div class="scene-draft-review-head">草稿 B</div>
+          ${rows}
+        </div>
+        ${this._renderPreview(preview)}
+      </div>
+    `
+  },
+
+  _readSplitDraftScenes() {
+    const fields = ["title", "goal", "core_conflict", "emotional_beat", "must_happen", "must_not_happen", "narrative_tag"]
+    return [0, 1].map((index) => {
+      const draft = {}
+      for (const field of fields) {
+        const value = document.getElementById(`scene-split-${index}-${field}`)?.value?.trim()
+        if (value) draft[field] = value
+      }
+      return draft
+    })
   },
 
   _renderPreview(preview) {
@@ -690,6 +929,16 @@ const sceneWorkbenchView = {
   _toggleAdvancedFilters() {
     this._advancedFiltersOpen = !this._advancedFiltersOpen
     router.refresh()
+  },
+
+  async _changePage(delta) {
+    const newSkip = this._filters.skip + delta * this._filters.limit
+    if (newSkip < 0) return
+    if (newSkip >= this._total) return
+    this._filters.skip = newSkip
+    this._selectedFusionSceneIds = new Set()
+    await this._loadWorkbench()
+    await router.refresh()
   },
 
   _renderAutoExtractProgress() {
@@ -892,32 +1141,15 @@ const sceneWorkbenchView = {
       `
     }).join("")
     showModal("跨章 Scene 建议", rows, [{
-      text: "保存选中融合 Scene",
+      text: "打开 AI 融合草稿",
       class: "btn-primary",
       handler: async () => {
         const selected = document.querySelector('input[name="cross-chapter-suggestion"]:checked')?.value
         const suggestion = suggestions[Number(selected || 0)]
         if (!suggestion) return
-        const proposed = {
-          ...(suggestion.proposed_scene || {}),
-          structure_meta: {
-            ...(suggestion.proposed_scene?.structure_meta || {}),
-            source_task_id: this._crossChapterProgress?.taskId || this._crossChapterTaskId,
-          },
-        }
-        try {
-          await api.outline.saveSceneFusion(state.currentProjectId, {
-            source_scene_ids: suggestion.source_scene_ids || [],
-            mode: "deprecate_originals",
-            fused_scene: proposed,
-          })
-          closeModal()
-          toast("跨章融合 Scene 已保存", "success")
-          await this._loadWorkbench()
-          router.refresh()
-        } catch (err) {
-          toast(err.message || "保存失败", "error")
-        }
+        closeModal()
+        const sourceSceneIds = suggestion.source_scene_ids || []
+        this._showPrimaryScenePicker(sourceSceneIds)
       },
     }])
   },
@@ -934,6 +1166,8 @@ const sceneWorkbenchView = {
       "apply-scene-filters": () => this._applyManagementFilters(),
       "reset-scene-filters": () => this._resetManagementFilters(),
       "toggle-advanced-scene-filters": () => this._toggleAdvancedFilters(),
+      "prev-scene-page": () => this._changePage(-1),
+      "next-scene-page": () => this._changePage(1),
       "select-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
       "edit-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
       "organize-workbench-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
@@ -946,10 +1180,11 @@ const sceneWorkbenchView = {
       "toggle-fusion-selection": (e, t, ctx) => {
         e.stopPropagation()
         this._toggleFusionSelection(ctx.id, t.checked)
-        router.renderCurrentView()
       },
       "select-visible-fusion-scenes": () => this._selectVisibleFusionScenes(),
       "clear-fusion-selection": () => this._clearFusionSelection(),
+      "start-selected-merge": () => this._startSelectedMerge(),
+      "start-ai-fusion-draft": () => this._startManualFusion(),
       "start-manual-fusion": () => this._startManualFusion(),
       "start-merge-scene": (_e, _t, ctx) => ctx.id && this._startMerge(ctx.id),
       "start-split-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),

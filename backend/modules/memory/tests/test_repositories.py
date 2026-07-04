@@ -35,6 +35,42 @@ class TestEventRepository:
         assert event.snapshot_after == {"name": "张三"}
         assert event.source == "ai_extraction"
 
+    async def test_create_many(
+        self,
+        event_repo: EventRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        rows = [
+            {
+                "novel_id": sample_novel_id,
+                "chapter_index": 3,
+                "sequence": 1,
+                "event_type": "entity_created",
+                "snapshot_after": {"name": "张三"},
+                "entity_id": uuid.uuid4(),
+                "entity_type": "character",
+            },
+            {
+                "novel_id": sample_novel_id,
+                "chapter_index": 3,
+                "sequence": 2,
+                "event_type": "entity_moved",
+                "snapshot_after": {"location_id": "loc-1"},
+                "entity_id": uuid.uuid4(),
+                "entity_type": "character",
+            },
+        ]
+
+        events = await event_repo.create_many(db_with_project, rows)
+
+        assert [event.sequence for event in events] == [1, 2]
+        saved = await event_repo.get_by_chapter(db_with_project, sample_novel_id, 3)
+        assert [event.event_type for event in saved] == [
+            "entity_created",
+            "entity_moved",
+        ]
+
     async def test_get_by_chapter(
         self,
         event_repo: EventRepository,

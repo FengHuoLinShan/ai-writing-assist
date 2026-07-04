@@ -73,6 +73,15 @@ async def get_latest_draft_for_chapter(
     return await _service.get_latest_draft_contract(db, novel_id, chapter_index)
 
 
+async def list_latest_drafts_for_chapters(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_indices: list[int],
+) -> list[WritingDraftContract]:
+    """批量获取指定章节的最新草稿契约。"""
+    return await _service.list_latest_draft_contracts(db, novel_id, chapter_indices)
+
+
 async def list_chapter_indices(
     db: AsyncSession,
     novel_id: str,
@@ -87,3 +96,11 @@ async def get_project_writing_stats(
 ) -> WritingProjectStatsContract:
     """获取项目正文统计（每章只统计最新版本）。"""
     return await _service.get_project_stats(db, novel_id)
+
+
+async def list_project_writing_stats(
+    db: AsyncSession,
+    novel_ids: list[str],
+) -> dict[str, WritingProjectStatsContract]:
+    """批量获取项目正文统计（每章只统计最新版本）。"""
+    return await _service.list_project_stats(db, novel_ids)

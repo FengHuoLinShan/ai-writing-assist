@@ -11,11 +11,11 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
 from modules.outline.repositories import SceneRepository
@@ -26,6 +26,8 @@ from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
     list_chapter_indices,
+    list_latest_drafts_for_chapters,
+    list_project_writing_stats,
 )
 from modules.writing.repositories import WritingDraftRepository
 from modules.writing.schemas import (
@@ -514,7 +516,7 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             if operation == "get_draft":
                 await service.get_draft(db, fake_id, novel_id)
             elif operation == "update_draft":
@@ -550,7 +552,7 @@ class TestWritingDraftService:
         )
 
         assert resp.title == "更新后的标题"
-        repo.update.assert_awaited_once_with(db, draft.id, update_data)
+        repo.update.assert_awaited_once_with(db, draft, update_data)
 
     @pytest.mark.asyncio
     async def test_update_draft_conflict_detection(
@@ -575,7 +577,7 @@ class TestWritingDraftService:
             title="conflict",
             expected_version=1,
         )
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(ConflictError) as exc_info:
             await service.update_draft(
                 db, str(v1.id), conflict_update, sample_draft_data.novel_id
             )
@@ -687,7 +689,7 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             await service.delete_draft(db, str(v1.id), sample_draft_data.novel_id)
         assert exc_info.value.status_code == 400
 
@@ -756,7 +758,7 @@ class TestWritingDraftService:
     ) -> None:
         service = WritingDraftService()
         db = MagicMock()
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(DomainError) as exc_info:
             await service.get_draft(db, "not-a-uuid", sample_draft_data.novel_id)
         assert exc_info.value.status_code == 422
 
@@ -943,20 +945,53 @@ async def test_split_chapter_shifts_later_chapters(
             novel_id=novel_id, chapter_index=6, title="第六章", content="原第六章"
         ),
     )
-
-    result = await service.split_chapter_at_offset(
+    await service.create_draft(
         db_session,
-        novel_id=novel_id,
-        chapter_index=5,
-        split_pos=2,
-        source_scene_id=None,
+        WritingDraftCreate(
+            novel_id=novel_id, chapter_index=7, title="第七章", content="原第七章"
+        ),
     )
+    await service.create_draft(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id, chapter_index=8, title="第八章", content="原第八章"
+        ),
+    )
+
+    engine = db_session.bind.sync_engine
+    draft_updates: list[str] = []
+
+    def count_draft_updates(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("update writing_drafts"):
+            draft_updates.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", count_draft_updates)
+    try:
+        result = await service.split_chapter_at_offset(
+            db_session,
+            novel_id=novel_id,
+            chapter_index=5,
+            split_pos=2,
+            source_scene_id=None,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_draft_updates)
 
     assert result.new_chapter_index == 6
     indices = await service.list_chapter_indices(db_session, novel_id)
-    assert indices == [5, 6, 7]
-    shifted = await service.get_latest_draft(db_session, novel_id, 7)
-    assert shifted.content == "原第六章"
+    assert indices == [5, 6, 7, 8, 9]
+    assert (await service.get_latest_draft(db_session, novel_id, 7)).content == "原第六章"
+    assert (await service.get_latest_draft(db_session, novel_id, 8)).content == "原第七章"
+    assert (await service.get_latest_draft(db_session, novel_id, 9)).content == "原第八章"
+    assert len(draft_updates) == 3
 
 
 @pytest.mark.asyncio
@@ -1113,6 +1148,27 @@ class TestWritingFacade:
         assert contract is None
 
     @pytest.mark.asyncio
+    async def test_list_latest_drafts_for_chapters_returns_latest_requested_versions(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await create_draft(db_session, novel_id, 1, "第一章 v1", "旧内容")
+        await create_draft(db_session, novel_id, 1, "第一章 v2", "新内容")
+        await create_draft(db_session, novel_id, 2, "第二章", "不应返回")
+        await create_draft(db_session, novel_id, 3, "第三章", "第三章内容")
+
+        drafts = await list_latest_drafts_for_chapters(
+            db_session,
+            novel_id,
+            [3, 1, 99],
+        )
+
+        assert [draft.chapter_index for draft in drafts] == [1, 3]
+        assert [draft.title for draft in drafts] == ["第一章 v2", "第三章"]
+        assert [draft.content for draft in drafts] == ["新内容", "第三章内容"]
+
+    @pytest.mark.asyncio
     async def test_list_chapter_indices(
         self,
         db_session: AsyncSession,
@@ -1130,6 +1186,31 @@ class TestWritingFacade:
     ) -> None:
         indices = await list_chapter_indices(db_session, str(uuid.uuid4()))
         assert indices == []
+
+    @pytest.mark.asyncio
+    async def test_list_project_writing_stats_batches_latest_versions(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        other_id = str(uuid.uuid4())
+        missing_id = str(uuid.uuid4())
+        await create_draft(db_session, novel_id, 1, "第一章 v1", "旧稿")
+        await create_draft(db_session, novel_id, 1, "第一章 v2", "新稿内容")
+        await create_draft(db_session, novel_id, 2, "第二章", "第二")
+        await create_draft(db_session, other_id, 1, "另一项目", "其他")
+
+        stats = await list_project_writing_stats(
+            db_session,
+            [novel_id, missing_id, other_id],
+        )
+
+        assert stats[novel_id].chapter_count == 2
+        assert stats[novel_id].word_count == 6
+        assert stats[missing_id].chapter_count == 0
+        assert stats[missing_id].word_count == 0
+        assert stats[other_id].chapter_count == 1
+        assert stats[other_id].word_count == 2
 
 
 # ============================================================

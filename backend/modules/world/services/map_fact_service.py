@@ -62,6 +62,6 @@ class MapFactService:
         fid = parse_uuid(fact_id, "fact_id")
         fact = await owner._fact_repo.get(db, fid)
         owner._assert_fact_access(fact, fact_id, nid, mid)
-        updated = await owner._fact_repo.update_status(db, fid, data.fact_status)
+        updated = await owner._fact_repo.update_status(db, fact, data.fact_status)
         assert updated is not None
         return MapFactResponse.model_validate(updated)

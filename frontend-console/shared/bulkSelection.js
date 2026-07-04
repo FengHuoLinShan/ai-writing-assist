@@ -102,6 +102,7 @@ export function renderBulkToolbar(view, scope, actions, options = {}) {
       data-action="bulk-run"
       data-scope="${escHtml(scope)}"
       data-bulk-action="${escHtml(action.action)}"
+      data-bulk-static-disabled="${action.disabled ? "true" : "false"}"
       ${count === 0 || action.disabled ? "disabled" : ""}
     >${escHtml(action.label)}</button>
   `).join("")
@@ -119,6 +120,48 @@ export function renderBulkToolbar(view, scope, actions, options = {}) {
       <span class="sr-only">${escHtml(title)}</span>
     </div>
   `
+}
+
+export function syncBulkSelectionUi(view, scope = null) {
+  if (typeof document === "undefined") return
+  const scopes = scope ? [scope] : Object.keys(view._bulkSelections || {})
+  for (const itemScope of scopes) {
+    const selection = getBulkSelection(view, itemScope)
+    const visibleInputs = Array.from(document.querySelectorAll('input[data-action="bulk-toggle-one"]'))
+      .filter((input) => input.getAttribute("data-scope") === itemScope)
+    const visibleIds = visibleInputs
+      .map((input) => input.getAttribute("data-id"))
+      .filter(Boolean)
+
+    for (const input of visibleInputs) {
+      input.checked = selection.has(String(input.getAttribute("data-id")))
+    }
+
+    const selectedVisibleCount = visibleIds.filter((id) => selection.has(String(id))).length
+    const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length
+    const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected
+    document.querySelectorAll('input[data-action="bulk-toggle-all"]').forEach((input) => {
+      if (input.getAttribute("data-scope") !== itemScope) return
+      input.checked = allVisibleSelected
+      input.indeterminate = someVisibleSelected
+      if (someVisibleSelected) input.setAttribute("data-indeterminate", "true")
+      else input.removeAttribute("data-indeterminate")
+      input.disabled = visibleIds.length === 0
+    })
+
+    document.querySelectorAll(".bulk-toolbar").forEach((toolbar) => {
+      if (toolbar.getAttribute("data-scope") !== itemScope) return
+      const count = selection.size
+      const countNode = toolbar.querySelector(".bulk-toolbar__status strong")
+      if (countNode) countNode.textContent = String(count)
+      toolbar.querySelectorAll('[data-action="bulk-run"]').forEach((button) => {
+        button.disabled = count === 0 || button.getAttribute("data-bulk-static-disabled") === "true"
+      })
+      toolbar.querySelectorAll('[data-action="bulk-clear"]').forEach((button) => {
+        button.disabled = count === 0
+      })
+    })
+  }
 }
 
 export async function runBulkAction(items, handler, options = {}) {
@@ -155,4 +198,3 @@ export function bulkResultMessage(result, actionLabel, itemLabel = (item) => ite
   }
   return parts.join("；")
 }
-

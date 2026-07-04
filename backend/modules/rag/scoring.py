@@ -29,6 +29,23 @@ def smart_tokenize_chinese(query: str) -> list[str]:
     return [term.lower() for term in raw_terms if len(term) >= 2]
 
 
+def keyword_query_terms(query: str) -> list[str]:
+    """提取 SQL 召回/评分共用关键词，兼容无空格中文复合查询。"""
+    terms: list[str] = []
+    for raw_term in (q.strip() for q in query.split()):
+        if not raw_term:
+            continue
+        term = raw_term.lower()
+        terms.append(term)
+        compact = re.sub(r"\s+", "", term)
+        if len(compact) < 4 or not any("\u4e00" <= ch <= "\u9fff" for ch in compact):
+            continue
+        for size in range(2, min(4, len(compact)) + 1):
+            for idx in range(0, len(compact) - size + 1):
+                terms.append(compact[idx : idx + size])
+    return list(dict.fromkeys(terms))
+
+
 def compute_keyword_score_with_proximity(
     text: str,
     query_terms: list[str],

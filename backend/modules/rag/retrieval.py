@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.rag import scoring as rag_scoring
 from modules.rag.circuit_breaker import get_circuit_breaker
 from modules.rag.contracts import RagResultBundle
 from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
@@ -20,7 +21,7 @@ from modules.rag.models import RagChunk
 from modules.rag.query_expansion import QueryExpander
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.reranker import rerank_results
-from modules.rag.scoring import Scorer, smart_tokenize_chinese
+from modules.rag.scoring import Scorer, keyword_query_terms, smart_tokenize_chinese
 
 EmbedderFn = Callable[..., Awaitable[list[float]]]
 RerankerFn = Callable[..., Awaitable[list[tuple]]]
@@ -167,12 +168,14 @@ class RetrievalOrchestrator:
                 unique_chunks.append(chunk)
 
         # 对中文查询不分词，直接用整个查询做子串匹配
-        query_terms = [q.strip().lower() for q in expanded_query.split() if q.strip()]
+        query_terms = keyword_query_terms(expanded_query)
         use_chinese_match = not query_terms or all(
             ord(c) > 127 for c in expanded_query.replace(" ", "")
         )
         chinese_query_no_spaces = expanded_query.replace(" ", "").lower()
-        chinese_terms_list = smart_tokenize_chinese(expanded_query)
+        chinese_terms_list = keyword_query_terms(expanded_query)
+        if not chinese_terms_list:
+            chinese_terms_list = smart_tokenize_chinese(expanded_query)
         scored_chunks: list[tuple[RagChunk, float]] = []
 
         for chunk in unique_chunks:
@@ -286,6 +289,7 @@ class RetrievalOrchestrator:
         self,
         scored_chunks: list[tuple],
         threshold: float = 0.9,
+        max_candidates: int = 120,
     ) -> list[tuple]:
         """对检索结果进行语义去重。
 
@@ -295,10 +299,13 @@ class RetrievalOrchestrator:
         if len(scored_chunks) <= 1:
             return scored_chunks
 
+        comparison_window = max(1, min(max_candidates, len(scored_chunks)))
+        head = scored_chunks[:comparison_window]
+        tail = scored_chunks[comparison_window:]
         keep: list[tuple] = []
         removed_indices: set[int] = set()
 
-        for i, (chunk_a, score_a) in enumerate(scored_chunks):
+        for i, (chunk_a, score_a) in enumerate(head):
             if i in removed_indices:
                 continue
             keep.append((chunk_a, score_a))
@@ -309,7 +316,7 @@ class RetrievalOrchestrator:
             if not isinstance(emb_a, list):
                 continue
 
-            for j, (chunk_b, _score_b) in enumerate(scored_chunks):
+            for j, (chunk_b, _score_b) in enumerate(head):
                 if j <= i or j in removed_indices:
                     continue
 
@@ -321,9 +328,7 @@ class RetrievalOrchestrator:
                 if len(emb_a) != len(emb_b):
                     continue
 
-                from modules.rag.scoring import cosine_similarity
-
-                sim = cosine_similarity(emb_a, emb_b)
+                sim = rag_scoring.cosine_similarity(emb_a, emb_b)
                 if sim > threshold:
                     count_a = chunk_a.char_count or 0
                     count_b = chunk_b.char_count or 0
@@ -335,7 +340,7 @@ class RetrievalOrchestrator:
                         removed_indices.add(i)
                         break
 
-        return keep
+        return [*keep, *tail]
 
     async def retrieve(
         self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
 from modules.outline.services import OutlineArcService, PlotThreadService
+from modules.writing.contracts import WritingDraftContract
 
 
 def _mock_container_get(name):
@@ -72,6 +74,112 @@ def test_plot_structure_context_markdown_includes_rag_evidence_and_warnings() ->
     assert "克莱恩在廷根醒来" in markdown
     assert "## 上下文警告" in markdown
     assert "RAG 检索降级" in markdown
+
+
+@pytest.mark.asyncio
+async def test_plot_structure_context_loads_chapter_texts_in_one_batch(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生成结构上下文时，章节正文范围应通过 writing facade 批量加载。"""
+    from modules.outline.generation import context_builder
+
+    batch_calls: list[list[int]] = []
+
+    async def fail_single_fetch(db, novel_id, chapter_index):
+        raise AssertionError("should not fetch latest drafts one chapter at a time")
+
+    async def fake_batch_fetch(db, novel_id, chapter_indices):
+        batch_calls.append(list(chapter_indices))
+        return [
+            WritingDraftContract(
+                novel_id=novel_id,
+                chapter_index=2,
+                content="第二章正文",
+            ),
+            WritingDraftContract(
+                novel_id=novel_id,
+                chapter_index=3,
+                content="",
+            ),
+            WritingDraftContract(
+                novel_id=novel_id,
+                chapter_index=4,
+                content="第四章正文",
+            ),
+        ]
+
+    monkeypatch.setattr(
+        context_builder.writing_facade,
+        "get_latest_draft_for_chapter",
+        fail_single_fetch,
+    )
+    monkeypatch.setattr(
+        context_builder.writing_facade,
+        "list_latest_drafts_for_chapters",
+        fake_batch_fetch,
+    )
+
+    texts = await context_builder.PlotStructureContextBuilder()._load_chapter_texts(
+        db_session,
+        sample_novel_id,
+        2,
+        4,
+    )
+
+    assert batch_calls == [[2, 3, 4]]
+    assert texts == [(2, "第二章正文"), (4, "第四章正文")]
+
+
+@pytest.mark.asyncio
+async def test_plot_structure_context_loads_scene_summaries_by_chapter_range(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已有 Scene 摘要应按章节范围查询，不应全量加载后 Python 过滤。"""
+    from modules.outline import services as outline_services
+    from modules.outline.generation.context_builder import PlotStructureContextBuilder
+
+    range_calls: list[tuple[str, int, int]] = []
+
+    class FakeSceneService:
+        async def get_ordered(self, db, novel_id):
+            raise AssertionError("should not load all scenes for range summaries")
+
+        async def get_by_chapter_range_models(
+            self,
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+        ):
+            range_calls.append((novel_id, start_chapter, end_chapter))
+            return [
+                SimpleNamespace(
+                    scene_index=3,
+                    title="范围内 Scene",
+                    goal="推进主线",
+                    core_conflict="正面对抗",
+                    emotional_beat=None,
+                    status="draft",
+                    chapter_ids=["2", "3"],
+                    scene_chunks=[],
+                )
+            ]
+
+    monkeypatch.setattr(outline_services, "SceneService", FakeSceneService)
+
+    markdown = await PlotStructureContextBuilder()._load_scene_summaries(
+        db_session,
+        sample_novel_id,
+        2,
+        4,
+    )
+
+    assert range_calls == [(sample_novel_id, 2, 4)]
+    assert "S3 第2-3章《范围内 Scene》" in markdown
 
 
 @pytest.mark.asyncio

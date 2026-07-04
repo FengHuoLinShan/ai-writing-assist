@@ -141,6 +141,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `map_observations` 是世界动态地图的证据层：deep import `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。
 - observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
 - `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
+- observation 可在确认前编辑目标名称/类型、动态类型、时间/空间锚点、字段差异、来源引用、证据文本和置信度；确认时 `map_facts` 复制编辑后的 observation 字段。
+- `PATCH /observations/{id}` 只能更新候选字段或把 `review_state` 设为 `candidate` / `ignored` / `conflicted`；不得通过 PATCH 直接设为 `confirmed`。正式确认必须走 `/confirm`，以保证生成或复用对应 `map_facts`。
 - 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
 - 深度导入仍保留 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations` 候选流；该接入不自动写正式 `map_facts`。
 - 地图移动解释使用 `dynamic_type="movement_explanation"`，地图冲突使用 `dynamic_type="map_conflict"`；二者复用 observation/fact 流，不新增独立冲突表。
@@ -367,7 +369,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/maps/{map_id}/focus` | 聚焦模式：仅返回指定组织势力范围（P2） |
 | GET | `/api/world/maps/{map_id}/observations` | 地图观察事实候选列表，可按 `review_state` 过滤 |
 | POST | `/api/world/maps/{map_id}/observations` | 创建地图观察事实候选 |
-| PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 更新观察事实审查状态 |
+| PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 更新 observation 候选字段或候选审查状态（不直接确认） |
 | POST | `/api/world/maps/{map_id}/observations/batch-review` | 批量确认、忽略或标记冲突候选 observation |
 | POST | `/api/world/maps/{map_id}/batch-actions` | 批量动作入口：候选确认/忽略/冲突、fact 状态、图层可见性 patch |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/confirm` | 确认 observation 并生成/复用正式 `map_facts` |

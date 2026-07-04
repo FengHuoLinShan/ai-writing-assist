@@ -5,11 +5,11 @@ import logging
 from collections import defaultdict
 from typing import Any, Literal
 
-from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
+from core.errors import DomainError, ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.rag import facade as rag_facade
@@ -23,6 +23,14 @@ from modules.world.services.helpers import normalize_name, parse_uuid
 logger = logging.getLogger(__name__)
 
 
+def _service_error_detail(exc: Exception) -> str | None:
+    if isinstance(exc, DomainError):
+        return exc.message
+    if exc.__class__.__module__.startswith("fastapi") and hasattr(exc, "detail"):
+        return str(exc.detail)
+    return None
+
+
 class EntityFusionDecision(BaseModel):
     action: Literal["merge", "alias_only", "keep_separate", "needs_review"] = (
         "needs_review"
@@ -30,6 +38,7 @@ class EntityFusionDecision(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     reason: str = ""
     alias: str | None = None
+    recommended_primary_side: Literal["source", "target"] = "target"
 
 
 class WorldEntityFusionService:
@@ -82,6 +91,7 @@ class WorldEntityFusionService:
             decision = await self._decide(source, target, match, evidence)
             if decision.action in {"keep_separate"}:
                 continue
+            primary = source if decision.recommended_primary_side == "source" else target
             suggestions.append(
                 {
                     "action": decision.action,
@@ -91,6 +101,8 @@ class WorldEntityFusionService:
                     "target_entity_id": str(target.id),
                     "target_entity_name": target.name,
                     "target_status": target.status,
+                    "recommended_primary_entity_id": str(primary.id),
+                    "recommended_primary_entity_name": primary.name,
                     "entity_type": source.entity_type,
                     "confidence": round(decision.confidence, 3),
                     "reason": decision.reason[:500],
@@ -123,22 +135,36 @@ class WorldEntityFusionService:
         suggestions: list[EntityFusionApplyItem],
     ) -> dict[str, Any]:
         if not confirmed:
-            raise HTTPException(status_code=400, detail="confirmed=true is required")
+            raise ValidationError("confirmed=true is required")
 
         applied = 0
         skipped = 0
         results: list[dict[str, Any]] = []
         warnings: list[str] = []
         nid = parse_uuid(novel_id, "novel_id")
+        entity_ids = list(
+            dict.fromkeys(
+                [
+                    parse_uuid(item.source_entity_id, "source_entity_id")
+                    for item in suggestions
+                ]
+                + [
+                    parse_uuid(item.target_entity_id, "target_entity_id")
+                    for item in suggestions
+                ]
+            )
+        )
+        entities_by_id = {
+            entity.id: entity
+            for entity in await self._entity_repo.get_by_ids(db, nid, entity_ids)
+        }
 
         for item in suggestions:
-            source = await self._entity_repo.get(
-                db,
-                parse_uuid(item.source_entity_id, "source_entity_id"),
+            source = entities_by_id.get(
+                parse_uuid(item.source_entity_id, "source_entity_id")
             )
-            target = await self._entity_repo.get(
-                db,
-                parse_uuid(item.target_entity_id, "target_entity_id"),
+            target = entities_by_id.get(
+                parse_uuid(item.target_entity_id, "target_entity_id")
             )
             if (
                 source is None
@@ -170,9 +196,12 @@ class WorldEntityFusionService:
                     )
                     applied += 1
                     results.append({"action": "alias_only", **result})
-                except HTTPException as exc:
+                except Exception as exc:
+                    detail = _service_error_detail(exc)
+                    if detail is None:
+                        raise
                     skipped += 1
-                    warnings.append(str(exc.detail))
+                    warnings.append(detail)
                 continue
 
             if source.status == "canonical" and target.status == "canonical":
@@ -192,9 +221,12 @@ class WorldEntityFusionService:
                     str(target.id),
                     allow_canonical_source=allow_canonical,
                 )
-            except HTTPException as exc:
+            except Exception as exc:
+                detail = _service_error_detail(exc)
+                if detail is None:
+                    raise
                 skipped += 1
-                warnings.append(str(exc.detail))
+                warnings.append(detail)
                 continue
             applied += 1
             results.append(
@@ -376,7 +408,9 @@ class WorldEntityFusionService:
                             content=(
                                 "你判断两个长篇小说世界对象是否应合并。只输出 JSON，"
                                 "action 为 merge、alias_only、keep_separate 或 "
-                                "needs_review。不要创造新对象。"
+                                "needs_review。recommended_primary_side 必须是 source "
+                                "或 target，表示建议保留/登记别名到哪个主体；不确定时选 "
+                                "target。不要创造新对象。"
                             ),
                         ),
                         LLMMessage(

@@ -6,8 +6,7 @@ from abc import ABC, abstractmethod
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
-from modules.context.services.types import CompileOptions
+from modules.context.contracts import CompileOptions, StructureContextBundle
 
 
 class Loader(ABC):

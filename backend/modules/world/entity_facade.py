@@ -124,6 +124,21 @@ async def find_working_entity_id_by_name(
     )
 
 
+async def find_working_entity_ids_by_names(
+    db: AsyncSession,
+    novel_id: str,
+    names: list[str] | tuple[str, ...] | set[str],
+    entity_type: str | None = None,
+) -> dict[str, str]:
+    """批量按名称或别名解析 working context 内的实体 ID。"""
+    return await _context_service.find_working_entities_by_names(
+        db,
+        novel_id,
+        names,
+        entity_type=entity_type,
+    )
+
+
 async def append_candidate_alias(
     db: AsyncSession,
     novel_id: str,
@@ -150,6 +165,107 @@ async def append_candidate_alias(
         confidence=confidence,
         quote=quote,
     )
+
+
+async def repair_deep_import_alias_metadata(
+    db: AsyncSession,
+    novel_id: str,
+) -> int:
+    """Normalize old deep-import alias metadata in world-owned entities."""
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    stmt = select(CoreEntity).where(CoreEntity.novel_id == nid)
+    result = await db.execute(stmt)
+    repaired = 0
+    for entity in result.scalars().all():
+        content = dict(entity.content_json or {})
+        meta = content.get("_meta") or {}
+        if meta.get("source") != "deep_import":
+            continue
+        aliases = content.get("aliases") or []
+        if not isinstance(aliases, list):
+            continue
+        next_aliases: list[dict[str, Any]] = []
+        changed = False
+        for alias_item in aliases:
+            normalized = _normalize_deep_import_alias(alias_item, meta)
+            if normalized is None:
+                changed = True
+                continue
+            if normalized != alias_item:
+                changed = True
+                repaired += 1
+            next_aliases.append(normalized)
+        if changed:
+            content["aliases"] = next_aliases
+            entity.content_json = content
+    await db.flush()
+    return repaired
+
+
+async def get_deep_import_alias_metadata_summary(
+    db: AsyncSession,
+    novel_id: str,
+) -> dict[str, int]:
+    """Count alias metadata gaps for old deep-import entities."""
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+    from shared.utils import parse_uuid
+
+    nid = parse_uuid(novel_id, "novel_id")
+    result = await db.execute(select(CoreEntity).where(CoreEntity.novel_id == nid))
+    alias_missing = 0
+    alias_total = 0
+    for entity in result.scalars().all():
+        content = entity.content_json or {}
+        for alias_item in content.get("aliases") or []:
+            alias_total += 1
+            if not (
+                isinstance(alias_item, dict)
+                and alias_item.get("source")
+                and alias_item.get("status")
+            ):
+                alias_missing += 1
+    return {
+        "alias_total": alias_total,
+        "alias_missing_metadata": alias_missing,
+    }
+
+
+def _normalize_deep_import_alias(
+    alias_item: Any,
+    meta: dict[str, Any],
+) -> dict[str, Any] | None:
+    if isinstance(alias_item, dict):
+        raw_alias = alias_item.get("alias") or alias_item.get("name") or ""
+        alias_type = alias_item.get("type") or alias_item.get("alias_type") or "alias"
+        quote = alias_item.get("quote")
+        confidence = alias_item.get("confidence")
+    else:
+        raw_alias = alias_item
+        alias_type = "alias"
+        quote = None
+        confidence = None
+    alias_text = " ".join(str(raw_alias).strip().split())
+    if not alias_text:
+        return None
+    return {
+        "alias": alias_text,
+        "type": alias_type,
+        "status": "candidate",
+        "source": "deep_import",
+        "workflow_id": meta.get("workflow_id"),
+        "scene_id": meta.get("scene_id"),
+        "scene_index": meta.get("source_scene_index"),
+        "confidence": confidence if confidence is not None else meta.get("confidence"),
+        "quote": quote,
+        "needs_review": True,
+    }
 
 
 # ============================================================

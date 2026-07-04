@@ -306,6 +306,43 @@ describe("writingConflictModal", () => {
     expect(toast).toHaveBeenCalledWith("已复制 AI 修复建议", "success")
   })
 
+  it("renders AI suggestion as editable draft and exposes apply callback", async () => {
+    const onApplySuggestion = vi.fn()
+    showWritingConflictModal({
+      check: {
+        id: "c1",
+        chapter_index: 1,
+        scene_id: "scene-1",
+        items: [
+          {
+            id: "i1",
+            kind: "required_missing",
+            severity: "medium",
+            source_module: "ai",
+            evidence_summary: "缺少动机",
+            status: "open",
+            ai_suggestion: JSON.stringify({
+              strategy: "补动机",
+              suggested_text: "补一段犹豫。",
+              rationale: "减少跳变",
+            }),
+          },
+        ],
+      },
+      novelId: "p1",
+      onApplySuggestion,
+    })
+
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    const editor = document.querySelector('[data-conflict-suggestion-draft="i1"]')
+    expect(editor).not.toBeNull()
+    editor.value = "用户修改后的建议文本。"
+    document.querySelector('[data-conflict-apply-suggestion="i1"]').click()
+    await Promise.resolve()
+
+    expect(onApplySuggestion).toHaveBeenCalledWith("i1", "用户修改后的建议文本。")
+  })
+
   it("shows failed toast when AI suggestion API returns failed status", async () => {
     confirmAiReference.mockResolvedValue({ id: "confirm-suggest" })
     api.writing.requestConflictAiSuggestion.mockResolvedValue({

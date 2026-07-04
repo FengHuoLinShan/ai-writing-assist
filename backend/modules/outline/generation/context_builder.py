@@ -159,16 +159,17 @@ class PlotStructureContextBuilder:
         """加载指定章节范围内已有 Scene 的紧凑摘要。"""
         from modules.outline.services import SceneService
 
-        scenes = await SceneService().get_ordered(db, novel_id)
+        scenes = await SceneService().get_by_chapter_range_models(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+        )
         lines: list[str] = []
         for scene in scenes:
             if scene.status == "deprecated":
                 continue
             chapter_indices = self._scene_chapter_indices(scene)
-            if chapter_indices and not any(
-                start_chapter <= idx <= end_chapter for idx in chapter_indices
-            ):
-                continue
             chapter_label = (
                 f"第{min(chapter_indices)}-{max(chapter_indices)}章"
                 if chapter_indices
@@ -214,11 +215,16 @@ class PlotStructureContextBuilder:
 
         通过 writing.facade 读取，不直接访问 writing 模块的 model/repository。
         """
+        chapter_indices = list(range(start_chapter, end_chapter + 1))
+        drafts = await writing_facade.list_latest_drafts_for_chapters(
+            db,
+            novel_id,
+            chapter_indices,
+        )
+        draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         results: list[tuple[int, str]] = []
-        for chapter_index in range(start_chapter, end_chapter + 1):
-            draft = await writing_facade.get_latest_draft_for_chapter(
-                db, novel_id, chapter_index
-            )
+        for chapter_index in chapter_indices:
+            draft = draft_by_chapter.get(chapter_index)
             if draft is not None and draft.content:
                 results.append((chapter_index, draft.content))
         return results

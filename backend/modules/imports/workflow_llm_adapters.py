@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from importlib import import_module
 from typing import Any
 
@@ -17,6 +16,7 @@ from modules.imports.agent_step_harness import (
     StepExecutionStatus,
     StepToolEnvelope,
 )
+from modules.imports.env_helpers import positive_int_env
 
 DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS = 15
 DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS = 2
@@ -36,42 +36,31 @@ def _workflow_constant(name: str, default: Any) -> Any:
     return getattr(workflow_module, name, default)
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
 def _phase01_scene_max_tokens(default: int) -> int:
-    return _positive_int_env("PHASE01_SCENE_MAX_TOKENS", default)
+    return positive_int_env("PHASE01_SCENE_MAX_TOKENS", default)
 
 
 def _phase0_scene_max_tokens(default: int) -> int:
     default_budget = min(default, PHASE0_SCENE_MAX_TOKENS)
-    return _positive_int_env("PHASE0_SCENE_MAX_TOKENS", default_budget)
+    return positive_int_env("PHASE0_SCENE_MAX_TOKENS", default_budget)
 
 
 def _phase0_scene_timeout_seconds(default: int | None) -> int | None:
     if default is not None:
         return default
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE0_SCENE_TIMEOUT_SECONDS",
-        _positive_int_env("LLM_TIMEOUT", PHASE0_SCENE_TIMEOUT_SECONDS),
+        positive_int_env("LLM_TIMEOUT", PHASE0_SCENE_TIMEOUT_SECONDS),
     )
 
 
 def _phase1a_scene_max_tokens(default: int) -> int:
     del default
-    return _positive_int_env("PHASE1A_SCENE_MAX_TOKENS", PHASE1A_SCENE_MAX_TOKENS)
+    return positive_int_env("PHASE1A_SCENE_MAX_TOKENS", PHASE1A_SCENE_MAX_TOKENS)
 
 
 def _phase1a_structured_max_fix_attempts() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS",
         PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS,
     )
@@ -84,7 +73,7 @@ def _deep_import_structured_max_fix_attempts() -> int:
             DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
         )
     )
-    return _positive_int_env("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", default)
+    return positive_int_env("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", default)
 
 
 async def _project_settings_for_novel(
@@ -362,7 +351,7 @@ class _Phase1bSceneFusionLLM:
                 )
             )
             if small_sample
-            else _positive_int_env(
+            else positive_int_env(
                 "PHASE1B_REDUCER_MAX_TOKENS",
                 PHASE1B_REDUCER_MAX_TOKENS,
             )
@@ -375,7 +364,7 @@ class _Phase1bSceneFusionLLM:
                 )
             )
             if small_sample
-            else _positive_int_env(
+            else positive_int_env(
                 "PHASE1B_REDUCER_TIMEOUT_SECONDS",
                 PHASE1B_REDUCER_TIMEOUT_SECONDS,
             )
@@ -504,7 +493,7 @@ class _Phase1bSceneFusionLLM:
                 ),
             ],
             temperature=0.0,
-            max_tokens=_positive_int_env(
+            max_tokens=positive_int_env(
                 "PHASE1B_REDUCER_MAX_TOKENS",
                 PHASE1B_REDUCER_MAX_TOKENS,
             ),
@@ -517,7 +506,7 @@ class _Phase1bSceneFusionLLM:
                 _Phase1bDecisionOutput,
                 step_name="phase1b_fusion",
                 transport_retries=False,
-                timeout_seconds=_positive_int_env(
+                timeout_seconds=positive_int_env(
                     "PHASE1B_REDUCER_TIMEOUT_SECONDS",
                     PHASE1B_REDUCER_TIMEOUT_SECONDS,
                 ),

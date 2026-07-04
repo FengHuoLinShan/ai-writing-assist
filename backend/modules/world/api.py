@@ -696,9 +696,9 @@ async def list_aliases(
     novel_id: str = Query(..., description="项目 ID"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-) -> list[dict]:
+) -> dict:
     """列出项目下所有实体的别名"""
-    return await _alias_service.list_aliases(
+    return await _alias_service.list_aliases_page(
         db,
         novel_id,
         skip=skip,

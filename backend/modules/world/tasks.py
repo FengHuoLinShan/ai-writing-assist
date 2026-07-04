@@ -66,18 +66,19 @@ async def handle_world_entity_extraction(db, task):
     task.update_progress(0.95)
 
     if context_confirmation_id:
-        for item in result.items:
-            entity_id = str(item.get("id") or "")
-            if not entity_id:
-                continue
-            await context_facade.attach_result_ref(
+        result_refs = [
+            {"type": "world_entity", "id": entity_id}
+            for item in result.items
+            if (entity_id := str(item.get("id") or ""))
+        ]
+        if result_refs:
+            await context_facade.attach_result_refs(
                 db,
                 confirmation_id=context_confirmation_id,
-                result_type="world_entity",
-                result_id=entity_id,
+                result_refs=result_refs,
                 status="done",
             )
-        if not result.items:
+        else:
             await context_facade.attach_result_ref(
                 db,
                 confirmation_id=context_confirmation_id,

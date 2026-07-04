@@ -80,3 +80,64 @@ async def test_smart_dedup_apply_dispatches_by_asset_type(
         }
     ]
     assert calls["outline"][0]["asset_type"] == "plot_thread"
+
+
+async def test_smart_dedup_scan_sets_recommended_primary(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_world_suggest(*args, **kwargs):
+        return {
+            "total_entities_scanned": 2,
+            "suggestion_count": 1,
+            "suggestions": [
+                {
+                    "action": "alias_only",
+                    "source_entity_id": "source-world",
+                    "source_entity_name": "旧称",
+                    "source_status": "candidate",
+                    "target_entity_id": "target-world",
+                    "target_entity_name": "主体世界对象",
+                    "target_status": "canonical",
+                    "confidence": 0.91,
+                    "reason": "更像别名",
+                }
+            ],
+        }
+
+    async def fake_outline_suggest(*args, **kwargs):
+        return {
+            "scanned_counts": {"plot_thread": 2},
+            "suggestion_count": 1,
+            "suggestions": [
+                {
+                    "asset_type": "plot_thread",
+                    "action": "merge",
+                    "source_asset_id": "source-outline",
+                    "source_title": "重复剧情线",
+                    "target_asset_id": "target-outline",
+                    "target_title": "主体剧情线",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "modules.world.facade.suggest_entity_fusion",
+        fake_world_suggest,
+    )
+    monkeypatch.setattr(
+        "modules.outline.facade.suggest_structure_dedup",
+        fake_outline_suggest,
+    )
+
+    result = await SmartDedupService().scan(
+        db_session,
+        novel_id="project-1",
+        scopes=["world_entity", "plot_thread"],
+    )
+
+    world, outline = result["suggestions"]
+    assert world["recommended_primary_asset_id"] == "target-world"
+    assert world["recommended_primary_title"] == "主体世界对象"
+    assert outline["recommended_primary_asset_id"] == "target-outline"
+    assert outline["recommended_primary_title"] == "主体剧情线"

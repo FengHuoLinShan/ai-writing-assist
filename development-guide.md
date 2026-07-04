@@ -9,7 +9,7 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 ### One-command dev start
 
 ```bash
-make dev                         # Kill old → DB → backend(—reload) + worker(—reload) + frontend
+make dev                         # Kill old → DB → backend reload + worker reload + Vite frontend HMR
 make kill                        # Stop all services
 make help                        # List all targets
 ```
@@ -20,13 +20,18 @@ make help                        # List all targets
 # Backend
 cd backend
 pip install -e ".[dev]"          # Install dependencies
-uvicorn app.main:app --reload    # Dev server (port 8000)
+python scripts/dev_server.py     # Dev server with auto-reload (port 8000)
 python run_worker.py --reload    # Task worker with auto-reload
 python scripts/check_llm.py      # Sanitized LLM connectivity check
 
+# Frontend
+cd frontend-console
+npm install
+npm run dev                      # Vite dev server with hot reload (port 8080)
+
 # Database
 make db                          # docker compose up -d
-make migrate                     # alembic upgrade head (demo 阶段也可直接重建开发库)
+make migrate                     # alembic upgrade head (demo schema 历史已压缩；旧开发库可重建)
 
 # Local diagnostics
 make doctor                      # Read-only local Doctor: env/ports/Docker/API/DB/LLM config
@@ -106,7 +111,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 
 - Candidate-separate-from-canonical by default: AI output enters candidate/proposal tables first; user-confirmed automated pipelines may write canonical records directly with editable/rollback metadata
 - Runtime business deletes prefer status fields (draft/candidate/canonical/deprecated/ignored/conflicted); project permanent delete and demo database rebuilds may hard delete
-- Demo-stage schema refactors do not need data-preserving migrations; drop/recreate the dev database when faster
+- Demo-stage schema refactors do not need data-preserving migrations; current Alembic history is a squashed schema initializer, so intermediate demo databases should be recreated instead of upgraded through old revisions
 - Prompts merge, data splits: One prompt output contains multiple arrays → stored into separate tables
 - JSONB for flex fields where the shape is genuinely unstable; current Scene cards are managed through the `scenes` table, with older JSONB references treated as historical context
 - PostgreSQL + pgvector + pg_trgm for vector search, name similarity, dedup

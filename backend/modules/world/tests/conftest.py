@@ -1,15 +1,11 @@
 """World 模块 API 测试配置"""
 
 import uuid
-from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.main import app
-from core.dependencies import get_db
 from modules.world.map_models import MapConfig
 from modules.world.tests.helpers import (
     _create_default_map,
@@ -18,23 +14,6 @@ from modules.world.tests.helpers import (
     _create_organization,
     _create_project,
 )
-
-
-@pytest_asyncio.fixture
-async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """FastAPI test client with SQLite db override"""
-
-    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-
-    app.dependency_overrides.clear()
-
 
 # ============================================================
 # Shared fixtures

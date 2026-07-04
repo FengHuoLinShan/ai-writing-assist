@@ -179,6 +179,40 @@ class ContextConfirmationService:
         )
         return self._to_contract(updated)
 
+    async def attach_result_refs(
+        self,
+        db: AsyncSession,
+        *,
+        confirmation_id: str | uuid.UUID,
+        result_refs: list[dict[str, str]],
+        status: str = "running",
+    ) -> ContextConfirmationContract:
+        record = await self._repo.get(db, self._as_uuid(confirmation_id))
+        if record is None:
+            raise ValueError("context_confirmation_id not found")
+
+        refs_by_key = {
+            (ref.get("type"), ref.get("id")): {
+                "type": ref.get("type"),
+                "id": ref.get("id"),
+            }
+            for ref in (record.result_refs or [])
+        }
+        for result_ref in result_refs:
+            result_type = result_ref.get("type")
+            result_id = result_ref.get("id")
+            key = (result_type, result_id)
+            refs_by_key.pop(key, None)
+            refs_by_key[key] = {"type": result_type, "id": result_id}
+
+        updated = await self._repo.update_tracking(
+            db,
+            record,
+            result_refs=list(refs_by_key.values()),
+            result_status=status,
+        )
+        return self._to_contract(updated)
+
     async def mark_asset_context_changed(
         self,
         db: AsyncSession,
@@ -195,19 +229,17 @@ class ContextConfirmationService:
             asset_id=asset_id,
         )
         status = "needs_review" if reason == "candidate_promoted" else "stale_context"
-        changed = 0
+        updates = []
         for record in records:
             reasons = list(record.stale_reasons or [])
             if reason not in reasons:
                 reasons.append(reason)
-            await self._repo.update_tracking(
-                db,
-                record,
-                result_status=status,
-                stale_reasons=reasons,
-            )
-            changed += 1
-        return changed
+            updates.append((record, reasons))
+        return await self._repo.update_tracking_many(
+            db,
+            updates,
+            result_status=status,
+        )
 
     @staticmethod
     def _selected_asset_ids(

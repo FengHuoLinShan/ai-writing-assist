@@ -12,14 +12,18 @@ All DB access is mocked via AsyncMock / MagicMock.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.world.models import Character, CharacterKnowledge, EntityRelation
+from modules.world.repositories import CharacterKnowledgeRepository, CharacterRepository
 from modules.world.schemas import (
     CharacterContextBundle,
     CharacterCreate,
@@ -29,6 +33,7 @@ from modules.world.schemas import (
     CharacterKnowledgeResponse,
     CharacterKnowledgeUpdate,
     CharacterResponse,
+    CharacterUpdate,
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
@@ -42,6 +47,166 @@ from modules.world.services.character_service import CharacterService
 from modules.world.services.entity_relation_service import EntityRelationService
 
 pytestmark = [pytest.mark.asyncio]
+
+
+async def test_character_service_has_no_direct_http_exception_dependency() -> None:
+    source = Path("backend/modules/world/services/character_service.py").read_text()
+
+    assert "from fastapi import HTTPException" not in source
+    assert "raise HTTPException" not in source
+
+
+async def test_character_update_reuses_loaded_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = CharacterRepository()
+    character_id = uuid.uuid4()
+    character = SimpleNamespace(
+        entity_id=character_id,
+        current_goal=None,
+        voice_style=None,
+        aliases=[],
+        behavior_rules=[],
+        meta={},
+    )
+    get_calls = 0
+
+    async def fake_get(_db, requested_id):
+        nonlocal get_calls
+        get_calls += 1
+        assert requested_id == character_id
+        return character
+
+    class Session:
+        def __init__(self) -> None:
+            self.added = []
+            self.flush_count = 0
+
+        def add(self, obj):  # type: ignore[no-untyped-def]
+            self.added.append(obj)
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    monkeypatch.setattr(repo, "get", fake_get)
+    db = Session()
+
+    updated = await repo.update(
+        db,  # type: ignore[arg-type]
+        character_id,
+        CharacterUpdate(
+            current_goal="寻找真相",
+            voice_style="冷静",
+            aliases=[{"alias": "阿衡", "type": "nickname"}],
+            behavior_rules=[{"rule": "不说谎"}],
+            meta={"source": "test"},
+        ),
+    )
+
+    assert updated is character
+    assert character.current_goal == "寻找真相"
+    assert character.voice_style == "冷静"
+    assert character.aliases == [{"alias": "阿衡", "type": "nickname"}]
+    assert character.behavior_rules == [{"rule": "不说谎"}]
+    assert character.meta == {"source": "test"}
+    assert get_calls == 1
+    assert db.added == [character]
+    assert db.flush_count == 1
+
+
+async def test_character_update_loaded_object_does_not_fetch_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = CharacterRepository()
+    character = SimpleNamespace(
+        current_state=None,
+        current_goal=None,
+        aliases=[],
+        behavior_rules=[],
+        meta={},
+    )
+
+    async def fail_get(_db, _requested_id):
+        raise AssertionError("loaded character should be reused")
+
+    class Session:
+        def __init__(self) -> None:
+            self.added = []
+            self.flush_count = 0
+
+        def add(self, obj):  # type: ignore[no-untyped-def]
+            self.added.append(obj)
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    monkeypatch.setattr(repo, "get", fail_get)
+    db = Session()
+
+    updated = await repo.update(
+        db,  # type: ignore[arg-type]
+        character,  # type: ignore[arg-type]
+        CharacterUpdate(current_state="潜伏", current_goal="找到线索"),
+    )
+
+    assert updated is character
+    assert character.current_state == "潜伏"
+    assert character.current_goal == "找到线索"
+    assert db.added == [character]
+    assert db.flush_count == 1
+
+
+async def test_character_knowledge_update_reuses_loaded_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = CharacterKnowledgeRepository()
+    knowledge_id = uuid.uuid4()
+    memory_id = uuid.uuid4()
+    knowledge = SimpleNamespace(
+        id=knowledge_id,
+        knowledge_level="partial",
+        known_content=None,
+        source_memory_id=None,
+    )
+    get_calls = 0
+
+    async def fake_get(_db, requested_id):
+        nonlocal get_calls
+        get_calls += 1
+        assert requested_id == knowledge_id
+        return knowledge
+
+    class Session:
+        def __init__(self) -> None:
+            self.added = []
+            self.flush_count = 0
+
+        def add(self, obj):  # type: ignore[no-untyped-def]
+            self.added.append(obj)
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    monkeypatch.setattr(repo, "get", fake_get)
+    db = Session()
+
+    updated = await repo.update(
+        db,  # type: ignore[arg-type]
+        knowledge_id,
+        CharacterKnowledgeUpdate(
+            knowledge_level="full",
+            known_content="知道真相",
+            source_memory_id=str(memory_id),
+        ),
+    )
+
+    assert updated is knowledge
+    assert knowledge.knowledge_level == "full"
+    assert knowledge.known_content == "知道真相"
+    assert knowledge.source_memory_id == memory_id
+    assert get_calls == 1
+    assert db.added == [knowledge]
+    assert db.flush_count == 1
 
 
 # ============================================================
@@ -193,6 +358,7 @@ class TestCharacterServiceUpdateCharacterState:
         # Assert
         assert isinstance(result, CharacterResponse)
         svc.repo.update.assert_awaited_once()
+        assert svc.repo.update.await_args[0][1] is char
         call_data = svc.repo.update.await_args[0][2]
         assert call_data.current_state == "injured"
         assert call_data.current_emotion == "angry"
@@ -218,6 +384,7 @@ class TestCharacterServiceUpdateCharacterState:
         )
 
         # Assert
+        assert svc.repo.update.await_args[0][1] is char
         call_data = svc.repo.update.await_args[0][2]
         assert call_data.current_state == "tired"
         assert call_data.current_emotion is None
@@ -235,7 +402,7 @@ class TestCharacterServiceUpdateCharacterState:
         svc.repo.get.return_value = None
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.update_character_state(
                 db_session,
                 cid,
@@ -257,7 +424,7 @@ class TestCharacterServiceUpdateCharacterState:
         svc.repo.get.return_value = char
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.update_character_state(
                 db_session,
                 cid,
@@ -280,7 +447,7 @@ class TestCharacterServiceUpdateCharacterState:
         svc.repo.update.return_value = None
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.update_character_state(
                 db_session,
                 cid,
@@ -659,6 +826,77 @@ class TestCharacterServiceFacadeLeaks:
         # Assert
         svc.repo.update_character_meta_location.assert_awaited_once()
 
+    async def test_create_missing_core_entity_raises_domain_not_found(
+        self, db_session: AsyncSession
+    ):
+        """CharacterService.create: missing CoreEntity raises domain NotFoundError."""
+        svc = CharacterService()
+        nid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = None
+        svc.repo = AsyncMock()
+
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.create(
+                db_session,
+                nid,
+                CharacterCreate(entity_id=entity_id, name="New"),
+            )
+
+        assert exc_info.value.status_code == 404
+        assert f"CoreEntity {entity_id} not found" in exc_info.value.message
+        svc.repo.create.assert_not_called()
+
+    async def test_create_integrity_error_raises_domain_validation(
+        self, db_session: AsyncSession
+    ):
+        """CharacterService.create: DB conflict raises domain ValidationError."""
+        svc = CharacterService()
+        nid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = SimpleNamespace(
+            novel_id=uuid.UUID(nid),
+            status="canonical",
+        )
+        svc.repo = AsyncMock()
+        svc.repo.create.side_effect = IntegrityError("stmt", "params", Exception("boom"))
+
+        with pytest.raises(DomainValidationError) as exc_info:
+            await svc.create(
+                db_session,
+                nid,
+                CharacterCreate(entity_id=entity_id, name="New"),
+            )
+
+        assert exc_info.value.status_code == 400
+        assert f"CoreEntity {entity_id} not found or conflict" in exc_info.value.message
+
+    async def test_update_location_cross_novel_location_raises_domain_not_found(
+        self, db_session: AsyncSession
+    ):
+        """CharacterService.update_location: cross-novel location raises NotFoundError."""
+        svc = CharacterService()
+        nid = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
+        loc_id = str(uuid.uuid4())
+        char = _make_character(entity_id=uuid.UUID(cid), novel_id=uuid.UUID(nid))
+        svc.repo = AsyncMock()
+        svc.repo.get.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = SimpleNamespace(
+            novel_id=uuid.uuid4(),
+            status="canonical",
+        )
+
+        with pytest.raises(NotFoundError) as exc_info:
+            await svc.update_location(db_session, nid, cid, loc_id, "forest", 3)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.message == "Location not found in this novel"
+        svc.repo.update_character_meta_location.assert_not_called()
+
     async def test_get_characters_at_location_delegates_to_repo(
         self, db_session: AsyncSession
     ):
@@ -744,7 +982,7 @@ class TestCharacterServiceInheritedVerbs:
         svc.repo.get.return_value = char
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.get(db_session, str(uuid.uuid4()), novel_id=nid)
         assert exc_info.value.status_code == 404
 
@@ -842,10 +1080,10 @@ class TestCharacterKnowledgeServiceCreate:
         )
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.create(db_session, str(uuid.uuid4()), data)
         assert exc_info.value.status_code == 404
-        assert "Character not found" in exc_info.value.detail
+        assert "Character not found" in exc_info.value.message
 
     async def test_create_character_wrong_novel_raises_404(
         self, db_session: AsyncSession
@@ -866,9 +1104,41 @@ class TestCharacterKnowledgeServiceCreate:
         )
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.create(db_session, str(uuid.uuid4()), data)
         assert exc_info.value.status_code == 404
+
+    async def test_create_false_belief_without_misconception_raises_domain_validation(
+        self,
+        db_session: AsyncSession,
+    ):
+        """Defense in depth: schema bypass still raises domain ValidationError."""
+        svc = CharacterKnowledgeService()
+        nid = str(uuid.uuid4())
+        cid = str(uuid.uuid4())
+        char = _make_character(entity_id=uuid.UUID(cid), novel_id=uuid.UUID(nid))
+        svc._character_repo = AsyncMock()
+        svc._character_repo.get.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = SimpleNamespace(
+            novel_id=uuid.UUID(nid),
+            status="canonical",
+        )
+        svc.repo = AsyncMock()
+
+        data = CharacterKnowledgeCreate.model_construct(
+            character_id=cid,
+            target_type="character",
+            target_id=str(uuid.uuid4()),
+            knowledge_level="false_belief",
+            misconception=None,
+        )
+
+        with pytest.raises(DomainValidationError) as exc_info:
+            await svc.create(db_session, nid, data)
+        assert exc_info.value.status_code == 422
+        assert "must provide misconception" in exc_info.value.message
+        svc.repo.create.assert_not_called()
 
 
 class TestCharacterKnowledgeServiceList:
@@ -1019,7 +1289,10 @@ class TestEntityRelationServiceExpandRelated:
         seed_id = str(uuid.uuid4())
         related_id = uuid.uuid4()
         svc.repo = AsyncMock()
-        svc.repo.get_related_entity_ids.return_value = {related_id}
+        svc.repo.get_related_entity_ids_for_seeds.return_value = {related_id}
+        svc.repo.get_related_entity_ids = AsyncMock(
+            side_effect=AssertionError("expand_related should batch seed lookups")
+        )
 
         entity = SimpleNamespace(
             id=related_id,
@@ -1042,6 +1315,7 @@ class TestEntityRelationServiceExpandRelated:
         assert len(result) == 1
         assert isinstance(result[0], WorldEntityContext)
         assert result[0].entity_id == str(related_id)
+        svc.repo.get_related_entity_ids_for_seeds.assert_awaited_once()
 
     async def test_expand_related_empty_seed_returns_empty(
         self, db_session: AsyncSession
@@ -1063,7 +1337,10 @@ class TestEntityRelationServiceExpandRelated:
         # Arrange
         svc = EntityRelationService()
         svc.repo = AsyncMock()
-        svc.repo.get_related_entity_ids.return_value = set()
+        svc.repo.get_related_entity_ids_for_seeds.return_value = set()
+        svc.repo.get_related_entity_ids = AsyncMock(
+            side_effect=AssertionError("expand_related should batch seed lookups")
+        )
 
         # Act
         result = await svc.expand_related(
@@ -1072,8 +1349,49 @@ class TestEntityRelationServiceExpandRelated:
 
         # Assert
         assert result == []
+        svc.repo.get_related_entity_ids_for_seeds.assert_awaited_once()
         svc._entity_repo = AsyncMock()
         svc._entity_repo.get_by_ids.assert_not_awaited()
+
+    async def test_expand_related_batches_multiple_seed_ids(
+        self, db_session: AsyncSession
+    ):
+        """Performance: multiple seeds should not trigger one relation query per seed."""
+        # Arrange
+        svc = EntityRelationService()
+        nid = str(uuid.uuid4())
+        seed_ids = [str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())]
+        related_id = uuid.uuid4()
+        svc.repo = AsyncMock()
+        svc.repo.get_related_entity_ids_for_seeds.return_value = {related_id}
+        svc.repo.get_related_entity_ids = AsyncMock(
+            side_effect=AssertionError("expand_related should batch seed lookups")
+        )
+
+        entity = SimpleNamespace(
+            id=related_id,
+            entity_type="character",
+            name="Related",
+            summary=None,
+            public_info=None,
+            importance=0.5,
+            importance_level="normal",
+            reveal_level="author_only",
+            status="canonical",
+        )
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get_by_ids.return_value = [entity]
+
+        # Act
+        result = await svc.expand_related(db_session, nid, seed_ids, depth=2, limit=5)
+
+        # Assert
+        assert [item.entity_id for item in result] == [str(related_id)]
+        svc.repo.get_related_entity_ids_for_seeds.assert_awaited_once()
+        args, kwargs = svc.repo.get_related_entity_ids_for_seeds.await_args
+        assert args[1] == uuid.UUID(nid)
+        assert args[2] == [uuid.UUID(seed_id) for seed_id in seed_ids]
+        assert kwargs == {"depth": 2, "limit": 5}
 
     async def test_expand_related_limits_result(self, db_session: AsyncSession):
         """Boundary: result is limited to max limit."""
@@ -1081,7 +1399,9 @@ class TestEntityRelationServiceExpandRelated:
         svc = EntityRelationService()
         nid = str(uuid.uuid4())
         svc.repo = AsyncMock()
-        svc.repo.get_related_entity_ids.return_value = {uuid.uuid4() for _ in range(10)}
+        svc.repo.get_related_entity_ids_for_seeds.return_value = {
+            uuid.uuid4() for _ in range(10)
+        }
 
         svc._entity_repo = AsyncMock()
         svc._entity_repo.get_by_ids.return_value = []
@@ -1157,7 +1477,7 @@ class TestEntityRelationServiceInheritedVerbs:
         svc.repo.get.return_value = rel
 
         # Act / Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             await svc.get(db_session, str(uuid.uuid4()), novel_id=nid)
         assert exc_info.value.status_code == 404
 

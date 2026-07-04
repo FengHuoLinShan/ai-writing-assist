@@ -58,19 +58,29 @@ class SceneCommitter:
         workflow_id: str,
     ) -> SceneCommitResult:
         result = SceneCommitResult()
-        for candidate in candidates:
-            provenance_key = build_scene_provenance_key(
-                workflow_id,
-                candidate.source_candidate_ids,
-                candidate.operation,
-                candidate.source_chapter_indices,
-                candidate.candidate_id,
+        next_scene_index: int | None = None
+        keyed_candidates = [
+            (
+                candidate,
+                build_scene_provenance_key(
+                    workflow_id,
+                    candidate.source_candidate_ids,
+                    candidate.operation,
+                    candidate.source_chapter_indices,
+                    candidate.candidate_id,
+                ),
             )
-            existing_scenes = await outline_facade.get_scenes_by_provenance_key(
-                db,
-                novel_id,
-                provenance_key,
-            )
+            for candidate in candidates
+        ]
+        if not keyed_candidates:
+            return result
+        existing_by_key = await outline_facade.get_scenes_by_provenance_keys(
+            db,
+            novel_id,
+            [provenance_key for _, provenance_key in keyed_candidates],
+        )
+        for candidate, provenance_key in keyed_candidates:
+            existing_scenes = existing_by_key.get(provenance_key, [])
             active_existing = [
                 scene
                 for scene in existing_scenes
@@ -85,7 +95,11 @@ class SceneCommitter:
                 result.conflict_provenance_keys.append(provenance_key)
                 continue
 
-            scene_index = await outline_facade.get_next_scene_index(db, novel_id)
+            if next_scene_index is None:
+                next_scene_index = await outline_facade.get_next_scene_index(
+                    db,
+                    novel_id,
+                )
             created = await outline_facade.create_scene(
                 db,
                 novel_id,
@@ -93,11 +107,13 @@ class SceneCommitter:
                     candidate,
                     workflow_id=workflow_id,
                     provenance_key=provenance_key,
-                    scene_index=scene_index,
+                    scene_index=next_scene_index,
                 ),
             )
+            next_scene_index += 1
             result.created_count += 1
             result.created_scene_ids.append(created["id"])
+            existing_by_key.setdefault(provenance_key, []).append(created)
         return result
 
 

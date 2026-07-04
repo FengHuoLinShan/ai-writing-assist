@@ -18,9 +18,23 @@ const DEFAULT_LAYERS = {
   candidate: false,
 }
 
+function createDynamicIndexes() {
+  return {
+    byItemId: new Map(),
+    observationsById: new Map(),
+    factsById: new Map(),
+    playbackEventsById: new Map(),
+    queueByObjectKey: new Map(),
+    candidateIdsByGroup: new Map(),
+  }
+}
+
 const mapWorkspaceView = {
   _maps: [],
   _locations: [],
+  _mapById: new Map(),
+  _detailMapByLocationId: new Map(),
+  _mapsByParentId: new Map(),
   _mode: "overview",
   _message: null,
   _activeMapId: null,
@@ -47,6 +61,7 @@ const mapWorkspaceView = {
     playing: false,
     activeIndex: 0,
   },
+  _dynamicIndexes: createDynamicIndexes(),
   _pendingTimers: new Set(),
 
   async onEnter() {
@@ -113,6 +128,7 @@ const mapWorkspaceView = {
     if (!state.currentProjectId) {
       this._maps = []
       this._locations = []
+      this._rebuildMapIndexes()
       return
     }
     const [maps, locations] = await Promise.all([
@@ -121,6 +137,26 @@ const mapWorkspaceView = {
     ])
     this._maps = maps.items || maps || []
     this._locations = locations.items || locations || []
+    this._rebuildMapIndexes()
+  },
+
+  _rebuildMapIndexes() {
+    this._mapById = new Map()
+    this._detailMapByLocationId = new Map()
+    this._mapsByParentId = new Map()
+    for (const map of this._maps || []) {
+      if (map?.id) this._mapById.set(map.id, map)
+      if (map?.parent_entity_id) this._detailMapByLocationId.set(map.parent_entity_id, map)
+      const parentId = map?.parent_map_id || null
+      if (!this._mapsByParentId.has(parentId)) this._mapsByParentId.set(parentId, [])
+      this._mapsByParentId.get(parentId).push(map)
+    }
+  },
+
+  _ensureMapIndexes() {
+    if (this._mapById.size !== (this._maps || []).length) {
+      this._rebuildMapIndexes()
+    }
   },
 
   async _listAllLocations() {
@@ -251,13 +287,15 @@ const mapWorkspaceView = {
     this._focusEntityId = focusEntityId
     if (viewMode) this._viewMode = this._normalizeViewMode(viewMode)
     this._resetDynamicSummary()
-    const map = this._maps.find((m) => m.id === mapId)
+    this._ensureMapIndexes()
+    const map = this._mapById.get(mapId)
     if (map) this._saveRecentMap(map)
     router.refresh?.()
   },
 
   _openLocation(locationId) {
-    const detailMap = this._maps.find((m) => m.parent_entity_id === locationId)
+    this._ensureMapIndexes()
+    const detailMap = this._detailMapByLocationId.get(locationId)
     const fallbackMap = detailMap || this._maps[0]
     if (!fallbackMap) {
       toast("该地点尚未绑定地图", "warning")
@@ -312,6 +350,7 @@ const mapWorkspaceView = {
       facts: [],
       error: null,
     }
+    this._dynamicIndexes = createDynamicIndexes()
     this._resetPlayback()
   },
 
@@ -324,6 +363,7 @@ const mapWorkspaceView = {
       playing: false,
       activeIndex: 0,
     }
+    this._dynamicIndexes = createDynamicIndexes()
   },
 
   _normalizeViewMode(mode) {
@@ -384,7 +424,8 @@ const mapWorkspaceView = {
   },
 
   _renderMapTree(parentId = null) {
-    const children = this._maps.filter((m) => (m.parent_map_id || null) === parentId)
+    this._ensureMapIndexes()
+    const children = this._mapsByParentId.get(parentId) || []
     if (!children.length) return parentId ? "" : `<p class="muted">暂无地图</p>`
     return `
       <ul class="map-tree">
@@ -632,11 +673,15 @@ const mapWorkspaceView = {
     if (dashboard.inspector?.debug_ref?.id === this._focusedDynamicItemId) {
       return dashboard.inspector
     }
-    const queue = dashboard.dynamic_queue || []
-    const focus = queue.find((item) => item.item_id === this._focusedDynamicItemId)
+    let indexes = this._dynamicIndex()
+    let focus = indexes.byItemId.get(this._focusedDynamicItemId)
+    if (!focus) {
+      indexes = this._rebuildDynamicIndexes()
+      focus = indexes.byItemId.get(this._focusedDynamicItemId)
+    }
     if (!focus) return dashboard.inspector
     const objectKey = this._dynamicObjectKey(focus)
-    const timeline = queue.filter((item) => this._dynamicObjectKey(item) === objectKey)
+    const timeline = indexes.queueByObjectKey.get(objectKey) || []
     const candidates = timeline.filter((item) => item.item_kind === "observation")
     const facts = timeline.filter((item) => item.item_kind === "fact")
     const conflicts = candidates.filter((item) => item.review_state === "conflicted")
@@ -671,6 +716,60 @@ const mapWorkspaceView = {
       item.title || "",
       item.object_type || item.dynamic_type || "unknown",
     ].join("|")
+  },
+
+  _rebuildDynamicIndexes() {
+    const indexes = createDynamicIndexes()
+    const queue = this._dynamicSummary?.dashboard?.dynamic_queue || []
+    for (const item of queue) {
+      if (item.item_id) indexes.byItemId.set(item.item_id, item)
+      if (item.id) indexes.byItemId.set(item.id, item)
+      const objectKey = this._dynamicObjectKey(item)
+      if (!indexes.queueByObjectKey.has(objectKey)) {
+        indexes.queueByObjectKey.set(objectKey, [])
+      }
+      indexes.queueByObjectKey.get(objectKey).push(item)
+      const groupKey = item.object_type || item.dynamic_type || "unknown"
+      if (item.item_kind === "observation" && item.review_state === "candidate") {
+        if (!indexes.candidateIdsByGroup.has(groupKey)) {
+          indexes.candidateIdsByGroup.set(groupKey, [])
+        }
+        indexes.candidateIdsByGroup.get(groupKey).push(item.item_id)
+      }
+    }
+    for (const item of this._dynamicSummary?.observations || []) {
+      if (item.item_id) indexes.observationsById.set(item.item_id, item)
+      if (item.id) indexes.observationsById.set(item.id, item)
+      if (item.item_id) indexes.byItemId.set(item.item_id, item)
+    }
+    for (const item of this._dynamicSummary?.facts || []) {
+      if (item.item_id) indexes.factsById.set(item.item_id, item)
+      if (item.id) indexes.factsById.set(item.id, item)
+      if (item.item_id) indexes.byItemId.set(item.item_id, item)
+    }
+    for (const event of this._playback?.playback?.events || []) {
+      if (event.event_id) indexes.playbackEventsById.set(event.event_id, event)
+      if (event.id) indexes.playbackEventsById.set(event.id, event)
+    }
+    this._dynamicIndexes = indexes
+    return indexes
+  },
+
+  _dynamicIndex() {
+    if (!this._dynamicIndexes) return this._rebuildDynamicIndexes()
+    return this._dynamicIndexes
+  },
+
+  _dynamicObservation(id) {
+    let item = this._dynamicIndex().observationsById.get(id)
+    if (item) return item
+    return this._rebuildDynamicIndexes().observationsById.get(id)
+  },
+
+  _dynamicFact(id) {
+    let item = this._dynamicIndex().factsById.get(id)
+    if (item) return item
+    return this._rebuildDynamicIndexes().factsById.get(id)
   },
 
   _renderBatchGroups(groups) {
@@ -830,6 +929,7 @@ const mapWorkspaceView = {
         playing: false,
         activeIndex: 0,
       }
+      this._rebuildDynamicIndexes()
     } catch (err) {
       if (this._activeMapId !== mapId) return
       this._dynamicSummary = {
@@ -849,6 +949,7 @@ const mapWorkspaceView = {
         playing: false,
         activeIndex: 0,
       }
+      this._rebuildDynamicIndexes()
       toast(`地图动态事实暂不可用：${err.message || "加载失败"}`, "warning")
     }
     this._updateDynamicSummaryDom()
@@ -887,7 +988,7 @@ const mapWorkspaceView = {
   },
 
   async _confirmObservation(id) {
-    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const item = this._dynamicObservation(id)
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`确认地图映射「${name}」为正式事实？`, async () => {
       try {
@@ -901,7 +1002,7 @@ const mapWorkspaceView = {
   },
 
   async _ignoreObservation(id) {
-    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const item = this._dynamicObservation(id)
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`忽略地图映射「${name}」？`, async () => {
       try {
@@ -938,11 +1039,10 @@ const mapWorkspaceView = {
   },
 
   _findDynamicItem(id) {
-    const queueItem = (this._dynamicSummary?.dashboard?.dynamic_queue || [])
-      .find((item) => item.item_id === id)
-    if (queueItem) return queueItem
-    return (this._playback?.playback?.events || [])
-      .find((event) => event.event_id === id)
+    const indexes = this._dynamicIndex()
+    return indexes.byItemId.get(id) || indexes.playbackEventsById.get(id)
+      || this._rebuildDynamicIndexes().byItemId.get(id)
+      || this._dynamicIndexes.playbackEventsById.get(id)
   },
 
   _actionLabel(action) {
@@ -1013,6 +1113,45 @@ const mapWorkspaceView = {
     if (!item) return
     const isFact = item.item_kind === "fact"
     const statusValue = isFact ? (item.fact_status || "confirmed") : (item.review_state || "candidate")
+    const jsonValue = (value) => esc(JSON.stringify(value || {}, null, 2))
+    const observationFields = isFact ? "" : `
+      <div class="form-group">
+        <label>目标名称</label>
+        <input class="form-input" id="map-object-edit-target-name" value="${esc(item.target_name || item.title || "")}" />
+      </div>
+      <div class="form-group">
+        <label>目标类型</label>
+        <input class="form-input" id="map-object-edit-target-type" value="${esc(item.target_entity_type || item.object_type || "")}" />
+      </div>
+      <div class="form-group">
+        <label>动态类型</label>
+        <input class="form-input" id="map-object-edit-dynamic-type" value="${esc(item.dynamic_type || item.object_type || "")}" />
+      </div>
+      <div class="form-group">
+        <label>置信度</label>
+        <input class="form-input" id="map-object-edit-confidence" type="number" min="0" max="1" step="0.01" value="${esc(item.confidence ?? "")}" />
+      </div>
+      <div class="form-group">
+        <label>时间锚点 JSON</label>
+        <textarea class="form-textarea" id="map-object-edit-time-anchor" rows="3">${jsonValue(item.time_anchor)}</textarea>
+      </div>
+      <div class="form-group">
+        <label>空间锚点 JSON</label>
+        <textarea class="form-textarea" id="map-object-edit-spatial-anchor" rows="3">${jsonValue(item.spatial_anchor)}</textarea>
+      </div>
+      <div class="form-group">
+        <label>字段差异 JSON</label>
+        <textarea class="form-textarea" id="map-object-edit-value-json" rows="4">${jsonValue(item.value_json)}</textarea>
+      </div>
+      <div class="form-group">
+        <label>来源引用 JSON</label>
+        <textarea class="form-textarea" id="map-object-edit-source-ref" rows="3">${jsonValue(item.source_ref)}</textarea>
+      </div>
+      <div class="form-group">
+        <label>证据文本</label>
+        <textarea class="form-textarea" id="map-object-edit-evidence" rows="3">${esc(item.evidence_text || item.source_summary || "")}</textarea>
+      </div>
+    `
     const formHtml = `
       <div class="form-group">
         <label>对象</label>
@@ -1030,24 +1169,59 @@ const mapWorkspaceView = {
               ].map(([value, label]) => `<option value="${value}" ${value === statusValue ? "selected" : ""}>${esc(label)}</option>`).join("")}
         </select>
       </div>
-      <div class="form-group">
-        <label>空间锚点/说明</label>
-        <textarea class="form-textarea" rows="3" disabled>${esc(item.spatial_anchor_label || item.location_label || item.source_summary || "")}</textarea>
-      </div>
+      ${observationFields}
     `
     showModal("修改地图对象", formHtml, [{
       text: "保存",
       class: "btn-primary",
       handler: async () => {
         const nextStatus = document.getElementById("map-object-edit-status")?.value
-        closeModal()
         if (isFact) {
+          closeModal()
           await this._updateFactStatus(item.item_id, nextStatus)
         } else {
-          await this._updateObservationReview(item.item_id, nextStatus)
+          let payload
+          try {
+            payload = this._readObservationEditPayload(nextStatus)
+          } catch (err) {
+            toast(err.message || "地图候选字段格式不正确", "error")
+            return
+          }
+          closeModal()
+          await this._updateObservationReview(item.item_id, payload)
         }
       },
     }])
+  },
+
+  _readObservationEditPayload(reviewState) {
+    const value = (id) => document.getElementById(id)?.value?.trim() || ""
+    const payload = {
+      review_state: reviewState || "candidate",
+      target_name: value("map-object-edit-target-name") || null,
+      target_entity_type: value("map-object-edit-target-type") || null,
+      dynamic_type: value("map-object-edit-dynamic-type") || "state_change",
+      time_anchor: this._readJsonField("map-object-edit-time-anchor"),
+      spatial_anchor: this._readJsonField("map-object-edit-spatial-anchor"),
+      value_json: this._readJsonField("map-object-edit-value-json"),
+      source_ref: this._readJsonField("map-object-edit-source-ref"),
+      evidence_text: value("map-object-edit-evidence") || null,
+    }
+    const confidence = value("map-object-edit-confidence")
+    if (confidence !== "") payload.confidence = Number(confidence)
+    return payload
+  },
+
+  _readJsonField(id) {
+    const raw = document.getElementById(id)?.value?.trim()
+    if (!raw) return {}
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed
+    } catch {
+      // handled below with a field-specific error
+    }
+    throw new Error(`${id} 必须是 JSON 对象`)
   },
 
   _dynamicObjectActions(item) {
@@ -1111,7 +1285,7 @@ const mapWorkspaceView = {
   },
 
   async _markObservationConflict(id) {
-    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const item = this._dynamicObservation(id)
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`标记地图映射「${name}」为冲突？`, async () => {
       try {
@@ -1125,7 +1299,7 @@ const mapWorkspaceView = {
   },
 
   async _updateObservationReview(id, reviewState) {
-    const item = (this._dynamicSummary?.observations || []).find((obs) => (obs.item_id || obs.id) === id)
+    const item = this._dynamicObservation(id)
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`将地图映射「${name}」设为${reviewState}？`, async () => {
       try {
@@ -1139,7 +1313,7 @@ const mapWorkspaceView = {
   },
 
   async _updateFactStatus(id, factStatus) {
-    const item = (this._dynamicSummary?.facts || []).find((fact) => (fact.item_id || fact.id) === id)
+    const item = this._dynamicFact(id)
     const name = item?.title || item?.target_name || "地图事实"
     const label = this._factStatusLabel(factStatus)
     return confirmAction(`将地图事实「${name}」设为${label}？`, async () => {
@@ -1174,11 +1348,9 @@ const mapWorkspaceView = {
   },
 
   _candidateIdsForGroup(groupKey) {
-    return (this._dynamicSummary?.dashboard?.dynamic_queue || [])
-      .filter((item) => item.item_kind === "observation")
-      .filter((item) => item.review_state === "candidate")
-      .filter((item) => (item.object_type || item.dynamic_type || "unknown") === groupKey)
-      .map((item) => item.item_id)
+    const ids = this._dynamicIndex().candidateIdsByGroup.get(groupKey)
+    if (ids) return [...ids]
+    return [...(this._rebuildDynamicIndexes().candidateIdsByGroup.get(groupKey) || [])]
   },
 
   async _batchReviewGroup(groupKey, action) {

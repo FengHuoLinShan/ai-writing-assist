@@ -90,9 +90,13 @@ class MapObservationService:
         owner._assert_observation_in_novel(observation, observation_id, nid)
         assert observation is not None
         owner._assert_observation_in_map(observation, observation_id, mid)
-        updated = await owner._observation_repo.update_review_state(
-            db, oid, data.review_state
-        )
+        update_values = data.model_dump(exclude_unset=True)
+        if data.target_entity_id:
+            await owner._ctx.require_entity(db, novel_id, data.target_entity_id)
+        if "spatial_anchor" in update_values:
+            config = await owner._ctx.require_map(db, novel_id, map_id)
+            owner._assert_spatial_anchor_in_bounds(config, data.spatial_anchor or {})
+        updated = await owner._observation_repo.update(db, observation, update_values)
         assert updated is not None
         return MapObservationResponse.model_validate(updated)
 
@@ -134,7 +138,11 @@ class MapObservationService:
 
         existing = await owner._fact_repo.get_by_observation(db, oid)
         if existing is not None:
-            await owner._observation_repo.update_review_state(db, oid, "confirmed")
+            await owner._observation_repo.update_review_state(
+                db,
+                observation,
+                "confirmed",
+            )
             return MapFactResponse.model_validate(existing)
 
         fact = await owner._fact_repo.create(
@@ -159,7 +167,7 @@ class MapObservationService:
                 "source_chapter_index": observation.source_chapter_index,
             },
         )
-        await owner._observation_repo.update_review_state(db, oid, "confirmed")
+        await owner._observation_repo.update_review_state(db, observation, "confirmed")
         return MapFactResponse.model_validate(fact)
 
     async def batch_review_observations(
@@ -174,10 +182,20 @@ class MapObservationService:
         await owner._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
+        observation_ids = [
+            parse_uuid(observation_id, "observation_id")
+            for observation_id in data.observation_ids
+        ]
+        observations_by_id = {
+            observation.id: observation
+            for observation in await owner._observation_repo.get_many(
+                db,
+                observation_ids,
+            )
+        }
         observations = []
-        for observation_id in data.observation_ids:
-            oid = parse_uuid(observation_id, "observation_id")
-            observation = await owner._observation_repo.get(db, oid)
+        for observation_id, oid in zip(data.observation_ids, observation_ids):
+            observation = observations_by_id.get(oid)
             owner._assert_observation_in_novel(observation, observation_id, nid)
             assert observation is not None
             owner._assert_observation_in_map(observation, observation_id, mid)
@@ -187,33 +205,81 @@ class MapObservationService:
         facts = []
         created_fact_count = 0
         if data.action == "confirm":
+            existing_facts = await owner._fact_repo.get_by_observations(
+                db,
+                [observation.id for observation in observations],
+            )
+            fact_by_observation = {
+                fact.observation_id: fact for fact in existing_facts
+            }
+            missing_observations = []
+            seen_missing: set[Any] = set()
             for observation in observations:
-                existing = await owner._fact_repo.get_by_observation(db, observation.id)
-                fact = await owner.confirm_observation(
-                    db,
-                    novel_id,
-                    map_id=map_id,
-                    observation_id=str(observation.id),
-                )
-                if existing is None:
-                    created_fact_count += 1
-                facts.append(fact)
-                refreshed = await owner._observation_repo.get(db, observation.id)
-                if refreshed is not None:
+                if observation.id in fact_by_observation:
+                    continue
+                if observation.id in seen_missing:
+                    continue
+                seen_missing.add(observation.id)
+                missing_observations.append(observation)
+
+            created_facts = await owner._fact_repo.create_many(
+                db,
+                nid,
+                [
+                    {
+                        "observation_id": observation.id,
+                        "map_id": observation.map_id or mid,
+                        "target_entity_id": observation.target_entity_id,
+                        "target_entity_type": observation.target_entity_type,
+                        "target_name": observation.target_name,
+                        "dynamic_type": observation.dynamic_type,
+                        "time_anchor": observation.time_anchor or {},
+                        "spatial_anchor": observation.spatial_anchor or {},
+                        "value_json": observation.value_json or {},
+                        "confidence": observation.confidence,
+                        "fact_status": "confirmed",
+                        "source_ref": observation.source_ref or {},
+                        "evidence_text": observation.evidence_text,
+                        "scene_id": observation.scene_id,
+                        "scene_index": observation.scene_index,
+                        "source_chapter_index": observation.source_chapter_index,
+                    }
+                    for observation in missing_observations
+                ],
+            )
+            created_fact_count = len(created_facts)
+            fact_by_observation.update(
+                {fact.observation_id: fact for fact in created_facts}
+            )
+
+            updated = await owner._observation_repo.update_review_states(
+                db,
+                [observation.id for observation in observations],
+                "confirmed",
+            )
+            updated_by_id = {observation.id: observation for observation in updated}
+            for observation in observations:
+                fact = fact_by_observation.get(observation.id)
+                if fact is not None:
+                    facts.append(MapFactResponse.model_validate(fact))
+                updated_observation = updated_by_id.get(observation.id)
+                if updated_observation is not None:
                     updated_observations.append(
-                        MapObservationResponse.model_validate(refreshed)
+                        MapObservationResponse.model_validate(updated_observation)
                     )
         else:
             next_state = "ignored" if data.action == "ignore" else "conflicted"
+            updated = await owner._observation_repo.update_review_states(
+                db,
+                [observation.id for observation in observations],
+                next_state,
+            )
+            updated_by_id = {observation.id: observation for observation in updated}
             for observation in observations:
-                updated = await owner._observation_repo.update_review_state(
-                    db,
-                    observation.id,
-                    next_state,
-                )
-                assert updated is not None
+                updated_observation = updated_by_id.get(observation.id)
+                assert updated_observation is not None
                 updated_observations.append(
-                    MapObservationResponse.model_validate(updated)
+                    MapObservationResponse.model_validate(updated_observation)
                 )
 
         return MapObservationBatchReviewResponse(

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
+from modules.imports.env_helpers import positive_float_env, positive_int_env
 from modules.imports.llm_schemas import SceneCandidateOutput
 from modules.imports.scene_candidates import (
     SceneCandidate,
     SceneCandidateBatch,
     ScenePrefetchResult,
+    build_scene_candidate_quality_stats,
 )
 
 PHASE0_PREFETCH_CONCURRENCY = 6
@@ -74,12 +75,12 @@ class Phase0ScenePrefetcher:
             1,
             concurrency
             if concurrency is not None
-            else _positive_int_env(
+            else positive_int_env(
                 "PHASE0_PREFETCH_CONCURRENCY",
                 PHASE0_PREFETCH_CONCURRENCY,
             ),
         )
-        self.batch_timeout_seconds = _positive_float_env(
+        self.batch_timeout_seconds = positive_float_env(
             "PHASE0_PREFETCH_BATCH_TIMEOUT_SECONDS",
             _llm_timeout_default(PHASE0_PREFETCH_BATCH_TIMEOUT_SECONDS),
         )
@@ -118,7 +119,10 @@ class Phase0ScenePrefetcher:
             for candidate in candidates
             if candidate.diagnostics
         ]
-        quality_stats = _build_quality_stats(candidates, total_batches=len(batches))
+        quality_stats = build_scene_candidate_quality_stats(
+            candidates,
+            total_batches=len(batches),
+        )
         blocked = quality_stats["final_422_rate"] > DEEP_IMPORT_422_BLOCK_THRESHOLD
         return ScenePrefetchResult(
             candidates=candidates,
@@ -211,30 +215,8 @@ def _build_round_batches(
     return batches
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
 def _llm_timeout_default(default: float) -> float:
-    return _positive_float_env("LLM_TIMEOUT", default)
+    return positive_float_env("LLM_TIMEOUT", default)
 
 
 def _candidate_from_batch(
@@ -262,50 +244,6 @@ def _quality_for_output(output: SceneCandidateOutput) -> str:
     if output.boundary_status in {"truncated", "uncertain", "incomplete"}:
         return "low"
     return "high"
-
-
-def _build_quality_stats(
-    candidates: list[SceneCandidate],
-    *,
-    total_batches: int,
-) -> dict:
-    stats = {
-        "total_batches": total_batches,
-        "completed_batches": len(candidates),
-        "success": 0,
-        "failed": 0,
-        "high_quality": 0,
-        "low_quality": 0,
-        "empty_result": 0,
-        "schema_error": 0,
-        "timeout": 0,
-        "network": 0,
-        "rate_limit": 0,
-        "quality_gate": 0,
-        "http_error": 0,
-        "unknown": 0,
-        "final_422": 0,
-    }
-    for candidate in candidates:
-        if candidate.quality == "failed":
-            stats["failed"] += 1
-        else:
-            stats["success"] += 1
-        if candidate.quality == "high":
-            stats["high_quality"] += 1
-        if candidate.quality == "low":
-            stats["low_quality"] += 1
-
-        final_error_type = candidate.diagnostics.get("final_error_type")
-        if final_error_type in stats:
-            stats[final_error_type] += 1
-        if final_error_type == "422":
-            stats["final_422"] += 1
-
-    stats["final_422_rate"] = (
-        stats["final_422"] / total_batches if total_batches > 0 else 0.0
-    )
-    return stats
 
 
 def _batch_id(round_name: str, batch_index: int, chapter_indices: list[int]) -> str:

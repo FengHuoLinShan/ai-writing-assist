@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.models import EntityRelation
 from modules.world.repositories import (
     CoreEntityRepository,
@@ -18,7 +18,6 @@ from modules.world.schemas import (
     EntityRelationUpdate,
     WorldEntityContext,
 )
-from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import MAX_PAGE_SIZE
 
@@ -52,10 +51,7 @@ class EntityRelationService(
         tid,
     ):
         if sid == tid:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="source_id and target_id must be different",
-            )
+            raise ValidationError("source_id and target_id must be different")
 
         source = await self._entity_repo.get(db, sid)
         target = await self._entity_repo.get(db, tid)
@@ -65,10 +61,7 @@ class EntityRelationService(
             or source.novel_id != nid
             or target.novel_id != nid
         ):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Source or target entity not found in this novel",
-            )
+            raise NotFoundError("Source or target entity not found in this novel")
         return source, target
 
     def _response_with_endpoint_names(
@@ -112,10 +105,7 @@ class EntityRelationService(
             data.relation_type,
         )
         if duplicate is not None:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail="Relation already exists",
-            )
+            raise ConflictError("Relation already exists")
 
         created = await super().create(db, novel_id, data)
         return created.model_copy(
@@ -177,17 +167,17 @@ class EntityRelationService(
         nid = parse_uuid(novel_id, "novel_id")
         limit = min(limit, MAX_PAGE_SIZE)
 
-        related_ids: set[str] = set()
-        for seed_id in seed_entity_ids:
-            sid = parse_uuid(seed_id, "entity_id")
-            new_related = await self.repo.get_related_entity_ids(
+        seed_ids = [parse_uuid(seed_id, "entity_id") for seed_id in seed_entity_ids]
+        related_ids = {
+            str(rid)
+            for rid in await self.repo.get_related_entity_ids_for_seeds(
                 db,
                 nid,
-                sid,
+                seed_ids,
                 depth=depth,
                 limit=limit,
             )
-            related_ids.update(str(rid) for rid in new_related)
+        }
 
         if not related_ids:
             return []

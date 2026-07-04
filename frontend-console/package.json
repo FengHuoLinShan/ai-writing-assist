@@ -5,10 +5,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vite --host 0.0.0.0 --port ${FRONTEND_PORT:-8080} --strictPort",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:smoke": "playwright test home.spec.js project.spec.js import.spec.js writing.spec.js",
+    "test:e2e:smoke": "playwright test e2e/home.spec.js e2e/project.spec.js e2e/import.spec.js e2e/writing.spec.js",
     "test:e2e:core": "playwright test home.spec.js project.spec.js world.spec.js outline-scenes.spec.js writing.spec.js",
     "test:e2e:map": "playwright test map.spec.js world-dynamics-map-chaos.spec.js",
     "test:e2e:real-llm": "ENABLE_REAL_LLM=1 playwright test deep-import-real.spec.js outline-real-llm.spec.js writing-conflict-real-llm.spec.js",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "happy-dom": "^20.9.0",
+    "vite": "^8.0.14",
     "vitest": "^4.1.7"
   }
 }

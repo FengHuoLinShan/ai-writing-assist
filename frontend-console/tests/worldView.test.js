@@ -13,6 +13,13 @@ beforeEach(() => {
   worldView._candidates = []
   worldView._candidateTotal = 0
   worldView._batches = []
+  worldView._relations = []
+  worldView._relationTotal = 0
+  worldView._relationFilters = { skip: 0, limit: 20 }
+  worldView._aliases = []
+  worldView._aliasTotal = 0
+  worldView._aliasFilters = { skip: 0, limit: 20 }
+  worldView._candidateFilters = { skip: 0, limit: 20 }
   worldView._total = 0
   worldView._entitiesLoadError = null
   worldView._filters = { entity_type: "", status: "", q: "", skip: 0, limit: 20 }
@@ -46,7 +53,7 @@ describe("onEnter", () => {
       novel_id: "p1",
       status: "candidate",
       skip: 0,
-      limit: 50,
+      limit: 20,
     })
     expect(api.world.listEntityBatches).toHaveBeenCalledWith({ novel_id: "p1" })
     expect(worldView._entities).toHaveLength(1)
@@ -142,6 +149,36 @@ describe("候选清洗", () => {
       expect(html).toContain('data-action="ignore-candidate"')
       expect(html).not.toContain('data-action="accept-candidate"')
     })
+
+    it("候选超过一页时显示分页控制", () => {
+      worldView._candidates = [{ id: "c1", name: "候选1", entity_type: "item" }]
+      worldView._candidateTotal = 35
+
+      const html = worldView._renderCandidatesList()
+
+      expect(html).toContain('data-action="prev-candidates-page"')
+      expect(html).toContain('data-action="next-candidates-page"')
+      expect(html).toContain("共 35 条")
+    })
+  })
+
+  describe("_changeCandidatePage", () => {
+    it("候选翻页时更新 skip 并重新加载候选", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidateTotal = 45
+      api.world.listEntities.mockResolvedValue({ items: [{ id: "c21", name: "候选21" }], total: 45 })
+
+      await worldView._changeCandidatePage(1)
+
+      expect(worldView._candidateFilters.skip).toBe(20)
+      expect(api.world.listEntities).toHaveBeenCalledWith({
+        novel_id: "p1",
+        status: "candidate",
+        skip: 20,
+        limit: 20,
+      })
+      expect(router.refresh).toHaveBeenCalled()
+    })
   })
 
   describe("acceptCandidate", () => {
@@ -221,6 +258,22 @@ describe("对象库", () => {
       expect(row?.querySelector('[data-action="delete-entity"]')).toBeTruthy()
     })
 
+    it("表格视图转义未知实体状态的 badge class", () => {
+      worldView._entities = [{
+        id: "e1",
+        name: "王都",
+        entity_type: "location",
+        status: 'candidate" onclick="alert(1)',
+        summary: "首都",
+      }]
+
+      const container = renderHtml(worldView._renderEntityList())
+      const badge = container.querySelector("tbody .badge")
+
+      expect(badge?.getAttribute("onclick")).toBeNull()
+      expect(badge?.textContent).toContain('candidate" onclick="alert(1)')
+    })
+
     it("卡片视图复用现有编辑和地图操作", () => {
       worldView._objectViewMode = "card"
       worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical", summary: "首都" }]
@@ -236,6 +289,23 @@ describe("对象库", () => {
       expect(card?.querySelector('[data-action="edit-entity"]')).toBeTruthy()
       expect(card?.querySelector('[data-action="open-entity-map"]')).toBeTruthy()
       expect(card?.querySelector('[data-action="delete-entity"]')).toBeTruthy()
+    })
+
+    it("卡片视图转义未知实体状态的 badge class", () => {
+      worldView._objectViewMode = "card"
+      worldView._entities = [{
+        id: "e1",
+        name: "王都",
+        entity_type: "location",
+        status: 'candidate" onclick="alert(1)',
+        summary: "首都",
+      }]
+
+      const container = renderHtml(worldView._renderEntityList())
+      const badge = container.querySelector(".world-object-card .badge")
+
+      expect(badge?.getAttribute("onclick")).toBeNull()
+      expect(badge?.textContent).toContain('candidate" onclick="alert(1)')
     })
 
     it("对象行打开地图时使用 open-target 并携带 focus_entity_id", async () => {
@@ -444,6 +514,7 @@ describe("关系", () => {
       state.currentProjectId = "p1"
       api.world.listRelationships.mockResolvedValue({ items: [{ id: "r1", source_id: "src", source_name: "克莱恩", target_id: "tgt", target_name: "邓恩", relation_type: "friend_of" }] })
       const html = await worldView._renderRelations()
+      expect(api.world.listRelationships).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20 })
       expect(html).toContain('data-action="delete-relation"')
       expect(html).toContain("克莱恩")
       expect(html).toContain("邓恩")
@@ -465,6 +536,22 @@ describe("关系", () => {
       })
       const html = await worldView._renderRelations()
       expect(html).toContain("待确认")
+    })
+
+    it("关系超过一页时显示分页并支持翻页", async () => {
+      state.currentProjectId = "p1"
+      api.world.listRelationships.mockResolvedValue({
+        items: [{ id: "r1", source_name: "A", target_name: "B", relation_type: "ally_of" }],
+        total: 41,
+      })
+
+      const html = await worldView._renderRelations()
+      await worldView._changeRelationPage(1)
+
+      expect(html).toContain('data-action="next-relations-page"')
+      expect(html).toContain("共 41 条")
+      expect(worldView._relationFilters.skip).toBe(20)
+      expect(router.refresh).toHaveBeenCalled()
     })
   })
 
@@ -498,6 +585,7 @@ describe("别名", () => {
       state.currentProjectId = "p1"
       api.world.listAliases.mockResolvedValue({ items: [{ id: "a1", alias: "炎帝", alias_type: "title", entity_id: "e1", confidence: 0.8 }] })
       const html = await worldView._renderAliases()
+      expect(api.world.listAliases).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20 })
       expect(html).toContain("炎帝")
       expect(html).toContain("称号")
       expect(html).toContain("80%")
@@ -525,6 +613,22 @@ describe("别名", () => {
       expect(html).toContain("待确认")
       expect(html).toContain("深度导入")
       expect(html).toContain("91%")
+    })
+
+    it("别名超过一页时显示分页并支持翻页", async () => {
+      state.currentProjectId = "p1"
+      api.world.listAliases.mockResolvedValue({
+        items: [{ alias: "炎帝", alias_type: "title", entity_id: "e1" }],
+        total: 22,
+      })
+
+      const html = await worldView._renderAliases()
+      await worldView._changeAliasPage(1)
+
+      expect(html).toContain('data-action="next-aliases-page"')
+      expect(html).toContain("共 22 条")
+      expect(worldView._aliasFilters.skip).toBe(20)
+      expect(router.refresh).toHaveBeenCalled()
     })
   })
 
@@ -832,5 +936,18 @@ describe("批量操作", () => {
 
     expect(api.world.promoteEntity).toHaveBeenCalledTimes(1)
     expect(api.world.promoteEntity).toHaveBeenCalledWith("c1", "p1")
+  })
+
+  it("点击对象多选不重绘页面也不强制刷新数据", () => {
+    const input = document.createElement("input")
+    input.setAttribute("data-scope", "world-objects")
+    input.setAttribute("data-id", "e1")
+    input.checked = true
+
+    worldView._toggleBulkOne(input)
+
+    expect(worldView._bulkSelections["world-objects"]).toEqual(new Set(["e1"]))
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 })

@@ -7,14 +7,16 @@ Import 模块测试
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError, NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.parsers import (
     MAX_FILE_SIZE,
@@ -245,6 +247,13 @@ class TestImportService:
     """测试业务逻辑层"""
 
     @pytest.mark.asyncio
+    async def test_import_service_has_no_direct_http_exception_dependency(self):
+        source = Path("backend/modules/imports/services.py").read_text()
+
+        assert "from fastapi import HTTPException" not in source
+        assert "raise HTTPException" not in source
+
+    @pytest.mark.asyncio
     async def test_upload_and_import(
         self,
         service,
@@ -303,7 +312,7 @@ class TestImportService:
         test_project_id: str,
     ):
         """测试不支持的文件类型"""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
                 test_project_id,
@@ -359,7 +368,7 @@ class TestImportService:
     ):
         """超过 50MB 的文件应返回 413"""
         large_data = b"x" * (MAX_FILE_SIZE + 1)
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
                 test_project_id,
@@ -380,7 +389,7 @@ class TestImportService:
         commit_spy = AsyncMock()
         monkeypatch.setattr(db_session, "commit", commit_spy)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
                 test_project_id,
@@ -422,7 +431,7 @@ class TestImportService:
             sample_txt_content,
         )
         other_novel_id = str(uuid.uuid4())
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await service.get_import_record(
                 db_session,
                 other_novel_id,
@@ -444,7 +453,7 @@ class TestImportService:
             "modules.imports.services.parse_file",
             side_effect=ValueError("mock parse error"),
         ):
-            with pytest.raises(HTTPException) as exc:
+            with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
                     db_session,
                     test_project_id,
@@ -515,7 +524,7 @@ class TestImportService:
         sample_txt_content: bytes,
         monkeypatch,
     ):
-        """update_status 也失败时，仍应抛业务 HTTPException 而非二次异常。"""
+        """update_status 也失败时，仍应抛业务领域错误而非二次异常。"""
 
         async def _broken_update_status(*args, **kwargs):
             raise RuntimeError("transaction aborted")
@@ -526,7 +535,7 @@ class TestImportService:
             "modules.imports.services.create_draft_only",
             side_effect=RuntimeError("draft write failed"),
         ):
-            with pytest.raises(HTTPException) as exc:
+            with pytest.raises(DomainError) as exc:
                 await service.upload_and_import(
                     db_session,
                     test_project_id,
@@ -561,7 +570,7 @@ class TestImportService:
         )
         monkeypatch.setattr(db_session, "rollback", rollback_spy)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
                 test_project_id,

@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.world.map_repositories import (
     MapTerritoryRepository,
 )
@@ -85,16 +84,16 @@ class MapTerritoryService:
 
         territory = await self.repo.get(db, tid)
         if territory is None or territory.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapTerritoryTile {territory_id} not found",
+            raise NotFoundError(
+                f"MapTerritoryTile {territory_id} not found",
+                code="map_territory_not_found",
             )
 
         values: dict[str, Any] = {}
         if data.style_override is not None:
             values["style_override"] = data.style_override
 
-        updated = await self.repo.update(db, tid, values)
+        updated = await self.repo.update(db, territory, values)
         assert updated is not None
         return MapTerritoryResponse.model_validate(updated)
 
@@ -109,9 +108,9 @@ class MapTerritoryService:
 
         territory = await self.repo.get(db, tid)
         if territory is None or territory.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapTerritoryTile {territory_id} not found",
+            raise NotFoundError(
+                f"MapTerritoryTile {territory_id} not found",
+                code="map_territory_not_found",
             )
         await self.repo.delete(db, tid)
 

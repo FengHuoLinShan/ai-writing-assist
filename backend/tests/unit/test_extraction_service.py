@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from unittest import mock
 
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException
 from pydantic import BaseModel
 
+from core.errors import ValidationError as DomainValidationError
 from modules.world.schemas import DuplicateSuggestionResult, WorldContextBundle
 from modules.world.services.extraction_service import (
     EntityExtractionService,
 )
 
 pytestmark = [pytest.mark.asyncio]
+
+
+async def test_extraction_service_has_no_direct_http_exception_dependency() -> None:
+    source = Path("backend/modules/world/services/extraction_service.py").read_text()
+
+    assert "from fastapi import HTTPException" not in source
+    assert "raise HTTPException" not in source
 
 
 # ---------------------------------------------------------------
@@ -599,7 +607,7 @@ class TestEntityExtractionService:
         db = mock.AsyncMock()
 
         # Act
-        with pytest.raises(HTTPException) as excinfo:
+        with pytest.raises(DomainValidationError) as excinfo:
             await service.extract_entities_from_chapters(
                 db,
                 TEST_NOVEL_ID,

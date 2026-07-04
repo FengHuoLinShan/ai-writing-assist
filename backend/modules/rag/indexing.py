@@ -67,9 +67,8 @@ class IndexingService:
 
         await self._repo.delete_by_chapter(db, novel_id, "chapter_text", chapter_index)
 
-        created_chunks: list[RagChunk] = []
-        for cn_chunk in chunks:
-            chunk_data = build_chunk_create(
+        chunk_items = [
+            build_chunk_create(
                 cn_chunk,
                 chapter_index=chapter_index,
                 chunking=self._chunking,
@@ -77,13 +76,15 @@ class IndexingService:
                 entity_importance_map=sources.entity_importance_map,
                 scenes_for_chapter=sources.scenes_for_chapter,
             )
-            chunk = await self._repo.create(db, novel_id, chunk_data)
-            created_chunks.append(chunk)
+            for cn_chunk in chunks
+        ]
+        created_chunks = await self._repo.create_many(db, novel_id, chunk_items)
 
         await db.flush()
-        embedding_result = await EmbeddingWriter(self._repo).write_per_chunk(
+        embedding_result = await EmbeddingWriter(self._repo).write_batch(
             db,
             created_chunks,
+            warning_prefix="章节 embedding 失败",
         )
 
         from modules.rag.metrics import get_metrics
@@ -177,9 +178,13 @@ class IndexingService:
                     chunk = await self._repo.create(db, novel_id, chunk_data)
                     created_chunks.append(chunk)
 
-        for chunk in old_by_offset.values():
-            if chunk.id not in reused_old_ids:
-                await self._repo.delete(db, chunk.id)
+        stale_chunk_ids = [
+            chunk.id
+            for chunk in old_by_offset.values()
+            if chunk.id not in reused_old_ids
+        ]
+        if stale_chunk_ids:
+            await self._repo.delete_many(db, stale_chunk_ids)
 
         await db.flush()
 

@@ -7,6 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const styles = readFileSync(resolve(__dirname, "../styles.css"), "utf8")
 
 describe("global typography tokens", () => {
+  it("keeps the shared hidden utility available for popovers and status UI", () => {
+    expect(styles).toMatch(/\.hidden\s*\{\s*display:\s*none\s*!important;\s*\}/s)
+  })
+
   it("prefers native Simplified Chinese UI fonts", () => {
     expect(styles).toMatch(/--font-ui:[^;]*"PingFang SC"[^;]*"Hiragino Sans GB"[^;]*;/)
   })
@@ -26,5 +30,10 @@ describe("global typography tokens", () => {
   it("does not use negative offsets for prominent Chinese titles", () => {
     expect(styles).toMatch(/\.editor-title\s*\{[^}]*margin-left:\s*0;/s)
     expect(styles).toMatch(/\.project-header h1\s*\{[^}]*margin-left:\s*0;/s)
+  })
+
+  it("lets modal action buttons wrap instead of clipping long footer rows", () => {
+    expect(styles).toMatch(/#modal-footer\s*\{[^}]*flex-wrap:\s*wrap;/s)
+    expect(styles).toMatch(/#modal-footer \.btn\s*\{[^}]*white-space:\s*normal;/s)
   })
 })

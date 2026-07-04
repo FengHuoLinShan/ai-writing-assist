@@ -5,9 +5,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapMarkerCreate,
@@ -150,7 +150,7 @@ class TestMapMarkerCRUD:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await marker_svc.update(
                 db_session,
                 world_map.novel_id,
@@ -188,7 +188,7 @@ class TestMapMarkerCRUD:
         )
         await marker_svc.delete(db_session, world_map.novel_id, created_marker.id)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await marker_svc.update(
                 db_session,
                 world_map.novel_id,
@@ -233,7 +233,7 @@ class TestMapMarkerCRUD:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await marker_svc.delete(db_session, nid2, created_marker.id)
         assert exc.value.status_code == 404
 
