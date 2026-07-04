@@ -63,9 +63,9 @@ async def collect_annotation_sources(
     list[dict[str, str]],
     dict[str, dict[str, object]],
 ]:
-    from modules.outline.facade import get_scenes_by_novel
+    from modules.outline.facade import get_scenes_by_chapter
 
-    scenes = await get_scenes_by_novel(db, str(novel_id))
+    scenes = await get_scenes_by_chapter(db, str(novel_id), chapter_index)
     project_terms = await _load_project_terms(db, novel_id)
     entity_importance_map: dict[str, dict[str, object]] = {}
     try:

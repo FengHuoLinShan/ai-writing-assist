@@ -75,6 +75,20 @@ class ContextConfirmationRepository:
         await db.flush()
         return record
 
+    async def update_tracking_many(
+        self,
+        db: AsyncSession,
+        updates: list[tuple[ContextConfirmation, list[str]]],
+        *,
+        result_status: str,
+    ) -> int:
+        for record, stale_reasons in updates:
+            record.result_status = result_status
+            record.stale_reasons = stale_reasons
+        if updates:
+            await db.flush()
+        return len(updates)
+
     async def list_by_asset_ref(
         self,
         db: AsyncSession,
@@ -88,14 +102,20 @@ class ContextConfirmationRepository:
         )
         result = await db.execute(stmt)
         records = list(result.scalars().all())
+        normalized_asset_id = str(asset_id)
         matched: list[ContextConfirmation] = []
         for record in records:
             selected = record.selected_asset_ids or {}
-            result_refs = record.result_refs or []
-            if asset_id in [str(v) for v in selected.get(asset_type, [])]:
+            selected_ids = {str(value) for value in selected.get(asset_type, [])}
+            if normalized_asset_id in selected_ids:
                 matched.append(record)
                 continue
-            if any(str(ref.get("id")) == asset_id for ref in result_refs):
+            result_ref_ids = {
+                str(ref.get("id"))
+                for ref in record.result_refs or []
+                if isinstance(ref, dict) and ref.get("id") is not None
+            }
+            if normalized_asset_id in result_ref_ids:
                 matched.append(record)
         return matched
 

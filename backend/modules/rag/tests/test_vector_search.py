@@ -69,6 +69,46 @@ async def test_vector_search_returns_empty_without_pgvector(
 
 
 @pytest.mark.asyncio
+async def test_sqlite_vector_search_caps_python_fallback_candidates():
+    """SQLite fallback must not scan every embedded chunk without a SQL limit."""
+    repo = RagChunkRepository()
+    statements = []
+
+    class _SqliteDialect(DefaultDialect):
+        name = "sqlite"
+
+    class _Bind:
+        dialect = _SqliteDialect()
+
+    class _Scalars:
+        def all(self):
+            return []
+
+    class _Result:
+        def scalars(self):
+            return _Scalars()
+
+    class _Db:
+        def get_bind(self):
+            return _Bind()
+
+        async def execute(self, statement):
+            statements.append(statement)
+            return _Result()
+
+    await repo.vector_search(  # type: ignore[arg-type]
+        _Db(),
+        uuid.uuid4(),
+        [0.1, 0.2],
+        top_k=3,
+    )
+
+    assert statements, "SQLite fallback should execute a bounded candidate query"
+    query_sql = str(statements[0]).lower()
+    assert "limit" in query_sql
+
+
+@pytest.mark.asyncio
 async def test_vector_search_orders_pgvector_inner_product_distance_ascending():
     """pgvector <#> 返回距离，越小越相关，因此 SQL 必须升序。"""
     repo = RagChunkRepository()

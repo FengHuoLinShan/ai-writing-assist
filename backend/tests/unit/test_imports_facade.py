@@ -10,6 +10,7 @@ from unittest import mock
 
 import pytest
 
+from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.contracts import TaskNotFoundError
 from modules.imports.facade import (
@@ -212,14 +213,12 @@ async def test_resume_deep_import_with_missing_prev_task_raises_404(
 async def test_resume_deep_import_with_invalid_uuid_raises_422(
     db_session,
 ):
-    """异常路径 — prev_task_id 不是有效 UUID 时，parse_uuid 应抛出 HTTP 422。"""
+    """异常路径 — prev_task_id 不是有效 UUID 时，parse_uuid 应抛出领域 422。"""
     # Arrange
     invalid_id = "not-a-valid-uuid"
 
     # Act & Assert
-    from fastapi import HTTPException
-
-    with pytest.raises(HTTPException) as excinfo:
+    with pytest.raises(DomainValidationError) as excinfo:
         await resume_deep_import(db_session, invalid_id)
 
     assert excinfo.value.status_code == 422

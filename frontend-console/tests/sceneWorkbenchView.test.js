@@ -4,6 +4,7 @@ import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
 import { captureModalHandler, clearDocument, resetState } from "./helpers.js"
 
 const workbenchPayload = {
+  total: 2,
   health: {
     unreviewed: { key: "unreviewed", label: "未复核", count: 1 },
     unassigned: { key: "unassigned", label: "未关联章节", count: 1 },
@@ -75,6 +76,7 @@ beforeEach(() => {
   api.outline.updateScene.mockResolvedValue({ id: "s1" })
   sceneWorkbenchView._loading = false
   sceneWorkbenchView._workbench = null
+  sceneWorkbenchView._total = 0
   sceneWorkbenchView._activeHealth = null
   sceneWorkbenchView._selectedFusionSceneIds = new Set()
   sceneWorkbenchView._autoExtractTaskId = null
@@ -92,6 +94,10 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain('data-action="scene-auto-extract"')
     expect(html).toContain("再选 2 个即可融合")
+    expect(html).toContain('data-action="start-selected-merge"')
+    expect(html).toContain("机械合并")
+    expect(html).toContain('data-action="start-ai-fusion-draft"')
+    expect(html).toContain("AI 融合草稿")
     expect(html).toContain("拆分/整理")
     expect(html).not.toContain(">整理</button>")
   })
@@ -102,7 +108,21 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._selectVisibleFusionScenes()
 
     expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s1", "s2"]))
-    expect(router.renderCurrentView).toHaveBeenCalled()
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+  })
+
+  it("toggles fusion selection without rerendering the whole scene page", async () => {
+    state.currentView = "scene"
+    sceneWorkbenchView._workbench = workbenchPayload
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    vi.clearAllMocks()
+
+    document.querySelector('.scene-workbench-row[data-id="s2"] input[data-action="toggle-fusion-selection"]').click()
+
+    expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s2"]))
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 
   it("submits scene auto extraction stage task", async () => {
@@ -130,6 +150,35 @@ describe("sceneWorkbenchView", () => {
       limit: 20,
     })
     expect(sceneWorkbenchView._workbench.items[0].scene.title).toBe("潜入")
+    expect(sceneWorkbenchView._total).toBe(2)
+  })
+
+  it("renders pagination when scene workbench has more than one page", async () => {
+    sceneWorkbenchView._workbench = { ...workbenchPayload, total: 45 }
+    sceneWorkbenchView._total = 45
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain('data-action="prev-scene-page"')
+    expect(html).toContain('data-action="next-scene-page"')
+    expect(html).toContain('class="scene-workbench-pagination"')
+    expect(html).toContain("共 45 条")
+  })
+
+  it("changes scene page through workbench API params", async () => {
+    sceneWorkbenchView._workbench = { ...workbenchPayload, total: 45 }
+    sceneWorkbenchView._total = 45
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+
+    await sceneWorkbenchView._changePage(1)
+
+    expect(sceneWorkbenchView._filters.skip).toBe(20)
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s1", {
+      skip: 20,
+      limit: 20,
+    })
+    expect(router.refresh).toHaveBeenCalled()
   })
 
   it("applies management filters through scene workbench API params", async () => {
@@ -255,10 +304,12 @@ describe("sceneWorkbenchView", () => {
     expect(toast).toHaveBeenCalledWith("请至少选择 2 个 Scene 再融合", "warning")
   })
 
-  it("previews manual fusion and shows editable fused fields", async () => {
+  it("requires primary scene selection before previewing AI fusion draft", async () => {
     api.outline.previewSceneFusion.mockResolvedValue({
+      mode: "fusion",
       source_scene_ids: ["s1", "s2"],
-      fused_scene: {
+      primary_scene_id: "s1",
+      draft_scene: {
         title: "潜入与撤离",
         goal: "取得密信并撤离",
         core_conflict: "守卫与追兵前后夹击",
@@ -267,23 +318,35 @@ describe("sceneWorkbenchView", () => {
         must_not_happen: "暴露盟友",
         chapter_ids: ["1", "2", "3"],
       },
-      preview_scene: { title: "预览 Scene" },
+      field_references: {
+        goal: [
+          { scene_id: "s1", title: "潜入", value: "潜入王宫", role: "primary" },
+          { scene_id: "s2", title: "撤离", value: "带着密信撤离", role: "source" },
+        ],
+      },
+      conflicts: [],
       warnings: ["章节跨度较大"],
     })
     sceneWorkbenchView._workbench = workbenchPayload
     sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
 
     await sceneWorkbenchView._startManualFusion()
+    expect(showModal.mock.calls[0][0]).toBe("选择主 Scene")
+    document.body.innerHTML = showModal.mock.calls[0][1]
+    await showModal.mock.calls[0][2][1].handler()
 
     expect(api.outline.previewSceneFusion).toHaveBeenCalledWith("p1", {
       source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
     })
     expect(showModal).toHaveBeenCalled()
-    const [title, body, buttons] = showModal.mock.calls[0]
-    expect(title).toBe("手动 Scene 融合")
+    const [title, body, buttons] = showModal.mock.calls[1]
+    expect(title).toBe("Scene AI 草稿审稿")
     expect(body).toContain("潜入与撤离")
     expect(body).toContain("取得密信并撤离")
     expect(body).toContain("章节跨度较大")
+    expect(body).toContain("主 Scene 原值")
+    expect(body).toContain("潜入王宫")
     expect(body).toContain("scene-fusion-title")
     expect(buttons.map((button) => button.text)).toEqual([
       "保留原 Scene + 保存融合 Scene",
@@ -298,32 +361,55 @@ describe("sceneWorkbenchView", () => {
     ["保存融合 Scene，并废弃原 Scene", "deprecate_originals"],
     ["放弃融合结果", "discard"],
   ])("calls fusion save mode %s and refreshes", async (buttonText, mode) => {
-    api.outline.previewSceneFusion.mockResolvedValue({
+    const preview = {
+      mode: "fusion",
       source_scene_ids: ["s1", "s2"],
-      fused_scene: { title: "融合草稿", chapter_ids: ["1", "2", "3"] },
-      preview_scene: {},
+      primary_scene_id: "s1",
+      draft_scene: { title: "融合草稿", chapter_ids: ["1", "2", "3"] },
+      field_references: {},
       warnings: [],
-    })
+    }
     api.outline.saveSceneFusion.mockResolvedValue({ status: mode === "discard" ? "discarded" : "saved" })
     sceneWorkbenchView._workbench = workbenchPayload
-    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
 
-    await sceneWorkbenchView._startManualFusion()
+    sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
     const buttons = showModal.mock.calls[0][2]
     await buttons.find((button) => button.text === buttonText).handler()
 
-    expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", {
+    const expectedPayload = {
       source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
       mode,
-    })
+    }
+    if (mode !== "discard") {
+      expectedPayload.fused_scene = {
+        title: "融合草稿",
+        goal: null,
+        core_conflict: null,
+        emotional_beat: null,
+        must_happen: null,
+        must_not_happen: null,
+        chapter_ids: ["1", "2", "3"],
+        structure_meta: {
+          draft_review_mode: "fusion",
+          primary_scene_id: "s1",
+          confidence: null,
+          draft_review_warnings: [],
+          draft_review_conflicts: [],
+        },
+      }
+    }
+    expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", expectedPayload)
     expect(closeModal).toHaveBeenCalled()
     expect(router.refresh).toHaveBeenCalled()
   })
 
   it("saves edited manual fusion fields with edit_then_save and refreshes", async () => {
-    api.outline.previewSceneFusion.mockResolvedValue({
+    const preview = {
+      mode: "fusion",
       source_scene_ids: ["s1", "s2"],
-      fused_scene: {
+      primary_scene_id: "s1",
+      draft_scene: {
         title: "融合草稿",
         goal: "旧目标",
         core_conflict: "旧冲突",
@@ -332,14 +418,13 @@ describe("sceneWorkbenchView", () => {
         must_not_happen: "旧禁止",
         chapter_ids: ["1", "2"],
       },
-      preview_scene: {},
+      field_references: {},
       warnings: [],
-    })
+    }
     api.outline.saveSceneFusion.mockResolvedValue({ status: "saved" })
     sceneWorkbenchView._workbench = workbenchPayload
-    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
 
-    await sceneWorkbenchView._startManualFusion()
+    sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
     const [, body, buttons] = showModal.mock.calls[0]
     document.body.innerHTML = body
     document.getElementById("scene-fusion-title").value = "用户改标题"
@@ -356,6 +441,7 @@ describe("sceneWorkbenchView", () => {
 
     expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", {
       source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
       mode: "edit_then_save",
       fused_scene: {
         title: "用户改标题",
@@ -365,6 +451,13 @@ describe("sceneWorkbenchView", () => {
         must_happen: "用户改必须",
         must_not_happen: "用户改禁止",
         chapter_ids: ["5", "6"],
+        structure_meta: {
+          draft_review_mode: "fusion",
+          primary_scene_id: "s1",
+          confidence: null,
+          draft_review_warnings: [],
+          draft_review_conflicts: [],
+        },
       },
     })
     expect(closeModal).toHaveBeenCalled()
@@ -394,6 +487,100 @@ describe("sceneWorkbenchView", () => {
       source_scene_ids: ["s2"],
       confirmed: true,
     })
+  })
+
+  it("starts selected mechanical merge separately from AI fusion draft", async () => {
+    api.outline.previewSceneMerge.mockResolvedValue({
+      operation: "merge",
+      chapter_mapping_change: { after: { s1: ["1", "2"] } },
+      field_changes: {},
+      warnings: [],
+    })
+    api.outline.mergeScenes.mockResolvedValue({ scene: { id: "s1" } })
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+
+    await sceneWorkbenchView._startSelectedMerge()
+    expect(showModal.mock.calls[0][0]).toBe("选择目标 Scene")
+    document.body.innerHTML = showModal.mock.calls[0][1]
+    await showModal.mock.calls[0][2][1].handler()
+
+    expect(api.outline.previewSceneMerge).toHaveBeenCalledWith("p1", {
+      target_scene_id: "s1",
+      source_scene_ids: ["s2"],
+    })
+    expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
+  })
+
+  it("uses unified draft review for split preview and submits edited drafts", async () => {
+    api.outline.previewSceneSplit.mockResolvedValue({
+      operation: "split",
+      chapter_mapping_change: { after: { s1: ["1"] } },
+      field_changes: {},
+      warnings: ["拆分不会修改正文内容。"],
+      draft_scenes: [
+        { title: "前半", goal: "前半目标", chapter_ids: ["1"] },
+        { title: "后半", goal: "后半目标", chapter_ids: ["2"] },
+      ],
+      field_references: {
+        title: [{ scene_id: "s1", title: "潜入", value: "潜入", role: "primary" }],
+      },
+    })
+    api.outline.splitScene.mockResolvedValue({ scene: { id: "s1" } })
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    await sceneWorkbenchView._previewAndSplit("s1", 2)
+    const [title, body, buttons] = showModal.mock.calls[0]
+    expect(title).toBe("Scene AI 草稿审稿")
+    expect(body).toContain("AI 拆分草稿")
+    expect(body).toContain("scene-split-0-title")
+    document.body.innerHTML = body
+    document.getElementById("scene-split-0-title").value = "用户前半"
+    document.getElementById("scene-split-1-title").value = "用户后半"
+
+    await buttons[1].handler()
+
+    expect(api.outline.splitScene).toHaveBeenCalledWith("p1", {
+      source_scene_id: "s1",
+      split_chapter_index: 2,
+      draft_scenes: [
+        { title: "用户前半", goal: "前半目标" },
+        { title: "用户后半", goal: "后半目标" },
+      ],
+      confirmed: true,
+    })
+  })
+
+  it("opens cross-chapter suggestions through draft review instead of saving", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._crossChapterProgress = {
+      taskId: "task-1",
+      done: true,
+      raw: {
+        result: {
+          suggestions: [
+            {
+              source_scene_ids: ["s1", "s2"],
+              chapter_span: [1, 3],
+              confidence: 0.8,
+              stop_reason: "keep_separate",
+              reason: "同一场追击",
+              proposed_scene: { title: "跨章追击" },
+              scan_trace: [],
+            },
+          ],
+        },
+      },
+    }
+
+    sceneWorkbenchView._showCrossChapterSuggestions()
+    const buttons = showModal.mock.calls[0][2]
+    await buttons[0].handler()
+
+    expect(api.outline.saveSceneFusion).not.toHaveBeenCalled()
+    expect(showModal.mock.calls[1][0]).toBe("选择主 Scene")
   })
 
   it("opens writing at the first mapped chapter", () => {

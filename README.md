@@ -51,7 +51,7 @@ make test
 
 # 仅启动前端控制台
 cd frontend-console
-python -m http.server 8080
+npm run dev
 ```
 
 详见 [`development-guide.md`](development-guide.md) 和 [`testing-guide.md`](testing-guide.md)。

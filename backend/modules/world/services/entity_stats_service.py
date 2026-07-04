@@ -45,7 +45,7 @@ class EntityStatsService:
     ) -> list[dict[str, Any]]:
         """列出自动入库生成的实体，可选按来源章节范围过滤。"""
         nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self._repo.get_by_novel(db, nid, limit=limit)
+        entities = await self._repo.list_by_novel(db, nid, limit=limit)
 
         items: list[dict[str, Any]] = []
         for entity in entities:

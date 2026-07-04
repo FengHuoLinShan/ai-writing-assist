@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import writingView from "../views/writingView.js"
 import { workflowProgressStorageKey } from "../shared/workflowProgress.js"
-import { resetState, clearDocument, autoConfirm, stubMethod } from "./helpers.js"
+import { resetState, clearDocument, autoConfirm, stubMethod, renderHtml } from "./helpers.js"
 
 beforeEach(() => {
   resetState()
@@ -94,6 +94,39 @@ describe("writingView render", () => {
 
     expect(html).toContain("writing-save-badge")
     expect(html).toContain("writing-version-badge")
+  })
+
+  it("版本下拉转义 draft id 属性", () => {
+    writingView._currentChapter = 1
+    writingView._currentVersionNumber = 1
+    writingView._versions = [{
+      id: 'd1" onclick="alert(1)',
+      version_number: 1,
+    }]
+
+    const container = renderHtml(writingView._renderVersionSelector())
+    const option = container.querySelector("option")
+
+    expect(option?.getAttribute("onclick")).toBeNull()
+    expect(option?.value).toBe('d1" onclick="alert(1)')
+  })
+
+  it("版本历史按钮转义版本号属性", () => {
+    writingView._currentChapter = 1
+    writingView._currentVersionNumber = 1
+    writingView._versions = [{
+      id: "d1",
+      version_number: '1" onclick="alert(1)',
+      word_count: 10,
+    }]
+
+    writingView._showVersionHistory()
+    const modalHtml = showModal.mock.calls.at(-1)[1]
+    const container = renderHtml(modalHtml)
+    const button = container.querySelector(".version-preview-btn")
+
+    expect(button?.getAttribute("onclick")).toBeNull()
+    expect(button?.dataset.version).toBe('1" onclick="alert(1)')
   })
 
   it("编辑器使用写作字体、字数条和专注模式入口", () => {
@@ -768,6 +801,41 @@ describe("writingView conflict checks", () => {
     })
     expect(writingView._latestConflictCheck).toEqual(updatedCheck)
     rerenderStub.mockRestore()
+  })
+
+  it("applies edited AI conflict suggestion to the writing editor", () => {
+    const scheduleSpy = vi.spyOn(writingView, "_scheduleAutoSave").mockImplementation(() => {})
+    writingView._conflictChecks = [{
+      id: "c1",
+      chapter_index: 1,
+      scene_id: "s1",
+      items: [{
+        id: "i1",
+        kind: "motivation_gap",
+        severity: "medium",
+        source_module: "ai",
+        evidence_summary: "缺少动机",
+        status: "open",
+        ai_suggestion: JSON.stringify({
+          strategy: "补动机",
+          suggested_text: "补一段犹豫。",
+          rationale: "减少跳变",
+        }),
+      }],
+    }]
+    document.body.innerHTML = '<textarea id="writing-editor">正文</textarea>'
+    const editor = document.getElementById("writing-editor")
+    editor.selectionStart = editor.selectionEnd = 2
+
+    writingView._openConflictCheck("c1")
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    const draft = document.querySelector('[data-conflict-suggestion-draft="i1"]')
+    draft.value = "用户改过的建议。"
+    document.querySelector('[data-conflict-apply-suggestion="i1"]').click()
+
+    expect(editor.value).toBe("正文用户改过的建议。")
+    expect(writingView._currentContent).toBe("正文用户改过的建议。")
+    scheduleSpy.mockRestore()
   })
 
   it("warns before publishing unresolved high severity checks", async () => {

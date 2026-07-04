@@ -327,6 +327,27 @@ describe("projectView", () => {
     })
   })
 
+  describe("import history rendering", () => {
+    it("转义后端返回的未知导入状态", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="import-list-body"></div>'
+      api.imports.list.mockResolvedValue({
+        items: [{
+          file_name: "novel.txt",
+          status: '<img src=x onerror="alert(1)">',
+          imported_chapters: 1,
+          total_chapters: 2,
+        }],
+      })
+
+      await projectView._renderImportHistory()
+
+      const container = document.getElementById("import-list-body")
+      expect(container?.querySelector("img")).toBeNull()
+      expect(container?.textContent).toContain('<img src=x onerror="alert(1)">')
+    })
+  })
+
   describe("批量项目操作", () => {
     it("批量移入回收站调用项目删除 API", async () => {
       state.projects = [{ id: "p1", title: "项目A" }, { id: "p2", title: "项目B" }]

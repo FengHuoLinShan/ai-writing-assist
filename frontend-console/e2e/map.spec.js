@@ -51,6 +51,30 @@ async function clickHex(page, q, r) {
   await page.locator(SEL.mapCanvas).click({ position: hexPosition(q, r) })
 }
 
+async function expectMapCanvasAligned(page) {
+  const alignment = await page.locator(SEL.mapLeaflet).evaluate((container) => {
+    const canvas = container.querySelector('canvas[data-testid="map-canvas"]')
+    const overlayPane = container.querySelector(".leaflet-overlay-pane")
+    return {
+      canvasParentIsContainer: canvas?.parentElement === container,
+      canvasInsideMovablePane: overlayPane ? overlayPane.contains(canvas) : false,
+      widthMatches: canvas?.offsetWidth === Math.round(container.clientWidth),
+      heightMatches: canvas?.offsetHeight === Math.round(container.clientHeight),
+      backingWidthMatches: canvas?.width === Math.round(container.clientWidth),
+      backingHeightMatches: canvas?.height === Math.round(container.clientHeight),
+    }
+  })
+
+  expect(alignment).toMatchObject({
+    canvasParentIsContainer: true,
+    canvasInsideMovablePane: false,
+    widthMatches: true,
+    heightMatches: true,
+    backingWidthMatches: true,
+    backingHeightMatches: true,
+  })
+}
+
 test.describe("地图一级工作台", () => {
   let testProjectId = null
 
@@ -202,8 +226,10 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map)
+    await expectMapCanvasAligned(page)
     await page.getByRole("button", { name: "编辑" }).click()
     await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
+    await expectMapCanvasAligned(page)
 
     await page.locator(SEL.mapTerrainSelect).selectOption("water")
     await clickHex(page, 1, 1)
@@ -516,6 +542,8 @@ test.describe("写作页地图入口", () => {
 
     await page.locator('[data-action="select-scene"]').first().click()
     await expect(page.locator("#writing-panel-container")).toContainText("抵达洛阳")
+    await page.locator('[data-action="switch-cockpit-tab"][data-tab="map"]').click()
+    await expect(page.locator('[data-panel="map"]')).toBeVisible()
     await expect(page.locator("#writing-panel-container")).toContainText("地图摘要", {
       timeout: 10000,
     })

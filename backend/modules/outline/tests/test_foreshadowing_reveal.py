@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -15,6 +16,74 @@ from modules.outline.reveal_repository import RevealPlanRepository
 from tests.utils import _make_bundle
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.added = []
+        self.flush_count = 0
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def flush(self) -> None:
+        self.flush_count += 1
+
+
+async def test_foreshadowing_update_reuses_loaded_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = ForeshadowingPlanRepository()
+    plan_id = uuid.uuid4()
+    plan = type("Plan", (), {"id": plan_id, "name": "旧伏笔"})()
+    get_calls = 0
+
+    async def fake_get(_db, requested_id):
+        nonlocal get_calls
+        get_calls += 1
+        assert requested_id == plan_id
+        return plan
+
+    monkeypatch.setattr(repo, "get", fake_get)
+    db = _FakeSession()
+
+    result = await repo.update(db, plan_id, {"name": "新伏笔"})  # type: ignore[arg-type]
+
+    assert result is plan
+    assert plan.name == "新伏笔"
+    assert get_calls == 1
+    assert db.added == [plan]
+    assert db.flush_count == 1
+
+
+async def test_reveal_update_reuses_loaded_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = RevealPlanRepository()
+    plan_id = uuid.uuid4()
+    plan = type("Plan", (), {"id": plan_id, "secret_summary": "旧秘密"})()
+    get_calls = 0
+
+    async def fake_get(_db, requested_id):
+        nonlocal get_calls
+        get_calls += 1
+        assert requested_id == plan_id
+        return plan
+
+    monkeypatch.setattr(repo, "get", fake_get)
+    db = _FakeSession()
+
+    result = await repo.update(
+        db,  # type: ignore[arg-type]
+        plan_id,
+        {"secret_summary": "新秘密"},
+    )
+
+    assert result is plan
+    assert plan.secret_summary == "新秘密"
+    assert get_calls == 1
+    assert db.added == [plan]
+    assert db.flush_count == 1
 
 
 def _mock_llm_return_value() -> BaseModel:
@@ -845,3 +914,433 @@ class TestPlotStructureGenerateDuplicateRange:
         )
         assert after_get.status_code == 200
         assert after_get.json()["status"] == "deprecated"
+
+
+async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> None:
+    from modules.outline.generation.models import (
+        ForeshadowingPlan as GeneratedForeshadowingPlan,
+    )
+    from modules.outline.generation.models import RevealPlan as GeneratedRevealPlan
+    from modules.outline.generation.persister import PlotStructurePersister
+
+    novel_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    foreshadowing_plans = [
+        SimpleNamespace(id=uuid.uuid4(), name="古剑封印"),
+        SimpleNamespace(id=uuid.uuid4(), name="暗线伏笔"),
+    ]
+    reveal_plans = [SimpleNamespace(id=uuid.uuid4())]
+    foreshadowing_service = SimpleNamespace(
+        create=mock.AsyncMock(side_effect=AssertionError("should use create_batch")),
+        create_batch=mock.AsyncMock(return_value=foreshadowing_plans),
+    )
+    reveal_service = SimpleNamespace(
+        create=mock.AsyncMock(side_effect=AssertionError("should use create_batch")),
+        create_batch=mock.AsyncMock(return_value=reveal_plans),
+    )
+    persister = PlotStructurePersister(
+        thread_service=SimpleNamespace(),
+        arc_service=SimpleNamespace(),
+        scene_service=SimpleNamespace(),
+        foreshadowing_service=foreshadowing_service,
+        reveal_service=reveal_service,
+    )
+
+    created_foreshadowing, created_reveals = (
+        await persister._persist_foreshadowing_and_reveals(
+            mock.AsyncMock(spec=AsyncSession),
+            novel_id,
+            [
+                GeneratedForeshadowingPlan(name="古剑封印", summary="秘密线索"),
+                GeneratedForeshadowingPlan(name="暗线伏笔", summary="第二线索"),
+            ],
+            [
+                GeneratedRevealPlan(
+                    target_name="霜华剑",
+                    target_type="world_entity",
+                    secret_summary="封印着魔神",
+                )
+            ],
+            entity_name_to_id={"霜华剑": str(target_id)},
+            character_name_to_id={},
+            provenance_meta={"workflow_id": "wf-1"},
+        )
+    )
+
+    assert [item["name"] for item in created_foreshadowing] == ["古剑封印", "暗线伏笔"]
+    assert created_reveals == [
+        {
+            "id": str(reveal_plans[0].id),
+            "target_name": "霜华剑",
+        }
+    ]
+    foreshadowing_service.create.assert_not_awaited()
+    reveal_service.create.assert_not_awaited()
+    foreshadowing_service.create_batch.assert_awaited_once()
+    reveal_service.create_batch.assert_awaited_once()
+    assert len(foreshadowing_service.create_batch.await_args.args[2]) == 2
+    reveal_payload = reveal_service.create_batch.await_args.args[2][0]
+    assert reveal_payload.target_id == target_id
+
+
+async def test_plot_structure_persister_batches_threads_and_arcs() -> None:
+    from modules.outline.generation.models import GeneratedArc, GeneratedThread
+    from modules.outline.generation.persister import PlotStructurePersister
+
+    novel_id = uuid.uuid4()
+    character_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    thread_id = uuid.uuid4()
+    thread_service = SimpleNamespace(
+        create=mock.AsyncMock(side_effect=AssertionError("should use create_batch")),
+        create_batch=mock.AsyncMock(
+            return_value=[
+                SimpleNamespace(id=thread_id, name="主线", thread_type="main"),
+                SimpleNamespace(id=uuid.uuid4(), name="暗线", thread_type="hidden"),
+            ],
+        ),
+    )
+    arc_service = SimpleNamespace(
+        create=mock.AsyncMock(side_effect=AssertionError("should use create_batch")),
+        create_batch=mock.AsyncMock(
+            return_value=[
+                SimpleNamespace(id=uuid.uuid4(), title="卷一", arc_index=1),
+                SimpleNamespace(id=uuid.uuid4(), title="卷二", arc_index=2),
+            ],
+        ),
+    )
+    persister = PlotStructurePersister(
+        thread_service=thread_service,
+        arc_service=arc_service,
+        scene_service=SimpleNamespace(),
+        foreshadowing_service=SimpleNamespace(),
+        reveal_service=SimpleNamespace(),
+    )
+
+    created_threads = await persister._persist_threads(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        1,
+        [
+            GeneratedThread(
+                name="主线",
+                thread_type="main",
+                related_character_names=["主角"],
+                related_entity_names=["秘宝"],
+            ),
+            GeneratedThread(name="", thread_type="secondary"),
+            GeneratedThread(name="暗线", thread_type="hidden"),
+        ],
+        character_name_to_id={"主角": str(character_id)},
+        entity_name_to_id={"秘宝": str(entity_id)},
+        provenance_meta={"workflow_id": "wf-1"},
+    )
+
+    created_arcs = await persister._persist_arcs(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        1,
+        10,
+        [
+            GeneratedArc(
+                title="卷一",
+                arc_index=1,
+                related_thread_names=["主线"],
+                related_character_names=["主角"],
+                related_entity_names=["秘宝"],
+            ),
+            GeneratedArc(title="", arc_index=2),
+            GeneratedArc(title="卷二", arc_index=2),
+        ],
+        thread_name_to_id={"主线": str(thread_id)},
+        character_name_to_id={"主角": str(character_id)},
+        entity_name_to_id={"秘宝": str(entity_id)},
+        provenance_meta={"workflow_id": "wf-1"},
+    )
+
+    assert [item["name"] for item in created_threads] == ["主线", "暗线"]
+    assert [item["title"] for item in created_arcs] == ["卷一", "卷二"]
+    thread_service.create.assert_not_awaited()
+    arc_service.create.assert_not_awaited()
+    thread_service.create_batch.assert_awaited_once()
+    arc_service.create_batch.assert_awaited_once()
+    thread_payload = thread_service.create_batch.await_args.args[2][0]
+    assert thread_payload.related_character_ids == [str(character_id)]
+    assert thread_payload.related_entity_ids == [str(entity_id)]
+    arc_payload = arc_service.create_batch.await_args.args[2][0]
+    assert arc_payload.related_thread_ids == [str(thread_id)]
+    assert arc_payload.related_character_ids == [str(character_id)]
+    assert arc_payload.related_entity_ids == [str(entity_id)]
+
+
+async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> None:
+    from modules.outline.generation.models import GeneratedArc, GeneratedThread
+    from modules.outline.generation.persister import PlotStructurePersister
+
+    novel_id = uuid.uuid4()
+    created_thread = SimpleNamespace(id=uuid.uuid4(), name="主线", thread_type="main")
+    created_arc = SimpleNamespace(id=uuid.uuid4(), title="卷一", arc_index=1)
+    thread_service = SimpleNamespace(
+        create_batch=mock.AsyncMock(side_effect=RuntimeError("thread batch failed")),
+        create=mock.AsyncMock(
+            side_effect=[
+                created_thread,
+                RuntimeError("single thread failed"),
+            ],
+        ),
+    )
+    arc_service = SimpleNamespace(
+        create_batch=mock.AsyncMock(side_effect=RuntimeError("arc batch failed")),
+        create=mock.AsyncMock(
+            side_effect=[
+                created_arc,
+                RuntimeError("single arc failed"),
+            ],
+        ),
+    )
+    persister = PlotStructurePersister(
+        thread_service=thread_service,
+        arc_service=arc_service,
+        scene_service=SimpleNamespace(),
+        foreshadowing_service=SimpleNamespace(),
+        reveal_service=SimpleNamespace(),
+    )
+
+    created_threads = await persister._persist_threads(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        1,
+        [
+            GeneratedThread(name="主线", thread_type="main"),
+            GeneratedThread(name="失败线", thread_type="secondary"),
+        ],
+        character_name_to_id={},
+        entity_name_to_id={},
+        provenance_meta={},
+    )
+    created_arcs = await persister._persist_arcs(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        1,
+        10,
+        [
+            GeneratedArc(title="卷一", arc_index=1),
+            GeneratedArc(title="失败卷", arc_index=2),
+        ],
+        thread_name_to_id={},
+        character_name_to_id={},
+        entity_name_to_id={},
+        provenance_meta={},
+    )
+
+    assert created_threads == [
+        {"id": str(created_thread.id), "name": "主线", "thread_type": "main"}
+    ]
+    assert created_arcs == [
+        {"id": str(created_arc.id), "title": "卷一", "arc_index": 1}
+    ]
+    thread_service.create_batch.assert_awaited_once()
+    arc_service.create_batch.assert_awaited_once()
+    assert thread_service.create.await_count == 2
+    assert arc_service.create.await_count == 2
+
+
+async def test_plot_structure_persister_batches_scenes() -> None:
+    from modules.outline.generation.models import GeneratedScene
+    from modules.outline.generation.persister import PlotStructurePersister
+
+    novel_id = uuid.uuid4()
+    scene_service = SimpleNamespace(
+        get_ordered=mock.AsyncMock(
+            side_effect=AssertionError("should not load every scene for next index"),
+        ),
+        get_next_scene_index=mock.AsyncMock(return_value=5),
+        create=mock.AsyncMock(side_effect=AssertionError("should use batch create")),
+        batch_create_models_from_dicts=mock.AsyncMock(
+            return_value=[
+                SimpleNamespace(id=uuid.uuid4(), title="伏击", scene_index=5),
+                SimpleNamespace(id=uuid.uuid4(), title="追索", scene_index=6),
+            ],
+        ),
+    )
+    persister = PlotStructurePersister(
+        thread_service=SimpleNamespace(),
+        arc_service=SimpleNamespace(),
+        scene_service=scene_service,
+        foreshadowing_service=SimpleNamespace(),
+        reveal_service=SimpleNamespace(),
+    )
+
+    created = await persister._persist_scenes(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        1,
+        3,
+        [
+            GeneratedScene(title="伏击", chapter_start=1, chapter_end=1),
+            GeneratedScene(title="", chapter_start=2, chapter_end=2),
+            GeneratedScene(
+                title="追索",
+                chapter_start=2,
+                chapter_end=3,
+                scene_chunks=[{"chapter_index": 2, "start_pos": 0, "end_pos": 10}],
+            ),
+        ],
+    )
+
+    assert [item["title"] for item in created] == ["伏击", "追索"]
+    scene_service.get_ordered.assert_not_awaited()
+    scene_service.get_next_scene_index.assert_awaited_once()
+    scene_service.create.assert_not_awaited()
+    scene_service.batch_create_models_from_dicts.assert_awaited_once()
+    payloads = scene_service.batch_create_models_from_dicts.await_args.args[2]
+    assert [payload["scene_index"] for payload in payloads] == [5, 6]
+    assert payloads[0]["chapter_ids"] == ["1"]
+    assert payloads[0]["scene_chunks"] == [
+        {"chapter_index": 1, "start_pos": 0, "end_pos": 0}
+    ]
+    assert payloads[1]["chapter_ids"] == ["2", "3"]
+
+
+async def test_plot_structure_persister_falls_back_when_scene_batch_fails() -> None:
+    from modules.outline.generation.models import GeneratedScene
+    from modules.outline.generation.persister import PlotStructurePersister
+
+    novel_id = uuid.uuid4()
+    created_scene = SimpleNamespace(id=uuid.uuid4(), title="伏击", scene_index=0)
+    scene_service = SimpleNamespace(
+        get_ordered=mock.AsyncMock(
+            side_effect=AssertionError("should not load every scene for next index"),
+        ),
+        get_next_scene_index=mock.AsyncMock(return_value=0),
+        batch_create_models_from_dicts=mock.AsyncMock(
+            side_effect=RuntimeError("batch failed"),
+        ),
+        create=mock.AsyncMock(
+            side_effect=[
+                created_scene,
+                RuntimeError("single scene failed"),
+            ],
+        ),
+    )
+    persister = PlotStructurePersister(
+        thread_service=SimpleNamespace(),
+        arc_service=SimpleNamespace(),
+        scene_service=scene_service,
+        foreshadowing_service=SimpleNamespace(),
+        reveal_service=SimpleNamespace(),
+    )
+
+    created = await persister._persist_scenes(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        1,
+        2,
+        [
+            GeneratedScene(title="伏击", chapter_start=1, chapter_end=1),
+            GeneratedScene(title="失败 Scene", chapter_start=2, chapter_end=2),
+        ],
+    )
+
+    assert created == [
+        {
+            "id": str(created_scene.id),
+            "title": "伏击",
+            "scene_index": 0,
+        }
+    ]
+    scene_service.get_ordered.assert_not_awaited()
+    scene_service.get_next_scene_index.assert_awaited_once()
+    scene_service.batch_create_models_from_dicts.assert_awaited_once()
+    assert scene_service.create.await_count == 2
+
+
+async def test_foreshadowing_service_create_batch_delegates_to_repository_batch() -> None:
+    from modules.outline.schemas import ForeshadowingPlanCreate
+    from modules.outline.services import ForeshadowingPlanService
+
+    novel_id = uuid.uuid4()
+    persisted = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            novel_id=novel_id,
+            name="古剑封印",
+            summary=None,
+            surface_meaning=None,
+            hidden_meaning=None,
+            planned_seed_chapter=1,
+            planned_reinforce_chapters=[],
+            planned_payoff_chapter=3,
+            planned_payoff_scene=None,
+            related_entity_ids=[],
+            related_thread_ids=[],
+            provenance_meta={},
+            status="draft",
+            created_at=None,
+            updated_at=None,
+        )
+    ]
+    svc = ForeshadowingPlanService()
+    svc.repo = SimpleNamespace(
+        create=mock.AsyncMock(side_effect=AssertionError("should use create_batch")),
+        create_batch=mock.AsyncMock(return_value=persisted),
+    )
+
+    result = await svc.create_batch(
+        mock.AsyncMock(spec=AsyncSession),
+        str(novel_id),
+        [
+            ForeshadowingPlanCreate(
+                name="古剑封印",
+                planned_seed_chapter=1,
+                planned_payoff_chapter=3,
+            )
+        ],
+    )
+
+    assert result[0].name == "古剑封印"
+    svc.repo.create.assert_not_awaited()
+    svc.repo.create_batch.assert_awaited_once()
+
+
+async def test_reveal_service_create_batch_delegates_to_repository_batch() -> None:
+    from modules.outline.schemas import RevealPlanCreate
+    from modules.outline.services import RevealPlanService
+
+    novel_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    persisted = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            novel_id=novel_id,
+            target_type="world_entity",
+            target_id=target_id,
+            secret_summary="秘密",
+            reveal_stages=[],
+            provenance_meta={},
+            status="draft",
+            created_at=None,
+            updated_at=None,
+        )
+    ]
+    svc = RevealPlanService()
+    svc.repo = SimpleNamespace(
+        create=mock.AsyncMock(side_effect=AssertionError("should use create_batch")),
+        create_batch=mock.AsyncMock(return_value=persisted),
+    )
+
+    result = await svc.create_batch(
+        mock.AsyncMock(spec=AsyncSession),
+        str(novel_id),
+        [
+            RevealPlanCreate(
+                target_type="world_entity",
+                target_id=target_id,
+                secret_summary="秘密",
+            )
+        ],
+    )
+
+    assert result[0].target_id == str(target_id)
+    svc.repo.create.assert_not_awaited()
+    svc.repo.create_batch.assert_awaited_once()

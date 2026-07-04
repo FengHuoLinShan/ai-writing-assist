@@ -6,9 +6,8 @@ from dataclasses import asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
+from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.services.protocol import Loader
-from modules.context.services.types import CompileOptions
 
 
 class SceneLoader(Loader):

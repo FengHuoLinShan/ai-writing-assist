@@ -101,40 +101,44 @@ DEFAULT_LOG_DIR = BACKEND_ROOT / ".test-logs" / "deep_import_real_llm"
 OFFICIAL_API_RECOMMENDATION = "推荐使用官方api以保障稳定性与质量"
 
 
+def _enabled(env_var: str) -> bool:
+    return os.getenv(env_var) == "1"
+
+
 def _full_real_llm_enabled() -> bool:
     return (
-        os.getenv("RUN_DEEP_IMPORT_5_REAL_LLM") == "1"
-        or os.getenv("RUN_DEEP_IMPORT_60_REAL_LLM") == "1"
-        or os.getenv("RUN_DEEP_IMPORT_213_REAL_LLM") == "1"
+        _enabled("RUN_DEEP_IMPORT_5_REAL_LLM")
+        or _enabled("RUN_DEEP_IMPORT_60_REAL_LLM")
+        or _enabled("RUN_DEEP_IMPORT_213_REAL_LLM")
     )
 
 
 def _scene_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_SCENE_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_SCENE_REAL_LLM")
 
 
 def _phase0_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM")
 
 
 def _phase1a_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM")
 
 
 def _phase1b_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM")
 
 
 def _phase2a_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM")
 
 
 def _phase2b_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM")
 
 
 def _phase3_real_llm_enabled() -> bool:
-    return os.getenv("RUN_DEEP_IMPORT_60_PHASE3_REAL_LLM") == "1"
+    return _enabled("RUN_DEEP_IMPORT_60_PHASE3_REAL_LLM")
 
 
 def _expected_chapter_count() -> int:
@@ -554,13 +558,70 @@ def _phase2_summary_value(value: Any) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
-def _phase2_batch_tuning_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE2_BATCH_TUNING_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
+def _backend_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else BACKEND_ROOT / path
+
+
+def _configured_path(env_var: str) -> Path | None:
+    configured = os.getenv(env_var)
+    return _backend_path(configured) if configured else None
+
+
+def _summary_or_artifact_path(
+    log_path: Path,
+    *,
+    env_var: str,
+    prefix: str,
+    suffix: str,
+) -> Path:
+    configured = _configured_path(env_var)
+    if configured is not None:
+        return configured
     stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase2_batch_tuning_{stamp}.md"
+    return log_path.parent / f"{prefix}_{stamp}{suffix}"
+
+
+def _latest_artifact_path(
+    pattern: str,
+    predicate,
+) -> Path | None:
+    candidates = sorted(
+        DEFAULT_LOG_DIR.glob(pattern),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return next((path for path in candidates if predicate(path)), None)
+
+
+def _append_summary_row(summary_path: Path, title: str, row: dict[str, Any]) -> Path:
+    headers = list(row)
+    if not summary_path.exists():
+        summary_path.write_text(
+            f"# {title}\n\n"
+            + "| "
+            + " | ".join(headers)
+            + " |\n| "
+            + " | ".join("---" for _ in headers)
+            + " |\n",
+            encoding="utf-8",
+        )
+    with summary_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "| "
+            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
+            + " |\n"
+        )
+    return summary_path
+
+
+def _phase2_batch_tuning_summary_path(log_path: Path) -> Path:
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE2_BATCH_TUNING_SUMMARY_PATH",
+        prefix="phase2_batch_tuning",
+        suffix=".md",
+    )
 
 
 def _write_phase2_batch_tuning_summary(
@@ -598,36 +659,16 @@ def _write_phase2_batch_tuning_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 2 Batch Tuning Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| "
-            + " | ".join(
-                _phase2_summary_value(row[key]).replace("\n", " ")
-                for key in headers
-            )
-            + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 2 Batch Tuning Summary", row)
 
 
 def _phase01_scene_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE01_SCENE_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase01_scene_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE01_SCENE_REAL_LLM_SUMMARY_PATH",
+        prefix="phase01_scene_real_llm",
+        suffix=".md",
+    )
 
 
 def _write_phase01_scene_summary(
@@ -659,42 +700,25 @@ def _write_phase01_scene_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 0/1 Scene Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| "
-            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
-            + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 0/1 Scene Real LLM Summary", row)
 
 
 def _phase0_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE0_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase0_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE0_REAL_LLM_SUMMARY_PATH",
+        prefix="phase0_real_llm",
+        suffix=".md",
+    )
 
 
 def _phase0_artifact_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE0_REAL_LLM_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase0_real_llm_{stamp}.artifact.json"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE0_REAL_LLM_ARTIFACT_PATH",
+        prefix="phase0_real_llm",
+        suffix=".artifact.json",
+    )
 
 
 def _write_phase0_artifact(
@@ -739,23 +763,16 @@ def _write_phase0_artifact(
 
 
 def _phase1a_phase0_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE1A_PHASE0_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    return _latest_passed_phase0_artifact_path()
+    return _configured_path(
+        "PHASE1A_PHASE0_ARTIFACT_PATH"
+    ) or _latest_passed_phase0_artifact_path()
 
 
 def _latest_passed_phase0_artifact_path() -> Path | None:
-    candidates = sorted(
-        DEFAULT_LOG_DIR.glob("phase0_real_llm_*.artifact.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
+    return _latest_artifact_path(
+        "phase0_real_llm_*.artifact.json",
+        _is_passed_phase0_artifact,
     )
-    for path in candidates:
-        if _is_passed_phase0_artifact(path):
-            return path
-    return None
 
 
 def _is_passed_phase0_artifact(path: Path) -> bool:
@@ -791,11 +808,7 @@ def _is_passed_phase0_artifact(path: Path) -> bool:
 
 
 def _phase0_repair_source_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE0_REPAIR_SOURCE_ARTIFACT_PATH")
-    if not configured:
-        return None
-    path = Path(configured).expanduser()
-    return path if path.is_absolute() else BACKEND_ROOT / path
+    return _configured_path("PHASE0_REPAIR_SOURCE_ARTIFACT_PATH")
 
 
 def _load_phase0_artifact(path: Path) -> ScenePrefetchResult:
@@ -1017,33 +1030,16 @@ def _write_phase0_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 0 Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| "
-            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
-            + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 0 Real LLM Summary", row)
 
 
 def _phase1a_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE1A_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase1a_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE1A_REAL_LLM_SUMMARY_PATH",
+        prefix="phase1a_real_llm",
+        suffix=".md",
+    )
 
 
 def _write_phase1a_summary(
@@ -1088,33 +1084,16 @@ def _write_phase1a_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 1a Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| "
-            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
-            + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 1a Real LLM Summary", row)
 
 
 def _phase1a_artifact_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE1A_REAL_LLM_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase1a_real_llm_{stamp}.artifact.json"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE1A_REAL_LLM_ARTIFACT_PATH",
+        prefix="phase1a_real_llm",
+        suffix=".artifact.json",
+    )
 
 
 def _write_phase1a_artifact(
@@ -1164,11 +1143,7 @@ def _write_phase1a_artifact(
 
 
 def _phase1a_repair_source_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH")
-    if not configured:
-        return None
-    path = Path(configured).expanduser()
-    return path if path.is_absolute() else BACKEND_ROOT / path
+    return _configured_path("PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH")
 
 
 def _load_phase1a_artifact(path: Path) -> SceneReinforcementResult:
@@ -1188,23 +1163,16 @@ def _load_phase1a_artifact(path: Path) -> SceneReinforcementResult:
 
 
 def _phase1b_phase1a_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE1B_PHASE1A_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    return _latest_passed_phase1a_artifact_path()
+    return _configured_path(
+        "PHASE1B_PHASE1A_ARTIFACT_PATH"
+    ) or _latest_passed_phase1a_artifact_path()
 
 
 def _latest_passed_phase1a_artifact_path() -> Path | None:
-    candidates = sorted(
-        DEFAULT_LOG_DIR.glob("phase1a_real_llm_*.artifact.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
+    return _latest_artifact_path(
+        "phase1a_real_llm_*.artifact.json",
+        _is_passed_phase1a_artifact,
     )
-    for path in candidates:
-        if _is_passed_phase1a_artifact(path):
-            return path
-    return None
 
 
 def _is_passed_phase1a_artifact(path: Path) -> bool:
@@ -1241,12 +1209,12 @@ def _is_passed_phase1a_artifact(path: Path) -> bool:
 
 
 def _phase1b_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE1B_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase1b_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE1B_REAL_LLM_SUMMARY_PATH",
+        prefix="phase1b_real_llm",
+        suffix=".md",
+    )
 
 
 def _write_phase1b_summary(
@@ -1293,33 +1261,16 @@ def _write_phase1b_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 1b Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| "
-            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
-            + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 1b Real LLM Summary", row)
 
 
 def _phase1b_artifact_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE1B_REAL_LLM_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase1b_real_llm_{stamp}.artifact.json"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE1B_REAL_LLM_ARTIFACT_PATH",
+        prefix="phase1b_real_llm",
+        suffix=".artifact.json",
+    )
 
 
 def _write_phase1b_artifact(
@@ -1375,29 +1326,23 @@ def _write_phase1b_artifact(
 
 
 def _phase2a_phase1b_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE2A_PHASE1B_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
+    configured = _configured_path("PHASE2A_PHASE1B_ARTIFACT_PATH")
+    if configured is not None:
+        return configured
     repair_source = _phase2a_repair_source_artifact_path()
     if repair_source is not None:
         payload = json.loads(repair_source.read_text(encoding="utf-8"))
         source = payload.get("source_phase1b_artifact_path")
         if source:
-            return Path(source).expanduser()
+            return _backend_path(source)
     return _latest_passed_phase1b_artifact_path()
 
 
 def _latest_passed_phase1b_artifact_path() -> Path | None:
-    candidates = sorted(
-        DEFAULT_LOG_DIR.glob("phase1b_real_llm_*.artifact.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
+    return _latest_artifact_path(
+        "phase1b_real_llm_*.artifact.json",
+        _is_passed_phase1b_artifact,
     )
-    for path in candidates:
-        if _is_passed_phase1b_artifact(path):
-            return path
-    return None
 
 
 def _is_passed_phase1b_artifact(path: Path) -> bool:
@@ -1452,11 +1397,7 @@ def _load_phase1b_artifact(path: Path) -> Phase1bFusionResult:
 
 
 def _phase2a_repair_source_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE2A_REPAIR_SOURCE_ARTIFACT_PATH")
-    if not configured:
-        return None
-    path = Path(configured).expanduser()
-    return path if path.is_absolute() else BACKEND_ROOT / path
+    return _configured_path("PHASE2A_REPAIR_SOURCE_ARTIFACT_PATH")
 
 
 def _phase2b_phase2a_artifact_path() -> Path | None:
@@ -1465,33 +1406,21 @@ def _phase2b_phase2a_artifact_path() -> Path | None:
         payload = json.loads(repair_source.read_text(encoding="utf-8"))
         source_phase2a = payload.get("source_phase2a_artifact_path")
         if source_phase2a:
-            path = Path(source_phase2a).expanduser()
-            return path if path.is_absolute() else BACKEND_ROOT / path
-    configured = os.getenv("PHASE2B_PHASE2A_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    return _latest_hydratable_phase2a_artifact_path()
+            return _backend_path(source_phase2a)
+    return _configured_path(
+        "PHASE2B_PHASE2A_ARTIFACT_PATH"
+    ) or _latest_hydratable_phase2a_artifact_path()
 
 
 def _phase2b_repair_source_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE2B_REPAIR_SOURCE_ARTIFACT_PATH")
-    if not configured:
-        return None
-    path = Path(configured).expanduser()
-    return path if path.is_absolute() else BACKEND_ROOT / path
+    return _configured_path("PHASE2B_REPAIR_SOURCE_ARTIFACT_PATH")
 
 
 def _latest_hydratable_phase2a_artifact_path() -> Path | None:
-    candidates = sorted(
-        DEFAULT_LOG_DIR.glob("phase2a_real_llm_*.artifact.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
+    return _latest_artifact_path(
+        "phase2a_real_llm_*.artifact.json",
+        _is_hydratable_phase2a_artifact,
     )
-    for path in candidates:
-        if _is_hydratable_phase2a_artifact(path):
-            return path
-    return None
 
 
 def _load_phase2a_artifact_payload(path: Path) -> dict[str, Any]:
@@ -1499,77 +1428,70 @@ def _load_phase2a_artifact_payload(path: Path) -> dict[str, Any]:
 
 
 def _phase2a_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE2A_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase2a_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE2A_REAL_LLM_SUMMARY_PATH",
+        prefix="phase2a_real_llm",
+        suffix=".md",
+    )
 
 
 def _phase2b_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE2B_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase2b_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE2B_REAL_LLM_SUMMARY_PATH",
+        prefix="phase2b_real_llm",
+        suffix=".md",
+    )
 
 
 def _phase2a_artifact_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE2A_REAL_LLM_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase2a_real_llm_{stamp}.artifact.json"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE2A_REAL_LLM_ARTIFACT_PATH",
+        prefix="phase2a_real_llm",
+        suffix=".artifact.json",
+    )
 
 
 def _phase2b_artifact_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE2B_REAL_LLM_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase2b_real_llm_{stamp}.artifact.json"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE2B_REAL_LLM_ARTIFACT_PATH",
+        prefix="phase2b_real_llm",
+        suffix=".artifact.json",
+    )
 
 
 def _phase3_summary_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE3_REAL_LLM_SUMMARY_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase3_real_llm_{stamp}.md"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE3_REAL_LLM_SUMMARY_PATH",
+        prefix="phase3_real_llm",
+        suffix=".md",
+    )
 
 
 def _phase3_artifact_path(log_path: Path) -> Path:
-    configured = os.getenv("PHASE3_REAL_LLM_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    stamp = log_path.stem.rsplit("_", 1)[-1]
-    return log_path.parent / f"phase3_real_llm_{stamp}.artifact.json"
+    return _summary_or_artifact_path(
+        log_path,
+        env_var="PHASE3_REAL_LLM_ARTIFACT_PATH",
+        prefix="phase3_real_llm",
+        suffix=".artifact.json",
+    )
 
 
 def _phase3_phase2b_artifact_path() -> Path | None:
-    configured = os.getenv("PHASE3_PHASE2B_ARTIFACT_PATH")
-    if configured:
-        path = Path(configured).expanduser()
-        return path if path.is_absolute() else BACKEND_ROOT / path
-    return _latest_passed_phase2b_artifact_path()
+    return _configured_path(
+        "PHASE3_PHASE2B_ARTIFACT_PATH"
+    ) or _latest_passed_phase2b_artifact_path()
 
 
 def _latest_passed_phase2b_artifact_path() -> Path | None:
-    candidates = sorted(
-        DEFAULT_LOG_DIR.glob("phase2b_real_llm_*.artifact.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
+    return _latest_artifact_path(
+        "phase2b_real_llm_*.artifact.json",
+        _is_passed_phase2b_artifact,
     )
-    for path in candidates:
-        if _is_passed_phase2b_artifact(path):
-            return path
-    return None
 
 
 def _is_passed_phase2b_artifact(path: Path) -> bool:
@@ -1760,24 +1682,7 @@ def _write_phase2a_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 2a Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| "
-            + " | ".join(_phase2_summary_value(row[key]) for key in headers)
-            + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 2a Real LLM Summary", row)
 
 
 def _write_phase2a_artifact(
@@ -1870,22 +1775,7 @@ def _write_phase2b_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 2b Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| " + " | ".join(_phase2_summary_value(row[key]) for key in headers) + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 2b Real LLM Summary", row)
 
 
 def _write_phase2b_artifact(
@@ -1977,22 +1867,7 @@ def _write_phase3_summary(
         "issues": "; ".join(issues),
         "log": str(log_path),
     }
-    headers = list(row)
-    if not summary_path.exists():
-        summary_path.write_text(
-            "# Phase 3 Real LLM Summary\n\n"
-            + "| "
-            + " | ".join(headers)
-            + " |\n| "
-            + " | ".join("---" for _ in headers)
-            + " |\n",
-            encoding="utf-8",
-        )
-    with summary_path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            "| " + " | ".join(_phase2_summary_value(row[key]) for key in headers) + " |\n"
-        )
-    return summary_path
+    return _append_summary_row(summary_path, "Phase 3 Real LLM Summary", row)
 
 
 def _write_phase3_artifact(
@@ -4507,54 +4382,26 @@ def _phase2b_only_result_fixture(
     return result, output_counts, coverage
 
 
-def test_phase0_real_llm_enabled_helper(
+@pytest.mark.parametrize(
+    ("env_var", "enabled_fn"),
+    [
+        ("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM", _phase0_real_llm_enabled),
+        ("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM", _phase1a_real_llm_enabled),
+        ("RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM", _phase1b_real_llm_enabled),
+        ("RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM", _phase2a_real_llm_enabled),
+        ("RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM", _phase2b_real_llm_enabled),
+    ],
+)
+def test_phase_real_llm_enabled_helpers(
     monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    enabled_fn,
 ) -> None:
-    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM", raising=False)
-    assert _phase0_real_llm_enabled() is False
+    monkeypatch.delenv(env_var, raising=False)
+    assert enabled_fn() is False
 
-    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM", "1")
-    assert _phase0_real_llm_enabled() is True
-
-
-def test_phase1a_real_llm_enabled_helper(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM", raising=False)
-    assert _phase1a_real_llm_enabled() is False
-
-    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM", "1")
-    assert _phase1a_real_llm_enabled() is True
-
-
-def test_phase1b_real_llm_enabled_helper(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM", raising=False)
-    assert _phase1b_real_llm_enabled() is False
-
-    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM", "1")
-    assert _phase1b_real_llm_enabled() is True
-
-
-def test_phase2a_real_llm_enabled_helper(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM", raising=False)
-    assert _phase2a_real_llm_enabled() is False
-
-    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM", "1")
-    assert _phase2a_real_llm_enabled() is True
-
-
-def test_phase2b_real_llm_enabled_helper(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM", raising=False)
-    assert _phase2b_real_llm_enabled() is False
-
-    monkeypatch.setenv("RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM", "1")
-    assert _phase2b_real_llm_enabled() is True
+    monkeypatch.setenv(env_var, "1")
+    assert enabled_fn() is True
 
 
 def test_candidate_chapter_coverage_from_phase0_candidates() -> None:

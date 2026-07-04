@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -1308,6 +1309,230 @@ class TestContextConfirmation:
                 action="world.entities.extract",
                 confirmation_id=created.id,
             )
+
+    @pytest.mark.asyncio
+    async def test_attach_result_refs_batches_and_deduplicates(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.facade import (
+            attach_result_ref,
+            attach_result_refs,
+            confirm_context,
+            require_confirmation,
+        )
+
+        novel_id = "00000000-0000-0000-0000-000000000114"
+        created = await confirm_context(
+            db_session,
+            novel_id=novel_id,
+            action="outline.generate",
+            task="生成 Scene",
+            scope="chapter",
+        )
+        await attach_result_ref(
+            db_session,
+            confirmation_id=created.id,
+            result_type="outline_scene",
+            result_id="scene-1",
+            status="running",
+        )
+
+        updated = await attach_result_refs(
+            db_session,
+            confirmation_id=created.id,
+            result_refs=[
+                {"type": "outline_scene", "id": "scene-1"},
+                {"type": "outline_scene", "id": "scene-2"},
+                {"type": "outline_scene", "id": "scene-3"},
+            ],
+            status="done",
+        )
+
+        assert updated.result_refs == [
+            {"type": "outline_scene", "id": "scene-1"},
+            {"type": "outline_scene", "id": "scene-2"},
+            {"type": "outline_scene", "id": "scene-3"},
+        ]
+        assert updated.result_status == "done"
+
+        with_ref = await require_confirmation(
+            db_session,
+            novel_id=novel_id,
+            action="outline.generate",
+            confirmation_id=created.id,
+        )
+        assert with_ref.result_refs == updated.result_refs
+
+    @pytest.mark.asyncio
+    async def test_attach_result_refs_keeps_last_position_for_duplicates(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.facade import (
+            attach_result_ref,
+            attach_result_refs,
+            confirm_context,
+        )
+
+        created = await confirm_context(
+            db_session,
+            novel_id="00000000-0000-0000-0000-000000000115",
+            action="outline.generate",
+            task="生成 Scene",
+            scope="chapter",
+        )
+        await attach_result_ref(
+            db_session,
+            confirmation_id=created.id,
+            result_type="outline_scene",
+            result_id="scene-1",
+            status="running",
+        )
+        await attach_result_ref(
+            db_session,
+            confirmation_id=created.id,
+            result_type="outline_scene",
+            result_id="scene-3",
+            status="running",
+        )
+
+        updated = await attach_result_refs(
+            db_session,
+            confirmation_id=created.id,
+            result_refs=[
+                {"type": "outline_scene", "id": "scene-2"},
+                {"type": "outline_scene", "id": "scene-3"},
+                {"type": "outline_scene", "id": "scene-2"},
+            ],
+            status="done",
+        )
+
+        assert updated.result_refs == [
+            {"type": "outline_scene", "id": "scene-1"},
+            {"type": "outline_scene", "id": "scene-3"},
+            {"type": "outline_scene", "id": "scene-2"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_mark_asset_context_changed_updates_records_in_one_batch(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """批量标记失效确认记录时不应逐条 flush。"""
+        from modules.context.services.confirmation_service import (
+            ContextConfirmationService,
+        )
+
+        records = [
+            SimpleNamespace(stale_reasons=[]),
+            SimpleNamespace(stale_reasons=["older_reason"]),
+        ]
+        batch_calls: list[tuple[list[object], str, list[list[str]]]] = []
+
+        class FakeRepository:
+            async def list_by_asset_ref(self, db, *, novel_id, asset_type, asset_id):
+                return records
+
+            async def update_tracking(self, *args, **kwargs):
+                raise AssertionError("should not update stale records one by one")
+
+            async def update_tracking_many(self, db, updates, *, result_status):
+                batch_calls.append(
+                    (
+                        [record for record, _reasons in updates],
+                        result_status,
+                        [reasons for _record, reasons in updates],
+                    )
+                )
+                return len(updates)
+
+        changed = await ContextConfirmationService(
+            repository=FakeRepository(),  # type: ignore[arg-type]
+        ).mark_asset_context_changed(
+            db_session,
+            novel_id="00000000-0000-0000-0000-000000000104",
+            asset_type="world_entities",
+            asset_id="entity-1",
+            reason="candidate_promoted",
+        )
+
+        assert changed == 2
+        assert batch_calls == [
+            (
+                records,
+                "needs_review",
+                [["candidate_promoted"], ["older_reason", "candidate_promoted"]],
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_list_by_asset_ref_ignores_malformed_result_refs(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.repositories import ContextConfirmationRepository
+
+        repo = ContextConfirmationRepository()
+        novel_id = uuid.UUID("00000000-0000-0000-0000-000000000116")
+        selected = await repo.create(
+            db_session,
+            novel_id=novel_id,
+            action="outline.generate",
+            task="生成 Scene",
+            scope="chapter",
+            context_mode="canonical",
+            include_pending_objects=False,
+            excluded_asset_ids={},
+            selected_asset_ids={"world_entities": ["entity-1", 123]},
+            user_note=None,
+            compile_options={},
+            warnings=[],
+        )
+        result_ref = await repo.create(
+            db_session,
+            novel_id=novel_id,
+            action="writing.generate",
+            task="写作",
+            scope="chapter",
+            context_mode="canonical",
+            include_pending_objects=False,
+            excluded_asset_ids={},
+            selected_asset_ids={},
+            user_note=None,
+            compile_options={},
+            warnings=[],
+        )
+        result_ref.result_refs = [
+            "legacy-bad-ref",
+            {"type": "task"},
+            {"type": "core_entity", "id": "entity-1"},
+        ]
+        unmatched = await repo.create(
+            db_session,
+            novel_id=novel_id,
+            action="rag.index",
+            task="索引",
+            scope="chapter",
+            context_mode="canonical",
+            include_pending_objects=False,
+            excluded_asset_ids={},
+            selected_asset_ids={"world_entities": ["entity-2"]},
+            user_note=None,
+            compile_options={},
+            warnings=[],
+        )
+        await db_session.flush()
+
+        matched = await repo.list_by_asset_ref(
+            db_session,
+            novel_id=novel_id,
+            asset_type="world_entities",
+            asset_id="entity-1",
+        )
+
+        assert [record.id for record in matched] == [selected.id, result_ref.id]
+        assert unmatched.id not in {record.id for record in matched}
 
 
 # ============================================================

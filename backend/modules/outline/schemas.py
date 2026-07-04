@@ -297,6 +297,7 @@ class SceneWorkbenchItem(BaseModel):
 class SceneWorkbenchResponse(BaseModel):
     health: dict[str, SceneHealthSummary]
     items: list[SceneWorkbenchItem]
+    total: int = 0
     unassigned_chapters: list[int] = []
     selected_scene_id: str | None = None
 
@@ -320,6 +321,7 @@ class SceneSplitRequest(BaseModel):
     split_pos: int | None = Field(None, ge=1)
     new_scene_title: str | None = Field(None, max_length=255)
     new_scene_status: str = Field("draft", max_length=32)
+    draft_scenes: list[dict[str, Any]] | None = None
     confirmed: bool = False
 
 
@@ -334,6 +336,15 @@ class SceneImpactPreview(BaseModel):
     warnings: list[str] = []
     scene: SceneResponse | None = None
     new_scene: dict[str, Any] | None = None
+    draft_scene: dict[str, Any] | None = None
+    draft_scenes: list[dict[str, Any]] = []
+    primary_scene_id: str | None = None
+    field_references: dict[str, list[dict[str, Any]]] = {}
+    field_sources: dict[str, list[str]] = {}
+    source_scene_summaries: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    confidence: float | None = None
+    reason: str | None = None
 
 
 class SceneFusionDraft(BaseModel):
@@ -353,15 +364,51 @@ class SceneFusionDraft(BaseModel):
     status: Annotated[str | None, Field(None, max_length=32)]
 
 
+class SceneFieldReference(BaseModel):
+    scene_id: str
+    title: str | None = None
+    value: Any = None
+    role: Literal["primary", "source", "draft"] = "source"
+
+
+class SceneSourceSummary(BaseModel):
+    id: str
+    title: str | None = None
+    chapter_range: str = "未关联章节"
+    source: str = "manual"
+    status: str = "draft"
+    quality_flags: list[str] = []
+
+
+class SceneDraftConflict(BaseModel):
+    field: str
+    message: str
+    source_scene_ids: list[str] = []
+
+
+class SceneDraftReviewResponse(BaseModel):
+    mode: Literal["fusion", "split", "cross_chapter_fusion"]
+    source_scene_ids: list[str]
+    primary_scene_id: str | None = None
+    draft_scene: SceneFusionDraft | None = None
+    draft_scenes: list[SceneFusionDraft] = []
+    field_references: dict[str, list[SceneFieldReference]] = {}
+    field_sources: dict[str, list[str]] = {}
+    source_scene_summaries: list[SceneSourceSummary] = []
+    conflicts: list[SceneDraftConflict] = []
+    warnings: list[str] = []
+    confidence: float | None = None
+    reason: str | None = None
+
+
 class SceneFusionPreviewRequest(BaseModel):
     source_scene_ids: list[str] = Field(..., min_length=2)
+    primary_scene_id: str | None = None
 
 
-class SceneFusionPreviewResponse(BaseModel):
-    source_scene_ids: list[str]
-    fused_scene: dict[str, Any]
-    preview_scene: dict[str, Any]
-    warnings: list[str] = []
+class SceneFusionPreviewResponse(SceneDraftReviewResponse):
+    fused_scene: dict[str, Any] | None = None
+    preview_scene: dict[str, Any] | None = None
 
 
 class SceneFusionSaveRequest(SceneFusionPreviewRequest):

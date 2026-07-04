@@ -12,6 +12,7 @@ import {
   renderSelectionHeader,
   runBulkAction,
   selectedItemsFrom,
+  syncBulkSelectionUi,
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
@@ -38,6 +39,11 @@ const WORLD_FILTER_DEFAULTS = {
   limit: 20,
 }
 
+const WORLD_LIST_DEFAULTS = {
+  skip: 0,
+  limit: 20,
+}
+
 const worldView = {
   /** @type {Array} */
   _entities: [],
@@ -50,7 +56,12 @@ const worldView = {
   _batches: [],
 
   _relations: [],
+  _relationTotal: 0,
+  _relationFilters: { ...WORLD_LIST_DEFAULTS },
   _aliases: [],
+  _aliasTotal: 0,
+  _aliasFilters: { ...WORLD_LIST_DEFAULTS },
+  _candidateFilters: { ...WORLD_LIST_DEFAULTS },
   _bulkSelections: {},
 
   _total: 0,
@@ -100,7 +111,9 @@ const worldView = {
     this._candidateTotal = 0
     this._batches = []
     this._relations = []
+    this._relationTotal = 0
     this._aliases = []
+    this._aliasTotal = 0
     this._total = 0
     clearAllBulkSelections(this)
 
@@ -168,8 +181,8 @@ const worldView = {
       const data = await api.world.listEntities({
         novel_id: state.currentProjectId,
         status: "candidate",
-        skip: 0,
-        limit: 50,
+        skip: this._candidateFilters.skip,
+        limit: this._candidateFilters.limit,
       })
       this._candidates = data.items || data || []
       this._candidateTotal = Number(data.total ?? this._candidates.length) || 0
@@ -696,16 +709,26 @@ const worldView = {
   },
 
   _renderPagination() {
-    if (this._total <= this._filters.limit) return ""
-    const currentPage = Math.floor(this._filters.skip / this._filters.limit) + 1
-    const totalPages = Math.ceil(this._total / this._filters.limit)
-    const prevDisabled = this._filters.skip <= 0 ? "disabled" : ""
-    const nextDisabled = this._filters.skip + this._filters.limit >= this._total ? "disabled" : ""
+    return this._renderPager({
+      total: this._total,
+      skip: this._filters.skip,
+      limit: this._filters.limit,
+      prevAction: "prev-page",
+      nextAction: "next-page",
+    })
+  },
+
+  _renderPager({ total, skip, limit, prevAction, nextAction }) {
+    if (total <= limit) return ""
+    const currentPage = Math.floor(skip / limit) + 1
+    const totalPages = Math.ceil(total / limit)
+    const prevDisabled = skip <= 0 ? "disabled" : ""
+    const nextDisabled = skip + limit >= total ? "disabled" : ""
     return `
       <div style="display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;">
-        <button class="btn btn-sm" data-action="prev-page" ${prevDisabled}>上一页</button>
-        <span style="font-size:12px;color:var(--text-dim);">第 ${currentPage} / ${totalPages} 页，共 ${this._total} 条</span>
-        <button class="btn btn-sm" data-action="next-page" ${nextDisabled}>下一页</button>
+        <button class="btn btn-sm" data-action="${esc(prevAction)}" ${prevDisabled}>上一页</button>
+        <span style="font-size:12px;color:var(--text-dim);">第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
+        <button class="btn btn-sm" data-action="${esc(nextAction)}" ${nextDisabled}>下一页</button>
       </div>
     `
   },
@@ -753,7 +776,7 @@ const worldView = {
       html += `
         <tr data-id="${esc(id)}" class="clickable">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择 ${e.name || "对象"}`)}</td>
-          <td data-label="状态"><span class="badge ${statusClass}">${statusText[e.status] || esc(e.status)}</span></td>
+          <td data-label="状态"><span class="badge ${esc(statusClass)}">${statusText[e.status] || esc(e.status)}</span></td>
           <td data-label="类型" style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
           <td data-label="名称">${esc(e.name)}${isNew}</td>
           <td data-label="来源" style="color:var(--text-muted);font-size:12px;">${esc(sourceText[e.source] || e.source || "-")}</td>
@@ -820,7 +843,7 @@ const worldView = {
             <h3>${esc(entity.name || "未命名对象")} ${isNew}</h3>
             <div class="world-object-card__meta">
               <span>${esc(typeLabel)}</span>
-              <span class="badge ${statusClass}">${statusText[entity.status] || esc(entity.status || "-")}</span>
+              <span class="badge ${esc(statusClass)}">${statusText[entity.status] || esc(entity.status || "-")}</span>
             </div>
           </div>
           <div class="world-object-card__selection">
@@ -960,6 +983,13 @@ const worldView = {
       { action: "accept-candidates", label: "批量确认", className: "btn-primary" },
       { action: "ignore-candidates", label: "批量忽略/临时", className: "btn-danger" },
     ], { noun: "候选", hint: "合并候选需逐条确认目标对象" }) + html
+    html += this._renderPager({
+      total: this._candidateTotal,
+      skip: this._candidateFilters.skip,
+      limit: this._candidateFilters.limit,
+      prevAction: "prev-candidates-page",
+      nextAction: "next-candidates-page",
+    })
     return html
   },
 
@@ -975,9 +1005,14 @@ const worldView = {
     if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
     try {
-      const data = await api.world.listRelationships({ novel_id: state.currentProjectId })
+      const data = await api.world.listRelationships({
+        novel_id: state.currentProjectId,
+        skip: this._relationFilters.skip,
+        limit: this._relationFilters.limit,
+      })
       const rels = data.items || data || []
       this._relations = rels
+      this._relationTotal = Number(data.total ?? rels.length) || 0
       if (rels.length === 0) {
       return html + '<div class="empty-state"><p>还没有建立人物关系。</p><p style="color:var(--text-dim);font-size:12px;">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>'
       }
@@ -1010,6 +1045,13 @@ const worldView = {
         </tr>`
       }
       html += '</tbody></table>'
+      html += this._renderPager({
+        total: this._relationTotal,
+        skip: this._relationFilters.skip,
+        limit: this._relationFilters.limit,
+        prevAction: "prev-relations-page",
+        nextAction: "next-relations-page",
+      })
     } catch { html += '<div class="empty-state"><p>加载关系失败。</p></div>' }
     return html
   },
@@ -1084,9 +1126,14 @@ const worldView = {
     if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
     try {
-      const data = await api.world.listAliases({ novel_id: state.currentProjectId })
+      const data = await api.world.listAliases({
+        novel_id: state.currentProjectId,
+        skip: this._aliasFilters.skip,
+        limit: this._aliasFilters.limit,
+      })
       const aliases = data.items || data || []
       this._aliases = aliases
+      this._aliasTotal = Number(data.total ?? aliases.length) || 0
       if (aliases.length === 0) {
         return html + '<div class="empty-state"><p>还没有设置别名。</p><p style="color:var(--text-dim);font-size:12px;">别名可以帮助你管理角色的化名、称号和绰号。</p></div>'
       }
@@ -1120,6 +1167,13 @@ const worldView = {
         </tr>`
       }
       html += '</tbody></table>'
+      html += this._renderPager({
+        total: this._aliasTotal,
+        skip: this._aliasFilters.skip,
+        limit: this._aliasFilters.limit,
+        prevAction: "prev-aliases-page",
+        nextAction: "next-aliases-page",
+      })
     } catch { html += '<div class="empty-state"><p>加载别名失败。</p></div>' }
     return html
   },
@@ -1348,6 +1402,27 @@ const worldView = {
     await router.refresh()
   },
 
+  async _changeListPage(filters, total, loader, delta) {
+    const newSkip = filters.skip + delta * filters.limit
+    if (newSkip < 0) return
+    if (newSkip >= total) return
+    filters.skip = newSkip
+    await loader()
+    await router.refresh()
+  },
+
+  async _changeCandidatePage(delta) {
+    await this._changeListPage(this._candidateFilters, this._candidateTotal, () => this._loadCandidates(), delta)
+  },
+
+  async _changeRelationPage(delta) {
+    await this._changeListPage(this._relationFilters, this._relationTotal, async () => {}, delta)
+  },
+
+  async _changeAliasPage(delta) {
+    await this._changeListPage(this._aliasFilters, this._aliasTotal, async () => {}, delta)
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-objects": () => router.navigate("world", "objects"),
@@ -1356,9 +1431,18 @@ const worldView = {
       "nav-aliases": () => router.navigate("world", "aliases"),
       "nav-map": () => router.navigate("world", "map"),
       "nav-generate": () => router.navigate("generate"),
-      "bulk-toggle-one": (e, t) => this._toggleBulkOne(t),
-      "bulk-toggle-all": (e, t) => this._toggleBulkAll(t),
-      "bulk-clear": (_e, t) => this._clearBulkScope(t.getAttribute("data-scope")),
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        this._toggleBulkOne(t)
+      },
+      "bulk-toggle-all": (e, t) => {
+        e.stopPropagation()
+        this._toggleBulkAll(t)
+      },
+      "bulk-clear": (e, t) => {
+        e.stopPropagation()
+        this._clearBulkScope(t.getAttribute("data-scope"))
+      },
       "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
       "set-object-view": (_e, t) => this._setObjectViewMode(t.getAttribute("data-view-mode")),
       "toggle-extract": () => this._toggleAutoExtract(),
@@ -1381,6 +1465,12 @@ const worldView = {
       "reset-filters": () => this._resetFilters(),
       "prev-page": () => this._changePage(-1),
       "next-page": () => this._changePage(1),
+      "prev-candidates-page": () => this._changeCandidatePage(-1),
+      "next-candidates-page": () => this._changeCandidatePage(1),
+      "prev-relations-page": () => this._changeRelationPage(-1),
+      "next-relations-page": () => this._changeRelationPage(1),
+      "prev-aliases-page": () => this._changeAliasPage(-1),
+      "next-aliases-page": () => this._changeAliasPage(1),
     })
 
     bindActionMenus()
@@ -1413,18 +1503,22 @@ const worldView = {
     const scope = input.getAttribute("data-scope")
     const id = input.getAttribute("data-id")
     toggleBulkSelection(this, scope, id, input.checked)
-    router.refresh()
+    this._rerenderBulkSelection()
   },
 
   _toggleBulkAll(input) {
     const scope = input.getAttribute("data-scope")
     toggleAllBulkSelection(this, scope, this._visibleIdsForBulkScope(scope), input.checked)
-    router.refresh()
+    this._rerenderBulkSelection()
   },
 
   _clearBulkScope(scope) {
     clearBulkSelection(this, scope)
-    router.refresh()
+    this._rerenderBulkSelection()
+  },
+
+  _rerenderBulkSelection() {
+    syncBulkSelectionUi(this)
   },
 
   _runBulkAction(scope, action) {

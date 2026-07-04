@@ -6,15 +6,16 @@ import json
 import logging
 import os
 import pickle
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.world.models import CoreEntity
 from modules.world.repositories import (
     CharacterRepository,
@@ -420,6 +421,7 @@ class EntityDedupService:
         """
         from modules.world.contracts import MergeResult
 
+        nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(candidate_id, "candidate_id")
         tid = parse_uuid(target_entity_id, "target_entity_id")
 
@@ -429,32 +431,22 @@ class EntityDedupService:
         target = result.scalar_one_or_none()
 
         if target is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Target entity {target_entity_id} not found",
-            )
+            raise NotFoundError(f"Target entity {target_entity_id} not found")
 
         # 1. 加载 Candidate（FOR UPDATE 防并发重复合并）
         if cid == tid:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="Cannot merge an entity into itself",
-            )
+            raise DomainValidationError("Cannot merge an entity into itself")
         stmt = select(CoreEntity).where(CoreEntity.id == cid).with_for_update()
         result = await db.execute(stmt)
         candidate = result.scalar_one_or_none()
         if candidate is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Candidate entity {candidate_id} not found",
-            )
+            raise NotFoundError(f"Candidate entity {candidate_id} not found")
 
         # 校验同 novel_id
         if str(candidate.novel_id) != str(target.novel_id):
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="Cannot merge entities across novels",
-            )
+            raise DomainValidationError("Cannot merge entities across novels")
+        if candidate.novel_id != nid or target.novel_id != nid:
+            raise DomainValidationError("Cannot merge entities outside requested novel")
 
         # 校验 candidate 必须是 draft/candidate
         # target 非 canonical 时由后置逻辑自动提升，不再前置拦截
@@ -462,13 +454,13 @@ class EntityDedupService:
             allow_canonical_source
         ) else ("draft", "candidate")
         if candidate.status not in allowed_source_statuses:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
+            raise DomainValidationError(
+                (
                     "Merge candidate must be draft or candidate"
                     f"{' or canonical' if allow_canonical_source else ''}, "
                     f"got {candidate.status}"
                 ),
+                status_code=422,
             )
 
         # 2. 别名继承
@@ -487,15 +479,11 @@ class EntityDedupService:
         # 4. 自环清理：只删迁移产生的自环，不碰 target 原有合法自环
         created_self_loop_ids = migration_result.get("created_self_loop_ids", [])
         self_loops_cleaned = 0
-        for sl_id in created_self_loop_ids:
-            import uuid as _uuid2
-
-            await self._relation_repo.update(
+        if created_self_loop_ids:
+            self_loops_cleaned = await self._relation_repo.deprecate_many(
                 db,
-                _uuid2.UUID(sl_id),
-                EntityRelationUpdate(status="deprecated"),
+                [parse_uuid(sl_id, "relation_id") for sl_id in created_self_loop_ids],
             )
-            self_loops_cleaned += 1
 
         # 5. Character 同步
         character_synced = await self._sync_character_on_merge(
@@ -517,7 +505,7 @@ class EntityDedupService:
         merged_content["merged_at"] = datetime.now(UTC).isoformat()
         await self._entity_repo.update(
             db,
-            cid,
+            candidate,
             CoreEntityUpdate(
                 status="merged",
                 content_json=merged_content,
@@ -526,7 +514,11 @@ class EntityDedupService:
 
         # 8. 确保 target 为 canonical
         if target.status != "canonical":
-            await self._entity_repo.update(db, tid, CoreEntityUpdate(status="canonical"))
+            await self._entity_repo.update(
+                db,
+                target,
+                CoreEntityUpdate(status="canonical"),
+            )
 
         for changed_id, reason in (
             (str(cid), "candidate_merged"),
@@ -576,10 +568,7 @@ class EntityDedupService:
         cid = parse_uuid(candidate_id, "candidate_id")
         candidate = await self._entity_repo.get(db, cid)
         if candidate is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Candidate entity {candidate_id} not found",
-            )
+            raise NotFoundError(f"Candidate entity {candidate_id} not found")
 
         suggestions = await self.find_similar_entities(
             db,
@@ -594,7 +583,11 @@ class EntityDedupService:
 
         # 无匹配 → 直接提升为 canonical
         if not suggestions:
-            await self._entity_repo.update(db, cid, CoreEntityUpdate(status="canonical"))
+            await self._entity_repo.update(
+                db,
+                candidate,
+                CoreEntityUpdate(status="canonical"),
+            )
             await db.flush()
             return ResolveResult(
                 action="promoted",
@@ -665,7 +658,7 @@ class EntityDedupService:
             target_content["aliases"] = target_aliases
             await self._entity_repo.update(
                 db,
-                target.id,
+                target,
                 CoreEntityUpdate(
                     content_json=target_content,
                 ),
@@ -695,6 +688,7 @@ class EntityDedupService:
         migrated = 0
         deduplicated = 0
         created_self_loop_ids: list[str] = []
+        candidate_self_loop_ids: list[uuid.UUID] = []
 
         for rel in all_rels:
             is_source = rel.source_id == cid
@@ -702,11 +696,7 @@ class EntityDedupService:
 
             # 候选自环：标记 deprecated，不做迁移
             if is_source and is_target:
-                await self._relation_repo.update(
-                    db,
-                    rel.id,
-                    EntityRelationUpdate(status="deprecated"),
-                )
+                candidate_self_loop_ids.append(rel.id)
                 deduplicated += 1
                 continue
 
@@ -737,12 +727,12 @@ class EntityDedupService:
                 if merged_desc != (existing.description or ""):
                     await self._relation_repo.update(
                         db,
-                        existing.id,
+                        existing,
                         EntityRelationUpdate(description=merged_desc),
                     )
                 await self._relation_repo.update(
                     db,
-                    rel.id,
+                    rel,
                     EntityRelationUpdate(status="deprecated"),
                 )
                 deduplicated += 1
@@ -755,6 +745,9 @@ class EntityDedupService:
                     target_id=new_target if is_target else None,
                 )
                 migrated += 1
+
+        if candidate_self_loop_ids:
+            await self._relation_repo.deprecate_many(db, candidate_self_loop_ids)
 
         return {
             "migrated": migrated,
@@ -805,7 +798,7 @@ class EntityDedupService:
 
         await char_repo.update(
             db,
-            tid,
+            target_char,
             CharacterUpdate(
                 aliases=target_aliases,
                 appearance=merge_text_field(
@@ -865,7 +858,7 @@ class EntityDedupService:
             updates["hidden_truth"] = merged_hidden
 
         if updates:
-            await self._entity_repo.update(db, target.id, CoreEntityUpdate(**updates))
+            await self._entity_repo.update(db, target, CoreEntityUpdate(**updates))
 
     async def _archive_conflicts(
         self,
@@ -912,7 +905,7 @@ class EntityDedupService:
         merged_json["meta"] = target_meta
         await self._entity_repo.update(
             db,
-            target.id,
+            target,
             CoreEntityUpdate(
                 content_json=merged_json,
             ),

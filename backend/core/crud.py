@@ -9,11 +9,10 @@ from __future__ import annotations
 import uuid
 from typing import Any, ClassVar, Protocol, TypeVar
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from shared.utils import parse_uuid
 
@@ -56,7 +55,7 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
     Invariants:
       - novel_id 隔离: novel_id 给定时, repo 读出的对象必须与 novel_id 匹配;
         不匹配一律抛 404 (不区分 403/404, 避免泄露存在性)。
-      - 404 抛 HTTPException(404, detail="<label> {id} not found"),
+      - 404 抛 NotFoundError("<label> {id} not found"),
         label 由子类提供。
       - parse_uuid 抛 ValueError → 由调用方决定是否转 4xx; 本类不吞。
       - Response.model_validate 在每次返回前调用, 保证序列化路径一致。
@@ -201,7 +200,4 @@ class CrudService[ModelT, CreateT, UpdateT, ResponseT]:
             self._raise_404(id)
 
     def _raise_404(self, id: str) -> None:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND,
-            detail=f"{self.label} {id} not found",
-        )
+        raise NotFoundError(f"{self.label} {id} not found")

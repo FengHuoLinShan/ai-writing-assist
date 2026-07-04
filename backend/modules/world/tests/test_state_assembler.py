@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.state_assembler import (
     InMemoryStateSource,
+    SqlAlchemyStateSource,
     assemble,
     set_default_source,
 )
@@ -428,6 +429,44 @@ async def test_in_memory_source_drives_assemble_without_db(
         assert len(state["character_locations"]) == 1
     finally:
         set_default_source(None)
+
+
+async def test_sqlalchemy_source_uses_list_repositories_without_count() -> None:
+    db = MagicMock()
+    nid = uuid.uuid4()
+    source = SqlAlchemyStateSource()
+    source._entity_repo = MagicMock()
+    source._relation_repo = MagicMock()
+    source._character_repo = MagicMock()
+    source._knowledge_repo = MagicMock()
+
+    relation = _make_relation(status="canonical")
+    source._entity_repo.list_by_novel = AsyncMock(return_value=[])
+    source._entity_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("state source should not count entities")
+    )
+    source._relation_repo.list_by_novel = AsyncMock(return_value=[relation])
+    source._relation_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("state source should not count relations")
+    )
+    source._character_repo.list_by_novel = AsyncMock(return_value=[])
+    source._character_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("state source should not count characters")
+    )
+    source._knowledge_repo.list_by_novel = AsyncMock(return_value=[])
+    source._knowledge_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("state source should not count knowledge")
+    )
+
+    assert await source.list_canonical_entities(db, nid, skip=0, limit=10) == []
+    assert await source.list_canonical_relations(db, nid, skip=0, limit=10) == [relation]
+    assert await source.list_characters(db, nid, skip=0, limit=10) == []
+    assert await source.list_character_knowledge(db, nid, skip=0, limit=10) == []
+
+    source._entity_repo.get_by_novel.assert_not_awaited()
+    source._relation_repo.get_by_novel.assert_not_awaited()
+    source._character_repo.get_by_novel.assert_not_awaited()
+    source._knowledge_repo.get_by_novel.assert_not_awaited()
 
 
 # ============================================================

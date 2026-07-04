@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
+from core.errors import NotFoundError
 from modules.world.models import Event
 from modules.world.repositories import CoreEntityRepository, EventRepository
 from modules.world.schemas import (
@@ -13,7 +13,6 @@ from modules.world.schemas import (
     EventResponse,
     EventUpdate,
 )
-from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 
 
@@ -82,10 +81,7 @@ class EventService(
             or entity.novel_id != novel_id
             or getattr(entity, "status", None) == "deprecated"
         ):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"{label} not found in this novel",
-            )
+            raise NotFoundError(f"{label} not found in this novel")
 
     # ============================================================
     # 特例方法 (深度不同的部分, 不归 base)

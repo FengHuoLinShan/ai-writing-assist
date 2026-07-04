@@ -17,10 +17,13 @@ All external dependencies (DB, BGE, etc.) are mocked.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.errors import ConflictError, NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.world.contracts import (
     CharacterContract,
     CharacterKnowledgeContract,
@@ -31,6 +34,11 @@ from modules.world.contracts import (
     EventContract,
     MergeResult,
     ResolveResult,
+)
+from modules.world.schemas import (
+    CoreEntityCreate,
+    CoreEntityUpdate,
+    EntityPromoteRequest,
 )
 from modules.world.services.dedup_scorer import DedupSignals
 from modules.world.services.dedup_service import EntityDedupService
@@ -158,6 +166,12 @@ def _mock_entity(**overrides) -> MagicMock:
 class TestEntityServiceList:
     """WorldEntityService.list — override with filters + ListResponse wrapper"""
 
+    async def test_entity_service_has_no_direct_http_exception_dependency(self) -> None:
+        source = Path("backend/modules/world/services/entity_service.py").read_text()
+
+        assert "from fastapi import HTTPException" not in source
+        assert "raise HTTPException" not in source
+
     async def test_forwards_filters_to_repo(self) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
@@ -201,6 +215,137 @@ class TestEntityServiceList:
             assert len(result.items) == 1
             assert result.items[0].name == "Test"
 
+    async def test_create_duplicate_requires_domain_confirmation(self) -> None:
+        db = MagicMock()
+        nid = str(uuid.uuid4())
+        duplicate = _mock_entity(name="Hero")
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
+            mock_repo.find_similar_by_search_text = AsyncMock(
+                return_value=[(duplicate, 0.96)]
+            )
+            mock_repo.create = AsyncMock()
+            svc = WorldEntityService()
+
+            with pytest.raises(ConflictError) as exc_info:
+                await svc.create(
+                    db,
+                    nid,
+                    CoreEntityCreate(entity_type="character", name="Hero"),
+                )
+
+            assert exc_info.value.status_code == 409
+            assert exc_info.value.detail["requires_confirmation"] is True
+            mock_repo.create.assert_not_called()
+
+    async def test_update_direct_promote_raises_domain_validation(self) -> None:
+        db = MagicMock()
+        nid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        existing = _mock_entity(id=uuid.UUID(entity_id), novel_id=uuid.UUID(nid))
+        existing.status = "draft"
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
+            mock_repo.get = AsyncMock(return_value=existing)
+            mock_repo.update = AsyncMock()
+            svc = WorldEntityService()
+
+            with pytest.raises(DomainValidationError) as exc_info:
+                await svc.update(
+                    db,
+                    entity_id,
+                    CoreEntityUpdate(status="canonical", approved_by="manual"),
+                    novel_id=nid,
+                )
+
+            assert exc_info.value.status_code == 400
+            assert "Use /entities/{entity_id}/promote" in exc_info.value.message
+            mock_repo.update.assert_not_called()
+
+    async def test_update_reuses_loaded_entity_for_repo_update(self) -> None:
+        db = MagicMock()
+        nid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        existing = _mock_entity(id=uuid.UUID(entity_id), novel_id=uuid.UUID(nid))
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
+            mock_repo.get = AsyncMock(return_value=existing)
+            mock_repo.update = AsyncMock(return_value=existing)
+            with patch(
+                "modules.world.services.entity_revision_service."
+                "EntityRevisionService.create_snapshot",
+                new_callable=AsyncMock,
+            ):
+                svc = WorldEntityService()
+                result = await svc.update(
+                    db,
+                    entity_id,
+                    CoreEntityUpdate(summary="新摘要"),
+                    novel_id=nid,
+                )
+
+            assert result.id == entity_id
+            mock_repo.update.assert_awaited_once()
+            assert mock_repo.update.await_args.args[1] is existing
+
+    async def test_promote_canonical_entity_raises_domain_validation(self) -> None:
+        db = MagicMock()
+        nid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        existing = _mock_entity(
+            id=uuid.UUID(entity_id),
+            novel_id=uuid.UUID(nid),
+            status="canonical",
+        )
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
+            mock_repo.get = AsyncMock(return_value=existing)
+            mock_repo.update = AsyncMock()
+            svc = WorldEntityService()
+
+            with pytest.raises(DomainValidationError) as exc_info:
+                await svc.promote(
+                    db,
+                    entity_id,
+                    EntityPromoteRequest(approved_by="manual"),
+                    novel_id=nid,
+                )
+
+            assert exc_info.value.status_code == 400
+            assert "仅 draft/candidate 可被提升为正史" in exc_info.value.message
+            mock_repo.update.assert_not_called()
+
+    async def test_promote_reuses_loaded_entity_for_repo_update(self) -> None:
+        db = MagicMock()
+        nid = str(uuid.uuid4())
+        entity_id = str(uuid.uuid4())
+        existing = _mock_entity(
+            id=uuid.UUID(entity_id),
+            novel_id=uuid.UUID(nid),
+            status="candidate",
+        )
+        with patch.object(
+            WorldEntityService, "repo", new_callable=MagicMock
+        ) as mock_repo:
+            mock_repo.get = AsyncMock(return_value=existing)
+            mock_repo.update = AsyncMock(return_value=existing)
+            svc = WorldEntityService()
+
+            result = await svc.promote(
+                db,
+                entity_id,
+                EntityPromoteRequest(approved_by="manual"),
+                novel_id=nid,
+            )
+
+            assert result.entity_id == entity_id
+            mock_repo.update.assert_awaited_once()
+            assert mock_repo.update.await_args.args[1] is existing
+
 
 # ============================================================
 # entity_context_service.py — EntityContextService
@@ -221,14 +366,16 @@ class TestEntityContextServiceGetEntityContext:
             assert result.total_count == 1
             mock_repo.get_by_ids.assert_awaited_once()
 
-    async def test_without_entity_ids_falls_back_to_get_by_novel(self) -> None:
+    async def test_without_entity_ids_uses_list_by_novel(self) -> None:
         db = MagicMock()
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
+            mock_repo.list_by_novel = AsyncMock(return_value=[])
+            mock_repo.get_by_novel = AsyncMock()
             result = await svc.get_entity_context(db, str(uuid.uuid4()), entity_ids=None)
             assert result.total_count == 0
-            mock_repo.get_by_novel.assert_awaited_once()
+            mock_repo.list_by_novel.assert_awaited_once()
+            mock_repo.get_by_novel.assert_not_awaited()
             mock_repo.get_by_ids.assert_not_called()
 
     async def test_author_only_reveal_mode_includes_hidden_truth(self) -> None:
@@ -236,7 +383,7 @@ class TestEntityContextServiceGetEntityContext:
         ent = _mock_entity(hidden_truth="deep secret")
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([ent], 1))
+            mock_repo.list_by_novel = AsyncMock(return_value=[ent])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -249,7 +396,7 @@ class TestEntityContextServiceGetEntityContext:
         ent = _mock_entity(hidden_truth="secret")
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([ent], 1))
+            mock_repo.list_by_novel = AsyncMock(return_value=[ent])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -266,7 +413,7 @@ class TestEntityContextServiceGetEntityContext:
         )
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([old_temp], 1))
+            mock_repo.list_by_novel = AsyncMock(return_value=[old_temp])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -281,7 +428,7 @@ class TestEntityContextServiceGetEntityContext:
         normal = _mock_entity(content_json={"_meta": {}})
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([normal], 1))
+            mock_repo.list_by_novel = AsyncMock(return_value=[normal])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -342,8 +489,8 @@ class TestEntityContextServiceListEntityTerms:
         merged = _mock_entity(name="Gone", status="merged")
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(
-                return_value=([canonical, draft, merged], 3)
+            mock_repo.list_by_novel = AsyncMock(
+                return_value=[canonical, draft, merged]
             )
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
             assert len(result) == 2
@@ -362,7 +509,7 @@ class TestEntityContextServiceListEntityTerms:
         )
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.get_by_novel = AsyncMock(return_value=([ent1, ent2], 2))
+            mock_repo.list_by_novel = AsyncMock(return_value=[ent1, ent2])
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
 
             assert len(result) == 2
@@ -758,6 +905,7 @@ class TestDedupMergeTextFields:
         await svc._merge_text_fields(MagicMock(), candidate, target)
 
         svc._entity_repo.update.assert_awaited_once()
+        assert svc._entity_repo.update.call_args[0][1] is target
         call_data = svc._entity_repo.update.call_args[0][2]
         assert "existing" in call_data.summary
         assert "extra detail" in call_data.summary
@@ -771,6 +919,7 @@ class TestDedupMergeTextFields:
         await svc._merge_text_fields(MagicMock(), candidate, target)
 
         assert svc._entity_repo.update.await_count == 1
+        assert svc._entity_repo.update.call_args[0][1] is target
         call_data = svc._entity_repo.update.call_args[0][2]
         assert call_data.public_info == "c"
         assert call_data.hidden_truth == "h"
@@ -800,6 +949,7 @@ class TestDedupArchiveConflicts:
 
         assert result == 1  # only weapon conflicts
         svc._entity_repo.update.assert_awaited_once()
+        assert svc._entity_repo.update.call_args[0][1] is target
         call_data = svc._entity_repo.update.call_args[0][2]
         meta = call_data.content_json.get("meta", {})
         assert len(meta["conflict_notes"]) == 1
@@ -851,6 +1001,7 @@ class TestDedupInheritAliases:
 
         assert count == 1
         svc._entity_repo.update.assert_awaited_once()
+        assert svc._entity_repo.update.call_args[0][1] is target
         call_data = svc._entity_repo.update.call_args[0][2]
         assert len(call_data.content_json["aliases"]) == 2
 
@@ -941,10 +1092,10 @@ class TestDedupMigrateRelations:
         assert result["migrated"] == 0
         assert result["deduplicated"] == 1
         assert result["created_self_loop_ids"] == []
-        svc._relation_repo.update.assert_awaited_once()
-        call_args = svc._relation_repo.update.call_args[0]
-        assert call_args[1] == rel.id
-        assert call_args[2].status == "deprecated"
+        svc._relation_repo.deprecate_many.assert_awaited_once()
+        call_args = svc._relation_repo.deprecate_many.call_args[0]
+        assert call_args[1] == [rel.id]
+        svc._relation_repo.update.assert_not_awaited()
 
     async def test_relation_redirected(self) -> None:
         svc = EntityDedupService()
@@ -969,6 +1120,44 @@ class TestDedupMigrateRelations:
 
         assert result["migrated"] == 1
         assert result["deduplicated"] == 0
+
+    async def test_duplicate_relation_updates_loaded_relation_objects(self) -> None:
+        svc = EntityDedupService()
+        svc._relation_repo = AsyncMock()
+        cid = uuid.uuid4()
+        tid = uuid.uuid4()
+        other_id = uuid.uuid4()
+        rel = MagicMock()
+        rel.id = uuid.uuid4()
+        rel.source_id = cid
+        rel.target_id = other_id
+        rel.relation_type = "ally"
+        rel.description = "candidate edge"
+        existing = MagicMock()
+        existing.id = uuid.uuid4()
+        existing.description = "existing edge"
+
+        svc._relation_repo.get_all_for_entity = AsyncMock(return_value=[rel])
+        svc._relation_repo.find_duplicate_relation = AsyncMock(return_value=existing)
+        svc._relation_repo.update = AsyncMock()
+
+        result = await svc._migrate_relations(
+            MagicMock(),
+            str(uuid.uuid4()),
+            str(cid),
+            str(tid),
+        )
+
+        assert result["migrated"] == 0
+        assert result["deduplicated"] == 1
+        assert svc._relation_repo.update.await_count == 2
+        merge_call, deprecate_call = svc._relation_repo.update.await_args_list
+        assert merge_call.args[1] is existing
+        assert "existing edge" in merge_call.args[2].description
+        assert "candidate edge" in merge_call.args[2].description
+        assert deprecate_call.args[1] is rel
+        assert deprecate_call.args[2].status == "deprecated"
+        svc._relation_repo.update_endpoint.assert_not_awaited()
 
 
 class TestDedupSyncCharacterOnMerge:
@@ -1043,6 +1232,7 @@ class TestDedupSyncCharacterOnMerge:
 
         assert result is True
         char_repo.update.assert_awaited_once()
+        assert char_repo.update.call_args[0][1] is target_char
         call_data = char_repo.update.call_args[0][2]
         # Aliases merged
         assert len(call_data.aliases) == 2
@@ -1051,6 +1241,167 @@ class TestDedupSyncCharacterOnMerge:
         assert call_data.personality == "cunning\n\nbrave"
         assert call_data.desire == "power"
         assert call_data.weakness == "pride"
+
+
+def _scalar_result(value: object) -> MagicMock:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = value
+    return result
+
+
+class TestDedupMergeCandidate:
+    """EntityDedupService.merge_candidate_into_entity — error boundaries"""
+
+    async def test_dedup_service_has_no_direct_http_exception_dependency(self) -> None:
+        source = Path("backend/modules/world/services/dedup_service.py").read_text()
+
+        assert "from fastapi import HTTPException" not in source
+        assert "raise HTTPException" not in source
+
+    async def test_merge_missing_target_raises_domain_not_found(self) -> None:
+        svc = EntityDedupService()
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=_scalar_result(None))
+
+        with pytest.raises(NotFoundError) as exc:
+            await svc.merge_candidate_into_entity(
+                db,
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+            )
+
+        assert exc.value.status_code == 404
+        assert "Target entity" in exc.value.message
+
+    async def test_merge_self_raises_domain_validation(self) -> None:
+        svc = EntityDedupService()
+        entity_id = uuid.uuid4()
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=_scalar_result(_mock_entity(id=entity_id)))
+
+        with pytest.raises(DomainValidationError) as exc:
+            await svc.merge_candidate_into_entity(
+                db,
+                str(uuid.uuid4()),
+                str(entity_id),
+                str(entity_id),
+            )
+
+        assert exc.value.status_code == 400
+        assert "itself" in exc.value.message
+
+    async def test_merge_missing_candidate_raises_domain_not_found(self) -> None:
+        svc = EntityDedupService()
+        db = MagicMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(_mock_entity()),
+                _scalar_result(None),
+            ]
+        )
+
+        with pytest.raises(NotFoundError) as exc:
+            await svc.merge_candidate_into_entity(
+                db,
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+                str(uuid.uuid4()),
+            )
+
+        assert exc.value.status_code == 404
+        assert "Candidate entity" in exc.value.message
+
+    async def test_merge_rejects_entities_outside_requested_novel(self) -> None:
+        svc = EntityDedupService()
+        entity_novel_id = uuid.uuid4()
+        target = _mock_entity(novel_id=entity_novel_id)
+        candidate = _mock_entity(novel_id=entity_novel_id)
+        db = MagicMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(target),
+                _scalar_result(candidate),
+            ]
+        )
+
+        with pytest.raises(DomainValidationError) as exc:
+            await svc.merge_candidate_into_entity(
+                db,
+                str(uuid.uuid4()),
+                str(candidate.id),
+                str(target.id),
+            )
+
+        assert exc.value.status_code == 400
+        assert "requested novel" in exc.value.message
+
+    async def test_merge_invalid_candidate_status_raises_domain_validation(self) -> None:
+        svc = EntityDedupService()
+        novel_id = uuid.uuid4()
+        target = _mock_entity(novel_id=novel_id, status="canonical")
+        candidate = _mock_entity(novel_id=novel_id, status="merged")
+        db = MagicMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(target),
+                _scalar_result(candidate),
+            ]
+        )
+
+        with pytest.raises(DomainValidationError) as exc:
+            await svc.merge_candidate_into_entity(
+                db,
+                str(novel_id),
+                str(candidate.id),
+                str(target.id),
+            )
+
+        assert exc.value.status_code == 422
+        assert "Merge candidate must be draft or candidate" in exc.value.message
+
+    async def test_merge_updates_loaded_candidate_and_target_objects(self) -> None:
+        svc = EntityDedupService()
+        novel_id = uuid.uuid4()
+        target = _mock_entity(novel_id=novel_id, status="draft")
+        candidate = _mock_entity(novel_id=novel_id, status="candidate")
+        db = MagicMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(target),
+                _scalar_result(candidate),
+            ]
+        )
+        db.flush = AsyncMock()
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.update = AsyncMock()
+        svc._inherit_aliases = AsyncMock(return_value=0)
+        svc._migrate_relations = AsyncMock(
+            return_value={
+                "migrated": 0,
+                "deduplicated": 0,
+                "created_self_loop_ids": [],
+            }
+        )
+        svc._sync_character_on_merge = AsyncMock(return_value=False)
+        svc._merge_text_fields = AsyncMock()
+        svc._archive_conflicts = AsyncMock(return_value=0)
+
+        result = await svc.merge_candidate_into_entity(
+            db,
+            str(novel_id),
+            str(candidate.id),
+            str(target.id),
+        )
+
+        assert result.candidate_entity_id == str(candidate.id)
+        assert result.target_entity_id == str(target.id)
+        assert svc._entity_repo.update.await_count == 2
+        first_call, second_call = svc._entity_repo.update.await_args_list
+        assert first_call.args[1] is candidate
+        assert first_call.args[2].status == "merged"
+        assert second_call.args[1] is target
+        assert second_call.args[2].status == "canonical"
 
 
 class TestDedupFindDuplicates:
@@ -1076,9 +1427,7 @@ class TestDedupResolveCandidate:
         svc._entity_repo.get = AsyncMock(return_value=None)
         db = MagicMock()
 
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
         assert exc.value.status_code == 404
 
@@ -1096,6 +1445,7 @@ class TestDedupResolveCandidate:
 
         assert result.action == "promoted"
         svc._entity_repo.update.assert_awaited_once()
+        assert svc._entity_repo.update.call_args[0][1] is candidate
 
     async def test_high_confidence_auto_merges(self) -> None:
         svc = EntityDedupService()
@@ -1407,3 +1757,50 @@ class TestHandleWorldEntityExtraction:
         assert kwargs["end_chapter"] == 10
         assert kwargs["batch_size"] == 5
         assert result is not None
+
+    async def test_context_result_refs_are_attached_in_one_batch(self) -> None:
+        task = MagicMock()
+        task.id = uuid.uuid4()
+        task.meta = {
+            "novel_id": str(uuid.uuid4()),
+            "context_confirmation_id": str(uuid.uuid4()),
+        }
+
+        mock_result = MagicMock()
+        mock_result.total_chapters = 1
+        mock_result.total_created = 2
+        mock_result.total_skipped = 0
+        mock_result.failed_chapters = []
+        mock_result.items = [{"id": "entity-1"}, {"id": "entity-2"}]
+
+        with (
+            patch("modules.world.tasks.EntityExtractionService") as mock_svc_cls,
+            patch(
+                "modules.world.tasks.context_facade.compile_from_confirmation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "modules.world.tasks.context_facade.attach_result_refs",
+                new_callable=AsyncMock,
+            ) as mock_attach_refs,
+            patch(
+                "modules.world.tasks.context_facade.attach_result_ref",
+                new_callable=AsyncMock,
+            ) as mock_attach_ref,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc_cls.return_value = mock_svc
+            mock_svc.extract_entities_from_chapters = AsyncMock(return_value=mock_result)
+
+            await handle_world_entity_extraction(MagicMock(), task)
+
+        mock_attach_refs.assert_awaited_once_with(
+            ANY,
+            confirmation_id=task.meta["context_confirmation_id"],
+            result_refs=[
+                {"type": "world_entity", "id": "entity-1"},
+                {"type": "world_entity", "id": "entity-2"},
+            ],
+            status="done",
+        )
+        mock_attach_ref.assert_not_awaited()

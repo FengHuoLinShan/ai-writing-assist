@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from modules.imports.env_helpers import bool_env, positive_float_env, positive_int_env
+
 MAX_PHASE2_SCENE_RETRIES = 3
 MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES = 3
 PHASE2_SCENE_TIMEOUT_GRACE_SECONDS = 15
@@ -36,41 +38,12 @@ PHASE2_SMALL_SAMPLE_SUPPLEMENT_CHAPTER_CHAR_LIMIT = 4200
 PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT = 36000
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
-def _bool_env(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def phase2_batch_size_scenes() -> int:
-    return _positive_int_env("PHASE2_BATCH_SIZE_SCENES", PHASE2_BATCH_SIZE_SCENES)
+    return positive_int_env("PHASE2_BATCH_SIZE_SCENES", PHASE2_BATCH_SIZE_SCENES)
 
 
 def phase2_batch_concurrency() -> int:
-    return _positive_int_env("PHASE2_BATCH_CONCURRENCY", PHASE2_BATCH_CONCURRENCY)
+    return positive_int_env("PHASE2_BATCH_CONCURRENCY", PHASE2_BATCH_CONCURRENCY)
 
 
 def phase2_batch_tuning_group() -> str:
@@ -81,70 +54,70 @@ def phase2_batch_tuning_group() -> str:
 
 
 def phase2_alias_relation_total_timeout_seconds() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS",
         PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS,
     )
 
 
 def phase2_alias_relation_concurrency() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE2_ALIAS_RELATION_CONCURRENCY",
         PHASE2_ALIAS_RELATION_CONCURRENCY,
     )
 
 
 def phase2_alias_relation_llm_timeout_seconds() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS",
         PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS,
     )
 
 
 def phase2_alias_relation_scene_char_limit() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT",
         PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT,
     )
 
 
 def phase2_alias_relation_entity_index_char_limit() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT",
         PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT,
     )
 
 
 def phase2_alias_relation_entity_index_fallback_limit() -> int:
-    return _positive_int_env(
+    return positive_int_env(
         "PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT",
         PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT,
     )
 
 
 def phase2_alias_relation_supplement_enabled() -> bool:
-    return _bool_env(
+    return bool_env(
         "PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED",
         PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED,
     )
 
 
 def phase2_postprocess_timeout_seconds() -> float:
-    return _positive_float_env(
+    return positive_float_env(
         "PHASE2_POSTPROCESS_TIMEOUT_SECONDS",
         PHASE2_POSTPROCESS_TIMEOUT_SECONDS,
     )
 
 
 def phase2_boundary_total_timeout_seconds() -> float:
-    return _positive_float_env(
+    return positive_float_env(
         "PHASE2_BOUNDARY_TOTAL_TIMEOUT_SECONDS",
         PHASE2_BOUNDARY_TOTAL_TIMEOUT_SECONDS,
     )
 
 
 def phase2_boundary_supplement_enabled() -> bool:
-    return _bool_env(
+    return bool_env(
         "PHASE2_BOUNDARY_SUPPLEMENT_ENABLED",
         PHASE2_BOUNDARY_SUPPLEMENT_ENABLED,
     )

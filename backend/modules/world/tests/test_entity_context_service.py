@@ -70,19 +70,21 @@ async def test_get_entity_context_with_entity_ids(
 
 
 @pytest.mark.asyncio
-async def test_get_entity_context_without_entity_ids_uses_get_by_novel(
+async def test_get_entity_context_without_entity_ids_uses_list_by_novel(
     novel_id: str,
     entity_service: EntityContextService,
 ) -> None:
     entity = _make_entity(name="Hero")
-    entity_service._repo.get_by_novel = AsyncMock(return_value=([entity], 1))
+    entity_service._repo.list_by_novel = AsyncMock(return_value=[entity])
+    entity_service._repo.get_by_novel = AsyncMock()
     entity_service._repo.get_by_ids = AsyncMock(return_value=[])
     db = AsyncMock()
 
     bundle = await entity_service.get_entity_context(db, novel_id)
 
     assert bundle.total_count == 1
-    entity_service._repo.get_by_novel.assert_awaited_once()
+    entity_service._repo.list_by_novel.assert_awaited_once()
+    entity_service._repo.get_by_novel.assert_not_awaited()
     entity_service._repo.get_by_ids.assert_not_awaited()
 
 
@@ -139,7 +141,7 @@ async def test_expired_temp_entity_filtered_out(
             }
         },
     )
-    entity_service._repo.get_by_novel = AsyncMock(return_value=([temp_entity], 1))
+    entity_service._repo.list_by_novel = AsyncMock(return_value=[temp_entity])
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
         AsyncMock(
@@ -167,7 +169,7 @@ async def test_non_temp_entity_always_included(
         name="Hero",
         content_json={"_meta": {"temporary": False}},
     )
-    entity_service._repo.get_by_novel = AsyncMock(return_value=([normal_entity], 1))
+    entity_service._repo.list_by_novel = AsyncMock(return_value=[normal_entity])
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
         AsyncMock(
@@ -211,8 +213,8 @@ async def test_list_entity_terms_only_canonical_and_draft(
     canonical = _make_entity(name="Canon", status="canonical")
     draft = _make_entity(name="Draft", status="draft")
     pending = _make_entity(name="Pending", status="pending")
-    entity_service._repo.get_by_novel = AsyncMock(
-        return_value=([canonical, draft, pending], 3)
+    entity_service._repo.list_by_novel = AsyncMock(
+        return_value=[canonical, draft, pending]
     )
     db = AsyncMock()
 
@@ -221,6 +223,7 @@ async def test_list_entity_terms_only_canonical_and_draft(
     names = {t["name"] for t in terms}
     assert names == {"Canon", "Draft"}
     assert "Pending" not in names
+    entity_service._repo.list_by_novel.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -237,7 +240,7 @@ async def test_list_entity_terms_extracts_aliases(
             ]
         },
     )
-    entity_service._repo.get_by_novel = AsyncMock(return_value=([entity], 1))
+    entity_service._repo.list_by_novel = AsyncMock(return_value=[entity])
     db = AsyncMock()
 
     terms = await entity_service.list_entity_terms(db, novel_id)
@@ -274,6 +277,34 @@ async def test_find_by_name_not_found_returns_none(
     result = await entity_service.find_by_name(db, novel_id, "Missing")
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_find_working_entities_by_names_uses_one_list_lookup(
+    novel_id: str,
+    entity_service: EntityContextService,
+) -> None:
+    hero = _make_entity(
+        name="克莱恩",
+        status="candidate",
+        content_json={"aliases": [{"alias": "周明瑞"}]},
+    )
+    ignored = _make_entity(name="废弃对象", status="deprecated")
+    entity_service._repo.list_by_novel = AsyncMock(return_value=[hero, ignored])
+    entity_service._repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("batch resolver should not use count lookup")
+    )
+    db = AsyncMock()
+
+    result = await entity_service.find_working_entities_by_names(
+        db,
+        novel_id,
+        ["克莱恩", " 周明瑞 ", "废弃对象"],
+    )
+
+    assert result == {"克莱恩": str(hero.id), " 周明瑞 ": str(hero.id)}
+    entity_service._repo.list_by_novel.assert_awaited_once()
+    entity_service._repo.get_by_novel.assert_not_awaited()
 
 
 @pytest.mark.asyncio

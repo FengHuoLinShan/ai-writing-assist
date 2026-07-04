@@ -5,15 +5,22 @@ shared/utils.py 单元测试
 """
 
 import uuid
+from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 
+from core.errors import ValidationError as DomainValidationError
 from shared.utils import is_valid_uuid, parse_uuid
 
 
 class TestParseUUID:
     """parse_uuid — 字符串 UUID 解析"""
+
+    def test_shared_utils_has_no_fastapi_exception_dependency(self):
+        source = Path("backend/shared/utils.py").read_text()
+
+        assert "from fastapi import HTTPException" not in source
+        assert "raise HTTPException" not in source
 
     def test_valid_uuid_returns_uuid_object(self):
         result = parse_uuid("c8f2a1e456784b3d9f1a2b3c4d5e6f71")
@@ -25,36 +32,36 @@ class TestParseUUID:
         assert result == uuid.UUID(hex=hex_str)
 
     def test_invalid_uuid_raises_422(self):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             parse_uuid("not-a-valid-uuid")
         assert exc.value.status_code == 422
 
     def test_invalid_uuid_error_detail_contains_field_name(self):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             parse_uuid("bad", "entity_id")
         assert "entity_id" in exc.value.detail
         assert "bad" in exc.value.detail
 
     def test_default_field_name_is_id(self):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             parse_uuid("invalid")
         assert "id" in exc.value.detail.lower() or "id" in exc.value.detail
 
     def test_empty_string_raises_422(self):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             parse_uuid("")
         assert exc.value.status_code == 422
 
     def test_wrong_length_raises_422(self):
-        with pytest.raises(HTTPException):
+        with pytest.raises(DomainValidationError):
             parse_uuid("abc123")
 
     def test_non_hex_characters_raise_422(self):
-        with pytest.raises(HTTPException):
+        with pytest.raises(DomainValidationError):
             parse_uuid("gggg1111222233334444555566667777")
 
     def test_custom_field_name_in_error(self):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             parse_uuid("x", "novel_id")
         assert "novel_id" in exc.value.detail
 

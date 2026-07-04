@@ -48,6 +48,18 @@ class EventRepository:
         await db.flush()
         return event
 
+    async def create_many(
+        self,
+        db: AsyncSession,
+        rows: list[dict],
+    ) -> list[MemoryEvent]:
+        events = [MemoryEvent(**row) for row in rows]
+        if not events:
+            return []
+        db.add_all(events)
+        await db.flush()
+        return events
+
     async def get_by_chapter(
         self,
         db: AsyncSession,

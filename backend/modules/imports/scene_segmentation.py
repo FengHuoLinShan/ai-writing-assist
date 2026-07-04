@@ -203,11 +203,14 @@ class SceneSegmentationService:
         start: int,
         end: int,
     ) -> list[dict]:
-        from modules.writing.facade import get_latest_draft_for_chapter
+        from modules.writing.facade import list_latest_drafts_for_chapters
 
+        chapter_indices = list(range(start, end + 1))
+        drafts = await list_latest_drafts_for_chapters(db, novel_id, chapter_indices)
+        draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         chapters: list[dict] = []
-        for idx in range(start, end + 1):
-            draft = await get_latest_draft_for_chapter(db, novel_id, idx)
+        for idx in chapter_indices:
+            draft = draft_by_chapter.get(idx)
             if draft and draft.content:
                 chapters.append(
                     {

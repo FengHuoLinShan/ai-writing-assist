@@ -14,6 +14,7 @@ import {
   renderSelectionCell,
   runBulkAction,
   selectedItemsFrom,
+  syncBulkSelectionUi,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
@@ -231,16 +232,17 @@ const projectView = {
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()
         toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
-        router.refresh()
+        syncBulkSelectionUi(this, t.getAttribute("data-scope"))
       },
       "bulk-clear": (_e, t) => {
-        clearBulkSelection(this, t.getAttribute("data-scope"))
-        router.refresh()
+        const scope = t.getAttribute("data-scope")
+        clearBulkSelection(this, scope)
+        syncBulkSelectionUi(this, scope)
       },
       "bulk-run": (_e, t) => this._runProjectBulkAction(t.getAttribute("data-bulk-action")),
       "select-visible-projects": () => {
         for (const project of state.projects) toggleBulkSelection(this, "project-cards", project.id, true)
-        router.refresh()
+        syncBulkSelectionUi(this, "project-cards")
       },
       "continue-writing": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
       "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
@@ -697,7 +699,7 @@ const projectView = {
       html += `<div class="import-list-item">
         <span class="status-dot ${r.status === "done" ? "success" : r.status === "failed" ? "error" : r.status === "processing" ? "warning" : "info"}"></span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-body);">${esc(r.file_name)}</span>
-        <span class="pill ${statusClass[r.status] || ""}">${statusMap[r.status] || r.status}</span>
+        <span class="pill ${statusClass[r.status] || ""}">${esc(statusMap[r.status] || r.status || "")}</span>
         <span style="color:var(--text-secondary);font-size:12px;">成功 ${r.imported_chapters || 0} / 共 ${r.total_chapters || 0} 章</span>
         <span style="color:var(--text-tertiary);font-size:12px;font-family:var(--font-mono);">${time}</span>
       </div>`

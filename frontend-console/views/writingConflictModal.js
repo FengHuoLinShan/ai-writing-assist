@@ -20,6 +20,7 @@ export function showWritingConflictModal({
   onStatusChanged = null,
   onAiReviewComplete = null,
   onSuggestionComplete = null,
+  onApplySuggestion = null,
   onLocate = null,
   onOpenSource = null,
 } = {}) {
@@ -47,6 +48,7 @@ export function showWritingConflictModal({
     onStatusChanged,
     onAiReviewComplete,
     onSuggestionComplete,
+    onApplySuggestion,
     onLocate,
     onOpenSource,
   })
@@ -191,8 +193,9 @@ function renderSuggestion(item) {
       <div class="writing-conflict-suggestion__head">
         <strong>${esc(suggestion.strategy || "AI 修复建议")}</strong>
         <button class="btn btn-sm" data-conflict-copy-suggestion="${esc(item.id)}">复制</button>
+        <button class="btn btn-sm btn-primary" data-conflict-apply-suggestion="${esc(item.id)}">应用草稿</button>
       </div>
-      <p>${esc(suggestion.suggested_text || item.ai_suggestion)}</p>
+      <textarea class="form-textarea" rows="4" data-conflict-suggestion-draft="${esc(item.id)}">${esc(suggestion.suggested_text || item.ai_suggestion)}</textarea>
       ${suggestion.rationale ? `<small>${esc(suggestion.rationale)}</small>` : ""}
       ${renderSuggestionList("约束", suggestion.constraints)}
       ${renderSuggestionList("注意", suggestion.risk_notes)}
@@ -220,6 +223,7 @@ function bindConflictModalEvents({
   onStatusChanged,
   onAiReviewComplete,
   onSuggestionComplete,
+  onApplySuggestion,
   onLocate,
   onOpenSource,
 }) {
@@ -305,9 +309,17 @@ function bindConflictModalEvents({
     const copyItemId = target.getAttribute("data-conflict-copy-suggestion")
     if (copyItemId) {
       const row = findConflictItemRow(copyItemId)
-      const text = row?.querySelector(".writing-conflict-suggestion p")?.textContent || ""
+      const text = row?.querySelector("[data-conflict-suggestion-draft]")?.value || ""
       if (navigator.clipboard && text) await navigator.clipboard.writeText(text)
       toast("已复制 AI 修复建议", "success")
+      return
+    }
+
+    const applySuggestionItemId = target.getAttribute("data-conflict-apply-suggestion")
+    if (applySuggestionItemId && typeof onApplySuggestion === "function") {
+      const row = findConflictItemRow(applySuggestionItemId)
+      const text = row?.querySelector("[data-conflict-suggestion-draft]")?.value || ""
+      onApplySuggestion(applySuggestionItemId, text)
       return
     }
 

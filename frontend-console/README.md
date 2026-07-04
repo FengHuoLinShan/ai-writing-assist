@@ -4,13 +4,12 @@
 
 ## 快速启动
 
-直接打开 `index.html` 即可。地图视图会从 CDN 加载 Leaflet，因此离线使用时建议先启动本地服务器并确保浏览器可访问该资源。
+开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。地图视图会从 CDN 加载 Leaflet，因此离线使用时需要确保浏览器可访问该资源。
 
 ```bash
 cd frontend-console
-# 方式 1：直接双击 index.html
-# 方式 2：使用 Python 启动本地服务器
-python -m http.server 8080
+npm install
+npm run dev
 # 打开 http://localhost:8080
 ```
 
@@ -18,7 +17,7 @@ python -m http.server 8080
 
 前端默认连接 `http://localhost:8000/api`。
 
-如需修改后端地址，修改 `api.js` 中的 `API_BASE_URL`。
+如需修改后端地址，可在页面加载前注入全局 `API_HOST`，或调整 `api.js` 中的默认地址。
 
 ## E2E 测试
 

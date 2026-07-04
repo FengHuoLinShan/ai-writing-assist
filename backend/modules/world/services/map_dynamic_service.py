@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError
 from modules.world.map_repositories import (
     MapConfigRepository,
     MapFactRepository,
@@ -31,6 +30,7 @@ from modules.world.map_schemas import (
     MapPlaybackResponse,
 )
 from modules.world.repositories import CoreEntityRepository
+from modules.world.services.helpers import parse_uuid
 from modules.world.services.map_context import MapContext
 from modules.world.services.map_dashboard_service import MapDashboardService
 from modules.world.services.map_dynamic_helpers import MapDynamicHelperMixin
@@ -304,24 +304,31 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         if data.action == "update_fact_status":
             next_status = data.patch.get("fact_status")
             if next_status not in {"confirmed", "rolled_back", "deprecated"}:
-                raise HTTPException(
-                    status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=(
-                        "patch.fact_status must be confirmed, rolled_back, "
-                        "or deprecated"
-                    ),
+                raise ValidationError(
+                    "patch.fact_status must be confirmed, rolled_back, or deprecated",
+                    code="invalid_fact_status",
+                    status_code=422,
                 )
-            facts = []
-            for fact_id in data.fact_ids:
-                facts.append(
-                    await self.update_fact_status(
-                        db,
-                        novel_id,
-                        map_id=map_id,
-                        fact_id=fact_id,
-                        data=MapFactStatusUpdate(fact_status=next_status),
-                    )
+            await self._ctx.require_map(db, novel_id, map_id)
+            nid = parse_uuid(novel_id, "novel_id")
+            mid = parse_uuid(map_id, "map_id")
+            fact_ids = [parse_uuid(fact_id, "fact_id") for fact_id in data.fact_ids]
+            existing = await self._fact_repo.get_many(db, fact_ids)
+            existing_by_id = {fact.id: fact for fact in existing}
+            for raw_fact_id, fact_id in zip(data.fact_ids, fact_ids):
+                self._assert_fact_access(
+                    existing_by_id.get(fact_id),
+                    raw_fact_id,
+                    nid,
+                    mid,
                 )
+            updated = await self._fact_repo.update_statuses(db, fact_ids, next_status)
+            updated_by_id = {fact.id: fact for fact in updated}
+            facts = [
+                MapFactResponse.model_validate(updated_by_id[fact_id])
+                for fact_id in fact_ids
+                if fact_id in updated_by_id
+            ]
             return MapBatchActionResponse(
                 action=data.action,
                 requested_count=len(data.fact_ids),

@@ -33,9 +33,6 @@ export function clearDocument() {
   }
 }
 
-/** clearDocument 的别名，兼容不同命名习惯。 */
-export const resetDocument = clearDocument
-
 /**
  * 创建一个可复用的 Canvas 2D mock context。
  *

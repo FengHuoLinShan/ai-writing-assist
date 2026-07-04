@@ -106,7 +106,7 @@ class SqlAlchemyStateSource:
         skip: int,
         limit: int,
     ) -> list:
-        rows, _ = await self._entity_repo.get_by_novel(
+        rows = await self._entity_repo.list_by_novel(
             db,
             novel_id,
             status="canonical",
@@ -125,7 +125,7 @@ class SqlAlchemyStateSource:
     ) -> list:
         # EntityRelationRepository.get_by_novel 不接受 status 参数
         # 必须在 Python 端筛 — 与旧 facade.py:568 行为一致
-        rows, _ = await self._relation_repo.get_by_novel(
+        rows = await self._relation_repo.list_by_novel(
             db,
             novel_id,
             skip=skip,
@@ -142,7 +142,7 @@ class SqlAlchemyStateSource:
         limit: int,
     ) -> list:
         # Character 不筛 status — 旧 facade.py:580 行为
-        rows, _ = await self._character_repo.get_by_novel(
+        rows = await self._character_repo.list_by_novel(
             db,
             novel_id,
             skip=skip,
@@ -160,7 +160,7 @@ class SqlAlchemyStateSource:
     ) -> list:
         # CLAUDE.md §8: DB 异常必须传播, 不允许 try/except: pass
         # 旧 facade.py:595-611 吞掉 knowledge 读失败是 bug, 已修
-        rows, _ = await self._knowledge_repo.get_by_novel(
+        rows = await self._knowledge_repo.list_by_novel(
             db,
             novel_id,
             skip=skip,

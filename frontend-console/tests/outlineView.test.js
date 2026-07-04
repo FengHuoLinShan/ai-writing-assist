@@ -14,6 +14,12 @@ beforeEach(() => {
   outlineView._reveals = []
   outlineView._loading = false
   outlineView._structureFilters = {}
+  outlineView._structureTotals = {
+    threads: 0,
+    arcs: 0,
+    foreshadowing: 0,
+    reveals: 0,
+  }
   outlineView._plotAutoExtractTaskId = null
   outlineView._plotAutoExtractProgress = null
   outlineView._plotAutoExtractPoller = null
@@ -149,6 +155,19 @@ describe("outlineView 批量操作", () => {
 
     expect(api.outline.deleteForeshadowing).toHaveBeenCalledWith("f1", "p1")
   })
+
+  it("点击剧情线多选不重绘页面也不强制刷新数据", () => {
+    const input = document.createElement("input")
+    input.setAttribute("data-scope", "outline-threads")
+    input.setAttribute("data-id", "t1")
+    input.checked = true
+
+    outlineView._toggleBulkOne(input)
+
+    expect(outlineView._bulkSelections["outline-threads"]).toEqual(new Set(["t1"]))
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
 })
 
 describe("outlineView render", () => {
@@ -222,6 +241,20 @@ describe("outlineView render", () => {
     expect(html).toContain("structure_analysis")
   })
 
+  it("剧情线超过一页时显示分页控制", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    outlineView._threads = [{ id: "t1", name: "主线A", thread_type: "main" }]
+    outlineView._structureTotals.threads = 75
+
+    const html = await outlineView.render()
+
+    expect(html).toContain('data-action="prev-outline-structure-page"')
+    expect(html).toContain('data-action="next-outline-structure-page"')
+    expect(html).toContain("共 75 条")
+  })
+
   it("深度导入筛选为空时显示结构分析不完整提示", async () => {
     outlineView._loading = false
     state.currentSubView = "threads"
@@ -282,6 +315,24 @@ describe("structure asset filters", () => {
       skip: 0,
       limit: 50,
     })
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("结构资产翻页时更新当前页签 skip", () => {
+    state.currentSubView = "threads"
+    outlineView._structureFilters.threads = {
+      status: "",
+      source: "",
+      workflow_id: "",
+      needs_review: "",
+      skip: 0,
+      limit: 50,
+    }
+    outlineView._structureTotals.threads = 120
+
+    outlineView._changeStructurePage(1)
+
+    expect(outlineView._structureFilters.threads.skip).toBe(50)
     expect(router.refresh).toHaveBeenCalled()
   })
 })

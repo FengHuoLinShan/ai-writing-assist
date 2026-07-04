@@ -10,9 +10,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.errors import NotFoundError
 
 
 @pytest.fixture
@@ -138,7 +139,7 @@ async def test_create_snapshot_rejects_cross_novel_entity(
     )
     await db_session.flush()
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(NotFoundError) as exc:
         await EntityRevisionService().create_snapshot(
             db_session,
             entity_id=str(entity_id),

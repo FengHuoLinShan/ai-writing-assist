@@ -108,6 +108,9 @@ def _register_container_services() -> None:
     from modules.writing.facade import (
         list_chapter_indices as _w_list_indices,
     )
+    from modules.writing.facade import (
+        list_latest_drafts_for_chapters as _w_list_latest_drafts,
+    )
 
     _svc_map = {
         "world.list_characters": _w_list_chars,
@@ -122,6 +125,7 @@ def _register_container_services() -> None:
         "rag.get_ordered_chapter_chunks": _rag_get_chunks,
         "writing.list_chapter_indices": _w_list_indices,
         "writing.get_latest_draft_for_chapter": _w_get_draft,
+        "writing.list_latest_drafts_for_chapters": _w_list_latest_drafts,
         "outline.generate_structure": _PSG().generate,
         "outline.arc_service": _OAS(),
         "outline.thread_service": _PTS(),

@@ -612,8 +612,6 @@ UI 不展示复杂版权信息，只在“关于/素材来源”里显示 Kenney
 ```text
 frontend-console/views/mapQuickCreateView.js
 frontend-console/views/mapGeoLayoutEngine.js
-frontend-console/views/mapInteractionEngine.js
-frontend-console/views/mapTerrainEditor.js
 frontend-console/views/mapTerrainRenderer.js
 frontend-console/views/mapTerrainAssets.js
 ```
@@ -621,8 +619,8 @@ frontend-console/views/mapTerrainAssets.js
 实现边界：
 
 - `mapGeoLayoutEngine.js` 以纯函数为主，输入节点、关系、锁定状态、占用半径、地图边界，输出位置、占用格、冲突列表、扩边建议和动画前后状态。
-- `mapInteractionEngine.js` 处理拖拽、吸附、锁定、`+ / -`、Undo/Redo 和命中查询。
-- `mapTerrainEditor.js` 处理地形绘制模式、画笔、橡皮、图层状态和保存。
+- 地图拖拽、吸附、锁定、`+ / -`、Undo/Redo 和命中查询优先收敛在现有地图视图与地形编辑模块中；只有出现第二个真实调用方时再拆独立交互引擎。
+- 地形绘制模式、画笔、橡皮、图层状态和保存优先收敛在现有地图视图；只有出现第二个真实调用方时再拆独立地形编辑会话模块。
 - `mapTerrainRenderer.js` 只负责地形图层渲染、边界平滑、图案点缀和查看/编辑模式差异。
 - `mapTerrainAssets.js` 读取内置素材 manifest。
 

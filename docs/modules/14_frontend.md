@@ -60,7 +60,7 @@
 ## 结构整理补充
 
 - `sceneWorkbenchView` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
-- Scene 工作台支持手动选择多个 Scene 调用 fusion preview；保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存。手动融合输出使用 `source="manual_fusion"`。
+- Scene 工作台把机械合并和 AI 融合草稿分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后显示字段级审稿表：AI 草稿、主 Scene 原值、其他来源 Scene 原值并列；保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存。手动融合输出使用 `source="manual_fusion"`。
 - `outlineView` 的剧情线、篇章纲、伏笔、揭示列表支持按 status / deep_import source / workflow_id / needs_review 筛选，用于整理 Phase 3 结构资产。
 - 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 
@@ -74,7 +74,8 @@
 - 地图工作台消费同一套 dashboard / map state，支持“世界动态总控台 / 活地图 / 叙事透镜”三视图、上方语义气泡带、低动效模式
 - 地图工作台同时消费 `GET /api/world/maps/{map_id}/playback`，按 typed observation 展示人物旅程、势力变化、危机推进、资源控制和状态变化播放轨道
 - 动态队列、语义气泡和播放事件可打开对象信息框；信息框展示名称、类型、时间、状态、来源、地点/空间锚点，并提供修改和打开检查器
-- observation 支持确认、忽略、标记冲突，fact 支持回滚、废弃、恢复确认，并保持技术 ID 不进入可见文本
+- observation 支持确认、忽略、标记冲突，并可在确认前编辑候选字段、来源引用和字段差异；fact 支持回滚、废弃、恢复确认，并保持技术 ID 不进入可见文本
+- 写作冲突 AI 修复建议以可编辑草稿展示，用户显式插入当前正文编辑器后才影响草稿内容
 - 批量修改分组按对象类型和地图时间展示，可通过 `batch-actions` 对候选 observation 执行批量确认、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
 - `mapLayoutEngine.js` 负责前端自动布局、标签避让、聚合簇和语义气泡排队；`mapView` 浏览态地点中心标签使用该布局结果避免高密度重叠
 - 支持从写作流打开最近相关地图

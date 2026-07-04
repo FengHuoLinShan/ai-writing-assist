@@ -10,13 +10,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import Float, and_, delete, func, or_, select, text
+from sqlalchemy import Float, and_, case, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from modules.rag.models import RagChunk
 from modules.rag.schemas import RagChunkCreate
+from modules.rag.scoring import keyword_query_terms
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
@@ -47,7 +48,31 @@ class RagChunkRepository:
         data: RagChunkCreate,
     ) -> RagChunk:
         """创建 RAG 片段"""
-        chunk = RagChunk(
+        chunk = self._build_chunk(novel_id, data)
+        db.add(chunk)
+        await db.flush()
+        return chunk
+
+    async def create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        items: Sequence[RagChunkCreate],
+    ) -> list[RagChunk]:
+        """批量创建 RAG 片段，并用一次 flush 分配主键。"""
+        chunks = [self._build_chunk(novel_id, data) for data in items]
+        if not chunks:
+            return []
+        db.add_all(chunks)
+        await db.flush()
+        return chunks
+
+    def _build_chunk(
+        self,
+        novel_id: uuid.UUID,
+        data: RagChunkCreate,
+    ) -> RagChunk:
+        return RagChunk(
             novel_id=novel_id,
             source_type=data.source_type,
             source_id=uuid.UUID(hex=data.source_id) if data.source_id else None,
@@ -70,9 +95,6 @@ class RagChunkRepository:
             index_warnings=data.index_warnings or [],
             meta=data.meta or {},
         )
-        db.add(chunk)
-        await db.flush()
-        return chunk
 
     async def get(
         self,
@@ -157,6 +179,20 @@ class RagChunkRepository:
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount > 0
+
+    async def delete_many(
+        self,
+        db: AsyncSession,
+        chunk_ids: Sequence[uuid.UUID],
+    ) -> int:
+        """批量删除片段，返回删除数"""
+        unique_ids = list(dict.fromkeys(chunk_ids))
+        if not unique_ids:
+            return 0
+        stmt = delete(RagChunk).where(RagChunk.id.in_(unique_ids))
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount
 
     async def delete_by_novel(
         self,
@@ -352,12 +388,17 @@ class RagChunkRepository:
         conditions = [RagChunk.novel_id == novel_id]
 
         # 构建关键词条件（OR 逻辑，匹配任意关键词即返回）
-        query_terms = [q.strip() for q in query.split() if q.strip()]
+        query_terms = keyword_query_terms(query)
+        keyword_rank = None
         if query_terms:
             keyword_conditions = []
             for term in query_terms:
                 pattern = f"%{term}%"
                 keyword_conditions.append(RagChunk.text.ilike(pattern))
+            keyword_rank = sum(
+                case((condition, 1), else_=0)
+                for condition in keyword_conditions
+            )
             conditions.append(or_(*keyword_conditions))
 
         # metadata 过滤
@@ -378,7 +419,21 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = select(RagChunk).where(and_(*conditions)).limit(limit)
+        stmt = select(RagChunk).where(and_(*conditions))
+        if keyword_rank is not None:
+            stmt = stmt.order_by(
+                keyword_rank.desc(),
+                RagChunk.importance.desc(),
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+            )
+        else:
+            stmt = stmt.order_by(
+                RagChunk.importance.desc(),
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+            )
+        stmt = stmt.limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -496,7 +551,13 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = select(RagChunk).where(and_(*conditions))
+        candidate_limit = min(max(top_k * 20, 100), 1000)
+        stmt = (
+            select(RagChunk)
+            .where(and_(*conditions))
+            .order_by(RagChunk.importance.desc(), RagChunk.updated_at.desc())
+            .limit(candidate_limit)
+        )
         result = await db.execute(stmt)
         chunks: list[RagChunk] = list(result.scalars().all())
 

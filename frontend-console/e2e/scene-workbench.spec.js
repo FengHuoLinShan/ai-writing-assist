@@ -88,7 +88,7 @@ test.describe("Scene 工作台", () => {
     page.once("dialog", (dialog) => dialog.accept("2"))
     await page.locator('[data-action="start-split-scene"]').click()
 
-    await expect(page.locator("#modal-title")).toHaveText("拆分 Scene 影响预览")
+    await expect(page.locator("#modal-title")).toHaveText("Scene AI 草稿审稿")
     let scenes = await listScenesOrdered(project.id)
     expect(scenes).toHaveLength(1)
 
@@ -152,11 +152,40 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "scene")
     await page.locator(`.scene-workbench-row[data-id="${first.id}"] input[data-action="toggle-fusion-selection"]`).check()
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
-    await page.locator('[data-action="start-manual-fusion"]').click()
+    await page.locator('[data-action="start-ai-fusion-draft"]').click()
+    await expect(page.locator("#modal-title")).toHaveText("选择主 Scene")
+    await page.evaluate(() => {
+      const button = Array.from(document.querySelectorAll("#modal-footer button"))
+        .find((item) => item.textContent?.includes("生成 AI 融合草稿"))
+      button?.click()
+    })
 
-    await expect(page.locator("#modal-title")).toHaveText("手动 Scene 融合")
+    await expect(page.locator("#modal-title")).toHaveText("Scene AI 草稿审稿")
     await expect(page.locator("#modal-body")).toContainText("找到线索")
     await expect(page.locator("#modal-body")).toContainText("确认走私路线")
+    const footerLayout = await page.evaluate(() => {
+      const footer = document.querySelector("#modal-footer")
+      const content = document.querySelector("#modal-content")
+      const footerRect = footer?.getBoundingClientRect()
+      const contentRect = content?.getBoundingClientRect()
+      const buttons = Array.from(document.querySelectorAll("#modal-footer button"))
+        .map((button) => {
+          const rect = button.getBoundingClientRect()
+          return {
+            text: button.textContent || "",
+            left: rect.left,
+            right: rect.right,
+          }
+        })
+      return {
+        footerWrap: footer ? getComputedStyle(footer).flexWrap : "",
+        buttonsWithinContent: Boolean(contentRect) && buttons.every((button) => (
+          button.left >= contentRect.left - 1 && button.right <= contentRect.right + 1
+        )),
+      }
+    })
+    expect(footerLayout.footerWrap).toBe("wrap")
+    expect(footerLayout.buttonsWithinContent).toBe(true)
     await page.locator("#scene-fusion-title").fill("旧港与仓库调查")
     await page.evaluate(() => {
       const button = Array.from(document.querySelectorAll("#modal-footer button"))
@@ -196,8 +225,14 @@ test.describe("Scene 工作台", () => {
     const selectScenes = async () => {
       await page.locator(`.scene-workbench-row[data-id="${first.id}"] input[data-action="toggle-fusion-selection"]`).check()
       await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
-      await page.locator('[data-action="start-manual-fusion"]').click()
-      await expect(page.locator("#modal-title")).toHaveText("手动 Scene 融合")
+      await page.locator('[data-action="start-ai-fusion-draft"]').click()
+      await expect(page.locator("#modal-title")).toHaveText("选择主 Scene")
+      await page.evaluate(() => {
+        const button = Array.from(document.querySelectorAll("#modal-footer button"))
+          .find((item) => item.textContent?.includes("生成 AI 融合草稿"))
+        button?.click()
+      })
+      await expect(page.locator("#modal-title")).toHaveText("Scene AI 草稿审稿")
     }
     const clickFusionButton = async (text) => {
       await page.evaluate((label) => {
@@ -225,6 +260,67 @@ test.describe("Scene 工作台", () => {
     expect(scenes.some((scene) => scene.title === "线索与证词合流" && scene.goal === "锁定真正嫌疑人")).toBe(true)
     const sourceScenes = scenes.filter((scene) => scene.id === first.id || scene.id === second.id)
     expect(sourceScenes.every((scene) => scene.status === "draft")).toBe(true)
+  })
+
+  test("多选 Scene 不会重绘页面或把列表滚回顶部", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 620 })
+    const project = await createProject({ title: "Scene 多选滚动保持", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const scenes = await Promise.all(Array.from({ length: 18 }, (_, index) => createScene(project.id, {
+      scene_index: index,
+      title: `滚动 Scene ${index}`,
+      goal: `目标 ${index}`,
+      core_conflict: `冲突 ${index}`,
+      chapter_ids: [String(index + 1)],
+    })))
+
+    await openWorkbench(page, project, "scene")
+    const organize = page.locator(".scene-workbench__organize")
+    await organize.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    const before = await organize.evaluate((el) => el.scrollTop)
+    expect(before).toBeGreaterThan(50)
+
+    await page.locator(`.scene-workbench-row[data-id="${scenes.at(-1).id}"] input[data-action="toggle-fusion-selection"]`).check()
+
+    const after = await organize.evaluate((el) => el.scrollTop)
+    expect(after).toBeGreaterThan(50)
+    await expect(page.locator(".scene-fusion-toolbar")).toContainText("1")
+  })
+
+  test("Scene 翻页按钮在列表底部悬浮", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 620 })
+    const project = await createProject({ title: "Scene 分页底部悬浮", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    await Promise.all(Array.from({ length: 22 }, (_, index) => createScene(project.id, {
+      scene_index: index,
+      title: `分页 Scene ${index}`,
+      goal: `目标 ${index}`,
+      core_conflict: `冲突 ${index}`,
+      chapter_ids: [String(index + 1)],
+    })))
+
+    await openWorkbench(page, project, "scene")
+    const pagination = page.locator(".scene-workbench-pagination")
+    await expect(pagination).toBeVisible()
+    await expect(pagination).toContainText("第 1 / 2 页")
+
+    const stickyState = await page.evaluate(() => {
+      const list = document.querySelector(".scene-workbench__organize")
+      const pager = document.querySelector(".scene-workbench-pagination")
+      const listRect = list?.getBoundingClientRect()
+      const pagerRect = pager?.getBoundingClientRect()
+      const style = pager ? getComputedStyle(pager) : null
+      return {
+        position: style?.position || "",
+        bottom: style?.bottom || "",
+        nearBottom: Boolean(listRect && pagerRect) && Math.abs(pagerRect.bottom - listRect.bottom) < 4,
+      }
+    })
+    expect(stickyState).toEqual({
+      position: "sticky",
+      bottom: "0px",
+      nearBottom: true,
+    })
   })
 
   test("窄屏下详情进入抽屉，列表仍是主操作面", async ({ page }) => {

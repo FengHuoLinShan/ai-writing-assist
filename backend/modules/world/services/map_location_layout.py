@@ -5,10 +5,9 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError
 from modules.world.map_repositories import MapLocationLayoutRepository
 from modules.world.map_schemas import (
     MapLocationLayoutListResponse,
@@ -59,21 +58,24 @@ class MapLocationLayoutService:
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
         seen: set[str] = set()
+        location_entity_ids: list[str] = []
         values = []
         for item in data.layouts:
             if item.location_entity_id in seen:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="同一地点在同一地图只能有一个布局节点",
+                raise ValidationError(
+                    "同一地点在同一地图只能有一个布局节点",
+                    code="duplicate_location_layout",
                 )
             seen.add(item.location_entity_id)
-            await self._ctx.require_entity(
-                db,
-                novel_id,
-                item.location_entity_id,
-                allowed_types={"location"},
-            )
+            location_entity_ids.append(item.location_entity_id)
             self._ctx.assert_hex_in_bounds(config, item.center_hex_q, item.center_hex_r)
+        await self._ctx.require_entities(
+            db,
+            novel_id,
+            location_entity_ids,
+            allowed_types={"location"},
+        )
+        for item in data.layouts:
             values.append(
                 {
                     "location_entity_id": parse_uuid(

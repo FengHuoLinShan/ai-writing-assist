@@ -45,6 +45,7 @@ from modules.imports.workflow import (
     _run_deep_import_structured_call,
 )
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from modules.writing.contracts import WritingDraftContract
 
 
 def test_phase1b_workflow_uses_deterministic_reducer_for_large_samples_by_default(
@@ -2633,28 +2634,39 @@ class TestDeepImportWorkflowAutoRun:
 
         thread_service = Mock()
         thread_service.create = AsyncMock(
-            return_value=_response(
-                name="第 1-7 章补强剧情线 4",
-                thread_type="foreshadowing",
-            )
+            side_effect=AssertionError("should use create_batch")
+        )
+        thread_service.create_batch = AsyncMock(
+            return_value=[
+                _response(
+                    name="第 1-7 章补强剧情线 4",
+                    thread_type="foreshadowing",
+                )
+            ]
         )
         arc_service = Mock()
         arc_service.create = AsyncMock(
-            side_effect=[
+            side_effect=AssertionError("should use create_batch")
+        )
+        arc_service.create_batch = AsyncMock(
+            return_value=[
                 _response(title=f"第 1-7 章补强篇章纲 {index}", arc_index=index)
                 for index in range(2, 5)
             ]
         )
         foreshadowing_service = Mock()
         foreshadowing_service.create = AsyncMock(
-            return_value=_response(name="第 1-7 章补强伏笔 4")
+            side_effect=AssertionError("should use create_batch")
+        )
+        foreshadowing_service.create_batch = AsyncMock(
+            return_value=[_response(name="第 1-7 章补强伏笔 4")]
         )
         reveal_service = Mock()
         reveal_service.create = AsyncMock(
-            side_effect=[
-                _response(target_name="克莱恩")
-                for _ in range(3)
-            ]
+            side_effect=AssertionError("should use create_batch")
+        )
+        reveal_service.create_batch = AsyncMock(
+            return_value=[_response(target_name="克莱恩") for _ in range(3)]
         )
 
         async def list_entities(_db, _novel_id, *, limit=20):
@@ -2714,10 +2726,18 @@ class TestDeepImportWorkflowAutoRun:
         assert updated["warnings"] == [
             "结构类别输出不足，已补充待复核结构候选。"
         ]
-        thread_service.create.assert_awaited_once()
-        assert arc_service.create.await_count == 3
-        foreshadowing_service.create.assert_awaited_once()
-        assert reveal_service.create.await_count == 3
+        thread_service.create.assert_not_awaited()
+        arc_service.create.assert_not_awaited()
+        thread_service.create_batch.assert_awaited_once()
+        arc_service.create_batch.assert_awaited_once()
+        assert len(thread_service.create_batch.await_args.args[2]) == 1
+        assert len(arc_service.create_batch.await_args.args[2]) == 3
+        foreshadowing_service.create.assert_not_awaited()
+        reveal_service.create.assert_not_awaited()
+        foreshadowing_service.create_batch.assert_awaited_once()
+        reveal_service.create_batch.assert_awaited_once()
+        assert len(foreshadowing_service.create_batch.await_args.args[2]) == 1
+        assert len(reveal_service.create_batch.await_args.args[2]) == 3
 
     @pytest.mark.asyncio
     async def test_workflow_constant_monkeypatch_controls_structure_fallback_target(
@@ -2735,21 +2755,37 @@ class TestDeepImportWorkflowAutoRun:
 
         thread_service = Mock()
         thread_service.create = AsyncMock(
-            return_value=_response(
-                name="第 1-7 章补强剧情线 2",
-                thread_type="foreshadowing",
-            )
+            side_effect=AssertionError("should use create_batch")
+        )
+        thread_service.create_batch = AsyncMock(
+            return_value=[
+                _response(
+                    name="第 1-7 章补强剧情线 2",
+                    thread_type="foreshadowing",
+                )
+            ]
         )
         arc_service = Mock()
         arc_service.create = AsyncMock(
-            return_value=_response(title="第 1-7 章补强篇章纲 2", arc_index=2)
+            side_effect=AssertionError("should use create_batch")
+        )
+        arc_service.create_batch = AsyncMock(
+            return_value=[_response(title="第 1-7 章补强篇章纲 2", arc_index=2)]
         )
         foreshadowing_service = Mock()
         foreshadowing_service.create = AsyncMock(
-            return_value=_response(name="第 1-7 章补强伏笔 2")
+            side_effect=AssertionError("should use create_batch")
+        )
+        foreshadowing_service.create_batch = AsyncMock(
+            return_value=[_response(name="第 1-7 章补强伏笔 2")]
         )
         reveal_service = Mock()
-        reveal_service.create = AsyncMock()
+        reveal_service.create = AsyncMock(
+            side_effect=AssertionError("reveals already satisfy target")
+        )
+        reveal_service.create_batch = AsyncMock(
+            side_effect=AssertionError("reveals already satisfy target")
+        )
 
         services = {
             "outline.thread_service": thread_service,
@@ -2787,6 +2823,14 @@ class TestDeepImportWorkflowAutoRun:
         assert updated["total_arcs"] == 2
         assert len(updated["extra_sections"]["foreshadowing_plans"]) == 2
         assert len(updated["extra_sections"]["reveal_plans"]) == 2
+        thread_service.create.assert_not_awaited()
+        arc_service.create.assert_not_awaited()
+        thread_service.create_batch.assert_awaited_once()
+        arc_service.create_batch.assert_awaited_once()
+        foreshadowing_service.create.assert_not_awaited()
+        foreshadowing_service.create_batch.assert_awaited_once()
+        reveal_service.create.assert_not_awaited()
+        reveal_service.create_batch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_large_sample_structure_fallback_uses_long_form_minimums(self):
@@ -2796,21 +2840,35 @@ class TestDeepImportWorkflowAutoRun:
             return Mock(id=uuid.uuid4(), **kwargs)
 
         thread_service = Mock()
-        thread_service.create = AsyncMock()
+        thread_service.create = AsyncMock(
+            side_effect=AssertionError("threads already satisfy target")
+        )
+        thread_service.create_batch = AsyncMock(
+            side_effect=AssertionError("threads already satisfy target")
+        )
         arc_service = Mock()
         arc_service.create = AsyncMock(
-            return_value=_response(title="第 1-60 章补强篇章纲 4", arc_index=4)
+            side_effect=AssertionError("should use create_batch")
+        )
+        arc_service.create_batch = AsyncMock(
+            return_value=[_response(title="第 1-60 章补强篇章纲 4", arc_index=4)]
         )
         foreshadowing_service = Mock()
         foreshadowing_service.create = AsyncMock(
-            side_effect=[
+            side_effect=AssertionError("should use create_batch")
+        )
+        foreshadowing_service.create_batch = AsyncMock(
+            return_value=[
                 _response(name=f"第 1-60 章补强伏笔 {index}")
                 for index in range(2, 4)
             ]
         )
         reveal_service = Mock()
         reveal_service.create = AsyncMock(
-            side_effect=[_response(target_name="克莱恩") for _ in range(2)]
+            side_effect=AssertionError("should use create_batch")
+        )
+        reveal_service.create_batch = AsyncMock(
+            return_value=[_response(target_name="克莱恩") for _ in range(2)]
         )
 
         async def list_entities(_db, _novel_id, *, limit=20):
@@ -2855,10 +2913,17 @@ class TestDeepImportWorkflowAutoRun:
         assert updated["total_arcs"] == 4
         assert len(updated["extra_sections"]["foreshadowing_plans"]) == 3
         assert len(updated["extra_sections"]["reveal_plans"]) == 3
-        assert thread_service.create.await_count == 0
-        arc_service.create.assert_awaited_once()
-        assert foreshadowing_service.create.await_count == 2
-        assert reveal_service.create.await_count == 2
+        thread_service.create.assert_not_awaited()
+        thread_service.create_batch.assert_not_awaited()
+        arc_service.create.assert_not_awaited()
+        arc_service.create_batch.assert_awaited_once()
+        assert len(arc_service.create_batch.await_args.args[2]) == 1
+        foreshadowing_service.create.assert_not_awaited()
+        reveal_service.create.assert_not_awaited()
+        foreshadowing_service.create_batch.assert_awaited_once()
+        reveal_service.create_batch.assert_awaited_once()
+        assert len(foreshadowing_service.create_batch.await_args.args[2]) == 2
+        assert len(reveal_service.create_batch.await_args.args[2]) == 2
 
     @pytest.mark.asyncio
     async def test_empty_phase2_and_phase3_outputs_are_partial(self):
@@ -3994,6 +4059,55 @@ class TestDeepImportRecoveryApi:
 
 class TestSceneSegmentationProgress:
     """测试 Scene 切分服务的细粒度进度回调"""
+
+    @pytest.mark.asyncio
+    async def test_load_chapters_batches_draft_lookup(self, monkeypatch):
+        """加载章节正文时应一次批量查草稿，不能逐章查询。"""
+        calls: list[tuple[str, list[int]]] = []
+
+        async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices):
+            calls.append((novel_id, list(chapter_indices)))
+            return [
+                WritingDraftContract(
+                    novel_id=novel_id,
+                    chapter_index=3,
+                    title="第三章",
+                    content="第三章正文",
+                ),
+                WritingDraftContract(
+                    novel_id=novel_id,
+                    chapter_index=1,
+                    title="第一章",
+                    content="第一章正文",
+                ),
+            ]
+
+        async def get_latest_draft_for_chapter(*args, **kwargs):
+            raise AssertionError("scene segmentation should batch draft lookup")
+
+        import modules.writing.facade as writing_facade
+
+        monkeypatch.setattr(
+            writing_facade,
+            "list_latest_drafts_for_chapters",
+            list_latest_drafts_for_chapters,
+        )
+        monkeypatch.setattr(
+            writing_facade,
+            "get_latest_draft_for_chapter",
+            get_latest_draft_for_chapter,
+        )
+
+        chapters = await SceneSegmentationService()._load_chapters(
+            Mock(),
+            "novel-1",
+            1,
+            3,
+        )
+
+        assert calls == [("novel-1", [1, 2, 3])]
+        assert [chapter["chapter_index"] for chapter in chapters] == [1, 3]
+        assert [chapter["title"] for chapter in chapters] == ["第一章", "第三章"]
 
     def test_split_batches_respects_char_budget_with_overlap(self, monkeypatch):
         """长章节应按字符预算缩小批次，并保留 1 章 overlap。"""

@@ -6,13 +6,15 @@ core/crud.py 单元测试
 """
 
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 from pydantic import BaseModel
 
 from core.crud import CrudService
+from core.errors import NotFoundError
+from core.errors import ValidationError as DomainValidationError
 
 # --- 测试辅助类 ---
 
@@ -85,6 +87,12 @@ def mock_repo(svc):
 class TestCrudServiceSubclassValidation:
     """__init_subclass__ 验证必填 ClassVar"""
 
+    def test_core_crud_has_no_fastapi_exception_dependency(self):
+        source = Path("backend/core/crud.py").read_text()
+
+        assert "from fastapi import HTTPException" not in source
+        assert "raise HTTPException" not in source
+
     def test_missing_repo_raises_type_error(self):
         with pytest.raises(TypeError, match="'repo'"):
 
@@ -137,7 +145,7 @@ class TestCrudServiceGet:
     async def test_get_raises_404_when_not_found(self, svc, mock_repo):
         mock_repo.get = AsyncMock(return_value=None)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.get(None, ENTITY_ID, novel_id=NOVEL_ID)
         assert exc.value.status_code == 404
         assert "TestEntity" in exc.value.detail
@@ -148,13 +156,13 @@ class TestCrudServiceGet:
         obj = FakeModel(id=eid, novel_id=other_nid)
         mock_repo.get = AsyncMock(return_value=obj)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.get(None, ENTITY_ID, novel_id=NOVEL_ID)
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_raises_422_for_invalid_id(self, svc):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await svc.get(None, "not-a-uuid", novel_id=NOVEL_ID)
         assert exc.value.status_code == 422
 
@@ -163,7 +171,7 @@ class TestCrudServiceGet:
         obj = FakeModel(id=eid, novel_id=nid, name="x")
         mock_repo.get = AsyncMock(return_value=obj)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await svc.get(None, ENTITY_ID, novel_id="bad-novel-id")
         assert exc.value.status_code == 422
         assert "novel_id" in exc.value.detail
@@ -230,7 +238,7 @@ class TestCrudServiceUpdate:
     async def test_update_raises_404_when_not_found(self, svc, mock_repo):
         mock_repo.get = AsyncMock(return_value=None)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.update(None, ENTITY_ID, UpdateData(name="x"), novel_id=NOVEL_ID)
         assert exc.value.status_code == 404
 
@@ -239,7 +247,7 @@ class TestCrudServiceUpdate:
         existing = FakeModel(id=eid, novel_id=uuid.uuid4())
         mock_repo.get = AsyncMock(return_value=existing)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.update(None, ENTITY_ID, UpdateData(name="x"), novel_id=NOVEL_ID)
         assert exc.value.status_code == 404
 
@@ -265,6 +273,6 @@ class TestCrudServiceDelete:
         mock_repo.get = AsyncMock(return_value=existing)
         mock_repo.delete = AsyncMock(return_value=False)
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.delete(None, ENTITY_ID, novel_id=NOVEL_ID)
         assert exc.value.status_code == 404

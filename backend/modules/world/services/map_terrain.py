@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError, ValidationError
 from modules.world.map_repositories import (
     MapTerrainBindingRepository,
     MapTerrainLayerRepository,
@@ -84,9 +83,9 @@ class MapTerrainService:
         layer = await self._layer_repo.get_in_map(db, nid, mid, lid)
         if layer is None:
             if data.layer is None:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"地形图层 {layer_id} 不存在",
+                raise NotFoundError(
+                    f"地形图层 {layer_id} 不存在",
+                    code="map_terrain_layer_not_found",
                 )
             layer = await self._layer_repo.create(
                 db,
@@ -98,16 +97,14 @@ class MapTerrainService:
 
         existing_regions = await self._region_repo.get_by_map(db, nid, mid)
         region_ids = {region.id for region in existing_regions if region.layer_id == lid}
+        region_values = []
         for region_data in data.regions:
             if parse_uuid(region_data.layer_id, "layer_id") != lid:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="region.layer_id 必须等于当前 layer_id",
+                raise ValidationError(
+                    "region.layer_id 必须等于当前 layer_id",
+                    code="invalid_terrain_region_layer",
                 )
-            region = await self._region_repo.upsert(
-                db,
-                nid,
-                mid,
+            region_values.append(
                 {
                     **(
                         {"id": parse_uuid(region_data.id, "region_id")}
@@ -120,15 +117,21 @@ class MapTerrainService:
                     "meta": region_data.meta or {},
                 },
             )
+        for region in await self._region_repo.upsert_many(
+            db,
+            nid,
+            mid,
+            region_values,
+        ):
             region_ids.add(region.id)
 
         patch_values = []
         for patch in data.patches:
             rid = parse_uuid(patch.region_id, "region_id")
             if rid not in region_ids:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=f"地形区域 {patch.region_id} 不属于当前图层",
+                raise ValidationError(
+                    f"地形区域 {patch.region_id} 不属于当前图层",
+                    code="invalid_terrain_region",
                 )
             self._ctx.assert_hex_in_bounds(config, patch.hex_q, patch.hex_r)
             patch_values.append(
@@ -156,9 +159,9 @@ class MapTerrainService:
         rid = parse_uuid(data.region_id, "region_id")
         region = await self._region_repo.get_in_map(db, nid, mid, rid)
         if region is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"地形区域 {data.region_id} 不存在",
+            raise NotFoundError(
+                f"地形区域 {data.region_id} 不存在",
+                code="map_terrain_region_not_found",
             )
         await self._ctx.require_entity(
             db,
@@ -197,11 +200,11 @@ class MapTerrainService:
         mid = parse_uuid(map_id, "map_id")
         existing = await self._binding_repo.get(db, bid)
         if existing is None or existing.novel_id != nid or existing.map_id != mid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"地形绑定 {binding_id} 不存在",
+            raise NotFoundError(
+                f"地形绑定 {binding_id} 不存在",
+                code="map_terrain_binding_not_found",
             )
         values = data.model_dump(exclude_unset=True)
-        updated = await self._binding_repo.update(db, bid, values)
+        updated = await self._binding_repo.update(db, existing, values)
         assert updated is not None
         return MapTerrainBindingResponse.model_validate(updated)

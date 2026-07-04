@@ -106,6 +106,84 @@ def test_provenance_key_normalizes_source_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline import facade as outline_facade
+
+    single_provenance_calls = 0
+    batch_provenance_calls = 0
+    next_index_calls = 0
+    created_indices: list[int] = []
+
+    async def fake_get_scenes_by_provenance_key(*_args: object) -> list[dict]:
+        nonlocal single_provenance_calls
+        single_provenance_calls += 1
+        return []
+
+    async def fake_get_scenes_by_provenance_keys(
+        _db: object,
+        _novel_id: str,
+        provenance_keys: list[str],
+    ) -> dict[str, list[dict]]:
+        nonlocal batch_provenance_calls
+        batch_provenance_calls += 1
+        return {key: [] for key in provenance_keys}
+
+    async def fake_get_next_scene_index(*_args: object) -> int:
+        nonlocal next_index_calls
+        next_index_calls += 1
+        return 5
+
+    async def fake_create_scene(
+        _db: object,
+        _novel_id: str,
+        data: dict,
+    ) -> dict[str, str]:
+        created_indices.append(data["scene_index"])
+        return {"id": str(uuid.uuid4())}
+
+    monkeypatch.setattr(
+        outline_facade,
+        "get_scenes_by_provenance_key",
+        fake_get_scenes_by_provenance_key,
+    )
+    monkeypatch.setattr(
+        outline_facade,
+        "get_scenes_by_provenance_keys",
+        fake_get_scenes_by_provenance_keys,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        outline_facade,
+        "get_next_scene_index",
+        fake_get_next_scene_index,
+    )
+    monkeypatch.setattr(outline_facade, "create_scene", fake_create_scene)
+
+    candidates = [
+        make_final_scene_candidate(
+            candidate_id=f"candidate-{index}",
+            source_candidate_ids=[f"source-{index}"],
+            source_chapter_indices=[index + 1],
+        )
+        for index in range(3)
+    ]
+
+    result = await SceneCommitter().commit(
+        object(),  # type: ignore[arg-type]
+        str(uuid.uuid4()),
+        candidates,
+        workflow_id="wf-batch-index",
+    )
+
+    assert result.created_count == 3
+    assert single_provenance_calls == 0
+    assert batch_provenance_calls == 1
+    assert next_index_calls == 1
+    assert created_indices == [5, 6, 7]
+
+
+@pytest.mark.asyncio
 async def test_scene_commit_writes_complete_structure_meta(
     db_session: AsyncSession,
     sample_novel_id: str,

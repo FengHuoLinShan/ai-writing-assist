@@ -39,12 +39,6 @@ async def _load_project_terms(
     terms: list[dict[str, str]] = []
     novel_id_str = str(novel_id)
 
-    _list_chars = _container_get("world.list_characters")
-
-    chars_list, _ = await _list_chars(db, novel_id_str, limit=999)
-    for char in chars_list:
-        _add_term(terms, term="", target_id=str(char.entity_id), target_type="character")
-
     try:
         _list_entity_terms = _container_get("world.list_entity_terms")
 

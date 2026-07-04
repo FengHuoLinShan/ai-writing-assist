@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.map_repositories import (
     MapConfigRepository,
     MapLocationBindingRepository,
@@ -18,10 +18,10 @@ from modules.world.map_schemas import (
     MapConfigListResponse,
     MapConfigResponse,
     MapConfigUpdate,
+    MapDynamicStateResponse,
     MapStateResponse,
 )
 from modules.world.repositories import CoreEntityRepository
-from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from modules.world.services.map_context import MapContext
 from modules.world.services.map_state_assembler import MapStateAssembler
@@ -62,6 +62,9 @@ class MapConfigService(
             ctx=self._ctx,
         )
 
+    def _raise_404(self, id: str) -> None:
+        raise NotFoundError(f"{self.label} {id} not found", code="map_not_found")
+
     # Override: list 加 parent_map_id 过滤 + 返 ListResponse 包装
     async def list(  # type: ignore[override]
         self,
@@ -97,9 +100,9 @@ class MapConfigService(
             pid = parse_uuid(data.parent_map_id, "parent_map_id")
             parent = await self.repo.get(db, pid)
             if parent is None or parent.novel_id != nid:
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail="parent_map_id 不存在或不属于该项目",
+                raise ValidationError(
+                    "parent_map_id 不存在或不属于该项目",
+                    code="invalid_parent_map",
                 )
             parent_map_id_uuid = pid
 
@@ -108,17 +111,15 @@ class MapConfigService(
             eid = parse_uuid(data.parent_entity_id, "parent_entity_id")
             entity = await self._entity_repo.get(db, eid)
             if entity is None or entity.novel_id != nid:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"实体 {data.parent_entity_id} 不存在",
+                raise NotFoundError(
+                    f"实体 {data.parent_entity_id} 不存在",
+                    code="entity_not_found",
                 )
             if entity.entity_type != "location":
-                raise HTTPException(
-                    status_code=http_status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"实体 {entity.name} 类型为 {entity.entity_type}，"
-                        "parent_entity_id 必须为 location 类型"
-                    ),
+                raise ValidationError(
+                    f"实体 {entity.name} 类型为 {entity.entity_type}，"
+                    "parent_entity_id 必须为 location 类型",
+                    code="invalid_parent_entity_type",
                 )
 
         # PostgreSQL NULL 不参与 unique 约束，业务层按同父级精确查重。
@@ -129,9 +130,9 @@ class MapConfigService(
             parent_map_id=parent_map_id_uuid,
         )
         if existing is not None:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail=f"同层级已存在名为 {data.name!r} 的地图",
+            raise ConflictError(
+                f"同层级已存在名为 {data.name!r} 的地图",
+                code="duplicate_map_name",
             )
 
         values: dict[str, Any] = {
@@ -187,7 +188,7 @@ class MapConfigService(
             if value is not None:
                 values[field] = value
 
-        obj = await self.repo.update(db, mid, values)
+        obj = await self.repo.update(db, existing, values)
         self._assert_found_in_novel(obj, map_id, nid)
         return self._to_response(obj)
 
@@ -218,6 +219,22 @@ class MapConfigService(
             scene_id=scene_id,
         )
 
+    async def get_dynamic_state(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        *,
+        scene_id: str | None = None,
+    ) -> MapDynamicStateResponse:
+        """聚合 Scene 相关动态层，避免切换 Scene 时重取静态地图数据。"""
+        return await self._state_assembler.assemble_dynamic(
+            db,
+            novel_id,
+            map_id,
+            scene_id=scene_id,
+        )
+
     # 新增: 快速生成详图地形（PRD §路径 3）
     async def generate(
         self,
@@ -232,9 +249,9 @@ class MapConfigService(
 
         # PRD §路径3：快速生成是详图（city/region/dungeon）功能，禁止对 world 地图调用
         if config.map_type == "world":
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="快速生成仅用于详图（city/region/dungeon），世界地图请用模板创建",
+            raise ValidationError(
+                "快速生成仅用于详图（city/region/dungeon），世界地图请用模板创建",
+                code="invalid_map_generation_target",
             )
 
         # 清空现有 tile 再生成（demo 阶段允许直接重建）

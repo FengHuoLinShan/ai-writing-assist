@@ -27,7 +27,7 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: `python -m http.server ${frontendPort}`,
+      command: `FRONTEND_PORT=${frontendPort} npm run dev`,
       url: frontendBase,
       timeout: 60000,
       reuseExistingServer: !process.env.CI,

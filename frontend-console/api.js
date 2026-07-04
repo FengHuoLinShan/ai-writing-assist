@@ -193,6 +193,35 @@ function buildQueryString(params = {}) {
   return parts.length ? "?" + parts.join("&") : ""
 }
 
+function withQuery(path, params = {}) {
+  return path + buildQueryString(params)
+}
+
+function jsonRequest(path, method, payload, options = {}) {
+  const requestOptions = {
+    method,
+    ...options,
+  }
+  if (payload !== undefined) requestOptions.body = JSON.stringify(payload)
+  return request(path, requestOptions)
+}
+
+function post(path, payload, options = {}) {
+  return jsonRequest(path, "POST", payload, options)
+}
+
+function put(path, payload, options = {}) {
+  return jsonRequest(path, "PUT", payload, options)
+}
+
+function patch(path, payload, options = {}) {
+  return jsonRequest(path, "PATCH", payload, options)
+}
+
+function deleteRequest(path) {
+  return request(path, { method: "DELETE" })
+}
+
 // ============================================================
 // API 对象
 // ============================================================
@@ -202,76 +231,48 @@ const api = {
   // 项目
   // ============================================================
   projects: {
-    /** 获取项目列表 */
     async list() {
       return request("/projects")
     },
 
-    /** 创建项目 */
     async create(payload) {
-      return request("/projects", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/projects", payload)
     },
 
-    /** 获取项目详情 */
     async get(id) {
       return request(`/projects/${id}`)
     },
 
-    /** 更新项目 */
     async update(id, payload) {
-      return request(`/projects/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return put(`/projects/${id}`, payload)
     },
 
-    /** 删除项目（软删除，移至回收站） */
     async remove(id) {
-      return request(`/projects/${id}`, { method: "DELETE" })
+      return deleteRequest(`/projects/${id}`)
     },
-    /** 获取回收站项目列表 */
     async listDeleted(skip = 0, limit = 20) {
-      return request("/projects/recycle-bin" + buildQueryString({ skip, limit }))
+      return request(withQuery("/projects/recycle-bin", { skip, limit }))
     },
-    /** 从回收站恢复项目 */
     async restore(id) {
-      return request(`/projects/${id}/restore`, { method: "POST" })
+      return post(`/projects/${id}/restore`)
     },
-    /** 永久删除项目（不可恢复） */
     async permanentDelete(id) {
-      return request(`/projects/${id}/permanent`, { method: "DELETE" })
+      return deleteRequest(`/projects/${id}/permanent`)
     },
-    /** 获取 LLM 供应商模板 */
     async listLlmProviderTemplates() {
       return request("/projects/llm/provider-templates")
     },
-    /** 获取项目级 LLM 配置（API Key 不会回显） */
     async getLlmSettings(id) {
       return request(`/projects/${id}/llm-settings`)
     },
-    /** 更新项目级 LLM 配置 */
     async updateLlmSettings(id, payload) {
-      return request(`/projects/${id}/llm-settings`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return put(`/projects/${id}/llm-settings`, payload)
     },
-    /** 提交项目级智能去重扫描任务 */
     async startSmartDedupScan(id, payload = {}) {
-      return request(`/projects/${id}/smart-dedup/scan`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(`/projects/${id}/smart-dedup/scan`, payload)
     },
-    /** 应用已确认的项目级智能去重建议 */
     async applySmartDedup(id, payload) {
-      return request(`/projects/${id}/smart-dedup/apply`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(`/projects/${id}/smart-dedup/apply`, payload)
     },
   },
 
@@ -279,191 +280,122 @@ const api = {
   // 世界对象
   // ============================================================
   world: {
-    /** 获取世界对象列表 */
     async listEntities(params = {}) {
-      return request("/world/entities" + buildQueryString(params))
+      return request(withQuery("/world/entities", params))
     },
 
-    /** 获取世界对象详情 */
     async getEntity(id, novelId) {
-      return request(`/world/entities/${id}${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/world/entities/${id}`, { novel_id: novelId }))
     },
 
-    /** 创建世界对象 */
     async createEntity(payload, novelId) {
-      return request(`/world/entities${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/world/entities", { novel_id: novelId }), payload)
     },
 
-    /** 更新世界对象 */
     async updateEntity(id, payload, novelId) {
-      return request(`/world/entities/${id}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return put(withQuery(`/world/entities/${id}`, { novel_id: novelId }), payload)
     },
 
-    /** 将草稿/候选世界对象提升为正史 */
     async promoteEntity(id, novelId, payload = {}) {
-      return request(`/world/entities/${id}/promote${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/entities/${id}/promote`, { novel_id: novelId }), payload)
     },
 
-    /** 提交世界对象补抽任务 */
     async extractEntities(payload) {
-      return request("/world/entities/extract", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/world/entities/extract", payload)
     },
 
-    /** 提交别名/关系补抽任务 */
     async extractAliasRelations(payload) {
-      return request("/world/alias-relations/extract", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/world/alias-relations/extract", payload)
     },
 
-    /** 删除世界对象 */
     async deleteEntity(id, novelId) {
-      return request(`/world/entities/${id}${buildQueryString({ novel_id: novelId })}`, { method: "DELETE" })
+      return deleteRequest(withQuery(`/world/entities/${id}`, { novel_id: novelId }))
     },
 
-    /** 获取自动入库批次分组列表 */
     async listEntityBatches(params = {}) {
-      return request("/world/entity-batches" + buildQueryString(params))
+      return request(withQuery("/world/entity-batches", params))
     },
 
-    /** 获取关系列表 */
     async listRelationships(params = {}) {
-      return request("/world/relations" + buildQueryString(params))
+      return request(withQuery("/world/relations", params))
     },
 
-    /** 创建关系 */
     async createRelationship(payload, novelId) {
-      return request(`/world/relations${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/world/relations", { novel_id: novelId }), payload)
     },
 
-    /** 删除关系 */
     async deleteRelationship(id, params = {}) {
-      return request(`/world/relations/${id}` + buildQueryString(params), { method: "DELETE" })
+      return deleteRequest(withQuery(`/world/relations/${id}`, params))
     },
 
-    /** 获取别名列表 */
     async listAliases(params = {}) {
-      return request("/world/aliases" + buildQueryString(params))
+      return request(withQuery("/world/aliases", params))
     },
 
-    /** 创建别名 */
     async createAlias(payload, novelId) {
-      return request(`/world/aliases${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/world/aliases", { novel_id: novelId }), payload)
     },
 
-    /** 删除别名（core_entities.aliases JSONB） */
     async deleteAlias(entityId, alias, params = {}) {
       params.alias = alias
-      return request(`/world/entities/${entityId}/aliases` + buildQueryString(params), { method: "DELETE" })
+      return deleteRequest(withQuery(`/world/entities/${entityId}/aliases`, params))
     },
 
-    /** 合并候选实体到目标实体 */
     async mergeEntity(candidateId, targetEntityId, novelId) {
-      return request(`/world/entities/${candidateId}/merge${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify({ target_entity_id: targetEntityId }),
-      })
+      return post(withQuery(`/world/entities/${candidateId}/merge`, { novel_id: novelId }), { target_entity_id: targetEntityId })
     },
 
-    /** 创建世界对象 AI 融合建议任务 */
     async createEntityFusionSuggestions(data) {
-      return request("/world/entities/fusion-suggestions", {
-        method: "POST",
-        body: JSON.stringify(data),
-      })
+      return post("/world/entities/fusion-suggestions", data)
     },
 
-    /** 应用已确认的世界对象融合建议 */
     async applyEntityFusionSuggestions(data) {
-      return request("/world/entities/fusion-suggestions/apply", {
-        method: "POST",
-        body: JSON.stringify(data),
-      })
+      return post("/world/entities/fusion-suggestions/apply", data)
     },
 
-    /** 回滚实体到指定场景索引 */
     async rollbackEntity(entityId, targetSceneIndex, novelId) {
-      return request(`/world/entities/${entityId}/rollback${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify({ target_scene_index: targetSceneIndex }),
-      })
+      return post(withQuery(`/world/entities/${entityId}/rollback`, { novel_id: novelId }), { target_scene_index: targetSceneIndex })
     },
 
-    /** 列出人物知识边界 */
     async listKnowledge(characterId, novelId) {
-      return request(`/world/characters/${characterId}/knowledge${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/world/characters/${characterId}/knowledge`, { novel_id: novelId }))
     },
 
-    /** 创建人物知识边界 */
     async createKnowledge(characterId, payload, novelId) {
-      return request(`/world/characters/${characterId}/knowledge${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/characters/${characterId}/knowledge`, { novel_id: novelId }), payload)
     },
 
     // ============================================================
     // 动态地图（PRD §6，/api/world/maps）
     // ============================================================
 
-    /** 列出地图 */
     async listMaps(params = {}) {
-      return request("/world/maps" + buildQueryString(params))
+      return request(withQuery("/world/maps", params))
     },
-    /** 获取单个地图 */
     async getMap(mapId, novelId) {
-      return request(`/world/maps/${mapId}${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/world/maps/${mapId}`, { novel_id: novelId }))
     },
-    /** 创建地图 */
     async createMap(payload, novelId) {
-      return request(`/world/maps${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/world/maps", { novel_id: novelId }), payload)
     },
-    /** 更新地图 */
     async updateMap(mapId, payload, novelId) {
-      return request(`/world/maps/${mapId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/world/maps/${mapId}`, { novel_id: novelId }), payload)
     },
-    /** 删除地图（危险操作，前端二次确认） */
     async deleteMap(mapId, novelId) {
-      return request(`/world/maps/${mapId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/world/maps/${mapId}`, { novel_id: novelId }))
     },
-    /** 快速生成详图地形 */
     async generateMap(mapId, novelId) {
-      return request(`/world/maps/${mapId}/generate${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-      })
+      return post(withQuery(`/world/maps/${mapId}/generate`, { novel_id: novelId }))
     },
-    /** 获取地图聚合状态（map + 面包屑 + 地形 + 地点绑定） */
     async getMapState(mapId, novelId, sceneId = null) {
       const params = { novel_id: novelId }
       if (sceneId) params.scene_id = sceneId
-      return request(`/world/maps/${mapId}/state${buildQueryString(params)}`)
+      return request(withQuery(`/world/maps/${mapId}/state`, params))
+    },
+    async getMapDynamicState(mapId, novelId, sceneId = null) {
+      const params = { novel_id: novelId }
+      if (sceneId) params.scene_id = sceneId
+      return request(withQuery(`/world/maps/${mapId}/state/dynamic`, params))
     },
     async getMapDashboard(mapId, novelId, sceneId = null, focusEntityId = null, focusItemId = null) {
       const params = {
@@ -472,7 +404,7 @@ const api = {
         focus_entity_id: focusEntityId,
         focus_item_id: focusItemId,
       }
-      return request(`/world/maps/${mapId}/dashboard${buildQueryString(params)}`)
+      return request(withQuery(`/world/maps/${mapId}/dashboard`, params))
     },
     async getMapPlayback(mapId, novelId, sceneId = null, focusEntityId = null, includeCandidates = true) {
       const params = {
@@ -481,182 +413,115 @@ const api = {
         focus_entity_id: focusEntityId,
         include_candidates: includeCandidates,
       }
-      return request(`/world/maps/${mapId}/playback${buildQueryString(params)}`)
+      return request(withQuery(`/world/maps/${mapId}/playback`, params))
     },
-    /** 获取统一地图打开目标 */
     async getMapOpenTarget(novelId, { sceneId = null, focusEntityId = null } = {}) {
-      return request("/world/maps/open-target" + buildQueryString({
+      return request(withQuery("/world/maps/open-target", {
         novel_id: novelId,
         scene_id: sceneId,
         focus_entity_id: focusEntityId,
       }))
     },
-    /** 获取写作页 Scene 地图摘要 */
     async getMapSceneSummary(novelId, sceneId) {
-      return request("/world/maps/scene-summary" + buildQueryString({
+      return request(withQuery("/world/maps/scene-summary", {
         novel_id: novelId,
         scene_id: sceneId,
       }))
     },
     async getMapQuickCreateContext(novelId, includeCandidates = false) {
-      return request("/world/maps/quick-create/context" + buildQueryString({
+      return request(withQuery("/world/maps/quick-create/context", {
         novel_id: novelId,
         include_candidates: includeCandidates,
       }))
     },
     async previewQuickCreateMap(payload, novelId) {
-      return request(`/world/maps/quick-create/preview${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/world/maps/quick-create/preview", { novel_id: novelId }), payload)
     },
     async confirmQuickCreateMap(payload, novelId) {
-      return request(`/world/maps/quick-create/confirm${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/world/maps/quick-create/confirm", { novel_id: novelId }), payload)
     },
     async listLocationLayouts(mapId, novelId) {
-      return request(`/world/maps/${mapId}/location-layouts${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/world/maps/${mapId}/location-layouts`, { novel_id: novelId }))
     },
     async replaceLocationLayouts(mapId, payload, novelId) {
-      return request(`/world/maps/${mapId}/location-layouts${buildQueryString({ novel_id: novelId })}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return put(withQuery(`/world/maps/${mapId}/location-layouts`, { novel_id: novelId }), payload)
     },
     async getMapTerrain(mapId, novelId) {
-      return request(`/world/maps/${mapId}/terrain${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/world/maps/${mapId}/terrain`, { novel_id: novelId }))
     },
     async replaceTerrainLayerPatches(mapId, layerId, payload, novelId) {
-      return request(`/world/maps/${mapId}/terrain/layers/${layerId}/patches${buildQueryString({ novel_id: novelId })}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return put(withQuery(`/world/maps/${mapId}/terrain/layers/${layerId}/patches`, { novel_id: novelId }), payload)
     },
     async createTerrainBinding(mapId, regionId, payload, novelId) {
-      return request(`/world/maps/${mapId}/terrain/regions/${regionId}/bindings${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/maps/${mapId}/terrain/regions/${regionId}/bindings`, { novel_id: novelId }), payload)
     },
     async updateTerrainBinding(mapId, bindingId, payload, novelId) {
-      return request(`/world/maps/${mapId}/terrain/bindings/${bindingId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/world/maps/${mapId}/terrain/bindings/${bindingId}`, { novel_id: novelId }), payload)
     },
-    /** 批量更新地形 */
     async batchUpdateTiles(mapId, payload, novelId) {
-      return request(`/world/maps/${mapId}/tiles${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/world/maps/${mapId}/tiles`, { novel_id: novelId }), payload)
     },
-    /** 批量创建地点绑定 */
     async createLocationBindings(mapId, payload, novelId) {
-      return request(`/world/maps/${mapId}/location-bindings${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/maps/${mapId}/location-bindings`, { novel_id: novelId }), payload)
     },
-    /** 更新单个地点绑定 */
     async updateLocationBinding(mapId, bindingId, payload, novelId) {
-      return request(`/world/maps/${mapId}/location-bindings/${bindingId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/world/maps/${mapId}/location-bindings/${bindingId}`, { novel_id: novelId }), payload)
     },
-    /** 删除地点绑定 */
     async deleteLocationBinding(bindingId, mapId, novelId) {
-      return request(`/world/maps/${mapId}/location-bindings/${bindingId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/world/maps/${mapId}/location-bindings/${bindingId}`, { novel_id: novelId }))
     },
     async listMapMarkers(mapId, novelId, sceneId = null) {
       const params = { novel_id: novelId }
       if (sceneId) params.scene_id = sceneId
-      return request(`/world/maps/${mapId}/markers${buildQueryString(params)}`)
+      return request(withQuery(`/world/maps/${mapId}/markers`, params))
     },
     async createMapMarker(mapId, data, novelId) {
-      return request(`/world/maps/${mapId}/markers${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      })
+      return post(withQuery(`/world/maps/${mapId}/markers`, { novel_id: novelId }), data)
     },
     async updateMapMarker(mapId, markerId, data, novelId) {
-      return request(`/world/maps/${mapId}/markers/${markerId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      })
+      return patch(withQuery(`/world/maps/${mapId}/markers/${markerId}`, { novel_id: novelId }), data)
     },
     async deleteMapMarker(mapId, markerId, novelId) {
-      return request(`/world/maps/${mapId}/markers/${markerId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/world/maps/${mapId}/markers/${markerId}`, { novel_id: novelId }))
     },
-    /** 获取聚焦模式地图状态（仅含指定组织势力范围） */
     async getFocusState(mapId, factionEntityId, novelId) {
-      return request(`/world/maps/${mapId}/focus${buildQueryString({ novel_id: novelId, faction_entity_id: factionEntityId })}`)
+      return request(withQuery(`/world/maps/${mapId}/focus`, { novel_id: novelId, faction_entity_id: factionEntityId }))
     },
-    /** 批量创建势力范围地块 */
     async createTerritories(mapId, payload, novelId) {
-      return request(`/world/maps/${mapId}/territories${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/maps/${mapId}/territories`, { novel_id: novelId }), payload)
     },
-    /** 按组织删除全部势力范围 */
     async deleteTerritoriesByFaction(mapId, factionEntityId, novelId) {
-      return request(`/world/maps/${mapId}/territories${buildQueryString({ novel_id: novelId, faction_entity_id: factionEntityId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/world/maps/${mapId}/territories`, { novel_id: novelId, faction_entity_id: factionEntityId }))
     },
     async listMapObservations(mapId, novelId, reviewState = null) {
-      return request(`/world/maps/${mapId}/observations${buildQueryString({ novel_id: novelId, review_state: reviewState })}`)
+      return request(withQuery(`/world/maps/${mapId}/observations`, { novel_id: novelId, review_state: reviewState }))
     },
     async createMapObservation(mapId, payload, novelId) {
-      return request(`/world/maps/${mapId}/observations${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/maps/${mapId}/observations`, { novel_id: novelId }), payload)
     },
     async updateMapObservationReview(mapId, observationId, novelId, reviewState) {
-      return request(`/world/maps/${mapId}/observations/${observationId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify({ review_state: reviewState }),
-      })
+      const payload = reviewState && typeof reviewState === "object"
+        ? reviewState
+        : { review_state: reviewState }
+      return patch(withQuery(`/world/maps/${mapId}/observations/${observationId}`, { novel_id: novelId }), payload)
     },
     async batchReviewMapObservations(mapId, observationIds, action, novelId) {
-      return request(`/world/maps/${mapId}/observations/batch-review${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify({ observation_ids: observationIds, action }),
-      })
+      return post(withQuery(`/world/maps/${mapId}/observations/batch-review`, { novel_id: novelId }), { observation_ids: observationIds, action })
     },
     async runMapBatchAction(mapId, novelId, payload) {
-      return request(`/world/maps/${mapId}/batch-actions${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/world/maps/${mapId}/batch-actions`, { novel_id: novelId }), payload)
     },
     async confirmMapObservation(mapId, observationId, novelId) {
-      return request(`/world/maps/${mapId}/observations/${observationId}/confirm${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-      })
+      return post(withQuery(`/world/maps/${mapId}/observations/${observationId}/confirm`, { novel_id: novelId }))
     },
     async ignoreMapObservation(mapId, observationId, novelId) {
-      return request(`/world/maps/${mapId}/observations/${observationId}/ignore${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-      })
+      return post(withQuery(`/world/maps/${mapId}/observations/${observationId}/ignore`, { novel_id: novelId }))
     },
     async listMapFacts(mapId, novelId, factStatus = "confirmed") {
-      return request(`/world/maps/${mapId}/facts${buildQueryString({ novel_id: novelId, fact_status: factStatus })}`)
+      return request(withQuery(`/world/maps/${mapId}/facts`, { novel_id: novelId, fact_status: factStatus }))
     },
     async updateMapFactStatus(mapId, factId, novelId, factStatus) {
-      return request(`/world/maps/${mapId}/facts/${factId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify({ fact_status: factStatus }),
-      })
+      return patch(withQuery(`/world/maps/${mapId}/facts/${factId}`, { novel_id: novelId }), { fact_status: factStatus })
     },
   },
 
@@ -668,50 +533,30 @@ const api = {
   // RAG 检索
   // ============================================================
   rag: {
-    /** 搜索 RAG */
     async search(payload, novelId) {
-      return request(`/rag/retrieve${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-        timeout: RAG_SEARCH_TIMEOUT,
-      })
+      return post(withQuery("/rag/retrieve", { novel_id: novelId }), payload, { timeout: RAG_SEARCH_TIMEOUT })
     },
 
-    /** 重建索引 */
     async rebuild(payload) {
       const { novel_id, start_chapter, end_chapter } = payload || {}
       if (!novel_id) throw new Error("重建索引需要先选择项目")
-      return request("/rag/rebuild", {
-        method: "POST",
-        body: JSON.stringify({ novel_id, start_chapter, end_chapter }),
-      })
+      return post("/rag/rebuild", { novel_id, start_chapter, end_chapter })
     },
 
-    /** 预热 RAG embedding worker */
     async prewarm() {
-      return request("/rag/prewarm", {
-        method: "POST",
-        body: JSON.stringify({}),
-        timeout: RAG_PREWARM_TIMEOUT,
-      })
+      return post("/rag/prewarm", {}, { timeout: RAG_PREWARM_TIMEOUT })
     },
 
-    /** 重试失败 embedding */
     async retryEmbeddings(payload) {
       const { novel_id, start_chapter, end_chapter, statuses } = payload || {}
       if (!novel_id) throw new Error("重试失败向量需要先选择项目")
-      return request("/rag/retry-embeddings", {
-        method: "POST",
-        body: JSON.stringify({ novel_id, start_chapter, end_chapter, statuses }),
-      })
+      return post("/rag/retry-embeddings", { novel_id, start_chapter, end_chapter, statuses })
     },
 
-    /** 获取索引状态 */
     async status(projectId) {
-      return request("/rag/chunks" + buildQueryString({ novel_id: projectId }))
+      return request(withQuery("/rag/chunks", { novel_id: projectId }))
     },
 
-    /** 获取 RAG 运行指标 */
     async metrics() {
       return request("/rag/metrics")
     },
@@ -721,38 +566,24 @@ const api = {
   // 上下文
   // ============================================================
   context: {
-    /** 编译上下文 */
     async compile(payload) {
-      return request("/context/compile", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/context/compile", payload)
     },
 
-    /** 渲染上下文 Markdown */
     async render(payload) {
-      return request("/context/render", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/context/render", payload)
     },
 
-    /** 确认 AI 参考资料 */
     async confirm(payload) {
-      return request("/context/confirm", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/context/confirm", payload)
     },
 
-    /** 列出上下文快照审计记录 */
     async listSnapshots(params = {}) {
-      return request("/context/snapshots" + buildQueryString(params))
+      return request(withQuery("/context/snapshots", params))
     },
 
-    /** 获取上下文快照审计详情 */
     async getSnapshot(snapshotId, params = {}) {
-      return request(`/context/snapshots/${snapshotId}` + buildQueryString(params))
+      return request(withQuery(`/context/snapshots/${snapshotId}`, params))
     },
   },
 
@@ -760,116 +591,72 @@ const api = {
   // 草稿
   // ============================================================
   writing: {
-    /** 发布章节（创建新版本 + RAG 索引 + memory 快照） */
     async publish(payload) {
-      return request("/writing/drafts", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/writing/drafts", payload)
     },
 
-    /** 暂存草稿（原地更新最新版本，不创建新版本） */
     async autosave(draftId, payload, novelId) {
-      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      })
+      return put(withQuery(`/writing/drafts/${draftId}`, { novel_id: novelId }), payload)
     },
 
-    /** 创建纯草稿版本，不触发发布任务 */
     async autosaveDraftOnly(payload) {
-      return request("/writing/drafts/autosave", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/writing/drafts/autosave", payload)
     },
 
-    /** 获取章节最新草稿 */
     async getDraft(chapterIndex, novelId) {
-      return request(`/writing/chapters/${chapterIndex}/draft${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/writing/chapters/${chapterIndex}/draft`, { novel_id: novelId }))
     },
 
-    /** 获取指定草稿 */
     async get(draftId, novelId) {
-      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/writing/drafts/${draftId}`, { novel_id: novelId }))
     },
 
-    /** 删除单个版本 */
     async deleteDraft(draftId, novelId) {
-      return request(`/writing/drafts/${draftId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/writing/drafts/${draftId}`, { novel_id: novelId }))
     },
 
-    /** 删除整章所有版本 */
     async deleteChapter(chapterIndex, novelId) {
-      return request(`/writing/chapters/${chapterIndex}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/writing/chapters/${chapterIndex}`, { novel_id: novelId }))
     },
 
-    /** 获取有草稿的章节索引列表 */
     async listChapters(novelId) {
-      return request(`/writing/chapters${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery("/writing/chapters", { novel_id: novelId }))
     },
 
-    /** 获取章节版本历史 */
     async getVersionHistory(chapterIndex, novelId) {
-      return request(`/writing/chapters/${chapterIndex}/versions${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/writing/chapters/${chapterIndex}/versions`, { novel_id: novelId }))
     },
 
-    /** 断章：从当前章节指定 offset 切分为新章节 */
     async splitChapter(chapterIndex, payload, novelId) {
-      return request(`/writing/chapters/${chapterIndex}/split${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery(`/writing/chapters/${chapterIndex}/split`, { novel_id: novelId }), payload)
     },
 
-    /** 提交 AI 正文候选草稿生成任务 */
     async generate(payload) {
-      return request("/writing/generate", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/writing/generate", payload)
     },
 
-    /** 创建剧情设定冲突检查 */
     async createConflictCheck(payload) {
-      return request("/writing/conflict-checks", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/writing/conflict-checks", payload)
     },
 
-    /** 获取冲突检查历史 */
     async listConflictChecks(params = {}) {
-      return request("/writing/conflict-checks" + buildQueryString(params))
+      return request(withQuery("/writing/conflict-checks", params))
     },
 
     async getConflictCheck(checkId, novelId) {
-      return request(`/writing/conflict-checks/${checkId}${buildQueryString({ novel_id: novelId })}`)
+      return request(withQuery(`/writing/conflict-checks/${checkId}`, { novel_id: novelId }))
     },
 
     async updateConflictItem(itemId, novelId, payload) {
-      return request(`/writing/conflict-check-items/${itemId}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/writing/conflict-check-items/${itemId}`, { novel_id: novelId }), payload)
     },
 
     async runConflictAiReview(checkId, payload) {
-      return request(`/writing/conflict-checks/${checkId}/ai-review`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(`/writing/conflict-checks/${checkId}/ai-review`, payload)
     },
 
     async requestConflictAiSuggestion(itemId, payload) {
-      return request(`/writing/conflict-check-items/${itemId}/ai-suggestion`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post(`/writing/conflict-check-items/${itemId}/ai-suggestion`, payload)
     },
   },
 
@@ -877,28 +664,16 @@ const api = {
   // 生成中心
   // ============================================================
   generate: {
-    /** 生成世界与人物结构 */
     async worldCharacter(payload) {
-      return request("/world/entities/extract", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/world/entities/extract", payload)
     },
 
-    /** 生成剧情结构 */
     async plotStructure(payload) {
-      return request("/outline/generate", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/outline/generate", payload)
     },
 
-    /** 生成章节与场景结构 */
     async chapterScene(payload) {
-      return request("/outline/chapter-scenes/extract", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/outline/chapter-scenes/extract", payload)
     },
   },
 
@@ -918,7 +693,6 @@ const api = {
   // 导入
   // ============================================================
   imports: {
-    /** 上传并导入小说文件 */
     async upload(novelId, file) {
       const formData = new FormData()
       formData.append("novel_id", novelId)
@@ -929,31 +703,18 @@ const api = {
       })
     },
 
-    /** 获取导入记录列表 */
     async list(params = {}) {
-      return request("/imports" + buildQueryString(params))
+      return request(withQuery("/imports", params))
     },
 
-    /** 获取导入记录详情 */
     async get(recordId, params = {}) {
-      return request(`/imports/${recordId}` + buildQueryString(params))
+      return request(withQuery(`/imports/${recordId}`, params))
     },
 
-    /** 提交深度导入任务（全自动三步：抽取 + 人物同步 + 剧情生成） */
     async deepImport(novelId, startChapter, endChapter, force = false) {
-      return request("/imports/deep", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          novel_id: novelId,
-          start_chapter: startChapter,
-          end_chapter: endChapter,
-          force,
-        }),
-      })
+      return post("/imports/deep", { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force })
     },
 
-    /** 提交分阶段自动提取任务 */
     async startStage(stage, novelId, startChapter, endChapter, force = false) {
       const endpoints = {
         scenes: "/imports/stages/scenes",
@@ -962,32 +723,15 @@ const api = {
       }
       const endpoint = endpoints[stage]
       if (!endpoint) throw new Error(`unsupported import stage: ${stage}`)
-      return request(endpoint, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          novel_id: novelId,
-          start_chapter: startChapter,
-          end_chapter: endChapter,
-          force,
-        }),
-      })
+      return post(endpoint, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force })
     },
 
-    /** 继续可恢复的深度导入任务 */
     async resumeDeepImport(taskId) {
-      return request("/imports/deep/resume", {
-        method: "POST",
-        body: JSON.stringify({ task_id: taskId }),
-      })
+      return post("/imports/deep/resume", { task_id: taskId })
     },
 
-    /** 放弃可恢复的深度导入任务，并触发后端清理 */
     async abandonDeepImport(taskId) {
-      return request("/imports/deep/abandon", {
-        method: "POST",
-        body: JSON.stringify({ task_id: taskId }),
-      })
+      return post("/imports/deep/abandon", { task_id: taskId })
     },
   },
 
@@ -995,267 +739,131 @@ const api = {
   // 大纲
   // ============================================================
   outline: {
-    /** 列出剧情线 */
     async listThreads(novelId, params = {}) {
-      return request("/outline/threads" + buildQueryString({ novel_id: novelId, ...params }))
+      return request(withQuery("/outline/threads", { novel_id: novelId, ...params }))
     },
 
-    /** 创建剧情线 */
     async createThread(novelId, data) {
-      return request(`/outline/threads?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/threads", { novel_id: novelId }), data)
     },
 
-    /** 更新剧情线 */
     async updateThread(threadId, novelId, data) {
-      return request(`/outline/threads/${threadId}?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return patch(withQuery(`/outline/threads/${threadId}`, { novel_id: novelId }), data)
     },
 
-    /** 删除剧情线 */
     async deleteThread(threadId, novelId) {
-      return request(`/outline/threads/${threadId}?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/outline/threads/${threadId}`, { novel_id: novelId }))
     },
 
-    /** 列出篇章纲 */
     async listArcs(novelId, params = {}) {
-      return request("/outline/arcs" + buildQueryString({ novel_id: novelId, ...params }))
+      return request(withQuery("/outline/arcs", { novel_id: novelId, ...params }))
     },
 
-    /** 创建篇章纲 */
     async createArc(novelId, data) {
-      return request(`/outline/arcs?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/arcs", { novel_id: novelId }), data)
     },
-    /** 更新篇章纲 */
     async updateArc(arcId, novelId, data) {
-      return request(`/outline/arcs/${arcId}?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return patch(withQuery(`/outline/arcs/${arcId}`, { novel_id: novelId }), data)
     },
-    /** 删除篇章纲 */
     async deleteArc(arcId, novelId) {
-      return request(`/outline/arcs/${arcId}?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/outline/arcs/${arcId}`, { novel_id: novelId }))
     },
 
-    /** 提交剧情分析任务 */
     async analyze(payload) {
-      return request("/outline/analyze", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/outline/analyze", payload)
     },
 
-    /** 提交剧情结构生成任务 */
     async generate(payload) {
-      return request("/outline/generate", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/outline/generate", payload)
     },
 
-    /** 提交章节/Scene 卡提取任务 */
     async extractChapterScenes(payload) {
-      return request("/outline/chapter-scenes/extract", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      })
+      return post("/outline/chapter-scenes/extract", payload)
     },
 
     // ---- Scene 卡 ----
-    /** 列出场景卡 */
     async listScenes(novelId, skip = 0, limit = 50) {
-      return request("/outline/scenes" + buildQueryString({ novel_id: novelId, skip, limit }))
+      return request(withQuery("/outline/scenes", { novel_id: novelId, skip, limit }))
     },
-    /** 获取单个场景卡 */
     async getScene(sceneId, novelId) {
-      return request(`/outline/scenes/${sceneId}?novel_id=${encodeURIComponent(novelId)}`)
+      return request(withQuery(`/outline/scenes/${sceneId}`, { novel_id: novelId }))
     },
-    /** 创建场景卡 */
     async createScene(novelId, data) {
-      return request(`/outline/scenes?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scenes", { novel_id: novelId }), data)
     },
-    /** 更新场景卡 */
     async updateScene(sceneId, novelId, data) {
-      return request(`/outline/scenes/${sceneId}?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return patch(withQuery(`/outline/scenes/${sceneId}`, { novel_id: novelId }), data)
     },
-    /** 删除场景卡 */
     async deleteScene(sceneId, novelId) {
-      return request(`/outline/scenes/${sceneId}?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/outline/scenes/${sceneId}`, { novel_id: novelId }))
     },
-    /** 按顺序列出所有场景卡 */
     async listScenesOrdered(novelId) {
-      return request("/outline/scenes/ordered?novel_id=" + encodeURIComponent(novelId))
+      return request(withQuery("/outline/scenes/ordered", { novel_id: novelId }))
     },
-    /** 按章节列出场景卡 */
     async listScenesByChapter(novelId, chapterIndex) {
-      return request(`/outline/scenes/by-chapter?novel_id=${encodeURIComponent(novelId)}&chapter_index=${chapterIndex}`)
+      return request(withQuery("/outline/scenes/by-chapter", { novel_id: novelId, chapter_index: chapterIndex }))
     },
-    /** 批量重排 Scene 顺序 */
     async reorderScenes(novelId, sceneIds) {
-      return request(`/outline/scenes/reorder?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ scene_ids: sceneIds }),
-      })
+      return post(withQuery("/outline/scenes/reorder", { novel_id: novelId }), { scene_ids: sceneIds })
     },
-    /** 断章：从 chapter_index 开始将章节移到目标 Scene */
     async splitChapters(novelId, chapterIndex, targetSceneId) {
-      return request(`/outline/scenes/split?novel_id=${encodeURIComponent(novelId)}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ chapter_index: chapterIndex, target_scene_id: targetSceneId || null }),
-      })
+      return post(withQuery("/outline/scenes/split", { novel_id: novelId }), { chapter_index: chapterIndex, target_scene_id: targetSceneId || null })
     },
-    /** 场景工作台聚合数据 */
     async getSceneWorkbench(novelId, selectedSceneId = null, params = {}) {
-      return request("/outline/scene-workbench" + buildQueryString({
+      return request(withQuery("/outline/scene-workbench", {
         novel_id: novelId,
         selected_scene_id: selectedSceneId,
         ...params,
       }))
     },
-    /** 调整 Scene 章节映射 */
     async updateSceneWorkbenchMapping(novelId, sceneId, data) {
-      return request(`/outline/scene-workbench/scenes/${sceneId}/mapping${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return patch(withQuery(`/outline/scene-workbench/scenes/${sceneId}/mapping`, { novel_id: novelId }), data)
     },
-    /** 预览 Scene 合并影响 */
     async previewSceneMerge(novelId, data) {
-      return request(`/outline/scene-workbench/merge/preview${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scene-workbench/merge/preview", { novel_id: novelId }), data)
     },
-    /** 确认执行 Scene 合并 */
     async mergeScenes(novelId, data) {
-      return request(`/outline/scene-workbench/merge${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scene-workbench/merge", { novel_id: novelId }), data)
     },
-    /** 预览手动 Scene 融合结果 */
     async previewSceneFusion(novelId, data) {
-      return request(`/outline/scene-workbench/fusion/preview${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scene-workbench/fusion/preview", { novel_id: novelId }), data)
     },
-    /** 保存或放弃手动 Scene 融合结果 */
     async saveSceneFusion(novelId, data) {
-      return request(`/outline/scene-workbench/fusion/save${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scene-workbench/fusion/save", { novel_id: novelId }), data)
     },
-    /** 创建跨章 Scene 识别任务 */
     async detectCrossChapterScenes(data) {
-      return request("/outline/scene-workbench/cross-chapter/detect", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post("/outline/scene-workbench/cross-chapter/detect", data)
     },
-    /** 预览 Scene 拆分影响 */
     async previewSceneSplit(novelId, data) {
-      return request(`/outline/scene-workbench/split/preview${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scene-workbench/split/preview", { novel_id: novelId }), data)
     },
-    /** 确认执行 Scene 拆分 */
     async splitScene(novelId, data) {
-      return request(`/outline/scene-workbench/split${buildQueryString({ novel_id: novelId })}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(data),
-      })
+      return post(withQuery("/outline/scene-workbench/split", { novel_id: novelId }), data)
     },
 
-    /** 列出伏笔计划 */
     async listForeshadowing(novelId, params = {}) {
-      return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId, ...params }))
+      return request(withQuery("/outline/foreshadowing", { novel_id: novelId, ...params }))
     },
-    /** 创建伏笔计划 */
     async createForeshadowing(novelId, payload) {
-      return request("/outline/foreshadowing" + buildQueryString({ novel_id: novelId }), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/outline/foreshadowing", { novel_id: novelId }), payload)
     },
-    /** 更新伏笔计划 */
     async updateForeshadowing(id, novelId, payload) {
-      return request(`/outline/foreshadowing/${id}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/outline/foreshadowing/${id}`, { novel_id: novelId }), payload)
     },
-    /** 删除伏笔计划 */
     async deleteForeshadowing(id, novelId) {
-      return request(`/outline/foreshadowing/${id}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/outline/foreshadowing/${id}`, { novel_id: novelId }))
     },
-    /** 列出揭示计划 */
     async listReveals(novelId, params = {}) {
-      return request("/outline/reveals" + buildQueryString({ novel_id: novelId, ...params }))
+      return request(withQuery("/outline/reveals", { novel_id: novelId, ...params }))
     },
-    /** 创建揭示计划 */
     async createReveal(novelId, payload) {
-      return request("/outline/reveals" + buildQueryString({ novel_id: novelId }), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
+      return post(withQuery("/outline/reveals", { novel_id: novelId }), payload)
     },
-    /** 更新揭示计划 */
     async updateReveal(id, novelId, payload) {
-      return request(`/outline/reveals/${id}${buildQueryString({ novel_id: novelId })}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
+      return patch(withQuery(`/outline/reveals/${id}`, { novel_id: novelId }), payload)
     },
-    /** 删除揭示计划 */
     async deleteReveal(id, novelId) {
-      return request(`/outline/reveals/${id}${buildQueryString({ novel_id: novelId })}`, {
-        method: "DELETE",
-      })
+      return deleteRequest(withQuery(`/outline/reveals/${id}`, { novel_id: novelId }))
     },
   },
 
@@ -1271,15 +879,10 @@ const api = {
   // 任务（异步操作）
   // ============================================================
   tasks: {
-    /** 提交异步任务 */
     async submit(taskType, meta = {}) {
-      return request("/tasks", {
-        method: "POST",
-        body: JSON.stringify({ task_type: taskType, meta }),
-      })
+      return post("/tasks", { task_type: taskType, meta })
     },
 
-    /** 查询任务状态 */
     async getStatus(taskId, novelId = null) {
       const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
       const query = resolvedNovelId
@@ -1288,7 +891,6 @@ const api = {
       return request(`/tasks/${taskId}${query}`)
     },
 
-    /** 查询任务详情（getStatus 的别名，供长轮询流程使用） */
     async get(taskId, novelId = null) {
       return this.getStatus(taskId, novelId)
     },

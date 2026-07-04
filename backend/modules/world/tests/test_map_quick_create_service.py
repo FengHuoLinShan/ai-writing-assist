@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,9 @@ from modules.world.map_schemas import (
 )
 from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
 from modules.world.schemas import EntityRelationCreate
+from modules.world.services.map_location_binding_service import (
+    MapLocationBindingService,
+)
 from modules.world.services.map_quick_create import MapQuickCreateService
 from modules.world.tests.helpers import _create_entity, _create_project
 
@@ -75,6 +79,38 @@ async def test_quick_create_preview_includes_candidates_when_enabled(
 
 
 @pytest.mark.asyncio
+async def test_quick_create_preview_uses_list_repositories_without_count(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    entity_repo = MagicMock()
+    relation_repo = MagicMock()
+    entity_repo.list_by_novel = AsyncMock(side_effect=[[], []])
+    entity_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("quick create should not count entities")
+    )
+    relation_repo.list_by_novel = AsyncMock(return_value=[])
+    relation_repo.get_by_novel = AsyncMock(
+        side_effect=AssertionError("quick create should not count relations")
+    )
+
+    preview = await MapQuickCreateService(
+        entity_repo=entity_repo,
+        relation_repo=relation_repo,
+    ).preview(
+        db_session,
+        novel_id,
+        MapQuickCreatePreviewRequest(include_candidates=True),
+    )
+
+    assert preview.location_layouts == []
+    assert entity_repo.list_by_novel.await_count == 2
+    relation_repo.list_by_novel.assert_awaited_once()
+    entity_repo.get_by_novel.assert_not_awaited()
+    relation_repo.get_by_novel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_quick_create_confirm_creates_one_map_without_new_world_objects(
     db_session: AsyncSession,
 ) -> None:
@@ -110,6 +146,51 @@ async def test_quick_create_confirm_creates_one_map_without_new_world_objects(
     assert len(response.location_bindings) == 1
     assert before_total == after_total
     assert {item.id for item in before} == {item.id for item in after}
+
+
+@pytest.mark.asyncio
+async def test_quick_create_confirm_batches_location_bindings(
+    db_session: AsyncSession,
+) -> None:
+    class BulkOnlyBindingService(MapLocationBindingService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batch_create_many_calls = 0
+
+        async def batch_create(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("quick create should batch all location bindings")
+
+        async def batch_create_many(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.batch_create_many_calls += 1
+            return await super().batch_create_many(*args, **kwargs)
+
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="洛阳",
+        status="canonical",
+    )
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="长安",
+        status="canonical",
+    )
+    binding_service = BulkOnlyBindingService()
+
+    response = await MapQuickCreateService(binding_service=binding_service).confirm(
+        db_session,
+        novel_id,
+        MapQuickCreateConfirmRequest(name="一键地图"),
+    )
+
+    assert binding_service.batch_create_many_calls == 1
+    assert len(response.location_bindings) == 2
+    assert all(binding.is_center for binding in response.location_bindings)
 
 
 @pytest.mark.asyncio

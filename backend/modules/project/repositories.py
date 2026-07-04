@@ -64,10 +64,14 @@ class ProjectRepository:
     async def update(
         self,
         db: AsyncSession,
-        project_id: uuid.UUID,
+        project_or_id: Project | uuid.UUID,
         data: ProjectUpdate,
     ) -> Project | None:
-        project = await self.get(db, project_id)
+        project = (
+            await self.get(db, project_or_id)
+            if isinstance(project_or_id, uuid.UUID)
+            else project_or_id
+        )
         if project is None:
             return None
         update_values: dict[str, object] = {}
@@ -85,10 +89,10 @@ class ProjectRepository:
             if value is not None:
                 update_values[field] = value
         if update_values:
-            stmt = update(Project).where(Project.id == project_id).values(**update_values)
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(project, field, value)
+            db.add(project)
             await db.flush()
-            project = await self.get(db, project_id)
         return project
 
     # ============================================================

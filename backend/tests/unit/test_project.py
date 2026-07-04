@@ -13,16 +13,18 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.project.contracts import ProjectContext
 from modules.project.facade import get_project_context
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     ProjectCreate,
+    ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
 )
@@ -188,6 +190,11 @@ class TestCRUDFunctions:
         db = AsyncMock(spec=AsyncSession)
         updated = await _repo.update(db, uid, ProjectUpdate(title="新标题"))
         assert updated is not None
+        assert updated is original
+        assert updated.title == "新标题"
+        mock_get.assert_awaited_once_with(db, uid)
+        db.add.assert_called_once_with(original)
+        db.flush.assert_awaited_once()
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_update_returns_none_when_missing(
@@ -198,6 +205,22 @@ class TestCRUDFunctions:
         db = AsyncMock(spec=AsyncSession)
         result = await _repo.update(db, uuid.uuid4(), ProjectUpdate(title="x"))
         assert result is None
+
+    @patch("modules.project.repositories.ProjectRepository.get")
+    async def test_update_loaded_project_does_not_fetch_again(
+        self,
+        mock_get: MagicMock,
+    ) -> None:
+        original = Project(id=uuid.uuid4(), title="原始标题")
+        db = AsyncMock(spec=AsyncSession)
+
+        updated = await _repo.update(db, original, ProjectUpdate(title="新标题"))
+
+        assert updated is original
+        assert original.title == "新标题"
+        mock_get.assert_not_called()
+        db.add.assert_called_once_with(original)
+        db.flush.assert_awaited_once()
 
     async def test_soft_delete_returns_true_when_found(self) -> None:
         db = AsyncMock(spec=AsyncSession)
@@ -238,7 +261,9 @@ class TestProjectService:
             created_at=now,
             updated_at=now,
         )
-        svc = ProjectService()
+        repo = MagicMock()
+        repo.create = mock_create
+        svc = ProjectService(repo=repo)
         resp = await svc.create_project(
             AsyncMock(spec=AsyncSession),
             ProjectCreate(title="测试小说", genre="玄幻"),
@@ -254,7 +279,7 @@ class TestProjectService:
     ) -> None:
         mock_get.return_value = None
         svc = ProjectService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.get_project(
                 AsyncMock(spec=AsyncSession),
                 str(uuid.uuid4()),
@@ -268,13 +293,49 @@ class TestProjectService:
     ) -> None:
         mock_update.return_value = None
         svc = ProjectService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.update_project(
                 AsyncMock(spec=AsyncSession),
                 str(uuid.uuid4()),
                 ProjectUpdate(title="x"),
             )
         assert exc.value.status_code == 404
+
+    async def test_update_llm_settings_reuses_loaded_project_for_update(self) -> None:
+        now = datetime.now(UTC)
+        project = Project(
+            id=uuid.uuid4(),
+            title="测试小说",
+            settings={},
+            created_at=now,
+            updated_at=now,
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=project)
+
+        async def fake_update(_db, project_or_id, update_data):
+            project_or_id.settings = update_data.settings
+            return project_or_id
+
+        repo.update = AsyncMock(side_effect=fake_update)
+        svc = ProjectService(repo=repo)
+
+        resp = await svc.update_llm_settings(
+            AsyncMock(spec=AsyncSession),
+            str(project.id),
+            ProjectLLMSettingsUpdate(
+                provider_id="deepseek",
+                base_url="https://api.deepseek.com/v1",
+                model="deepseek-chat",
+                api_key="sk-secret-value",
+            ),
+        )
+
+        assert resp.provider_id == "deepseek"
+        repo.update.assert_awaited_once()
+        assert repo.update.await_args.args[1] is project
+        update_data = repo.update.await_args.args[2]
+        assert update_data.settings["llm"]["provider_id"] == "deepseek"
 
     @patch("modules.project.repositories.ProjectRepository.soft_delete")
     async def test_delete_raises_404_when_missing(
@@ -283,7 +344,7 @@ class TestProjectService:
     ) -> None:
         mock_soft_delete.return_value = False
         svc = ProjectService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(NotFoundError) as exc:
             await svc.delete_project(
                 AsyncMock(spec=AsyncSession),
                 str(uuid.uuid4()),
@@ -292,7 +353,7 @@ class TestProjectService:
 
     async def test_invalid_uuid_raises_422(self) -> None:
         svc = ProjectService()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainValidationError) as exc:
             await svc.get_project(AsyncMock(spec=AsyncSession), "not-a-uuid")
         assert exc.value.status_code == 422
 

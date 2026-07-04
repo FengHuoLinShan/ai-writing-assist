@@ -10,9 +10,10 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
+from core.errors import ConflictError, ValidationError
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -22,7 +23,6 @@ from modules.world.schemas import (
     EntityPromoteRequest,
     EntityPromoteResponse,
 )
-from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -75,9 +75,8 @@ class WorldEntityService(
                 top_k=5,
             )
             if similar:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
+                raise ConflictError(
+                    {
                         "requires_confirmation": True,
                         "similar_entities": [
                             {
@@ -158,12 +157,9 @@ class WorldEntityService(
 
         changed = data.model_dump(exclude_unset=True)
         if changed.get("status") == "canonical" and existing.status != "canonical":
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Use /entities/{entity_id}/promote "
-                    "to promote entities to canonical"
-                ),
+            raise ValidationError(
+                "Use /entities/{entity_id}/promote "
+                "to promote entities to canonical"
             )
 
         if self._should_mark_user_edited(existing, changed):
@@ -190,7 +186,9 @@ class WorldEntityService(
             # snapshot 创建失败不应阻断编辑主流程，但需要记录日志便于排障
             logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
 
-        result = await super().update(db, id, data, novel_id=novel_id)
+        updated = await self.repo.update(db, existing, data)
+        self._assert_found_in_novel(updated, id, nid)
+        result = self._to_response(updated)
         stale_reasons: list[str] = []
         if "name" in changed:
             stale_reasons.append("entity_renamed")
@@ -245,8 +243,6 @@ class WorldEntityService(
         - 仅允许从 draft/candidate 提升；其他状态返回 400。
         - 自动设置 approved_by 与 status=canonical。
         """
-        from fastapi import status as http_status
-
         rid = parse_uuid(entity_id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -255,19 +251,16 @@ class WorldEntityService(
         assert entity is not None
 
         if entity.status not in {"draft", "candidate"}:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"无法提升状态为 '{entity.status}' 的实体，"
-                    "仅 draft/candidate 可被提升为正史"
-                ),
+            raise ValidationError(
+                f"无法提升状态为 '{entity.status}' 的实体，"
+                "仅 draft/candidate 可被提升为正史"
             )
 
         update_data = CoreEntityUpdate(
             status="canonical",
             approved_by=data.approved_by or "manual",
         )
-        updated = await self.repo.update(db, rid, update_data)
+        updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
         try:

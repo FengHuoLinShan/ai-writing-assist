@@ -4,12 +4,12 @@ Project Service
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
     LLM_SETTINGS_KEY,
@@ -29,9 +29,16 @@ from modules.project.schemas import (
     ProjectUpdate,
 )
 from modules.writing.contracts import WritingProjectStatsContract
-from modules.writing.facade import get_project_writing_stats
+from modules.writing.facade import (
+    get_project_writing_stats,
+    list_project_writing_stats,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from shared.utils import parse_uuid
+from shared.utils import parse_uuid as _shared_parse_uuid
+
+
+def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
+    return _shared_parse_uuid(value, field_name)
 
 
 class ProjectService:
@@ -45,10 +52,20 @@ class ProjectService:
             Awaitable[WritingProjectStatsContract],
         ]
         | None = None,
+        writing_stats_batch_provider: Callable[
+            [AsyncSession, list[str]],
+            Awaitable[dict[str, WritingProjectStatsContract]],
+        ]
+        | None = None,
     ) -> None:
         self._repo = repo or ProjectRepository()
         self._writing_stats_provider = writing_stats_provider or (
             get_project_writing_stats if repo is None else _empty_project_writing_stats
+        )
+        self._writing_stats_batch_provider = writing_stats_batch_provider or (
+            list_project_writing_stats
+            if repo is None
+            else _empty_project_writing_stats_batch
         )
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
@@ -61,13 +78,10 @@ class ProjectService:
         return await self._response_with_stats(db, project)
 
     async def get_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
-        pid = parse_uuid(project_id, "project_id")
+        pid = _parse_uuid(project_id, "project_id")
         project = await self._repo.get(db, pid)
         if project is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found",
-            )
+            raise NotFoundError(f"Project {project_id} not found")
         return await self._response_with_stats(db, project)
 
     async def list_projects(
@@ -78,8 +92,18 @@ class ProjectService:
     ) -> ProjectListResponse:
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self._repo.list(db, skip=skip, limit=limit)
+        stats_by_project_id = await self._writing_stats_batch_provider(
+            db,
+            [str(project.id) for project in items],
+        )
         return ProjectListResponse(
-            items=[await self._response_with_stats(db, p) for p in items],
+            items=[
+                self._response_with_known_stats(
+                    project,
+                    stats_by_project_id.get(str(project.id)),
+                )
+                for project in items
+            ],
             total=total,
         )
 
@@ -89,13 +113,10 @@ class ProjectService:
         project_id: str,
         data: ProjectUpdate,
     ) -> ProjectResponse:
-        pid = parse_uuid(project_id, "project_id")
+        pid = _parse_uuid(project_id, "project_id")
         project = await self._repo.update(db, pid, data)
         if project is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found",
-            )
+            raise NotFoundError(f"Project {project_id} not found")
         return await self._response_with_stats(db, project)
 
     async def get_llm_settings(
@@ -147,40 +168,28 @@ class ProjectService:
             if value is not None and value != ""
         }
         update_data = ProjectUpdate(settings=settings)
-        project = await self._repo.update(db, project.id, update_data)
+        project = await self._repo.update(db, project, update_data)
         if project is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found",
-            )
+            raise NotFoundError(f"Project {project_id} not found")
         profile = sanitize_llm_profile(get_llm_profile(project.settings))
         return ProjectLLMSettingsResponse.model_validate(profile)
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
         """软删除：标记项目为已删除（移至回收站）"""
-        pid = parse_uuid(project_id, "project_id")
+        pid = _parse_uuid(project_id, "project_id")
         deleted = await self._repo.soft_delete(db, pid)
         if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found or already deleted",
-            )
+            raise NotFoundError(f"Project {project_id} not found or already deleted")
 
     async def restore_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         """从回收站恢复项目"""
-        pid = parse_uuid(project_id, "project_id")
+        pid = _parse_uuid(project_id, "project_id")
         restored = await self._repo.restore(db, pid)
         if not restored:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found in recycle bin",
-            )
+            raise NotFoundError(f"Project {project_id} not found in recycle bin")
         project = await self._repo.get(db, pid)
         if project is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found after restore",
-            )
+            raise NotFoundError(f"Project {project_id} not found after restore")
         return await self._response_with_stats(db, project)
 
     async def permanent_delete_project(
@@ -192,17 +201,11 @@ class ProjectService:
     ) -> None:
         """永久删除项目（级联删除所有关联数据，不可恢复）"""
         if not confirmed:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail="permanent delete requires confirmed=true",
-            )
-        pid = parse_uuid(project_id, "project_id")
+            raise ValidationError("permanent delete requires confirmed=true")
+        pid = _parse_uuid(project_id, "project_id")
         deleted = await self._repo.permanent_delete(db, pid)
         if not deleted:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found in recycle bin",
-            )
+            raise NotFoundError(f"Project {project_id} not found in recycle bin")
         await self._repo.delete_async_tasks_for_project(db, pid)
 
     async def list_deleted_projects(
@@ -224,7 +227,7 @@ class ProjectService:
         db: AsyncSession,
         novel_id: str,
     ) -> ProjectContext | None:
-        pid = parse_uuid(novel_id, "novel_id")
+        pid = _parse_uuid(novel_id, "novel_id")
         project = await self._repo.get(db, pid)
         if project is None:
             return None
@@ -241,13 +244,10 @@ class ProjectService:
         )
 
     async def _get_existing_project(self, db: AsyncSession, project_id: str):
-        pid = parse_uuid(project_id, "project_id")
+        pid = _parse_uuid(project_id, "project_id")
         project = await self._repo.get(db, pid)
         if project is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found",
-            )
+            raise NotFoundError(f"Project {project_id} not found")
         return project
 
     async def _response_with_stats(
@@ -257,6 +257,24 @@ class ProjectService:
     ) -> ProjectResponse:
         response = ProjectResponse.model_validate(project)
         stats = await self._writing_stats_provider(db, response.id)
+        return self._apply_stats(response, stats)
+
+    def _response_with_known_stats(
+        self,
+        project: object,
+        stats: WritingProjectStatsContract | None,
+    ) -> ProjectResponse:
+        response = ProjectResponse.model_validate(project)
+        return self._apply_stats(
+            response,
+            stats or WritingProjectStatsContract(novel_id=response.id),
+        )
+
+    def _apply_stats(
+        self,
+        response: ProjectResponse,
+        stats: WritingProjectStatsContract,
+    ) -> ProjectResponse:
         return response.model_copy(
             update={
                 "word_count": stats.word_count,
@@ -278,3 +296,13 @@ async def _empty_project_writing_stats(
     novel_id: str,
 ) -> WritingProjectStatsContract:
     return WritingProjectStatsContract(novel_id=novel_id)
+
+
+async def _empty_project_writing_stats_batch(
+    _db: AsyncSession,
+    novel_ids: list[str],
+) -> dict[str, WritingProjectStatsContract]:
+    return {
+        novel_id: WritingProjectStatsContract(novel_id=novel_id)
+        for novel_id in novel_ids
+    }

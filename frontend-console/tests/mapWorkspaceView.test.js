@@ -17,6 +17,7 @@ beforeEach(() => {
   mapWorkspaceView._activeSceneId = null
   mapWorkspaceView._focusEntityId = null
   mapWorkspaceView._focusedDynamicItemId = null
+  mapWorkspaceView._rebuildMapIndexes?.()
   mapWorkspaceView._resetDynamicSummary?.()
   mapWorkspaceView._resetPlayback?.()
   mapWorkspaceView._clearPendingTimers?.()
@@ -39,6 +40,27 @@ describe("mapWorkspaceView overview", () => {
     expect(html).toContain("打开最近地图")
     expect(html).toContain("九州世界")
     expect(html).toContain("洛阳")
+  })
+
+  it("uses map indexes for tree rendering and opening maps", () => {
+    const maps = [
+      { id: "m1", name: "九州世界", map_type: "world", parent_map_id: null },
+      { id: "m2", name: "洛阳", map_type: "city", parent_map_id: "m1", parent_entity_id: "loc1" },
+    ]
+    maps.find = () => { throw new Error("map lookup should use indexes") }
+    maps.filter = () => { throw new Error("map tree should use parent index") }
+    mapWorkspaceView._maps = maps
+    mapWorkspaceView._rebuildMapIndexes()
+    const refresh = vi.spyOn(router, "refresh").mockImplementation(() => {})
+
+    const tree = mapWorkspaceView._renderMapTree()
+    mapWorkspaceView._openMap("m1")
+    mapWorkspaceView._openLocation("loc1")
+
+    expect(tree).toContain("九州世界")
+    expect(tree).toContain("洛阳")
+    expect(mapWorkspaceView._activeMapId).toBe("m2")
+    refresh.mockRestore()
   })
 
   it("clears stale recent map and shows the required fallback message", async () => {
@@ -628,6 +650,63 @@ describe("mapWorkspaceView overview", () => {
     )
   })
 
+  it("edits observation candidate fields before confirmation", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: { dynamic_queue: [] },
+      observations: [{
+        item_id: "obs1",
+        item_kind: "observation",
+        title: "沈砚入城",
+        target_name: "沈砚",
+        target_entity_type: "character",
+        dynamic_type: "position_change",
+        review_state: "candidate",
+        time_anchor: { chapter: 1 },
+        spatial_anchor: { q: 1, r: 1 },
+        value_json: { field: "location", old: "东门", new: "内城" },
+        source_ref: { source: "deep_import" },
+        evidence_text: "原始证据",
+        confidence: 0.4,
+      }],
+      facts: [],
+    }
+    api.world.updateMapObservationReview.mockResolvedValue({ id: "obs1" })
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [], batch_groups: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+
+    mapWorkspaceView._showDynamicEditForm(mapWorkspaceView._dynamicSummary.observations[0])
+    const [, body, buttons] = showModal.mock.calls.at(-1)
+    document.body.innerHTML = body
+    document.getElementById("map-object-edit-target-name").value = "沈砚修订"
+    document.getElementById("map-object-edit-time-anchor").value = '{"chapter":2}'
+    document.getElementById("map-object-edit-spatial-anchor").value = '{"q":2,"r":3}'
+    document.getElementById("map-object-edit-value-json").value = '{"field":"location","old":"东门","new":"内城西侧"}'
+    document.getElementById("map-object-edit-confidence").value = "0.88"
+    document.getElementById("map-object-edit-evidence").value = "用户修订证据"
+
+    await buttons[0].handler()
+
+    expect(api.world.updateMapObservationReview).toHaveBeenCalledWith(
+      "m1",
+      "obs1",
+      "p1",
+      {
+        review_state: "candidate",
+        target_name: "沈砚修订",
+        target_entity_type: "character",
+        dynamic_type: "position_change",
+        time_anchor: { chapter: 2 },
+        spatial_anchor: { q: 2, r: 3 },
+        value_json: { field: "location", old: "东门", new: "内城西侧" },
+        source_ref: { source: "deep_import" },
+        confidence: 0.88,
+        evidence_text: "用户修订证据",
+      },
+    )
+  })
+
   it("opens focused inspector and batch reviews candidate groups", async () => {
     mapWorkspaceView._activeMapId = "m1"
     mapWorkspaceView._dynamicSummary = {
@@ -692,6 +771,50 @@ describe("mapWorkspaceView overview", () => {
         observation_ids: ["obs1"],
       },
     )
+  })
+
+  it("uses cached dynamic indexes instead of repeated linear item lookup", async () => {
+    const observation = {
+      item_id: "obs1",
+      item_kind: "observation",
+      title: "沈砚",
+      target_entity_id: "char-1",
+      object_type: "character",
+      review_state: "candidate",
+    }
+    const event = {
+      event_id: "evt1",
+      title: "沈砚移动",
+    }
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: { dynamic_queue: [observation] },
+      observations: [observation],
+      facts: [],
+    }
+    mapWorkspaceView._playback = {
+      playback: { events: [event], tracks: [] },
+    }
+    mapWorkspaceView._rebuildDynamicIndexes()
+    mapWorkspaceView._dynamicSummary.dashboard.dynamic_queue.find = () => {
+      throw new Error("dynamic_queue.find should not be used for id lookup")
+    }
+    mapWorkspaceView._dynamicSummary.observations.find = () => {
+      throw new Error("observations.find should not be used for id lookup")
+    }
+    mapWorkspaceView._playback.playback.events.find = () => {
+      throw new Error("playback.events.find should not be used for id lookup")
+    }
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    api.world.confirmMapObservation.mockResolvedValue({ id: "obs1" })
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [], batch_groups: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+
+    expect(mapWorkspaceView._findDynamicItem("obs1")).toBe(observation)
+    expect(mapWorkspaceView._findDynamicItem("evt1")).toBe(event)
+    await mapWorkspaceView._confirmObservation("obs1")
+
+    expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "obs1", "p1")
   })
 
   it("renders batch groups with object type and map time hierarchy", () => {

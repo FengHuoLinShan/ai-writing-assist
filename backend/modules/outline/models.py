@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import JSON, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin, UUIDType
@@ -133,6 +133,34 @@ class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
             f"<Scene id={self.id} novel={self.novel_id} "
             f"idx={self.scene_index} tag={self.narrative_tag}>"
         )
+
+
+class SceneChapterLink(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Query index for Scene → chapter membership."""
+
+    __tablename__ = "scene_chapter_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "scene_id",
+            "chapter_index",
+            name="uq_scene_chapter_links_novel_scene_chapter",
+        ),
+        Index(
+            "ix_scene_chapter_links_novel_chapter",
+            "novel_id",
+            "chapter_index",
+        ),
+        {"comment": "Scene 与章节编号的查询索引"},
+    )
+
+    scene_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("scenes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    chapter_index: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class ForeshadowingPlan(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.models import Scene, SceneChapterLink
 from modules.outline.schemas import SceneCreate, SceneUpdate
 
 
@@ -134,6 +137,451 @@ class TestSceneRepository:
         assert scenes[1].title == "Scene B"
         assert scenes[2].title == "Scene C"
         await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_scene_chapter_links_drive_chapter_lookup(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        scene = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=0,
+                title="跨章 Scene",
+                chapter_ids=["1"],
+                scene_chunks=[{"chapter_index": 2, "start_pos": 0, "end_pos": 100}],
+            ),
+        )
+
+        rows = (
+            await db_session.execute(
+                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            )
+        ).scalars().all()
+        assert {row.chapter_index for row in rows} == {1, 2}
+
+        by_chapter = await repo.get_by_chapter(db_session, nid, 2)
+        assert [item.id for item in by_chapter] == [scene.id]
+        assert (await repo.get_by_chapter_index(db_session, nid, 1)).id == scene.id
+
+        updated = await repo.update(
+            db_session,
+            scene.id,
+            SceneUpdate(chapter_ids=["3"], scene_chunks=[]),
+        )
+        assert updated is not None
+        rows_after = (
+            await db_session.execute(
+                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            )
+        ).scalars().all()
+        assert {row.chapter_index for row in rows_after} == {3}
+        assert await repo.get_by_chapter_index(db_session, nid, 1) is None
+        assert (await repo.get_by_chapter_index(db_session, nid, 3)).id == scene.id
+
+    @pytest.mark.asyncio
+    async def test_scene_chapter_links_drive_chapter_range_lookup(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        other_nid = uuid.UUID(hex=other_novel_id)
+        outside = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=0, title="范围外", chapter_ids=["1"]),
+        )
+        first = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=2, title="范围内 B", chapter_ids=["3", "4"]),
+        )
+        second = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=1, title="范围内 A", chapter_ids=["2"]),
+        )
+        deprecated = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=3, title="已废弃", chapter_ids=["3"]),
+        )
+        await repo.update(
+            db_session,
+            deprecated.id,
+            SceneUpdate(status="deprecated"),
+        )
+        await repo.create(
+            db_session,
+            other_nid,
+            SceneCreate(scene_index=0, title="其他项目", chapter_ids=["3"]),
+        )
+
+        scenes = await repo.get_by_chapter_range(db_session, nid, 2, 3)
+
+        assert [scene.id for scene in scenes] == [second.id, first.id]
+        assert outside.id not in {scene.id for scene in scenes}
+        assert deprecated.id not in {scene.id for scene in scenes}
+
+    @pytest.mark.asyncio
+    async def test_create_many_populates_chapter_links(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+
+        scenes = await repo.create_many(
+            db_session,
+            nid,
+            [
+                SceneCreate(scene_index=0, title="A", chapter_ids=["1"]),
+                SceneCreate(
+                    scene_index=1,
+                    title="B",
+                    scene_chunks=[{"chapter_index": 2}],
+                ),
+            ],
+        )
+
+        assert [scene.title for scene in scenes] == ["A", "B"]
+        rows = (
+            await db_session.execute(
+                select(SceneChapterLink).where(
+                    SceneChapterLink.scene_id.in_([scene.id for scene in scenes])
+                )
+            )
+        ).scalars().all()
+        assert {(row.scene_id, row.chapter_index) for row in rows} == {
+            (scenes[0].id, 1),
+            (scenes[1].id, 2),
+        }
+        assert [scene.id for scene in await repo.get_by_chapter(db_session, nid, 2)] == [
+            scenes[1].id
+        ]
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_backfill_chapter_links_for_existing_scenes(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        scene = Scene(
+            novel_id=nid,
+            scene_index=0,
+            title="旧数据 Scene",
+            chapter_ids=["4"],
+            scene_chunks=[{"chapter_index": 5}],
+            status="draft",
+        )
+        db_session.add(scene)
+        await db_session.flush()
+        db_session.add(
+            SceneChapterLink(
+                novel_id=nid,
+                scene_id=scene.id,
+                chapter_index=99,
+            )
+        )
+        await db_session.flush()
+
+        existing_links = (
+            await db_session.execute(
+                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            )
+        ).scalars().all()
+        assert {row.chapter_index for row in existing_links} == {99}
+
+        async def fail_sync(*_args, **_kwargs):
+            raise AssertionError("backfill must rebuild links in bulk")
+
+        monkeypatch.setattr(repo, "sync_chapter_links", fail_sync)
+
+        assert await repo.backfill_chapter_links(db_session, nid) == 2
+        rows = (
+            await db_session.execute(
+                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            )
+        ).scalars().all()
+        assert {row.chapter_index for row in rows} == {4, 5}
+
+    @pytest.mark.asyncio
+    async def test_sync_chapter_links_bulk_adds_link_rows(self) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        class FakeSession:
+            def __init__(self) -> None:
+                self.add_calls = 0
+                self.added_batches: list[list[SceneChapterLink]] = []
+                self.flush_calls = 0
+
+            async def execute(self, *_args, **_kwargs) -> None:
+                return None
+
+            def add(self, _item: object) -> None:
+                self.add_calls += 1
+
+            def add_all(self, items: list[SceneChapterLink]) -> None:
+                self.added_batches.append(items)
+
+            async def flush(self) -> None:
+                self.flush_calls += 1
+
+        repo = SceneRepository()
+        scene = Scene(
+            id=uuid.uuid4(),
+            novel_id=uuid.uuid4(),
+            scene_index=0,
+            chapter_ids=["2"],
+            scene_chunks=[{"chapter_index": 3}],
+        )
+        db = FakeSession()
+
+        await repo.sync_chapter_links(db, scene)  # type: ignore[arg-type]
+
+        assert db.add_calls == 0
+        assert db.flush_calls == 1
+        assert len(db.added_batches) == 1
+        assert {link.chapter_index for link in db.added_batches[0]} == {2, 3}
+
+    @pytest.mark.asyncio
+    async def test_update_scene_reuses_loaded_scene(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        class FakeSession:
+            def __init__(self) -> None:
+                self.added: list[Scene] = []
+                self.flush_calls = 0
+
+            def add(self, item: Scene) -> None:
+                self.added.append(item)
+
+            async def flush(self) -> None:
+                self.flush_calls += 1
+
+        repo = SceneRepository()
+        scene = Scene(
+            id=uuid.uuid4(),
+            novel_id=uuid.uuid4(),
+            scene_index=0,
+            title="旧标题",
+        )
+        get_calls = 0
+
+        async def fake_get(_db: object, scene_id: uuid.UUID) -> Scene | None:
+            nonlocal get_calls
+            get_calls += 1
+            assert scene_id == scene.id
+            return scene
+
+        monkeypatch.setattr(repo, "get", fake_get)
+        db = FakeSession()
+
+        updated = await repo.update(
+            db,  # type: ignore[arg-type]
+            scene.id,
+            SceneUpdate(title="更新标题", narrative_tag="climax"),
+        )
+
+        assert updated is scene
+        assert get_calls == 1
+        assert db.added == [scene]
+        assert db.flush_calls == 1
+        assert scene.title == "更新标题"
+        assert scene.narrative_tag == "climax"
+
+    @pytest.mark.asyncio
+    async def test_deprecate_with_reference_clears_scene_mappings(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        target = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=0, title="目标 Scene", chapter_ids=["1"]),
+        )
+        first = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=1,
+                title="来源 A",
+                chapter_ids=["2"],
+                scene_chunks=[{"chapter_index": 3}],
+                structure_meta={"existing": True},
+            ),
+        )
+        second = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=2,
+                title="来源 B",
+                chapter_ids=["4"],
+            ),
+        )
+
+        assert (
+            await db_session.execute(
+                select(SceneChapterLink).where(
+                    SceneChapterLink.scene_id.in_([first.id, second.id])
+                )
+            )
+        ).scalars().all()
+
+        count = await repo.deprecate_with_reference(
+            db_session,
+            [first, second],
+            reference_field="merged_into_scene_id",
+            reference_scene_id=target.id,
+            clear_mapping=True,
+        )
+
+        assert count == 2
+        assert first.status == "deprecated"
+        assert first.chapter_ids == []
+        assert first.scene_chunks == []
+        assert first.structure_meta == {
+            "existing": True,
+            "merged_into_scene_id": str(target.id),
+        }
+        assert second.status == "deprecated"
+        assert second.chapter_ids == []
+        assert second.scene_chunks == []
+        assert second.structure_meta["merged_into_scene_id"] == str(target.id)
+        rows = (
+            await db_session.execute(
+                select(SceneChapterLink).where(
+                    SceneChapterLink.scene_id.in_([first.id, second.id])
+                )
+            )
+        ).scalars().all()
+        assert rows == []
+
+    @pytest.mark.asyncio
+    async def test_reorder_updates_scene_indices_in_one_novel(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        other_nid = uuid.UUID(hex=other_novel_id)
+        first = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=0, title="A"),
+        )
+        second = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=1, title="B"),
+        )
+        third = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=2, title="C"),
+        )
+        other = await repo.create(
+            db_session,
+            other_nid,
+            SceneCreate(scene_index=9, title="Other"),
+        )
+
+        assert await repo.reorder(db_session, nid, []) == 0
+        assert await repo.reorder(db_session, nid, [third.id, first.id, second.id]) == 3
+
+        scenes = await repo.get_by_novel_ordered(db_session, nid)
+        assert [(scene.title, scene.scene_index) for scene in scenes] == [
+            ("C", 0),
+            ("A", 1),
+            ("B", 2),
+        ]
+        refreshed_other = await repo.get(db_session, other.id)
+        assert refreshed_other is not None
+        assert refreshed_other.scene_index == 9
+
+    @pytest.mark.asyncio
+    async def test_shift_scene_indices_after_updates_later_scenes_in_one_statement(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        other_nid = uuid.UUID(hex=other_novel_id)
+        source = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=1, title="Source"),
+        )
+        inserted = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=2, title="Inserted"),
+        )
+        later = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=2, title="Later"),
+        )
+        earlier = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=0, title="Earlier"),
+        )
+        other = await repo.create(
+            db_session,
+            other_nid,
+            SceneCreate(scene_index=2, title="Other novel"),
+        )
+
+        updated = await repo.shift_scene_indices_after(
+            db_session,
+            nid,
+            source.scene_index,
+            exclude_ids={source.id, inserted.id},
+        )
+
+        assert updated == 1
+        assert (await repo.get(db_session, inserted.id)).scene_index == 2
+        assert (await repo.get(db_session, later.id)).scene_index == 3
+        assert (await repo.get(db_session, earlier.id)).scene_index == 0
+        assert (await repo.get(db_session, other.id)).scene_index == 2
 
     @pytest.mark.asyncio
     async def test_get_by_novel_with_pagination(
@@ -310,6 +758,37 @@ class TestSceneService:
         assert contracts[1].title == "B"
         assert contracts[2].title == "C"
         await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_batch_create_models_uses_repository_bulk_create(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        scene = Scene(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(hex=sample_novel_id),
+            scene_index=0,
+            title="A",
+        )
+        svc.repo = AsyncMock()
+        svc.repo.create.side_effect = AssertionError("batch path should use create_many")
+        svc.repo.create_many.return_value = [scene]
+
+        result = await svc.batch_create_models_from_dicts(
+            db_session,
+            sample_novel_id,
+            [{"scene_index": 0, "title": "A"}],
+        )
+
+        assert result == [scene]
+        svc.repo.create.assert_not_awaited()
+        svc.repo.create_many.assert_awaited_once()
+        assert svc.repo.create_many.await_args.args[1] == uuid.UUID(hex=sample_novel_id)
+        assert svc.repo.create_many.await_args.args[2][0].title == "A"
 
     @pytest.mark.asyncio
     async def test_update_scene_fields(

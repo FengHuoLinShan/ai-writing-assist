@@ -31,6 +31,7 @@ from modules.world.map_models import (
     MapTerritoryTile,
     MapTile,
 )
+from modules.world.models import CoreEntity
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,18 @@ class MapEntityRepository[ModelT]:
     """
 
     model_class: ClassVar[type[ModelT]]
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> ModelT:
+        entity = self.model_class(novel_id=novel_id, map_id=map_id, **values)
+        db.add(entity)
+        await db.flush()
+        return entity
 
     async def get(
         self,
@@ -76,18 +89,22 @@ class MapEntityRepository[ModelT]:
     async def update(
         self,
         db: AsyncSession,
-        entity_id: uuid.UUID,
+        entity_or_id: ModelT | uuid.UUID,
         values: dict[str, Any],
     ) -> ModelT | None:
+        entity = (
+            await self.get(db, entity_or_id)
+            if isinstance(entity_or_id, uuid.UUID)
+            else entity_or_id
+        )
+        if entity is None:
+            return None
         if values:
-            stmt = (
-                update(self.model_class)
-                .where(self.model_class.id == entity_id)
-                .values(**values)
-            )
-            await db.execute(stmt)
+            for field, value in values.items():
+                setattr(entity, field, value)
+            db.add(entity)
             await db.flush()
-        return await self.get(db, entity_id)
+        return entity
 
     async def delete(
         self,
@@ -140,6 +157,26 @@ class MapConfigRepository:
         items = (await db.execute(stmt)).scalars().all()
         return list(items), total
 
+    async def first_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        parent_map_id: uuid.UUID | None = None,
+    ) -> MapConfig | None:
+        """返回当前排序下的第一张地图，不执行分页总数查询。"""
+        conditions: list[Any] = [MapConfig.novel_id == novel_id]
+        if parent_map_id is not None:
+            conditions.append(MapConfig.parent_map_id == parent_map_id)
+
+        stmt = (
+            select(MapConfig)
+            .where(*conditions)
+            .order_by(MapConfig.sort_order, MapConfig.created_at)
+            .limit(1)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
     async def get_by_name(
         self,
         db: AsyncSession,
@@ -173,14 +210,22 @@ class MapConfigRepository:
     async def update(
         self,
         db: AsyncSession,
-        map_id: uuid.UUID,
+        config_or_id: MapConfig | uuid.UUID,
         values: dict[str, Any],
     ) -> MapConfig | None:
+        config = (
+            await self.get(db, config_or_id)
+            if isinstance(config_or_id, uuid.UUID)
+            else config_or_id
+        )
+        if config is None:
+            return None
         if values:
-            stmt = update(MapConfig).where(MapConfig.id == map_id).values(**values)
-            await db.execute(stmt)
+            for field, value in values.items():
+                setattr(config, field, value)
+            db.add(config)
             await db.flush()
-        return await self.get(db, map_id)
+        return config
 
     async def delete(self, db: AsyncSession, map_id: uuid.UUID) -> bool:
         stmt = delete(MapConfig).where(MapConfig.id == map_id)
@@ -322,6 +367,60 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
 
     model_class = MapLocationBinding
 
+    async def get_by_map_for_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        statuses: list[str],
+    ) -> list[MapLocationBinding]:
+        stmt = (
+            select(MapLocationBinding)
+            .join(CoreEntity, CoreEntity.id == MapLocationBinding.location_entity_id)
+            .where(
+                MapLocationBinding.novel_id == novel_id,
+                MapLocationBinding.map_id == map_id,
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+            )
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_hexes_for_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        hexes: list[tuple[int, int]],
+        *,
+        statuses: list[str],
+    ) -> list[MapLocationBinding]:
+        unique_hexes = list(dict.fromkeys(hexes))
+        if not unique_hexes:
+            return []
+        stmt = (
+            select(MapLocationBinding)
+            .join(CoreEntity, CoreEntity.id == MapLocationBinding.location_entity_id)
+            .where(
+                MapLocationBinding.novel_id == novel_id,
+                MapLocationBinding.map_id == map_id,
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+                or_(
+                    *[
+                        (MapLocationBinding.hex_q == hex_q)
+                        & (MapLocationBinding.hex_r == hex_r)
+                        for hex_q, hex_r in unique_hexes
+                    ]
+                ),
+            )
+            .order_by(MapLocationBinding.created_at)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_centers(
         self,
         db: AsyncSession,
@@ -390,6 +489,29 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
         await db.flush()
         return result.rowcount
 
+    async def clear_centers(
+        self,
+        db: AsyncSession,
+        map_id: uuid.UUID,
+        location_entity_ids: list[uuid.UUID],
+    ) -> int:
+        """批量清除多个地点在某地图的中心标记。"""
+        unique_ids = list(dict.fromkeys(location_entity_ids))
+        if not unique_ids:
+            return 0
+        stmt = (
+            update(MapLocationBinding)
+            .where(
+                MapLocationBinding.map_id == map_id,
+                MapLocationBinding.location_entity_id.in_(unique_ids),
+                MapLocationBinding.is_center.is_(True),
+            )
+            .values(is_center=False)
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount
+
     async def bulk_create(
         self,
         db: AsyncSession,
@@ -408,6 +530,28 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
             )
             for h in hexes
         ]
+        db.add_all(objs)
+        await db.flush()
+        return objs
+
+    async def bulk_create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        bindings: list[dict[str, Any]],
+    ) -> list[MapLocationBinding]:
+        """批量创建多个地点的绑定，保持输入顺序。"""
+        objs = [
+            MapLocationBinding(
+                novel_id=novel_id,
+                map_id=map_id,
+                **binding,
+            )
+            for binding in bindings
+        ]
+        if not objs:
+            return []
         db.add_all(objs)
         await db.flush()
         return objs
@@ -454,18 +598,6 @@ class MapTerrainLayerRepository(MapEntityRepository[MapTerrainLayer]):
 
     model_class = MapTerrainLayer
 
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        map_id: uuid.UUID,
-        values: dict[str, Any],
-    ) -> MapTerrainLayer:
-        layer = MapTerrainLayer(novel_id=novel_id, map_id=map_id, **values)
-        db.add(layer)
-        await db.flush()
-        return layer
-
     async def get_in_map(
         self,
         db: AsyncSession,
@@ -487,18 +619,6 @@ class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
 
     model_class = MapTerrainRegion
 
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        map_id: uuid.UUID,
-        values: dict[str, Any],
-    ) -> MapTerrainRegion:
-        region = MapTerrainRegion(novel_id=novel_id, map_id=map_id, **values)
-        db.add(region)
-        await db.flush()
-        return region
-
     async def upsert(
         self,
         db: AsyncSession,
@@ -516,6 +636,45 @@ class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
                 await db.flush()
                 return existing
         return await self.create(db, novel_id, map_id, values)
+
+    async def upsert_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        items: list[dict[str, Any]],
+    ) -> list[MapTerrainRegion]:
+        """批量 upsert 地形区域，保持输入顺序并只 flush 一次。"""
+        if not items:
+            return []
+        region_ids = [values.get("id") for values in items if values.get("id")]
+        existing_by_id: dict[uuid.UUID, MapTerrainRegion] = {}
+        if region_ids:
+            stmt = select(MapTerrainRegion).where(
+                MapTerrainRegion.novel_id == novel_id,
+                MapTerrainRegion.map_id == map_id,
+                MapTerrainRegion.id.in_(region_ids),
+            )
+            result = await db.execute(stmt)
+            existing_by_id = {
+                region.id: region for region in result.scalars().all()
+            }
+
+        regions: list[MapTerrainRegion] = []
+        for values in items:
+            region_id = values.get("id")
+            existing = existing_by_id.get(region_id) if region_id else None
+            if existing is not None:
+                for field in ("layer_id", "name", "region_status", "meta"):
+                    if field in values:
+                        setattr(existing, field, values[field])
+                regions.append(existing)
+                continue
+            region = MapTerrainRegion(novel_id=novel_id, map_id=map_id, **values)
+            db.add(region)
+            regions.append(region)
+        await db.flush()
+        return regions
 
     async def get_in_map(
         self,
@@ -571,18 +730,6 @@ class MapTerrainBindingRepository(MapEntityRepository[MapTerrainBinding]):
 
     model_class = MapTerrainBinding
 
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        map_id: uuid.UUID,
-        values: dict[str, Any],
-    ) -> MapTerrainBinding:
-        binding = MapTerrainBinding(novel_id=novel_id, map_id=map_id, **values)
-        db.add(binding)
-        await db.flush()
-        return binding
-
 
 # ============================================================
 # MapMarkerRepository（P1）
@@ -593,6 +740,73 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
     """动态标记数据访问（P1）。"""
 
     model_class = MapMarker
+
+    @staticmethod
+    def _scene_window_condition(
+        scene_id: uuid.UUID | None,
+        scene_index: int | None,
+        *,
+        include_direct_ids: bool = False,
+    ) -> Any | None:
+        if scene_id is None:
+            return None
+        timeless = and_(
+            MapMarker.start_scene_id.is_(None),
+            MapMarker.end_scene_id.is_(None),
+        )
+        direct_ids = (
+            MapMarker.start_scene_id == scene_id,
+            MapMarker.end_scene_id == scene_id,
+        )
+        if scene_index is None:
+            return or_(timeless, *direct_ids)
+
+        index_window = and_(
+            MapMarker.start_scene_index.isnot(None),
+            MapMarker.start_scene_index <= scene_index,
+            or_(
+                MapMarker.end_scene_id == scene_id,
+                and_(
+                    MapMarker.end_scene_index.isnot(None),
+                    MapMarker.end_scene_index >= scene_index,
+                ),
+                and_(
+                    MapMarker.end_scene_id.is_(None),
+                    MapMarker.end_scene_index.is_(None),
+                ),
+            ),
+        )
+        if include_direct_ids:
+            return or_(timeless, *direct_ids, index_window)
+        return or_(timeless, index_window)
+
+    async def get_by_map_and_scene_for_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        statuses: list[str],
+        scene_id: uuid.UUID | None = None,
+        scene_index: int | None = None,
+    ) -> list[MapMarker]:
+        conditions: list[Any] = [
+            MapMarker.novel_id == novel_id,
+            MapMarker.map_id == map_id,
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.status.in_(statuses),
+        ]
+        scene_window = self._scene_window_condition(scene_id, scene_index)
+        if scene_window is not None:
+            conditions.append(scene_window)
+        stmt = (
+            select(MapMarker)
+            .join(CoreEntity, CoreEntity.id == MapMarker.entity_id)
+            .where(*conditions)
+            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_map_and_scene(
         self,
@@ -608,40 +822,9 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
             MapMarker.novel_id == novel_id,
             MapMarker.map_id == map_id,
         ]
-        if scene_id is not None:
-            conditions.append(
-                or_(
-                    and_(
-                        MapMarker.start_scene_id.is_(None),
-                        MapMarker.end_scene_id.is_(None),
-                    ),
-                    MapMarker.start_scene_id == scene_id,
-                    MapMarker.end_scene_id == scene_id,
-                )
-            )
-            if scene_index is not None:
-                idx = scene_index
-                conditions[-1] = or_(
-                    and_(
-                        MapMarker.start_scene_id.is_(None),
-                        MapMarker.end_scene_id.is_(None),
-                    ),
-                    and_(
-                        MapMarker.start_scene_index.isnot(None),
-                        MapMarker.start_scene_index <= idx,
-                        or_(
-                            MapMarker.end_scene_id == scene_id,
-                            and_(
-                                MapMarker.end_scene_index.isnot(None),
-                                MapMarker.end_scene_index >= idx,
-                            ),
-                            and_(
-                                MapMarker.end_scene_id.is_(None),
-                                MapMarker.end_scene_index.is_(None),
-                            ),
-                        ),
-                    ),
-                )
+        scene_window = self._scene_window_condition(scene_id, scene_index)
+        if scene_window is not None:
+            conditions.append(scene_window)
         stmt = (
             select(MapMarker)
             .where(*conditions)
@@ -663,44 +846,13 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
             MapMarker.novel_id == novel_id,
             MapMarker.visible.is_(True),
         ]
-        if scene_index is None:
-            conditions.append(
-                or_(
-                    and_(
-                        MapMarker.start_scene_id.is_(None),
-                        MapMarker.end_scene_id.is_(None),
-                    ),
-                    MapMarker.start_scene_id == scene_id,
-                    MapMarker.end_scene_id == scene_id,
-                )
+        conditions.append(
+            self._scene_window_condition(
+                scene_id,
+                scene_index,
+                include_direct_ids=True,
             )
-        else:
-            idx = scene_index
-            conditions.append(
-                or_(
-                    and_(
-                        MapMarker.start_scene_id.is_(None),
-                        MapMarker.end_scene_id.is_(None),
-                    ),
-                    MapMarker.start_scene_id == scene_id,
-                    MapMarker.end_scene_id == scene_id,
-                    and_(
-                        MapMarker.start_scene_index.isnot(None),
-                        MapMarker.start_scene_index <= idx,
-                        or_(
-                            MapMarker.end_scene_id == scene_id,
-                            and_(
-                                MapMarker.end_scene_index.isnot(None),
-                                MapMarker.end_scene_index >= idx,
-                            ),
-                            and_(
-                                MapMarker.end_scene_id.is_(None),
-                                MapMarker.end_scene_index.is_(None),
-                            ),
-                        ),
-                    ),
-                )
-            )
+        )
         stmt = (
             select(MapMarker)
             .where(*conditions)
@@ -758,19 +910,6 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
             latest.setdefault(marker.entity_id, marker)
         return latest
 
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        map_id: uuid.UUID,
-        values: dict[str, Any],
-    ) -> MapMarker:
-        """使用已构造的 plain dict 创建标记。"""
-        marker = MapMarker(novel_id=novel_id, map_id=map_id, **values)
-        db.add(marker)
-        await db.flush()
-        return marker
-
 
 # ============================================================
 # MapTerritoryRepository（P2）
@@ -781,6 +920,28 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
     """势力范围数据访问（P2）。"""
 
     model_class = MapTerritoryTile
+
+    async def get_by_map_for_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        statuses: list[str],
+    ) -> list[MapTerritoryTile]:
+        stmt = (
+            select(MapTerritoryTile)
+            .join(CoreEntity, CoreEntity.id == MapTerritoryTile.faction_entity_id)
+            .where(
+                MapTerritoryTile.novel_id == novel_id,
+                MapTerritoryTile.map_id == map_id,
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+            )
+            .order_by(MapTerritoryTile.created_at)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_map_and_faction(
         self,
@@ -811,6 +972,34 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
             MapTerritoryTile.map_id == map_id,
             MapTerritoryTile.hex_q == hex_q,
             MapTerritoryTile.hex_r == hex_r,
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_hexes(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        hexes: list[tuple[int, int]],
+    ) -> list[MapTerritoryTile]:
+        unique_hexes = list(dict.fromkeys(hexes))
+        if not unique_hexes:
+            return []
+        stmt = (
+            select(MapTerritoryTile)
+            .where(
+                MapTerritoryTile.novel_id == novel_id,
+                MapTerritoryTile.map_id == map_id,
+                or_(
+                    *[
+                        (MapTerritoryTile.hex_q == hex_q)
+                        & (MapTerritoryTile.hex_r == hex_r)
+                        for hex_q, hex_r in unique_hexes
+                    ]
+                ),
+            )
+            .order_by(MapTerritoryTile.created_at)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -851,8 +1040,8 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
                 faction_entity_id=faction_entity_id,
                 **h,
             )
-            db.add(tile)
             tiles.append(tile)
+        db.add_all(tiles)
         await db.flush()
         return tiles
 
@@ -890,6 +1079,24 @@ class MapObservationRepository:
         stmt = select(MapObservation).where(MapObservation.id == observation_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_many(
+        self,
+        db: AsyncSession,
+        observation_ids: list[uuid.UUID],
+    ) -> list[MapObservation]:
+        if not observation_ids:
+            return []
+        unique_ids = list(dict.fromkeys(observation_ids))
+        result = await db.execute(
+            select(MapObservation).where(MapObservation.id.in_(unique_ids))
+        )
+        by_id = {observation.id: observation for observation in result.scalars().all()}
+        return [
+            by_id[observation_id]
+            for observation_id in unique_ids
+            if observation_id in by_id
+        ]
 
     async def list(
         self,
@@ -1010,17 +1217,69 @@ class MapObservationRepository:
     async def update_review_state(
         self,
         db: AsyncSession,
-        observation_id: uuid.UUID,
+        observation_or_id: MapObservation | uuid.UUID,
         review_state: str,
     ) -> MapObservation | None:
+        observation = (
+            observation_or_id
+            if isinstance(observation_or_id, MapObservation)
+            else await self.get(db, observation_or_id)
+        )
+        if observation is None:
+            return None
+        observation.review_state = review_state
+        db.add(observation)
+        await db.flush()
+        return observation
+
+    async def update_review_states(
+        self,
+        db: AsyncSession,
+        observation_ids: list[uuid.UUID],
+        review_state: str,
+    ) -> list[MapObservation]:
+        if not observation_ids:
+            return []
+
+        unique_ids = list(dict.fromkeys(observation_ids))
         stmt = (
             update(MapObservation)
-            .where(MapObservation.id == observation_id)
+            .where(MapObservation.id.in_(unique_ids))
             .values(review_state=review_state)
         )
         await db.execute(stmt)
         await db.flush()
-        return await self.get(db, observation_id)
+
+        result = await db.execute(
+            select(MapObservation).where(MapObservation.id.in_(unique_ids))
+        )
+        by_id = {observation.id: observation for observation in result.scalars().all()}
+        return [
+            by_id[observation_id]
+            for observation_id in unique_ids
+            if observation_id in by_id
+        ]
+
+    async def update(
+        self,
+        db: AsyncSession,
+        observation_or_id: MapObservation | uuid.UUID,
+        values: dict[str, Any],
+    ) -> MapObservation | None:
+        observation = (
+            observation_or_id
+            if isinstance(observation_or_id, MapObservation)
+            else await self.get(db, observation_or_id)
+        )
+        if observation is None:
+            return None
+        if not values:
+            return observation
+        for field, value in values.items():
+            setattr(observation, field, value)
+        db.add(observation)
+        await db.flush()
+        return observation
 
 
 # ============================================================
@@ -1036,6 +1295,18 @@ class MapFactRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_many(
+        self,
+        db: AsyncSession,
+        fact_ids: list[uuid.UUID],
+    ) -> list[MapFact]:
+        unique_ids = list(dict.fromkeys(fact_ids))
+        if not unique_ids:
+            return []
+        result = await db.execute(select(MapFact).where(MapFact.id.in_(unique_ids)))
+        by_id = {fact.id: fact for fact in result.scalars().all()}
+        return [by_id[fact_id] for fact_id in unique_ids if fact_id in by_id]
+
     async def get_by_observation(
         self,
         db: AsyncSession,
@@ -1044,6 +1315,18 @@ class MapFactRepository:
         stmt = select(MapFact).where(MapFact.observation_id == observation_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_by_observations(
+        self,
+        db: AsyncSession,
+        observation_ids: list[uuid.UUID],
+    ) -> list[MapFact]:
+        unique_ids = list(dict.fromkeys(observation_ids))
+        if not unique_ids:
+            return []
+        stmt = select(MapFact).where(MapFact.observation_id.in_(unique_ids))
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def list(
         self,
@@ -1133,17 +1416,53 @@ class MapFactRepository:
         await db.flush()
         return fact
 
+    async def create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        values_list: list[dict[str, Any]],
+    ) -> list[MapFact]:
+        if not values_list:
+            return []
+        facts = [MapFact(novel_id=novel_id, **values) for values in values_list]
+        db.add_all(facts)
+        await db.flush()
+        return facts
+
     async def update_status(
         self,
         db: AsyncSession,
-        fact_id: uuid.UUID,
+        fact_or_id: MapFact | uuid.UUID,
         fact_status: str,
     ) -> MapFact | None:
+        fact = (
+            fact_or_id
+            if isinstance(fact_or_id, MapFact)
+            else await self.get(db, fact_or_id)
+        )
+        if fact is None:
+            return None
+        fact.fact_status = fact_status
+        db.add(fact)
+        await db.flush()
+        return fact
+
+    async def update_statuses(
+        self,
+        db: AsyncSession,
+        fact_ids: list[uuid.UUID],
+        fact_status: str,
+    ) -> list[MapFact]:
+        unique_ids = list(dict.fromkeys(fact_ids))
+        if not unique_ids:
+            return []
         stmt = (
             update(MapFact)
-            .where(MapFact.id == fact_id)
+            .where(MapFact.id.in_(unique_ids))
             .values(fact_status=fact_status)
         )
         await db.execute(stmt)
         await db.flush()
-        return await self.get(db, fact_id)
+        result = await db.execute(select(MapFact).where(MapFact.id.in_(unique_ids)))
+        by_id = {fact.id: fact for fact in result.scalars().all()}
+        return [by_id[fact_id] for fact_id in unique_ids if fact_id in by_id]

@@ -25,6 +25,7 @@ from modules.world.map_repositories import (
 )
 from modules.world.map_schemas import (
     MapConfigResponse,
+    MapDynamicStateResponse,
     MapLocationBindingResponse,
     MapLocationLayoutResponse,
     MapMarkerResponse,
@@ -180,6 +181,93 @@ class MapStateAssembler:
             terrain_bindings=[
                 MapTerrainBindingResponse.model_validate(binding)
                 for binding in terrain_bindings
+            ],
+            candidate_location_bindings=[
+                MapLocationBindingResponse.model_validate(b) for b in candidate_bindings
+            ],
+            candidate_markers=[
+                MapMarkerResponse.model_validate(m) for m in candidate_markers
+            ],
+            candidate_territories=[
+                MapTerritoryResponse.model_validate(t) for t in candidate_territories
+            ],
+            scene=scene_info,
+        )
+
+    async def assemble_dynamic(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        *,
+        scene_id: str | None = None,
+    ) -> MapDynamicStateResponse:
+        """Aggregate only Scene-sensitive dynamic map layers."""
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+
+        sid = parse_uuid(scene_id, "scene_id") if scene_id else None
+        scene_info = None
+        scene_index = None
+        if scene_id:
+            scene = await self._scene_lookup(db, novel_id, scene_id)
+            if scene is not None:
+                scene_index = scene.scene_index
+                scene_info = {
+                    "id": str(scene.id),
+                    "index": scene.scene_index,
+                    "title": scene.title,
+                    "chapter_title": None,
+                }
+
+        candidate_bindings = await self._binding_repo.get_by_map_for_entity_statuses(
+            db,
+            nid,
+            mid,
+            statuses=["candidate"],
+        )
+        canonical_markers = (
+            await self._marker_repo.get_by_map_and_scene_for_entity_statuses(
+                db,
+                nid,
+                mid,
+                scene_id=sid,
+                scene_index=scene_index,
+                statuses=["canonical"],
+            )
+        )
+        candidate_markers = (
+            await self._marker_repo.get_by_map_and_scene_for_entity_statuses(
+                db,
+                nid,
+                mid,
+                scene_id=sid,
+                scene_index=scene_index,
+                statuses=["candidate"],
+            )
+        )
+        canonical_territories = (
+            await self._territory_repo.get_by_map_for_entity_statuses(
+                db,
+                nid,
+                mid,
+                statuses=["canonical"],
+            )
+        )
+        candidate_territories = (
+            await self._territory_repo.get_by_map_for_entity_statuses(
+                db,
+                nid,
+                mid,
+                statuses=["candidate"],
+            )
+        )
+
+        return MapDynamicStateResponse(
+            markers=[MapMarkerResponse.model_validate(m) for m in canonical_markers],
+            territories=[
+                MapTerritoryResponse.model_validate(t) for t in canonical_territories
             ],
             candidate_location_bindings=[
                 MapLocationBindingResponse.model_validate(b) for b in candidate_bindings

@@ -27,9 +27,9 @@ echo "=== 启动数据库 (Docker) ==="
 cd "$ROOT_DIR"
 docker compose up -d 2>&1 | grep -v "already exist" || true
 
-echo "=== 启动后端 (uvicorn) ==="
+echo "=== 启动后端 (auto-reload) ==="
 cd "$BACKEND_DIR"
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
+python scripts/dev_server.py --host 0.0.0.0 --port 8000 &
 sleep 3
 
 echo "=== 启动前端 (HTTP) ==="

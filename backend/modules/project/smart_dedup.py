@@ -198,6 +198,12 @@ def _normalize_world_suggestions(result: dict[str, Any]) -> list[dict[str, Any]]
                 "target_asset_id": item.get("target_entity_id"),
                 "target_title": item.get("target_entity_name"),
                 "target_status": item.get("target_status"),
+                "recommended_primary_asset_id": item.get("recommended_primary_entity_id")
+                or item.get("recommended_primary_asset_id")
+                or item.get("target_entity_id"),
+                "recommended_primary_title": item.get("recommended_primary_entity_name")
+                or item.get("recommended_primary_title")
+                or item.get("target_entity_name"),
                 "confidence": item.get("confidence"),
                 "reason": item.get("reason"),
                 "match_method": item.get("match_method"),
@@ -214,7 +220,19 @@ def _normalize_world_suggestions(result: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def _normalize_outline_suggestions(result: dict[str, Any]) -> list[dict[str, Any]]:
-    return list(result.get("suggestions") or [])
+    normalized: list[dict[str, Any]] = []
+    for item in result.get("suggestions") or []:
+        normalized_item = dict(item)
+        normalized_item.setdefault(
+            "recommended_primary_asset_id",
+            item.get("target_asset_id"),
+        )
+        normalized_item.setdefault(
+            "recommended_primary_title",
+            item.get("target_title"),
+        )
+        normalized.append(normalized_item)
+    return normalized
 
 
 def _world_apply_item(item: dict[str, Any]) -> dict[str, Any] | None:

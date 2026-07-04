@@ -39,7 +39,7 @@ class EmbeddingWriter:
             try:
                 embedding = await self._llm.generate_embedding(chunk.text)
                 if self._is_single_embedding(embedding):
-                    await self._repo.update_embedding(db, chunk.id, embedding)
+                    chunk.embedding = embedding  # type: ignore[assignment]
                     chunk.embedding_status = "succeeded"
                 else:
                     raise ValueError("embedding 返回格式异常")
@@ -70,12 +70,14 @@ class EmbeddingWriter:
             embeddings = await self._llm.generate_embedding(
                 [chunk.text for chunk in chunks]
             )
+            if len(chunks) == 1 and self._is_single_embedding(embeddings):
+                embeddings = [embeddings]
             if not isinstance(embeddings, list) or len(embeddings) != len(chunks):
                 raise ValueError("embedding 返回格式异常")
             for chunk, embedding in zip(chunks, embeddings):
                 if not self._is_single_embedding(embedding):
                     raise ValueError("embedding 返回格式异常")
-                await self._repo.update_embedding(db, chunk.id, embedding)
+                chunk.embedding = embedding  # type: ignore[assignment]
                 chunk.embedding_status = "succeeded"
                 chunk.embedding_error = None
                 chunk.index_warnings = []

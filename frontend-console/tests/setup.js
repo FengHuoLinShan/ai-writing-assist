@@ -44,12 +44,12 @@ globalThis.state = new Proxy(appState, {
 // ============================================================
 globalThis.esc = (str) => {
   if (str == null) return ""
-  const div = globalThis.document?.createElement("div")
-  if (div) {
-    div.textContent = String(str)
-    return div.innerHTML
-  }
   return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
 }
 
 globalThis.toast = vi.fn()
@@ -205,6 +205,7 @@ globalThis.api = {
     deleteMap: vi.fn(),
     generateMap: vi.fn(),
     getMapState: vi.fn(),
+    getMapDynamicState: vi.fn(),
     getMapDashboard: vi.fn(),
     getMapPlayback: vi.fn(),
     getMapOpenTarget: vi.fn(),

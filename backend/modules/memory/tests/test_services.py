@@ -425,7 +425,10 @@ class TestRecordEvents:
         created = [_make_memory_event(sequence=i + 1) for i in range(3)]
         event_repo = MagicMock()
         event_repo.delete_by_chapter = AsyncMock()
-        event_repo.create = AsyncMock(side_effect=created)
+        event_repo.create_many = AsyncMock(return_value=created)
+        event_repo.create = AsyncMock(
+            side_effect=AssertionError("record_events should batch event inserts")
+        )
         snapshot_repo = MagicMock()
         service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
         db = AsyncMock()
@@ -436,6 +439,15 @@ class TestRecordEvents:
         assert result[0].sequence == 1
         assert result[2].sequence == 3
         event_repo.delete_by_chapter.assert_awaited_once_with(db, uuid.UUID(novel_id), 3)
+        event_repo.create_many.assert_awaited_once()
+        rows = event_repo.create_many.await_args.args[1]
+        assert [row["sequence"] for row in rows] == [1, 2, 3]
+        assert [row["event_type"] for row in rows] == [
+            "entity_created",
+            "entity_created",
+            "entity_moved",
+        ]
+        event_repo.create.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_record_overwrites_existing(self) -> None:
@@ -456,7 +468,10 @@ class TestRecordEvents:
         created = [_make_memory_event(sequence=i + 1) for i in range(2)]
         event_repo = MagicMock()
         event_repo.delete_by_chapter = AsyncMock()
-        event_repo.create = AsyncMock(side_effect=created)
+        event_repo.create_many = AsyncMock(return_value=created)
+        event_repo.create = AsyncMock(
+            side_effect=AssertionError("record_events should batch event inserts")
+        )
         snapshot_repo = MagicMock()
         service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
         db = AsyncMock()
@@ -465,6 +480,8 @@ class TestRecordEvents:
 
         assert len(result) == 2
         event_repo.delete_by_chapter.assert_awaited_once_with(db, uuid.UUID(novel_id), 3)
+        event_repo.create_many.assert_awaited_once()
+        event_repo.create.assert_not_awaited()
 
 
 class TestReplayState:

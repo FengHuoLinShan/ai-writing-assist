@@ -26,8 +26,10 @@ from modules.outline.generation.models import (
 )
 from modules.outline.generation.parser import ParsedPlotStructure
 from modules.outline.schemas import (
+    ForeshadowingPlanCreate,
     OutlineArcCreate,
     PlotThreadCreate,
+    RevealPlanCreate,
     SceneCreate,
 )
 
@@ -252,7 +254,7 @@ class PlotStructurePersister:
         provenance_meta: dict[str, Any],
     ) -> list[dict]:
         """持久化剧情线。"""
-        created: list[dict] = []
+        thread_payloads: list[PlotThreadCreate] = []
         for t in threads:
             if not t.name:
                 continue
@@ -282,20 +284,50 @@ class PlotStructurePersister:
                 provenance_meta=dict(provenance_meta),
                 status="draft",
             )
-            try:
-                thread_resp = await self._thread_service.create(
-                    db, str(novel_id), thread_data
-                )
-                created.append(
-                    {
-                        "id": str(thread_resp.id),
-                        "name": thread_resp.name,
-                        "thread_type": thread_resp.thread_type,
-                    }
-                )
-            except Exception as exc:
-                logger.warning("Failed to create thread '%s': %s", t.name, exc)
-        return created
+            thread_payloads.append(thread_data)
+
+        if not thread_payloads:
+            return []
+
+        try:
+            created_threads = await self._thread_service.create_batch(
+                db,
+                str(novel_id),
+                thread_payloads,
+            )
+        except Exception as exc:
+            logger.warning("Failed to create thread batch: %s", exc)
+            created: list[dict] = []
+            for thread_data in thread_payloads:
+                try:
+                    thread_resp = await self._thread_service.create(
+                        db,
+                        str(novel_id),
+                        thread_data,
+                    )
+                    created.append(
+                        {
+                            "id": str(thread_resp.id),
+                            "name": thread_resp.name,
+                            "thread_type": thread_resp.thread_type,
+                        }
+                    )
+                except Exception as item_exc:
+                    logger.warning(
+                        "Failed to create thread '%s': %s",
+                        thread_data.name,
+                        item_exc,
+                    )
+            return created
+
+        return [
+            {
+                "id": str(thread_resp.id),
+                "name": thread_resp.name,
+                "thread_type": thread_resp.thread_type,
+            }
+            for thread_resp in created_threads
+        ]
 
     async def _persist_arcs(
         self,
@@ -310,7 +342,7 @@ class PlotStructurePersister:
         provenance_meta: dict[str, Any],
     ) -> list[dict]:
         """持久化篇章纲。"""
-        created: list[dict] = []
+        arc_payloads: list[OutlineArcCreate] = []
         for a in arcs:
             if not a.title:
                 continue
@@ -350,18 +382,50 @@ class PlotStructurePersister:
                 provenance_meta=dict(provenance_meta),
                 status="draft",
             )
-            try:
-                arc_resp = await self._arc_service.create(db, str(novel_id), arc_data)
-                created.append(
-                    {
-                        "id": str(arc_resp.id),
-                        "title": arc_resp.title,
-                        "arc_index": arc_resp.arc_index,
-                    }
-                )
-            except Exception as exc:
-                logger.warning("Failed to create arc '%s': %s", a.title, exc)
-        return created
+            arc_payloads.append(arc_data)
+
+        if not arc_payloads:
+            return []
+
+        try:
+            created_arcs = await self._arc_service.create_batch(
+                db,
+                str(novel_id),
+                arc_payloads,
+            )
+        except Exception as exc:
+            logger.warning("Failed to create arc batch: %s", exc)
+            created: list[dict] = []
+            for arc_data in arc_payloads:
+                try:
+                    arc_resp = await self._arc_service.create(
+                        db,
+                        str(novel_id),
+                        arc_data,
+                    )
+                    created.append(
+                        {
+                            "id": str(arc_resp.id),
+                            "title": arc_resp.title,
+                            "arc_index": arc_resp.arc_index,
+                        }
+                    )
+                except Exception as item_exc:
+                    logger.warning(
+                        "Failed to create arc '%s': %s",
+                        arc_data.title,
+                        item_exc,
+                    )
+            return created
+
+        return [
+            {
+                "id": str(arc_resp.id),
+                "title": arc_resp.title,
+                "arc_index": arc_resp.arc_index,
+            }
+            for arc_resp in created_arcs
+        ]
 
     async def _persist_foreshadowing_and_reveals(
         self,
@@ -375,15 +439,12 @@ class PlotStructurePersister:
     ) -> tuple[list[dict], list[dict]]:
         """持久化伏笔计划和揭示计划。"""
         created_foreshadowing: list[dict] = []
+        foreshadowing_payloads: list[ForeshadowingPlanCreate] = []
         for fp in foreshadowing_plans:
             if not fp.name:
                 continue
             try:
-                from modules.outline.schemas import ForeshadowingPlanCreate
-
-                plan = await self._foreshadowing_service.create(
-                    db,
-                    str(novel_id),
+                foreshadowing_payloads.append(
                     ForeshadowingPlanCreate(
                         name=fp.name,
                         summary=fp.summary,
@@ -393,18 +454,30 @@ class PlotStructurePersister:
                         planned_payoff_chapter=fp.planned_payoff_chapter,
                         provenance_meta=dict(provenance_meta),
                         status="draft",
-                    ),
+                    )
                 )
-                created_foreshadowing.append(
+            except Exception as exc:
+                logger.warning("Failed to create foreshadowing '%s': %s", fp.name, exc)
+        if foreshadowing_payloads:
+            try:
+                plans = await self._foreshadowing_service.create_batch(
+                    db,
+                    str(novel_id),
+                    foreshadowing_payloads,
+                )
+                created_foreshadowing.extend(
                     {
                         "id": str(plan.id),
                         "name": plan.name,
                     }
+                    for plan in plans
                 )
             except Exception as exc:
-                logger.warning("Failed to create foreshadowing '%s': %s", fp.name, exc)
+                logger.warning("Failed to create foreshadowing batch: %s", exc)
 
         created_reveals: list[dict] = []
+        reveal_payloads: list[RevealPlanCreate] = []
+        reveal_target_names: list[str] = []
         for rp in reveal_plans:
             if not rp.target_name:
                 continue
@@ -412,11 +485,7 @@ class PlotStructurePersister:
                 rp.target_name
             )
             try:
-                from modules.outline.schemas import RevealPlanCreate
-
-                plan = await self._reveal_service.create(
-                    db,
-                    str(novel_id),
+                reveal_payloads.append(
                     RevealPlanCreate(
                         target_type=rp.target_type,
                         target_id=uuid.UUID(
@@ -425,20 +494,31 @@ class PlotStructurePersister:
                         secret_summary=rp.secret_summary or "",
                         provenance_meta=dict(provenance_meta),
                         status="draft",
-                    ),
+                    )
                 )
-                created_reveals.append(
-                    {
-                        "id": str(plan.id),
-                        "target_name": rp.target_name,
-                    }
-                )
+                reveal_target_names.append(rp.target_name)
             except Exception as exc:
                 logger.warning(
                     "Failed to create reveal for '%s': %s",
                     rp.target_name,
                     exc,
                 )
+        if reveal_payloads:
+            try:
+                plans = await self._reveal_service.create_batch(
+                    db,
+                    str(novel_id),
+                    reveal_payloads,
+                )
+                created_reveals.extend(
+                    {
+                        "id": str(plan.id),
+                        "target_name": target_name,
+                    }
+                    for plan, target_name in zip(plans, reveal_target_names, strict=True)
+                )
+            except Exception as exc:
+                logger.warning("Failed to create reveal batch: %s", exc)
 
         return created_foreshadowing, created_reveals
 
@@ -451,14 +531,12 @@ class PlotStructurePersister:
         scenes: list[GeneratedScene],
     ) -> list[dict]:
         """持久化 Scene 卡。"""
-        existing_scene_contracts = await self._scene_service.get_ordered(
-            db, str(novel_id)
-        )
-        next_scene_index = (
-            max([s.scene_index for s in existing_scene_contracts], default=-1) + 1
+        next_scene_index = await self._scene_service.get_next_scene_index(
+            db,
+            str(novel_id),
         )
 
-        created: list[dict] = []
+        scene_payloads: list[dict[str, Any]] = []
         for s in scenes:
             if not s.title:
                 continue
@@ -488,19 +566,48 @@ class PlotStructurePersister:
                 chapter_ids=chapter_ids,
                 status="draft",
             )
-            try:
-                scene_resp = await self._scene_service.create(
-                    db, str(novel_id), scene_data
-                )
-                created.append(
-                    {
-                        "id": str(scene_resp.id),
-                        "title": scene_resp.title,
-                        "scene_index": scene_resp.scene_index,
-                    }
-                )
-                next_scene_index += 1
-            except Exception as exc:
-                logger.warning("Failed to create scene '%s': %s", s.title, exc)
+            scene_payloads.append(scene_data.model_dump())
+            next_scene_index += 1
 
-        return created
+        if not scene_payloads:
+            return []
+
+        try:
+            created_scenes = await self._scene_service.batch_create_models_from_dicts(
+                db,
+                str(novel_id),
+                scene_payloads,
+            )
+        except Exception as exc:
+            logger.warning("Failed to create scene batch: %s", exc)
+            created: list[dict[str, Any]] = []
+            for payload in scene_payloads:
+                try:
+                    scene_resp = await self._scene_service.create(
+                        db,
+                        str(novel_id),
+                        SceneCreate(**payload),
+                    )
+                    created.append(
+                        {
+                            "id": str(scene_resp.id),
+                            "title": scene_resp.title,
+                            "scene_index": scene_resp.scene_index,
+                        }
+                    )
+                except Exception as item_exc:
+                    logger.warning(
+                        "Failed to create scene '%s': %s",
+                        payload.get("title"),
+                        item_exc,
+                    )
+            return created
+
+        return [
+            {
+                "id": str(scene_resp.id),
+                "title": scene_resp.title,
+                "scene_index": scene_resp.scene_index,
+            }
+            for scene_resp in created_scenes
+        ]

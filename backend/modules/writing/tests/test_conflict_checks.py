@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.tasks.models import AsyncTask
 from modules.memory.contracts import MemoryContinuityEvidenceContract
+from modules.project.models import Project
+from modules.writing.conflict_ai import (
+    ConflictCheckAiReviewService,
+    ConflictSuggestionService,
+)
+from modules.writing.repositories import WritingConflictCheckRepository
 
 
 async def _create_project(async_client: AsyncClient, title: str = "冲突检查项目") -> str:
@@ -201,6 +213,59 @@ async def test_conflict_check_history_returns_latest_first(
     assert body["total"] == 2
     assert [item["id"] for item in body["items"]] == [second["id"]]
     assert first["id"] != second["id"]
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_history_batches_item_loading(
+    db_session: AsyncSession,
+) -> None:
+    class CountingConflictCheckRepository(WritingConflictCheckRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.list_items_calls = 0
+
+        async def list_items(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.list_items_calls += 1
+            return await super().list_items(*args, **kwargs)
+
+    novel_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Conflict history perf"))
+    await db_session.flush()
+    repo = CountingConflictCheckRepository()
+    for idx in range(3):
+        await repo.create_check(
+            db_session,
+            novel_id=novel_id,
+            chapter_index=1,
+            scene_id=None,
+            draft_id=None,
+            version_number=None,
+            scope={"chapter_index": 1},
+            include_candidates=False,
+            status="completed",
+            summary_json={"total": 1},
+            items=[{
+                "kind": "required_missing",
+                "severity": "medium",
+                "source_module": "outline",
+                "source_type": "scene.must_happen",
+                "source_id": f"scene-{idx}",
+                "evidence_summary": f"missing-{idx}",
+            }],
+        )
+
+    pairs, total = await repo.list_checks(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=1,
+        scene_id=None,
+        limit=3,
+    )
+
+    assert total == 3
+    assert len(pairs) == 3
+    assert all(len(items) == 1 for _check, items in pairs)
+    assert repo.list_items_calls <= 1
 
 
 @pytest.mark.asyncio
@@ -586,6 +651,267 @@ async def test_publish_without_scene_id_does_not_archive_scene_scoped_check(
 
     assert published.status_code == 201, published.text
     assert published.json()["draft"]["conflict_check_snapshot_json"] is None
+
+
+@pytest.mark.asyncio
+async def test_ai_review_service_uses_domain_not_found_error() -> None:
+    repo = type("Repo", (), {"get_check": AsyncMock(return_value=None)})()
+    service = ConflictCheckAiReviewService(repo)  # type: ignore[arg-type]
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await service.run(
+            None,  # type: ignore[arg-type]
+            novel_id="11111111-1111-4111-8111-111111111111",
+            check_id="22222222-2222-4222-8222-222222222222",
+            context_confirmation_id="33333333-3333-4333-8333-333333333333",
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ai_review_reuses_loaded_items_after_append(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = uuid.uuid4()
+    check_id = uuid.uuid4()
+    confirmation_id = uuid.uuid4()
+    current_item = SimpleNamespace(
+        id=uuid.uuid4(),
+        kind="required_missing",
+        severity="low",
+        evidence_summary="王后签字没有出现",
+        is_ai_judgment=False,
+        status="open",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    check = SimpleNamespace(
+        id=check_id,
+        chapter_index=1,
+        scene_id=None,
+        scope={"content_excerpt": "主角点头同意。"},
+        summary_json={"total": 1},
+    )
+
+    class Repo:
+        def __init__(self) -> None:
+            self.append_items_calls = 0
+            self.list_items_calls = 0
+
+        async def get_check(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return check, [current_item]
+
+        async def update_ai_review(
+            self,
+            _db,
+            *,
+            status,
+            summary_json=None,
+            **_kwargs,
+        ):  # type: ignore[no-untyped-def]
+            check.ai_review_status = status
+            check.summary_json = summary_json or check.summary_json
+            return check
+
+        async def append_items(self, *_args, items, **_kwargs):  # type: ignore[no-untyped-def]
+            self.append_items_calls += 1
+            return [
+                SimpleNamespace(
+                    id=uuid.uuid4(),
+                    created_at=datetime(2026, 1, 2, tzinfo=UTC),
+                    **item,
+                )
+                for item in items
+            ]
+
+        async def list_items(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            self.list_items_calls += 1
+            raise AssertionError("AI review success must reuse loaded and appended items")
+
+    class LLM:
+        model_name = "fake-model"
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            return schema.model_validate(
+                {
+                    "issues": [
+                        {
+                            "kind": "motivation_gap",
+                            "severity": "high",
+                            "summary": "主角突然信任港务长",
+                            "evidence": "主角点头同意。",
+                            "rationale": "此前没有建立信任动机。",
+                            "location_hint": {"chapter_index": 1},
+                            "confidence": 0.72,
+                            "depends_on_pending_objects": False,
+                        }
+                    ]
+                }
+            )
+
+    async def fake_prepare_confirmed_ai_action(*_args, **_kwargs):
+        return SimpleNamespace(
+            confirmation=SimpleNamespace(
+                compile_options={"chapter_index": 1},
+                include_pending_objects=False,
+            ),
+            rendered_markdown="scene context",
+        )
+
+    async def fake_bind_confirmed_action_result(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "modules.context.facade.prepare_confirmed_ai_action",
+        fake_prepare_confirmed_ai_action,
+    )
+    monkeypatch.setattr(
+        "modules.context.facade.bind_confirmed_action_result",
+        fake_bind_confirmed_action_result,
+    )
+
+    repo = Repo()
+    service = ConflictCheckAiReviewService(repo, llm_client=LLM())  # type: ignore[arg-type]
+
+    updated, items = await service.run(
+        None,  # type: ignore[arg-type]
+        novel_id=str(novel_id),
+        check_id=str(check_id),
+        context_confirmation_id=str(confirmation_id),
+    )
+
+    assert updated is check
+    assert repo.append_items_calls == 1
+    assert repo.list_items_calls == 0
+    assert [item.severity for item in items] == ["high", "low"]
+    assert check.summary_json["total"] == 2
+    assert check.summary_json["ai_review"]["item_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ai_suggestion_service_uses_domain_not_found_error() -> None:
+    repo = type("Repo", (), {"get_item": AsyncMock(return_value=None)})()
+    service = ConflictSuggestionService(repo)  # type: ignore[arg-type]
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await service.generate(
+            None,  # type: ignore[arg-type]
+            novel_id="11111111-1111-4111-8111-111111111111",
+            item_id="22222222-2222-4222-8222-222222222222",
+            context_confirmation_id="33333333-3333-4333-8333-333333333333",
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ai_suggestion_reuses_loaded_item_for_status_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = uuid.uuid4()
+    check_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    confirmation_id = uuid.uuid4()
+    check = SimpleNamespace(
+        id=check_id,
+        chapter_index=1,
+        scene_id=None,
+    )
+    item = SimpleNamespace(
+        id=item_id,
+        check_id=check_id,
+        kind="required_missing",
+        evidence_summary="王后签字没有出现",
+        suggestion_status="not_requested",
+    )
+
+    class Repo:
+        def __init__(self) -> None:
+            self.get_item_calls = 0
+            self.loaded_update_statuses: list[str] = []
+
+        async def get_item(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            self.get_item_calls += 1
+            return item
+
+        async def get_check(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return check, [item]
+
+        async def update_item_suggestion(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("suggestion flow must not re-fetch item")
+
+        async def update_loaded_item_suggestion(
+            self,
+            _db,
+            loaded_item,
+            *,
+            status,
+            confirmation_id=None,
+            ai_suggestion=None,
+            llm_rationale=None,
+            error=None,
+        ):  # type: ignore[no-untyped-def]
+            assert loaded_item is item
+            self.loaded_update_statuses.append(status)
+            loaded_item.suggestion_status = status
+            loaded_item.suggestion_confirmation_id = confirmation_id
+            loaded_item.ai_suggestion = ai_suggestion
+            loaded_item.llm_rationale = llm_rationale
+            loaded_item.suggestion_error = error
+            return loaded_item
+
+    class LLM:
+        model_name = "fake-model"
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            return schema.model_validate(
+                {
+                    "suggestion": {
+                        "strategy": "补足签字动作",
+                        "suggested_text": "王后按下印鉴后，守卫才侧身放行。",
+                        "rationale": "让必须发生的签字动作进入正文。",
+                        "constraints": [],
+                        "risk_notes": [],
+                    }
+                }
+            )
+
+    async def fake_prepare_confirmed_ai_action(*_args, **_kwargs):
+        return SimpleNamespace(
+            confirmation=SimpleNamespace(
+                compile_options={"chapter_index": 1},
+                include_pending_objects=False,
+            ),
+            rendered_markdown="scene context",
+        )
+
+    async def fake_bind_confirmed_action_result(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "modules.context.facade.prepare_confirmed_ai_action",
+        fake_prepare_confirmed_ai_action,
+    )
+    monkeypatch.setattr(
+        "modules.context.facade.bind_confirmed_action_result",
+        fake_bind_confirmed_action_result,
+    )
+
+    repo = Repo()
+    service = ConflictSuggestionService(repo, llm_client=LLM())  # type: ignore[arg-type]
+
+    updated = await service.generate(
+        None,  # type: ignore[arg-type]
+        novel_id=str(novel_id),
+        item_id=str(item_id),
+        context_confirmation_id=str(confirmation_id),
+    )
+
+    assert updated is item
+    assert repo.get_item_calls == 1
+    assert repo.loaded_update_statuses == ["running", "done"]
+    assert item.suggestion_status == "done"
+    assert "补足签字动作" in item.ai_suggestion
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,7 @@ import pytest
 from modules.rag.query_expansion import (
     QueryExpander,
     _cn_ngrams,
+    _load_project_terms,
     _match_project_terms,
 )
 
@@ -76,3 +77,38 @@ class TestQueryExpander:
         expander = QueryExpander(term_loader=_empty)
         result = await expander.expand(None, uuid.uuid4(), "测试")  # type: ignore[arg-type]
         assert result == "测试"
+
+
+class TestLoadProjectTerms:
+    @pytest.mark.asyncio
+    async def test_loads_entity_terms_without_unused_character_query(self) -> None:
+        from app.main import _register_container_services
+        from core.container import register, reset
+
+        calls: list[str] = []
+
+        async def _list_characters(*args: Any, **kwargs: Any):
+            calls.append("characters")
+            raise AssertionError("unused character listing should not be called")
+
+        async def _list_entity_terms(*args: Any, **kwargs: Any):
+            calls.append("entity_terms")
+            return [{
+                "id": "entity-1",
+                "terms": ["克莱恩", "周明瑞"],
+            }]
+
+        reset()
+        register("world.list_characters", _list_characters)
+        register("world.list_entity_terms", _list_entity_terms)
+        try:
+            terms = await _load_project_terms(None, uuid.uuid4())  # type: ignore[arg-type]
+        finally:
+            reset()
+            _register_container_services()
+
+        assert calls == ["entity_terms"]
+        assert terms == [
+            {"term": "克莱恩", "id": "entity-1", "type": "entity"},
+            {"term": "周明瑞", "id": "entity-1", "type": "entity"},
+        ]

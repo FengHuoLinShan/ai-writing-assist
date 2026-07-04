@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.errors import NotFoundError
 
 # ============================================================
 # In-memory fake — 直接测 base class 的契约, 不依赖具体 ORM
@@ -93,7 +94,7 @@ class FakeResponse(BaseModel):
 
 class FakeService(
     # type: ignore[misc]
-    __import__("modules.world.services.base", fromlist=["CrudService"]).CrudService[
+    __import__("core.crud", fromlist=["CrudService"]).CrudService[
         FakeRow,
         FakeCreate,
         FakeUpdate,
@@ -244,7 +245,7 @@ async def test_get_not_found_variants(
         target_id = str(uuid.uuid4())
         lookup_novel_id = novel_id
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(NotFoundError) as exc:
         await svc.get(db_session, target_id, novel_id=lookup_novel_id)
     assert exc.value.status_code == 404
 
@@ -255,7 +256,7 @@ async def test_get_404_message_uses_label(
 ) -> None:
     svc = FakeService()
     fake_id = str(uuid.uuid4())
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(NotFoundError) as exc:
         await svc.get(
             db_session,
             fake_id,
@@ -269,7 +270,7 @@ async def test_get_404_message_uses_label(
 
 def test_subclass_missing_classvar_raises() -> None:
     """缺 ClassVar 的子类必须在 class 定义时立即抛 TypeError (不是延迟到调用)。"""
-    from modules.world.services.base import CrudService
+    from core.crud import CrudService
 
     # class 定义本身就会触发 __init_subclass__ 抛错 — 不用 with pytest.raises
     # 因为 class 关键字在 module load 时执行

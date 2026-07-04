@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
@@ -247,6 +247,16 @@ class PlotThreadService(
             db, novel_id, start_chapter, end_chapter
         )
 
+    async def create_batch(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        items: list[PlotThreadCreate],
+    ) -> list[PlotThreadResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        threads = await self.repo.create_many(db, nid, items)
+        return [self._to_response(thread) for thread in threads]
+
 
 class OutlineArcService(
     StructureAssetFilterMixin,
@@ -301,6 +311,16 @@ class OutlineArcService(
             db, novel_id, start_chapter, end_chapter
         )
 
+    async def create_batch(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        items: list[OutlineArcCreate],
+    ) -> list[OutlineArcResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        arcs = await self.repo.create_many(db, nid, items)
+        return [self._to_response(arc) for arc in arcs]
+
 
 class ForeshadowingPlanService(
     StructureAssetFilterMixin,
@@ -334,6 +354,20 @@ class ForeshadowingPlanService(
         nid = parse_uuid(novel_id, "novel_id")
         plan = await self.repo.create(db, nid, data.model_dump())
         return self.response.model_validate(plan)
+
+    async def create_batch(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        items: list[ForeshadowingPlanCreate],
+    ) -> list[ForeshadowingPlanResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        plans = await self.repo.create_batch(
+            db,
+            nid,
+            [item.model_dump() for item in items],
+        )
+        return [self.response.model_validate(plan) for plan in plans]
 
     async def update(
         self,
@@ -379,6 +413,20 @@ class RevealPlanService(
         payload = data.model_dump()
         plan = await self.repo.create(db, nid, payload)
         return self.response.model_validate(plan)
+
+    async def create_batch(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        items: list[RevealPlanCreate],
+    ) -> list[RevealPlanResponse]:
+        nid = parse_uuid(novel_id, "novel_id")
+        plans = await self.repo.create_batch(
+            db,
+            nid,
+            [item.model_dump() for item in items],
+        )
+        return [self.response.model_validate(plan) for plan in plans]
 
     async def update(
         self,
@@ -462,6 +510,27 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             for s in scenes
         ]
 
+    async def get_by_chapter_models(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+    ) -> list[Scene]:
+        nid = parse_uuid(novel_id, "novel_id")
+        return await self.repo.get_by_chapter(db, nid, chapter_index)
+
+    async def get_by_chapter_range_models(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> list[Scene]:
+        nid = parse_uuid(novel_id, "novel_id")
+        start = min(start_chapter, end_chapter)
+        end = max(start_chapter, end_chapter)
+        return await self.repo.get_by_chapter_range(db, nid, start, end)
+
     async def get_ordered_models(
         self,
         db: AsyncSession,
@@ -490,6 +559,15 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
     ) -> list[Scene]:
         nid = parse_uuid(novel_id, "novel_id")
         return await self.repo.get_by_provenance_key(db, nid, provenance_key)
+
+    async def get_by_provenance_keys_models(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        provenance_keys: list[str],
+    ) -> list[Scene]:
+        nid = parse_uuid(novel_id, "novel_id")
+        return await self.repo.get_by_provenance_keys(db, nid, provenance_keys)
 
     async def count_by_novel(
         self,
@@ -522,10 +600,11 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         scenes_data: list[dict[str, Any]],
     ) -> list[Scene]:
         nid = parse_uuid(novel_id, "novel_id")
-        results: list[Scene] = []
-        for data in scenes_data:
-            results.append(await self.repo.create(db, nid, SceneCreate(**data)))
-        return results
+        return await self.repo.create_many(
+            db,
+            nid,
+            [SceneCreate(**data) for data in scenes_data],
+        )
 
     async def update_model_from_dict(
         self,
@@ -560,6 +639,10 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         stmt = select(Scene).where(
             Scene.novel_id == nid,
             Scene.status.in_(["candidate", "proposal", "draft", "canonical"]),
+            Scene.source == "deep_import",
+            Scene.structure_meta["workflow_id"].as_string() == workflow_id,
+            Scene.structure_meta["auto_ingested"].as_boolean().is_(True),
+            Scene.structure_meta["user_edited"].as_boolean().is_not(True),
         )
         result = await db.execute(stmt)
         scenes = result.scalars().all()
@@ -567,7 +650,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         deprecated = 0
         for scene in scenes:
             meta = scene.structure_meta or {}
-            if scene.source != "deep_import" or not _is_cleanup_eligible_deep_import_meta(
+            if not _is_cleanup_eligible_deep_import_meta(
                 meta,
                 workflow_id,
                 require_source=False,
@@ -578,11 +661,9 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
                 "cleanup_status": "deprecated",
                 "cleanup_reason": "abandoned_deep_import_recovery",
             }
-            await db.execute(
-                update(Scene)
-                .where(Scene.id == scene.id, Scene.novel_id == nid)
-                .values(status="deprecated", structure_meta=updated_meta)
-            )
+            scene.status = "deprecated"
+            scene.structure_meta = updated_meta
+            db.add(scene)
             deprecated += 1
 
         if deprecated:
@@ -698,6 +779,11 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             db.add(new_scene)
 
         await db.flush()
+        await self.repo.sync_chapter_links(db, source_scene)
+        if tid:
+            await self.repo.sync_chapter_links(db, target)
+        else:
+            await self.repo.sync_chapter_links(db, new_scene)
 
         # 返回更新后的 scenes
         scenes = await self.repo.get_by_novel_ordered(db, nid)
@@ -790,16 +876,16 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             status="draft",
         )
         db.add(new_scene)
-
-        # Shift later scene_index values（排除刚新建的 Scene）
-        later = await self.repo.get_by_novel_ordered(db, nid)
-        excluded_ids = {source.id, new_scene.id}
-        for s in later:
-            if s.id not in excluded_ids and s.scene_index > source.scene_index:
-                s.scene_index = s.scene_index + 1
-                db.add(s)
-
         await db.flush()
+
+        await self.repo.shift_scene_indices_after(
+            db,
+            nid,
+            source.scene_index,
+            exclude_ids={source.id, new_scene.id},
+        )
+        await self.repo.sync_chapter_links(db, source)
+        await self.repo.sync_chapter_links(db, new_scene)
 
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return list(scenes)
@@ -820,6 +906,10 @@ class OutlineStructureCleanupService:
             stmt = select(model).where(
                 model.novel_id == nid,
                 model.status.in_(["candidate", "proposal", "draft", "canonical"]),
+                model.provenance_meta["source"].as_string() == "deep_import",
+                model.provenance_meta["workflow_id"].as_string() == workflow_id,
+                model.provenance_meta["auto_ingested"].as_boolean().is_(True),
+                model.provenance_meta["user_edited"].as_boolean().is_not(True),
             )
             result = await db.execute(stmt)
             assets = result.scalars().all()
@@ -832,11 +922,9 @@ class OutlineStructureCleanupService:
                     "cleanup_status": "deprecated",
                     "cleanup_reason": "abandoned_deep_import_recovery",
                 }
-                await db.execute(
-                    update(model)
-                    .where(model.id == asset.id, model.novel_id == nid)
-                    .values(status="deprecated", provenance_meta=updated_meta)
-                )
+                asset.status = "deprecated"
+                asset.provenance_meta = updated_meta
+                db.add(asset)
                 deprecated += 1
 
         if deprecated:

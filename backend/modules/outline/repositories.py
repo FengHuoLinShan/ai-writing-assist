@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import OutlineArc, PlotThread, Scene
+from modules.outline.models import OutlineArc, PlotThread, Scene, SceneChapterLink
 from modules.outline.schemas import (
     OutlineArcCreate,
     OutlineArcUpdate,
@@ -42,14 +42,94 @@ def apply_structure_asset_filters(
         )
 
 
-class PlotThreadRepository:
+class StructurePlanRepository[ModelT]:
+    model_class: ClassVar[type[ModelT]]
+    order_by: ClassVar[tuple[Any, ...]] = ()
+
     async def create(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
-        data: PlotThreadCreate,
-    ) -> PlotThread:
-        thread = PlotThread(
+        data: dict,
+    ) -> ModelT:
+        plan = self.model_class(novel_id=novel_id, **data)
+        db.add(plan)
+        await db.flush()
+        return plan
+
+    async def create_batch(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        items: list[dict],
+    ) -> list[ModelT]:
+        plans = [self.model_class(novel_id=novel_id, **data) for data in items]
+        db.add_all(plans)
+        await db.flush()
+        return plans
+
+    async def get(self, db: AsyncSession, plan_id: uuid.UUID) -> ModelT | None:
+        stmt = select(self.model_class).where(self.model_class.id == plan_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int = 0,
+        limit: int = 50,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+    ) -> tuple[list[ModelT], int]:
+        conditions = [self.model_class.novel_id == novel_id]
+        apply_structure_asset_filters(
+            conditions,
+            self.model_class,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+        )
+        total = (
+            await db.execute(select(func.count(self.model_class.id)).where(*conditions))
+        ).scalar() or 0
+        stmt = select(self.model_class).where(*conditions).offset(skip).limit(limit)
+        if self.order_by:
+            stmt = stmt.order_by(*self.order_by)
+        result = await db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def update(
+        self,
+        db: AsyncSession,
+        plan_id: uuid.UUID,
+        data: dict,
+    ) -> ModelT | None:
+        plan = await self.get(db, plan_id)
+        if plan is None:
+            return None
+        for field, value in data.items():
+            setattr(plan, field, value)
+        db.add(plan)
+        await db.flush()
+        return plan
+
+    async def delete(self, db: AsyncSession, plan_id: uuid.UUID) -> bool:
+        result = await db.execute(
+            delete(self.model_class).where(self.model_class.id == plan_id)
+        )
+        await db.flush()
+        return result.rowcount > 0
+
+
+class PlotThreadRepository:
+    @staticmethod
+    def _build(novel_id: uuid.UUID, data: PlotThreadCreate) -> PlotThread:
+        return PlotThread(
             novel_id=novel_id,
             name=data.name,
             thread_type=data.thread_type,
@@ -67,9 +147,29 @@ class PlotThreadRepository:
             provenance_meta=data.provenance_meta or {},
             status=data.status or "draft",
         )
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        data: PlotThreadCreate,
+    ) -> PlotThread:
+        thread = self._build(novel_id, data)
         db.add(thread)
         await db.flush()
         return thread
+
+    async def create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        items: list[PlotThreadCreate],
+    ) -> list[PlotThread]:
+        threads = [self._build(novel_id, data) for data in items]
+        if threads:
+            db.add_all(threads)
+            await db.flush()
+        return threads
 
     async def get(self, db: AsyncSession, thread_id: uuid.UUID) -> PlotThread | None:
         stmt = select(PlotThread).where(PlotThread.id == thread_id)
@@ -198,15 +298,12 @@ class PlotThreadRepository:
                 update_values[json_field] = value
 
         if update_values:
-            stmt = (
-                update(PlotThread)
-                .where(PlotThread.id == thread_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(thread, field, value)
+            db.add(thread)
             await db.flush()
 
-        return await self.get(db, thread_id)
+        return thread
 
     async def delete(self, db: AsyncSession, thread_id: uuid.UUID) -> bool:
         stmt = delete(PlotThread).where(PlotThread.id == thread_id)
@@ -216,13 +313,9 @@ class PlotThreadRepository:
 
 
 class OutlineArcRepository:
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        data: OutlineArcCreate,
-    ) -> OutlineArc:
-        arc = OutlineArc(
+    @staticmethod
+    def _build(novel_id: uuid.UUID, data: OutlineArcCreate) -> OutlineArc:
+        return OutlineArc(
             novel_id=novel_id,
             title=data.title,
             arc_index=data.arc_index,
@@ -242,9 +335,29 @@ class OutlineArcRepository:
             provenance_meta=data.provenance_meta or {},
             status=data.status or "draft",
         )
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        data: OutlineArcCreate,
+    ) -> OutlineArc:
+        arc = self._build(novel_id, data)
         db.add(arc)
         await db.flush()
         return arc
+
+    async def create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        items: list[OutlineArcCreate],
+    ) -> list[OutlineArc]:
+        arcs = [self._build(novel_id, data) for data in items]
+        if arcs:
+            db.add_all(arcs)
+            await db.flush()
+        return arcs
 
     async def get(self, db: AsyncSession, arc_id: uuid.UUID) -> OutlineArc | None:
         stmt = select(OutlineArc).where(OutlineArc.id == arc_id)
@@ -367,13 +480,12 @@ class OutlineArcRepository:
                 update_values[json_field] = value
 
         if update_values:
-            stmt = (
-                update(OutlineArc).where(OutlineArc.id == arc_id).values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(arc, field, value)
+            db.add(arc)
             await db.flush()
 
-        return await self.get(db, arc_id)
+        return arc
 
     async def delete(self, db: AsyncSession, arc_id: uuid.UUID) -> bool:
         stmt = delete(OutlineArc).where(OutlineArc.id == arc_id)
@@ -383,13 +495,8 @@ class OutlineArcRepository:
 
 
 class SceneRepository:
-    async def create(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        data: SceneCreate,
-    ) -> Scene:
-        scene = Scene(
+    def _build_scene(self, novel_id: uuid.UUID, data: SceneCreate) -> Scene:
+        return Scene(
             novel_id=novel_id,
             scene_index=data.scene_index,
             title=data.title,
@@ -406,14 +513,180 @@ class SceneRepository:
             structure_meta=data.structure_meta or {},
             status=data.status or "draft",
         )
+
+    def chapter_indices_for_scene(self, scene: Scene) -> list[int]:
+        indices: set[int] = set()
+        for chapter_id in scene.chapter_ids or []:
+            try:
+                indices.add(int(chapter_id))
+            except (TypeError, ValueError):
+                continue
+        for chunk in scene.scene_chunks or []:
+            if not isinstance(chunk, dict):
+                continue
+            raw_index = chunk.get("chapter_index") or chunk.get("chapter_id")
+            try:
+                indices.add(int(raw_index))
+            except (TypeError, ValueError):
+                continue
+        return sorted(indices)
+
+    async def sync_chapter_links(
+        self,
+        db: AsyncSession,
+        scene: Scene,
+    ) -> None:
+        await db.execute(
+            delete(SceneChapterLink).where(
+                SceneChapterLink.novel_id == scene.novel_id,
+                SceneChapterLink.scene_id == scene.id,
+            )
+        )
+        links = [
+            SceneChapterLink(
+                novel_id=scene.novel_id,
+                scene_id=scene.id,
+                chapter_index=chapter_index,
+            )
+            for chapter_index in self.chapter_indices_for_scene(scene)
+        ]
+        if links:
+            db.add_all(links)
+        await db.flush()
+
+    async def backfill_chapter_links(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID | None = None,
+    ) -> int:
+        conditions = []
+        if novel_id is not None:
+            conditions.append(Scene.novel_id == novel_id)
+        stmt = select(Scene)
+        if conditions:
+            stmt = stmt.where(*conditions)
+        result = await db.execute(stmt)
+        scenes: Sequence[Scene] = result.scalars().all()
+        delete_stmt = delete(SceneChapterLink)
+        if novel_id is not None:
+            delete_stmt = delete_stmt.where(SceneChapterLink.novel_id == novel_id)
+        await db.execute(delete_stmt)
+        link_count = 0
+        links: list[SceneChapterLink] = []
+        for scene in scenes:
+            for chapter_index in self.chapter_indices_for_scene(scene):
+                links.append(
+                    SceneChapterLink(
+                        novel_id=scene.novel_id,
+                        scene_id=scene.id,
+                        chapter_index=chapter_index,
+                    )
+                )
+        if links:
+            db.add_all(links)
+            link_count = len(links)
+        await db.flush()
+        return link_count
+
+    async def _get_by_chapter_json_fallback(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> list[Scene]:
+        conditions = [
+            Scene.novel_id == novel_id,
+            Scene.status.in_(["draft", "canonical"]),
+        ]
+        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
+        result = await db.execute(stmt)
+        all_scenes: Sequence[Scene] = result.scalars().all()
+        matching = [
+            scene
+            for scene in all_scenes
+            if chapter_index in self.chapter_indices_for_scene(scene)
+        ]
+        return matching
+
+    async def _get_by_chapter_range_json_fallback(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_chapter: int,
+        end_chapter: int,
+        *,
+        statuses: tuple[str, ...],
+    ) -> list[Scene]:
+        conditions = [
+            Scene.novel_id == novel_id,
+            Scene.status.in_(statuses),
+        ]
+        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
+        result = await db.execute(stmt)
+        all_scenes: Sequence[Scene] = result.scalars().all()
+        matching = []
+        for scene in all_scenes:
+            chapters = self.chapter_indices_for_scene(scene)
+            if any(start_chapter <= chapter <= end_chapter for chapter in chapters):
+                matching.append(scene)
+        return matching
+
+    async def create(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        data: SceneCreate,
+    ) -> Scene:
+        scene = self._build_scene(novel_id, data)
         db.add(scene)
         await db.flush()
+        await self.sync_chapter_links(db, scene)
         return scene
+
+    async def create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        items: list[SceneCreate],
+    ) -> list[Scene]:
+        scenes = [self._build_scene(novel_id, data) for data in items]
+        if not scenes:
+            return []
+        db.add_all(scenes)
+        await db.flush()
+        links = [
+            SceneChapterLink(
+                novel_id=scene.novel_id,
+                scene_id=scene.id,
+                chapter_index=chapter_index,
+            )
+            for scene in scenes
+            for chapter_index in self.chapter_indices_for_scene(scene)
+        ]
+        if links:
+            db.add_all(links)
+            await db.flush()
+        return scenes
 
     async def get(self, db: AsyncSession, scene_id: uuid.UUID) -> Scene | None:
         stmt = select(Scene).where(Scene.id == scene_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_many_for_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_ids: list[uuid.UUID],
+    ) -> list[Scene]:
+        if not scene_ids:
+            return []
+        stmt = select(Scene).where(
+            Scene.novel_id == novel_id,
+            Scene.id.in_(scene_ids),
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_by_novel(
         self,
@@ -509,23 +782,82 @@ class SceneRepository:
             if (scene.structure_meta or {}).get("provenance_key") == provenance_key
         ]
 
+    async def get_by_provenance_keys(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        provenance_keys: list[str],
+    ) -> list[Scene]:
+        unique_keys = list(dict.fromkeys(key for key in provenance_keys if key))
+        if not unique_keys:
+            return []
+        stmt = (
+            select(Scene)
+            .where(
+                Scene.novel_id == novel_id,
+                Scene.structure_meta["provenance_key"].as_string().in_(unique_keys),
+            )
+            .order_by(Scene.scene_index, Scene.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_by_chapter(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> list[Scene]:
-        conditions = [
-            Scene.novel_id == novel_id,
-            Scene.status.in_(["draft", "canonical"]),
-        ]
-        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
+        stmt = (
+            select(Scene)
+            .join(SceneChapterLink, SceneChapterLink.scene_id == Scene.id)
+            .where(
+                Scene.novel_id == novel_id,
+                Scene.status.in_(["draft", "canonical"]),
+                SceneChapterLink.novel_id == novel_id,
+                SceneChapterLink.chapter_index == chapter_index,
+            )
+            .order_by(Scene.scene_index)
+        )
         result = await db.execute(stmt)
-        all_scenes: Sequence[Scene] = result.scalars().all()
-        matching = [
-            s for s in all_scenes if s.chapter_ids and str(chapter_index) in s.chapter_ids
-        ]
-        return matching
+        matching: Sequence[Scene] = result.scalars().all()
+        if matching:
+            return list(matching)
+        return await self._get_by_chapter_json_fallback(db, novel_id, chapter_index)
+
+    async def get_by_chapter_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        start_chapter: int,
+        end_chapter: int,
+        *,
+        statuses: tuple[str, ...] = ("candidate", "draft", "canonical"),
+    ) -> list[Scene]:
+        stmt = (
+            select(Scene)
+            .distinct()
+            .join(SceneChapterLink, SceneChapterLink.scene_id == Scene.id)
+            .where(
+                Scene.novel_id == novel_id,
+                Scene.status.in_(statuses),
+                SceneChapterLink.novel_id == novel_id,
+                SceneChapterLink.chapter_index >= start_chapter,
+                SceneChapterLink.chapter_index <= end_chapter,
+            )
+            .order_by(Scene.scene_index, Scene.id)
+        )
+        result = await db.execute(stmt)
+        matching: Sequence[Scene] = result.scalars().all()
+        if matching:
+            return list(matching)
+        return await self._get_by_chapter_range_json_fallback(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            statuses=statuses,
+        )
 
     async def get_by_chapter_index(
         self,
@@ -534,17 +866,24 @@ class SceneRepository:
         chapter_index: int,
     ) -> Scene | None:
         """获取包含指定章节的 Scene（一个章节只属于一个 Scene）"""
-        conditions = [
-            Scene.novel_id == novel_id,
-            Scene.status.in_(["draft", "canonical"]),
-        ]
-        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
+        stmt = (
+            select(Scene)
+            .join(SceneChapterLink, SceneChapterLink.scene_id == Scene.id)
+            .where(
+                Scene.novel_id == novel_id,
+                Scene.status.in_(["draft", "canonical"]),
+                SceneChapterLink.novel_id == novel_id,
+                SceneChapterLink.chapter_index == chapter_index,
+            )
+            .order_by(Scene.scene_index)
+            .limit(1)
+        )
         result = await db.execute(stmt)
-        all_scenes: Sequence[Scene] = result.scalars().all()
-        for s in all_scenes:
-            if s.chapter_ids and str(chapter_index) in s.chapter_ids:
-                return s
-        return None
+        scene = result.scalar_one_or_none()
+        if scene is not None:
+            return scene
+        fallback = await self._get_by_chapter_json_fallback(db, novel_id, chapter_index)
+        return fallback[0] if fallback else None
 
     async def update(
         self,
@@ -586,11 +925,47 @@ class SceneRepository:
                 update_values[json_field] = value
 
         if update_values:
-            stmt = update(Scene).where(Scene.id == scene_id).values(**update_values)
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(scene, field, value)
+            db.add(scene)
             await db.flush()
 
-        return await self.get(db, scene_id)
+        if {"scene_chunks", "chapter_ids"} & fields_set:
+            await self.sync_chapter_links(db, scene)
+        return scene
+
+    async def deprecate_with_reference(
+        self,
+        db: AsyncSession,
+        scenes: Sequence[Scene],
+        *,
+        reference_field: str,
+        reference_scene_id: uuid.UUID,
+        clear_mapping: bool = False,
+    ) -> int:
+        """Mark scenes deprecated while preserving per-source trace metadata."""
+        scene_list = list(scenes)
+        if not scene_list:
+            return 0
+
+        for scene in scene_list:
+            source_meta = dict(scene.structure_meta or {})
+            source_meta[reference_field] = str(reference_scene_id)
+            scene.status = "deprecated"
+            scene.structure_meta = source_meta
+            if clear_mapping:
+                scene.chapter_ids = []
+                scene.scene_chunks = []
+
+        db.add_all(scene_list)
+        if clear_mapping:
+            await db.execute(
+                delete(SceneChapterLink).where(
+                    SceneChapterLink.scene_id.in_([scene.id for scene in scene_list])
+                )
+            )
+        await db.flush()
+        return len(scene_list)
 
     async def delete(self, db: AsyncSession, scene_id: uuid.UUID) -> bool:
         stmt = delete(Scene).where(Scene.id == scene_id)
@@ -605,14 +980,35 @@ class SceneRepository:
         scene_ids: list[uuid.UUID],
     ) -> int:
         """批量重排 scene_index，按 scene_ids 顺序从 0 开始重新编号"""
-        updated = 0
-        for idx, sid in enumerate(scene_ids):
-            stmt = (
-                update(Scene)
-                .where(Scene.id == sid, Scene.novel_id == novel_id)
-                .values(scene_index=idx)
-            )
-            result = await db.execute(stmt)
-            updated += result.rowcount
+        if not scene_ids:
+            return 0
+        scene_order = {scene_id: index for index, scene_id in enumerate(scene_ids)}
+        stmt = (
+            update(Scene)
+            .where(Scene.id.in_(scene_ids), Scene.novel_id == novel_id)
+            .values(scene_index=case(scene_order, value=Scene.id))
+        )
+        result = await db.execute(stmt)
         await db.flush()
-        return updated
+        return result.rowcount or 0
+
+    async def shift_scene_indices_after(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_index: int,
+        *,
+        exclude_ids: set[uuid.UUID] | None = None,
+    ) -> int:
+        """将指定 novel 中 scene_index 更大的 Scene 整体后移一位。"""
+        stmt = update(Scene).where(
+            Scene.novel_id == novel_id,
+            Scene.scene_index > scene_index,
+        )
+        if exclude_ids:
+            stmt = stmt.where(Scene.id.not_in(exclude_ids))
+        result = await db.execute(
+            stmt.values(scene_index=Scene.scene_index + 1),
+        )
+        await db.flush()
+        return result.rowcount or 0

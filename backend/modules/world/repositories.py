@@ -135,9 +135,8 @@ class CoreEntityRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_novel(
+    def _entity_conditions(
         self,
-        db: AsyncSession,
         novel_id: uuid.UUID,
         *,
         entity_type: str | None = None,
@@ -147,9 +146,7 @@ class CoreEntityRepository:
         workflow_id: str | None = None,
         needs_review: bool | None = None,
         auto_ingested: bool | None = None,
-        skip: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[CoreEntity], int]:
+    ) -> list[Any]:
         conditions = [CoreEntity.novel_id == novel_id]
         if entity_type:
             conditions.append(CoreEntity.entity_type == entity_type)
@@ -190,11 +187,33 @@ class CoreEntityRepository:
                 CoreEntity.content_json["_meta"]["auto_ingested"].as_boolean()
                 == auto_ingested
             )
+        return conditions
 
-        count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar() or 0
-
+    async def list_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        entity_type: str | None = None,
+        status: str | None = None,
+        q: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        auto_ingested: bool | None = None,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> list[CoreEntity]:
+        conditions = self._entity_conditions(
+            novel_id,
+            entity_type=entity_type,
+            status=status,
+            q=q,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            auto_ingested=auto_ingested,
+        )
         stmt = (
             select(CoreEntity)
             .where(*conditions)
@@ -204,7 +223,52 @@ class CoreEntityRepository:
         )
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
-        return list(items), total
+        return list(items)
+
+    async def get_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        entity_type: str | None = None,
+        status: str | None = None,
+        q: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        auto_ingested: bool | None = None,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> tuple[list[CoreEntity], int]:
+        conditions = self._entity_conditions(
+            novel_id,
+            entity_type=entity_type,
+            status=status,
+            q=q,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            auto_ingested=auto_ingested,
+        )
+
+        count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
+        count_result = await db.execute(count_stmt)
+        total = count_result.scalar() or 0
+
+        items = await self.list_by_novel(
+            db,
+            novel_id,
+            entity_type=entity_type,
+            status=status,
+            q=q,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            auto_ingested=auto_ingested,
+            skip=skip,
+            limit=limit,
+        )
+        return items, total
 
     async def get_by_ids(
         self,
@@ -252,10 +316,14 @@ class CoreEntityRepository:
     async def update(
         self,
         db: AsyncSession,
-        entity_id: uuid.UUID,
+        entity_or_id: CoreEntity | uuid.UUID,
         data: CoreEntityUpdate,
     ) -> CoreEntity | None:
-        entity = await self.get(db, entity_id)
+        entity = (
+            await self.get(db, entity_or_id)
+            if isinstance(entity_or_id, uuid.UUID)
+            else entity_or_id
+        )
         if entity is None:
             return None
 
@@ -280,15 +348,12 @@ class CoreEntityRepository:
             update_values["content_json"] = data.content_json
 
         if update_values:
-            stmt = (
-                update(CoreEntity)
-                .where(CoreEntity.id == entity_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(entity, field, value)
+            db.add(entity)
             await db.flush()
 
-        return await self.get(db, entity_id)
+        return entity
 
     async def delete(
         self,
@@ -325,6 +390,10 @@ class CoreEntityRepository:
         stmt = select(CoreEntity).where(
             CoreEntity.novel_id == novel_id,
             CoreEntity.status.in_(["candidate", "proposal", "draft", "canonical"]),
+            CoreEntity.content_json["_meta"]["source"].as_string() == "deep_import",
+            CoreEntity.content_json["_meta"]["workflow_id"].as_string() == workflow_id,
+            CoreEntity.content_json["_meta"]["auto_ingested"].as_boolean().is_(True),
+            CoreEntity.content_json["_meta"]["user_edited"].as_boolean().is_not(True),
         )
         result = await db.execute(stmt)
         entities: Sequence[CoreEntity] = result.scalars().all()
@@ -348,11 +417,9 @@ class CoreEntityRepository:
                     "cleanup_reason": "abandoned_deep_import_recovery",
                 },
             }
-            await db.execute(
-                update(CoreEntity)
-                .where(CoreEntity.id == entity.id, CoreEntity.novel_id == novel_id)
-                .values(status="deprecated", content_json=updated_content_json)
-            )
+            entity.status = "deprecated"
+            entity.content_json = updated_content_json
+            db.add(entity)
             deprecated += 1
 
         if deprecated:
@@ -722,13 +789,12 @@ class EventRepository:
             update_values["occurrence_time_label"] = data.occurrence_time_label
 
         if update_values:
-            stmt = (
-                update(Event).where(Event.entity_id == entity_id).values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(event, field, value)
+            db.add(event)
             await db.flush()
 
-        return await self.get(db, entity_id)
+        return event
 
     async def delete(
         self,
@@ -784,18 +850,15 @@ class EntityRelationRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_novel(
+    async def list_by_novel(
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
         *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> tuple[list[EntityRelation], int]:
+    ) -> list[EntityRelation]:
         conditions = [EntityRelation.novel_id == novel_id]
-        count_stmt = select(func.count(EntityRelation.id)).where(*conditions)
-        total = (await db.execute(count_stmt)).scalar() or 0
-
         stmt = (
             select(EntityRelation)
             .options(
@@ -809,7 +872,21 @@ class EntityRelationRepository:
         )
         result = await db.execute(stmt)
         items: Sequence[EntityRelation] = result.scalars().all()
-        return list(items), total
+        return list(items)
+
+    async def get_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> tuple[list[EntityRelation], int]:
+        conditions = [EntityRelation.novel_id == novel_id]
+        count_stmt = select(func.count(EntityRelation.id)).where(*conditions)
+        total = (await db.execute(count_stmt)).scalar() or 0
+        items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
+        return items, total
 
     async def get_by_source(
         self,
@@ -902,22 +979,38 @@ class EntityRelationRepository:
         depth: int = 1,
         limit: int = 20,
     ) -> set[uuid.UUID]:
+        return await self.get_related_entity_ids_for_seeds(
+            db,
+            novel_id,
+            [entity_id],
+            depth=depth,
+            limit=limit,
+        )
 
-        related: set[uuid.UUID] = set()
+    async def get_related_entity_ids_for_seeds(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_ids: list[uuid.UUID],
+        depth: int = 1,
+        limit: int = 20,
+    ) -> set[uuid.UUID]:
+        seed_ids = list(dict.fromkeys(entity_ids))
+        if not seed_ids or limit <= 0:
+            return set()
 
-        one_hop = await self._get_one_hop_ids(db, novel_id, entity_id)
-        related.update(one_hop)
+        related = await self._get_one_hop_ids_for_entities(db, novel_id, seed_ids)
 
-        if depth >= 2:
-            for hop_id in list(one_hop):
-                if len(related) >= limit:
-                    break
-                second_hop = await self._get_one_hop_ids(db, novel_id, hop_id)
-                related.update(second_hop)
-                if len(related) >= limit:
-                    break
+        if depth >= 2 and len(related) < limit:
+            frontier = list(related)
+            second_hop = await self._get_one_hop_ids_for_entities(
+                db,
+                novel_id,
+                frontier,
+            )
+            related.update(second_hop)
 
-        return related
+        return set(list(related)[:limit])
 
     async def _get_one_hop_ids(
         self,
@@ -939,13 +1032,41 @@ class EntityRelationRepository:
         result = await db.execute(combined)
         return {row[0] for row in result.all()}
 
+    async def _get_one_hop_ids_for_entities(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_ids: list[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        from sqlalchemy import union_all
+
+        unique_ids = list(dict.fromkeys(entity_ids))
+        if not unique_ids:
+            return set()
+
+        src_stmt = select(EntityRelation.target_id.label("related_id")).where(
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.source_id.in_(unique_ids),
+        )
+        tgt_stmt = select(EntityRelation.source_id.label("related_id")).where(
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.target_id.in_(unique_ids),
+        )
+        combined = union_all(src_stmt, tgt_stmt)
+        result = await db.execute(combined)
+        return {row[0] for row in result.all()}
+
     async def update(
         self,
         db: AsyncSession,
-        rel_id: uuid.UUID,
+        relation_or_id: EntityRelation | uuid.UUID,
         data: EntityRelationUpdate,
     ) -> EntityRelation | None:
-        rel = await self.get(db, rel_id)
+        rel = (
+            await self.get(db, relation_or_id)
+            if isinstance(relation_or_id, uuid.UUID)
+            else relation_or_id
+        )
         if rel is None:
             return None
 
@@ -956,15 +1077,30 @@ class EntityRelationRepository:
                 update_values[field] = value
 
         if update_values:
-            stmt = (
-                update(EntityRelation)
-                .where(EntityRelation.id == rel_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(rel, field, value)
+            db.add(rel)
             await db.flush()
 
-        return await self.get(db, rel_id)
+        return rel
+
+    async def deprecate_many(
+        self,
+        db: AsyncSession,
+        relation_ids: Sequence[uuid.UUID],
+    ) -> int:
+        """批量标记关系为 deprecated，返回实际更新数。"""
+        unique_ids = list(dict.fromkeys(relation_ids))
+        if not unique_ids:
+            return 0
+        stmt = (
+            update(EntityRelation)
+            .where(EntityRelation.id.in_(unique_ids))
+            .values(status="deprecated")
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount or 0
 
     async def delete(
         self,
@@ -1205,6 +1341,26 @@ class CharacterRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> list[Character]:
+        conditions = [Character.novel_id == novel_id]
+        stmt = (
+            select(Character)
+            .where(*conditions)
+            .offset(skip)
+            .limit(limit)
+            .order_by(Character.name)
+        )
+        result = await db.execute(stmt)
+        items: Sequence[Character] = result.scalars().all()
+        return list(items)
+
     async def get_by_novel(
         self,
         db: AsyncSession,
@@ -1216,17 +1372,8 @@ class CharacterRepository:
         conditions = [Character.novel_id == novel_id]
         count_stmt = select(func.count(Character.entity_id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
-
-        stmt = (
-            select(Character)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(Character.name)
-        )
-        result = await db.execute(stmt)
-        items: Sequence[Character] = result.scalars().all()
-        return list(items), total
+        items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
+        return items, total
 
     async def get_by_ids(
         self,
@@ -1247,10 +1394,14 @@ class CharacterRepository:
     async def update(
         self,
         db: AsyncSession,
-        character_id: uuid.UUID,
+        character_or_id: Character | uuid.UUID,
         data: CharacterUpdate,
     ) -> Character | None:
-        character = await self.get(db, character_id)
+        character = (
+            await self.get(db, character_or_id)
+            if isinstance(character_or_id, uuid.UUID)
+            else character_or_id
+        )
         if character is None:
             return None
 
@@ -1284,15 +1435,12 @@ class CharacterRepository:
             update_values["meta"] = data.meta
 
         if update_values:
-            stmt = (
-                update(Character)
-                .where(Character.entity_id == character_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(character, field, value)
+            db.add(character)
             await db.flush()
 
-        return await self.get(db, character_id)
+        return character
 
     async def migrate_entity_id(
         self,
@@ -1465,6 +1613,26 @@ class CharacterKnowledgeRepository:
         items: Sequence[CharacterKnowledge] = result.scalars().all()
         return list(items), total
 
+    async def list_by_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        skip: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+    ) -> list[CharacterKnowledge]:
+        conditions = [CharacterKnowledge.novel_id == novel_id]
+        stmt = (
+            select(CharacterKnowledge)
+            .where(*conditions)
+            .offset(skip)
+            .limit(limit)
+            .order_by(CharacterKnowledge.character_id)
+        )
+        result = await db.execute(stmt)
+        items: Sequence[CharacterKnowledge] = result.scalars().all()
+        return list(items)
+
     async def get_by_novel(
         self,
         db: AsyncSession,
@@ -1476,17 +1644,8 @@ class CharacterKnowledgeRepository:
         conditions = [CharacterKnowledge.novel_id == novel_id]
         count_stmt = select(func.count(CharacterKnowledge.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
-
-        stmt = (
-            select(CharacterKnowledge)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(CharacterKnowledge.character_id)
-        )
-        result = await db.execute(stmt)
-        items: Sequence[CharacterKnowledge] = result.scalars().all()
-        return list(items), total
+        items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
+        return items, total
 
     async def get_by_target(
         self,
@@ -1533,15 +1692,12 @@ class CharacterKnowledgeRepository:
             update_values["source_memory_id"] = parse_uuid(data.source_memory_id)
 
         if update_values:
-            stmt = (
-                update(CharacterKnowledge)
-                .where(CharacterKnowledge.id == knowledge_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(knowledge, field, value)
+            db.add(knowledge)
             await db.flush()
 
-        return await self.get(db, knowledge_id)
+        return knowledge
 
     async def delete(
         self,

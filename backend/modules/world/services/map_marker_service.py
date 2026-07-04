@@ -4,10 +4,9 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.world.map_repositories import (
     MapMarkerRepository,
 )
@@ -95,9 +94,9 @@ class MapMarkerService:
 
         marker = await self.repo.get(db, mkid)
         if marker is None or marker.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapMarker {marker_id} not found",
+            raise NotFoundError(
+                f"MapMarker {marker_id} not found",
+                code="map_marker_not_found",
             )
 
         values: dict[str, Any] = {}
@@ -126,7 +125,7 @@ class MapMarkerService:
             next_r = values.get("hex_r", marker.hex_r)
             self._ctx.assert_hex_in_bounds(config, next_q, next_r)
 
-        updated = await self.repo.update(db, mkid, values)
+        updated = await self.repo.update(db, marker, values)
         assert updated is not None
         return MapMarkerResponse.model_validate(updated)
 
@@ -141,8 +140,8 @@ class MapMarkerService:
 
         marker = await self.repo.get(db, mkid)
         if marker is None or marker.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"MapMarker {marker_id} not found",
+            raise NotFoundError(
+                f"MapMarker {marker_id} not found",
+                code="map_marker_not_found",
             )
         await self.repo.delete(db, mkid)

@@ -35,7 +35,7 @@ class EntityContextService:
             eids = [parse_uuid(eid, "entity_id") for eid in entity_ids]
             entities = await self._repo.get_by_ids(db, nid, eids)
         else:
-            entities, _ = await self._repo.get_by_novel(db, nid, limit=limit)
+            entities = await self._repo.list_by_novel(db, nid, limit=limit)
 
         # Filter expired temporary entities
         if current_chapter is not None:
@@ -101,7 +101,7 @@ class EntityContextService:
         别名存储约定见 core_entities.content_json.aliases (per world/CLAUDE.md)。
         """
         nid = parse_uuid(novel_id, "novel_id")
-        entities, _ = await self._repo.get_by_novel(db, nid, limit=limit)
+        entities = await self._repo.list_by_novel(db, nid, limit=limit)
         terms: list[dict] = []
         for item in entities:
             if item.status not in ("canonical", "draft"):
@@ -154,7 +154,7 @@ class EntityContextService:
         if not query:
             return None
 
-        entities, _ = await self._repo.get_by_novel(
+        entities = await self._repo.list_by_novel(
             db,
             nid,
             entity_type=entity_type,
@@ -175,6 +175,52 @@ class EntityContextService:
                 if " ".join(str(alias_text).strip().split()).lower() == query:
                     return str(item.id)
         return None
+
+    async def find_working_entities_by_names(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        names: list[str] | tuple[str, ...] | set[str],
+        entity_type: str | None = None,
+    ) -> dict[str, str]:
+        """批量按名称或别名解析 working context 内的实体 ID。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        normalized_to_originals: dict[str, list[str]] = {}
+        for name in names:
+            normalized = " ".join(str(name or "").strip().split()).lower()
+            if normalized:
+                original = str(name)
+                originals = normalized_to_originals.setdefault(normalized, [])
+                if original not in originals:
+                    originals.append(original)
+        if not normalized_to_originals:
+            return {}
+
+        entities = await self._repo.list_by_novel(
+            db,
+            nid,
+            entity_type=entity_type,
+            limit=10000,
+        )
+        resolved: dict[str, str] = {}
+        for item in entities:
+            if item.status not in ("canonical", "draft", "candidate"):
+                continue
+            item_id = str(item.id)
+            item_name = " ".join((item.name or "").strip().split()).lower()
+            for original in normalized_to_originals.get(item_name, []):
+                resolved.setdefault(original, item_id)
+            aliases = (item.content_json or {}).get("aliases", [])
+            for alias_item in aliases:
+                alias_text = (
+                    alias_item
+                    if isinstance(alias_item, str)
+                    else alias_item.get("alias", "")
+                )
+                normalized_alias = " ".join(str(alias_text).strip().split()).lower()
+                for original in normalized_to_originals.get(normalized_alias, []):
+                    resolved.setdefault(original, item_id)
+        return resolved
 
     async def list_entity_batches(
         self,

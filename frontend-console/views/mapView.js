@@ -42,6 +42,7 @@ import {
   renderSelectionHeader,
   runBulkAction,
   selectedItemsFrom,
+  syncBulkSelectionUi,
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
@@ -78,6 +79,16 @@ const mapView = {
   /** 当前 novel 下的地图列表 */
   _maps: [],
   _mapsLoadError: null,
+  _tileByHex: new Map(),
+  _bindingByHex: new Map(),
+  _bindingCountByEntityId: new Map(),
+  _locationById: new Map(),
+  _detailMapByEntityId: new Map(),
+  _indexedState: null,
+  _indexedLocations: null,
+  _indexedMaps: null,
+  _redrawFrame: null,
+  _labelsDirty: true,
   _bulkSelections: {},
   /** 可绑定的 location 实体列表 */
   _locations: [],
@@ -173,6 +184,10 @@ const mapView = {
       this._leaflet.remove()
       this._leaflet = null
     }
+    if (this._redrawFrame) {
+      cancelAnimationFrame(this._redrawFrame)
+      this._redrawFrame = null
+    }
     this._canvas = null
     this._ctx = null
     if (this._keyHandler) {
@@ -189,14 +204,17 @@ const mapView = {
     this._mapsLoadError = null
     if (!state.currentProjectId) {
       this._maps = []
+      this._rebuildIndexes()
       return
     }
     try {
       const data = await api.world.listMaps({ novel_id: state.currentProjectId })
       this._maps = data.items || []
+      this._rebuildIndexes()
     } catch (err) {
       this._maps = []
       this._mapsLoadError = err?.message || "加载失败"
+      this._rebuildIndexes()
       toast("地图列表加载失败，可稍后重试", "warning")
     }
   },
@@ -207,10 +225,12 @@ const mapView = {
       resetMapState()
       mapState.currentMapId = mapId
       if (sceneId) setCurrentScene(sceneId)
+      this._rebuildIndexes()
       this._notifyMapOpened()
     } catch (err) {
       toast(`加载地图失败：${err.message}`, "error")
       this._state = null
+      this._rebuildIndexes()
     }
   },
 
@@ -256,6 +276,7 @@ const mapView = {
 
   async _loadLocations() {
     this._locations = await this._listAllEntities({ entity_type: "location" }).catch(() => [])
+    this._rebuildIndexes()
   },
 
   async _loadScenes() {
@@ -279,6 +300,104 @@ const mapView = {
       types.map((t) => this._listAllEntities({ entity_type: t }).catch(() => []))
     )
     this._allEntities = results.flat()
+    this._rebuildIndexes()
+  },
+
+  _hexKey(q, r) {
+    return `${q}:${r}`
+  },
+
+  _tileAt(q, r) {
+    const key = this._hexKey(q, r)
+    this._ensureIndexes()
+    return this._tileByHex.get(key) || null
+  },
+
+  _bindingAt(q, r) {
+    const key = this._hexKey(q, r)
+    this._ensureIndexes()
+    return this._bindingByHex.get(key) || null
+  },
+
+  _ensureIndexes() {
+    if (
+      this._indexedState !== this._state
+      || this._indexedLocations !== this._locations
+      || this._indexedMaps !== this._maps
+    ) {
+      this._rebuildIndexes()
+    }
+  },
+
+  _rebuildIndexes() {
+    const stateData = this._state || {}
+    this._tileByHex = new Map((stateData.tiles || []).map((tile) => [
+      this._hexKey(tile.hex_q, tile.hex_r),
+      tile,
+    ]))
+    this._bindingByHex = new Map((stateData.location_bindings || []).map((binding) => [
+      this._hexKey(binding.hex_q, binding.hex_r),
+      binding,
+    ]))
+    this._bindingCountByEntityId = new Map()
+    for (const binding of stateData.location_bindings || []) {
+      const id = binding.location_entity_id
+      if (!id) continue
+      this._bindingCountByEntityId.set(id, (this._bindingCountByEntityId.get(id) || 0) + 1)
+    }
+    this._markersByHex = new Map()
+    this._eventMarkersBySceneId = new Map()
+    this._eventMarkersHead = []
+    for (const marker of stateData.markers || []) {
+      if (!marker.visible) continue
+      const key = this._hexKey(marker.hex_q, marker.hex_r)
+      const markersAtHex = this._markersByHex.get(key) || []
+      markersAtHex.push(marker)
+      this._markersByHex.set(key, markersAtHex)
+      if (marker.marker_type === "event" && marker.start_scene_id) {
+        if (this._eventMarkersHead.length < 3) this._eventMarkersHead.push(marker)
+        const sceneEvents = this._eventMarkersBySceneId.get(marker.start_scene_id) || []
+        sceneEvents.push(marker)
+        this._eventMarkersBySceneId.set(marker.start_scene_id, sceneEvents)
+      }
+    }
+    this._locationById = new Map((this._locations || []).map((location) => [
+      location.id,
+      location,
+    ]))
+    this._detailMapByEntityId = new Map(
+      (this._maps || [])
+        .filter((map) => map.parent_entity_id)
+        .map((map) => [map.parent_entity_id, map])
+    )
+    this._indexedState = this._state
+    this._indexedLocations = this._locations
+    this._indexedMaps = this._maps
+    this._labelsDirty = true
+  },
+
+  async _loadMapDynamicState(sceneId = mapState.currentSceneId) {
+    if (!this._state?.map?.id) return
+    const dynamic = await api.world.getMapDynamicState(
+      this._state.map.id,
+      state.currentProjectId,
+      sceneId,
+    )
+    this._applyDynamicState(dynamic)
+  },
+
+  _applyDynamicState(dynamic) {
+    if (!this._state) return
+    this._state = {
+      ...this._state,
+      markers: dynamic.markers || [],
+      territories: dynamic.territories || [],
+      candidate_location_bindings: dynamic.candidate_location_bindings || [],
+      candidate_markers: dynamic.candidate_markers || [],
+      candidate_territories: dynamic.candidate_territories || [],
+      scene: dynamic.scene || null,
+    }
+    this._labelsDirty = true
   },
 
   /**
@@ -444,14 +563,12 @@ const mapView = {
   },
 
   _renderDetailPanel(q, r) {
-    const binding = (this._state.location_bindings || []).find((b) => b.hex_q === q && b.hex_r === r && b.is_center)
-    if (binding) {
-      const loc = this._locations.find((l) => l.id === binding.location_entity_id)
+    const binding = this._bindingAt(q, r)
+    if (binding?.is_center) {
+      const loc = this._locationById.get(binding.location_entity_id)
       const name = loc ? loc.name : "未命名地点"
       const summary = loc && loc.summary ? loc.summary : "暂无摘要"
-      const bindingCount = (this._state.location_bindings || []).filter(
-        (b) => b.location_entity_id === binding.location_entity_id
-      ).length
+      const bindingCount = this._bindingCountByEntityId.get(binding.location_entity_id) || 0
       const hasDetail = this._hasDetailMap(binding.location_entity_id)
       const actionText = hasDetail ? "进入详图" : "创建详图"
       return `
@@ -469,7 +586,7 @@ const mapView = {
         </div>
       `
     }
-    const tile = (this._state.tiles || []).find((t) => t.hex_q === q && t.hex_r === r)
+    const tile = this._tileAt(q, r)
     if (tile) {
       return `
         <div class="map-detail-header">地形：${esc(tile.terrain_type)}</div>
@@ -519,22 +636,30 @@ const mapView = {
     // canvas overlay：用 L.LayerGroup 持有一个 canvas
     this._canvas = document.createElement("canvas")
     this._canvas.dataset.testid = "map-canvas"
-    this._canvas.width = container.clientWidth
-    this._canvas.height = container.clientHeight
     this._canvas.style.position = "absolute"
     this._canvas.style.top = "0"
     this._canvas.style.left = "0"
+    this._canvas.style.right = "0"
+    this._canvas.style.bottom = "0"
+    this._canvas.style.width = "100%"
+    this._canvas.style.height = "100%"
+    this._canvas.style.display = "block"
     this._canvas.style.pointerEvents = "auto"
     this._canvas.style.zIndex = "400"
-    container.getElementsByClassName("leaflet-overlay-pane")[0]?.appendChild(this._canvas)
+    container.appendChild(this._canvas)
+    this._syncCanvasSize()
     this._ctx = this._canvas.getContext("2d")
 
     // 初始偏移：把地图坐标原点放到容器左上偏移一点
     this._offset = { x: size * 2, y: size * 2 }
-    this._redraw()
+    this._redraw({ forceLabels: true })
 
     // 平移/缩放时同步 canvas 变换
-    this._leaflet.on("zoom move zoomend moveend", () => this._redraw())
+    this._leaflet.on("resize zoom move", () => this._scheduleRedraw())
+    this._leaflet.on("zoomend moveend", () => {
+      this._labelsDirty = true
+      this._scheduleRedraw()
+    })
 
     // 点击：hex 命中
     this._canvas.addEventListener("click", (e) => this._handleCanvasClick(e))
@@ -547,9 +672,18 @@ const mapView = {
     this._canvas.addEventListener("mouseleave", () => this._handleCanvasMouseUp())
   },
 
+  _scheduleRedraw() {
+    if (this._redrawFrame) return
+    this._redrawFrame = requestAnimationFrame(() => {
+      this._redrawFrame = null
+      this._redraw()
+    })
+  },
+
   /** Leaflet 视口变换 → 计算 canvas 偏移/缩放，重绘 */
-  _redraw() {
+  _redraw(options = {}) {
     if (!this._ctx || !this._canvas || !this._state) return
+    this._syncCanvasSize()
     const cfg = this._state.map
     const size = cfg.hex_size || 30
     const origin = this._leaflet.latLngToContainerPoint([0, 0])
@@ -611,10 +745,22 @@ const mapView = {
       )
     }
 
-    // 浏览模式：绘制中心点标签（DOM marker）
-    this._renderCenterLabels()
+    // 浏览模式中心标签是 DOM 层，只在数据变化或移动/缩放结束后更新。
+    if (options.forceLabels || this._labelsDirty) {
+      this._renderCenterLabels()
+      this._labelsDirty = false
+    }
 
     this._ctx.restore()
+  },
+
+  _syncCanvasSize() {
+    if (!this._canvas) return
+    const container = this._leaflet?.getContainer?.() || this._canvas.parentElement
+    const width = Math.max(1, Math.round(container?.clientWidth || this._canvas.width || 1))
+    const height = Math.max(1, Math.round(container?.clientHeight || this._canvas.height || 1))
+    if (this._canvas.width !== width) this._canvas.width = width
+    if (this._canvas.height !== height) this._canvas.height = height
   },
 
   /** 中心点标签用 DOM（便于显示文字），通过 data-action 委托点击 */
@@ -700,14 +846,14 @@ const mapView = {
   },
 
   _locationName(entityId) {
-    const loc = this._locations.find((l) => l.id === entityId)
+    this._ensureIndexes()
+    const loc = this._locationById.get(entityId)
     return loc ? loc.name : "未命名地点"
   },
 
   _hasDetailMap(entityId) {
-    return this._maps.some(
-      (m) => m.parent_entity_id === entityId
-    )
+    this._ensureIndexes()
+    return this._detailMapByEntityId.has(entityId)
   },
 
   // ============================================================
@@ -737,17 +883,14 @@ const mapView = {
   _handleBrowseClick(q, r) {
     setSelectedHex(q, r)
     this._updateDetailPanel(q, r)
-    const markers = this._state.markers || []
-    const eventMarker = markers.find(
-      (m) => m.hex_q === q && m.hex_r === r && m.marker_type === "event" && m.visible
-    )
+    const eventMarker = this._markerAt(q, r, (marker) => marker.marker_type === "event")
     if (eventMarker && eventMarker.start_scene_id) {
       setCurrentScene(eventMarker.start_scene_id)
       this._reloadWithScene()
       return
     }
-    const tile = (this._state.tiles || []).find((t) => t.hex_q === q && t.hex_r === r)
-    const binding = (this._state.location_bindings || []).find((b) => b.hex_q === q && b.hex_r === r)
+    const tile = this._tileAt(q, r)
+    const binding = this._bindingAt(q, r)
     if (binding) {
       const name = this._locationName(binding.location_entity_id)
       toast(`地点：${name}${binding.is_center ? "（中心）" : ""}`, "info")
@@ -759,7 +902,7 @@ const mapView = {
   _handleBucketClick(q, r) {
     const terrain = mapState.selectedTerrain
     const getTerrain = (qq, rr) => {
-      const t = (this._state.tiles || []).find((x) => x.hex_q === qq && x.hex_r === rr)
+      const t = this._tileAt(qq, rr)
       return t ? t.terrain_type : null
     }
     const target = getTerrain(q, r)
@@ -806,9 +949,9 @@ const mapView = {
   async _reloadWithScene() {
     if (!this._state) return
     try {
-      this._state = await api.world.getMapState(this._state.map.id, state.currentProjectId, mapState.currentSceneId)
+      await this._loadMapDynamicState(mapState.currentSceneId)
       this._updateSceneBar()
-      this._redraw()
+      this._redraw({ forceLabels: true })
     } catch (err) {
       toast(`加载场景数据失败：${err.message}`, "error")
     }
@@ -983,35 +1126,23 @@ const mapView = {
   },
 
   _buildTooltipContent(q, r) {
-    const binding = (this._state.location_bindings || []).find((b) => b.hex_q === q && b.hex_r === r)
-    const tile = (this._state.tiles || []).find((t) => t.hex_q === q && t.hex_r === r)
+    const binding = this._bindingAt(q, r)
+    const tile = this._tileAt(q, r)
     if (binding) {
       const name = this._locationName(binding.location_entity_id)
       const centerTag = binding.is_center ? "（中心）" : ""
       return `<div class="map-tooltip-title">${esc(name)}${centerTag}</div><div class="map-tooltip-sub">${esc(tile ? tile.terrain_type : "")}</div>`
     }
-    const markers = this._state.markers || []
-    const hitMarker = this._filteredMarkers().find((m) => m.hex_q === q && m.hex_r === r && m.visible)
+    const hitMarker = this._markerAt(q, r)
     if (hitMarker) {
       const typeLabels = { character: "人物", event: "事件", item: "物品" }
       const typeLabel = typeLabels[hitMarker.marker_type] || hitMarker.marker_type
       let html = `<div class="map-tooltip-title">${esc(hitMarker.label || typeLabel)}</div>`
       html += `<div class="map-tooltip-sub">${esc(typeLabel)}</div>`
       if (hitMarker.marker_type === "character") {
-        const nearbyEvents = markers.filter((m) =>
-          m.marker_type === "event" && m.visible && m.start_scene_id
-        )
-        if (nearbyEvents.length > 0) {
-          const sceneId = mapState.currentSceneId
-          let relevantEvents
-          if (sceneId) {
-            relevantEvents = nearbyEvents.filter((m) => m.start_scene_id === sceneId)
-          } else {
-            relevantEvents = nearbyEvents.slice(0, 3)
-          }
-          if (relevantEvents.length > 0) {
-            html += `<div class="map-tooltip-sub" style="margin-top:4px;">相关事件：${relevantEvents.map((m) => esc(m.label || "事件")).join("、")}</div>`
-          }
+        const relevantEvents = this._relevantEventMarkers()
+        if (relevantEvents.length > 0) {
+          html += `<div class="map-tooltip-sub" style="margin-top:4px;">相关事件：${relevantEvents.map((m) => esc(m.label || "事件")).join("、")}</div>`
         }
       }
       if (hitMarker.marker_type === "event" && hitMarker.start_scene_id) {
@@ -1025,6 +1156,26 @@ const mapView = {
     return ""
   },
 
+  _markerAt(q, r, predicate = null) {
+    this._ensureIndexes()
+    const markersAtHex = this._markersByHex.get(this._hexKey(q, r)) || []
+    for (const marker of markersAtHex) {
+      if (!this._isMarkerLayerEnabled(marker)) continue
+      if (predicate && !predicate(marker)) continue
+      return marker
+    }
+    return null
+  },
+
+  _relevantEventMarkers() {
+    this._ensureIndexes()
+    const sceneId = mapState.currentSceneId
+    if (sceneId) {
+      return this._eventMarkersBySceneId.get(sceneId) || []
+    }
+    return this._eventMarkersHead || []
+  },
+
   // ============================================================
   // 事件绑定
   // ============================================================
@@ -1034,16 +1185,17 @@ const mapView = {
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()
         toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
-        this._render("map-root")
+        syncBulkSelectionUi(this, t.getAttribute("data-scope"))
       },
       "bulk-toggle-all": (e, t) => {
         e.stopPropagation()
         toggleAllBulkSelection(this, t.getAttribute("data-scope"), this._maps.map((m) => m.id).filter(Boolean), t.checked)
-        this._render("map-root")
+        syncBulkSelectionUi(this, t.getAttribute("data-scope"))
       },
       "bulk-clear": (_e, t) => {
-        clearBulkSelection(this, t.getAttribute("data-scope"))
-        this._render("map-root")
+        const scope = t.getAttribute("data-scope")
+        clearBulkSelection(this, scope)
+        syncBulkSelectionUi(this, scope)
       },
       "bulk-run": (_e, t) => this._runMapBulkAction(t.getAttribute("data-bulk-action")),
       "map-create-world": () => this._showCreateWorldForm(),
@@ -1328,7 +1480,7 @@ const mapView = {
   _onCenterClick(entityId) {
     // 点击中心点：有详图则下钻，无则提示创建
     if (this._hasDetailMap(entityId)) {
-      const detail = this._maps.find((m) => m.parent_entity_id === entityId)
+      const detail = this._detailMapByEntityId.get(entityId)
       if (detail) this._openMap(detail.id)
     } else {
       confirmAction(
@@ -1381,7 +1533,7 @@ const mapView = {
   },
 
   _showCreateDetailForm(entityId) {
-    const loc = this._locations.find((l) => l.id === entityId)
+    const loc = this._locationById.get(entityId)
     const locName = loc ? loc.name : "详图"
     const formHtml = `
       <div class="form-group">
@@ -1576,12 +1728,14 @@ const mapView = {
     return layers[layer] !== false
   },
 
+  _isMarkerLayerEnabled(marker) {
+    if (marker.marker_type === "event") return this._isLayerEnabled("events")
+    if (marker.marker_type === "item") return this._isLayerEnabled("items")
+    return this._isLayerEnabled("markers")
+  },
+
   _filteredMarkers() {
-    return (this._state?.markers || []).filter((marker) => {
-      if (marker.marker_type === "event") return this._isLayerEnabled("events")
-      if (marker.marker_type === "item") return this._isLayerEnabled("items")
-      return this._isLayerEnabled("markers")
-    })
+    return (this._state?.markers || []).filter((marker) => this._isMarkerLayerEnabled(marker))
   },
 
   _candidateMarkers() {
@@ -1608,10 +1762,8 @@ const mapView = {
       }))
       const locationHighlights = []
       for (const marker of sceneMarkers) {
-        const binding = (this._state.location_bindings || []).find((b) => (
-          b.hex_q === marker.hex_q && b.hex_r === marker.hex_r && b.is_center
-        ))
-        if (binding) {
+        const binding = this._bindingAt(marker.hex_q, marker.hex_r)
+        if (binding?.is_center) {
           locationHighlights.push({
             hex_q: binding.hex_q,
             hex_r: binding.hex_r,

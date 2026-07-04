@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 
-from fastapi import HTTPException
-from pydantic import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.writing.repositories import WritingConflictCheckRepository
@@ -17,13 +18,17 @@ from modules.writing.schemas import (
     WritingConflictAiReviewRawOutput,
     WritingConflictSuggestionOutput,
 )
-from shared.utils import parse_uuid
+from shared.utils import parse_uuid as _shared_parse_uuid
 
 logger = logging.getLogger(__name__)
 
 AI_REVIEW_ACTION = "writing.conflict_check.ai_review"
 AI_SUGGESTION_ACTION = "writing.conflict_check.ai_suggestion"
 WRITING_CONFLICT_AI_MAX_TOKENS = 20000
+
+
+def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
+    return _shared_parse_uuid(value, field_name)
 
 
 class ConflictCheckAiReviewService:
@@ -50,15 +55,15 @@ class ConflictCheckAiReviewService:
             prepare_confirmed_ai_action,
         )
 
-        nid = parse_uuid(novel_id, "novel_id")
-        cid = parse_uuid(check_id, "check_id")
-        confirmation_uuid = parse_uuid(
+        nid = _parse_uuid(novel_id, "novel_id")
+        cid = _parse_uuid(check_id, "check_id")
+        confirmation_uuid = _parse_uuid(
             context_confirmation_id,
             "context_confirmation_id",
         )
         existing = await self._repo.get_check(db, cid, nid)
         if existing is None:
-            raise HTTPException(status_code=404, detail="Conflict check not found")
+            raise NotFoundError("Conflict check not found")
         check, current_items = existing
 
         try:
@@ -70,7 +75,7 @@ class ConflictCheckAiReviewService:
             )
             _validate_confirmation_scope(confirmed_context.confirmation, check)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise ValidationError(str(exc)) from exc
 
         await self._repo.update_ai_review(
             db,
@@ -113,14 +118,15 @@ class ConflictCheckAiReviewService:
                     confirmed_context.confirmation.include_pending_objects
                 ),
             )
+            appended_items: list[object] = []
             if ai_items:
-                await self._repo.append_items(
+                appended_items = await self._repo.append_items(
                     db,
                     check_id=cid,
                     novel_id=nid,
                     items=ai_items,
                 )
-            items = await self._repo.list_items(db, cid, nid)
+            items = _sort_conflict_items([*current_items, *appended_items])
             status = "partial" if discarded_count else "done"
             summary_json = _summary_with_ai_review(
                 items,
@@ -202,18 +208,18 @@ class ConflictSuggestionService:
             prepare_confirmed_ai_action,
         )
 
-        nid = parse_uuid(novel_id, "novel_id")
-        iid = parse_uuid(item_id, "item_id")
-        confirmation_uuid = parse_uuid(
+        nid = _parse_uuid(novel_id, "novel_id")
+        iid = _parse_uuid(item_id, "item_id")
+        confirmation_uuid = _parse_uuid(
             context_confirmation_id,
             "context_confirmation_id",
         )
         item = await self._repo.get_item(db, iid, nid)
         if item is None:
-            raise HTTPException(status_code=404, detail="Conflict item not found")
+            raise NotFoundError("Conflict item not found")
         check_result = await self._repo.get_check(db, item.check_id, nid)
         if check_result is None:
-            raise HTTPException(status_code=404, detail="Conflict check not found")
+            raise NotFoundError("Conflict check not found")
         check, check_items = check_result
 
         try:
@@ -225,12 +231,11 @@ class ConflictSuggestionService:
             )
             _validate_confirmation_scope(confirmed_context.confirmation, check)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise ValidationError(str(exc)) from exc
 
-        await self._repo.update_item_suggestion(
+        await self._repo.update_loaded_item_suggestion(
             db,
-            item_id=iid,
-            novel_id=nid,
+            item,
             status="running",
             confirmation_id=confirmation_uuid,
             error=None,
@@ -261,10 +266,9 @@ class ConflictSuggestionService:
                 WritingConflictSuggestionOutput,
             )
             suggestion_text = output.suggestion.model_dump_json(ensure_ascii=False)
-            updated = await self._repo.update_item_suggestion(
+            updated = await self._repo.update_loaded_item_suggestion(
                 db,
-                item_id=iid,
-                novel_id=nid,
+                item,
                 status="done",
                 confirmation_id=confirmation_uuid,
                 ai_suggestion=suggestion_text,
@@ -281,10 +285,9 @@ class ConflictSuggestionService:
             return updated or item
         except Exception as exc:
             logger.exception("AI conflict suggestion failed")
-            updated = await self._repo.update_item_suggestion(
+            updated = await self._repo.update_loaded_item_suggestion(
                 db,
-                item_id=iid,
-                novel_id=nid,
+                item,
                 status="failed",
                 confirmation_id=confirmation_uuid,
                 error=str(exc),
@@ -314,7 +317,7 @@ def _ai_review_items(
     for raw in output.issues:
         try:
             issue = WritingConflictAiReviewIssue.model_validate(raw)
-        except ValidationError:
+        except PydanticValidationError:
             discarded_count += 1
             continue
         items.append(
@@ -391,6 +394,24 @@ def _summary_with_ai_review(
         "discarded_count": discarded_count,
     }
     return summary
+
+
+def _sort_conflict_items(items: list[object]) -> list[object]:
+    return sorted(
+        items,
+        key=lambda item: (
+            getattr(item, "severity", ""),
+            _created_at_sort_value(getattr(item, "created_at", None)),
+        ),
+    )
+
+
+def _created_at_sort_value(value: object) -> float:
+    if not isinstance(value, datetime):
+        return datetime.min.replace(tzinfo=UTC).timestamp()
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.timestamp()
 
 
 def _build_ai_review_prompt(

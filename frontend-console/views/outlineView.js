@@ -14,6 +14,7 @@ import {
   renderSelectionHeader,
   runBulkAction,
   selectedItemsFrom,
+  syncBulkSelectionUi,
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
@@ -50,6 +51,12 @@ const outlineView = {
   _loading: true,
   _generateOverlap: { threadCount: 0, arcCount: 0, rangeKey: "" },
   _structureFilters: {},
+  _structureTotals: {
+    threads: 0,
+    arcs: 0,
+    foreshadowing: 0,
+    reveals: 0,
+  },
   _plotAutoExtractTaskId: null,
   _plotAutoExtractProgress: null,
   _plotAutoExtractPoller: null,
@@ -62,6 +69,12 @@ const outlineView = {
     this._arcs = []
     this._foreshadowing = []
     this._reveals = []
+    this._structureTotals = {
+      threads: 0,
+      arcs: 0,
+      foreshadowing: 0,
+      reveals: 0,
+    }
     clearAllBulkSelections(this)
 
     if (!state.currentProjectId) {
@@ -80,29 +93,41 @@ const outlineView = {
     if (fetchThreads) {
       promises.push(
         api.outline.listThreads(state.currentProjectId, filterParams)
-          .then((data) => { this._threads = data.items || data || [] })
-          .catch(() => { this._threads = [] })
+          .then((data) => {
+            this._threads = data.items || data || []
+            this._structureTotals.threads = Number(data.total ?? this._threads.length) || 0
+          })
+          .catch(() => { this._threads = []; this._structureTotals.threads = 0 })
       )
     }
     if (fetchArcs) {
       promises.push(
         api.outline.listArcs(state.currentProjectId, filterParams)
-          .then((data) => { this._arcs = data.items || data || [] })
-          .catch(() => { this._arcs = [] })
+          .then((data) => {
+            this._arcs = data.items || data || []
+            this._structureTotals.arcs = Number(data.total ?? this._arcs.length) || 0
+          })
+          .catch(() => { this._arcs = []; this._structureTotals.arcs = 0 })
       )
     }
     if (fetchForeshadowing) {
       promises.push(
         api.outline.listForeshadowing(state.currentProjectId, filterParams)
-          .then((data) => { this._foreshadowing = data.items || data || [] })
-          .catch(() => { this._foreshadowing = [] })
+          .then((data) => {
+            this._foreshadowing = data.items || data || []
+            this._structureTotals.foreshadowing = Number(data.total ?? this._foreshadowing.length) || 0
+          })
+          .catch(() => { this._foreshadowing = []; this._structureTotals.foreshadowing = 0 })
       )
     }
     if (fetchReveals) {
       promises.push(
         api.outline.listReveals(state.currentProjectId, filterParams)
-          .then((data) => { this._reveals = data.items || data || [] })
-          .catch(() => { this._reveals = [] })
+          .then((data) => {
+            this._reveals = data.items || data || []
+            this._structureTotals.reveals = Number(data.total ?? this._reveals.length) || 0
+          })
+          .catch(() => { this._reveals = []; this._structureTotals.reveals = 0 })
       )
     }
 
@@ -297,6 +322,23 @@ const outlineView = {
     `
   },
 
+  _renderStructurePagination(subView) {
+    const filters = this._structureFilterFor(subView)
+    const total = this._structureTotals[subView] || 0
+    if (total <= filters.limit) return ""
+    const currentPage = Math.floor(filters.skip / filters.limit) + 1
+    const totalPages = Math.ceil(total / filters.limit)
+    const prevDisabled = filters.skip <= 0 ? "disabled" : ""
+    const nextDisabled = filters.skip + filters.limit >= total ? "disabled" : ""
+    return `
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;">
+        <button class="btn btn-sm" data-action="prev-outline-structure-page" ${prevDisabled}>上一页</button>
+        <span style="font-size:12px;color:var(--text-dim);">第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
+        <button class="btn btn-sm" data-action="next-outline-structure-page" ${nextDisabled}>下一页</button>
+      </div>
+    `
+  },
+
   _structureFilterSelect(id, label, value, options, emptyLabel) {
     return `
       <label class="scene-filter-field">
@@ -413,6 +455,7 @@ const outlineView = {
     }
 
     html += "</tbody></table>"
+    html += this._renderStructurePagination("threads")
     return html
   },
 
@@ -482,6 +525,7 @@ const outlineView = {
     }
 
     html += "</tbody></table>"
+    html += this._renderStructurePagination("arcs")
     return html
   },
 
@@ -530,6 +574,7 @@ const outlineView = {
       </tr>`
     }
     tableHtml += '</tbody></table>'
+    tableHtml += this._renderStructurePagination("foreshadowing")
     return html + tableHtml
   },
 
@@ -578,6 +623,7 @@ const outlineView = {
       </tr>`
     }
     html += '</tbody></table>'
+    html += this._renderStructurePagination("reveals")
     return html
   },
 
@@ -1400,6 +1446,18 @@ const outlineView = {
     router.refresh()
   },
 
+  _changeStructurePage(delta) {
+    const subView = state.currentSubView || "threads"
+    if (!["threads", "arcs", "foreshadowing", "reveals"].includes(subView)) return
+    const filters = this._structureFilterFor(subView)
+    const total = this._structureTotals[subView] || 0
+    const newSkip = filters.skip + delta * filters.limit
+    if (newSkip < 0) return
+    if (newSkip >= total) return
+    filters.skip = newSkip
+    router.refresh()
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
@@ -1408,9 +1466,18 @@ const outlineView = {
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
       "open-scene-workbench": () => router.navigate("scene", null),
-      "bulk-toggle-one": (e, t) => this._toggleBulkOne(t),
-      "bulk-toggle-all": (e, t) => this._toggleBulkAll(t),
-      "bulk-clear": (_e, t) => this._clearBulkScope(t.getAttribute("data-scope")),
+      "bulk-toggle-one": (e, t) => {
+        e.stopPropagation()
+        this._toggleBulkOne(t)
+      },
+      "bulk-toggle-all": (e, t) => {
+        e.stopPropagation()
+        this._toggleBulkAll(t)
+      },
+      "bulk-clear": (e, t) => {
+        e.stopPropagation()
+        this._clearBulkScope(t.getAttribute("data-scope"))
+      },
       "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
       "create-thread": () => this._showCreateThreadForm(),
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
@@ -1433,6 +1500,8 @@ const outlineView = {
       "delete-reveal": (_e, _t, ctx) => ctx.id && this._deleteReveal(ctx.id),
       "apply-outline-structure-filters": () => this._applyStructureFilters(),
       "reset-outline-structure-filters": () => this._resetStructureFilters(),
+      "prev-outline-structure-page": () => this._changeStructurePage(-1),
+      "next-outline-structure-page": () => this._changeStructurePage(1),
     })
 
     bindActionMenus()
@@ -1482,18 +1551,22 @@ const outlineView = {
 
   _toggleBulkOne(input) {
     toggleBulkSelection(this, input.getAttribute("data-scope"), input.getAttribute("data-id"), input.checked)
-    router.refresh()
+    this._rerenderBulkSelection()
   },
 
   _toggleBulkAll(input) {
     const scope = input.getAttribute("data-scope")
     toggleAllBulkSelection(this, scope, this._visibleIdsForBulkScope(scope), input.checked)
-    router.refresh()
+    this._rerenderBulkSelection()
   },
 
   _clearBulkScope(scope) {
     clearBulkSelection(this, scope)
-    router.refresh()
+    this._rerenderBulkSelection()
+  },
+
+  _rerenderBulkSelection() {
+    syncBulkSelectionUi(this)
   },
 
   _runBulkAction(scope, action) {

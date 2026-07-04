@@ -133,6 +133,30 @@ class TestRagChunkRepository:
         assert chunk.entity_ids == sample_chunk_data.entity_ids
         assert chunk.visibility == "author_only"
 
+    @pytest.mark.asyncio
+    async def test_create_many_preserves_order_and_assigns_ids(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+        sample_chunk_data: RagChunkCreate,
+        sample_chunk_data_2: RagChunkCreate,
+    ) -> None:
+        """批量创建应保持输入顺序，并一次性返回可继续处理的 ORM 对象。"""
+        chunks = await repo.create_many(
+            db_with_project,
+            sample_novel_id,
+            [sample_chunk_data, sample_chunk_data_2],
+        )
+
+        assert [chunk.source_type for chunk in chunks] == [
+            "chapter_text",
+            "world_entity",
+        ]
+        assert all(chunk.id is not None for chunk in chunks)
+        assert chunks[0].entity_ids == sample_chunk_data.entity_ids
+        assert chunks[1].meta == sample_chunk_data_2.meta
+
     def test_postgres_json_filter_binds_json_array(
         self,
         repo: RagChunkRepository,
@@ -219,6 +243,29 @@ class TestRagChunkRepository:
 
         fetched = await repo.get(db_with_project, created.id)
         assert fetched is None
+
+    @pytest.mark.asyncio
+    async def test_delete_many(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+        sample_chunk_data: RagChunkCreate,
+        sample_chunk_data_2: RagChunkCreate,
+    ) -> None:
+        """批量删除片段应去重 ID，并返回实际删除数。"""
+        first = await repo.create(db_with_project, sample_novel_id, sample_chunk_data)
+        second = await repo.create(db_with_project, sample_novel_id, sample_chunk_data_2)
+
+        deleted = await repo.delete_many(
+            db_with_project,
+            [first.id, first.id, second.id],
+        )
+
+        assert deleted == 2
+        assert await repo.get(db_with_project, first.id) is None
+        assert await repo.get(db_with_project, second.id) is None
+        assert await repo.delete_many(db_with_project, []) == 0
 
     @pytest.mark.asyncio
     async def test_delete_not_found(
@@ -375,6 +422,73 @@ class TestRagChunkRepository:
         )
         assert len(results) >= 1
         assert results[0].id == created.id
+
+    @pytest.mark.asyncio
+    async def test_keyword_search_prioritizes_chunks_matching_more_query_terms(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                chunk_index=1,
+                text="森林里传来遥远的回声。",
+                importance=0.9,
+            ),
+        )
+        stronger = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                chunk_index=2,
+                text="森林里发现了失落令牌，守卫因此打开城门。",
+                importance=0.1,
+            ),
+        )
+        await db_with_project.flush()
+
+        results = await repo.keyword_search(
+            db_with_project,
+            sample_novel_id,
+            "森林 令牌",
+            limit=1,
+        )
+
+        assert [chunk.id for chunk in results] == [stronger.id]
+
+    @pytest.mark.asyncio
+    async def test_keyword_search_recalls_unspaced_chinese_compound_query(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        chunk = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="森林里发现了失落令牌，守卫因此打开城门。",
+            ),
+        )
+        await db_with_project.flush()
+
+        results = await repo.keyword_search(
+            db_with_project,
+            sample_novel_id,
+            "森林令牌",
+            limit=3,
+        )
+
+        assert [item.id for item in results] == [chunk.id]
 
     @pytest.mark.asyncio
     async def test_find_by_entity(
@@ -707,6 +821,28 @@ class TestRetrievalService:
 
         assert result.total == 1
         assert "周明瑞" in result.chunks[0].text
+
+    @pytest.mark.asyncio
+    async def test_retrieve_recalls_unspaced_chinese_compound_query(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        await create_chunk(
+            db_with_project,
+            str(sample_novel_id),
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="森林里发现了失落令牌，守卫因此打开城门。",
+            ),
+        )
+        await db_with_project.flush()
+
+        result = await retrieve(db_with_project, str(sample_novel_id), "森林令牌")
+
+        assert result.total == 1
+        assert "失落令牌" in result.chunks[0].text
 
     @pytest.mark.asyncio
     async def test_retrieve_reports_degraded_when_query_embedding_fails(

@@ -6,9 +6,8 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
+from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.services.protocol import Loader
-from modules.context.services.types import CompileOptions
 
 logger = logging.getLogger(__name__)
 

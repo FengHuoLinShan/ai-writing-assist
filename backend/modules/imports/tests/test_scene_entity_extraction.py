@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -28,13 +29,43 @@ from modules.imports.scene_entity_alias_relation import (
     _effective_alias_relation_total_timeout_seconds,
     _trim_phase2b_scene_text,
 )
+from modules.imports.scene_entity_bulk import BulkSceneEntityExtractor
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
+from modules.imports.scene_entity_text import (
+    scene_chapter_ids,
+    scene_chunks_by_chapter,
+    scene_context_header,
+    select_scene_text,
+)
+from modules.writing.contracts import WritingDraftContract
 
 
 async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
     from modules.context.facade import list_context_snapshots
 
     return await list_context_snapshots(db_session, novel_id=novel_id)
+
+
+@contextmanager
+def _patched_phase2_summaries(svc: SceneEntityExtractionService):
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(
+                svc,
+                "_phase2_audit_summary",
+                new_callable=AsyncMock,
+                return_value={},
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                svc,
+                "_phase2_snapshot_health_summary",
+                new_callable=AsyncMock,
+                return_value={},
+            )
+        )
+        yield
 
 
 def test_llm_schema_normalizes_common_score_strings() -> None:
@@ -811,6 +842,47 @@ async def test_persist_relations_links_candidate_entities(
 
 
 @pytest.mark.asyncio
+async def test_persist_relations_resolves_entities_in_one_batch() -> None:
+    svc = SceneEntityExtractionService()
+    relation = ExtractedRelation(
+        source_name="克莱恩",
+        target_name="梅丽莎",
+        relation_type="sibling",
+        description="兄妹",
+    )
+
+    with (
+        patch(
+            "modules.world.facade.find_working_entity_ids_by_names",
+            new_callable=AsyncMock,
+            return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
+        ) as mock_batch_resolve,
+        patch(
+            "modules.world.facade.find_working_entity_id_by_name",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("relations should batch entity name resolution"),
+        ) as mock_single_resolve,
+        patch(
+            "modules.world.facade.create_relation",
+            new_callable=AsyncMock,
+            return_value=Mock(id="relation-1"),
+        ),
+    ):
+        created = await svc._persist_relations(
+            Mock(),
+            "novel-1",
+            [relation],
+            scene_index=1,
+            workflow_id="wf-test",
+        )
+
+    assert created == 1
+    mock_batch_resolve.assert_awaited_once()
+    assert set(mock_batch_resolve.await_args.args[2]) == {"克莱恩", "梅丽莎"}
+    mock_single_resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_process_scene_persists_phase2a_relation_output(
     db_session: AsyncSession,
     novel_with_drafts: str,
@@ -954,6 +1026,61 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
             "needs_review": True,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> None:
+    svc = SceneEntityExtractionService()
+    output = AliasRelationExtractionOutput(
+        aliases=[
+            ExtractedAlias(entity_name="克莱恩", alias="周明瑞", confidence=0.91),
+        ],
+        relations=[
+            ExtractedRelation(
+                source_name="克莱恩",
+                target_name="梅丽莎",
+                relation_type="sibling",
+                description="兄妹",
+            )
+        ],
+    )
+    relation = Mock(id="relation-1")
+
+    with (
+        patch(
+            "modules.world.facade.find_working_entity_ids_by_names",
+            new_callable=AsyncMock,
+            return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
+        ) as mock_batch_resolve,
+        patch(
+            "modules.world.facade.find_working_entity_id_by_name",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("phase2b should batch entity name resolution"),
+        ) as mock_single_resolve,
+        patch(
+            "modules.world.facade.append_candidate_alias",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "modules.world.facade.create_relation",
+            new_callable=AsyncMock,
+            return_value=relation,
+        ),
+    ):
+        result = await svc._persist_alias_relation_output(
+            Mock(),
+            "novel-1",
+            output,
+            scene_index=3,
+            workflow_id="wf-phase2b",
+            scene_id="scene-3",
+        )
+
+    assert result == {"aliases": 1, "relations": 1}
+    mock_batch_resolve.assert_awaited_once()
+    assert set(mock_batch_resolve.await_args.args[2]) == {"克莱恩", "梅丽莎"}
+    mock_single_resolve.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1861,18 +1988,7 @@ async def test_extract_by_scenes_continues_after_single_transport_failure() -> N
             new_callable=AsyncMock,
             side_effect=process_scene,
         ) as process_scene,
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -1916,18 +2032,7 @@ async def test_extract_by_scenes_stops_after_repeated_transport_failures() -> No
             new_callable=AsyncMock,
             side_effect=LLMConnectionError("connection failed"),
         ) as process_scene,
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -1993,18 +2098,7 @@ async def test_phase2_records_checkpoint_for_each_successful_scene() -> None:
             new_callable=AsyncMock,
             side_effect=process_scene,
         ),
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -2068,18 +2162,7 @@ async def test_phase2_small_sample_uses_bulk_extraction_with_scene_checkpoints()
             },
         ) as bulk,
         patch.object(svc, "_process_scene", new_callable=AsyncMock) as process_scene,
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -2300,18 +2383,7 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
                 "supplemental_error_kind": None,
             },
         ),
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
         patch("modules.context.facade.mark_context_snapshot_succeeded", AsyncMock()),
         patch("modules.memory.facade.capture_snapshot", AsyncMock()),
     ):
@@ -2466,18 +2538,7 @@ async def test_phase2_batched_failed_batch_records_scene_ids_and_fallback_indice
             new_callable=AsyncMock,
             return_value={"degraded": False, "error_kind": None, "error_message": None},
         ),
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
         patch.object(
             svc,
             "_phase2_alias_relation_result",
@@ -2571,6 +2632,84 @@ async def test_bulk_llm_extractions_use_fast_no_retry_calls() -> None:
             "transport_retries": False,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> None:
+    scenes = [
+        {
+            "id": "scene-1",
+            "novel_id": "novel-1",
+            "scene_index": 1,
+            "chapter_ids": ["1", "2"],
+        },
+        {
+            "id": "scene-2",
+            "novel_id": "novel-1",
+            "scene_index": 2,
+            "chapter_ids": ["2", "3"],
+        },
+    ]
+    calls: list[tuple[str, list[int]]] = []
+
+    async def list_latest_drafts_for_chapters(_db, novel_id, chapter_indices):
+        calls.append((novel_id, list(chapter_indices)))
+        return [
+            WritingDraftContract(
+                novel_id=novel_id,
+                chapter_index=index,
+                title=f"第{index}章",
+                content=f"第{index}章正文",
+            )
+            for index in chapter_indices
+        ]
+
+    service = Mock()
+    service._scene_source_chapter_index.return_value = 1
+    service._scene_chunks_by_chapter.side_effect = scene_chunks_by_chapter
+    service._scene_chapter_ids.side_effect = scene_chapter_ids
+    service._select_scene_text.side_effect = select_scene_text
+    service._scene_context_header.side_effect = scene_context_header
+    service._bulk_entity_memory_context.return_value = "批量上下文"
+    service._create_phase2_snapshot = AsyncMock(return_value=Mock(id="snapshot-1"))
+    service._call_bulk_llm_extractions = AsyncMock(
+        return_value=[SceneEntityExtractionOutput()]
+    )
+    service._persist_entities = AsyncMock(return_value=0)
+    service._persist_relations = AsyncMock(return_value=0)
+    service._record_deltas = AsyncMock(return_value=0)
+    service._scene_id.return_value = "scene-1"
+    service._scene_provenance_key.return_value = "wf:scene-1"
+    service._result_ref_ids.return_value = []
+    service._load_scene_chapters = AsyncMock(
+        side_effect=AssertionError("bulk extractor should prefetch drafts once")
+    )
+
+    with (
+        patch(
+            "modules.writing.facade.list_latest_drafts_for_chapters",
+            new=list_latest_drafts_for_chapters,
+        ),
+        patch("modules.context.facade.mark_context_snapshot_succeeded", new=AsyncMock()),
+        patch("modules.memory.facade.capture_snapshot", new=AsyncMock()),
+    ):
+        result = await BulkSceneEntityExtractor(service).run(
+            Mock(),
+            "novel-1",
+            scenes,
+            "无已有对象",
+            workflow_id="wf-bulk",
+        )
+
+    assert result["created"] == 0
+    assert calls == [("novel-1", [1, 2, 3])]
+    service._load_scene_chapters.assert_not_awaited()
+    service._call_bulk_llm_extractions.assert_awaited_once()
+    scene_texts = service._call_bulk_llm_extractions.await_args.args[0]
+    assert "第1章正文" in scene_texts[0]
+    assert "第2章正文" in scene_texts[0]
+    assert "第2章正文" in scene_texts[1]
+    assert "第3章正文" in scene_texts[1]
 
 
 @pytest.mark.asyncio
@@ -2817,18 +2956,7 @@ async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() 
                 "updated_memory": [{"scene_index": 2, "entities": 1}],
             },
         ) as process_scene,
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -2884,18 +3012,7 @@ async def test_phase2_failed_scene_checkpoint_contains_error_status() -> None:
             new_callable=AsyncMock,
             side_effect=RuntimeError("phase2 boom"),
         ),
-        patch.object(
-            svc,
-            "_phase2_audit_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
-        patch.object(
-            svc,
-            "_phase2_snapshot_health_summary",
-            new_callable=AsyncMock,
-            return_value={},
-        ),
+        _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
             db,

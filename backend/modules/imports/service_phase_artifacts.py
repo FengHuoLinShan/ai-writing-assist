@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from typing import Any
 
+from modules.imports.env_helpers import positive_float_env, positive_int_env
 from modules.imports.service_progress_logs import (
     record_acceptance_check,
     record_progress_event,
@@ -62,9 +62,9 @@ def now_iso() -> str:
 
 def repair_policy() -> dict[str, Any]:
     return {
-        "attempts": _positive_int_env(REPAIR_ATTEMPTS_ENV, 1),
-        "max_failed_units": _positive_int_env(REPAIR_MAX_FAILED_UNITS_ENV, 6),
-        "max_failed_ratio": _positive_float_env(REPAIR_MAX_FAILED_RATIO_ENV, 0.20),
+        "attempts": positive_int_env(REPAIR_ATTEMPTS_ENV, 1),
+        "max_failed_units": positive_int_env(REPAIR_MAX_FAILED_UNITS_ENV, 6),
+        "max_failed_ratio": positive_float_env(REPAIR_MAX_FAILED_RATIO_ENV, 0.20),
     }
 
 
@@ -291,7 +291,6 @@ def _compact_quality_stats(stats: dict[str, Any]) -> dict[str, Any]:
         compact[key] = value
     return compact
 
-
 def _sanitize(value: Any, *, depth: int = 0) -> Any:
     if depth > 8:
         return "<truncated>"
@@ -460,25 +459,3 @@ def _enforce_artifact_budget(artifact: dict[str, Any]) -> dict[str, Any]:
     compact["budget_truncated"] = True
     compact["error_kind"] = "artifact_over_budget"
     return compact
-
-
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default
-
-
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    return value if value > 0 else default

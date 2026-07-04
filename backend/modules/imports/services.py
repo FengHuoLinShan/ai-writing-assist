@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError, NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.imports.models import ImportRecord
 from modules.imports.parsers import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, parse_file
@@ -59,10 +59,7 @@ class ImportService:
         # 检查重复导入：同项目 + 同文件名 + 已成功
         existing = await self._repo.get_done_by_file_name(db, nid, file_name)
         if existing is not None:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"文件已导入: {file_name}",
-            )
+            raise DomainValidationError(f"文件已导入: {file_name}")
 
         # 创建导入记录
         record = await self._repo.create(db, nid, file_name, file_type, len(file_content))
@@ -102,10 +99,7 @@ class ImportService:
                 status="failed",
                 error_message=NO_EFFECTIVE_CHAPTERS_MESSAGE,
             )
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=NO_EFFECTIVE_CHAPTERS_MESSAGE,
-            )
+            raise DomainValidationError(NO_EFFECTIVE_CHAPTERS_MESSAGE)
         except ValueError as exc:
             logger.warning("导入参数错误: %s", exc)
             error_message = str(exc)[:1000]
@@ -115,9 +109,9 @@ class ImportService:
                 status="failed",
                 error_message=error_message,
             )
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=error_message,
+            raise DomainValidationError(
+                error_message,
+                status_code=422,
             ) from exc
         except Exception as exc:
             logger.error("导入失败: %s", exc, exc_info=True)
@@ -133,9 +127,10 @@ class ImportService:
                 # 事务可能已被底层数据库错误污染，标记失败状态也可能失败。
                 # 记录日志，避免二次异常掩盖原始业务错误。
                 logger.error("标记导入记录失败状态时出错: %s", update_exc, exc_info=True)
-            raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=error_message,
+            raise DomainError(
+                error_message,
+                code="import_failed",
+                status_code=500,
             ) from exc
 
         # 更新记录为完成（带并发去重保护：若同项目同名文件已有成功记录，
@@ -151,12 +146,13 @@ class ImportService:
         except IntegrityError as exc:
             logger.warning("并发重复导入被数据库约束拦截: %s", exc)
             await db.rollback()
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"文件已导入: {file_name}",
-            ) from exc
+            raise DomainValidationError(f"文件已导入: {file_name}") from exc
         if record is None:
-            raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+            raise DomainError(
+                "导入记录状态更新失败",
+                code="import_record_update_failed",
+                status_code=500,
+            )
         return ImportResponse(
             id=str(record.id),
             novel_id=str(record.novel_id),
@@ -181,10 +177,7 @@ class ImportService:
         rid = parse_uuid(record_id, "record_id")
         record = await self._repo.get(db, rid)
         if record is None or record.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"ImportRecord {record_id} not found",
-            )
+            raise NotFoundError(f"ImportRecord {record_id} not found")
         return _record_to_response(record)
 
     async def list_import_records(
@@ -210,17 +203,14 @@ class ImportService:
         ext = _get_extension(file_name)
         if ext not in ALLOWED_EXTENSIONS:
             allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的文件类型: {ext}。仅支持: {allowed}",
-            )
+            raise DomainValidationError(f"不支持的文件类型: {ext}。仅支持: {allowed}")
         if file_size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=http_status.HTTP_413_CONTENT_TOO_LARGE,
-                detail=(
+            raise DomainValidationError(
+                (
                     f"文件过大（{file_size} bytes），"
                     f"最大允许 {MAX_FILE_SIZE} bytes（50MB）"
                 ),
+                status_code=413,
             )
         # 文件类型去掉点号
         return ext.lstrip(".")

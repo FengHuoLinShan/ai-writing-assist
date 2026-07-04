@@ -22,6 +22,10 @@ from modules.imports.scene_entity_config import (
     PHASE2_SMALL_SAMPLE_TARGET_ENTITIES,
 )
 from modules.imports.scene_entity_runtime import SceneEntityExtractionRuntime
+from modules.imports.scene_entity_text import (
+    scene_chapter_indices,
+    scene_text_from_drafts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +94,33 @@ class BulkSceneEntityExtractor:
         service = self.service
         first_scene = scenes[0]
         source_chapter_index = service._scene_source_chapter_index(first_scene)
-        scene_texts: list[str] = []
+        from modules.writing.facade import list_latest_drafts_for_chapters
+
+        scene_chapter_payloads: list[
+            tuple[dict[str, Any], list[int], dict[int, list[dict[str, Any]]]]
+        ] = []
+        all_chapter_indices: set[int] = set()
         for scene in scenes:
-            text = await service._load_scene_chapters(db, scene)
+            chunk_by_chapter = service._scene_chunks_by_chapter(scene)
+            chapter_ids = service._scene_chapter_ids(scene, chunk_by_chapter)
+            chapter_indices = scene_chapter_indices(chapter_ids)
+            scene_chapter_payloads.append((scene, chapter_indices, chunk_by_chapter))
+            all_chapter_indices.update(chapter_indices)
+        drafts = await list_latest_drafts_for_chapters(
+            db,
+            first_scene["novel_id"],
+            sorted(all_chapter_indices),
+        )
+        draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
+        scene_texts: list[str] = []
+        for scene, chapter_indices, chunk_by_chapter in scene_chapter_payloads:
+            text = scene_text_from_drafts(
+                service,
+                scene,
+                chapter_indices,
+                chunk_by_chapter,
+                draft_by_chapter,
+            )
             if text:
                 scene_texts.append(
                     f"### Scene {scene.get('scene_index')}\n\n{text}"

@@ -246,7 +246,10 @@ class DeepImportWorkflow:
 
     @staticmethod
     def _small_sample_phase0_skip_result(start_chapter: int, end_chapter: int):
-        from modules.imports.scene_candidates import ScenePrefetchResult
+        from modules.imports.scene_candidates import (
+            ScenePrefetchResult,
+            build_scene_candidate_quality_stats,
+        )
         from modules.imports.scene_prefetch import build_phase0_prefetch_batches
 
         batches = build_phase0_prefetch_batches(start_chapter, end_chapter)
@@ -269,28 +272,20 @@ class DeepImportWorkflow:
             }
             for batch in batches
         ]
-        return ScenePrefetchResult(
-            candidates=[],
-            quality_stats={
-                "total_batches": len(batches),
-                "completed_batches": len(batches),
-                "success": 0,
-                "failed": 0,
-                "high_quality": 0,
-                "low_quality": 0,
-                "empty_result": 0,
-                "schema_error": 0,
-                "timeout": 0,
-                "network": 0,
-                "rate_limit": 0,
-                "quality_gate": 0,
-                "http_error": 0,
-                "unknown": 0,
-                "final_422": 0,
-                "final_422_rate": 0.0,
+        quality_stats = build_scene_candidate_quality_stats(
+            [],
+            total_batches=len(batches),
+            completed_batches=len(batches),
+        )
+        quality_stats.update(
+            {
                 "skipped": len(batches),
                 "skipped_for_small_sample": True,
-            },
+            }
+        )
+        return ScenePrefetchResult(
+            candidates=[],
+            quality_stats=quality_stats,
             diagnostics=diagnostics,
             blocked=False,
             block_reason=None,
@@ -351,6 +346,7 @@ class DeepImportWorkflow:
             SceneCandidate,
             SceneCandidateBatch,
             SceneReinforcementResult,
+            build_scene_candidate_quality_stats,
         )
         from modules.imports.scene_segmentation import SceneSegmentationService
 
@@ -423,31 +419,9 @@ class DeepImportWorkflow:
             )
 
         candidates = await asyncio.gather(*(process(chapter) for chapter in chapters))
-        quality_stats = {
-            "total_batches": len(chapters),
-            "completed_batches": len(candidates),
-            "success": sum(1 for item in candidates if item.quality != "failed"),
-            "failed": sum(1 for item in candidates if item.quality == "failed"),
-            "high_quality": sum(1 for item in candidates if item.quality == "high"),
-            "low_quality": sum(1 for item in candidates if item.quality == "low"),
-            "empty_result": 0,
-            "schema_error": 0,
-            "timeout": 0,
-            "network": 0,
-            "rate_limit": 0,
-            "quality_gate": 0,
-            "http_error": 0,
-            "unknown": 0,
-            "final_422": 0,
-        }
-        for candidate in candidates:
-            error_type = candidate.diagnostics.get("final_error_type")
-            if error_type in quality_stats:
-                quality_stats[error_type] += 1
-            if error_type == "422":
-                quality_stats["final_422"] += 1
-        quality_stats["final_422_rate"] = (
-            quality_stats["final_422"] / len(chapters) if chapters else 0.0
+        quality_stats = build_scene_candidate_quality_stats(
+            candidates,
+            total_batches=len(chapters),
         )
         return SceneReinforcementResult(
             candidates=candidates,

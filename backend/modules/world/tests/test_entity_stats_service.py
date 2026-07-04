@@ -69,15 +69,17 @@ async def test_list_auto_ingested_filters_by_meta_and_status(
         content_json={"_meta": {"auto_ingested": True}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(
-        return_value=([auto, manual, deprecated], 3)
+    stats_service._repo.list_by_novel = AsyncMock(
+        return_value=[auto, manual, deprecated]
     )
+    stats_service._repo.get_by_novel = AsyncMock()
 
     result = await stats_service.list_auto_ingested_entities(db, novel_id)
 
     assert len(result) == 1
     assert result[0]["name"] == "Auto"
     assert result[0]["status"] == "canonical"
+    stats_service._repo.get_by_novel.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -95,7 +97,7 @@ async def test_list_auto_ingested_filters_by_chapter_range(
         content_json={"_meta": {"auto_ingested": True, "source_chapter_index": 10}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([inside, outside], 2))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[inside, outside])
 
     result = await stats_service.list_auto_ingested_entities(
         db, novel_id, start_chapter=1, end_chapter=5
@@ -116,7 +118,7 @@ async def test_list_auto_ingested_returns_empty_when_none(
         content_json={"_meta": {"auto_ingested": False}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([manual], 1))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[manual])
 
     result = await stats_service.list_auto_ingested_entities(db, novel_id)
 
@@ -138,7 +140,7 @@ async def test_list_auto_ingested_includes_exact_range_boundaries(
         content_json={"_meta": {"auto_ingested": True, "source_chapter_index": 4}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([start, end], 2))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[start, end])
 
     result = await stats_service.list_auto_ingested_entities(
         db, novel_id, start_chapter=2, end_chapter=4
@@ -159,7 +161,7 @@ async def test_list_auto_ingested_excludes_none_source_with_range(
         content_json={"_meta": {"auto_ingested": True, "source_chapter_index": None}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([no_source], 1))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[no_source])
 
     result = await stats_service.list_auto_ingested_entities(
         db, novel_id, start_chapter=1, end_chapter=5
@@ -179,7 +181,7 @@ async def test_list_auto_ingested_handles_none_content_json(
         content_json=None,
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([none_content], 1))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[none_content])
 
     result = await stats_service.list_auto_ingested_entities(db, novel_id)
 
@@ -198,7 +200,7 @@ async def test_list_auto_ingested_includes_draft_status(
         content_json={"_meta": {"auto_ingested": True, "source_chapter_index": 1}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([draft], 1))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[draft])
 
     result = await stats_service.list_auto_ingested_entities(db, novel_id)
 
@@ -222,7 +224,7 @@ async def test_list_auto_ingested_skips_malformed_source_chapter_index(
         content_json={"_meta": {"auto_ingested": True, "source_chapter_index": 3}},
     )
 
-    stats_service._repo.get_by_novel = AsyncMock(return_value=([malformed, valid], 2))
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[malformed, valid])
 
     result = await stats_service.list_auto_ingested_entities(
         db, novel_id, start_chapter=1, end_chapter=5

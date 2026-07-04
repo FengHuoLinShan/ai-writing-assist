@@ -12,7 +12,7 @@ from unittest import mock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import StructureContextBundle
+from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.services.loaders.characters_loader import CharactersLoader
 from modules.context.services.loaders.events_loader import EventsLoader
 from modules.context.services.loaders.memory_records_loader import MemoryRecordsLoader
@@ -21,7 +21,6 @@ from modules.context.services.loaders.plot_threads_loader import PlotThreadsLoad
 from modules.context.services.loaders.project_loader import ProjectLoader
 from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
 from modules.context.services.loaders.world_entities_loader import WorldEntitiesLoader
-from modules.context.services.types import CompileOptions
 
 # ============================================================
 # 辅助工厂函数

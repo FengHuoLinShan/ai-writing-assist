@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.outline.scene_workbench import SceneWorkbenchService
+from modules.outline.schemas import SceneMergeRequest
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
@@ -43,6 +47,88 @@ async def _create_draft(
 
 
 class TestSceneWorkbenchApi:
+    async def test_merge_loader_batches_scene_lookup(self) -> None:
+        novel_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+        first_source_id = uuid.uuid4()
+        second_source_id = uuid.uuid4()
+        scenes = {
+            target_id: SimpleNamespace(id=target_id, novel_id=novel_id),
+            first_source_id: SimpleNamespace(id=first_source_id, novel_id=novel_id),
+            second_source_id: SimpleNamespace(id=second_source_id, novel_id=novel_id),
+        }
+
+        class Repo:
+            def __init__(self) -> None:
+                self.batch_calls: list[list[uuid.UUID]] = []
+
+            async def get_many_for_novel(
+                self,
+                _db,
+                requested_novel_id,
+                scene_ids,
+            ):  # type: ignore[no-untyped-def]
+                assert requested_novel_id == novel_id
+                self.batch_calls.append(list(scene_ids))
+                return [
+                    scenes[second_source_id],
+                    scenes[target_id],
+                    scenes[first_source_id],
+                ]
+
+        repo = Repo()
+        service = SceneWorkbenchService()
+        service.repo = repo  # type: ignore[assignment]
+
+        target, sources = await service._load_merge_scenes(
+            None,  # type: ignore[arg-type]
+            str(novel_id),
+            SceneMergeRequest(
+                target_scene_id=str(target_id),
+                source_scene_ids=[str(first_source_id), str(second_source_id)],
+            ),
+        )
+
+        assert target.id == target_id
+        assert [scene.id for scene in sources] == [first_source_id, second_source_id]
+        assert repo.batch_calls == [[target_id, first_source_id, second_source_id]]
+
+    async def test_fusion_loader_batches_scene_lookup(self) -> None:
+        novel_id = uuid.uuid4()
+        first_id = uuid.uuid4()
+        second_id = uuid.uuid4()
+        scenes = {
+            first_id: SimpleNamespace(id=first_id, novel_id=novel_id),
+            second_id: SimpleNamespace(id=second_id, novel_id=novel_id),
+        }
+
+        class Repo:
+            def __init__(self) -> None:
+                self.batch_calls: list[list[uuid.UUID]] = []
+
+            async def get_many_for_novel(
+                self,
+                _db,
+                requested_novel_id,
+                scene_ids,
+            ):  # type: ignore[no-untyped-def]
+                assert requested_novel_id == novel_id
+                self.batch_calls.append(list(scene_ids))
+                return [scenes[second_id], scenes[first_id]]
+
+        repo = Repo()
+        service = SceneWorkbenchService()
+        service.repo = repo  # type: ignore[assignment]
+
+        loaded = await service._load_fusion_scenes(
+            None,  # type: ignore[arg-type]
+            str(novel_id),
+            [str(first_id), str(second_id)],
+        )
+
+        assert [scene.id for scene in loaded] == [first_id, second_id]
+        assert repo.batch_calls == [[first_id, second_id]]
+
     async def test_legacy_scene_create_route_delegates_to_workbench(
         self,
         async_client: AsyncClient,
@@ -192,6 +278,7 @@ class TestSceneWorkbenchApi:
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert len(data["items"]) == 20
+        assert data["total"] == 25
         assert data["unassigned_chapters"] == []
         assert data["health"]["unassigned"]["count"] == 0
 
@@ -261,6 +348,95 @@ class TestSceneWorkbenchApi:
         assert suggestion["chapter_span"] == [1, 3]
         assert len(suggestion["source_scene_ids"]) == 3
         assert suggestion["stop_reason"] == "keep_separate"
+
+    async def test_cross_chapter_detector_batches_draft_fallback_evidence(
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.outline import cross_chapter_detection
+        from modules.outline.cross_chapter_detection import CrossChapterDetectionService
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.schemas import SceneCreate
+        from modules.writing.contracts import WritingDraftContract
+
+        repo = SceneRepository()
+        current = await repo.create(
+            db_session,
+            uuid.UUID(hex=test_project_id),
+            SceneCreate(
+                scene_index=1,
+                title="追击上半",
+                goal="继续追击",
+                chapter_ids=["1"],
+                status="draft",
+            ),
+        )
+        next_scene = await repo.create(
+            db_session,
+            uuid.UUID(hex=test_project_id),
+            SceneCreate(
+                scene_index=2,
+                title="追击下半",
+                goal="追击收束",
+                chapter_ids=["2"],
+                status="draft",
+            ),
+        )
+        batch_calls: list[list[int]] = []
+
+        async def fail_retrieve(*args, **kwargs):
+            raise RuntimeError("rag unavailable")
+
+        async def fail_single_fetch(*args, **kwargs):
+            raise AssertionError("should not fetch fallback drafts one by one")
+
+        async def fake_batch_fetch(db, novel_id, chapter_indices):
+            batch_calls.append(list(chapter_indices))
+            return [
+                WritingDraftContract(
+                    novel_id=novel_id,
+                    chapter_index=1,
+                    content="第一章追击证据",
+                ),
+                WritingDraftContract(
+                    novel_id=novel_id,
+                    chapter_index=2,
+                    content="第二章追击证据",
+                ),
+            ]
+
+        monkeypatch.setattr(
+            cross_chapter_detection.rag_facade,
+            "retrieve",
+            fail_retrieve,
+        )
+        monkeypatch.setattr(
+            cross_chapter_detection,
+            "get_latest_draft_for_chapter",
+            fail_single_fetch,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            cross_chapter_detection,
+            "list_latest_drafts_for_chapters",
+            fake_batch_fetch,
+            raising=False,
+        )
+
+        service = CrossChapterDetectionService()
+        evidence, degraded_reason = await service._evidence_for_boundary(
+            db_session,
+            test_project_id,
+            [current],
+            next_scene,
+        )
+
+        assert batch_calls == [[1, 2]]
+        assert degraded_reason == "draft_fallback"
+        assert [item["chapter_index"] for item in evidence] == [1, 2]
+        assert evidence[0]["snippet"] == "第一章追击证据"
 
     async def test_workbench_includes_candidate_scenes(
         self,
@@ -685,6 +861,9 @@ class TestSceneWorkbenchApi:
         assert preview["operation"] == "split"
         assert preview["chapter_mapping_change"]["after"][scene["id"]] == ["1"]
         assert preview["new_scene"]["chapter_ids"] == ["2", "3"]
+        assert len(preview["draft_scenes"]) == 2
+        assert preview["primary_scene_id"] == scene["id"]
+        assert preview["field_references"]["title"][0]["role"] == "primary"
 
         after_preview = await async_client.get(
             f"/api/outline/scenes/{scene['id']}",
@@ -765,6 +944,49 @@ class TestSceneWorkbenchApi:
         assert result["new_scene"]["scene_chunks"][0]["start_pos"] == 40
         assert result["new_scene"]["scene_chunks"][0]["end_pos"] == 100
 
+    async def test_split_save_applies_draft_semantics_but_keeps_system_mapping(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "原始长 Scene",
+                "goal": "原目标",
+                "chapter_ids": ["1", "2"],
+                "scene_chunks": [
+                    {"chapter_index": 1, "start_pos": 0, "end_pos": 10},
+                    {"chapter_index": 2, "start_pos": 0, "end_pos": 10},
+                ],
+            },
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/split",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_id": scene["id"],
+                "split_chapter_index": 2,
+                "confirmed": True,
+                "draft_scenes": [
+                    {"title": "前半草稿", "goal": "保留前半", "chapter_ids": ["999"]},
+                    {"title": "后半草稿", "goal": "推进后半", "chapter_ids": ["888"]},
+                ],
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        result = resp.json()
+        assert result["scene"]["title"] == "前半草稿"
+        assert result["scene"]["goal"] == "保留前半"
+        assert result["scene"]["chapter_ids"] == ["1"]
+        assert result["new_scene"]["title"] == "后半草稿"
+        assert result["new_scene"]["goal"] == "推进后半"
+        assert result["new_scene"]["chapter_ids"] == ["2"]
+
     async def test_fusion_preview_is_side_effect_free_and_returns_sources(
         self,
         async_client: AsyncClient,
@@ -798,18 +1020,28 @@ class TestSceneWorkbenchApi:
         resp = await async_client.post(
             "/api/outline/scene-workbench/fusion/preview",
             params={"novel_id": test_project_id},
-            json={"source_scene_ids": [first["id"], second["id"]]},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "primary_scene_id": first["id"],
+            },
         )
 
         assert resp.status_code == 200, resp.text
         preview = resp.json()
+        assert preview["mode"] == "fusion"
         assert preview["source_scene_ids"] == [first["id"], second["id"]]
+        assert preview["primary_scene_id"] == first["id"]
+        assert preview["draft_scene"]["chapter_ids"] == ["1", "2"]
         assert preview["fused_scene"]["status"] == "draft"
         assert preview["fused_scene"]["chapter_ids"] == ["1", "2"]
         assert preview["fused_scene"]["structure_meta"]["fused_from_scene_ids"] == [
             first["id"],
             second["id"],
         ]
+        assert preview["field_references"]["goal"][0]["role"] == "primary"
+        assert {
+            item["scene_id"] for item in preview["field_references"]["goal"]
+        } == {first["id"], second["id"]}
 
         for scene in (first, second):
             after_preview = await async_client.get(
@@ -818,6 +1050,111 @@ class TestSceneWorkbenchApi:
             )
             assert after_preview.status_code == 200
             assert after_preview.json()["status"] == "draft"
+
+    async def test_fusion_preview_requires_primary_scene(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview",
+            params={"novel_id": test_project_id},
+            json={"source_scene_ids": [first["id"], second["id"]]},
+        )
+
+        assert resp.status_code == 400
+        assert "primary_scene_id" in resp.text
+
+    async def test_fusion_preview_uses_primary_scene_as_draft_backbone(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "较弱识别",
+                "goal": "模糊目标",
+                "narrative_tag": "setup",
+                "pov_character_id": "char-low",
+                "chapter_ids": ["1"],
+            },
+        )
+        primary = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "高质量识别",
+                "goal": "以高质量识别为主线",
+                "narrative_tag": "climax",
+                "pov_character_id": "char-main",
+                "chapter_ids": ["2"],
+            },
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], primary["id"]],
+                "primary_scene_id": primary["id"],
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        preview = resp.json()
+        draft = preview["draft_scene"]
+        assert draft["goal"].startswith("以高质量识别为主线")
+        assert draft["narrative_tag"] == "climax"
+        assert draft["pov_character_id"] == "char-main"
+        assert draft["structure_meta"]["primary_scene_id"] == primary["id"]
+
+    async def test_fusion_preview_rejects_primary_scene_outside_sources(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 0, "title": "甲", "chapter_ids": ["1"]},
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
+        )
+        third = await _create_scene(
+            async_client,
+            test_project_id,
+            {"scene_index": 2, "title": "丙", "chapter_ids": ["3"]},
+        )
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/fusion/preview",
+            params={"novel_id": test_project_id},
+            json={
+                "source_scene_ids": [first["id"], second["id"]],
+                "primary_scene_id": third["id"],
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "primary_scene_id" in resp.text
 
     async def test_fusion_keep_originals_creates_draft_without_changing_sources(
         self,
@@ -1015,7 +1352,10 @@ class TestSceneWorkbenchApi:
         resp = await async_client.post(
             "/api/outline/scene-workbench/fusion/preview",
             params={"novel_id": test_project_id},
-            json={"source_scene_ids": [local_scene["id"], other_scene["id"]]},
+            json={
+                "source_scene_ids": [local_scene["id"], other_scene["id"]],
+                "primary_scene_id": local_scene["id"],
+            },
         )
 
         assert resp.status_code == 404

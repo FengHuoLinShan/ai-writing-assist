@@ -458,9 +458,7 @@
 | `backend/modules/world/map_api.py` | FastAPI 路由 |
 | `backend/modules/world/map_facade.py` | 跨模块地图动态入口（deep import delta → observation） |
 | `backend/modules/world/tests/test_map_*.py` | 测试套件 |
-| `backend/alembic/versions/20260614_add_map_tables.py` | P0 + P1 表迁移 |
-| `backend/alembic/versions/20260622_add_territory_tables.py` | P2 势力范围表迁移 |
-| `backend/alembic/versions/20260629_add_map_dynamic_fact_tables.py` | P0 世界动态 observation/fact 表迁移 |
+| `backend/alembic/versions/20260703_squashed_current_schema.py` | 当前 demo schema 初始化（含 P0/P1 地图表、P2 势力范围、世界动态 observation/fact 表） |
 | `frontend-console/views/mapView.js` | 主视图 |
 | `frontend-console/views/mapLayoutEngine.js` | P2 自动布局、避让、聚合簇、语义气泡带派生 |
 | `frontend-console/views/mapState.js` | 前端会话状态 |

@@ -13,10 +13,9 @@ from __future__ import annotations
 from collections.abc import Container
 from typing import TYPE_CHECKING
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError, ValidationError
 from modules.world.map_repositories import MapConfigRepository
 from modules.world.repositories import CoreEntityRepository
 from modules.world.services.helpers import parse_uuid
@@ -51,10 +50,7 @@ class MapContext:
         mid = parse_uuid(map_id, "map_id")
         config = await self._config_repo.get(db, mid)
         if config is None or config.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"地图 {map_id} 不存在",
-            )
+            raise NotFoundError(f"地图 {map_id} 不存在", code="map_not_found")
         return config
 
     async def require_entity(
@@ -70,19 +66,40 @@ class MapContext:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self._entity_repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"实体 {entity_id} 不存在",
-            )
+            raise NotFoundError(f"实体 {entity_id} 不存在", code="entity_not_found")
         if allowed_types and entity.entity_type not in allowed_types:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"实体 {entity.name} 类型为 {entity.entity_type}，"
-                    f"只接受 {','.join(sorted(allowed_types))} 类型"
-                ),
+            raise ValidationError(
+                f"实体 {entity.name} 类型为 {entity.entity_type}，"
+                f"只接受 {','.join(sorted(allowed_types))} 类型",
+                code="invalid_entity_type",
             )
         return entity
+
+    async def require_entities(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_ids: list[str],
+        *,
+        allowed_types: Container[str] | None = None,
+    ) -> list[CoreEntity]:
+        """批量校验 entity 存在、属于指定 novel 且类型符合预期，保持输入顺序。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        parsed_ids = [parse_uuid(entity_id, "entity_id") for entity_id in entity_ids]
+        unique_ids = list(dict.fromkeys(parsed_ids))
+        entities = await self._entity_repo.get_by_ids(db, nid, unique_ids)
+        entity_by_id = {entity.id: entity for entity in entities}
+        for raw_id, parsed_id in zip(entity_ids, parsed_ids, strict=True):
+            entity = entity_by_id.get(parsed_id)
+            if entity is None:
+                raise NotFoundError(f"实体 {raw_id} 不存在", code="entity_not_found")
+            if allowed_types and entity.entity_type not in allowed_types:
+                raise ValidationError(
+                    f"实体 {entity.name} 类型为 {entity.entity_type}，"
+                    f"只接受 {','.join(sorted(allowed_types))} 类型",
+                    code="invalid_entity_type",
+                )
+        return [entity_by_id[entity_id] for entity_id in parsed_ids]
 
     def assert_hex_in_bounds(
         self,
@@ -92,12 +109,12 @@ class MapContext:
     ) -> None:
         """校验 hex 坐标在 grid 范围内，否则 400。"""
         if not (0 <= hex_q < config.grid_width):
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"hex_q {hex_q} 超出网格宽度 {config.grid_width}",
+            raise ValidationError(
+                f"hex_q {hex_q} 超出网格宽度 {config.grid_width}",
+                code="hex_out_of_bounds",
             )
         if not (0 <= hex_r < config.grid_height):
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"hex_r {hex_r} 超出网格高度 {config.grid_height}",
+            raise ValidationError(
+                f"hex_r {hex_r} 超出网格高度 {config.grid_height}",
+                code="hex_out_of_bounds",
             )

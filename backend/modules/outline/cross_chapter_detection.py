@@ -13,7 +13,7 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.outline.models import Scene
 from modules.outline.repositories import SceneRepository
 from modules.rag import facade as rag_facade
-from modules.writing.facade import get_latest_draft_for_chapter
+from modules.writing.facade import list_latest_drafts_for_chapters
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
@@ -214,8 +214,11 @@ class CrossChapterDetectionService:
                 exc_info=True,
             )
 
-        for chapter in chapters[:3]:
-            draft = await get_latest_draft_for_chapter(db, novel_id, chapter)
+        fallback_chapters = chapters[:3]
+        drafts = await list_latest_drafts_for_chapters(db, novel_id, fallback_chapters)
+        draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
+        for chapter in fallback_chapters:
+            draft = draft_by_chapter.get(chapter)
             if draft is None:
                 continue
             evidence.append(

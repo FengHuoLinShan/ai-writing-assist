@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import DomainError
+from modules.world.map_repositories import MapTerrainRegionRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapTerrainBindingCreate,
@@ -147,6 +148,65 @@ async def test_replace_terrain_layer_patches_reuses_existing_region_id(
 
 
 @pytest.mark.asyncio
+async def test_replace_terrain_layer_patches_bulk_upserts_regions(
+    db_session: AsyncSession,
+) -> None:
+    class BulkOnlyRegionRepository(MapTerrainRegionRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.upsert_many_calls = 0
+
+        async def upsert(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("terrain region replacement should bulk upsert")
+
+        async def upsert_many(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.upsert_many_calls += 1
+            return await super().upsert_many(*args, **kwargs)
+
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    created = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="世界", map_type="world", grid_width=8, grid_height=8),
+    )
+    layer_id = uuid.uuid4().hex
+    region_ids = [uuid.uuid4().hex, uuid.uuid4().hex]
+    region_repo = BulkOnlyRegionRepository()
+    service = MapTerrainService(region_repo=region_repo)
+
+    state = await service.replace_layer_patches(
+        db_session,
+        novel_id,
+        created.id,
+        layer_id,
+        MapTerrainPatchReplaceRequest(
+            layer=MapTerrainLayerCreate(name="结界层", terrain_asset_key="barrier"),
+            regions=[
+                MapTerrainRegionCreate(
+                    id=region_ids[0],
+                    layer_id=layer_id,
+                    name="结界 1",
+                ),
+                MapTerrainRegionCreate(
+                    id=region_ids[1],
+                    layer_id=layer_id,
+                    name="结界 2",
+                ),
+            ],
+            patches=[
+                MapTerrainPatchItem(region_id=region_ids[0], hex_q=1, hex_r=1),
+                MapTerrainPatchItem(region_id=region_ids[1], hex_q=2, hex_r=2),
+            ],
+        ),
+    )
+
+    assert region_repo.upsert_many_calls == 1
+    assert [region.name for region in state.regions] == ["结界 1", "结界 2"]
+    assert {(patch.hex_q, patch.hex_r) for patch in state.patches} == {(1, 1), (2, 2)}
+
+
+@pytest.mark.asyncio
 async def test_terrain_binding_validates_type_and_location_novel(
     db_session: AsyncSession,
 ) -> None:
@@ -191,7 +251,7 @@ async def test_terrain_binding_validates_type_and_location_novel(
     assert binding.binding_type == "footprint"
     assert binding.review_state == "confirmed"
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await service.create_binding(
             db_session,
             novel_id,

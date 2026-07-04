@@ -8,11 +8,11 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crud import CrudService
+from core.errors import NotFoundError, ValidationError
 from modules.world.models import Character
 from modules.world.repositories import (
     CharacterKnowledgeRepository,
@@ -26,7 +26,6 @@ from modules.world.schemas import (
     CharacterResponse,
     CharacterUpdate,
 )
-from modules.world.services.base import CrudService
 from modules.world.services.helpers import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -69,16 +68,12 @@ class CharacterService(
             or entity.novel_id != nid
             or getattr(entity, "status", None) == "deprecated"
         ):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {data.entity_id} not found",
-            )
+            raise NotFoundError(f"CoreEntity {data.entity_id} not found")
         try:
             obj = await self.repo.create(db, nid, data)
         except IntegrityError as exc:
-            raise HTTPException(
-                status_code=http_status.HTTP_400_BAD_REQUEST,
-                detail=f"CoreEntity {data.entity_id} not found or conflict",
+            raise ValidationError(
+                f"CoreEntity {data.entity_id} not found or conflict"
             ) from exc
         return self._to_response(obj)
 
@@ -125,7 +120,7 @@ class CharacterService(
             current_emotion=current_emotion,
             current_goal=current_goal,
         )
-        character = await self.repo.update(db, cid, update_data)
+        character = await self.repo.update(db, existing, update_data)
         if character is None:
             self._raise_404(character_id)
         return CharacterResponse.model_validate(character)
@@ -215,16 +210,15 @@ class CharacterService(
         cid = parse_uuid(character_id, "character_id")
         nid = parse_uuid(novel_id, "novel_id")
 
-        target_ids_map: dict[str, set[str]] = {}
+        target_ids: set[str] = set()
         for item in context_items:
-            t_type = item.get("target_type", "")
             t_id = item.get("target_id", "")
-            if t_type and t_id:
-                target_ids_map.setdefault(t_type, set()).add(t_id)
+            if item.get("target_type", "") and t_id:
+                target_ids.add(t_id)
 
         knowledge_map: dict[str, dict] = {}
-        for t_type, t_ids in target_ids_map.items():
-            tid_uuids = [parse_uuid(tid) for tid in t_ids]
+        if target_ids:
+            tid_uuids = [parse_uuid(tid) for tid in target_ids]
             records = await self._knowledge_repo.get_by_target(
                 db,
                 nid,
@@ -345,10 +339,7 @@ class CharacterService(
             or location.novel_id != nid
             or getattr(location, "status", None) == "deprecated"
         ):
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Location not found in this novel",
-            )
+            raise NotFoundError("Location not found in this novel")
         await self.repo.update_character_meta_location(
             db,
             cid,

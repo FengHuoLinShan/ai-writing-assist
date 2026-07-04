@@ -21,6 +21,29 @@ from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 class WritingDraftRepository:
     """正文草稿数据访问"""
 
+    async def _build_draft(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate,
+        *,
+        status: str,
+    ) -> WritingDraft:
+        novel_id = uuid.UUID(hex=data.novel_id)
+        return WritingDraft(
+            novel_id=novel_id,
+            chapter_index=data.chapter_index,
+            title=data.title,
+            content=data.content,
+            conflict_check_snapshot_json=None,
+            provenance_json=data.provenance_json,
+            version_number=await self._next_version_number(
+                db,
+                novel_id,
+                data.chapter_index,
+            ),
+            status=status,
+        )
+
     async def create(
         self,
         db: AsyncSession,
@@ -30,24 +53,7 @@ class WritingDraftRepository:
 
         SELECT MAX + 唯一约束兜底实现原子版本号递增。
         """
-        novel_id = uuid.UUID(hex=data.novel_id)
-
-        next_version = await self._next_version_number(
-            db,
-            novel_id,
-            data.chapter_index,
-        )
-
-        draft = WritingDraft(
-            novel_id=novel_id,
-            chapter_index=data.chapter_index,
-            title=data.title,
-            content=data.content,
-            conflict_check_snapshot_json=None,
-            provenance_json=data.provenance_json,
-            version_number=next_version,
-            status="draft",
-        )
+        draft = await self._build_draft(db, data, status="draft")
         db.add(draft)
         await db.flush()
         return draft
@@ -60,22 +66,7 @@ class WritingDraftRepository:
         status: str,
     ) -> WritingDraft:
         """创建指定状态的新草稿版本。"""
-        novel_id = uuid.UUID(hex=data.novel_id)
-        next_version = await self._next_version_number(
-            db,
-            novel_id,
-            data.chapter_index,
-        )
-        draft = WritingDraft(
-            novel_id=novel_id,
-            chapter_index=data.chapter_index,
-            title=data.title,
-            content=data.content,
-            conflict_check_snapshot_json=None,
-            provenance_json=data.provenance_json,
-            version_number=next_version,
-            status=status,
-        )
+        draft = await self._build_draft(db, data, status=status)
         db.add(draft)
         await db.flush()
         return draft
@@ -130,11 +121,15 @@ class WritingDraftRepository:
     async def update(
         self,
         db: AsyncSession,
-        draft_id: uuid.UUID,
+        draft_or_id: WritingDraft | uuid.UUID,
         data: WritingDraftUpdate,
     ) -> WritingDraft | None:
         """暂存草稿（原地更新，不递增版本号）。返回更新后的对象。"""
-        draft = await self.get(db, draft_id)
+        draft = (
+            await self.get(db, draft_or_id)
+            if isinstance(draft_or_id, uuid.UUID)
+            else draft_or_id
+        )
         if draft is None:
             return None
 
@@ -145,14 +140,10 @@ class WritingDraftRepository:
                 update_values[field] = value
 
         if update_values:
-            stmt = (
-                update(WritingDraft)
-                .where(WritingDraft.id == draft_id)
-                .values(**update_values)
-            )
-            await db.execute(stmt)
+            for field, value in update_values.items():
+                setattr(draft, field, value)
+            db.add(draft)
             await db.flush()
-            draft = await self.get(db, draft_id)
 
         return draft
 
@@ -268,6 +259,41 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return result.scalars().all()
 
+    async def list_latest_by_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_indices: list[int],
+    ) -> Sequence[WritingDraft]:
+        """按章节集合列出最新版本草稿。"""
+        requested = sorted({idx for idx in chapter_indices if idx >= 1})
+        if not requested:
+            return []
+        latest_versions = (
+            select(
+                WritingDraft.chapter_index.label("chapter_index"),
+                func.max(WritingDraft.version_number).label("version_number"),
+            )
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index.in_(requested),
+            )
+            .group_by(WritingDraft.chapter_index)
+            .subquery()
+        )
+        stmt = (
+            select(WritingDraft)
+            .join(
+                latest_versions,
+                (WritingDraft.chapter_index == latest_versions.c.chapter_index)
+                & (WritingDraft.version_number == latest_versions.c.version_number),
+            )
+            .where(WritingDraft.novel_id == novel_id)
+            .order_by(WritingDraft.chapter_index)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().all()
+
     async def project_stats(
         self,
         db: AsyncSession,
@@ -301,6 +327,50 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         chapter_count, word_count = result.one()
         return int(chapter_count or 0), int(word_count or 0)
+
+    async def project_stats_many(
+        self,
+        db: AsyncSession,
+        novel_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, tuple[int, int]]:
+        """批量统计多个小说项目的最新版本章节数和字数。"""
+        requested = list(dict.fromkeys(novel_ids))
+        if not requested:
+            return {}
+        latest_versions = (
+            select(
+                WritingDraft.novel_id.label("novel_id"),
+                WritingDraft.chapter_index.label("chapter_index"),
+                func.max(WritingDraft.version_number).label("version_number"),
+            )
+            .where(WritingDraft.novel_id.in_(requested))
+            .group_by(WritingDraft.novel_id, WritingDraft.chapter_index)
+            .subquery()
+        )
+        stmt = (
+            select(
+                WritingDraft.novel_id,
+                func.count(WritingDraft.id),
+                func.coalesce(
+                    func.sum(func.length(func.coalesce(WritingDraft.content, ""))),
+                    0,
+                ),
+            )
+            .join(
+                latest_versions,
+                (WritingDraft.novel_id == latest_versions.c.novel_id)
+                & (WritingDraft.chapter_index == latest_versions.c.chapter_index)
+                & (WritingDraft.version_number == latest_versions.c.version_number),
+            )
+            .where(WritingDraft.novel_id.in_(requested))
+            .group_by(WritingDraft.novel_id)
+        )
+        result = await db.execute(stmt)
+        stats = {
+            novel_id: (int(chapter_count or 0), int(word_count or 0))
+            for novel_id, chapter_count, word_count in result.all()
+        }
+        return {novel_id: stats.get(novel_id, (0, 0)) for novel_id in requested}
 
     async def update_latest_content(
         self,
@@ -340,26 +410,31 @@ class WritingDraftRepository:
         novel_id: uuid.UUID,
         start_index: int,
     ) -> None:
-        stmt = (
-            select(WritingDraft.chapter_index)
+        max_stmt = select(func.max(WritingDraft.chapter_index)).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index >= start_index,
+        )
+        max_index = (await db.execute(max_stmt)).scalar_one_or_none()
+        if max_index is None:
+            return
+
+        offset = int(max_index) + 2
+        await db.execute(
+            update(WritingDraft)
             .where(
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index >= start_index,
             )
-            .distinct()
-            .order_by(WritingDraft.chapter_index.desc())
+            .values(chapter_index=WritingDraft.chapter_index + offset)
         )
-        result = await db.execute(stmt)
-        indices = [row[0] for row in result.all()]
-        for idx in indices:
-            await db.execute(
-                update(WritingDraft)
-                .where(
-                    WritingDraft.novel_id == novel_id,
-                    WritingDraft.chapter_index == idx,
-                )
-                .values(chapter_index=idx + 1)
+        await db.execute(
+            update(WritingDraft)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index >= start_index + offset,
             )
+            .values(chapter_index=WritingDraft.chapter_index - offset + 1)
+        )
         await db.flush()
 
     async def _next_version_number(
@@ -489,10 +564,15 @@ class WritingConflictCheckRepository:
         )
         result = await db.execute(stmt)
         checks = result.scalars().all()
-        pairs = []
-        for check in checks:
-            pairs.append((check, await self.list_items(db, check.id, novel_id)))
-        return pairs, total
+        items_by_check_id = await self._list_items_for_checks(
+            db,
+            [check.id for check in checks],
+            novel_id,
+        )
+        return [
+            (check, items_by_check_id.get(check.id, []))
+            for check in checks
+        ], total
 
     async def latest_check(
         self,
@@ -529,6 +609,34 @@ class WritingConflictCheckRepository:
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def _list_items_for_checks(
+        self,
+        db: AsyncSession,
+        check_ids: list[uuid.UUID],
+        novel_id: uuid.UUID,
+    ) -> dict[uuid.UUID, list[WritingConflictItem]]:
+        if not check_ids:
+            return {}
+        stmt = (
+            select(WritingConflictItem)
+            .where(
+                WritingConflictItem.check_id.in_(check_ids),
+                WritingConflictItem.novel_id == novel_id,
+            )
+            .order_by(
+                WritingConflictItem.check_id,
+                WritingConflictItem.severity,
+                WritingConflictItem.created_at,
+            )
+        )
+        result = await db.execute(stmt)
+        items_by_check_id: dict[uuid.UUID, list[WritingConflictItem]] = {
+            check_id: [] for check_id in check_ids
+        }
+        for item in result.scalars().all():
+            items_by_check_id.setdefault(item.check_id, []).append(item)
+        return items_by_check_id
 
     async def get_item(
         self,
@@ -641,6 +749,27 @@ class WritingConflictCheckRepository:
         item = await self.get_item(db, item_id, novel_id)
         if item is None:
             return None
+        return await self.update_loaded_item_suggestion(
+            db,
+            item,
+            status=status,
+            confirmation_id=confirmation_id,
+            ai_suggestion=ai_suggestion,
+            llm_rationale=llm_rationale,
+            error=error,
+        )
+
+    async def update_loaded_item_suggestion(
+        self,
+        db: AsyncSession,
+        item: WritingConflictItem,
+        *,
+        status: str,
+        confirmation_id: uuid.UUID | None = None,
+        ai_suggestion: str | None = None,
+        llm_rationale: str | None = None,
+        error: str | None = None,
+    ) -> WritingConflictItem:
         item.suggestion_status = status
         item.suggestion_confirmation_id = confirmation_id
         item.ai_suggestion = ai_suggestion

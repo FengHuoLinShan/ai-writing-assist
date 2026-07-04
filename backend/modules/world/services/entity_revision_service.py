@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import HTTPException
-from fastapi import status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.world.models import TextArchive
 from modules.world.repositories import CoreEntityRepository, EntityRevisionRepository
 from modules.world.services.helpers import parse_uuid
@@ -35,10 +34,7 @@ class EntityRevisionService:
 
         entity = await self._entity_repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found",
-            )
+            raise NotFoundError(f"CoreEntity {entity_id} not found")
 
         snapshot = {
             "entity_type": entity.entity_type,
@@ -80,14 +76,12 @@ class EntityRevisionService:
     ) -> dict:
         """获取实体的版本列表"""
         eid = parse_uuid(entity_id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
 
         # 验证实体存在
         entity = await self._entity_repo.get(db, eid)
-        if entity is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found",
-            )
+        if entity is None or entity.novel_id != nid:
+            raise NotFoundError(f"CoreEntity {entity_id} not found")
 
         revisions, total = await self._repo.get_revisions(
             db,
@@ -118,18 +112,15 @@ class EntityRevisionService:
         """回滚实体到指定版本（回滚前自动打快照）"""
         eid = parse_uuid(entity_id, "entity_id")
         rid = parse_uuid(revision_id, "revision_id")
-        _ = parse_uuid(novel_id, "novel_id")
+        nid = parse_uuid(novel_id, "novel_id")
 
         # 先对当前状态打快照
         await self.create_snapshot(db, entity_id, novel_id, revision_reason="rollback")
 
         # 获取目标版本
         revision = await self._repo.get_revision(db, rid)
-        if revision is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"Revision {revision_id} not found",
-            )
+        if revision is None or revision.novel_id != nid or revision.entity_id != eid:
+            raise NotFoundError(f"Revision {revision_id} not found")
 
         snapshot = revision.snapshot
         from modules.world.schemas import CoreEntityUpdate
@@ -149,10 +140,7 @@ class EntityRevisionService:
 
         entity = await self._entity_repo.update(db, eid, update_data)
         if entity is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found after rollback",
-            )
+            raise NotFoundError(f"CoreEntity {entity_id} not found after rollback")
 
         from modules.world.schemas import CoreEntityResponse
 
@@ -171,10 +159,7 @@ class EntityRevisionService:
 
         entity = await self._entity_repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail=f"CoreEntity {entity_id} not found",
-            )
+            raise NotFoundError(f"CoreEntity {entity_id} not found")
 
         stmt = (
             select(TextArchive)
@@ -225,7 +210,7 @@ class EntityRevisionService:
 
             if update_values:
                 update_data = CoreEntityUpdate(**update_values)
-                await self._entity_repo.update(db, eid, update_data)
+                await self._entity_repo.update(db, entity, update_data)
         else:
             revisions, _ = await self._repo.get_revisions(
                 db,
@@ -255,7 +240,7 @@ class EntityRevisionService:
                 reveal_level=snapshot.get("reveal_level"),
                 status=snapshot.get("status"),
             )
-            await self._entity_repo.update(db, eid, update_data)
+            await self._entity_repo.update(db, entity, update_data)
             restored_fields = [
                 "summary",
                 "public_info",
@@ -306,10 +291,7 @@ class EntityRevisionService:
 
         entity = await self._entity_repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
-            raise HTTPException(
-                status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Entity not found",
-            )
+            raise NotFoundError("Entity not found")
 
         archive = TextArchive(
             novel_id=nid,
