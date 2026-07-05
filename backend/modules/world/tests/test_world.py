@@ -7,12 +7,15 @@ World 模块测试
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import MagicMock
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.selectable import Select
 
@@ -1199,6 +1202,11 @@ async def test_merge_entity_route_marks_candidate_merged(
         json={"target_entity_id": target_id},
     )
     assert merge_resp.status_code == 200
+    payload = merge_resp.json()
+    assert payload["target_entity_id"] == target_id
+    assert payload["candidate_entity_id"] == candidate_id
+    assert payload["merged_ids"] == [candidate_id]
+    assert set(payload["affected_ids"]) == {candidate_id, target_id}
 
     # 验证候选实体状态为 merged
     get_resp = await async_client.get(
@@ -1448,6 +1456,73 @@ class TestUpsertRelationship:
         rels, total = await rel_repo.get_by_novel(db_session, nid)
         assert total == 1
         assert rels[0].description == "更新描述"
+
+    @pytest.mark.asyncio
+    async def test_upsert_relationship_concurrent_calls_are_idempotent(self) -> None:
+        from core.base import Base
+        from modules.project.models import Project
+        from modules.world.models import CoreEntity, EntityRelation
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        novel_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+        async with factory() as session:
+            session.add(Project(id=novel_id, title="关系并发测试", genre="test"))
+            session.add_all([
+                CoreEntity(
+                    id=source_id,
+                    novel_id=novel_id,
+                    entity_type="character",
+                    name="甲",
+                    status="canonical",
+                ),
+                CoreEntity(
+                    id=target_id,
+                    novel_id=novel_id,
+                    entity_type="character",
+                    name="乙",
+                    status="canonical",
+                ),
+            ])
+            await session.commit()
+
+        async def write_relation(description: str) -> None:
+            async with factory() as session:
+                await EntityRelationRepository().upsert(
+                    session,
+                    novel_id,
+                    source_id,
+                    target_id,
+                    "knows",
+                    description,
+                )
+                await session.commit()
+
+        try:
+            await asyncio.gather(write_relation("第一次"), write_relation("第二次"))
+            async with factory() as session:
+                rels, total = await EntityRelationRepository().get_by_novel(
+                    session,
+                    novel_id,
+                )
+                all_rows = (
+                    await session.execute(select(EntityRelation))
+                ).scalars().all()
+
+            assert total == 1
+            assert len(all_rows) == 1
+            assert rels[0].description in {"第一次", "第二次"}
+        finally:
+            await engine.dispose()
 
     @pytest.mark.asyncio
     async def test_deprecate_many_relations(

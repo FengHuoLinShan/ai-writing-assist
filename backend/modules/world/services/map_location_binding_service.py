@@ -100,6 +100,17 @@ class MapLocationBindingService:
         objs = await self._binding_repo.bulk_create_many(db, nid, mid, bindings)
         return [MapLocationBindingResponse.model_validate(o) for o in objs]
 
+    async def clear_map(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+    ) -> int:
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        return await self._binding_repo.delete_for_map(db, nid, mid)
+
     async def update(
         self,
         db: AsyncSession,

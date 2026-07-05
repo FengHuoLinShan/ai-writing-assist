@@ -150,7 +150,7 @@ class MapConfigRepository:
         stmt = (
             select(MapConfig)
             .where(*conditions)
-            .order_by(MapConfig.sort_order, MapConfig.created_at)
+            .order_by(MapConfig.sort_order, MapConfig.created_at, MapConfig.id)
             .offset(skip)
             .limit(limit)
         )
@@ -172,7 +172,7 @@ class MapConfigRepository:
         stmt = (
             select(MapConfig)
             .where(*conditions)
-            .order_by(MapConfig.sort_order, MapConfig.created_at)
+            .order_by(MapConfig.sort_order, MapConfig.created_at, MapConfig.id)
             .limit(1)
         )
         return (await db.execute(stmt)).scalar_one_or_none()
@@ -416,7 +416,7 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
                     ]
                 ),
             )
-            .order_by(MapLocationBinding.created_at)
+            .order_by(MapLocationBinding.created_at, MapLocationBinding.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -463,7 +463,11 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
                 MapLocationBinding.novel_id == novel_id,
                 MapLocationBinding.location_entity_id == location_entity_id,
             )
-            .order_by(MapLocationBinding.is_center.desc(), MapLocationBinding.created_at)
+            .order_by(
+                MapLocationBinding.is_center.desc(),
+                MapLocationBinding.created_at,
+                MapLocationBinding.id,
+            )
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -507,6 +511,20 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
                 MapLocationBinding.is_center.is_(True),
             )
             .values(is_center=False)
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount
+
+    async def delete_for_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> int:
+        stmt = delete(MapLocationBinding).where(
+            MapLocationBinding.novel_id == novel_id,
+            MapLocationBinding.map_id == map_id,
         )
         result = await db.execute(stmt)
         await db.flush()
@@ -803,7 +821,11 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
             select(MapMarker)
             .join(CoreEntity, CoreEntity.id == MapMarker.entity_id)
             .where(*conditions)
-            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+            .order_by(
+                MapMarker.start_scene_index.nulls_last(),
+                MapMarker.created_at,
+                MapMarker.id,
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -828,7 +850,11 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         stmt = (
             select(MapMarker)
             .where(*conditions)
-            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+            .order_by(
+                MapMarker.start_scene_index.nulls_last(),
+                MapMarker.created_at,
+                MapMarker.id,
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -856,7 +882,11 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
         stmt = (
             select(MapMarker)
             .where(*conditions)
-            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+            .order_by(
+                MapMarker.start_scene_index.nulls_last(),
+                MapMarker.created_at,
+                MapMarker.id,
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -875,7 +905,11 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
                 MapMarker.entity_id == entity_id,
                 MapMarker.visible.is_(True),
             )
-            .order_by(MapMarker.start_scene_index.nulls_last(), MapMarker.created_at)
+            .order_by(
+                MapMarker.start_scene_index.nulls_last(),
+                MapMarker.created_at,
+                MapMarker.id,
+            )
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -902,7 +936,11 @@ class MapMarkerRepository(MapEntityRepository[MapMarker]):
                 MapMarker.start_scene_index.isnot(None),
                 MapMarker.start_scene_index < scene_index,
             )
-            .order_by(MapMarker.start_scene_index.desc(), MapMarker.created_at.desc())
+            .order_by(
+                MapMarker.start_scene_index.desc(),
+                MapMarker.created_at.desc(),
+                MapMarker.id.desc(),
+            )
         )
         result = await db.execute(stmt)
         latest: dict[uuid.UUID, MapMarker] = {}
@@ -938,7 +976,7 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
                 CoreEntity.novel_id == novel_id,
                 CoreEntity.status.in_(statuses),
             )
-            .order_by(MapTerritoryTile.created_at)
+            .order_by(MapTerritoryTile.created_at, MapTerritoryTile.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -999,7 +1037,7 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
                     ]
                 ),
             )
-            .order_by(MapTerritoryTile.created_at)
+            .order_by(MapTerritoryTile.created_at, MapTerritoryTile.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -1017,7 +1055,7 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
                 MapTerritoryTile.novel_id == novel_id,
                 MapTerritoryTile.faction_entity_id == faction_entity_id,
             )
-            .order_by(MapTerritoryTile.created_at)
+            .order_by(MapTerritoryTile.created_at, MapTerritoryTile.id)
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -1120,7 +1158,11 @@ class MapObservationRepository:
         stmt = (
             select(MapObservation)
             .where(*conditions)
-            .order_by(MapObservation.scene_index.nulls_last(), MapObservation.created_at)
+            .order_by(
+                MapObservation.scene_index.nulls_last(),
+                MapObservation.created_at,
+                MapObservation.id,
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -1147,6 +1189,7 @@ class MapObservationRepository:
                 MapObservation.review_state,
                 MapObservation.scene_index.nulls_last(),
                 MapObservation.created_at.desc(),
+                MapObservation.id.desc(),
             )
             .limit(limit)
         )
@@ -1176,6 +1219,7 @@ class MapObservationRepository:
                 MapObservation.review_state,
                 MapObservation.scene_index.nulls_last(),
                 MapObservation.created_at.desc(),
+                MapObservation.id.desc(),
             )
             .limit(limit)
         )
@@ -1197,7 +1241,11 @@ class MapObservationRepository:
                 MapObservation.map_id.isnot(None),
                 MapObservation.review_state.in_(["candidate", "conflicted"]),
             )
-            .order_by(MapObservation.scene_index.nulls_last(), MapObservation.created_at)
+            .order_by(
+                MapObservation.scene_index.nulls_last(),
+                MapObservation.created_at,
+                MapObservation.id,
+            )
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -1350,7 +1398,11 @@ class MapFactRepository:
         stmt = (
             select(MapFact)
             .where(*conditions)
-            .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
+            .order_by(
+                MapFact.scene_index.nulls_last(),
+                MapFact.created_at,
+                MapFact.id,
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -1373,7 +1425,11 @@ class MapFactRepository:
                 MapFact.map_id.isnot(None),
                 MapFact.fact_status == fact_status,
             )
-            .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
+            .order_by(
+                MapFact.scene_index.nulls_last(),
+                MapFact.created_at,
+                MapFact.id,
+            )
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -1399,7 +1455,11 @@ class MapFactRepository:
                 MapFact.fact_status == fact_status,
                 MapFact.dynamic_type.in_(tuple(dynamic_types)),
             )
-            .order_by(MapFact.scene_index.nulls_last(), MapFact.created_at)
+            .order_by(
+                MapFact.scene_index.nulls_last(),
+                MapFact.created_at,
+                MapFact.id,
+            )
             .limit(limit)
         )
         result = await db.execute(stmt)
@@ -1428,6 +1488,28 @@ class MapFactRepository:
         db.add_all(facts)
         await db.flush()
         return facts
+
+    async def delete_quick_create_location_facts(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> int:
+        stmt = select(MapFact).where(
+            MapFact.novel_id == novel_id,
+            MapFact.map_id == map_id,
+            MapFact.dynamic_type == "location",
+        )
+        result = await db.execute(stmt)
+        facts = [
+            fact
+            for fact in result.scalars().all()
+            if (fact.source_ref or {}).get("source") == "map_quick_create"
+        ]
+        for fact in facts:
+            await db.delete(fact)
+        await db.flush()
+        return len(facts)
 
     async def update_status(
         self,

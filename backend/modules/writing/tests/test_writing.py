@@ -1349,6 +1349,27 @@ class TestWritingPublishApi:
         assert task.meta.get("novel_id") == novel_id
         assert task.meta.get("chapter_index") == 1
 
+        response3 = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "title": "第一章（修订）",
+                "content": "第二版内容",
+            },
+        )
+        assert response3.status_code == 201
+        data3 = response3.json()
+        assert data3["draft"]["id"] == data2["draft"]["id"]
+        assert data3["draft"]["version_number"] == 2
+        assert data3["draft"]["status"] == "published"
+        assert data3["task_id"] is not None
+        assert data3["task_id"] != task_id_2
+
+        service = WritingDraftService()
+        history = await service.get_version_history(db_session, novel_id, 1)
+        assert history.total == 2
+
     @pytest.mark.asyncio
     async def test_update_draft_conflict_returns_409(
         self,
@@ -1503,7 +1524,7 @@ async def test_publish_creates_rag_chunks(
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
 
-        draft, task_id = await create_draft(
+        _, task_id = await create_draft(
             db_session,
             test_project_id,
             1,
@@ -1520,7 +1541,7 @@ async def test_publish_creates_rag_chunks(
 
     first_chunks = await rag_repo.find_by_chapter(db_session, nid_uuid, 1)
     assert len(first_chunks) == result["rag_chunks"]
-    first_ids = {str(c.id) for c in first_chunks}
+    assert all("一切都变得陌生" in c.text for c in first_chunks)
 
     # 重新发布同一章节
     with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
@@ -1540,5 +1561,6 @@ async def test_publish_creates_rag_chunks(
         assert result_2["rag_chunks"] > 0
 
     second_chunks = await rag_repo.find_by_chapter(db_session, nid_uuid, 1)
-    second_ids = {str(c.id) for c in second_chunks}
-    assert first_ids.isdisjoint(second_ids), "重新发布后旧 chunk 应被替换"
+    assert len(second_chunks) == result_2["rag_chunks"]
+    assert all("世界已经完全不同" in c.text for c in second_chunks)
+    assert all("一切都变得陌生" not in c.text for c in second_chunks)

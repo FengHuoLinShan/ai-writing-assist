@@ -535,6 +535,9 @@ class EntityMergeResponse(BaseModel):
     """实体合并响应"""
 
     target_entity_id: str
+    candidate_entity_id: str | None = None
+    affected_ids: list[str] = Field(default_factory=list)
+    merged_ids: list[str] = Field(default_factory=list)
 
 
 class EntityFusionSuggestionRequest(BaseModel):

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import mapWorkspaceView from "../views/mapWorkspaceView.js"
+import mapQuickCreateView from "../views/mapQuickCreateView.js"
 import { expectNoTechnicalIds, renderHtml, resetState, clearDocument } from "./helpers.js"
 
 beforeEach(() => {
@@ -958,6 +959,24 @@ describe("mapWorkspaceView overview", () => {
     root.querySelector("[data-action='map-search-location']").click()
 
     expect(openSpy).toHaveBeenCalledWith("m2", { focusEntityId: "loc1" })
+    openSpy.mockRestore()
+  })
+
+  it("reloads data and opens the map returned by quick-create", async () => {
+    const quickCreateSpy = vi.spyOn(mapQuickCreateView, "open").mockImplementation(
+      async ({ onCreated } = {}) => {
+        await onCreated?.({ id: "quick-map", name: "快速创建世界地图", map_type: "world" })
+      },
+    )
+    const loadSpy = vi.spyOn(mapWorkspaceView, "_loadData").mockResolvedValue()
+    const openSpy = vi.spyOn(mapWorkspaceView, "_openMap").mockImplementation(() => {})
+
+    await mapWorkspaceView._openQuickCreate()
+
+    expect(loadSpy).toHaveBeenCalled()
+    expect(openSpy).toHaveBeenCalledWith("quick-map", { viewMode: "live" })
+    quickCreateSpy.mockRestore()
+    loadSpy.mockRestore()
     openSpy.mockRestore()
   })
 

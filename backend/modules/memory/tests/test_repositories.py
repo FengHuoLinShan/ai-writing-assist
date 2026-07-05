@@ -223,12 +223,12 @@ class TestEventRepository:
     ) -> None:
         """删除 Ch3 事件，Ch5 仍存在"""
         eid = uuid.uuid4()
-        for ch in [3, 3, 3, 5, 5]:
+        for ch, seq in [(3, 1), (3, 2), (3, 3), (5, 1), (5, 2)]:
             await event_repo.create(
                 db_with_project,
                 novel_id=sample_novel_id,
                 chapter_index=ch,
-                sequence=1,
+                sequence=seq,
                 event_type="entity_updated",
                 snapshot_after={"ch": ch},
                 entity_id=eid,

@@ -20,15 +20,13 @@ from modules.context.facade import (
 from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
-from modules.writing.facade import (
-    create_published_draft_only as _create_published_draft_only,
-)
 from modules.writing.schemas import (
     ChapterSplitRequest,
     ChapterSplitResponse,
     ChapterSummaryItem,
     VersionHistoryResponse,
     WritingConflictAiReviewRequest,
+    WritingConflictAiReviewTaskResponse,
     WritingConflictAiSuggestionRequest,
     WritingConflictCheckCreate,
     WritingConflictCheckListResponse,
@@ -137,6 +135,46 @@ async def run_conflict_check_ai_review(
         db,
         check_id=check_id,
         data=data,
+    )
+
+
+@router.post(
+    "/conflict-checks/{check_id}/ai-review-task",
+    response_model=WritingConflictAiReviewTaskResponse,
+    status_code=202,
+)
+async def enqueue_conflict_check_ai_review(
+    db: DbSession,
+    data: WritingConflictAiReviewRequest,
+    check_id: str = Path(..., description="检查记录 ID"),
+) -> WritingConflictAiReviewTaskResponse:
+    """提交 AI 软冲突判断任务，避免前端等待真实 LLM 调用超时。"""
+    check = await _conflict_service.start_ai_review_task(
+        db,
+        check_id=check_id,
+        data=data,
+    )
+    task_id = enqueue_task(
+        db,
+        "writing_conflict_ai_review",
+        meta={
+            "novel_id": data.novel_id,
+            "check_id": check_id,
+            "context_confirmation_id": data.context_confirmation_id,
+        },
+    )
+    await bind_confirmed_action_result(
+        db,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=task_id,
+        status="running",
+    )
+    await db.flush()
+    return WritingConflictAiReviewTaskResponse(
+        task_id=task_id,
+        status="pending",
+        check=check,
     )
 
 
@@ -255,13 +293,7 @@ async def create_draft(
         )
     except Exception as exc:
         logger.warning("writing conflict snapshot lookup failed: %s", exc)
-    result = await _create_published_draft_only(
-        db,
-        novel_id=data.novel_id,
-        chapter_index=data.chapter_index,
-        title=data.title,
-        content=data.content or "",
-    )
+    result = await _service.publish_draft(db, data)
     result.conflict_check_snapshot_json = snapshot
     if snapshot:
         try:

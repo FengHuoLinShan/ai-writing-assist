@@ -65,8 +65,6 @@ class IndexingService:
         if not chunks:
             return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
 
-        await self._repo.delete_by_chapter(db, novel_id, "chapter_text", chapter_index)
-
         chunk_items = [
             build_chunk_create(
                 cn_chunk,
@@ -78,7 +76,13 @@ class IndexingService:
             )
             for cn_chunk in chunks
         ]
-        created_chunks = await self._repo.create_many(db, novel_id, chunk_items)
+        created_chunks = await self._repo.replace_chapter_chunks(
+            db,
+            novel_id,
+            source_type="chapter_text",
+            chapter_index=chapter_index,
+            items=chunk_items,
+        )
 
         await db.flush()
         embedding_result = await EmbeddingWriter(self._repo).write_batch(

@@ -67,9 +67,6 @@ class MemoryService:
         events 格式: [{"event_type": "entity_created", "entity_id": ..., ...}, ...]
         """
         nid = parse_uuid(novel_id)
-        # 先清除该章的旧事件（如果存在）
-        await self._event_repo.delete_by_chapter(db, nid, chapter_index)
-
         rows = [
             {
                 "novel_id": nid,
@@ -86,7 +83,12 @@ class MemoryService:
             }
             for seq, evt in enumerate(events, start=1)
         ]
-        records = await self._event_repo.create_many(db, rows)
+        records = await self._event_repo.replace_chapter_events(
+            db,
+            novel_id=nid,
+            chapter_index=chapter_index,
+            rows=rows,
+        )
         results = [
             MemoryEventResponse.model_validate(record)
             for record in records

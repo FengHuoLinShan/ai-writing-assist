@@ -1374,16 +1374,29 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  min-height: 34px;
   padding: 6px 8px;
   margin-bottom: 2px;
+  border: 0;
   border-left: 3px solid transparent;
   border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   min-width: 0;
+  text-align: left;
+  font: inherit;
 }
 
-.chapter-row:hover {
+.chapter-row:hover,
+.chapter-row:focus-visible {
   background: var(--bg-hover);
+}
+
+.chapter-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .chapter-row--active {

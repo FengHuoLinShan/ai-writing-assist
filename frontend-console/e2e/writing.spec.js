@@ -427,6 +427,47 @@ test.describe("写作台模块", () => {
         body: JSON.stringify(mockedAiCheck),
       })
     })
+    await page.route("**/api/writing/conflict-checks/*/ai-review-task", async (route) => {
+      aiReviewDone = true
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "mock-ai-review-task",
+          status: "pending",
+          check: {
+            ...mockedAiCheck,
+            ai_review_status: "running",
+            items: mockedAiCheck.items.slice(0, 2),
+          },
+        }),
+      })
+    })
+    await page.route("**/api/tasks/**", async (route) => {
+      const url = new URL(route.request().url())
+      if (!url.pathname.endsWith("/api/tasks/mock-ai-review-task")) {
+        await route.continue()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "mock-ai-review-task",
+          task_type: "writing_conflict_ai_review",
+          status: "done",
+          progress: 1,
+          result: { check_id: mockedAiCheck.id, ai_review_status: "done" },
+        }),
+      })
+    })
+    await page.route("**/api/writing/conflict-checks/mock-check-ai?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mockedAiCheck),
+      })
+    })
     await page.route("**/api/writing/conflict-checks?**", async (route) => {
       if (!aiReviewDone) {
         await route.continue()
@@ -503,6 +544,91 @@ test.describe("写作台模块", () => {
     const latestDraft = await getLatestDraft(testProjectId, 1)
     expect(latestDraft.conflict_check_snapshot_json?.items?.length).toBeGreaterThanOrEqual(2)
     expect(latestDraft.conflict_check_snapshot_json.items.some((item) => item.kind === "forbidden_present")).toBe(true)
+  })
+
+  test("章节树嵌套章节行有尺寸并可直接点击", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章", "第一章正文")
+    await createDraft(testProjectId, 3, "第三章 归潮尽头", "第三章正文")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "回声仓",
+      narrative_tag: "draft",
+      chapter_ids: ["1", "3"],
+      scene_chunks: [
+        { chapter_index: 1, start_pos: 0, end_pos: 5 },
+        { chapter_index: 3, start_pos: 0, end_pos: 5 },
+      ],
+    })
+
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await expect(page.locator("#writing-tree-container")).toContainText("回声仓")
+
+    const row = page.locator('[data-action="select-chapter"][data-chapter="3"]')
+    await expect(row).toBeVisible({ timeout: 5000 })
+    const box = await row.boundingBox()
+    expect(box?.width).toBeGreaterThan(0)
+    expect(box?.height).toBeGreaterThan(0)
+
+    await row.click()
+    await expect(page.locator("#writing-title-input")).toHaveValue("第三章 归潮尽头", { timeout: 5000 })
+    await expect(page.locator("#writing-editor")).toHaveValue("第三章正文", { timeout: 5000 })
+    await expect(page.locator("#btn-autosave")).toBeEnabled()
+    await expect(page.locator("#btn-publish")).toBeEnabled()
+    await expect(page.locator("#btn-conflict-check")).toBeEnabled()
+  })
+
+  test("发布按钮启动任务轮询并显示成功状态，重复点击不制造冗余版本", async ({ page }) => {
+    const initial = await createDraft(testProjectId, 3, "第三章 归潮尽头", "第三章正文")
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="3"]').click()
+    await expect(page.locator("#writing-title-input")).toHaveValue("第三章 归潮尽头", { timeout: 5000 })
+
+    const polledTaskUrls = []
+    await page.route("**/api/tasks/**", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback()
+        return
+      }
+      const url = new URL(route.request().url())
+      polledTaskUrls.push(url.toString())
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: url.pathname.split("/").at(-1),
+          task_type: "publish_chapter",
+          status: "done",
+          progress: null,
+          meta: { novel_id: testProjectId, chapter_index: 3 },
+          result: { message: "发布完成" },
+          error_message: null,
+          created_at: null,
+          started_at: null,
+          finished_at: null,
+        }),
+      })
+    })
+
+    await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
+    await expect(page.locator("#writing-save-status")).toContainText("发布成功", { timeout: 10000 })
+    await expect(page.locator("#writing-publish-bar-container")).toContainText("发布完成", { timeout: 10000 })
+    await expect.poll(() => polledTaskUrls.length).toBeGreaterThan(0)
+    expect(polledTaskUrls.every((url) => new URL(url).searchParams.get("novel_id") === testProjectId)).toBe(true)
+
+    const afterFirstPublish = await getLatestDraft(testProjectId, 3)
+    expect(afterFirstPublish.version_number).toBe(initial.draft.version_number)
+    expect(afterFirstPublish.status).toBe("published")
+
+    await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
+    await expect(page.locator("#writing-save-status")).toContainText("发布成功", { timeout: 10000 })
+
+    const afterSecondPublish = await getLatestDraft(testProjectId, 3)
+    expect(afterSecondPublish.version_number).toBe(afterFirstPublish.version_number)
+    expect(afterSecondPublish.id).toBe(afterFirstPublish.id)
   })
 
   test("写作台响应式宽度不出现页面级横向溢出", async ({ page }) => {

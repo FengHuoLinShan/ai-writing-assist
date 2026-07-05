@@ -248,11 +248,15 @@ const App = {
   },
 
   _showSmartDedupSuggestions(page = this._smartDedupSuggestionPage || 0) {
-    this._captureSmartDedupSuggestionDraft()
     const result = this._smartDedupProgress?.raw?.result || {}
-    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    const suggestions = this._smartDedupSuggestions(result)
     if (!suggestions.length) {
-      showModal("智能去重", "<p>没有发现可处理的重复资产。</p>", [])
+      this._resetSmartDedupResult()
+      showModal("智能去重", "<p>没有发现可处理的重复资产。</p>", [{
+        text: "重新扫描",
+        class: "btn-primary",
+        handler: async () => this._startSmartDedupScan(),
+      }])
       return
     }
     const totalPages = Math.max(1, Math.ceil(suggestions.length / SMART_DEDUP_PAGE_SIZE))
@@ -268,6 +272,77 @@ const App = {
       handler: async () => this._applySmartDedupSuggestions(suggestions),
     }])
     this._bindSmartDedupSuggestionControls(suggestions)
+  },
+
+  _resetSmartDedupResult() {
+    const taskId = this._smartDedupTaskId
+      || this._smartDedupProgress?.taskId
+      || this._smartDedupProgress?.id
+    this._stopSmartDedupPolling()
+    if (taskId) clearActiveWorkflow(taskId)
+    this._smartDedupTaskId = null
+    this._smartDedupProgress = null
+    this._smartDedupSuggestionPage = 0
+    this._smartDedupSuggestionDraft = {}
+    this._renderGlobalActions()
+  },
+
+  _smartDedupSuggestions(result) {
+    if (!result || typeof result !== "object") return []
+    const raw = Array.isArray(result.suggestions) ? result.suggestions : []
+    return raw
+      .map((item) => this._normalizeSmartDedupSuggestion(item))
+      .filter(Boolean)
+  },
+
+  _normalizeSmartDedupSuggestion(item) {
+    if (!item || typeof item !== "object") return null
+    const sourceId = item.source_asset_id || item.source_entity_id
+    const targetId = item.target_asset_id || item.target_entity_id
+    if (!sourceId || !targetId || sourceId === targetId) return null
+    const evidence = Array.isArray(item.evidence_anchors)
+      ? item.evidence_anchors.filter((anchor) => anchor && typeof anchor === "object")
+      : []
+    const normalized = {
+      ...item,
+      asset_type: item.asset_type || "world_entity",
+      action: item.action || "needs_review",
+      source_asset_id: String(sourceId),
+      source_title: item.source_title || item.source_entity_name || String(sourceId),
+      target_asset_id: String(targetId),
+      target_title: item.target_title || item.target_entity_name || String(targetId),
+      recommended_primary_asset_id: item.recommended_primary_asset_id
+        || item.recommended_primary_entity_id
+        || item.target_asset_id
+        || item.target_entity_id,
+      recommended_primary_title: item.recommended_primary_title
+        || item.recommended_primary_entity_name
+        || item.target_title
+        || item.target_entity_name,
+      evidence_anchors: evidence,
+      requires_canonical_confirmation: Boolean(item.requires_canonical_confirmation),
+      requires_manual_confirmation: Boolean(item.requires_manual_confirmation),
+      risk_level: item.risk_level || null,
+    }
+    if (this._isHighRiskSmartDedupSuggestion(normalized)) {
+      normalized.requires_manual_confirmation = true
+      normalized.risk_level = normalized.risk_level || "high"
+    }
+    return normalized
+  },
+
+  _isHighRiskSmartDedupSuggestion(item) {
+    if (!item || typeof item !== "object") return false
+    if (item.risk_level === "high" || item.requires_manual_confirmation) return true
+    const method = String(item.match_method || "").toLowerCase()
+    const action = String(item.action || "")
+    const sourceTitle = normalizeSmartDedupTitle(item.source_title)
+    const targetTitle = normalizeSmartDedupTitle(item.target_title)
+    return method.includes("alias")
+      && ["merge", "alias_only"].includes(action)
+      && sourceTitle
+      && targetTitle
+      && sourceTitle !== targetTitle
   },
 
   _renderSmartDedupSuggestionsBody(result, suggestions, page = 0) {
@@ -352,6 +427,11 @@ const App = {
       deprecate_duplicate: `废弃「${primary.duplicateTitle}」，关联到「${primary.primaryTitle}」`,
       needs_review: "仅复核，不会直接应用",
     }[item.action] || "需要复核后处理"
+    const riskNotice = this._isHighRiskSmartDedupSuggestion(item) ? `
+      <div style="margin-top:8px;padding:8px;border:1px solid var(--warning);border-radius:6px;color:var(--warning);font-size:12px;">
+        高风险别名命中：默认不选中。确认这确实是同一对象后再手动勾选应用。
+      </div>
+    ` : ""
     const canonical = item.requires_canonical_confirmation ? `
       <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
         <input type="checkbox" data-smart-dedup-canonical="${esc(index)}" ${draft.allowCanonicalMerge ? "checked" : ""} />
@@ -392,6 +472,7 @@ const App = {
             <input class="form-input" data-smart-dedup-manual-primary="${esc(index)}" value="${esc(draft.manualPrimaryId || "")}" placeholder="输入要保留/登记到的对象 ID" style="margin-top:4px;" />
           </label>
         </div>
+        ${riskNotice}
         ${canonical}
         <details style="margin-top:6px;"><summary>证据</summary><p>${esc(evidence || "无")}</p></details>
       </article>
@@ -414,7 +495,10 @@ const App = {
       }
     }
     return {
-      selected: existing.selected ?? item.action !== "needs_review",
+      selected: existing.selected ?? (
+        item.action !== "needs_review"
+        && !this._isHighRiskSmartDedupSuggestion(item)
+      ),
       primaryMode,
       manualPrimaryId,
       allowCanonicalMerge: Boolean(existing.allowCanonicalMerge),
@@ -513,11 +597,8 @@ const App = {
       })
       closeModal()
       toast(`已应用 ${applied.applied || 0} 条智能去重建议`, "success")
-      this._smartDedupProgress = null
-      this._smartDedupSuggestionPage = 0
-      this._smartDedupSuggestionDraft = {}
+      this._resetSmartDedupResult()
       api.clearCache()
-      this._renderGlobalActions()
       router.refresh()
     } catch (err) {
       toast(err.message || "应用失败", "error")
@@ -1007,6 +1088,10 @@ const App = {
 document.addEventListener("DOMContentLoaded", () => {
   App.init()
 })
+
+function normalizeSmartDedupTitle(value) {
+  return String(value || "").trim().toLowerCase()
+}
 
 window.App = App
 export default App

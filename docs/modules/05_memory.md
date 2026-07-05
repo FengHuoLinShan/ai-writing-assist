@@ -9,6 +9,7 @@ memory 模块维护小说世界的“变化历史”，不是再存一份正史�
 - `memory_events` 记录每章产生的变化事件，是真相源
 - `memory_snapshots` 记录阶段性全景快照，用于快速查询
 - `delta_log` 记录结构化字段的 before/after 差分，服务于导入分析、调试和回滚
+- `memory_events` 的章内幂等键是 `(novel_id, chapter_index, sequence)`；单章重建事件流走 upsert，不再依赖全量删除后插入。
 
 ## 职责
 

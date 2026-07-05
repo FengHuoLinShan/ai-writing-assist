@@ -133,6 +133,9 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
     canonical_location = await _create_entity(
         db_session, nid, entity_type="location", name="正史地点", status="canonical"
     )
+    draft_location = await _create_entity(
+        db_session, nid, entity_type="location", name="草稿地点", status="draft"
+    )
     candidate_location = await _create_entity(
         db_session, nid, entity_type="location", name="待确认地点", status="candidate"
     )
@@ -165,6 +168,15 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
         MapLocationBindingCreate(
             location_entity_id=str(candidate_location.id),
             hexes=[BindingHex(hex_q=2, hex_r=1, is_center=True)],
+        ),
+    )
+    await MapLocationBindingService().batch_create(
+        db_session,
+        nid,
+        created.id,
+        MapLocationBindingCreate(
+            location_entity_id=str(draft_location.id),
+            hexes=[BindingHex(hex_q=3, hex_r=1, is_center=True)],
         ),
     )
     await MapMarkerService().create(
@@ -212,9 +224,10 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
 
     state = await MapStateAssembler().assemble(db_session, nid, created.id)
 
-    assert [b.location_entity_id for b in state.location_bindings] == [
-        str(canonical_location.id)
-    ]
+    assert {b.location_entity_id for b in state.location_bindings} == {
+        str(canonical_location.id),
+        str(draft_location.id),
+    }
     assert [b.location_entity_id for b in state.candidate_location_bindings] == [
         str(candidate_location.id)
     ]

@@ -11,6 +11,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
+- `canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
+- 候选合并响应可带 `affected_ids` / `merged_ids`，前端只按精确 ID 更新；缺少 affected ids 时刷新当前候选 tab。
 
 ## 数据表
 

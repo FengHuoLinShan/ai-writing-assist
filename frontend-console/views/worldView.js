@@ -1892,15 +1892,11 @@ const worldView = {
             toast(`对象 "${name}" 已创建`, "success")
             router.refresh()
           } catch (err) {
-            if (err.status === 409 || (err.message && err.message.includes("409"))) {
-              let detail = err.detail
-              if (typeof detail === "string") {
-                try { detail = JSON.parse(detail) } catch { /* keep string */ }
-              }
-              if (detail && detail.requires_confirmation) {
-                const similar = (detail.similar_entities || []).map((s) => s.name).join(", ")
+            const detail = this._createConflictDetail(err)
+            if (detail?.requires_confirmation) {
+              const similar = this._formatSimilarEntities(detail.similar_entities)
                 confirmAction(
-                  `发现相似对象：${similar}。是否仍要创建？`,
+                  `发现相似对象：${similar || "已有对象"}。是否仍要创建？`,
                   async () => {
                     try {
                       await api.world.createEntity({ ...payload, force_create: true }, state.currentProjectId)
@@ -1913,13 +1909,43 @@ const worldView = {
                   "强制创建",
                 )
                 return
-              }
             }
             toast(`创建失败：${err.message}`, "error")
           }
         },
       },
     ])
+  },
+
+  _createConflictDetail(err) {
+    if (!err || !(err.status === 409 || (err.message && err.message.includes("409")))) {
+      return null
+    }
+    let detail = err.detail ?? err.body?.detail ?? err.body?.message ?? null
+    if (typeof detail === "string") {
+      try { detail = JSON.parse(detail) } catch { /* keep string */ }
+    }
+    if (detail && typeof detail === "object" && detail.requires_confirmation) {
+      return detail
+    }
+    return null
+  },
+
+  _formatSimilarEntities(entities) {
+    if (!Array.isArray(entities)) return ""
+    return entities
+      .map((item) => {
+        if (!item || typeof item !== "object") return String(item || "").trim()
+        const name = item.name || item.title || item.id || "未命名对象"
+        const type = item.entity_type || item.type
+        const score = item.similarity_score ?? item.score ?? item.confidence
+        const parts = [name]
+        if (type) parts.push(type)
+        if (score != null) parts.push(`相似度 ${score}`)
+        return parts.join(" / ")
+      })
+      .filter(Boolean)
+      .join("；")
   },
 
   // ============================================================
@@ -2020,12 +2046,36 @@ const worldView = {
 
   async _mergeEntity(candidateId, targetId) {
     try {
-      await api.world.mergeEntity(candidateId, targetId, state.currentProjectId)
+      const result = await api.world.mergeEntity(candidateId, targetId, state.currentProjectId)
+      await this._refreshCandidatesAfterAffectedMutation(result)
       toast("实体已合并", "success")
-      router.refresh()
+      router.navigate("world", state.currentSubView || "candidates")
     } catch (err) {
       toast(err.message || "合并失败", "error")
     }
+  },
+
+  _affectedIdsFromMutationResult(result) {
+    const ids = [
+      ...(Array.isArray(result?.affected_ids) ? result.affected_ids : []),
+      ...(Array.isArray(result?.merged_ids) ? result.merged_ids : []),
+      result?.candidate_entity_id,
+    ]
+    return Array.from(new Set(ids.filter(Boolean).map(String)))
+  },
+
+  async _refreshCandidatesAfterAffectedMutation(result) {
+    const affected = new Set(this._affectedIdsFromMutationResult(result))
+    if (affected.size) {
+      const before = this._candidates.length
+      this._candidates = this._candidates.filter((item) => !affected.has(this._entityId(item)))
+      const removed = before - this._candidates.length
+      if (removed > 0) {
+        this._candidateTotal = Math.max(0, this._candidateTotal - removed)
+      }
+    }
+    await this._loadCandidates()
+    await this._loadEntities()
   },
 
   _showEntityFusionSuggestions() {

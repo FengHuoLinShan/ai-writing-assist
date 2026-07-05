@@ -653,6 +653,21 @@ class TestTaskWorkerExecuteTask:
         assert "ValueError: processing error" in task_mock.mark_failed.call_args[0][0]
         assert worker._stats["failed"] == 1
 
+    def test_public_task_error_message_sanitizes_dbapi_details(self) -> None:
+        """DB/SQL internals must not be exposed through task status."""
+        from infrastructure.tasks.worker import _public_task_error_message
+
+        message = _public_task_error_message(
+            RuntimeError(
+                "DBAPIError: asyncpg.exceptions.InFailedSQLTransactionError: "
+                "current transaction is aborted [SQL: UPDATE async_tasks SET progress=$1]"
+            )
+        )
+
+        assert message == "后台任务遇到数据库临时错误，请稍后重试。"
+        assert "DBAPIError" not in message
+        assert "UPDATE async_tasks" not in message
+
     @pytest.mark.asyncio
     async def test_execute_cancelled_error(self) -> None:
         """GREEN: 捕获 CancelledError 并标记为 cancelled"""

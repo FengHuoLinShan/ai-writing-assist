@@ -112,6 +112,20 @@ describe("worldBibleView", () => {
     expect(router.refresh).toHaveBeenCalled()
   })
 
+  it("刷新投影失败时不向作者暴露任务注册表内部错误", async () => {
+    worldBibleView._activePage = page
+    api.world.refreshBibleProjection.mockRejectedValue(new Error(
+      "ValueError: No handler registered for task type: world_bible_projection_refresh. Registered types: []",
+    ))
+
+    await worldBibleView._refreshProjection(false)
+
+    expect(toast).toHaveBeenCalledWith(
+      "投影刷新任务暂不可用，请确认后端 worker 已更新并重启后重试",
+      "error",
+    )
+  })
+
   it("打开建议和冲突弹窗时使用世界书专用过滤条件", async () => {
     api.world.listSuggestions.mockResolvedValue({ items: [], total: 0 })
     api.world.listWorldConflicts.mockResolvedValue({ items: [], total: 0 })

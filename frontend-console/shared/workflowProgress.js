@@ -18,7 +18,10 @@ const WORKFLOW_LABELS = {
   rag_retry_embeddings: "重试失败向量",
   world_entity_extraction: "补抽世界对象",
   plot_structure_generate: "生成剧情结构",
+  outline_generate: "生成剧情结构",
+  outline_chapter_scenes_extract: "生成章节与场景结构",
   chapter_card_generation: "生成章节卡",
+  chapter_scene_generate: "生成章节与场景结构",
   writing_generate: "生成正文",
   plot_analysis: "剧情分析",
 }
@@ -109,8 +112,12 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (workflowType === "rag_reindex_novel") return "正在逐章重建索引"
   if (workflowType === "rag_retry_embeddings") return "正在重试失败向量"
   if (workflowType === "world_entity_extraction") return "正在抽取世界对象"
-  if (workflowType === "plot_structure_generate") return "正在生成剧情结构"
-  if (workflowType === "chapter_card_generation") return "正在生成章节卡"
+  if (workflowType === "plot_structure_generate" || workflowType === "outline_generate") return "正在生成剧情结构"
+  if (
+    workflowType === "chapter_card_generation"
+    || workflowType === "chapter_scene_generate"
+    || workflowType === "outline_chapter_scenes_extract"
+  ) return "正在生成章节与场景结构"
   if (workflowType === "writing_generate") return "正在生成正文"
   if (workflowType === "plot_analysis") return "正在分析剧情"
   return RUNNING_STATUSES.has(status) ? "任务运行中" : STATUS_LABELS[status] || "任务状态未知"
@@ -161,6 +168,17 @@ function buildResultSummary(result, workflowType) {
     if (result.total_skipped != null) parts.push(`跳过 ${result.total_skipped}`)
     return parts.length ? parts.join("，") : null
   }
+  if (workflowType === "plot_structure_generate" || workflowType === "outline_generate") {
+    const parts = []
+    if (result.total_threads != null) parts.push(`剧情线 ${result.total_threads}`)
+    if (result.total_arcs != null) parts.push(`篇章纲 ${result.total_arcs}`)
+    if (result.total_scenes != null) parts.push(`Scene ${result.total_scenes}`)
+    return parts.length ? parts.join("，") : result.summary || null
+  }
+  if (workflowType === "chapter_scene_generate" || workflowType === "outline_chapter_scenes_extract") {
+    if (result.total_scenes != null) return `Scene ${result.total_scenes}`
+    return result.summary || null
+  }
   if (workflowType === "scene_cross_chapter_detection") {
     if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
     return result.summary || null
@@ -193,6 +211,28 @@ function buildResultSummary(result, workflowType) {
   return result.summary || result.title || null
 }
 
+export function sanitizeTaskErrorMessage(message, workflowType = "task") {
+  const text = typeof message === "string" ? message.trim() : ""
+  if (!text) return null
+  const technicalMarkers = [
+    "DBAPIError",
+    "SQLAlchemy",
+    "asyncpg.",
+    "InFailedSQLTransactionError",
+    "current transaction is aborted",
+    "[SQL:",
+    "UPDATE async_tasks",
+    "Traceback",
+  ]
+  if (technicalMarkers.some((marker) => text.includes(marker))) {
+    if (workflowType === "publish_chapter") {
+      return "发布失败。草稿已保存，请稍后重试。"
+    }
+    return "后台任务失败，请稍后重试。"
+  }
+  return text
+}
+
 export function normalizeTaskProgress(task, workflowType = undefined) {
   const raw = safeObject(task)
   const result = safeObject(raw.result)
@@ -210,6 +250,8 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
   const label = WORKFLOW_LABELS[type] || meta.label || "后台任务"
   const message = inferMessage({ status, workflowType: type, result, meta, percent })
 
+  const rawErrorMessage = raw.error_message || result.error_message || result.error || null
+
   return {
     id: raw.id || raw.task_id || meta.task_id || null,
     taskId: raw.task_id || raw.id || meta.task_id || null,
@@ -226,7 +268,7 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     failed: status === "failed",
     cancelled: status === "cancelled",
     terminal: TERMINAL_STATUSES.has(status),
-    errorMessage: raw.error_message || result.error_message || result.error || null,
+    errorMessage: sanitizeTaskErrorMessage(rawErrorMessage, type),
     warnings: collectWarnings(result, meta),
     resultSummary: buildResultSummary(result, type),
     phaseArtifacts: safeObject(result.phase_artifacts),

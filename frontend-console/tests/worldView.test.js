@@ -512,8 +512,19 @@ describe("对象库", () => {
 
     it("409 重复时显示确认并支持强制创建", async () => {
       state.currentProjectId = "p1"
+      const conflict = new Error("请求失败 (409)：requires_confirmation: true；similar_entities: 张三 (0.98)")
+      conflict.status = 409
+      conflict.detail = {
+        requires_confirmation: true,
+        similar_entities: [{
+          id: "e1",
+          name: "张三",
+          entity_type: "character",
+          similarity_score: 0.98,
+        }],
+      }
       api.world.createEntity
-        .mockRejectedValueOnce({ status: 409, message: "Conflict", detail: { requires_confirmation: true, similar_entities: [{ id: "e1", name: "张三" }] } })
+        .mockRejectedValueOnce(conflict)
         .mockResolvedValueOnce({ id: "e2", name: "张三" })
       autoConfirm()
 
@@ -527,6 +538,7 @@ describe("对象库", () => {
       `
       await handler()
 
+      expect(confirmAction.mock.calls[0][0]).toContain("张三 / character / 相似度 0.98")
       expect(api.world.createEntity).toHaveBeenCalledTimes(2)
       expect(api.world.createEntity).toHaveBeenLastCalledWith(
         expect.objectContaining({ name: "张三", force_create: true }),
@@ -899,7 +911,14 @@ describe("合并、回滚与知识边界", () => {
   it.each([
     {
       name: "调用 API 并刷新",
-      mock: () => api.world.mergeEntity.mockResolvedValue({ target_entity_id: "target-1" }),
+      mock: () => {
+        api.world.mergeEntity.mockResolvedValue({
+          target_entity_id: "target-1",
+          candidate_entity_id: "candidate-1",
+          affected_ids: ["candidate-1", "target-1"],
+        })
+        api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+      },
       expectedCall: ["candidate-1", "target-1", "p1"],
       expectedToast: ["实体已合并", "success"],
       refresh: true,
@@ -917,8 +936,42 @@ describe("合并、回滚与知识边界", () => {
     }
     expect(toast).toHaveBeenCalledWith(...expectedToast)
     if (refresh) {
-      expect(router.refresh).toHaveBeenCalled()
+      expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+        novel_id: "p1",
+        status: "candidate",
+      }))
+      expect(router.navigate).toHaveBeenCalledWith("world", "candidates")
     }
+  })
+
+  it("合并后只按 affected_ids 精确移除候选并重新拉取当前页", async () => {
+    state.currentSubView = "candidates"
+    worldView._candidates = [
+      { id: "candidate-1", name: "阿兹克", status: "candidate" },
+      { id: "candidate-2", name: "阿兹克", status: "candidate" },
+    ]
+    worldView._candidateTotal = 2
+    api.world.mergeEntity.mockResolvedValue({
+      target_entity_id: "target-1",
+      candidate_entity_id: "candidate-1",
+      affected_ids: ["candidate-1", "target-1"],
+    })
+    api.world.listEntities
+      .mockResolvedValueOnce({
+        items: [{ id: "candidate-2", name: "阿兹克", status: "candidate" }],
+        total: 1,
+      })
+      .mockResolvedValueOnce({ items: [], total: 0 })
+
+    await worldView._mergeEntity("candidate-1", "target-1")
+
+    expect(worldView._candidates.map((item) => item.id)).toEqual(["candidate-2"])
+    expect(worldView._candidateTotal).toBe(1)
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      status: "candidate",
+    }))
+    expect(router.navigate).toHaveBeenCalledWith("world", "candidates")
   })
 
   it.each([

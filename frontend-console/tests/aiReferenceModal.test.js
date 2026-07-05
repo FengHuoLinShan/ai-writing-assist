@@ -38,6 +38,17 @@ describe("aiReferenceModal", () => {
     expect(document.querySelector("#ai-ref-markdown")).toBeNull()
   })
 
+  it("没有章节上下文时默认使用项目范围，不回退到章节 1", () => {
+    confirmAiReference({
+      novel_id: "p1",
+      action: "outline.generate",
+      task: "空项目生成剧情",
+    }).catch(() => {})
+
+    expect(document.getElementById("ai-ref-scope")?.value).toBe("project")
+    expect(document.getElementById("ai-ref-chapter")?.value).toBe("")
+  })
+
   it("重新整理会提交当前选择并渲染摘要", async () => {
     api.context.confirm.mockResolvedValue({
       id: "c1",
@@ -214,5 +225,22 @@ describe("aiReferenceModal", () => {
 
     expect(result.id).toBe("confirm-1")
     expect(document.getElementById("modal-overlay")?.classList.contains("hidden")).toBe(true)
+  })
+
+  it("参考资料确认超时时显示可重试提示而不是后端不可用", async () => {
+    api.context.confirm.mockRejectedValue(new Error("请求超时，请检查后端服务是否运行"))
+    confirmAiReference({
+      novel_id: "p1",
+      action: "writing.conflict_check.ai_review",
+      task: "writing conflict AI review",
+      scope: "project",
+    }).catch(() => {})
+
+    document.querySelectorAll("#modal-footer button")[1].click()
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("ai-ref-error")?.textContent).toContain("AI 参考资料整理超时")
+    })
+    expect(document.getElementById("ai-ref-error")?.textContent).not.toContain("检查后端服务")
   })
 })

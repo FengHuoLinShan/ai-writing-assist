@@ -248,6 +248,7 @@ function bindConflictModalEvents({
     const aiReviewCheckId = target.getAttribute("data-conflict-ai-review")
     if (aiReviewCheckId) {
       try {
+        target.disabled = true
         const confirmation = await confirmAiReference({
           novel_id: novelId,
           action: "writing.conflict_check.ai_review",
@@ -258,20 +259,60 @@ function bindConflictModalEvents({
           context_mode: "canonical",
           include_pending_objects: Boolean(check?.include_candidates),
         })
-        const updated = await api.writing.runConflictAiReview(aiReviewCheckId, {
+        const payload = {
           novel_id: novelId,
           context_confirmation_id: confirmation.id,
-        })
-        if (typeof onAiReviewComplete === "function") onAiReviewComplete(updated)
+        }
+        let updated = null
+        if (typeof api.writing.enqueueConflictAiReview === "function") {
+          const started = await api.writing.enqueueConflictAiReview(aiReviewCheckId, payload)
+          const runningCheck = started?.check || {
+            ...check,
+            ai_review_status: "running",
+            ai_review_confirmation_id: confirmation.id,
+          }
+          toast("AI 软冲突判断已提交，正在后台生成", "info")
+          updated = await waitForAiReviewTask({
+            taskId: started?.task_id,
+            novelId,
+            checkId: aiReviewCheckId,
+            fallbackCheck: runningCheck,
+          })
+        } else {
+          updated = await api.writing.runConflictAiReview(aiReviewCheckId, payload)
+        }
+        if (updated?.id) {
+          showWritingConflictModal({
+            check: updated,
+            novelId,
+            onStatusChanged,
+            onAiReviewComplete,
+            onSuggestionComplete,
+            onApplySuggestion,
+            onLocate,
+            onOpenSource,
+          })
+        }
+        if (typeof onAiReviewComplete === "function") await onAiReviewComplete(updated)
         if (updated?.ai_review_status === "failed") {
           toast(updated.ai_review_error || "AI 软冲突判断失败", "error")
+        } else if (updated?.ai_review_status === "running") {
+          toast("AI 软冲突判断仍在后台运行，可稍后重新打开检查记录", "warning")
         } else if (updated?.ai_review_status === "partial") {
           toast("AI 软冲突判断部分生成，部分结果需复核", "warning")
         } else {
           toast("AI 软冲突判断已生成", "success")
         }
       } catch (err) {
-        toast(err.message || "AI 软冲突判断失败", "error")
+        const message = err.message || "AI 软冲突判断失败"
+        toast(
+          message.includes("请求超时")
+            ? "AI 软冲突判断已提交失败或状态暂不可用，请稍后重试"
+            : message,
+          "error",
+        )
+      } finally {
+        target.disabled = false
       }
       return
     }
@@ -337,6 +378,52 @@ function bindConflictModalEvents({
   document.removeEventListener("click", window.__writingConflictModalClick)
   window.__writingConflictModalClick = handler
   document.addEventListener("click", handler)
+}
+
+async function waitForAiReviewTask({
+  taskId,
+  novelId,
+  checkId,
+  fallbackCheck,
+  maxAttempts = 90,
+  intervalMs = 1000,
+}) {
+  if (!taskId) {
+    return {
+      ...fallbackCheck,
+      ai_review_status: "running",
+      ai_review_error: "AI 软冲突判断任务已提交，但任务 ID 暂不可用。",
+    }
+  }
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const task = await api.tasks.get(taskId, novelId)
+    if (task?.status === "done" || task?.status === "failed" || task?.status === "cancelled") {
+      const resolvedCheckId = task.result?.check_id || checkId
+      try {
+        return await api.writing.getConflictCheck(resolvedCheckId, novelId)
+      } catch {
+        if (task.status === "done") {
+          return {
+            ...fallbackCheck,
+            ai_review_status: task.result?.ai_review_status || "done",
+          }
+        }
+        return {
+          ...fallbackCheck,
+          ai_review_status: "failed",
+          ai_review_error: task.error_message || "AI 软冲突判断任务失败",
+        }
+      }
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+  return {
+    ...fallbackCheck,
+    ai_review_status: "running",
+    ai_review_error: "AI 软冲突判断仍在后台运行，可稍后重新打开检查记录。",
+  }
 }
 
 function updateConflictItemStatus(itemId, status) {

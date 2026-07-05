@@ -360,6 +360,11 @@ def _validate_confirmation_scope(confirmation: object, check: object) -> None:
             )
 
 
+def validate_ai_review_confirmation_scope(confirmation: object, check: object) -> None:
+    """Validate that a confirmed AI reference selection matches a conflict check."""
+    _validate_confirmation_scope(confirmation, check)
+
+
 def _summary_with_ai_review(
     items: list[object],
     existing_summary: dict,

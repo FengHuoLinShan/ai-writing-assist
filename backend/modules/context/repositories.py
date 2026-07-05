@@ -202,7 +202,11 @@ class ContextSnapshotRepository:
             stmt = stmt.where(ContextSnapshot.workflow_id == workflow_id)
         if task_id is not None:
             stmt = stmt.where(ContextSnapshot.task_id == task_id)
-        stmt = stmt.order_by(ContextSnapshot.created_at).offset(offset).limit(limit)
+        stmt = (
+            stmt.order_by(ContextSnapshot.created_at, ContextSnapshot.id)
+            .offset(offset)
+            .limit(limit)
+        )
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -216,7 +220,7 @@ class ContextSnapshotRepository:
         stmt = select(ContextSnapshot).where(ContextSnapshot.novel_id == novel_id)
         if workflow_id is not None:
             stmt = stmt.where(ContextSnapshot.workflow_id == workflow_id)
-        stmt = stmt.order_by(ContextSnapshot.created_at)
+        stmt = stmt.order_by(ContextSnapshot.created_at, ContextSnapshot.id)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -262,7 +266,11 @@ class ContextSnapshotRepository:
         )
         if novel_id is not None:
             stmt = stmt.where(ContextSnapshot.novel_id == novel_id)
-        stmt = stmt.order_by(ContextSnapshot.novel_id, ContextSnapshot.created_at.desc())
+        stmt = stmt.order_by(
+            ContextSnapshot.novel_id,
+            ContextSnapshot.created_at.desc(),
+            ContextSnapshot.id.desc(),
+        )
         result = await db.execute(stmt)
         snapshots = list(result.scalars().all())
 

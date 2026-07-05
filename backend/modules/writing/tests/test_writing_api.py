@@ -7,6 +7,7 @@ Writing API 层测试
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -15,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
 from modules.context.models import ContextConfirmation
+from modules.rag.repositories import RagChunkRepository
+from modules.writing.tasks import handle_publish_chapter
 
 
 @pytest.fixture
@@ -155,3 +158,65 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     confirmation = confirmation_result.scalar_one()
     assert confirmation.result_status == "running"
     assert {"type": "task", "id": data["task_id"]} in confirmation.result_refs
+
+
+@pytest.mark.asyncio
+async def test_saved_draft_publish_task_indexes_latest_content(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "保存后发布项目"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    saved_resp = await async_client.post(
+        "/api/writing/drafts/autosave",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 3,
+            "title": "第 3 章",
+            "content": "暂存旧正文",
+        },
+    )
+    assert saved_resp.status_code == 201, saved_resp.text
+
+    publish_resp = await async_client.post(
+        "/api/writing/drafts",
+        json={
+            "novel_id": novel_id,
+            "chapter_index": 3,
+            "title": "第 3 章",
+            "content": "发布时的新正文。潮声越过旧巷，角色终于做出选择。" * 12,
+        },
+    )
+    assert publish_resp.status_code == 201, publish_resp.text
+    task_id = publish_resp.json()["task_id"]
+
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one()
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(
+            side_effect=Exception("embedding down"),
+        )
+        mock_client_cls.return_value = mock_client
+
+        publish_result = await handle_publish_chapter(db_session, task)
+
+    assert publish_result["rag_chunks"] > 0
+
+    chunks = await RagChunkRepository().find_by_chapter(
+        db_session,
+        uuid.UUID(novel_id),
+        3,
+    )
+    assert chunks
+    combined_text = "\n".join(chunk.text for chunk in chunks)
+    assert "发布时的新正文" in combined_text
+    assert "暂存旧正文" not in combined_text

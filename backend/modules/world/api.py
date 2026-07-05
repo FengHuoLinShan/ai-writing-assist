@@ -586,7 +586,13 @@ async def merge_entity(
         candidate_id,
         data.target_entity_id,
     )
-    return EntityMergeResponse(target_entity_id=result.target_entity_id)
+    affected_ids = [result.candidate_entity_id, result.target_entity_id]
+    return EntityMergeResponse(
+        target_entity_id=result.target_entity_id,
+        candidate_entity_id=result.candidate_entity_id,
+        affected_ids=affected_ids,
+        merged_ids=[result.candidate_entity_id],
+    )
 
 
 @router.post(

@@ -16,6 +16,9 @@ export function confirmAiReference(options) {
     titleEl.textContent = "AI 参考资料"
     bodyEl.innerHTML = renderBody(options)
     footerEl.innerHTML = ""
+    document.getElementById("ai-ref-scope")?.addEventListener("change", (event) => {
+      event.currentTarget.dataset.userChanged = "1"
+    })
 
     const close = () => overlay.classList.add("hidden")
     const refreshBtn = createButton("重新整理", "btn")
@@ -79,7 +82,7 @@ export function confirmAiReference(options) {
 
 function renderBody(options) {
   const chapterValue = options.chapter_index || options.start_chapter || ""
-  const scope = options.scope || "chapter"
+  const scope = options.scope || (chapterValue ? "chapter" : "project")
   const contextMode = options.context_mode || "canonical"
   return `
     <div class="ai-ref-modal">
@@ -133,7 +136,9 @@ async function createConfirmation(options, excludedSectionKeys = new Set()) {
 }
 
 function buildPayload(options, excludedSectionKeys = new Set()) {
-  const scope = document.getElementById("ai-ref-scope")?.value || options.scope || "chapter"
+  const fallbackScope = options.scope || (options.chapter_index || options.start_chapter ? "chapter" : "project")
+  const scopeEl = document.getElementById("ai-ref-scope")
+  const scope = scopeEl?.dataset.userChanged === "1" ? scopeEl.value : fallbackScope
   const chapterRaw = document.getElementById("ai-ref-chapter")?.value
   const chapter = chapterRaw ? parseInt(chapterRaw, 10) : options.chapter_index
   const excludedRaw = document.getElementById("ai-ref-excluded")?.value || ""
@@ -178,7 +183,10 @@ function renderSummary(confirmation, onExcludeSection) {
 function showError(err) {
   const el = document.getElementById("ai-ref-error")
   if (!el) return
-  el.textContent = err?.message || "AI 参考资料整理失败"
+  const message = err?.message || "AI 参考资料整理失败"
+  el.textContent = message.includes("请求超时")
+    ? "AI 参考资料整理超时，请缩小范围或稍后重试。后端仍可继续处理其他操作。"
+    : message
   el.style.display = ""
 }
 

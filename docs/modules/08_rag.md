@@ -31,6 +31,8 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 通过 `publish_chapter` 发布任务自动触发章节索引；手动重建仍可直接提交 RAG 索引任务。流程：读取正文 → `cn-novel-v1` 分块策略 → 词典匹配标注 → 替换旧 chunk → 生成 embedding。
 
+章节正文 chunk 的幂等键是 `(novel_id, source_type, chapter_index, chunk_index, index_version)`；带来源对象的 chunk 额外包含 `source_id`。`index_version` 不允许为空，重建章节时会 upsert 当前 chunk 并清理同章旧版本/stale chunk。
+
 ### Facade
 
 ```python

@@ -229,7 +229,11 @@ class PlotThreadRepository:
                 PlotThread.planned_payoff_chapter >= chapter_index,
             ),
         ]
-        stmt = select(PlotThread).where(*conditions).order_by(PlotThread.start_chapter)
+        stmt = (
+            select(PlotThread)
+            .where(*conditions)
+            .order_by(PlotThread.start_chapter, PlotThread.id)
+        )
         result = await db.execute(stmt)
         items: Sequence[PlotThread] = result.scalars().all()
         return list(items)
@@ -392,7 +396,7 @@ class OutlineArcRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(OutlineArc.arc_index)
+            .order_by(OutlineArc.arc_index, OutlineArc.id)
         )
         result = await db.execute(stmt)
         items: Sequence[OutlineArc] = result.scalars().all()
@@ -413,7 +417,7 @@ class OutlineArcRepository:
                 OutlineArc.end_chapter >= chapter_index,
                 OutlineArc.status.in_(["draft", "canonical"]),
             )
-            .order_by(OutlineArc.arc_index)
+            .order_by(OutlineArc.arc_index, OutlineArc.id)
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -598,7 +602,7 @@ class SceneRepository:
             Scene.novel_id == novel_id,
             Scene.status.in_(["draft", "canonical"]),
         ]
-        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
+        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index, Scene.id)
         result = await db.execute(stmt)
         all_scenes: Sequence[Scene] = result.scalars().all()
         matching = [
@@ -621,7 +625,7 @@ class SceneRepository:
             Scene.novel_id == novel_id,
             Scene.status.in_(statuses),
         ]
-        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index)
+        stmt = select(Scene).where(*conditions).order_by(Scene.scene_index, Scene.id)
         result = await db.execute(stmt)
         all_scenes: Sequence[Scene] = result.scalars().all()
         matching = []
@@ -754,7 +758,7 @@ class SceneRepository:
         stmt = (
             select(Scene)
             .where(*conditions)
-            .order_by(Scene.scene_index)
+            .order_by(Scene.scene_index, Scene.id)
             .offset(skip)
         )
         if limit is not None:
@@ -817,7 +821,7 @@ class SceneRepository:
                 SceneChapterLink.novel_id == novel_id,
                 SceneChapterLink.chapter_index == chapter_index,
             )
-            .order_by(Scene.scene_index)
+            .order_by(Scene.scene_index, Scene.id)
         )
         result = await db.execute(stmt)
         matching: Sequence[Scene] = result.scalars().all()
@@ -880,7 +884,7 @@ class SceneRepository:
                 SceneChapterLink.novel_id == novel_id,
                 SceneChapterLink.chapter_index == chapter_index,
             )
-            .order_by(Scene.scene_index)
+            .order_by(Scene.scene_index, Scene.id)
             .limit(1)
         )
         result = await db.execute(stmt)

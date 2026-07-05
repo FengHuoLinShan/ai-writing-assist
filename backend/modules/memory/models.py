@@ -11,7 +11,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +31,14 @@ class MemoryEvent(Base):
     """记忆变化事件 — 每章写入时记录，重放可得任意章的世界全景"""
 
     __tablename__ = "memory_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "chapter_index",
+            "sequence",
+            name="uq_memory_events_novel_chapter_sequence",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -188,6 +188,7 @@ def _compact_module_result(result: dict[str, Any]) -> dict[str, Any]:
 def _normalize_world_suggestions(result: dict[str, Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for item in result.get("suggestions") or []:
+        risk = _world_suggestion_risk(item)
         normalized.append(
             {
                 "asset_type": WORLD_ASSET_TYPE,
@@ -213,6 +214,9 @@ def _normalize_world_suggestions(result: dict[str, Any]) -> list[dict[str, Any]]
                     "requires_canonical_confirmation",
                     False,
                 ),
+                "requires_manual_confirmation": risk["requires_manual_confirmation"],
+                "risk_level": risk["risk_level"],
+                "risk_reason": risk["risk_reason"],
                 "requires_confirmation": True,
             }
         )
@@ -246,3 +250,28 @@ def _world_apply_item(item: dict[str, Any]) -> dict[str, Any] | None:
         "alias": item.get("alias") or item.get("source_title"),
         "allow_canonical_merge": bool(item.get("allow_canonical_merge")),
     }
+
+
+def _world_suggestion_risk(item: dict[str, Any]) -> dict[str, Any]:
+    method = str(item.get("match_method") or "").lower()
+    action = str(item.get("action") or "")
+    source_title = _normalized_title(item.get("source_entity_name"))
+    target_title = _normalized_title(item.get("target_entity_name"))
+    is_alias_derived = "alias" in method
+    is_destructive_action = action in {"merge", "alias_only"}
+    title_conflict = bool(source_title and target_title and source_title != target_title)
+    if is_alias_derived and is_destructive_action and title_conflict:
+        return {
+            "requires_manual_confirmation": True,
+            "risk_level": "high",
+            "risk_reason": "alias_derived_title_conflict",
+        }
+    return {
+        "requires_manual_confirmation": False,
+        "risk_level": None,
+        "risk_reason": None,
+    }
+
+
+def _normalized_title(value: Any) -> str:
+    return str(value or "").strip().lower()

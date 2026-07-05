@@ -116,6 +116,14 @@ class RagChunkCreate(BaseModel):
         description="扩展元数据",
     )
 
+    @field_validator("index_version")
+    @classmethod
+    def validate_index_version(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("index_version 不能为空")
+        return normalized
+
 
 class RagQuery(BaseModel):
     """RAG 检索请求"""

@@ -882,7 +882,7 @@ class TestHandlePublishChapter:
         try:
             from modules.writing.tasks import handle_publish_chapter
 
-            with pytest.raises(RuntimeError, match="RAG indexing failed"):
+            with pytest.raises(RuntimeError, match="章节索引暂时不可用"):
                 await handle_publish_chapter(mock_db, mock_task)
 
             assert mock_rag_index.await_count == 3
@@ -946,7 +946,7 @@ class TestHandlePublishChapter:
         try:
             from modules.writing.tasks import handle_publish_chapter
 
-            with pytest.raises(RuntimeError, match="Memory snapshot failed"):
+            with pytest.raises(RuntimeError, match="历史状态暂时不可用"):
                 await handle_publish_chapter(mock_db, mock_task)
 
             assert mock_memory_svc.capture_snapshot.await_count == 3

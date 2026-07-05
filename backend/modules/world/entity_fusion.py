@@ -87,7 +87,11 @@ class WorldEntityFusionService:
         for index, (source, target, match) in enumerate(pairs):
             if len(suggestions) >= max_suggestions:
                 break
-            evidence = await self._evidence(db, novel_id, source, target)
+            evidence = (
+                _entity_summary_evidence(source, target)
+                if match.get("match_method") == "summary_overlap"
+                else await self._evidence(db, novel_id, source, target)
+            )
             decision = await self._decide(source, target, match, evidence)
             if decision.action in {"keep_separate"}:
                 continue
@@ -299,7 +303,7 @@ class WorldEntityFusionService:
                     continue
                 if source.entity_type != target.entity_type:
                     continue
-                score, method = _lexical_similarity(source, target)
+                score, method = _pair_similarity(source, target)
                 if score >= 0.84:
                     merge_source, merge_target = _source_target(source, target)
                     pairs[(str(merge_source.id), str(merge_target.id))] = {
@@ -454,6 +458,47 @@ def _lexical_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str
     return 0.0, "none"
 
 
+def _pair_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str]:
+    lexical_score, lexical_method = _lexical_similarity(left, right)
+    summary_score = _summary_similarity(left.summary, right.summary)
+    if summary_score > lexical_score:
+        return summary_score, "summary_overlap"
+    return lexical_score, lexical_method
+
+
+def _summary_similarity(left: str | None, right: str | None) -> float:
+    left_text = _normalize_summary_text(left)
+    right_text = _normalize_summary_text(right)
+    if len(left_text) < 24 or len(right_text) < 24:
+        return 0.0
+    left_grams = _char_ngrams(left_text, 2)
+    right_grams = _char_ngrams(right_text, 2)
+    if not left_grams or not right_grams:
+        return 0.0
+    intersection = len(left_grams & right_grams)
+    containment = intersection / min(len(left_grams), len(right_grams))
+    jaccard = intersection / len(left_grams | right_grams)
+    if containment >= 0.92 and jaccard >= 0.7:
+        return 0.92
+    if containment >= 0.84 and jaccard >= 0.62:
+        return 0.84
+    return 0.0
+
+
+def _normalize_summary_text(value: str | None) -> str:
+    return "".join(
+        char
+        for char in (value or "").strip().lower()
+        if char.isalnum() or "\u4e00" <= char <= "\u9fff"
+    )
+
+
+def _char_ngrams(value: str, size: int) -> set[str]:
+    if len(value) < size:
+        return set()
+    return {value[index : index + size] for index in range(len(value) - size + 1)}
+
+
 def _deterministic_decision(
     source: CoreEntity,
     target: CoreEntity,
@@ -522,6 +567,20 @@ def _entity_payload(entity: CoreEntity) -> dict[str, Any]:
         "summary": entity.summary,
         "aliases": _aliases(entity),
     }
+
+
+def _entity_summary_evidence(
+    source: CoreEntity,
+    target: CoreEntity,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "source_type": "entity_summary",
+            "source_entity_id": str(source.id),
+            "target_entity_id": str(target.id),
+            "snippet": _clip(f"{source.summary or ''}\n{target.summary or ''}"),
+        }
+    ]
 
 
 def _clip(value: str | None, limit: int = 600) -> str:

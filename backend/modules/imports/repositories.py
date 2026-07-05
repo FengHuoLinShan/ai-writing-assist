@@ -80,7 +80,7 @@ class ImportRecordRepository:
         stmt = (
             select(ImportRecord)
             .where(ImportRecord.novel_id == novel_id)
-            .order_by(ImportRecord.created_at.desc())
+            .order_by(ImportRecord.created_at.desc(), ImportRecord.id.desc())
             .offset(skip)
             .limit(limit)
         )

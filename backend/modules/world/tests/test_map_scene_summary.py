@@ -18,9 +18,11 @@ from modules.world.map_schemas import (
     MapConfigCreate,
     MapLocationBindingCreate,
     MapMarkerCreate,
+    MapQuickCreateConfirmRequest,
     MapTerritoryCreate,
     TerritoryHex,
 )
+from modules.world.services.map_quick_create import MapQuickCreateService
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
@@ -87,7 +89,7 @@ async def test_scene_summary_batches_territory_lookup_for_marker_hexes(
 async def test_scene_summary_batches_primary_location_binding_lookup(
     db_session: AsyncSession,
 ) -> None:
-    """主地点只应批量查询 marker 所在 hex 的 canonical 地点绑定。"""
+    """主地点只应批量查询 marker 所在 hex 的可见地点绑定。"""
     from modules.world.services.map_scene_summary import MapSceneSummaryService
 
     novel_id = uuid.uuid4()
@@ -109,7 +111,7 @@ async def test_scene_summary_batches_primary_location_binding_lookup(
             statuses,
         ):
             batch_calls.append(list(hexes))
-            assert statuses == ["canonical"]
+            assert statuses == ["canonical", "draft"]
             return [
                 SimpleNamespace(
                     location_entity_id=uuid.uuid4(),
@@ -309,6 +311,50 @@ async def test_scene_summary_without_markers_returns_empty_summary_and_fallback(
     }
     assert body["warnings"][0]["code"] == "scene_without_map_context"
     assert body["warnings"][0]["message"] == "当前 Scene 暂无地图上下文"
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_uses_quick_created_project_map_without_scene_markers(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    nid = uuid.uuid4().hex
+    await _create_project(db_session, nid)
+    scene = await _create_scene(db_session, nid)
+    await _create_entity(
+        db_session,
+        nid,
+        entity_type="location",
+        name="琉璃湾",
+        status="draft",
+    )
+    await _create_entity(
+        db_session,
+        nid,
+        entity_type="location",
+        name="归潮塔群",
+        status="draft",
+    )
+    created = await MapQuickCreateService().confirm(
+        db_session,
+        nid,
+        MapQuickCreateConfirmRequest(name="霭潮地图"),
+    )
+
+    resp = await async_client.get(
+        "/api/world/maps/scene-summary",
+        params={"novel_id": nid, "scene_id": str(scene.id)},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["open_target"]["mode"] == "map"
+    assert body["open_target"]["map_id"] == created.map.id
+    assert body["primary_location"]["name"] in {"琉璃湾", "归潮塔群"}
+    assert all(
+        warning["code"] != "scene_without_map_context"
+        for warning in body["warnings"]
+    )
 
 
 @pytest.mark.asyncio

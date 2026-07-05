@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from modules.world.map_models import MapLocationBinding, MapMarker
 from modules.world.map_repositories import (
+    MapConfigRepository,
     MapFactRepository,
     MapLocationBindingRepository,
     MapMarkerRepository,
@@ -56,6 +57,7 @@ class MapSceneSummaryService:
         territory_repo: MapTerritoryRepository | None = None,
         observation_repo: MapObservationRepository | None = None,
         fact_repo: MapFactRepository | None = None,
+        map_repo: MapConfigRepository | None = None,
         entity_repo: CoreEntityRepository | None = None,
         scene_lookup: SceneLookup | None = None,
     ) -> None:
@@ -64,6 +66,7 @@ class MapSceneSummaryService:
         self._territory_repo = territory_repo or MapTerritoryRepository()
         self._observation_repo = observation_repo or MapObservationRepository()
         self._fact_repo = fact_repo or MapFactRepository()
+        self._map_repo = map_repo or MapConfigRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
         self._scene_lookup = scene_lookup or _default_scene_lookup
 
@@ -108,6 +111,11 @@ class MapSceneSummaryService:
                 nid,
                 sid,
             )
+        selected_from_project_fallback = False
+        if selected_map_id is None:
+            fallback_map = await self._map_repo.first_by_novel(db, nid)
+            selected_map_id = fallback_map.id if fallback_map is not None else None
+            selected_from_project_fallback = selected_map_id is not None
         entity_names = {
             marker.entity_id: getattr(marker_entities[marker.entity_id], "name", "")
             for marker in markers
@@ -141,6 +149,27 @@ class MapSceneSummaryService:
         primary_location = await self._primary_location(
             db, nid, selected_map_id, map_markers
         )
+        if selected_from_project_fallback and primary_location is None:
+            warnings.append(
+                MapSceneSummaryWarning(
+                    code="scene_without_map_context",
+                    message="当前 Scene 暂无地图上下文",
+                )
+            )
+            return MapSceneSummaryResponse(
+                scene_id=str(sid),
+                primary_location=None,
+                characters=[],
+                events=[],
+                factions=[],
+                warnings=warnings[:2],
+                open_target=MapOpenTarget(
+                    mode="recent",
+                    scene_id=str(sid),
+                    fallback_reason="scene_without_map",
+                    fallback_message="当前 Scene 暂无地图上下文，已回退到最近地图",
+                ),
+            )
         if primary_location is None:
             warnings.append(
                 MapSceneSummaryWarning(
@@ -243,19 +272,36 @@ class MapSceneSummaryService:
         marker_hexes = list(
             dict.fromkeys((marker.hex_q, marker.hex_r) for marker in markers)
         )
-        bindings = await self._binding_repo.get_by_hexes_for_entity_statuses(
-            db,
-            novel_id,
-            map_id,
-            marker_hexes,
-            statuses=["canonical"],
-        )
+        if marker_hexes:
+            bindings = await self._binding_repo.get_by_hexes_for_entity_statuses(
+                db,
+                novel_id,
+                map_id,
+                marker_hexes,
+                statuses=["canonical", "draft"],
+            )
+        else:
+            bindings = await self._binding_repo.get_centers(db, novel_id, map_id)
         by_hex: dict[tuple[int, int], list[MapLocationBinding]] = {}
         for binding in bindings:
             by_hex.setdefault((binding.hex_q, binding.hex_r), []).append(binding)
         location_ids: list[uuid.UUID] = [b.location_entity_id for b in bindings]
         entities = await self._entity_repo.get_by_ids(db, novel_id, location_ids)
         names = {e.id: e.name for e in entities}
+        statuses = {e.id: e.status for e in entities}
+
+        if not marker_hexes:
+            for binding in bindings:
+                if statuses.get(binding.location_entity_id) not in {"canonical", "draft"}:
+                    continue
+                return MapSceneSummaryItem(
+                    entity_id=str(binding.location_entity_id),
+                    name=names.get(binding.location_entity_id) or "未命名地点",
+                    map_id=str(binding.map_id),
+                    hex_q=binding.hex_q,
+                    hex_r=binding.hex_r,
+                )
+            return None
 
         for marker in markers:
             candidates = by_hex.get((marker.hex_q, marker.hex_r), [])

@@ -16,7 +16,7 @@ pytestmark = [pytest.mark.asyncio]
 
 
 async def test_entity_fusion_service_has_no_direct_http_exception_dependency() -> None:
-    source = Path("backend/modules/world/entity_fusion.py").read_text()
+    source = (Path(__file__).resolve().parents[1] / "entity_fusion.py").read_text()
 
     assert "from fastapi import HTTPException" not in source
     assert "raise HTTPException" not in source
@@ -29,6 +29,7 @@ async def _create_entity(
     name: str,
     status: str,
     entity_type: str = "character",
+    summary: str | None = None,
 ) -> str:
     repo = CoreEntityRepository()
     entity = await repo.create(
@@ -37,7 +38,7 @@ async def _create_entity(
         CoreEntityCreate(
             name=name,
             entity_type=entity_type,
-            summary=f"{name} 摘要",
+            summary=summary if summary is not None else f"{name} 摘要",
             status=status,
         ),
     )
@@ -225,3 +226,55 @@ async def test_entity_fusion_suggestion_prefers_canonical_target(
     assert suggestion["target_entity_id"] == canonical_id
     assert suggestion["source_status"] == "candidate"
     assert suggestion["target_status"] == "canonical"
+
+
+async def test_entity_fusion_suggests_same_type_summary_overlap(
+    db_session: AsyncSession,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_rag_retrieve(*args, **kwargs):
+        raise AssertionError(
+            "summary_overlap suggestions should use entity summary evidence"
+        )
+
+    monkeypatch.setattr(
+        "modules.world.entity_fusion.rag_facade.retrieve",
+        fail_rag_retrieve,
+    )
+
+    shen_lan_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="沈澜",
+        status="draft",
+        summary=(
+            "女，28岁。镜局执业修复师，擅长灵镜校准。调查北港失踪案，"
+            "隐藏动机是寻找八年前失踪父亲与“归一潮”的真相。"
+            "与柳烨旧识，与许筠有师门情分。"
+        ),
+    )
+    mirror_restorer_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="北港镜修师",
+        status="draft",
+        summary=(
+            "女，28岁。镜局执业修复师，擅长灵镜校准。调查北港失踪案，"
+            "寻找八年前失踪父亲与归一潮真相。与柳烨旧识，与许筠有师门情分。"
+        ),
+    )
+
+    result = await WorldEntityFusionService().suggest(
+        db_session,
+        novel_id=project_novel_id,
+        max_suggestions=5,
+    )
+
+    suggestion = result["suggestions"][0]
+    assert suggestion["match_method"] == "summary_overlap"
+    assert suggestion["action"] == "alias_only"
+    assert {
+        suggestion["source_entity_id"],
+        suggestion["target_entity_id"],
+    } == {shen_lan_id, mirror_restorer_id}

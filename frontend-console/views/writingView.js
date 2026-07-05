@@ -24,6 +24,7 @@ import {
   normalizeTaskProgress,
   persistActiveWorkflow,
   recoverActiveWorkflows,
+  sanitizeTaskErrorMessage,
 } from "../shared/workflowProgress.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { buildMapUrl } from "./mapRouteContext.js"
@@ -66,6 +67,7 @@ const writingView = {
   _restoreSourceVersion: null,
   _publishTaskId: null,
   _publishProgress: null,
+  _lastPublishStatus: null,
   _loading: true,
   _publishTimer: null,
   _errorModalVisible: false,
@@ -141,6 +143,7 @@ const writingView = {
     this._versions = []
     this._publishTaskId = null
     this._publishProgress = null
+    this._lastPublishStatus = null
     this._errorModalVisible = false
     this._loading = true
     this._publishTimer = null
@@ -330,6 +333,7 @@ const writingView = {
     }
 
     if (this._chapterList.length === 0) {
+      setTimeout(() => this._bindEvents(), 0)
       return `
         <div class="empty-state">
           <div class="empty-icon">&#128221;</div>
@@ -604,6 +608,8 @@ const writingView = {
     const editor = typeof document !== "undefined" ? document.getElementById("writing-editor") : null
     const currentContent = editor ? editor.value : this._currentContent
     if (currentContent !== undefined && currentContent !== this._lastSavedContent) return "未保存"
+    if (this._lastPublishStatus) return this._lastPublishStatus
+    if (this._chapterStatus(this._currentChapter) === "published") return "已发布"
     return this._lastSavedContent !== null ? "已保存" : ""
   },
 
@@ -775,11 +781,12 @@ const writingView = {
       html += '</div></div>'
     }
 
-    // Scene 节点
+    // Scene 节点。真实写作页 reload 后作者需要能直接点击章节行；含章节的
+    // Scene 默认展开，避免按钮存在于隐藏父容器中而变成 0x0。
     for (const { scene, chapters } of sceneChapterMap) {
       if (chapters.length === 0 && unassigned.length === 0) continue
       const isCurrentScene = scene.id === this._currentSceneId
-      const isExpanded = isCurrentScene || chapters.includes(this._currentChapter)
+      const isExpanded = chapters.length > 0 || isCurrentScene || chapters.includes(this._currentChapter)
 
       html += `
         <div class="scene-tree-node">
@@ -805,21 +812,24 @@ const writingView = {
 
   _renderChapterRow(idx) {
     const isActive = idx === this._currentChapter
+    const title = this._chapters[idx]?.title || ""
+    const wordcount = this._chapterWordcount(idx)
+    const label = `打开第 ${idx} 章${title ? `：${title}` : ""}，${wordcount} 字`
     return `
-      <div class="chapter-row ${isActive ? "chapter-row--active" : ""}" data-action="select-chapter" data-chapter="${idx}">
+      <button type="button" class="chapter-row ${isActive ? "chapter-row--active" : ""}" data-action="select-chapter" data-chapter="${idx}" aria-label="${esc(label)}" aria-current="${isActive ? "true" : "false"}">
         <div class="chapter-row__status">
           <span class="chapter-status chapter-status--${esc(this._chapterStatus(idx))}" title="${esc(this._chapterStatusLabel(idx))}"></span>
         </div>
         <div class="chapter-row__info">
           <div class="chapter-row__title">
             <span class="chapter-number">第 ${idx} 章</span>
-            ${this._chapters[idx]?.title ? `<span class="chapter-title-text">${esc(this._chapters[idx].title)}</span>` : ""}
+            ${title ? `<span class="chapter-title-text">${esc(title)}</span>` : ""}
           </div>
           <div class="chapter-row__meta">
-            <span class="chapter-wc">${esc(this._chapterWordcount(idx))} 字</span>
+            <span class="chapter-wc">${esc(wordcount)} 字</span>
           </div>
         </div>
-      </div>
+      </button>
     `
   },
 
@@ -1483,6 +1493,7 @@ const writingView = {
     this._versions = []
     this._isReadonly = false
     this._restoreSourceVersion = null
+    this._lastPublishStatus = null
     this._cursorOffset = 0
 
     await Promise.all([
@@ -1499,12 +1510,17 @@ const writingView = {
       const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
       this._versions = history.versions || []
       if (this._versions.length > 0) {
-        this._chapters[chapterIndex] = {
-          title: this._versions[0].title,
-          draftCount: this._versions.length,
-        }
         const latest = this._versions[0]
         const draftData = await api.writing.get(latest.id, state.currentProjectId)
+        const wordCount = latest.word_count || (draftData.content || "").length
+        this._chapters[chapterIndex] = {
+          title: draftData.title || latest.title || "",
+          draftCount: this._versions.length,
+          wordcount: wordCount,
+          word_count: wordCount,
+          status: draftData.status || "draft",
+          updated_at: draftData.updated_at || latest.updated_at || null,
+        }
         this._currentDraftId = draftData.id
         this._currentContent = draftData.content || ""
         this._currentTitle = draftData.title || ""
@@ -1512,6 +1528,7 @@ const writingView = {
         this._currentUpdatedAt = draftData.updated_at || null
         this._lastSavedContent = draftData.content || ""
         this._isReadonly = false
+        this._lastPublishStatus = draftData.status === "published" ? "已发布" : null
       } else {
         this._currentDraftId = null
         this._currentContent = ""
@@ -1519,6 +1536,7 @@ const writingView = {
         this._currentVersionNumber = null
         this._currentUpdatedAt = null
         this._lastSavedContent = null
+        this._lastPublishStatus = null
         this._isReadonly = false
 
         await this._maybeRestoreBackup(chapterIndex)
@@ -1531,38 +1549,66 @@ const writingView = {
       this._currentVersionNumber = null
       this._currentUpdatedAt = null
       this._lastSavedContent = null
+      this._lastPublishStatus = null
       this._isReadonly = false
       await this._maybeRestoreBackup(chapterIndex)
     }
   },
 
   async _newChapter() {
-    const input = prompt("请输入章节号（1-N）：", (this._chapterList.length > 0 ? Math.max(...this._chapterList) + 1 : 1).toString())
-    if (!input) return
-    const idx = parseInt(input, 10)
-    if (isNaN(idx) || idx < 1) { toast("请输入有效的章节号（≥1）", "warning"); return }
+    const defaultIndex = this._chapterList.length > 0 ? Math.max(...this._chapterList) + 1 : 1
+    const idx = defaultIndex
+    if (!state.currentProjectId) { toast("请先选择项目", "warning"); return }
+
+    if (this._chapters[idx]) {
+      await this._selectChapter(idx)
+      return
+    }
 
     // 保存当前章节内容
     await this._saveBeforeNavigate()
 
+    const defaultTitle = `第 ${idx} 章`
+    let created = null
+    try {
+      created = await api.writing.autosaveDraftOnly({
+        novel_id: state.currentProjectId,
+        chapter_index: idx,
+        title: defaultTitle,
+        content: "",
+      })
+    } catch (err) {
+      toast(err.message || "创建章节失败", "error")
+      return
+    }
+
     this._currentChapter = idx
-    this._currentDraftId = null
-    this._currentContent = ''
-    this._currentTitle = `第 ${idx} 章`
-    this._currentVersionNumber = null
-    this._currentUpdatedAt = null
-    this._versions = []
+    this._currentDraftId = created.id || null
+    this._currentContent = created.content || ""
+    this._currentTitle = created.title || defaultTitle
+    this._currentVersionNumber = created.version_number || 1
+    this._currentUpdatedAt = created.updated_at || null
+    this._versions = [created]
     this._isReadonly = false
     this._restoreSourceVersion = null
     this._cursorOffset = 0
+    this._lastSavedContent = created.content || ""
 
-    if (!this._chapters[idx]) {
-      this._chapters[idx] = { title: null, draftCount: 0 }
-      this._chapterList.push(idx)
-      this._chapterList.sort((a, b) => a - b)
+    this._chapters[idx] = {
+      title: this._currentTitle,
+      draftCount: 1,
+      wordcount: 0,
+      word_count: 0,
+      status: created.status || "draft",
+      updated_at: created.updated_at || null,
     }
+    this._chapterList.push(idx)
+    this._chapterList.sort((a, b) => a - b)
 
+    await this._loadOutlineData(idx)
+    this._updateCurrentScene()
     await this._rerender()
+    toast(`已创建第 ${idx} 章`, "success")
   },
 
   // ============================================================
@@ -1702,6 +1748,7 @@ const writingView = {
       this._currentVersionNumber = result.version_number
       this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
       this._lastSavedContent = content
+      this._lastPublishStatus = null
       this._saveBackup(null, null)
 
       if (this._chapters[this._currentChapter]) {
@@ -1976,6 +2023,11 @@ const writingView = {
   },
 
   async _publish() {
+    if (this._publishProgress?.phase === "running" || this._publishTaskId) {
+      toast("发布任务正在进行中", "info")
+      return
+    }
+
     const editor = document.getElementById("writing-editor")
     const titleInput = document.getElementById("writing-title-input")
     if (!editor) return
@@ -2006,6 +2058,9 @@ const writingView = {
 
       if (this._chapters[this._currentChapter]) {
         this._chapters[this._currentChapter].title = title
+        this._chapters[this._currentChapter].status = result.draft?.status || "published"
+        this._chapters[this._currentChapter].wordcount = content.length
+        this._chapters[this._currentChapter].word_count = content.length
       }
 
       // 直接从发布结果获取 draftId，避免 _refreshVersions 偶发返回空版本
@@ -2018,7 +2073,10 @@ const writingView = {
       }
 
       this._restoreSourceVersion = null
+      this._lastSavedContent = content
+      this._lastPublishStatus = "发布成功"
       await this._refreshVersions(this._currentChapter)
+      this._lastPublishStatus = "发布成功"
       // 若 _refreshVersions 因竞态未设置 draftId，回退到发布结果
       if (!this._currentDraftId && createdDraftId) {
         this._currentDraftId = createdDraftId
@@ -2082,7 +2140,7 @@ const writingView = {
     const poll = async () => {
       if (!this._publishTaskId) { this._stopPublishPolling(); return }
       try {
-        const task = await api.tasks.get(this._publishTaskId)
+        const task = await api.tasks.get(this._publishTaskId, state.currentProjectId)
         let needRerender = false
 
         if (task.progress !== undefined && task.progress !== null) {
@@ -2099,10 +2157,11 @@ const writingView = {
           }
         }
 
-        if (task.status === "done" && this._publishProgress && this._publishProgress.step >= 0.99) {
+        if (task.status === "done" && this._publishProgress) {
           this._publishProgress.step = 1
           this._publishProgress.phase = "done"
           this._publishProgress.message = "发布完成"
+          this._lastPublishStatus = "发布成功"
           this._updatePublishBar()
           this._stopPublishPolling()
           setTimeout(() => { this._publishProgress = null; this._rerender() }, 3000)
@@ -2111,7 +2170,10 @@ const writingView = {
 
         if (task.status === "failed") {
           this._publishProgress.phase = "failed"
-          const errMsg = task.error_message || "发布任务失败"
+          const errMsg = sanitizeTaskErrorMessage(
+            task.error_message || task.result?.error_message || task.result?.error,
+            "publish_chapter",
+          ) || "发布任务失败。草稿已保存，请稍后重试。"
           this._publishProgress.message = errMsg
           this._publishProgress.showModal = true
           this._updatePublishBar()
@@ -2124,7 +2186,18 @@ const writingView = {
         if (needRerender) {
           await this._rerender()
         }
-      } catch {
+      } catch (err) {
+        if (this._publishProgress) {
+          const errMsg = sanitizeTaskErrorMessage(
+            err?.message || "发布状态查询失败。草稿已保存，请稍后重试。",
+            "publish_chapter",
+          ) || "发布状态查询失败。草稿已保存，请稍后重试。"
+          this._publishProgress.phase = "failed"
+          this._publishProgress.message = errMsg
+          this._publishProgress.showModal = true
+          this._updatePublishBar()
+          this._showPublishErrorModal(errMsg)
+        }
         this._stopPublishPolling()
       }
     }

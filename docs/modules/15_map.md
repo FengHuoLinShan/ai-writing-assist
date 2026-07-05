@@ -63,7 +63,7 @@
 | `sort_order` | INT | 同层级排序 |
 
 **约束**：
-- `UNIQUE(novel_id, parent_map_id, name)` 防止同层级重名（业务层在 PG NULL 场景补校验）。
+- `UNIQUE(novel_id, parent_map_id, name)` 防止同层级重名；顶层地图另有 PostgreSQL 部分唯一索引 `(novel_id, name) WHERE parent_map_id IS NULL`，避免 `NULL` 使唯一约束失效。
 - `parent_entity_id` 必须是同 novel 的 `location` 类型实体。
 - 删除地图时，`tiles` / `bindings` / `markers` / `territories` 级联删除；子地图 `parent_map_id` 置 `NULL`（FK `ON DELETE SET NULL`）。
 

@@ -363,6 +363,14 @@ class WritingConflictCheckResponse(BaseModel):
         return str(v)
 
 
+class WritingConflictAiReviewTaskResponse(BaseModel):
+    """AI 软冲突复核入队响应。"""
+
+    task_id: str
+    status: str = "pending"
+    check: WritingConflictCheckResponse
+
+
 class WritingConflictCheckListResponse(BaseModel):
     """冲突检查历史列表。"""
 

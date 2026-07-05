@@ -28,6 +28,8 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 - `rag_chunks` — RAG 文本片段主表
 
+章节正文索引要求 `chunk_index` 和 `index_version` 始终存在。`index_chapter_with_report` 使用 `(novel_id, source_type, chapter_index, chunk_index, index_version)` upsert 当前章节 chunk，并删除同章旧版本或不在当前结果中的 stale chunk。
+
 ## 检索类型
 
 | 检索类型 | 方法 | 说明 |

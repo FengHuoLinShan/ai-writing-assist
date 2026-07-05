@@ -9,6 +9,7 @@ const API_BASE_URL = (typeof API_HOST !== "undefined" ? API_HOST : "http://local
 const API_TIMEOUT = 15000
 const RAG_SEARCH_TIMEOUT = 60000
 const RAG_PREWARM_TIMEOUT = 75000
+const CONTEXT_CONFIRM_TIMEOUT = 90000
 const API_CACHE_TTL = 30000
 
 const _apiCache = new Map()
@@ -46,6 +47,62 @@ function _getCached(key) {
 
 function _setCache(key, data) {
   _apiCache.set(key, { data, time: Date.now() })
+}
+
+function _formatErrorValue(value) {
+  if (value == null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (Array.isArray(value)) {
+    return value.map((item) => _formatErrorValue(item)).filter(Boolean).join(", ")
+  }
+  if (typeof value === "object") {
+    const preferred = [
+      value.name,
+      value.title,
+      value.message,
+      value.msg,
+      value.detail,
+      value.id,
+    ].find((item) => item != null && item !== "")
+    if (preferred != null) {
+      const score = value.similarity_score ?? value.score ?? value.confidence
+      const suffix = score != null ? ` (${score})` : ""
+      return `${_formatErrorValue(preferred)}${suffix}`
+    }
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
+function _formatErrorDetail(rawDetail) {
+  if (Array.isArray(rawDetail)) {
+    return rawDetail
+      .map((item) => {
+        if (typeof item === "string") return item
+        if (item && typeof item === "object") {
+          const parts = []
+          if (item.loc && Array.isArray(item.loc)) parts.push(item.loc.join("."))
+          if (item.msg) parts.push(item.msg)
+          if (item.type) parts.push(`(${item.type})`)
+          return parts.length ? parts.join(" — ") : _formatErrorValue(item)
+        }
+        return _formatErrorValue(item)
+      })
+      .filter(Boolean)
+      .join("；")
+  }
+  if (rawDetail && typeof rawDetail === "object") {
+    return Object.entries(rawDetail)
+      .map(([key, value]) => `${key}: ${_formatErrorValue(value)}`)
+      .filter(Boolean)
+      .join("；")
+  }
+  return String(rawDetail || "")
 }
 
 /**
@@ -108,48 +165,31 @@ async function request(path, options = {}) {
         502: "后端服务不可用",
         503: "后端服务暂时不可用",
       }
-      let detail = "", responseBody = ""
+      let detail = "", responseBody = "", errorBody = null, rawDetail = ""
       try {
-        const errBody = await resp.json()
-        const rawDetail = errBody.detail || errBody.message || ""
-        responseBody = JSON.stringify(errBody).slice(0, 500)
-
-        // FastAPI 校验错误 detail 可能是对象或数组；提取可读消息
-        if (Array.isArray(rawDetail)) {
-          detail = rawDetail
-            .map((item) => {
-              if (typeof item === "string") return item
-              if (item && typeof item === "object") {
-                const parts = []
-                if (item.loc && Array.isArray(item.loc)) parts.push(item.loc.join("."))
-                if (item.msg) parts.push(item.msg)
-                if (item.type) parts.push(`(${item.type})`)
-                return parts.filter(Boolean).join(" — ")
-              }
-              return String(item)
-            })
-            .join("；")
-        } else if (rawDetail && typeof rawDetail === "object") {
-          detail = Object.entries(rawDetail)
-            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`)
-            .join("；")
-        } else {
-          detail = String(rawDetail || "")
-        }
+        errorBody = await resp.json()
+        rawDetail = errorBody.detail || errorBody.message || ""
+        responseBody = JSON.stringify(errorBody).slice(0, 500)
+        detail = _formatErrorDetail(rawDetail)
       } catch (e) { console.warn("解析错误响应失败", e) }
 
       const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
 
       // 记录请求详情供 error-logger 使用
-      window.errorLog._lastApiError = {
-        method, url: path,
-        status: resp.status,
-        response: responseBody,
-        body: options.body ? String(options.body).slice(0, 200) : undefined,
+      if (window.errorLog) {
+        window.errorLog._lastApiError = {
+          method, url: path,
+          status: resp.status,
+          response: responseBody,
+          body: options.body ? String(options.body).slice(0, 200) : undefined,
+        }
       }
 
       const err = new Error(detail ? `${msg}：${detail}` : msg)
       err.status = resp.status
+      err.detail = rawDetail
+      err.body = errorBody
+      err.responseBody = responseBody
       throw err
     }
 
@@ -652,7 +692,7 @@ const api = {
     },
 
     async confirm(payload) {
-      return post("/context/confirm", payload)
+      return post("/context/confirm", payload, { timeout: CONTEXT_CONFIRM_TIMEOUT })
     },
 
     async listSnapshots(params = {}) {
@@ -734,6 +774,10 @@ const api = {
 
     async runConflictAiReview(checkId, payload) {
       return post(`/writing/conflict-checks/${checkId}/ai-review`, payload)
+    },
+
+    async enqueueConflictAiReview(checkId, payload) {
+      return post(`/writing/conflict-checks/${checkId}/ai-review-task`, payload)
     },
 
     async requestConflictAiSuggestion(itemId, payload) {

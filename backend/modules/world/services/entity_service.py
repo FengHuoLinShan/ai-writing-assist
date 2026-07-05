@@ -82,6 +82,8 @@ class WorldEntityService(
                             {
                                 "id": str(e.id),
                                 "name": e.name,
+                                "entity_type": e.entity_type,
+                                "status": e.status,
                                 "similarity_score": round(score, 2),
                             }
                             for e, score in similar[:5]

@@ -152,6 +152,7 @@ describe("outlineView 批量操作", () => {
     ]
     outlineView._bulkSelections["outline-threads"] = new Set(["t1"])
     api.outline.updateThread.mockResolvedValue({})
+    api.outline.listThreads.mockResolvedValue({ items: outlineView._threads, total: 1 })
 
     await outlineView._executeBulkAction("outline-threads", "review-threads", outlineView._itemsForBulkScope("outline-threads"))
 
@@ -385,6 +386,50 @@ describe("outlineView render", () => {
     expect(html).toContain('data-action="prev-outline-structure-page"')
     expect(html).toContain('data-action="next-outline-structure-page"')
     expect(html).toContain("共 75 条")
+  })
+
+  it("剧情线创建把描述写入 summary 字段", async () => {
+    state.currentProjectId = "p1"
+    api.outline.createThread.mockResolvedValue({ id: "t1" })
+
+    outlineView._showCreateThreadForm()
+    document.body.innerHTML = showModal.mock.calls.at(-1)[1]
+    document.getElementById("create-thread-name").value = "归一潮失踪案主线"
+    document.getElementById("create-thread-type").value = "main"
+    document.getElementById("create-thread-desc").value = "沈澜追查潮雾失踪案。"
+    await captureModalHandler({ callIndex: showModal.mock.calls.length - 1 })()
+
+    expect(api.outline.createThread).toHaveBeenCalledWith("p1", {
+      name: "归一潮失踪案主线",
+      thread_type: "main",
+      summary: "沈澜追查潮雾失踪案。",
+    })
+  })
+
+  it("剧情线和篇章纲列表显示后端真实描述字段", async () => {
+    outlineView._loading = false
+    state.currentProjectId = "p1"
+
+    state.currentSubView = "threads"
+    outlineView._threads = [{
+      id: "t1",
+      name: "归一潮失踪案主线",
+      thread_type: "main",
+      summary: "沈澜追查潮雾失踪案。",
+    }]
+    let html = await outlineView.render()
+    expect(html).toContain("沈澜追查潮雾失踪案。")
+
+    state.currentSubView = "arcs"
+    outlineView._arcs = [{
+      id: "a1",
+      title: "三章短篇：潮雾、镜局、归潮",
+      start_chapter: 1,
+      end_chapter: 3,
+      arc_goal: "三章内完成潮雾、镜局、归潮转折。",
+    }]
+    html = await outlineView.render()
+    expect(html).toContain("三章内完成潮雾、镜局、归潮转折。")
   })
 
   it("深度导入筛选为空时显示结构分析不完整提示", async () => {

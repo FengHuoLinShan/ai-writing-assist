@@ -11,6 +11,7 @@ import { clearDocument, resetState } from "./helpers.js"
 beforeEach(() => {
   resetState({ currentProjectId: "p1" })
   clearDocument()
+  delete api.writing.enqueueConflictAiReview
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: undefined,
@@ -188,6 +189,58 @@ describe("writingConflictModal", () => {
     expect(onAiReviewComplete).toHaveBeenCalled()
   })
 
+  it("starts async AI review and refreshes the completed check from task status", async () => {
+    confirmAiReference.mockResolvedValue({ id: "confirm-ai" })
+    api.writing.enqueueConflictAiReview = vi.fn().mockResolvedValue({
+      task_id: "task-ai-review",
+      status: "pending",
+      check: {
+        id: "c1",
+        ai_review_status: "running",
+        items: [],
+      },
+    })
+    api.tasks.get.mockResolvedValue({
+      task_id: "task-ai-review",
+      status: "done",
+      result: { check_id: "c1", ai_review_status: "done" },
+    })
+    api.writing.getConflictCheck.mockResolvedValue({
+      id: "c1",
+      ai_review_status: "done",
+      items: [{ id: "ai1", is_ai_judgment: true, kind: "motivation_gap" }],
+    })
+    const onAiReviewComplete = vi.fn()
+    showWritingConflictModal({
+      check: {
+        id: "c1",
+        chapter_index: 3,
+        scene_id: "scene-3",
+        include_candidates: false,
+        items: [],
+      },
+      novelId: "p1",
+      onAiReviewComplete,
+    })
+
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.querySelector("[data-conflict-ai-review]").click()
+    await vi.waitFor(() => {
+      expect(toast).toHaveBeenCalledWith("AI 软冲突判断已生成", "success")
+    })
+
+    expect(api.writing.enqueueConflictAiReview).toHaveBeenCalledWith("c1", {
+      novel_id: "p1",
+      context_confirmation_id: "confirm-ai",
+    })
+    expect(api.tasks.get).toHaveBeenCalledWith("task-ai-review", "p1")
+    expect(api.writing.getConflictCheck).toHaveBeenCalledWith("c1", "p1")
+    expect(onAiReviewComplete).toHaveBeenLastCalledWith(expect.objectContaining({
+      ai_review_status: "done",
+    }))
+    expect(toast).toHaveBeenCalledWith("AI 软冲突判断已提交，正在后台生成", "info")
+  })
+
   it("shows failed toast when AI review API returns failed status", async () => {
     confirmAiReference.mockResolvedValue({ id: "confirm-ai" })
     api.writing.runConflictAiReview.mockResolvedValue({
@@ -209,10 +262,10 @@ describe("writingConflictModal", () => {
 
     document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
     document.querySelector("[data-conflict-ai-review]").click()
-    await Promise.resolve()
-    await Promise.resolve()
 
-    expect(toast).toHaveBeenCalledWith("LLM timeout", "error")
+    await vi.waitFor(() => {
+      expect(toast).toHaveBeenCalledWith("LLM timeout", "error")
+    })
   })
 
   it("generates and renders escaped AI suggestion text", async () => {

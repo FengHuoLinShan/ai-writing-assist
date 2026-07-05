@@ -616,11 +616,11 @@ const projectView = {
         await router.refresh()
         if (result.imported_chapters > 0) {
           confirmAction(
-            `已导入 ${result.imported_chapters} 章，是否启动深度导入？`,
+            `已导入 ${result.imported_chapters} 章，是否启动深度导入第一阶段（scene）？`,
             async () => {
               await writingView._submitDeepImport(1, result.imported_chapters)
             },
-            "启动深度导入",
+            "启动深度导入第一阶段（scene）",
           )
         }
       } catch (err) {
@@ -777,11 +777,11 @@ const projectView = {
       this._renderImportHistory()
       if (result.imported_chapters > 0) {
         confirmAction(
-          `已导入 ${result.imported_chapters} 章，是否启动深度导入？`,
+          `已导入 ${result.imported_chapters} 章，是否启动深度导入第一阶段（scene）？`,
           async () => {
             await writingView._submitDeepImport(1, result.imported_chapters)
           },
-          "启动深度导入",
+          "启动深度导入第一阶段（scene）",
         )
       }
     } catch (err) {

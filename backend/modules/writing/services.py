@@ -18,8 +18,10 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.outline.facade import split_scene_chunk_to_new_chapter
 from modules.writing.conflict_ai import (
+    AI_REVIEW_ACTION,
     ConflictCheckAiReviewService,
     ConflictSuggestionService,
+    validate_ai_review_confirmation_scope,
 )
 from modules.writing.conflict_evidence import evidence_location
 from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
@@ -75,6 +77,24 @@ class WritingDraftService:
         """创建已发布的正文版本。"""
         draft = await self._repo.create_with_status(db, data, status="published")
         return WritingDraftResponse.model_validate(draft)
+
+    async def publish_draft(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate,
+    ) -> WritingDraftResponse:
+        """发布章节正文；最新已发布内容相同时复用版本，避免重复版本膨胀。"""
+        nid = _parse_uuid(data.novel_id, "novel")
+        latest = await self._repo.get_latest_by_chapter(db, nid, data.chapter_index)
+        if (
+            latest is not None
+            and latest.status == "published"
+            and (latest.title or "") == (data.title or "")
+            and (latest.content or "") == (data.content or "")
+        ):
+            return WritingDraftResponse.model_validate(latest)
+
+        return await self.create_published_draft(db, data)
 
     async def get_draft(
         self,
@@ -559,6 +579,51 @@ class WritingConflictCheckService:
             context_confirmation_id=data.context_confirmation_id,
         )
         return self._to_check_response(check, items)
+
+    async def start_ai_review_task(
+        self,
+        db: AsyncSession,
+        *,
+        check_id: str,
+        data: WritingConflictAiReviewRequest,
+    ) -> WritingConflictCheckResponse:
+        from modules.context.facade import prepare_confirmed_ai_action
+
+        nid = _parse_uuid(data.novel_id, "novel_id")
+        cid = _parse_uuid(check_id, "check_id")
+        confirmation_uuid = _parse_uuid(
+            data.context_confirmation_id,
+            "context_confirmation_id",
+        )
+        existing = await self._repo.get_check(db, cid, nid)
+        if existing is None:
+            raise NotFoundError("Conflict check not found")
+        check, items = existing
+
+        try:
+            confirmed_context = await prepare_confirmed_ai_action(
+                db,
+                novel_id=data.novel_id,
+                action=AI_REVIEW_ACTION,
+                confirmation_id=data.context_confirmation_id,
+            )
+            validate_ai_review_confirmation_scope(
+                confirmed_context.confirmation,
+                check,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        updated = await self._repo.update_ai_review(
+            db,
+            check_id=cid,
+            novel_id=nid,
+            status="running",
+            confirmation_id=confirmation_uuid,
+            model=None,
+            error=None,
+        )
+        return self._to_check_response(updated or check, items)
 
     async def generate_ai_suggestion(
         self,

@@ -1,11 +1,14 @@
 """Memory Service 业务逻辑测试 — Round 3"""
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from modules.memory.schemas import EventType
 from modules.memory.services import MemoryService
@@ -119,6 +122,96 @@ async def test_ingest_delta_events_owns_provenance_and_result_refs(
     assert row.meta["workflow_id"] == "wf-1"
     assert row.meta["context_snapshot_id"] == "ctx-1"
     assert row.meta["source_ref"]["scene_provenance_key"] == "wf-1:scene:3"
+
+
+@pytest.mark.asyncio
+async def test_record_events_replaces_chapter_events_without_stale_tail(
+    db_with_project: AsyncSession,
+    memory_service: MemoryService,
+    sample_novel_id: uuid.UUID,
+) -> None:
+    await memory_service.record_events(
+        db_with_project,
+        str(sample_novel_id),
+        3,
+        [
+            {"event_type": "entity_created", "snapshot_after": {"name": "A"}},
+            {"event_type": "entity_updated", "snapshot_after": {"name": "B"}},
+        ],
+    )
+
+    await memory_service.record_events(
+        db_with_project,
+        str(sample_novel_id),
+        3,
+        [{"event_type": "entity_moved", "snapshot_after": {"name": "C"}}],
+    )
+
+    from modules.memory.models import MemoryEvent
+
+    rows = (
+        await db_with_project.execute(
+            select(MemoryEvent).where(
+                MemoryEvent.novel_id == sample_novel_id,
+                MemoryEvent.chapter_index == 3,
+            )
+        )
+    ).scalars().all()
+
+    assert len(rows) == 1
+    assert rows[0].sequence == 1
+    assert rows[0].event_type == "entity_moved"
+
+
+@pytest.mark.asyncio
+async def test_record_events_concurrent_calls_keep_unique_sequences(
+) -> None:
+    from core.base import Base
+    from modules.memory.models import MemoryEvent
+    from modules.project.models import Project
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    novel_id = uuid.uuid4()
+    async with factory() as session:
+        session.add(Project(id=novel_id, title="并发记忆测试", genre="test"))
+        await session.commit()
+
+    async def write_events(label: str) -> None:
+        async with factory() as session:
+            await MemoryService().record_events(
+                session,
+                str(novel_id),
+                5,
+                [
+                    {"event_type": "entity_created", "snapshot_after": {"label": label}},
+                    {"event_type": "entity_updated", "snapshot_after": {"label": label}},
+                ],
+            )
+            await session.commit()
+
+    try:
+        await asyncio.gather(write_events("a"), write_events("b"))
+        async with factory() as session:
+            rows = (
+                await session.execute(
+                    select(MemoryEvent).where(
+                        MemoryEvent.novel_id == novel_id,
+                        MemoryEvent.chapter_index == 5,
+                    )
+                )
+            ).scalars().all()
+
+        assert sorted(row.sequence for row in rows) == [1, 2]
+    finally:
+        await engine.dispose()
 
 
 class TestApplyEvents:
@@ -426,6 +519,7 @@ class TestRecordEvents:
         event_repo = MagicMock()
         event_repo.delete_by_chapter = AsyncMock()
         event_repo.create_many = AsyncMock(return_value=created)
+        event_repo.replace_chapter_events = AsyncMock(return_value=created)
         event_repo.create = AsyncMock(
             side_effect=AssertionError("record_events should batch event inserts")
         )
@@ -438,15 +532,19 @@ class TestRecordEvents:
         assert len(result) == 3
         assert result[0].sequence == 1
         assert result[2].sequence == 3
-        event_repo.delete_by_chapter.assert_awaited_once_with(db, uuid.UUID(novel_id), 3)
-        event_repo.create_many.assert_awaited_once()
-        rows = event_repo.create_many.await_args.args[1]
+        event_repo.replace_chapter_events.assert_awaited_once()
+        _, kwargs = event_repo.replace_chapter_events.await_args
+        assert kwargs["novel_id"] == uuid.UUID(novel_id)
+        assert kwargs["chapter_index"] == 3
+        rows = kwargs["rows"]
         assert [row["sequence"] for row in rows] == [1, 2, 3]
         assert [row["event_type"] for row in rows] == [
             "entity_created",
             "entity_created",
             "entity_moved",
         ]
+        event_repo.delete_by_chapter.assert_not_awaited()
+        event_repo.create_many.assert_not_awaited()
         event_repo.create.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -469,6 +567,7 @@ class TestRecordEvents:
         event_repo = MagicMock()
         event_repo.delete_by_chapter = AsyncMock()
         event_repo.create_many = AsyncMock(return_value=created)
+        event_repo.replace_chapter_events = AsyncMock(return_value=created)
         event_repo.create = AsyncMock(
             side_effect=AssertionError("record_events should batch event inserts")
         )
@@ -479,8 +578,13 @@ class TestRecordEvents:
         result = await service.record_events(db, novel_id, 3, new_events)
 
         assert len(result) == 2
-        event_repo.delete_by_chapter.assert_awaited_once_with(db, uuid.UUID(novel_id), 3)
-        event_repo.create_many.assert_awaited_once()
+        event_repo.replace_chapter_events.assert_awaited_once()
+        _, kwargs = event_repo.replace_chapter_events.await_args
+        assert kwargs["novel_id"] == uuid.UUID(novel_id)
+        assert kwargs["chapter_index"] == 3
+        assert [row["sequence"] for row in kwargs["rows"]] == [1, 2]
+        event_repo.delete_by_chapter.assert_not_awaited()
+        event_repo.create_many.assert_not_awaited()
         event_repo.create.assert_not_awaited()
 
 

@@ -186,6 +186,36 @@ class TestSceneRepository:
         assert (await repo.get_by_chapter_index(db_session, nid, 3)).id == scene.id
 
     @pytest.mark.asyncio
+    async def test_chapter_lookup_with_multiple_scenes_has_stable_order(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        later = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=2, title="后置 Scene", chapter_ids=["8"]),
+        )
+        earlier = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(scene_index=1, title="前置 Scene", chapter_ids=["8"]),
+        )
+
+        first = await repo.get_by_chapter(db_session, nid, 8)
+        second = await repo.get_by_chapter(db_session, nid, 8)
+        selected = await repo.get_by_chapter_index(db_session, nid, 8)
+
+        assert [scene.id for scene in first] == [earlier.id, later.id]
+        assert [scene.id for scene in second] == [earlier.id, later.id]
+        assert selected is not None
+        assert selected.id == earlier.id
+
+    @pytest.mark.asyncio
     async def test_scene_chapter_links_drive_chapter_range_lookup(
         self,
         db_session: AsyncSession,

@@ -219,9 +219,17 @@ const worldBibleView = {
         toast("上次刷新已结束，如需重跑请使用强制刷新", "warning")
         router.refresh()
       } else {
-        toast(err.message || "刷新投影失败", "error")
+        toast(this._projectionRefreshErrorMessage(err), "error")
       }
     }
+  },
+
+  _projectionRefreshErrorMessage(err) {
+    const message = err?.message || ""
+    if (message.includes("No handler registered") || message.includes("world_bible_projection_refresh")) {
+      return "投影刷新任务暂不可用，请确认后端 worker 已更新并重启后重试"
+    }
+    return message || "刷新投影失败"
   },
 
   async _restoreProjectionTask(page) {

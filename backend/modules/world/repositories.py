@@ -7,18 +7,25 @@ World 数据访问层 — v3 因果时空网
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import Text, delete, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
+
+_RELATION_UPSERT_LOCKS: defaultdict[tuple[str, str, str, str, str], asyncio.Lock] = (
+    defaultdict(asyncio.Lock)
+)
 
 from modules.world.models import (  # noqa: E402
     Character,
@@ -307,7 +314,7 @@ class CoreEntityRepository:
             select(CoreEntity)
             .where(*conditions)
             .limit(limit)
-            .order_by(CoreEntity.importance.desc())
+            .order_by(CoreEntity.importance.desc(), CoreEntity.id)
         )
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
@@ -466,7 +473,7 @@ class CoreEntityRepository:
             select(CoreEntity)
             .where(*conditions)
             .limit(10)
-            .order_by(CoreEntity.importance.desc())
+            .order_by(CoreEntity.importance.desc(), CoreEntity.id)
         )
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
@@ -504,7 +511,7 @@ class CoreEntityRepository:
             stmt = (
                 select(CoreEntity, sim_expr.label("similarity"))
                 .where(*conditions)
-                .order_by(text("similarity DESC"))
+                .order_by(text("similarity DESC"), CoreEntity.id)
                 .limit(top_k)
             )
             result = await db.execute(stmt)
@@ -528,7 +535,7 @@ class CoreEntityRepository:
                 select(CoreEntity)
                 .where(*conditions)
                 .limit(top_k)
-                .order_by(CoreEntity.importance.desc())
+                .order_by(CoreEntity.importance.desc(), CoreEntity.id)
             )
             result = await db.execute(stmt)
             items: Sequence[CoreEntity] = result.scalars().all()
@@ -567,7 +574,7 @@ class CoreEntityRepository:
                     text("1.0 - (embedding <=> :emb)").label("similarity"),
                 )
                 .where(*conditions)
-                .order_by(text("embedding <=> :emb"))
+                .order_by(text("embedding <=> :emb"), CoreEntity.id)
                 .limit(top_k)
             )
             result = await db.execute(stmt, {"emb": query_embedding})
@@ -628,7 +635,7 @@ class CoreEntityRepository:
         stmt = (
             select(CoreEntity)
             .where(*conditions)
-            .order_by(CoreEntity.created_at.desc())
+            .order_by(CoreEntity.created_at.desc(), CoreEntity.id.desc())
             .limit(limit)
         )
         result = await db.execute(stmt)
@@ -728,7 +735,7 @@ class EventRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(Event.timeline_order)
+            .order_by(Event.timeline_order, Event.entity_id)
         )
         result = await db.execute(stmt)
         items: Sequence[Event] = result.scalars().all()
@@ -746,7 +753,7 @@ class EventRepository:
                 Event.novel_id == novel_id,
                 Event.source_chapter_id == chapter_id,
             )
-            .order_by(Event.timeline_order)
+            .order_by(Event.timeline_order, Event.entity_id)
         )
         result = await db.execute(stmt)
         items: Sequence[Event] = result.scalars().all()
@@ -761,7 +768,7 @@ class EventRepository:
         stmt = (
             select(Event)
             .where(Event.novel_id == novel_id)
-            .order_by(Event.timeline_order)
+            .order_by(Event.timeline_order, Event.entity_id)
             .limit(limit)
         )
         result = await db.execute(stmt)
@@ -868,7 +875,7 @@ class EntityRelationRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(EntityRelation.created_at.desc())
+            .order_by(EntityRelation.created_at.desc(), EntityRelation.id.desc())
         )
         result = await db.execute(stmt)
         items: Sequence[EntityRelation] = result.scalars().all()
@@ -912,7 +919,7 @@ class EntityRelationRepository:
             )
             .where(*conditions)
             .limit(limit)
-            .order_by(EntityRelation.strength.desc())
+            .order_by(EntityRelation.strength.desc(), EntityRelation.id.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[EntityRelation] = result.scalars().all()
@@ -942,7 +949,7 @@ class EntityRelationRepository:
             )
             .where(*conditions)
             .limit(limit)
-            .order_by(EntityRelation.strength.desc())
+            .order_by(EntityRelation.strength.desc(), EntityRelation.id.asc())
         )
         result = await db.execute(stmt)
         items: Sequence[EntityRelation] = result.scalars().all()
@@ -965,7 +972,7 @@ class EntityRelationRepository:
                 EntityRelation.novel_id == novel_id,
                 EntityRelation.source_chapter_id == chapter_id,
             )
-            .order_by(EntityRelation.created_at)
+            .order_by(EntityRelation.created_at, EntityRelation.id)
         )
         result = await db.execute(stmt)
         items: Sequence[EntityRelation] = result.scalars().all()
@@ -1121,6 +1128,66 @@ class EntityRelationRepository:
         relation_type: str,
         description: str | None = None,
     ) -> EntityRelation:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            insert_stmt = pg_insert(EntityRelation).values(
+                novel_id=novel_id,
+                source_id=source_id,
+                target_id=target_id,
+                relation_type=relation_type,
+                description=description,
+                status="canonical",
+            )
+            stmt = insert_stmt.on_conflict_do_update(
+                index_elements=[
+                    EntityRelation.novel_id,
+                    EntityRelation.source_id,
+                    EntityRelation.target_id,
+                    EntityRelation.relation_type,
+                ],
+                index_where=EntityRelation.status == "canonical",
+                set_={
+                    "description": func.coalesce(
+                        insert_stmt.excluded.description,
+                        EntityRelation.description,
+                    ),
+                    "updated_at": func.timezone("utc", func.now()),
+                },
+            ).returning(EntityRelation.id)
+            rel_id = (await db.execute(stmt)).scalar_one()
+            await db.flush()
+            rel = await self.get(db, rel_id)
+            if rel is None:
+                raise RuntimeError("EntityRelation upsert returned missing relation")
+            return rel
+
+        lock_key = (
+            str(novel_id),
+            str(source_id),
+            str(target_id),
+            relation_type,
+            "canonical",
+        )
+        async with _RELATION_UPSERT_LOCKS[lock_key]:
+            return await self._manual_upsert(
+                db,
+                novel_id,
+                source_id,
+                target_id,
+                relation_type,
+                description,
+            )
+
+    async def _manual_upsert(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+        relation_type: str,
+        description: str | None,
+    ) -> EntityRelation:
+
         stmt = (
             select(EntityRelation)
             .where(
@@ -1208,6 +1275,7 @@ class EntityRelationRepository:
                 EntityRelation.relation_type == relation_type,
                 EntityRelation.status != "deprecated",
             )
+            .order_by(EntityRelation.status.desc(), EntityRelation.id.asc())
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -1276,7 +1344,7 @@ class EntityRevisionRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(EntityRevision.created_at.desc())
+            .order_by(EntityRevision.created_at.desc(), EntityRevision.id.desc())
         )
         result = await db.execute(stmt)
         items: Sequence[EntityRevision] = result.scalars().all()
@@ -1355,7 +1423,7 @@ class CharacterRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(Character.name)
+            .order_by(Character.name, Character.entity_id)
         )
         result = await db.execute(stmt)
         items: Sequence[Character] = result.scalars().all()
@@ -1607,7 +1675,7 @@ class CharacterKnowledgeRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(CharacterKnowledge.target_type)
+            .order_by(CharacterKnowledge.target_type, CharacterKnowledge.id)
         )
         result = await db.execute(stmt)
         items: Sequence[CharacterKnowledge] = result.scalars().all()
@@ -1627,7 +1695,7 @@ class CharacterKnowledgeRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(CharacterKnowledge.character_id)
+            .order_by(CharacterKnowledge.character_id, CharacterKnowledge.id)
         )
         result = await db.execute(stmt)
         items: Sequence[CharacterKnowledge] = result.scalars().all()

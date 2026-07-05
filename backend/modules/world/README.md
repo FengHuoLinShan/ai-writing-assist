@@ -56,6 +56,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   `allow_canonical_merge=true`。
 - 项目级“智能去重”按钮复用同一套 world 实体融合逻辑；它只改变入口和结果聚合，
   不放宽用户确认、正史二次确认或 novel_id 隔离规则。
+- 候选合并/清洗完成后，响应会尽量返回 `affected_ids` / `merged_ids`；前端只能按精确 ID 更新本地候选列表，缺少这些字段时刷新当前 tab，不按名称或候选组猜测删除。
 
 ## 数据表
 
@@ -116,6 +117,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `status` — 状态（canonical / deprecated）
 - `source_chapter_id` — 来源章节 ID
 - `caused_by_event_id` — 导致此关系的事件 ID
+
+`canonical` 关系以 `(novel_id, source_id, target_id, relation_type)` 为数据库幂等键。关系写入走仓储层 upsert；调用方不应再实现“先查再插”的并发控制。
 
 ### aliases（内联 JSONB）
 

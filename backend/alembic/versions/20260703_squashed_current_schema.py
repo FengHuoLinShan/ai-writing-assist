@@ -53,6 +53,7 @@ def downgrade() -> None:
 
 
 def _create_postgresql_only_indexes() -> None:
+    _assert_no_postgresql_duplicate_keys()
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS ix_rag_chunks_embedding_hnsw
@@ -80,8 +81,103 @@ def _create_postgresql_only_indexes() -> None:
     )
     op.execute(
         """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_entity_relations_canonical_edge
+        ON entity_relations (novel_id, source_id, target_id, relation_type)
+        WHERE status = 'canonical'
+        """
+    )
+    op.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_map_config_top_level_name
+        ON map_configs (novel_id, name)
+        WHERE parent_map_id IS NULL
+        """
+    )
+    op.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_rag_chunks_chapter_text_key
+        ON rag_chunks (
+            novel_id,
+            source_type,
+            chapter_index,
+            chunk_index,
+            index_version
+        )
+        WHERE source_type = 'chapter_text'
+          AND chapter_index IS NOT NULL
+          AND chunk_index IS NOT NULL
+        """
+    )
+    op.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_rag_chunks_object_source_key
+        ON rag_chunks (
+            novel_id,
+            source_type,
+            source_id,
+            chapter_index,
+            chunk_index,
+            index_version
+        )
+        WHERE source_id IS NOT NULL
+          AND chunk_index IS NOT NULL
+        """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS ix_reader_reveal_null_chapter
         ON reader_reveal_policies (novel_id, target_hash)
         WHERE reveal_chapter_index IS NULL
         """
     )
+
+
+def _assert_no_postgresql_duplicate_keys() -> None:
+    duplicate_checks = {
+        "canonical entity relations": """
+            SELECT novel_id, source_id, target_id, relation_type, COUNT(*) AS n
+            FROM entity_relations
+            WHERE status = 'canonical'
+            GROUP BY novel_id, source_id, target_id, relation_type
+            HAVING COUNT(*) > 1
+            LIMIT 5
+        """,
+        "top-level map names": """
+            SELECT novel_id, name, COUNT(*) AS n
+            FROM map_configs
+            WHERE parent_map_id IS NULL
+            GROUP BY novel_id, name
+            HAVING COUNT(*) > 1
+            LIMIT 5
+        """,
+        "chapter text rag chunks": """
+            SELECT novel_id, source_type, chapter_index, chunk_index, index_version,
+                   COUNT(*) AS n
+            FROM rag_chunks
+            WHERE source_type = 'chapter_text'
+              AND chapter_index IS NOT NULL
+              AND chunk_index IS NOT NULL
+            GROUP BY novel_id, source_type, chapter_index, chunk_index, index_version
+            HAVING COUNT(*) > 1
+            LIMIT 5
+        """,
+        "object source rag chunks": """
+            SELECT novel_id, source_type, source_id, chapter_index, chunk_index,
+                   index_version, COUNT(*) AS n
+            FROM rag_chunks
+            WHERE source_id IS NOT NULL
+              AND chunk_index IS NOT NULL
+            GROUP BY novel_id, source_type, source_id, chapter_index, chunk_index,
+                     index_version
+            HAVING COUNT(*) > 1
+            LIMIT 5
+        """,
+    }
+    bind = op.get_bind()
+    for label, sql in duplicate_checks.items():
+        rows = bind.exec_driver_sql(sql).fetchall()
+        if rows:
+            sample = "; ".join(str(tuple(row)) for row in rows)
+            raise RuntimeError(
+                f"Cannot create unique indexes: duplicate {label} remain: {sample}"
+            )

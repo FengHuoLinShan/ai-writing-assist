@@ -163,8 +163,8 @@ const generateView = {
   _workflowTypeFor(type) {
     return {
       world_character: "world_entity_extraction",
-      plot: "plot_structure_generate",
-      chapter: "chapter_scene_generate",
+      plot: "outline_generate",
+      chapter: "outline_generate",
     }[type] || "task"
   },
 
@@ -172,7 +172,7 @@ const generateView = {
     return {
       world_character: "完成后到 世界 > 候选清洗 查看候选对象。",
       plot: "完成后到 大纲 查看生成的剧情结构。",
-      chapter: "完成后到 大纲 查看章节与场景结构。",
+      chapter: "完成后到 Scene 工作台或篇章纲查看生成的章节与场景结构。",
     }[type] || "完成后可在对应模块查看结果。"
   },
 
@@ -187,7 +187,8 @@ const generateView = {
         { label: "查看伏笔", view: "outline", subview: "foreshadowing" },
       ],
       chapter: [
-        { label: "查看大纲", view: "outline", subview: "threads" },
+        { label: "查看场景", view: "scene", subview: "" },
+        { label: "查看篇章纲", view: "outline", subview: "arcs" },
         { label: "去写作台", view: "writing", subview: "" },
       ],
     }[type] || [{ label: "去写作台", view: "writing", subview: "" }]
@@ -196,7 +197,7 @@ const generateView = {
   _renderTaskProgress(progress, type) {
     const resultEl = document.getElementById("generate-result")
     if (!resultEl || !progress) return
-    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节卡" }
+    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构" }
     const actionHtml = progress.done ? `
       <div class="generate-result-actions">
         ${this._destinationActionsFor(type).map((action) => `
@@ -250,7 +251,9 @@ const generateView = {
     const type = workflow.meta?.type || {
       world_entity_extraction: "world_character",
       plot_structure_generate: "plot",
+      outline_generate: "plot",
       chapter_scene_generate: "chapter",
+      outline_chapter_scenes_extract: "chapter",
     }[workflow.workflowType] || this._currentType
     if (!type) return
 
@@ -289,7 +292,8 @@ const generateView = {
         action: config.action,
         task: config.task,
         scope: config.scope,
-        chapter_index: config.chapterIndex,
+        ...(config.scope === "chapter" ? { chapter_index: config.chapterIndex } : {}),
+        context_mode: "working",
         include_pending_objects: true,
         entity_ids: relatedIds,
         character_ids: relatedIds,
@@ -355,7 +359,7 @@ const generateView = {
       return {
         action: "world.entities.extract",
         task: intent || "世界对象补抽",
-        scope: scope === "full" ? "full" : "chapter",
+        scope: scope === "chapter" ? "chapter" : "full",
         chapterIndex: start,
         submit: (confirmationId) => api.generate.worldCharacter({
           novel_id: state.currentProjectId,
@@ -368,14 +372,13 @@ const generateView = {
     }
     if (this._currentType === "chapter") {
       return {
-        action: "outline.chapter_scenes.extract",
-        task: intent || "章节/Scene 卡提取",
-        scope: "chapter",
+        action: "outline.generate",
+        task: intent || "章节与 Scene 结构生成",
+        scope: scope === "chapter" ? "chapter" : "full",
         chapterIndex: start,
-        submit: (confirmationId) => api.generate.chapterScene({
+        submit: (confirmationId) => api.generate.plotStructure({
           novel_id: state.currentProjectId,
           context_confirmation_id: confirmationId,
-          chapter_index: start,
           start_chapter: start,
           end_chapter: end,
           instruction: intent,

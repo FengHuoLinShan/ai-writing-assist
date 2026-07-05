@@ -165,6 +165,47 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
   })
 
+  test("候选合并后当前页和分页总数保持一致", async ({ page }) => {
+    const target = await createEntity(testProjectId, {
+      name: "同名目标",
+      entity_type: "location",
+      status: "canonical",
+    })
+    const candidates = []
+    for (let i = 1; i <= 21; i += 1) {
+      candidates.push(await createEntity(testProjectId, {
+        name: `同名候选 ${String(i).padStart(2, "0")}`,
+        entity_type: "location",
+        status: "candidate",
+        content_json: {
+          _meta: {
+            suggested_action: "merge_with_existing",
+            suggested_existing_entity_name: target.name,
+          },
+        },
+      }))
+    }
+
+    await reloadWorkbench(page, "world", "candidates")
+    await expect(page.locator(SEL.dataTable)).toContainText("同名候选 01")
+    await expect(page.locator(SEL.dataTable)).toContainText("同名候选 02")
+    await expect(page.getByText("共 21 条")).toBeVisible()
+
+    await page.locator(SEL.tableRow(candidates[0].id)).locator('[data-action="merge-entity"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
+    await page.locator("#merge-target-query").fill("同名目标")
+    await page.locator("#merge-target-search").click()
+    await expect(page.locator("#merge-target-id")).toContainText("同名目标")
+    await page.locator("#merge-target-id").selectOption(target.id)
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+
+    await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
+    await expect(page.locator(SEL.dataTable)).not.toContainText("同名候选 01")
+    await expect(page.locator(SEL.dataTable)).toContainText("同名候选 02")
+    await expect(page.getByText("共 21 条")).toHaveCount(0)
+    await expect(page.locator(`${SEL.dataTable} tbody tr`)).toHaveCount(20)
+  })
+
   test("回滚实体到指定场景索引", async ({ page }) => {
     const entity = await createEntity(testProjectId, {
       name: "待回滚实体",

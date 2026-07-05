@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.memory.models import MemoryEvent, MemorySnapshot
@@ -60,6 +62,104 @@ class EventRepository:
         await db.flush()
         return events
 
+    async def replace_chapter_events(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        rows: list[dict],
+    ) -> list[MemoryEvent]:
+        """Replace one chapter's current event stream with keyed upserts.
+
+        The business key is (novel_id, chapter_index, sequence).  This keeps the
+        old "chapter replacement" semantics without the delete-then-insert race.
+        """
+        await self._lock_chapter_events(db, novel_id, chapter_index)
+
+        if rows:
+            await self._upsert_chapter_event_rows(db, rows)
+
+        max_sequence = len(rows)
+        stale_stmt = delete(MemoryEvent).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index == chapter_index,
+            MemoryEvent.sequence > max_sequence,
+        )
+        await db.execute(stale_stmt)
+        await db.flush()
+        return await self.get_by_chapter(db, novel_id, chapter_index)
+
+    async def _lock_chapter_events(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> None:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"memory_events:{novel_id}:{chapter_index}"},
+            )
+
+    async def _upsert_chapter_event_rows(
+        self,
+        db: AsyncSession,
+        rows: list[dict],
+    ) -> None:
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        if dialect_name == "postgresql":
+            insert_stmt = pg_insert(MemoryEvent).values(rows)
+        elif dialect_name == "sqlite":
+            insert_stmt = sqlite_insert(MemoryEvent).values(rows)
+        else:
+            await self._manual_upsert_chapter_event_rows(db, rows)
+            return
+
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=[
+                MemoryEvent.novel_id,
+                MemoryEvent.chapter_index,
+                MemoryEvent.sequence,
+            ],
+            set_={
+                "event_type": insert_stmt.excluded.event_type,
+                "entity_id": insert_stmt.excluded.entity_id,
+                "entity_type": insert_stmt.excluded.entity_type,
+                "snapshot_before": insert_stmt.excluded.snapshot_before,
+                "snapshot_after": insert_stmt.excluded.snapshot_after,
+                "source": insert_stmt.excluded.source,
+            },
+        )
+        await db.execute(stmt)
+
+    async def _manual_upsert_chapter_event_rows(
+        self,
+        db: AsyncSession,
+        rows: list[dict],
+    ) -> None:
+        for row in rows:
+            stmt = select(MemoryEvent).where(
+                MemoryEvent.novel_id == row["novel_id"],
+                MemoryEvent.chapter_index == row["chapter_index"],
+                MemoryEvent.sequence == row["sequence"],
+            )
+            existing = (await db.execute(stmt)).scalar_one_or_none()
+            if existing is None:
+                db.add(MemoryEvent(**row))
+                continue
+            for field in (
+                "event_type",
+                "entity_id",
+                "entity_type",
+                "snapshot_before",
+                "snapshot_after",
+                "source",
+            ):
+                setattr(existing, field, row.get(field))
+
     async def get_by_chapter(
         self,
         db: AsyncSession,
@@ -72,7 +172,7 @@ class EventRepository:
                 MemoryEvent.novel_id == novel_id,
                 MemoryEvent.chapter_index == chapter_index,
             )
-            .order_by(MemoryEvent.sequence)
+            .order_by(MemoryEvent.sequence, MemoryEvent.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -91,7 +191,7 @@ class EventRepository:
                 MemoryEvent.chapter_index >= from_chapter,
                 MemoryEvent.chapter_index <= to_chapter,
             )
-            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence)
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -117,7 +217,7 @@ class EventRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence)
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all()), total
@@ -204,7 +304,7 @@ class SnapshotRepository:
                 MemorySnapshot.chapter_index == chapter_index,
                 MemorySnapshot.status == "current",
             )
-            .order_by(MemorySnapshot.created_at.desc())
+            .order_by(MemorySnapshot.created_at.desc(), MemorySnapshot.id.desc())
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -224,7 +324,7 @@ class SnapshotRepository:
                 MemorySnapshot.chapter_index <= chapter_index,
                 MemorySnapshot.status == "current",
             )
-            .order_by(MemorySnapshot.chapter_index.desc())
+            .order_by(MemorySnapshot.chapter_index.desc(), MemorySnapshot.id.desc())
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -238,7 +338,7 @@ class SnapshotRepository:
         stmt = (
             select(MemorySnapshot)
             .where(MemorySnapshot.novel_id == novel_id)
-            .order_by(MemorySnapshot.chapter_index)
+            .order_by(MemorySnapshot.chapter_index, MemorySnapshot.id)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())

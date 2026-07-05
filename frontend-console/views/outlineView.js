@@ -441,6 +441,14 @@ const outlineView = {
     `
   },
 
+  _threadDescription(thread) {
+    return thread?.description || thread?.summary || thread?.visible_goal || thread?.hidden_truth || "-"
+  },
+
+  _arcDescription(arc) {
+    return arc?.description || arc?.summary || arc?.arc_goal || arc?.core_conflict || "-"
+  },
+
   _renderThreads() {
     if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
@@ -493,7 +501,7 @@ const outlineView = {
           <td data-label="名称">${esc(t.name || t.title)}</td>
           <td data-label="类型" style="color:var(--accent-dim);font-size:12px;">${esc(t.thread_type || "-")}</td>
           <td data-label="标记">${this._renderStructureAssetBadges(t) || "-"}</td>
-          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
+          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(this._threadDescription(t))}</td>
           <td data-label="操作">
             ${this._renderThreadReviewAction(t)}
             <button class="btn btn-sm btn-primary" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
@@ -564,7 +572,7 @@ const outlineView = {
           <td data-label="名称">${esc(a.name || a.title)}</td>
           <td data-label="章节范围" style="font-family:var(--font-mono);font-size:12px;">${esc(range)}</td>
           <td data-label="标记">${this._renderStructureAssetBadges(a) || "-"}</td>
-          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.description || a.summary || "-")}</td>
+          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(this._arcDescription(a))}</td>
           <td data-label="操作">
             <button class="btn btn-sm btn-primary" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
             ${renderActionMenu(`arc-actions-${esc(a.id || a.arc_id)}`, [
@@ -959,7 +967,7 @@ const outlineView = {
           await api.outline.createThread(state.currentProjectId, {
             name,
             thread_type: document.getElementById("create-thread-type")?.value || "main",
-            description: document.getElementById("create-thread-desc")?.value || "",
+            summary: document.getElementById("create-thread-desc")?.value || "",
           })
           toast("剧情线已创建", "success")
           router.refresh()
@@ -987,7 +995,7 @@ const outlineView = {
       </div>
       <div class="form-group">
         <label>描述</label>
-        <textarea class="form-textarea" id="edit-thread-desc" rows="3">${esc(thread.description || thread.summary || "")}</textarea>
+        <textarea class="form-textarea" id="edit-thread-desc" rows="3">${esc(this._threadDescription(thread) === "-" ? "" : this._threadDescription(thread))}</textarea>
       </div>
     `
     showModal("编辑剧情线", formHtml, [{
@@ -996,7 +1004,7 @@ const outlineView = {
           await api.outline.updateThread(id, state.currentProjectId, {
             name: document.getElementById("edit-thread-name")?.value,
             thread_type: document.getElementById("edit-thread-type")?.value,
-            description: document.getElementById("edit-thread-desc")?.value,
+            summary: document.getElementById("edit-thread-desc")?.value,
           })
           toast("已保存", "success")
           router.refresh()
@@ -1105,7 +1113,7 @@ const outlineView = {
       </div>
       <div class="form-group">
         <label>描述</label>
-        <textarea class="form-textarea" id="edit-arc-desc" rows="3">${esc(arc.description || arc.summary || "")}</textarea>
+        <textarea class="form-textarea" id="edit-arc-desc" rows="3">${esc(this._arcDescription(arc) === "-" ? "" : this._arcDescription(arc))}</textarea>
       </div>
     `
     showModal("编辑篇章纲", formHtml, [{
@@ -1115,7 +1123,7 @@ const outlineView = {
             title: document.getElementById("edit-arc-name")?.value?.trim(),
             start_chapter: parseInt(document.getElementById("edit-arc-start")?.value || "1", 10),
             end_chapter: parseInt(document.getElementById("edit-arc-end")?.value || "10", 10),
-            description: document.getElementById("edit-arc-desc")?.value?.trim(),
+            arc_goal: document.getElementById("edit-arc-desc")?.value?.trim(),
           })
           toast("已保存", "success")
           router.refresh()

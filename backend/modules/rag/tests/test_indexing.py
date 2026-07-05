@@ -151,17 +151,20 @@ async def test_index_chapter_bulk_creates_chunks(
     from modules.rag.indexing import IndexingService
     from modules.writing.models import WritingDraft
 
-    class BulkOnlyRepo(RagChunkRepository):
+    class ReplaceOnlyRepo(RagChunkRepository):
         def __init__(self) -> None:
             super().__init__()
-            self.create_many_calls = 0
+            self.replace_calls = 0
 
         async def create(self, *args, **kwargs):  # type: ignore[no-untyped-def]
             raise AssertionError("index_chapter should bulk-create chunks")
 
         async def create_many(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            self.create_many_calls += 1
-            return await super().create_many(*args, **kwargs)
+            raise AssertionError("index_chapter should use idempotent replace")
+
+        async def replace_chapter_chunks(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.replace_calls += 1
+            return await super().replace_chapter_chunks(*args, **kwargs)
 
     nid_uuid = uuid.UUID(hex=test_project_id)
     db_session.add(
@@ -176,7 +179,7 @@ async def test_index_chapter_bulk_creates_chunks(
     )
     await db_session.flush()
 
-    repo = BulkOnlyRepo()
+    repo = ReplaceOnlyRepo()
     fake_embedding = [0.1] * 768
 
     async def _fake_batch_embedding(texts):
@@ -194,12 +197,69 @@ async def test_index_chapter_bulk_creates_chunks(
             1,
         )
 
-    assert repo.create_many_calls == 1
+    assert repo.replace_calls == 1
     assert report.chunks_created > 0
     assert mock_client.generate_embedding.call_count == 1
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert len(chunks) == report.chunks_created
     assert [str(chunk.id) for chunk in chunks] == report.chunks_created_ids
+
+
+@pytest.mark.asyncio
+async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    nid = uuid.UUID(hex=test_project_id)
+    first = [
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            chunk_index=0,
+            text="旧 chunk 0",
+            index_version="cn-novel-v1",
+        ),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            chunk_index=1,
+            text="旧 chunk 1",
+            index_version="cn-novel-v1",
+        ),
+    ]
+    second = [
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            chunk_index=0,
+            text="新 chunk 0",
+            index_version="cn-novel-v1",
+        )
+    ]
+
+    await repo.replace_chapter_chunks(
+        db_session,
+        nid,
+        source_type="chapter_text",
+        chapter_index=1,
+        items=first,
+    )
+    await repo.replace_chapter_chunks(
+        db_session,
+        nid,
+        source_type="chapter_text",
+        chapter_index=1,
+        items=second,
+    )
+
+    chunks = await repo.find_by_chapter(
+        db_session,
+        nid,
+        1,
+        source_type="chapter_text",
+    )
+    assert [(chunk.chunk_index, chunk.text) for chunk in chunks] == [(0, "新 chunk 0")]
 
 
 @pytest.mark.asyncio

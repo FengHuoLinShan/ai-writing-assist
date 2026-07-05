@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError
 from infrastructure.llm.errors import LLMTimeoutError
 from infrastructure.tasks.models import AsyncTask
+from modules.context.models import ContextConfirmation
 from modules.memory.contracts import MemoryContinuityEvidenceContract
 from modules.project.models import Project
 from modules.writing.conflict_ai import (
@@ -1014,6 +1015,61 @@ async def test_ai_review_uses_large_budget_and_concise_prompt_constraints(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["ai_review_status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_ai_review_task_endpoint_marks_running_and_binds_task(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = await _create_project(async_client)
+    scene = await _create_scene(async_client, novel_id, chapter_index=3)
+    check = await _create_check(
+        async_client,
+        novel_id,
+        scene["id"],
+        chapter_index=3,
+    )
+    confirmation_id = await _create_context_confirmation(
+        async_client,
+        novel_id,
+        action="writing.conflict_check.ai_review",
+        chapter_index=3,
+        scene_id=scene["id"],
+    )
+
+    resp = await async_client.post(
+        f"/api/writing/conflict-checks/{check['id']}/ai-review-task",
+        json={
+            "novel_id": novel_id,
+            "context_confirmation_id": confirmation_id,
+        },
+    )
+
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["task_id"]
+    assert body["status"] == "pending"
+    assert body["check"]["ai_review_status"] == "running"
+    assert body["check"]["ai_review_confirmation_id"] == confirmation_id
+
+    task_result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(body["task_id"]))
+    )
+    task = task_result.scalar_one()
+    assert task.task_type == "writing_conflict_ai_review"
+    assert task.meta["novel_id"] == novel_id
+    assert task.meta["check_id"] == check["id"]
+    assert task.meta["context_confirmation_id"] == confirmation_id
+
+    confirmation_result = await db_session.execute(
+        select(ContextConfirmation).where(
+            ContextConfirmation.id == uuid.UUID(confirmation_id)
+        )
+    )
+    confirmation = confirmation_result.scalar_one()
+    assert confirmation.result_status == "running"
+    assert {"type": "task", "id": body["task_id"]} in confirmation.result_refs
 
 
 @pytest.mark.asyncio

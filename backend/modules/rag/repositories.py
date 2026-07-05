@@ -67,34 +67,160 @@ class RagChunkRepository:
         await db.flush()
         return chunks
 
+    async def replace_chapter_chunks(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        source_type: str,
+        chapter_index: int,
+        items: Sequence[RagChunkCreate],
+    ) -> list[RagChunk]:
+        """Replace one chapter/source chunk stream with idempotent keyed upserts."""
+        if not items:
+            await self.delete_by_chapter(db, novel_id, source_type, chapter_index)
+            return []
+
+        for item in items:
+            if item.source_type != source_type:
+                raise ValueError(
+                    "RAG chunk source_type must match replacement source_type"
+                )
+            if item.chapter_index != chapter_index:
+                raise ValueError("RAG chunk chapter_index must match replacement chapter")
+            if item.chunk_index is None:
+                raise ValueError(
+                    "RAG chunk chunk_index is required for idempotent replace"
+                )
+            if not item.index_version.strip():
+                raise ValueError("RAG chunk index_version is required")
+
+        await self._lock_chapter_chunks(db, novel_id, source_type, chapter_index)
+
+        rows = [
+            self._chunk_row(novel_id, item)
+            for item in items
+        ]
+        await self._upsert_chapter_chunk_rows(db, rows)
+
+        current_chunk_indices = list(
+            dict.fromkeys(int(item.chunk_index or 0) for item in items)
+        )
+        index_versions = list(dict.fromkeys(item.index_version for item in items))
+        stale_stmt = delete(RagChunk).where(
+            RagChunk.novel_id == novel_id,
+            RagChunk.source_type == source_type,
+            RagChunk.chapter_index == chapter_index,
+            or_(
+                RagChunk.index_version.notin_(index_versions),
+                RagChunk.chunk_index.is_(None),
+                RagChunk.chunk_index.notin_(current_chunk_indices),
+            ),
+        )
+        await db.execute(stale_stmt)
+        await db.flush()
+        return await self.find_by_chapter(
+            db,
+            novel_id,
+            chapter_index,
+            source_type=source_type,
+        )
+
     def _build_chunk(
         self,
         novel_id: uuid.UUID,
         data: RagChunkCreate,
     ) -> RagChunk:
-        return RagChunk(
-            novel_id=novel_id,
-            source_type=data.source_type,
-            source_id=uuid.UUID(hex=data.source_id) if data.source_id else None,
-            chapter_index=data.chapter_index,
-            chunk_index=data.chunk_index,
-            start_offset=data.start_offset,
-            end_offset=data.end_offset,
-            char_count=data.char_count,
-            text=data.text,
-            summary=data.summary,
-            entity_ids=data.entity_ids or [],
-            character_ids=data.character_ids or [],
-            thread_ids=data.thread_ids or [],
-            scene_id=uuid.UUID(hex=data.scene_id) if data.scene_id else None,
-            visibility=data.visibility or "author_only",
-            importance=data.importance if data.importance is not None else 0.5,
-            index_version=data.index_version or "legacy",
-            embedding_status=data.embedding_status or "pending",
-            embedding_error=data.embedding_error,
-            index_warnings=data.index_warnings or [],
-            meta=data.meta or {},
-        )
+        return RagChunk(**self._chunk_row(novel_id, data))
+
+    def _chunk_row(
+        self,
+        novel_id: uuid.UUID,
+        data: RagChunkCreate,
+    ) -> dict:
+        return {
+            "novel_id": novel_id,
+            "source_type": data.source_type,
+            "source_id": uuid.UUID(hex=data.source_id) if data.source_id else None,
+            "chapter_index": data.chapter_index,
+            "chunk_index": data.chunk_index,
+            "start_offset": data.start_offset,
+            "end_offset": data.end_offset,
+            "char_count": data.char_count,
+            "text": data.text,
+            "summary": data.summary,
+            "entity_ids": data.entity_ids or [],
+            "character_ids": data.character_ids or [],
+            "thread_ids": data.thread_ids or [],
+            "scene_id": uuid.UUID(hex=data.scene_id) if data.scene_id else None,
+            "visibility": data.visibility or "author_only",
+            "importance": data.importance if data.importance is not None else 0.5,
+            "index_version": data.index_version,
+            "embedding_status": data.embedding_status or "pending",
+            "embedding_error": data.embedding_error,
+            "index_warnings": data.index_warnings or [],
+            "meta": data.meta or {},
+        }
+
+    async def _lock_chapter_chunks(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_type: str,
+        chapter_index: int,
+    ) -> None:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"rag_chunks:{novel_id}:{source_type}:{chapter_index}"},
+            )
+
+    async def _upsert_chapter_chunk_rows(
+        self,
+        db: AsyncSession,
+        rows: list[dict],
+    ) -> None:
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        if dialect_name == "postgresql":
+            # Some demo/dev databases predate the partial unique indexes required
+            # by ON CONFLICT. The caller already holds a per-chapter advisory lock,
+            # so a manual upsert is safe and keeps publish_chapter recoverable.
+            await self._manual_upsert_chapter_chunk_rows(db, rows)
+            return
+        if dialect_name == "sqlite":
+            await self._manual_upsert_chapter_chunk_rows(db, rows)
+            return
+        await self._manual_upsert_chapter_chunk_rows(db, rows)
+
+    async def _manual_upsert_chapter_chunk_rows(
+        self,
+        db: AsyncSession,
+        rows: list[dict],
+    ) -> None:
+        for row in rows:
+            conditions = [
+                RagChunk.novel_id == row["novel_id"],
+                RagChunk.source_type == row["source_type"],
+                RagChunk.chapter_index == row["chapter_index"],
+                RagChunk.chunk_index == row["chunk_index"],
+                RagChunk.index_version == row["index_version"],
+            ]
+            if row["source_type"] != "chapter_text":
+                conditions.append(RagChunk.source_id == row["source_id"])
+            result = await db.execute(select(RagChunk).where(*conditions))
+            matches = list(result.scalars().all())
+            if not matches:
+                db.add(RagChunk(**row))
+                continue
+            existing = matches[0]
+            for field, value in row.items():
+                if field != "id":
+                    setattr(existing, field, value)
+            duplicate_ids = [chunk.id for chunk in matches[1:]]
+            if duplicate_ids:
+                await self.delete_many(db, duplicate_ids)
 
     async def get(
         self,
@@ -125,7 +251,7 @@ class RagChunkRepository:
             .where(RagChunk.novel_id == novel_id)
             .offset(skip)
             .limit(limit)
-            .order_by(RagChunk.created_at.desc())
+            .order_by(RagChunk.created_at.desc(), RagChunk.id.desc())
         )
         result = await db.execute(stmt)
         items: Sequence[RagChunk] = result.scalars().all()
@@ -264,7 +390,11 @@ class RagChunkRepository:
         stmt = (
             select(RagChunk)
             .where(and_(*conditions))
-            .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
+            .order_by(
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -292,7 +422,11 @@ class RagChunkRepository:
         stmt = (
             select(RagChunk)
             .where(and_(*conditions))
-            .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
+            .order_by(
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -313,8 +447,9 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = (
-            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
+        stmt = select(RagChunk).where(and_(*conditions)).order_by(
+            RagChunk.importance.desc(),
+            RagChunk.id.asc(),
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -335,8 +470,9 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = (
-            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
+        stmt = select(RagChunk).where(and_(*conditions)).order_by(
+            RagChunk.importance.desc(),
+            RagChunk.id.asc(),
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -347,6 +483,7 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
         *,
+        source_type: str | None = None,
         visibility: str | None = None,
     ) -> list[RagChunk]:
         """按章节索引检索"""
@@ -354,11 +491,16 @@ class RagChunkRepository:
             RagChunk.novel_id == novel_id,
             RagChunk.chapter_index == chapter_index,
         ]
+        if source_type is not None:
+            conditions.append(RagChunk.source_type == source_type)
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = (
-            select(RagChunk).where(and_(*conditions)).order_by(RagChunk.importance.desc())
+        stmt = select(RagChunk).where(and_(*conditions)).order_by(
+            RagChunk.importance.desc(),
+            RagChunk.chapter_index.asc(),
+            RagChunk.chunk_index.asc(),
+            RagChunk.id.asc(),
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -426,12 +568,14 @@ class RagChunkRepository:
                 RagChunk.importance.desc(),
                 RagChunk.chapter_index.asc(),
                 RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
             )
         else:
             stmt = stmt.order_by(
                 RagChunk.importance.desc(),
                 RagChunk.chapter_index.asc(),
                 RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
             )
         stmt = stmt.limit(limit)
         result = await db.execute(stmt)
@@ -555,7 +699,11 @@ class RagChunkRepository:
         stmt = (
             select(RagChunk)
             .where(and_(*conditions))
-            .order_by(RagChunk.importance.desc(), RagChunk.updated_at.desc())
+            .order_by(
+                RagChunk.importance.desc(),
+                RagChunk.updated_at.desc(),
+                RagChunk.id.desc(),
+            )
             .limit(candidate_limit)
         )
         result = await db.execute(stmt)
@@ -731,7 +879,11 @@ class RagChunkRepository:
                     )
                 )
             )
-            .order_by(RagChunk.chapter_index.asc(), RagChunk.chunk_index.asc())
+            .order_by(
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
+            )
             .limit(limit)
         )
         result = await db.execute(stmt)

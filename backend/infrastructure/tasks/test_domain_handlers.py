@@ -42,6 +42,16 @@ async def test_world_entity_extraction_reports_coarse_progress() -> None:
     assert task.progress_updates == [0.1, 0.85, 0.95, 1.0]
 
 
+def test_world_bible_projection_refresh_handler_is_registered() -> None:
+    import modules.world.tasks  # noqa: F401
+    from infrastructure.tasks.registry import get_registry
+
+    handler = get_registry().get_handler("world_bible_projection_refresh")
+
+    assert handler is not None
+    assert callable(handler)
+
+
 @pytest.mark.asyncio
 async def test_plot_structure_generate_reports_coarse_progress() -> None:
     from modules.outline.tasks import handle_plot_structure_generate

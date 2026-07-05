@@ -254,7 +254,7 @@ class WritingDraftRepository:
                 & (WritingDraft.version_number == latest_versions.c.version_number),
             )
             .where(WritingDraft.novel_id == novel_id)
-            .order_by(WritingDraft.chapter_index)
+            .order_by(WritingDraft.chapter_index, WritingDraft.id)
         )
         result = await db.execute(stmt)
         return result.scalars().all()
@@ -559,7 +559,10 @@ class WritingConflictCheckRepository:
         stmt = (
             select(WritingConflictCheck)
             .where(*conditions)
-            .order_by(WritingConflictCheck.created_at.desc())
+            .order_by(
+                WritingConflictCheck.created_at.desc(),
+                WritingConflictCheck.id.desc(),
+            )
             .limit(limit)
         )
         result = await db.execute(stmt)
@@ -605,7 +608,11 @@ class WritingConflictCheckRepository:
                 WritingConflictItem.check_id == check_id,
                 WritingConflictItem.novel_id == novel_id,
             )
-            .order_by(WritingConflictItem.severity, WritingConflictItem.created_at)
+            .order_by(
+                WritingConflictItem.severity,
+                WritingConflictItem.created_at,
+                WritingConflictItem.id,
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -628,6 +635,7 @@ class WritingConflictCheckRepository:
                 WritingConflictItem.check_id,
                 WritingConflictItem.severity,
                 WritingConflictItem.created_at,
+                WritingConflictItem.id,
             )
         )
         result = await db.execute(stmt)

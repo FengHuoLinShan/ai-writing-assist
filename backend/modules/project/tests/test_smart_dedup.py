@@ -141,3 +141,53 @@ async def test_smart_dedup_scan_sets_recommended_primary(
     assert world["recommended_primary_title"] == "主体世界对象"
     assert outline["recommended_primary_asset_id"] == "target-outline"
     assert outline["recommended_primary_title"] == "主体剧情线"
+
+
+async def test_smart_dedup_scan_marks_alias_derived_title_conflict_high_risk(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_world_suggest(*args, **kwargs):
+        return {
+            "total_entities_scanned": 2,
+            "suggestion_count": 1,
+            "suggestions": [
+                {
+                    "action": "merge",
+                    "source_entity_id": "shen-lan",
+                    "source_entity_name": "沈澜",
+                    "source_status": "draft",
+                    "target_entity_id": "mirror-restorer",
+                    "target_entity_name": "北港镜修师",
+                    "target_status": "canonical",
+                    "recommended_primary_entity_id": "mirror-restorer",
+                    "recommended_primary_entity_name": "北港镜修师",
+                    "confidence": 0.99,
+                    "match_method": "alias_name_match",
+                    "reason": "别名命中",
+                }
+            ],
+        }
+
+    async def fake_outline_suggest(*args, **kwargs):
+        return {"scanned_counts": {}, "suggestion_count": 0, "suggestions": []}
+
+    monkeypatch.setattr(
+        "modules.world.facade.suggest_entity_fusion",
+        fake_world_suggest,
+    )
+    monkeypatch.setattr(
+        "modules.outline.facade.suggest_structure_dedup",
+        fake_outline_suggest,
+    )
+
+    result = await SmartDedupService().scan(
+        db_session,
+        novel_id="project-1",
+        scopes=["world_entity"],
+    )
+
+    suggestion = result["suggestions"][0]
+    assert suggestion["requires_manual_confirmation"] is True
+    assert suggestion["risk_level"] == "high"
+    assert suggestion["risk_reason"] == "alias_derived_title_conflict"

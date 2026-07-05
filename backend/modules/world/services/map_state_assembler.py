@@ -303,7 +303,7 @@ class MapStateAssembler:
         candidate: list[Any] = []
         for row in rows:
             status = statuses.get(getattr(row, entity_attr))
-            if status == "canonical":
+            if status in {"canonical", "draft"}:
                 canonical.append(row)
             elif status == "candidate":
                 candidate.append(row)

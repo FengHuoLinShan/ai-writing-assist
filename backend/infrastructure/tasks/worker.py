@@ -22,6 +22,7 @@ from time import monotonic
 from typing import Any
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import DatabaseManager, get_manager
@@ -46,6 +47,26 @@ import modules.rag.tasks  # noqa: E402, F401
 # 注册所有任务处理器（与 app/main.py 同步）
 import modules.world.tasks  # noqa: E402, F401
 import modules.writing.tasks  # noqa: E402, F401
+
+_TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重试。"
+
+
+def _public_task_error_message(exc: Exception) -> str:
+    """Return a task error safe to expose through the task status API."""
+    raw = f"{type(exc).__name__}: {exc}"
+    raw_lower = raw.lower()
+    if isinstance(exc, SQLAlchemyError) or any(
+        marker in raw_lower
+        for marker in (
+            "dbapierror",
+            "sqlalchemy",
+            "asyncpg",
+            "current transaction is aborted",
+            "[sql:",
+        )
+    ):
+        return _TASK_DB_ERROR_MESSAGE
+    return raw[:1000]
 
 
 def _register_container_services() -> None:
@@ -308,7 +329,7 @@ class TaskWorker:
 
         except Exception as e:
             await session.rollback()
-            task.mark_failed(f"{type(e).__name__}: {e}")
+            task.mark_failed(_public_task_error_message(e))
             await session.commit()
             self._stats["failed"] += 1
             logger.error(

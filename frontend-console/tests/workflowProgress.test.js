@@ -5,6 +5,7 @@ import {
   persistActiveWorkflow,
   pollTaskProgress,
   recoverActiveWorkflows,
+  sanitizeTaskErrorMessage,
   workflowProgressStorageKey,
 } from "../shared/workflowProgress.js"
 
@@ -83,6 +84,21 @@ describe("normalizeTaskProgress", () => {
     expect(progress.failed).toBe(true)
     expect(progress.errorMessage).toBe("boom")
     expect(progress.warnings).toEqual(["warn"])
+  })
+
+  it("sanitizes raw DBAPI publish failures", () => {
+    const raw = "DBAPIError: asyncpg.exceptions.InFailedSQLTransactionError [SQL: UPDATE async_tasks SET progress=$1]"
+    const progress = normalizeTaskProgress({
+      task_id: "publish-task",
+      task_type: "publish_chapter",
+      status: "failed",
+      error_message: raw,
+    })
+
+    expect(progress.errorMessage).toBe("发布失败。草稿已保存，请稍后重试。")
+    expect(progress.errorMessage).not.toContain("DBAPIError")
+    expect(progress.errorMessage).not.toContain("UPDATE async_tasks")
+    expect(sanitizeTaskErrorMessage(raw, "publish_chapter")).toBe(progress.errorMessage)
   })
 
   it("normalizes deep import phase artifacts into warnings", () => {

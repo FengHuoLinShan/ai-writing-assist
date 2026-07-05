@@ -54,6 +54,34 @@ describe("mapQuickCreateView", () => {
     )
   })
 
+  it("shows placeable locations when only default spacing is available", async () => {
+    api.world.getMapQuickCreateContext.mockResolvedValue({
+      locations: [{ id: "loc1", name: "琉璃湾", status: "draft" }],
+      candidate_locations: [],
+      existing_maps: [],
+      warnings: [],
+    })
+    api.world.previewQuickCreateMap.mockResolvedValue({
+      map: { name: "快速创建世界地图", grid_width: 40, grid_height: 30 },
+      location_layouts: [{
+        location_entity_id: "loc1",
+        center_hex_q: 10,
+        center_hex_r: 8,
+        occupy_radius: 1,
+        locked: false,
+        meta: { entity_status: "draft" },
+      }],
+      warnings: ["缺少地点方向/距离关系，已生成等间距草稿"],
+    })
+
+    await mapQuickCreateView.open()
+
+    const modalHtml = showModal.mock.calls.at(-1)[1]
+    expect(modalHtml).toContain("琉璃湾")
+    expect(modalHtml).toContain("缺少地点方向/距离关系，已生成等间距草稿")
+    expect(modalHtml).not.toContain("暂无可放置地点")
+  })
+
   it("candidate toggle refreshes context and preview", async () => {
     mockQuickCreateApis()
 

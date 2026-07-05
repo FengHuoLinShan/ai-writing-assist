@@ -20,6 +20,8 @@ memory 模块维护世界状态变化历史，而不是维护另一份正史对�
 | `memory_snapshots` | 阶段性全景快照 |
 | `delta_log` | 结构化字段差分日志 |
 
+`memory_events` 使用 `(novel_id, chapter_index, sequence)` 作为章内幂等键。重建某章事件时，`MemoryService.record_events` 通过仓储层逐条 upsert 并清理新事件流之外的尾部事件，避免并发 delete-then-insert 交错。
+
 ## API
 
 ```http

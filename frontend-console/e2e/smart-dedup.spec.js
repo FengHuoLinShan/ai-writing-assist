@@ -114,5 +114,188 @@ test.describe("智能去重", () => {
       ]),
     })
     expect(applyPayload.suggestions).toHaveLength(7)
+    await expect(page.locator("#view-actions")).toContainText("智能去重")
+  })
+
+  test("应用一条建议后可以再次扫描并保持页面可交互", async ({ page }) => {
+    const project = await createProject({ title: "智能去重应用后重扫", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    let scanCount = 0
+    let applyPayload = null
+
+    await page.route("**/api/projects/*/smart-dedup/scan", async (route) => {
+      scanCount += 1
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: `smart-dedup-apply-rescan-${scanCount}` }),
+      })
+    })
+    await page.route("**/api/tasks/smart-dedup-apply-rescan-1*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "smart-dedup-apply-rescan-1",
+          task_type: "smart_dedup_scan",
+          status: "done",
+          progress: 100,
+          result: {
+            total_assets_scanned: 20,
+            suggestion_count: 2,
+            suggestions: [
+              suggestion(0, {
+                source_asset_id: "xu-yun-duplicate",
+                source_title: "许筠",
+                target_asset_id: "xu-yun-primary",
+                target_title: "许筠",
+                confidence: 1,
+                match_method: "exact_name",
+              }),
+              suggestion(1, {
+                source_asset_id: "shen-lan",
+                source_title: "沈澜",
+                target_asset_id: "mirror-restorer",
+                target_title: "北港镜修师",
+                recommended_primary_asset_id: "mirror-restorer",
+                recommended_primary_title: "北港镜修师",
+                confidence: 0.99,
+                match_method: "alias_name_match",
+              }),
+            ],
+          },
+        }),
+      })
+    })
+    await page.route("**/api/tasks/smart-dedup-apply-rescan-2*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "smart-dedup-apply-rescan-2",
+          task_type: "smart_dedup_scan",
+          status: "done",
+          progress: 100,
+          result: {
+            total_assets_scanned: 19,
+            suggestion_count: 1,
+            suggestions: [
+              suggestion(1, {
+                source_asset_id: "shen-lan",
+                source_title: "沈澜",
+                target_asset_id: "mirror-restorer",
+                target_title: "北港镜修师",
+                recommended_primary_asset_id: "mirror-restorer",
+                recommended_primary_title: "北港镜修师",
+                confidence: 0.99,
+                match_method: "alias_name_match",
+              }),
+            ],
+          },
+        }),
+      })
+    })
+    await page.route("**/api/projects/*/smart-dedup/apply", async (route) => {
+      applyPayload = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ applied: applyPayload?.suggestions?.length || 0 }),
+      })
+    })
+
+    await openWorkbench(page, project, "world")
+
+    await page.locator('[data-action="start-smart-dedup"]').click()
+    await expect(page.locator("#modal-title")).toHaveText("智能去重建议", { timeout: 10000 })
+    await expect(page.locator('[data-smart-dedup-index="0"]')).toBeChecked()
+    await expect(page.locator('[data-smart-dedup-index="1"]')).not.toBeChecked()
+
+    await page.getByRole("button", { name: "应用选中建议" }).click()
+    await expect(page.locator("#toast-container")).toContainText("已应用 1 条智能去重建议", { timeout: 10000 })
+    expect(applyPayload.suggestions).toHaveLength(1)
+    await expect(page.locator("#view-actions")).toContainText("智能去重")
+
+    await page.locator('[data-action="start-smart-dedup"]').click()
+    await expect(page.locator("#modal-title")).toHaveText("智能去重建议", { timeout: 10000 })
+    await expect(page.locator("#modal-body")).toContainText("沈澜")
+    await expect(page.locator("#modal-body")).toContainText("高风险别名命中")
+    await expect(page.locator('[data-smart-dedup-index="0"]')).not.toBeChecked()
+    await expect(page.locator("#view-actions")).toContainText("查看去重建议")
+    expect(await page.locator("body").innerText({ timeout: 5000 })).toContain("智能去重建议")
+    expect(scanCount).toBe(2)
+  })
+
+  test("空结果后可以从前端重新扫描并展示新建议", async ({ page }) => {
+    const project = await createProject({ title: "智能去重空结果重扫", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    let scanCount = 0
+
+    await page.route("**/api/projects/*/smart-dedup/scan", async (route) => {
+      scanCount += 1
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ task_id: `smart-dedup-rescan-${scanCount}` }),
+      })
+    })
+    await page.route("**/api/tasks/smart-dedup-rescan-1*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "smart-dedup-rescan-1",
+          task_type: "smart_dedup_scan",
+          status: "done",
+          progress: 100,
+          result: {
+            total_assets_scanned: 2,
+            suggestion_count: 0,
+            suggestions: [],
+          },
+        }),
+      })
+    })
+    await page.route("**/api/tasks/smart-dedup-rescan-2*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: "smart-dedup-rescan-2",
+          task_type: "smart_dedup_scan",
+          status: "done",
+          progress: 100,
+          result: {
+            total_assets_scanned: 3,
+            suggestion_count: 1,
+            suggestions: [
+              suggestion(0, {
+                source_asset_id: "beigang-mirror-restorer",
+                source_title: "北港镜修师",
+                target_asset_id: "shen-lan",
+                target_title: "沈澜",
+                action: "alias_only",
+                match_method: "alias_name_match",
+              }),
+            ],
+          },
+        }),
+      })
+    })
+
+    await openWorkbench(page, project, "world")
+
+    await page.locator('[data-action="start-smart-dedup"]').click()
+    await expect(page.locator("#modal-body")).toContainText("没有发现可处理的重复资产", { timeout: 10000 })
+    await expect(page.locator("#view-actions")).toContainText("智能去重")
+
+    await page.getByRole("button", { name: "重新扫描" }).click()
+    await expect(page.locator("#modal-title")).toHaveText("智能去重建议", { timeout: 10000 })
+    await expect(page.locator("#modal-body")).toContainText("北港镜修师")
+    await expect(page.locator("#modal-body")).toContainText("沈澜")
+    await expect(page.locator("#modal-body")).toContainText("高风险别名命中")
+    await expect(page.locator('[data-smart-dedup-index="0"]')).not.toBeChecked()
+    await expect(page.getByRole("button", { name: "应用选中建议" })).toBeEnabled()
+    expect(scanCount).toBe(2)
   })
 })

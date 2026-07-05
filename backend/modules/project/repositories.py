@@ -40,7 +40,7 @@ class ProjectRepository:
             .where(Project.deleted_at.is_(None))
             .offset(skip)
             .limit(limit)
-            .order_by(Project.created_at.desc())
+            .order_by(Project.created_at.desc(), Project.id.desc())
         )
         result = await db.execute(stmt)
         items = list(result.scalars().all())
@@ -148,7 +148,7 @@ class ProjectRepository:
             .where(base_cond)
             .offset(skip)
             .limit(limit)
-            .order_by(Project.deleted_at.desc())
+            .order_by(Project.deleted_at.desc(), Project.id.desc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all()), total

@@ -9,9 +9,11 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.map_repositories import MapFactRepository
 from modules.world.map_schemas import (
     BindingHex,
     MapConfigCreate,
+    MapConfigResponse,
     MapLocationBindingCreate,
     MapLocationLayoutItem,
     MapLocationLayoutReplaceRequest,
@@ -41,6 +43,8 @@ GEO_RELATION_TYPES = {
     "controls",
 }
 
+PLACEABLE_LOCATION_STATUSES = ("canonical", "draft")
+
 
 @dataclass(frozen=True)
 class GeoRelation:
@@ -60,12 +64,14 @@ class MapQuickCreateService:
         config_service: MapConfigService | None = None,
         binding_service: MapLocationBindingService | None = None,
         layout_service: MapLocationLayoutService | None = None,
+        fact_repo: MapFactRepository | None = None,
     ) -> None:
         self._entity_repo = entity_repo or CoreEntityRepository()
         self._relation_repo = relation_repo or EntityRelationRepository()
         self._config_service = config_service or MapConfigService()
         self._binding_service = binding_service or MapLocationBindingService()
         self._layout_service = layout_service or MapLocationLayoutService()
+        self._fact_repo = fact_repo or MapFactRepository()
 
     async def context(
         self,
@@ -75,8 +81,8 @@ class MapQuickCreateService:
         include_candidates: bool = False,
     ) -> MapQuickCreateContextResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        canonical_locations = await self._entity_repo.list_by_novel(
-            db, nid, entity_type="location", status="canonical", limit=500
+        locations = await self._list_locations_for_statuses(
+            db, nid, PLACEABLE_LOCATION_STATUSES
         )
         candidate_locations = []
         if include_candidates:
@@ -85,7 +91,7 @@ class MapQuickCreateService:
             )
         maps = await self._config_service.list(db, novel_id)
         warnings = []
-        if not canonical_locations and not candidate_locations:
+        if not locations and not candidate_locations:
             warnings.append("缺少可用于快速创建的地点对象")
         return MapQuickCreateContextResponse(
             map_targets=[
@@ -93,7 +99,7 @@ class MapQuickCreateService:
                 {"target": "detail", "label": "为地点创建详图"},
                 {"target": "drilldown", "label": "基于当前地点下钻地图"},
             ],
-            locations=[self._entity_summary(item) for item in canonical_locations],
+            locations=[self._entity_summary(item) for item in locations],
             candidate_locations=[
                 self._entity_summary(item) for item in candidate_locations
             ],
@@ -121,7 +127,7 @@ class MapQuickCreateService:
         )
         warnings = []
         if not locations:
-            warnings.append("缺少地点方向/距离关系，可在地点详情补充")
+            warnings.append("缺少可用于快速创建的地点对象")
         elif not geo_relations:
             warnings.append("缺少地点方向/距离关系，已生成等间距草稿")
         return MapQuickCreatePreviewResponse(
@@ -157,20 +163,35 @@ class MapQuickCreateService:
     ) -> MapQuickCreateConfirmResponse:
         preview = await self.preview(db, novel_id, data)
         map_draft = preview.map
-        created_map = await self._config_service.create(
-            db,
-            novel_id,
-            MapConfigCreate(
-                name=data.name or map_draft["name"],
-                map_type=map_draft["map_type"],
-                grid_width=map_draft["grid_width"],
-                grid_height=map_draft["grid_height"],
-                hex_size=map_draft["hex_size"],
-                parent_map_id=data.parent_map_id,
-                parent_entity_id=data.parent_entity_id,
-                template="blank",
-            ),
+        map_name = data.name or map_draft["name"]
+        parent_map_id = (
+            parse_uuid(data.parent_map_id, "parent_map_id")
+            if data.parent_map_id
+            else None
         )
+        existing_map = await self._config_service.repo.get_by_name(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            name=map_name,
+            parent_map_id=parent_map_id,
+        )
+        if existing_map is None:
+            created_map = await self._config_service.create(
+                db,
+                novel_id,
+                MapConfigCreate(
+                    name=map_name,
+                    map_type=map_draft["map_type"],
+                    grid_width=map_draft["grid_width"],
+                    grid_height=map_draft["grid_height"],
+                    hex_size=map_draft["hex_size"],
+                    parent_map_id=data.parent_map_id,
+                    parent_entity_id=data.parent_entity_id,
+                    template="blank",
+                ),
+            )
+        else:
+            created_map = MapConfigResponse.model_validate(existing_map)
         layouts = data.layouts or preview.location_layouts
         layout_response = await self._layout_service.replace(
             db,
@@ -178,6 +199,7 @@ class MapQuickCreateService:
             created_map.id,
             MapLocationLayoutReplaceRequest(layouts=layouts),
         )
+        await self._binding_service.clear_map(db, novel_id, created_map.id)
         created_bindings = await self._binding_service.batch_create_many(
             db,
             novel_id,
@@ -196,6 +218,17 @@ class MapQuickCreateService:
                 for layout in layouts
             ],
         )
+        await self._fact_repo.delete_quick_create_location_facts(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            parse_uuid(created_map.id, "map_id"),
+        )
+        await self._create_location_facts(
+            db,
+            novel_id,
+            created_map.id,
+            layouts,
+        )
         return MapQuickCreateConfirmResponse(
             map=created_map,
             location_layouts=layout_response.items,
@@ -211,16 +244,87 @@ class MapQuickCreateService:
         include_candidates: bool,
     ) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        canonical = await self._entity_repo.list_by_novel(
-            db, nid, entity_type="location", status="canonical", limit=500
+        base_locations = await self._list_locations_for_statuses(
+            db, nid, PLACEABLE_LOCATION_STATUSES
         )
-        locations = [self._entity_summary(item) for item in canonical]
+        locations = [self._entity_summary(item) for item in base_locations]
         if include_candidates:
             candidates = await self._entity_repo.list_by_novel(
                 db, nid, entity_type="location", status="candidate", limit=500
             )
             locations.extend(self._entity_summary(item) for item in candidates)
         return locations
+
+    async def _list_locations_for_statuses(
+        self,
+        db: AsyncSession,
+        novel_id,
+        statuses: tuple[str, ...],
+    ):
+        seen = set()
+        locations = []
+        for status in statuses:
+            rows = await self._entity_repo.list_by_novel(
+                db,
+                novel_id,
+                entity_type="location",
+                status=status,
+                limit=500,
+            )
+            for row in rows:
+                if row.id in seen:
+                    continue
+                seen.add(row.id)
+                locations.append(row)
+        return locations
+
+    async def _create_location_facts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        layouts: list[MapLocationLayoutItem],
+    ) -> None:
+        if not layouts:
+            return
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        location_ids = [
+            parse_uuid(layout.location_entity_id, "location_entity_id")
+            for layout in layouts
+        ]
+        entities = await self._entity_repo.get_by_ids(db, nid, location_ids)
+        by_id = {entity.id: entity for entity in entities}
+        facts = []
+        for layout in layouts:
+            location_id = parse_uuid(layout.location_entity_id, "location_entity_id")
+            entity = by_id.get(location_id)
+            if entity is None:
+                continue
+            facts.append(
+                {
+                    "map_id": mid,
+                    "target_entity_id": location_id,
+                    "target_entity_type": "location",
+                    "target_name": entity.name,
+                    "dynamic_type": "location",
+                    "time_anchor": {"scope": "project"},
+                    "spatial_anchor": {
+                        "map_id": str(mid),
+                        "hex_q": layout.center_hex_q,
+                        "hex_r": layout.center_hex_r,
+                    },
+                    "value_json": {
+                        "placement": "quick_create",
+                        "entity_status": entity.status,
+                    },
+                    "confidence": 1.0,
+                    "fact_status": "confirmed",
+                    "source_ref": {"source": "map_quick_create"},
+                    "evidence_text": "快速创建地图时根据已有地点对象放置。",
+                }
+            )
+        await self._fact_repo.create_many(db, nid, facts)
 
     def _build_layout(
         self,
