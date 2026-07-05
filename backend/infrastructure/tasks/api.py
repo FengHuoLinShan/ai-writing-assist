@@ -31,6 +31,7 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "plot_structure_auto_extraction",
     "world_entity_extraction",
     "world_alias_relation_extraction",
+    "world_bible_projection_refresh",
     "writing_generate",
     "outline_structure_generation",
     "outline_chapter_scenes_extract",

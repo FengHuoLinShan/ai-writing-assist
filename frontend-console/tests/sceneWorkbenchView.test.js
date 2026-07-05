@@ -62,6 +62,7 @@ const workbenchPayload = {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   resetState({ currentProjectId: "p1", currentSubView: "s1" })
   clearDocument()
   vi.clearAllMocks()
@@ -78,11 +79,24 @@ beforeEach(() => {
   sceneWorkbenchView._workbench = null
   sceneWorkbenchView._total = 0
   sceneWorkbenchView._activeHealth = null
+  sceneWorkbenchView._filters = {
+    status: "",
+    source: "",
+    workflow_id: "",
+    needs_review: "",
+    boundary_status: "",
+    phase: "",
+    phase1a_fallback: false,
+    skip: 0,
+    limit: 20,
+  }
+  sceneWorkbenchView._advancedFiltersOpen = false
   sceneWorkbenchView._selectedFusionSceneIds = new Set()
   sceneWorkbenchView._autoExtractTaskId = null
   sceneWorkbenchView._autoExtractProgress = null
   sceneWorkbenchView._autoExtractPoller = null
   sceneWorkbenchView._autoExtractMeta = null
+  sceneWorkbenchView._mobileDetailOpen = false
 })
 
 describe("sceneWorkbenchView", () => {
@@ -254,11 +268,23 @@ describe("sceneWorkbenchView", () => {
   it("renders detail as drawer markup on narrow screens", async () => {
     vi.spyOn(window, "innerWidth", "get").mockReturnValue(390)
     sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._mobileDetailOpen = true
 
     const html = await sceneWorkbenchView.render()
 
     expect(html).toContain("scene-workbench-drawer")
     expect(html).toContain("data-action=\"close-scene-detail\"")
+  })
+
+  it("renders scene review actions in row and detail", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain('data-action="mark-scene-reviewed"')
+    expect(html).toContain("复核通过")
+    expect(html).toContain("来源与复核")
+    expect(html).toContain("未复核")
   })
 
   it("saves editable scene fields through outline updateScene", async () => {
@@ -290,6 +316,65 @@ describe("sceneWorkbenchView", () => {
       must_not_happen: "禁止",
       pov_character_id: "char-2",
     })
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("marks a scene as reviewed while preserving structure meta", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: workbenchPayload.items.map((item) => item.scene.id === "s1"
+        ? {
+            ...item,
+            scene: {
+              ...item.scene,
+              structure_meta: { source_workflow_id: "wf-1", needs_review: true },
+            },
+          }
+        : item),
+    }
+
+    await sceneWorkbenchView._markSceneReviewed("s1")
+
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
+      structure_meta: expect.objectContaining({
+        source_workflow_id: "wf-1",
+        needs_review: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "scene_workbench",
+      }),
+    })
+    expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核", "success")
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("marks a reviewed scene as needing review", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: workbenchPayload.items.map((item) => item.scene.id === "s1"
+        ? {
+            ...item,
+            scene: {
+              ...item.scene,
+              structure_meta: {
+                source_workflow_id: "wf-1",
+                reviewed_at: "2026-07-05T00:00:00.000Z",
+                reviewed_by: "manual",
+                reviewed_from: "scene_workbench",
+              },
+            },
+          }
+        : item),
+    }
+
+    await sceneWorkbenchView._markSceneUnreviewed("s1")
+
+    const payload = api.outline.updateScene.mock.calls[0][2]
+    expect(payload.structure_meta).toEqual({
+      source_workflow_id: "wf-1",
+      needs_review: true,
+    })
+    expect(toast).toHaveBeenCalledWith("Scene 已标记为需复核", "success")
     expect(router.refresh).toHaveBeenCalled()
   })
 

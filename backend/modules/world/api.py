@@ -22,11 +22,15 @@ from modules.world.schemas import (
     CharacterListResponse,
     CharacterResponse,
     CharacterUpdate,
+    ConflictQueueListResponse,
+    ConflictResolveRequest,
     CoreEntityCreate,
     CoreEntityListResponse,
     CoreEntityResponse,
     CoreEntityUpdate,
+    CreationSuggestionListResponse,
     EntityAliasCreate,
+    EntityAliasUpdate,
     EntityFusionApplyRequest,
     EntityFusionApplyResponse,
     EntityFusionSuggestionRequest,
@@ -46,12 +50,24 @@ from modules.world.schemas import (
     EventListResponse,
     EventResponse,
     EventUpdate,
+    KnowledgeTagExclusionRequest,
+    KnowledgeTagExclusionResponse,
+    ProjectionRefreshResponse,
+    SuggestionDecisionResponse,
     TextArchiveSeedRequest,
     TextArchiveSeedResponse,
     WorldAliasRelationExtractRequest,
     WorldAliasRelationExtractResponse,
+    WorldBiblePageCreate,
+    WorldBiblePageListResponse,
+    WorldBiblePageResponse,
+    WorldBiblePageUpdate,
     WorldEntityExtractRequest,
     WorldEntityExtractResponse,
+    WorldProfileListResponse,
+    WorldProfileMigrateResponse,
+    WorldProfileResponse,
+    WorldProfileUpsertRequest,
 )
 from modules.world.services import (
     CharacterKnowledgeService,
@@ -64,6 +80,15 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.worldbuilding_service import (
+    ConflictQueueService,
+    KnowledgeTagService,
+    ProjectionRefreshConflictError,
+    SuggestionAlreadyProcessedError,
+    SuggestionQueueService,
+    WorldBibleService,
+    WorldProfileService,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/world", tags=["world"])
@@ -78,6 +103,321 @@ _revision_service = EntityRevisionService()
 _event_service = EventService()
 _character_service = CharacterService()
 _knowledge_service = CharacterKnowledgeService()
+_profile_service = WorldProfileService()
+_bible_service = WorldBibleService()
+_suggestion_service = SuggestionQueueService()
+_conflict_queue_service = ConflictQueueService()
+_knowledge_tag_service = KnowledgeTagService()
+
+
+# ============================================================
+# Worldbuilding Workspace 路由
+# ============================================================
+
+
+@router.get("/profiles", response_model=WorldProfileListResponse)
+async def list_world_profiles(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    entity_type: str | None = Query(None, description="实体类型"),
+    status: str | None = Query(None, description="实体状态"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> WorldProfileListResponse:
+    items, total = await _profile_service.list_profiles(
+        db,
+        novel_id,
+        entity_type=entity_type,
+        status=status,
+        skip=skip,
+        limit=limit,
+    )
+    return WorldProfileListResponse(items=items, total=total)
+
+
+@router.get("/profiles/{entity_id}", response_model=WorldProfileResponse)
+async def get_world_profile(
+    db: DbSession,
+    entity_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldProfileResponse:
+    return await _profile_service.get_profile(db, novel_id, entity_id)
+
+
+@router.put("/profiles/{entity_id}", response_model=WorldProfileResponse)
+async def upsert_world_profile(
+    db: DbSession,
+    entity_id: str,
+    data: WorldProfileUpsertRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldProfileResponse:
+    return await _profile_service.upsert_profile(db, novel_id, entity_id, data)
+
+
+@router.post(
+    "/profiles/{entity_id}/migrate-generic",
+    response_model=WorldProfileMigrateResponse,
+)
+async def migrate_generic_profile(
+    db: DbSession,
+    entity_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldProfileMigrateResponse:
+    profile = await _profile_service.migrate_generic_to_strong(db, novel_id, entity_id)
+    return WorldProfileMigrateResponse(
+        entity_id=entity_id,
+        migrated=True,
+        profile=profile,
+    )
+
+
+@router.get("/bible/pages", response_model=WorldBiblePageListResponse)
+async def list_bible_pages(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    page_type: str | None = Query(None, description="页面类型"),
+) -> WorldBiblePageListResponse:
+    items, total = await _bible_service.list_pages(db, novel_id, page_type=page_type)
+    return WorldBiblePageListResponse(items=items, total=total)
+
+
+@router.post("/bible/pages", response_model=WorldBiblePageResponse, status_code=201)
+async def create_bible_page(
+    db: DbSession,
+    data: WorldBiblePageCreate,
+) -> WorldBiblePageResponse:
+    return await _bible_service.create_page(db, data)
+
+
+@router.get("/bible/pages/{page_id}", response_model=WorldBiblePageResponse)
+async def get_bible_page(
+    db: DbSession,
+    page_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldBiblePageResponse:
+    return await _bible_service.get_page(db, novel_id, page_id)
+
+
+@router.patch("/bible/pages/{page_id}", response_model=WorldBiblePageResponse)
+async def update_bible_page(
+    db: DbSession,
+    page_id: str,
+    data: WorldBiblePageUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> WorldBiblePageResponse:
+    return await _bible_service.update_page(db, novel_id, page_id, data)
+
+
+@router.get("/bible/templates")
+async def list_bible_templates() -> list[dict]:
+    return await _bible_service.list_templates()
+
+
+@router.post(
+    "/bible/pages/{page_id}/refresh-projection",
+    response_model=ProjectionRefreshResponse,
+)
+async def refresh_bible_projection(
+    db: DbSession,
+    page_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+    projection_type: str = Query(default="context_brief"),
+    force: bool = Query(default=False),
+) -> ProjectionRefreshResponse:
+    try:
+        task_id, status, existing = await _bible_service.refresh_projection_task(
+            db,
+            novel_id,
+            page_id,
+            projection_type=projection_type,
+            force=force,
+        )
+    except ProjectionRefreshConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "projection_task_finished",
+                "task_id": exc.task_id,
+                "task_status": exc.status,
+                "hint": "retry with force=true",
+            },
+        ) from exc
+    return ProjectionRefreshResponse(
+        task_id=task_id,
+        status=status,
+        existing=existing,
+        projection_type=projection_type,
+    )
+
+
+@router.post("/bible/pages/{page_id}/organize")
+async def organize_bible_page(
+    page_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> dict:
+    return {
+        "page_id": page_id,
+        "novel_id": novel_id,
+        "status": "preview_only",
+        "suggestions": [],
+        "conflicts": [],
+    }
+
+
+@router.get("/suggestions", response_model=CreationSuggestionListResponse)
+async def list_world_suggestions(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    source_module: str | None = Query(None),
+    review_group: str | None = Query(None),
+    risk_level: str | None = Query(None),
+    status: str | None = Query(None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> CreationSuggestionListResponse:
+    items, total = await _suggestion_service.list(
+        db,
+        novel_id,
+        source_module=source_module,
+        review_group=review_group,
+        risk_level=risk_level,
+        status=status,
+        skip=skip,
+        limit=limit,
+    )
+    return CreationSuggestionListResponse(items=items, total=total)
+
+
+@router.post(
+    "/suggestions/{suggestion_id}/confirm",
+    response_model=SuggestionDecisionResponse,
+)
+async def confirm_world_suggestion(
+    db: DbSession,
+    suggestion_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> SuggestionDecisionResponse:
+    try:
+        suggestion = await _suggestion_service.confirm(db, novel_id, suggestion_id)
+    except SuggestionAlreadyProcessedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "already_processed",
+                "suggestion_status": exc.status,
+            },
+        ) from exc
+    return SuggestionDecisionResponse(
+        status="accepted",
+        suggestion_status=suggestion.status,
+        result_ref_json=suggestion.result_ref_json,
+    )
+
+
+@router.post(
+    "/suggestions/{suggestion_id}/reject",
+    response_model=SuggestionDecisionResponse,
+)
+async def reject_world_suggestion(
+    db: DbSession,
+    suggestion_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> SuggestionDecisionResponse:
+    try:
+        suggestion = await _suggestion_service.reject(db, novel_id, suggestion_id)
+    except SuggestionAlreadyProcessedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "already_processed",
+                "suggestion_status": exc.status,
+            },
+        ) from exc
+    return SuggestionDecisionResponse(
+        status="rejected",
+        suggestion_status=suggestion.status,
+        result_ref_json=suggestion.result_ref_json,
+    )
+
+
+@router.get("/conflicts", response_model=ConflictQueueListResponse)
+async def list_world_conflicts(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    status: str | None = Query(None),
+    conflict_type: str | None = Query(None),
+) -> ConflictQueueListResponse:
+    items, total = await _conflict_queue_service.list(
+        db,
+        novel_id,
+        status=status,
+        conflict_type=conflict_type,
+    )
+    return ConflictQueueListResponse(items=items, total=total)
+
+
+@router.post("/conflicts/{conflict_id}/resolve")
+async def resolve_world_conflict(
+    db: DbSession,
+    conflict_id: str,
+    data: ConflictResolveRequest,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> dict:
+    item = await _conflict_queue_service.resolve(
+        db,
+        novel_id,
+        conflict_id,
+        status=data.status,
+        resolution_json=data.resolution_json,
+    )
+    return {"status": item.status, "id": item.id}
+
+
+@router.post(
+    "/characters/{character_id}/knowledge-tags/{tag_id}/exclude",
+    response_model=KnowledgeTagExclusionResponse,
+)
+async def exclude_character_knowledge_tag(
+    db: DbSession,
+    character_id: str,
+    tag_id: str,
+    data: KnowledgeTagExclusionRequest,
+) -> KnowledgeTagExclusionResponse:
+    return await _knowledge_tag_service.create_exclusion(
+        db,
+        data.novel_id,
+        character_id,
+        tag_id,
+        reason=data.reason,
+    )
+
+
+@router.delete(
+    "/characters/{character_id}/knowledge-tags/{tag_id}/exclude",
+    response_model=KnowledgeTagExclusionResponse,
+)
+async def delete_character_knowledge_tag_exclusion(
+    db: DbSession,
+    character_id: str,
+    tag_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> KnowledgeTagExclusionResponse:
+    return await _knowledge_tag_service.delete_exclusion(
+        db,
+        novel_id,
+        character_id,
+        tag_id,
+    )
+
+
+@router.post("/characters/{character_id}/knowledge-tags/{tag_id}/lock")
+async def lock_character_knowledge_tag(
+    db: DbSession,
+    character_id: str,
+    tag_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> dict:
+    return await _knowledge_tag_service.lock_tag(db, novel_id, character_id, tag_id)
 
 
 # ============================================================
@@ -719,6 +1059,24 @@ async def create_alias(
         data.entity_id,
         data.alias,
         data.alias_type,
+    )
+
+
+@router.patch("/entities/{entity_id}/aliases")
+async def update_alias(
+    db: DbSession,
+    entity_id: str,
+    data: EntityAliasUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+    alias: str = Query(..., description="要更新的别名文本"),
+) -> dict:
+    """更新实体的指定别名元数据。"""
+    return await _alias_service.update_alias(
+        db,
+        novel_id,
+        entity_id,
+        alias,
+        data.model_dump(exclude_unset=True),
     )
 
 

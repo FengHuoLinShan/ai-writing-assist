@@ -199,6 +199,28 @@ class ContextConfirmRequest(ContextSelectionRequest):
     action: str = Field(..., min_length=1, description="手动 AI 操作标识")
 
 
+class ContextActivationPreviewRequest(BaseModel):
+    """Worldbuilding activation preview request."""
+
+    novel_id: str
+    entity_ids: list[str] = Field(default_factory=list)
+    map_id: str | None = None
+    scene_id: str | None = None
+    focus_entity_id: str | None = None
+    top_k: int = Field(default=64, ge=1, le=256)
+    depth: int = Field(default=2, ge=0, le=2)
+
+
+class ContextActivationPreviewResponse(BaseModel):
+    """Deterministic activation preview response."""
+
+    novel_id: str
+    depth: int
+    top_k: int
+    items: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ContextConfirmationResponse(BaseModel):
     """AI 参考资料确认响应。"""
 

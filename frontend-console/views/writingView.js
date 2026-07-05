@@ -697,7 +697,7 @@ const writingView = {
   _renderChapterTree() {
     reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
     let html = `
-      <div class="card" style="max-height:600px;overflow-y:auto;">
+      <div class="card chapter-tree-card">
         <div class="chapter-tree-header">
           <span class="chapter-tree-title">章节（${this._chapterList.length}）</span>
           <div class="chapter-tree-actions">
@@ -745,7 +745,7 @@ const writingView = {
     reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
 
     let html = `
-      <div class="card" style="max-height:600px;overflow-y:auto;">
+      <div class="card chapter-tree-card">
         <div class="chapter-tree-header">
           <span class="chapter-tree-title">章节</span>
           <div class="chapter-tree-actions">

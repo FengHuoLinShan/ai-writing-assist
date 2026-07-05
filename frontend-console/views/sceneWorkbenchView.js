@@ -76,12 +76,14 @@ const sceneWorkbenchView = {
   _crossChapterProgress: null,
   _crossChapterPoller: null,
   _activeDraftReview: null,
+  _mobileDetailOpen: false,
 
   async onEnter() {
     this._loading = true
     this._workbench = null
     this._total = 0
     this._selectedFusionSceneIds = new Set()
+    this._mobileDetailOpen = Boolean(state.currentSubView)
     if (!state.currentProjectId) {
       this._loading = false
       return
@@ -117,6 +119,7 @@ const sceneWorkbenchView = {
 
     const selected = this._selectedSceneItem()
     const narrow = typeof window !== "undefined" && window.innerWidth < 720
+    const showNarrowDetail = narrow && this._mobileDetailOpen && selected
     const detail = this._renderDetail(selected, narrow)
     const html = `
       <div style="margin-bottom:8px;display:flex;gap:8px;justify-content:flex-end;">
@@ -134,7 +137,7 @@ const sceneWorkbenchView = {
           ${this._renderPagination()}
         </section>
         ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
-        ${narrow && selected ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
+        ${showNarrowDetail ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
       </div>
     `
     setTimeout(() => this._bindEvents(), 0)
@@ -255,6 +258,7 @@ const sceneWorkbenchView = {
     const scene = item.scene || {}
     const selected = selectedId === scene.id ? "is-selected" : ""
     const fusionSelected = this._selectedFusionSceneIds.has(scene.id)
+    const reviewAction = this._renderReviewAction(item, "row")
     const health = (item.health || []).map((key) => {
       const label = this._healthLabel(key)
       return `<span class="scene-health-chip">${esc(label)}</span>`
@@ -282,6 +286,7 @@ const sceneWorkbenchView = {
           <div class="scene-workbench-row__health">${health}</div>
         </button>
         <div class="scene-workbench-row__actions">
+          ${reviewAction}
           <button class="btn btn-sm btn-primary" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
           ${renderActionMenu(`scene-actions-${esc(scene.id)}`, [
             { action: "organize-workbench-scene", label: "拆分/整理", data: { id: scene.id } },
@@ -341,6 +346,10 @@ const sceneWorkbenchView = {
     const close = narrow
       ? '<button class="btn btn-sm" data-action="close-scene-detail">关闭</button>'
       : ""
+    const reviewState = this._sceneReviewState(item)
+    const reviewLabel = reviewState.reviewed
+      ? `已复核 · ${this._formatReviewTime(reviewState.reviewedAt)}`
+      : "未复核"
     return `
       <div class="scene-detail-panel">
         <div class="scene-detail-panel__head">
@@ -365,9 +374,10 @@ const sceneWorkbenchView = {
         <section class="scene-detail-summary">
           <div><strong>章节映射</strong><span>${esc(item.chapter_range || "未关联章节")}</span></div>
           <div><strong>关联资产预览</strong><span>剧情线 / 伏笔 / 揭示 / 地图摘要将在整理预览中展示</span></div>
-          <div><strong>来源与复核</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))}</span></div>
+          <div><strong>来源与复核</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(reviewLabel)}</span></div>
         </section>
         <div class="scene-detail-actions">
+          ${this._renderReviewAction(item, "detail")}
           <button class="btn btn-primary" data-action="save-scene-detail" data-id="${esc(scene.id)}">保存</button>
           <button class="btn" data-action="start-merge-scene" data-id="${esc(scene.id)}">合并</button>
           <button class="btn" data-action="start-split-scene" data-id="${esc(scene.id)}">拆分</button>
@@ -427,6 +437,45 @@ const sceneWorkbenchView = {
     return (this._workbench?.items || []).find((item) => item.scene?.id === sceneId)?.scene || null
   },
 
+  _findSceneItem(sceneId) {
+    return (this._workbench?.items || []).find((item) => item.scene?.id === sceneId) || null
+  },
+
+  _sceneReviewState(item) {
+    const meta = item?.scene?.structure_meta || {}
+    const health = item?.health || []
+    const reviewedAt = meta.reviewed_at || null
+    return {
+      reviewed: Boolean(reviewedAt),
+      reviewedAt,
+      needsReview: Boolean(meta.needs_review) || health.includes("unreviewed"),
+    }
+  },
+
+  _renderReviewAction(item, placement) {
+    const sceneId = item?.scene?.id
+    if (!sceneId) return ""
+    const state = this._sceneReviewState(item)
+    const size = placement === "row" ? "btn-sm" : ""
+    if (state.reviewed) {
+      return `<button class="btn ${size} scene-review-action" data-action="mark-scene-unreviewed" data-id="${esc(sceneId)}">取消复核</button>`
+    }
+    const primary = state.needsReview ? "btn-primary" : ""
+    return `<button class="btn ${size} ${primary} scene-review-action" data-action="mark-scene-reviewed" data-id="${esc(sceneId)}">复核通过</button>`
+  },
+
+  _formatReviewTime(value) {
+    if (!value) return ""
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+    return date.toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  },
+
   _toggleFusionSelection(sceneId, selected) {
     if (!sceneId) return
     if (selected) this._selectedFusionSceneIds.add(sceneId)
@@ -472,6 +521,41 @@ const sceneWorkbenchView = {
       pov_character_id: value("scene-detail-pov"),
     })
     toast("Scene 已保存", "success")
+    await router.refresh()
+  },
+
+  async _markSceneReviewed(sceneId) {
+    const item = this._findSceneItem(sceneId)
+    const scene = item?.scene
+    if (!scene) {
+      toast("未找到目标 Scene", "error")
+      return
+    }
+    const meta = {
+      ...(scene.structure_meta || {}),
+      needs_review: false,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: "manual",
+      reviewed_from: "scene_workbench",
+    }
+    await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
+    toast("Scene 已标记为已复核", "success")
+    await router.refresh()
+  },
+
+  async _markSceneUnreviewed(sceneId) {
+    const item = this._findSceneItem(sceneId)
+    const scene = item?.scene
+    if (!scene) {
+      toast("未找到目标 Scene", "error")
+      return
+    }
+    const meta = { ...(scene.structure_meta || {}), needs_review: true }
+    delete meta.reviewed_at
+    delete meta.reviewed_by
+    delete meta.reviewed_from
+    await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
+    toast("Scene 已标记为需复核", "success")
     await router.refresh()
   },
 
@@ -1168,8 +1252,16 @@ const sceneWorkbenchView = {
       "toggle-advanced-scene-filters": () => this._toggleAdvancedFilters(),
       "prev-scene-page": () => this._changePage(-1),
       "next-scene-page": () => this._changePage(1),
-      "select-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
-      "edit-workbench-scene": (_e, _t, ctx) => ctx.id && router.navigate("scene", ctx.id),
+      "select-workbench-scene": (_e, _t, ctx) => {
+        if (!ctx.id) return
+        this._mobileDetailOpen = true
+        router.navigate("scene", ctx.id)
+      },
+      "edit-workbench-scene": (_e, _t, ctx) => {
+        if (!ctx.id) return
+        this._mobileDetailOpen = true
+        router.navigate("scene", ctx.id)
+      },
       "organize-workbench-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
       "open-writing-scene": (_e, _t, ctx) => {
         const scene = ctx.id ? this._findScene(ctx.id) : null
@@ -1177,6 +1269,8 @@ const sceneWorkbenchView = {
       },
       "assign-unassigned-chapter": (_e, _t, ctx) => ctx.chapter && this._assignChapter(ctx.chapter),
       "save-scene-detail": (_e, _t, ctx) => ctx.id && this._saveSceneDetails(ctx.id),
+      "mark-scene-reviewed": (_e, _t, ctx) => ctx.id && this._markSceneReviewed(ctx.id),
+      "mark-scene-unreviewed": (_e, _t, ctx) => ctx.id && this._markSceneUnreviewed(ctx.id),
       "toggle-fusion-selection": (e, t, ctx) => {
         e.stopPropagation()
         this._toggleFusionSelection(ctx.id, t.checked)
@@ -1188,7 +1282,10 @@ const sceneWorkbenchView = {
       "start-manual-fusion": () => this._startManualFusion(),
       "start-merge-scene": (_e, _t, ctx) => ctx.id && this._startMerge(ctx.id),
       "start-split-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
-      "close-scene-detail": () => router.navigate("scene", null),
+      "close-scene-detail": () => {
+        this._mobileDetailOpen = false
+        router.renderCurrentView()
+      },
     })
 
     bindActionMenus()

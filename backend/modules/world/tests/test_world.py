@@ -1112,6 +1112,45 @@ async def test_merge_entity_api_service_marks_candidate_merged(
 
 
 @pytest.mark.asyncio
+async def test_merge_entity_rejects_candidate_target(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    entity_service = WorldEntityService()
+    source = await entity_service.create(
+        db_session,
+        sample_novel_id,
+        WorldEntityCreate(
+            entity_type="character",
+            name="候选源",
+            status="candidate",
+            force_create=True,
+        ),
+    )
+    target = await entity_service.create(
+        db_session,
+        sample_novel_id,
+        WorldEntityCreate(
+            entity_type="character",
+            name="候选目标",
+            status="candidate",
+            force_create=True,
+        ),
+    )
+
+    with pytest.raises(DomainValidationError) as exc:
+        await EntityDedupService().merge_candidate_into_entity(
+            db_session,
+            sample_novel_id,
+            source.id,
+            target.id,
+        )
+
+    assert exc.value.status_code == 422
+    assert "Merge target must be draft or canonical" in str(exc.value)
+
+
+@pytest.mark.asyncio
 async def test_merge_entity_route_marks_candidate_merged(
     async_client: AsyncClient,
     db_session: AsyncSession,

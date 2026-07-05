@@ -629,7 +629,7 @@ const mapView = {
     const h = cfg.grid_height
     const [, lastY] = hexToPixel(w - 1, h - 1, size)
     const bounds = window.L.latLngBounds(
-      [[-size, -size], [lastY + size, (size * 1.5 * (w - 1)) + size]]
+      [[-(lastY + size), -size], [size, (size * 1.5 * (w - 1)) + size]]
     )
     this._leaflet.fitBounds(bounds)
 
@@ -777,7 +777,7 @@ const mapView = {
     const centers = (this._state.location_bindings || []).filter((binding) => binding.is_center)
     const layoutItems = centers.map((binding, index) => {
       const [x, y] = hexToPixel(binding.hex_q, binding.hex_r, size)
-      const latlng = window.L.latLng(y, x)
+      const latlng = window.L.latLng(-y, x)
       const point = this._leaflet.latLngToContainerPoint(latlng)
       const label = binding.label_override || this._locationName(binding.location_entity_id)
       return {
@@ -807,7 +807,7 @@ const mapView = {
     const labelById = new Map(layout.labels.map((label) => [label.itemId, label]))
     for (const b of centers) {
       const [x, y] = hexToPixel(b.hex_q, b.hex_r, size)
-      const latlng = window.L.latLng(y, x)
+      const latlng = window.L.latLng(-y, x)
       const point = this._leaflet.latLngToContainerPoint(latlng)
       const labelLayout = labelById.get(b.location_entity_id)
       if (!labelLayout) continue
@@ -1114,7 +1114,7 @@ const mapView = {
     }
     const cfg = this._state.map
     const [x, y] = hexToPixel(q, r, cfg.hex_size || 30)
-    const latlng = window.L.latLng(y, x)
+    const latlng = window.L.latLng(-y, x)
     if (this._tooltipPopup) {
       this._tooltipPopup.setLatLng(latlng).setContent(content)
     } else {

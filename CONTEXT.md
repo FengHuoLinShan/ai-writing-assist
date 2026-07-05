@@ -8,9 +8,21 @@
 
 | 中文概念 | 英文 | 数据表 | 职责 |
 |---------|------|--------|------|
-| 核心实体 | CoreEntity | `core_entities` | 世界对象主表。`entity_type` 区分 **character** / location / faction / item / concept / event / creature / skill / rule / secret / legend / resource / other。别名内联在 `aliases` JSONB |
+| 核心实体 | CoreEntity | `core_entities` + 类型扩展表 | 世界对象身份主表。`entity_type` 区分 **character** / location / faction / item / event / rule / power_system / species / group / secret / legend / resource / concept / creature / skill / other。`species` 表达种族/物种/血脉，`group` 表达阶层/职业/社会群体；各主要类型通过 1:1 扩展表保存高频结构化字段，CoreEntity 保存统一身份、名称、摘要、别名、状态和 provenance |
+| 实体档案模板 | EntityProfileTemplate | `entity_profile_templates` | 定义某个 CoreEntity 类型的档案字段 schema、展示规则、校验规则、上下文投影和迁移规则。第一版用于 generic profile 和强表 profile 共用模板，不等同于 World Bible Page Template |
+| 通用实体档案 | GenericEntityProfile | `generic_entity_profiles` | 尚未拆出独立强表的 CoreEntity 类型档案承载层，以 entity_id 1:1 绑定 CoreEntity，并按 EntityProfileTemplate 校验 `data_json` / `extra_json`。用于 power_system、resource、legend、concept、creature、skill 等后续类型的完整可用占位 |
+| 目标引用 | TargetRef | 跨模块 contract | 可见性、冲突检查、投影、知识标签和建议队列共用的世界事实寻址对象，统一由 `target_type`、`target_id`、`target_path` 三段组成。传输层使用 JSON 对象，数据库层可物化三列以便索引；不再使用 `background_group` 等临时寻址词 |
 | 人物 | Character | `characters` | `entity_id` FK→CoreEntity。存人物特有字段（role, personality, desire, fear, secret, weakness, stance, voice_style 等） |
-| 人物知识 | CharacterKnowledge | `character_knowledge` | 某角色对某事物的了解程度（unknown / rumor / partial / full / false_belief） |
+| 人物知识 | CharacterKnowledge | `character_knowledge` | 某角色对某事物的了解程度（unknown / rumor / partial / full / restricted / false_belief / misunderstood）。它是稀疏 per-character 覆盖记录，不为每个角色和每个世界对象预建矩阵 |
+| 知识标签 | KnowledgeTag | `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` | 压缩“角色 × 事实”可见性矩阵的知情者标签，例如某势力成员、某种族、本地居民、亲历某事件、读过某书。第一版执行 derived / manual / confirmed_suggestion：系统自动推导公共身份，作者维护叙事专属标签，AI 只提出待确认建议；triggered 事件触发标签先作为草案/预览预留 |
+| 知识标签授予来源 | KnowledgeTagGrantProvenance | `character_knowledge_tags` | 角色获得某个 KnowledgeTag 的来源追踪。记录 grant_source、source_ref_type、source_ref_id、source_scene_id、source_chapter_index 和 author_locked，用于 Scene 重写/删除/回滚时提示哪些衍生标签可能失效；第一版只提示和允许锁定，第二版才自动回滚未锁定授予 |
+| 知识标签排除 | KnowledgeTagExclusion | `knowledge_tag_exclusions` | 作者对自动派生标签的持久否定意图。同步任务重新计算 species、faction、home location 等 derived 标签时，必须先扣除该表记录；删除 exclusion 后，下次同步可重新授予对应标签 |
+| 知识可见性策略 | KnowledgeVisibilityPolicy | `knowledge_visibility_policies` | 世界事实片段的可见性策略，分 public / tag / private 三个第一版执行层；rule 作为草案/预览预留。public 不写 per-character；tag 用 KnowledgeTag；private 只用于极少数个人秘密 |
+| 读者揭示信息 | ReaderRevealInfo | TargetRef metadata / projection metadata | 某个 TargetRef 或投影片段首次对真实读者揭示的位置，包含 reveal_status、reveal_chapter_index、reveal_scene_id、reveal_plan_id。它控制叙事信息释放节奏，不等同于角色是否知道 |
+| 读者进度 | ReaderProgress | context compile option | 当前读者或预览视角的阅读进度，至少包含 effective_chapter_index，可选 scene_id / reveal_plan_id。读者向摘要、回顾、旁白和 AI 辅助问答必须用它过滤剧透 |
+| 读者安全 | ReaderSafe | computed result | 运行时由 ReaderRevealInfo + ReaderProgress 计算出的布尔结果，不作为全局静态字段存储。未配置揭示点或状态为 unrevealed 的目标默认不对读者安全，除非它被显式标为 public baseline |
+| 知识继承 | KnowledgeImplication | `knowledge_implications` | 事实之间的可见性继承或蕴含关系，例如知道 A 的角色默认知道 B。第一版只存储和预览，不参与正式权限判决；后续启用时必须可解释、可追踪来源，并在冲突时采用更保守可见性 |
+| 知识范围规则 | KnowledgeScopeRule | `knowledge_tags` / `entity_relations` / `knowledge_visibility_policies` | 角色数量爆炸时的知识继承规则。第一版以 derived/manual KnowledgeTag 为主；rule/trigger 仅作为草案预留。公共可见不写 per-character；只有 POV、主角、关键误解、秘密知情人和偏离群体默认值的情况才写 CharacterKnowledge |
 | 剧情线 | PlotThread | `plot_threads` | 主线/支线/隐藏线/关系线/反派线/伏笔线。含起止章节、表层目标、隐藏真相、读者/作者已知状态 |
 | 篇章纲 | OutlineArc | `outline_arcs` | 小说卷/篇章结构。含 arc_goal, core_conflict, entry_hook, midpoint_turn, climax, result, next_hook |
 | 章节卡 | ChapterCard | `chapter_cards` | 单章的 goal, main_conflict, emotional_point, plot_function, must_happen / must_not_happen |
@@ -23,12 +35,29 @@
 | 事件 | Event | `core_entities` (entity_type="event") | 小说时间线事件。timeline_order 存于 content_json |
 | 导入记录 | ImportRecord | `import_records` | 小说文件导入跟踪。不存原文 |
 | 候选创作资产 | Candidate Creative Asset | 多表状态表达 | AI 或系统从正文中提取出的、具备长期维护价值但尚未被用户确认的结构化资产。可对应 CoreEntity、Relation、Alias、Event、Scene、PlotThread 等对象；默认进入 candidate 或等价待确认状态，可进入工作上下文但不进入正史上下文 |
+| 导入写入风险分级 | Import Write Risk Classifier | imports workflow / suggestion queues | 深度导入写库前的风险分类边界。低风险事实轮廓可写 draft/candidate；公共可推导标签可在严格条件下自动同步；KnowledgeVisibilityPolicy、叙事专属 KnowledgeTag、CharacterKnowledge 等知识连接默认只进导入审核建议，作者确认前不写正式知识表 |
 | ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。候选对象不再使用独立候选表，改由对应资产表的状态与自动入库元数据表达 |
 | 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
-| 世界设定工作台 | Worldbuilding Workspace | `core_entities` / `entity_relations` / `map_*` / `context_*` | 作者在开书前和写作过程中维护世界观的创作工作台。它不是独立世界观数据库，而是面向 CoreEntity、关系、地图事实和 AI 参考资料激活规则的统一入口 |
+| 世界观手册 | World Bible | `core_entities` / `entity_relations` / `map_*` / `context_*` | 作者开书前和创作过程中维护世界观的百科/指引手册式产品入口，采用固定核心册页 + 可扩展自定义册页。固定册页包括世界基本背景、种族/群体、势力、地点/地图、历史重大事件、规则体系、重要物品、主要人物、秘密与伏笔；自定义册页服务修仙境界、科幻技术树、神系/位面/怪物图鉴等类型化设定。它不是独立世界观数据库，而是把世界对象、关系、地图事实、人物知识边界和上下文激活规则组织成作者可浏览、可补全、可预览 AI 参考资料的手册 |
+| 事实所有权模型 | Fact Ownership Model | 跨模块 contract | 同一个世界事实只能有一个权威归属。世界对象事实属于 CoreEntity、类型 profile 强字段、profile `extra_json`、EntityRelation、地图事实、人物知识边界或结构资产；World Bible Page 只组织、引用和解释这些事实；projection 只是缓存；正文草稿是读者面向艺术呈现，不回写设定真相 |
+| 世界观手册页 | World Bible Page | `world_bible_pages` | World Bible 中的一个作者可编辑页面，承载页面标题、页面元数据、自由正文、关联资产引用和激活默认规则。它保存作者的手册正文和页面组织方式，但不拥有正史事实；可被 AI 参考资料、创设建议、冲突检查和地图联动读取其关联资产和页面投影 |
+| 手册页未发布修改 | World Bible Page Draft Changes | `world_bible_pages` | 已发布手册页应用页面元数据补全、自由正文编辑或模板字段调整后产生的未发布修改。它可用于预览和再次整理，但默认不进入 canonical 世界观手册；作者点击发布后才成为正史手册页内容 |
+| 手册页修订版本 | World Bible Page Revision | `world_bible_page_revisions` | World Bible Page 的轻量版本历史，类似正文版本。它在发布 canonical、应用 AI 整理建议、回滚等有意义节点记录完整页面快照、版本号、变更摘要和来源建议；不为每次自动保存创建版本。回滚通过创建新的修订版本完成，不删除旧历史 |
+| 实体手册扩展页 | Entity Bible Extension Page | `world_bible_pages` | 绑定单个 CoreEntity 的可选 World Bible Page，只在作者为该实体额外撰写百科正文、创作手册正文或特殊模板字段时创建。普通实体详情页默认由 CoreEntity、关系、地图事实和人物知识边界动态渲染，不为每个实体自动创建空手册页 |
+| 世界观手册页模板 | World Bible Page Template | 代码注册表 / `world_bible_page_templates` | 定义 World Bible Page 的页面元数据字段、展示规则、上下文投影、冲突检查提示和默认激活规则。`world_bible_pages` 只保存 `template_key`、`template_version` 和 `page_meta_json`；内置固定册页模板由代码注册表提供，自定义册页模板后续持久化到模板表 |
+| 世界观手册页结构 | World Bible Page Structure | World Bible | 每个固定册页和自定义册页的作者编辑结构，由页面元数据、自由正文、关联资产/激活规则三层组成。页面元数据服务展示顺序、关联故事线、写作状态和组织方式；自由正文服务作者表达手册式叙述；关联资产把页面连接到实体、关系、地图事实、历史事件、人物知识边界和 AI 参考资料激活规则 |
+| 自由正文投影 | Free Text Projection | `world_bible_page_projections` | World Bible Page 的 `free_text` 进入 AI 参考资料前形成的派生上下文材料。它可以是短文本摘录、模板化摘要、风格/文化要点或事实候选摘要，带 source page、source spans、token 估算、裁剪原因和不确定性；可持久化缓存并按 `free_text_hash` 失效重建，但不是正史事实 |
+| 手册页整理任务 | Page Organization Task | `async_tasks` / suggestion queues | 针对单个 World Bible Page 的受控 AI 整理流程，参考深度导入的 workflow_id、phase timeline、quality stats 和 phase artifacts。它读取页面元数据、自由正文、关联资产和 projection，产出页面元数据补全建议、profile/实体/关系/地图事实建议、冲突检查项和 projection 诊断；结果进入建议队列或冲突队列，作者确认前不写正史 |
+| 单页整理边界 | Single Page Organization Scope | Page Organization Task | `整理此页` 的默认执行边界。任务只整理当前 World Bible Page；关联实体、地图、关系和其他手册页只作为只读上下文，不被递归整理或自动改写。若发现关联页面也需要整理，只生成后续任务建议 |
+| 整理结果确认分组 | Organization Result Review Groups | Page Organization Task | `整理此页` 的结果审查分组。页面元数据补全建议、profile/新对象/关系/地图事实建议、冲突/叙事风险、后续任务建议分开确认；低风险的当前页元数据补全不和高风险正史资产写入混在同一个确认动作里 |
+| 世界观资产视图 | World Bible Asset View | World Bible | World Bible 手册页对世界资产的组织和编辑视图，而不是第二套正史来源。人物、种族/群体、势力、地点、重要物品、历史事件、规则体系、秘密、资源等世界对象优先复用 CoreEntity，通过 entity_type、类型扩展表、标签、profile 字段和关系区分；事件时间线由 Event 扩展字段、事件关系和视图表达，规则层级由规则扩展表、EntityRelation、模板字段和视图表达。正史事实仍由 CoreEntity、类型 profile、EntityRelation、地图事实、人物知识边界和 outline 结构资产拥有。手册页负责把这些资产组织成百科/指引体验。自由正文中的新事实若要参与 AI 参考资料、冲突检查、地图联动或深度导入支持，必须转成结构化资产、关系、地图事实或待确认建议 |
+| 世界核心简报 | World Core Brief | `world` / `context` | 世界基本背景页进入 AI 参考资料时的 P0 短版，而不是完整百科页。它只保留世界一句话、时代/文明阶段、核心规则边界、叙事禁区、核心矛盾和作者硬约束等必须常驻的短事实；完整世界基本背景页仍面向作者浏览和维护，详细段落按关键词、任务、地图焦点、Scene 证据或显式选择进入上下文 |
+| 世界设定工作台 | Worldbuilding Workspace | `core_entities` / `entity_relations` / `map_*` / `context_*` | 维护 World Bible 的工作台能力集合，包括手册浏览、对象编辑、地图联动、创设建议、冲突检查、AI 参考资料预览和深度导入消费。它不是独立世界观数据库，而是面向 CoreEntity、关系、地图事实和 AI 参考资料激活规则的统一操作入口 |
+| 世界背景聚合 | WorldBackgroundAggregation | `world` / `context` | 面向长篇小说的世界设定背景聚合层，把世界对象、关系、势力/地点/规则、历史事件、重要物品、地图事实、人物知识边界和结构资产整理成可被 AI 参考资料激活和冲突检查消费的分层摘要。它不是简单实体列表，也不由 imports 拥有；世界设定工作台负责维护和预览，context 模块负责按 `ContextActivationRule` 编译进 AI 参考资料，深度导入通过 context facade 消费它来改善 Phase 2/3 |
 | 上下文激活规则 | ContextActivationRule | `context_activation_rules` | 描述某个重要世界对象、规则或地图事实在什么任务、Scene、人物、地点、地图焦点或关键词下应进入 AI 参考资料。激活规则只决定上下文选择和解释，不改变对象本身的正史状态 |
-| 导入上下文激活 | ImportContextActivation | 跨模块概念 | 深度导入中每个 LLM 步骤运行前的确定性上下文预检。它基于 Scene、章节范围、地图焦点、已知世界对象、关系、结构资产、关键词和递归激活规则选择 `ContextSection`，记录 activation_reason、sources、token 占比和裁剪原因；它不直接生成事实、不写正史，也不替代 Pydantic schema 校验 |
+| 导入上下文激活 | ImportContextActivation | 跨模块概念 | 深度导入中每个 LLM 步骤运行前的确定性上下文预检。它以当前 Scene 为主证据，完整保留当前 Scene 覆盖的 `scene_chunks` 正文；Phase 2 Scene-local 抽取默认只读取前序 `NeighborSceneBrief`，只在共享实体、地点、关系、伏笔、地图焦点或跨章延续等强证据命中时读取前序局部原文，不把后续 Scene 放入当前 Scene 上下文，避免剧透污染。`NeighborSceneBrief` 由 deep import workflow 基于稳定接口和已落库资产生成，默认只进入任务结果、phase artifacts 或 context snapshot metadata，不作为长期正史表。它基于 Scene、章节范围、地图焦点、已知世界对象、关系、结构资产、关键词和递归激活规则选择 `ContextSection`，记录 activation_reason、sources、token 占比和裁剪原因；它不直接生成事实、不写正史，也不替代 Pydantic schema 校验 |
+| 深度导入上下文接入 | Deep Import Context Integration | 跨模块概念 | 深度导入对世界观和上下文模块的消费方式。交付顺序是先在 world/context 中形成世界观聚合、激活规则和可审计 `ContextSection`，再由 imports 通过 context facade 获取这些 section 支持 Phase 2/3；imports 不拥有世界观聚合，不直接读取 world/context 内部 repository/service，也不复制一套临时世界观系统 |
 | 创设建议队列 | CreationSuggestionQueue | 待建队列表 | LLM 对世界设定提出的新对象、补全、关系、地图候选或规则建议集合。建议默认等待作者确认，确认前不写入正史 |
 | 冲突检查队列 | ConflictCheckQueue | 待建队列表 | LLM 或确定性检查发现的设定矛盾与叙事风险集合。队列项按事实冲突和叙事风险分级，作者确认处理后才修改正史或地图事实 |
 | 事实冲突 | FactConflict | 冲突检查队列 | 与已确认正史、时间线、人物知识边界或地图事实直接矛盾的问题。事实冲突需要修正、改写、废弃候选或显式解释 |
@@ -40,7 +69,11 @@
 | Agent Harness | Agent Harness | 跨模块概念 | 支撑创作工作流 Agent 的横切执行底座，不是新的用户可见创作资产。第一阶段优先覆盖工具调用协议、上下文管理、LLM 输出容错和任务循环可观测性；目标是让现有深度导入、Scene 整理、世界对象抽取和结构分析更稳定、更可恢复、更可验证，而不是先增加新 UI 或新多 Agent 协调器。第一阶段以 imports 深度导入作为试验场，第一条竖切线是 Phase 0/1 Scene 提取；第一版代码应留在 `backend/modules/imports/` 内部（如 `managed_llm_step.py` 或 `agent_step_harness.py`），不先创建 `modules/agent`。在真实 LLM 长流程中验证 harness pattern 且 Phase 0/1、Phase 2 形成稳定复用后，再决定是否抽到共享 `backend/infrastructure/agent/` |
 | LLM 供应商配置 | LLM Provider Profile | `projects.settings["llm"]` | 项目级 LLM 供应商配置，采用 OpenAI-compatible 形状表达 api_key、base_url、model 和常用生成参数。系统提供国内外供应商模板用于预填，包括 DeepSeek、Kimi、通义千问/阿里云百炼、智谱、百川、MiniMax、腾讯混元、百度千帆、阶跃星辰、零一万物、硅基流动、火山方舟和自定义 OpenAI-compatible 网关；模板只是可编辑默认值，用户选择后仍可调整 Base URL、模型、timeout、max_tokens、temperature、top_p 和供应商扩展 JSON。Agent Harness 不硬编码供应商。业务 LLM 调用以项目级配置为权威来源；环境变量只作为未配置项目的 fallback、本机开发和真实 LLM 验收 override。每次长流程运行应记录脱敏后的 effective provider/model/host/timeout/参数摘要和字段来源（project/env/test_override/default） |
 | LLM Step Harness | LLM Step Harness | 跨模块概念 | Agent Harness 第一阶段的最小交付物，用于包住现有 Phase 0 / Phase 1a / Phase 1b LLM 调用，而不是重写深度导入 workflow 编排。它统一处理输入上下文预算、LLM timeout / retry / total watchdog、schema validate / repair / degraded fallback、step 级 JSONL / timeline / checkpoint 诊断，以及 step 的只读/写入、权限级别和可重跑粒度定义。Phase 0/1 的上下文超限治理采用五层链路：step input budget、tool/context result budget、snip、microcompact/collapse、autocompact fallback；任何裁剪或压缩都必须写入 degraded diagnostics，且压缩摘要只作为 working context，不产生正史事实 |
+| LLM Compact Step | LLM Compact Step | 跨模块概念 | 受控 LLM 上下文压缩步骤，工作方式参考 Codex 式上下文 compact：先由代码完成分层预算、优先级排序、去重、snip 和 deterministic collapse；只有仍超预算或资料过碎时才调用 LLM，把一组有来源的 Scene brief、世界背景聚合片段或证据 snippet 压缩成短摘要。compact 输出必须保留 source ids、coverage、omitted_reason、token_before/after 和 uncertainty，不允许新增事实、改写事实状态或产生正史；它只作为后续 LLM step 的 working context，并进入 snapshot metadata / phase artifacts |
 | 受控 LLM 步骤 | Managed LLM Step | 跨模块概念 | 介于主创作工作流 Agent 和普通工具调用之间的确定性 LLM 执行单元，适用于 Phase 0 / Phase 1a / Phase 1b。它比普通 tool call 更重，包含 prompt 构造、上下文预算、LLM 调用、schema 守门、retry、degraded fallback 和 journal；但比 subagent 更轻，不自主规划、不选择下一步、不长期持有记忆、不递归启动 agent、不拥有 workflow。主 orchestrator 仍负责调度、并发、合并、降级和写库 |
+| 两段式并发提取 | Two-Stage Concurrent Extraction | 跨模块概念 | 深度导入 Phase 2 的目标执行语义：先基于 `ImportContextActivation` 为每个 Scene 独立准备可审计上下文，再按 Scene 并发执行 LLM 抽取；随后按 `scene_index` 顺序串行提交写库、去重、实体融合、关系 create-or-merge、checkpoint 和 memory snapshot。它用显式上下文预检替代 batch 内隐式 rolling context，保留写库顺序和可恢复性。后续 Scene 证据只允许在别名融合、实体去重、关系对账、跨章连续性评分、Phase 3 结构总览和伏笔回收链路识别等全局对账步骤使用，并标记为 `future_evidence`；它不能回写成当前 Scene 的角色知识、读者已知状态、当章事实或 delta 发生时间。若全局对账发现前文漏抽重要对象，只能创建补抽建议或触发前文 Scene rerun，rerun 仍必须只使用该前文 Scene 当时可见的上下文 |
+| 自适应并发窗口 | Adaptive Concurrency Window | 跨模块概念 | 深度导入 LLM 抽取阶段的并发控制语义。官方高并发模型默认从 64 个 Scene 并发起步，并根据 provider profile、错误率、超时率、格式失败率、repair 次数和本地写库积压动态收缩或恢复；opencode 等可能限流的兼容网关使用保守默认，并在前端提示建议使用官方 DeepSeek-v4-flash。任务结果应记录 effective concurrency、throttle reason 和降级统计 |
+| 深度导入质量门禁 | Deep Import Quality Gate | 跨模块概念 | 深度导入阶段完成后的质量检查语义，不只检查数量，也检查 Scene 覆盖率、实体/关系重复率、跨章连续性、格式修复率、fallback 比例、结构资产引用完整性和剧情线/篇章纲是否真实关联 Scene 或实体。被质量门禁标记的 Scene、batch 或结构资产会自动进入最多一轮受控 rerun；rerun 仍未通过时标记 degraded，记录原因和可复跑范围，不静默通过 |
 | Step/Tool Envelope | Step/Tool Envelope | 跨模块概念 | Agent Harness 对单个确定性执行单元的统一描述和结果包，借鉴 Claude Code 的 `ToolDef` / ToolStart / ToolEnd 思路，但第一阶段不让 LLM 自主选择下一步。每个 envelope 至少声明 name、input_schema、output_schema、permission_level、read_only、concurrent_safe、timeout、retry_policy、context_budget 和 output_guard；每次执行记录 call_id、started_at、elapsed_ms、attempts、input_hash、output_hash、token_budget、error_kind、degraded_reason 和 quality_stats。Phase 0/1 的 `phase0_prefetch`、`phase1a_reinforce`、`phase1b_fusion` 是 Managed LLM Step；Workflow Read、Novel Text Search / Read 是只读工具。二者都应逐步收敛到该 envelope；workflow 顺序暂时仍由现有 orchestrator 决定 |
 | Agent Run Journal | Agent Run Journal | 跨模块概念 | 创作工作流 Agent 的追加式运行日志，用于把 Step/Tool Envelope 的关键执行事件持续落盘，借鉴 Claude Code 先写 transcript 再进入长模型请求的恢复思路。第一版不新增数据库表，复用 async task result、phase_timeline、checkpoints、quality_stats 和真实 LLM JSONL；每条事件记录 workflow_id、run_id、call_id、envelope_name、phase、event_type、started_at、elapsed_ms、attempts、input_hash、output_hash、error_kind、degraded_reason、checkpoint_ref 和 quality_stats。它只服务诊断、恢复、验收和调参，不作为用户创作资产；待 Phase 0/1 真实 60 章稳定后，再决定是否沉淀为正式表 |
 | Step 输出守门 | Step Output Guard | 跨模块概念 | LLM Step Harness 对每个 LLM step 输出的确定性守门层，参考 Claude Code 的工具 schema / 结果 envelope 思路，但面向本项目的 Pydantic 业务 schema。它先做严格 schema 校验，并只允许确定安全的轻量归一化（如缺失列表归一为空列表、兼容字段别名）；解析失败或 schema 失败时最多进行 1 次有边界的 repair，repair 输入包含原始输出、目标 schema 摘要和校验错误；repair 后仍失败则记录 raw output hash、schema_errors、repair_attempts、error_kind、degraded_reason，并回退为可审计的空结果、上一阶段候选或局部 fallback。Step 输出守门不得把未通过 schema 的内容写入 canonical，也不得无限重试或静默吞错 |
@@ -92,7 +125,22 @@ core > important > normal > temporary > alias
 | revealed | 已揭示给读者 |
 | fully_known | 读者和角色都已知 |
 
-人物知识层级：unknown → rumor → partial → full；特殊：false_belief（角色自认为知道但实际错误）。
+读者安全不是固定布尔字段：
+
+- `ReaderRevealInfo.status = unrevealed` 或缺失揭示点时，读者向输出默认不能使用该目标。
+- `ReaderRevealInfo.status = partial` 时，只能使用对应 `known_content` / projection span 中已揭示的版本。
+- `ReaderRevealInfo.status = revealed` 且 `ReaderProgress.effective_chapter_index >= reveal_chapter_index` 时，才计算为 `reader_safe=true`。
+- 角色可见性和读者安全是两个独立维度；面向读者或角色 POV 的最终上下文取两者交集。
+
+人物知识层级：
+
+- `unknown`：角色不知道该目标，角色视角上下文中移除。
+- `rumor`：角色只听过传闻，使用 `known_content` 中的传闻版本。
+- `partial`：角色知道部分事实，使用 `known_content` 追加或替换为有限版本。
+- `full`：角色知道完整事实，可按目标 sensitivity 和 reader safety 进入对应上下文。
+- `restricted`：角色知道该事实存在，但具体内容受限；使用 `known_content`，不得暴露 hidden truth。
+- `false_belief`：角色自认为知道但事实完全错误；必须提供 `misconception`。
+- `misunderstood`：角色知道部分正确信息但归因、因果或意义理解偏差；必须提供 `misconception`。
 
 ## 4. 系统三层（Architecture Layers）
 
@@ -118,7 +166,7 @@ event/delta_log 引用并组装地图候选观察，不拥有 memory provenance 
 3. 用户确认后 promote 为 canonical
 4. 后台任务不在无用户授权的情况下自动 promote
 
-例外：用户明确启动的自动流水线（如深度导入）可批量写入候选创作资产，但必须先通过 Pydantic schema 校验，并保留来源、可编辑/可回滚标记。
+例外：用户明确启动的自动流水线（如深度导入）可批量写入低风险 draft/candidate 创作资产，但必须先通过 Pydantic schema 校验，并保留来源、可编辑/可回滚标记。它不得自动写入 KnowledgeVisibilityPolicy、叙事专属 KnowledgeTag 或 CharacterKnowledge；这些知识连接必须进入导入审核建议，作者确认后才生效。
 
 ### 工作上下文（Working Context）
 工作上下文是 AI 流水线内部使用的临时上下文层，用于长文档批量导入、后续结构分析和跨阶段抽取。它可以读取正史资产、草稿资产、候选创作资产、证据片段、置信度和来源依赖，但不等同于正史上下文。
@@ -146,7 +194,7 @@ event/delta_log 引用并组装地图候选观察，不拥有 memory provenance 
 
 “AI 参考资料”第一版可控项：
 - 章节/Scene 范围
-- 揭示模式（作者安全、作者全知、读者已知、角色视角）
+- 揭示模式（作者安全、作者全知、读者进度安全、角色视角）
 - 是否包含待确认对象（内部状态为 candidate 的候选创作资产）
 - 排除本次不想引用的世界对象、人物、剧情线、伏笔
 - 本次 AI 额外注意事项
@@ -258,12 +306,14 @@ event/delta_log 引用并组装地图候选观察，不拥有 memory provenance 
 | 枚举 | 值 |
 |------|-----|
 | ObjectStatus | draft, candidate, canonical, deprecated, ignored, conflicted, pending |
-| EntityType | character, location, faction, item, concept, event, creature, skill, rule, power_system, secret, legend, resource, other |
+| EntityType | character, location, faction, item, event, rule, power_system, species, group, secret, legend, resource, concept, creature, skill, other |
 | ImportanceLevel | core, important, normal, temporary, alias |
 | RevealLevel | author_only, hinted, revealed, fully_known |
-| KnowledgeLevel | unknown, rumor, partial, full, false_belief |
+| KnowledgeLevel | unknown, rumor, partial, full, restricted, false_belief, misunderstood |
+| KnowledgeTagGrantSource | derived, manual, confirmed_suggestion, triggered |
 | CharacterRole | protagonist, antagonist, supporting, minor, mentor, love_interest, comic_relief, foil, narrator, cameo |
-| Visibility | author_only, author_safe, reader_known, public |
+| ContentSensitivity | author_only, author_safe, public_baseline |
+| ReaderRevealStatus | unrevealed, partial, revealed |
 | TaskStatus | pending, running, done, failed, cancelled |
 | RelationType | parent_of, child_of, spouse_of, sibling_of, friend_of, rival_of, enemy_of, ally_of, mentor_of, student_of, lover_of, master_of, servant_of, member_of, leader_of, allied_with, at_war_with, trading_with, belongs_to, created_by, located_at, contains, controls, related_to, opposes, supports |
 | ForeshadowingStatus | planned, seeded, reinforced, paid_off, abandoned |

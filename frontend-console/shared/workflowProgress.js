@@ -346,6 +346,7 @@ export function pollTaskProgress({
     if (stopped) return
     try {
       const task = await apiClient.tasks.get(taskId)
+      if (stopped) return
       const progress = normalizeTaskProgress(task, workflowType)
       onUpdate?.(progress, task)
       if (progress.done) {
@@ -359,6 +360,7 @@ export function pollTaskProgress({
         return
       }
     } catch (err) {
+      if (stopped) return
       const progress = normalizeTaskProgress({
         id: taskId,
         task_id: taskId,

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { createProject, cleanupProject, waitForBackend, createAlias } from "./helpers/api-client.js"
 
 test.describe("世界对象 — 关系与别名", () => {
   let testProjectId = null
@@ -106,12 +106,22 @@ test.describe("世界对象 — 关系与别名", () => {
 
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("别名已创建", { timeout: 10000 })
+    await expect(page.locator(SEL.dataTable)).toContainText("小名", { timeout: 10000 })
 
-    // Then: 刷新后列表显示新别名
+    await createAlias(testProjectId, {
+      entity_id: entityId,
+      alias: "代号",
+      alias_type: "alias",
+    })
+
+    // Then: 刷新后列表按对象聚合显示别名
     await reloadWorkbench(page, "world", "objects")
     await page.locator(SEL.subnavItem("aliases")).click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
+    await expect(page.locator(`${SEL.dataTable} tbody td[rowspan="2"]`, { hasText: "主角" })).toHaveCount(1)
     await expect(page.locator(SEL.dataTable)).toContainText("小名")
     await expect(page.locator(SEL.dataTable)).toContainText("昵称")
+    await expect(page.locator(SEL.dataTable)).toContainText("代号")
+    await expect(page.locator(SEL.dataTable)).toContainText("化名")
   })
 })

@@ -1077,6 +1077,16 @@ class EntityAliasCreate(BaseModel):
     status: str = Field(default="confirmed", max_length=32, description="状态")
 
 
+class EntityAliasUpdate(BaseModel):
+    """更新 core_entities.content_json.aliases 中单个别名的复核元数据。"""
+
+    status: Annotated[str | None, Field(None, max_length=32)]
+    needs_review: bool | None = None
+    reviewed_at: Annotated[str | None, Field(None, max_length=64)]
+    reviewed_by: Annotated[str | None, Field(None, max_length=64)]
+    reviewed_from: Annotated[str | None, Field(None, max_length=64)]
+
+
 class EntityCandidateCreate(BaseModel):
     """旧候选创建请求 — 兼容保留"""
 
@@ -1201,3 +1211,293 @@ class RelationshipListResponse(BaseModel):
 
     items: list[RelationshipResponse]
     total: int
+
+
+# ============================================================
+# Worldbuilding Workspace v1
+# ============================================================
+
+
+class TargetRefSchema(BaseModel):
+    """Worldbuilding TargetRef wire shape."""
+
+    target_type: str = Field(..., min_length=1, max_length=64)
+    target_id: str = Field(..., min_length=1, max_length=255)
+    target_path: str = Field(default="", max_length=512)
+
+
+class WorldProfileUpsertRequest(BaseModel):
+    """Create or update a strong/generic worldbuilding profile."""
+
+    status: str = Field(default="draft", max_length=32)
+    source: str = Field(default="manual", max_length=64)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    evidence_refs_json: list[dict[str, Any]] = Field(default_factory=list)
+    extra_json: dict[str, Any] = Field(default_factory=dict)
+    data_json: dict[str, Any] | None = Field(default=None)
+
+    origin_summary: str | None = None
+    physiology_summary: str | None = None
+    lifespan: str | None = None
+    abilities_json: list[dict[str, Any]] | None = None
+    weaknesses_json: list[dict[str, Any]] | None = None
+    culture_summary: str | None = None
+    language_summary: str | None = None
+    public_baseline: bool | None = None
+
+    ideology_summary: str | None = None
+    leader_entity_ids_json: list[str] | None = None
+    member_rules: str | None = None
+    territory_refs_json: list[dict[str, Any]] | None = None
+    resources_json: list[dict[str, Any]] | None = None
+
+    map_refs_json: list[dict[str, Any]] | None = None
+    climate: str | None = None
+    population_summary: str | None = None
+    hazards_json: list[dict[str, Any]] | None = None
+    controlling_faction_ids_json: list[str] | None = None
+
+    rule_domain: str | None = None
+    principle_summary: str | None = None
+    constraints_json: list[dict[str, Any]] | None = None
+    exceptions_json: list[dict[str, Any]] | None = None
+    consequences_json: list[dict[str, Any]] | None = None
+
+    item_class: str | None = None
+    powers_json: list[dict[str, Any]] | None = None
+    limitations_json: list[dict[str, Any]] | None = None
+    owner_entity_ids_json: list[str] | None = None
+
+    truth_summary: str | None = None
+    holder_entity_ids_json: list[str] | None = None
+    risk_level: str | None = None
+    reveal_status: str | None = None
+    linked_target_refs_json: list[dict[str, Any]] | None = None
+
+
+class WorldProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    entity_id: str
+    novel_id: str
+    entity_type: str
+    profile_kind: str
+    status: str
+    source: str = "manual"
+    confidence: float | None = None
+    evidence_refs_json: list = Field(default_factory=list)
+    extra_json: dict = Field(default_factory=dict)
+    data_json: dict | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorldProfileListResponse(BaseModel):
+    items: list[WorldProfileResponse]
+    total: int
+
+
+class WorldProfileMigrateResponse(BaseModel):
+    entity_id: str
+    migrated: bool
+    profile: WorldProfileResponse
+
+
+class WorldBiblePageCreate(BaseModel):
+    novel_id: str
+    page_type: str = Field(default="custom", max_length=64)
+    page_key: str | None = Field(default=None, max_length=128)
+    title: str = Field(..., min_length=1, max_length=255)
+    status: str = Field(default="draft", max_length=32)
+    page_meta_json: dict[str, Any] = Field(default_factory=dict)
+    free_text: str | None = None
+    linked_asset_refs_json: list[dict[str, Any]] = Field(default_factory=list)
+    activation_defaults_json: dict[str, Any] = Field(default_factory=dict)
+    template_key: str | None = Field(default=None, max_length=128)
+    sort_order: int = 0
+    created_by: str | None = Field(default=None, max_length=64)
+
+
+class WorldBiblePageUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    status: str | None = Field(default=None, max_length=32)
+    page_meta_json: dict[str, Any] | None = None
+    free_text: str | None = None
+    linked_asset_refs_json: list[dict[str, Any]] | None = None
+    activation_defaults_json: dict[str, Any] | None = None
+    template_key: str | None = Field(default=None, max_length=128)
+    sort_order: int | None = None
+    updated_by: str | None = Field(default=None, max_length=64)
+
+
+class WorldBiblePageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    page_type: str
+    page_key: str
+    title: str
+    status: str
+    page_meta_json: dict = Field(default_factory=dict)
+    free_text: str | None = None
+    linked_asset_refs_json: list = Field(default_factory=list)
+    activation_defaults_json: dict = Field(default_factory=dict)
+    template_key: str | None = None
+    template_version: int = 1
+    version_number: int = 1
+    sort_order: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_page_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class WorldBiblePageListResponse(BaseModel):
+    items: list[WorldBiblePageResponse]
+    total: int
+
+
+class WorldBibleProjectionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    page_id: str
+    projection_type: str
+    status: str
+    content: str | None = None
+    token_estimate: int = 0
+    stale: bool = True
+    stale_checked_at: datetime | None = None
+    error_kind: str | None = None
+    error_summary: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "page_id", mode="before")
+    @classmethod
+    def coerce_projection_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class ProjectionRefreshResponse(BaseModel):
+    task_id: str
+    status: str
+    existing: bool = False
+    projection_type: str
+
+
+class CreationSuggestionCreate(BaseModel):
+    novel_id: str
+    source_module: str = Field(default="manual", max_length=64)
+    review_group: str = Field(default="manual", max_length=64)
+    target_type: str = Field(..., max_length=64)
+    action_schema: str = Field(default="v1", max_length=128)
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs_json: list[dict[str, Any]] = Field(default_factory=list)
+    risk_level: str = Field(default="medium", max_length=32)
+    status: str = Field(default="pending", max_length=32)
+
+
+class CreationSuggestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    source_module: str
+    review_group: str
+    target_type: str
+    action_schema: str
+    payload_json: dict = Field(default_factory=dict)
+    evidence_refs_json: list = Field(default_factory=list)
+    risk_level: str
+    status: str
+    result_ref_json: dict = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_suggestion_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class CreationSuggestionListResponse(BaseModel):
+    items: list[CreationSuggestionResponse]
+    total: int
+
+
+class SuggestionDecisionResponse(BaseModel):
+    status: str
+    suggestion_status: str
+    result_ref_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConflictQueueResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    conflict_type: str
+    severity: str
+    source_module: str
+    target: dict = Field(default_factory=dict)
+    target_hash: str | None = None
+    summary: str
+    evidence_refs_json: list = Field(default_factory=list)
+    resolution_json: dict = Field(default_factory=dict)
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_conflict_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class ConflictQueueListResponse(BaseModel):
+    items: list[ConflictQueueResponse]
+    total: int
+
+
+class ConflictResolveRequest(BaseModel):
+    status: str = Field(default="resolved", max_length=32)
+    resolution_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeTagExclusionRequest(BaseModel):
+    novel_id: str
+    reason: str | None = None
+
+
+class KnowledgeTagExclusionResponse(BaseModel):
+    character_id: str
+    tag_id: str
+    excluded: bool
+    reason: str | None = None
+
+
+class ReaderSafetyRequest(BaseModel):
+    novel_id: str
+    targets: list[TargetRefSchema]
+    effective_chapter_index: int | None = Field(default=None, ge=0)
+    scene_id: str | None = None
+
+
+class ReaderSafetyItem(BaseModel):
+    target: TargetRefSchema
+    target_hash: str
+    reader_safe: bool
+    reveal_status: str
+    public_baseline: bool = False
+    diagnostics: list[str] = Field(default_factory=list)
+
+
+class ReaderSafetyResponse(BaseModel):
+    items: list[ReaderSafetyItem]

@@ -78,3 +78,10 @@ def _create_postgresql_only_indexes() -> None:
         WHERE is_center = true
         """
     )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_reader_reveal_null_chapter
+        ON reader_reveal_policies (novel_id, target_hash)
+        WHERE reveal_chapter_index IS NULL
+        """
+    )

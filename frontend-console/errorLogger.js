@@ -14,6 +14,7 @@
   const STORAGE_KEY = "_errorLog"
   const MAX_ENTRIES = 50
   let _idCounter = 0
+  let _isUnloading = false
 
   // ── 从 localStorage 恢复计数器 ──
   try {
@@ -227,6 +228,7 @@
   // ── 记录 error toast ──
   function _recordToastError(message, type) {
     if (type === "error") {
+      if (_isUnloading) return
       const reqCtx = window.errorLog._lastApiError || undefined
       window.errorLog._lastApiError = null // 消费后清除
       _add({
@@ -249,6 +251,7 @@
 
   // ── 捕获未处理的 Promise 异常 ──
   window.addEventListener("unhandledrejection", (event) => {
+    if (_isUnloading) return
     const msg = event.reason?.message || String(event.reason)
     _add({
       type: "runtime",
@@ -260,12 +263,20 @@
 
   // ── window.onerror ──
   window.addEventListener("error", (event) => {
+    if (_isUnloading) return
     _add({
       type: "runtime",
       level: "error",
       message: event.message || String(event.error?.message || ""),
       stack: event.error?.stack || "",
     })
+  })
+
+  window.addEventListener("beforeunload", () => {
+    _isUnloading = true
+  })
+  window.addEventListener("pagehide", () => {
+    _isUnloading = true
   })
 
   // ── 公开 API ──

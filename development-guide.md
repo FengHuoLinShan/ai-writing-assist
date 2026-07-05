@@ -10,7 +10,8 @@ AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a str
 
 ```bash
 make dev                         # Kill old → DB → backend reload + worker reload + Vite frontend HMR
-make kill                        # Stop all services
+make kill                        # Stop app services and PostgreSQL
+make kill-apps                   # Stop backend, worker, frontend; keep PostgreSQL running
 make help                        # List all targets
 ```
 
@@ -32,6 +33,7 @@ npm run dev                      # Vite dev server with hot reload (port 8080)
 # Database
 make db                          # docker compose up -d
 make migrate                     # alembic upgrade head (demo schema 历史已压缩；旧开发库可重建)
+./scripts/dev_migrate_worldbuilding_v1.py  # 补齐 Worldbuilding Workspace v1 dev schema
 
 # Local diagnostics
 make doctor                      # Read-only local Doctor: env/ports/Docker/API/DB/LLM config

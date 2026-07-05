@@ -448,6 +448,12 @@ class EntityDedupService:
         if candidate.novel_id != nid or target.novel_id != nid:
             raise DomainValidationError("Cannot merge entities outside requested novel")
 
+        if target.status not in {"draft", "canonical"}:
+            raise DomainValidationError(
+                f"Merge target must be draft or canonical, got {target.status}",
+                status_code=422,
+            )
+
         # 校验 candidate 必须是 draft/candidate
         # target 非 canonical 时由后置逻辑自动提升，不再前置拦截
         allowed_source_statuses = ("draft", "candidate", "canonical") if (

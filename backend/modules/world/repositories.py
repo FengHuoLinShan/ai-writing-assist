@@ -219,7 +219,7 @@ class CoreEntityRepository:
             .where(*conditions)
             .offset(skip)
             .limit(limit)
-            .order_by(CoreEntity.importance.desc(), CoreEntity.name)
+            .order_by(CoreEntity.importance.desc(), CoreEntity.name, CoreEntity.id)
         )
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()

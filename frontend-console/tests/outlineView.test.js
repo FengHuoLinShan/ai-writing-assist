@@ -146,6 +146,42 @@ describe("outlineView 批量操作", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
   })
 
+  it("批量复核剧情线保留 provenance_meta 并标记已复核", async () => {
+    outlineView._threads = [
+      { id: "t1", name: "主线", status: "candidate", provenance_meta: { source: "deep_import", needs_review: true } },
+    ]
+    outlineView._bulkSelections["outline-threads"] = new Set(["t1"])
+    api.outline.updateThread.mockResolvedValue({})
+
+    await outlineView._executeBulkAction("outline-threads", "review-threads", outlineView._itemsForBulkScope("outline-threads"))
+
+    expect(api.outline.updateThread).toHaveBeenCalledWith("t1", "p1", {
+      status: "canonical",
+      provenance_meta: expect.objectContaining({
+        source: "deep_import",
+        needs_review: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "outline_threads_bulk",
+        review_previous_status: "candidate",
+      }),
+    })
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 1 / 1"), "success")
+  })
+
+  it("批量复核剧情线确认按钮不使用删除文案", () => {
+    outlineView._threads = [{ id: "t1", name: "主线" }]
+    outlineView._bulkSelections["outline-threads"] = new Set(["t1"])
+
+    outlineView._runBulkAction("outline-threads", "review-threads")
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      "确定对选中的 1 项执行「批量复核剧情线」吗？",
+      expect.any(Function),
+      "确认复核",
+    )
+  })
+
   it("批量删除伏笔调用 deleteForeshadowing", async () => {
     outlineView._foreshadowing = [{ id: "f1", summary: "伏笔" }]
     outlineView._bulkSelections["outline-foreshadowing"] = new Set(["f1"])
@@ -239,6 +275,102 @@ describe("outlineView render", () => {
     expect(html).toContain("深度导入")
     expect(html).toContain("需复核")
     expect(html).toContain("structure_analysis")
+    expect(html).toContain('data-action="mark-thread-reviewed"')
+    expect(html).toContain("复核通过")
+  })
+
+  it("草稿状态本身不推断为需复核", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    outlineView._threads = [{
+      id: "t1",
+      name: "草稿但已处理",
+      thread_type: "main",
+      status: "draft",
+      provenance_meta: { source: "manual", needs_review: false },
+    }]
+
+    const html = await outlineView.render()
+    const rowHtml = html.match(/<tr data-id="t1">[\s\S]*?<\/tr>/)?.[0] || ""
+
+    expect(rowHtml).toContain("草稿")
+    expect(rowHtml).not.toContain("需复核")
+  })
+
+  it("草稿加 needs_review=true 才显示需复核", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    outlineView._threads = [{
+      id: "t1",
+      name: "草稿待复核",
+      thread_type: "main",
+      status: "draft",
+      provenance_meta: { source: "deep_import", needs_review: true },
+    }]
+
+    const html = await outlineView.render()
+    const rowHtml = html.match(/<tr data-id="t1">[\s\S]*?<\/tr>/)?.[0] || ""
+
+    expect(rowHtml).toContain("草稿")
+    expect(rowHtml).toContain("需复核")
+    expect(rowHtml).toContain('data-action="mark-thread-reviewed"')
+  })
+
+  it("标记单条剧情线复核通过", async () => {
+    state.currentProjectId = "p1"
+    outlineView._threads = [{
+      id: "t1",
+      name: "主线A",
+      status: "candidate",
+      provenance_meta: { source: "deep_import", needs_review: true },
+    }]
+    api.outline.updateThread.mockResolvedValue({})
+
+    await outlineView._markThreadReviewed("t1")
+
+    expect(api.outline.updateThread).toHaveBeenCalledWith("t1", "p1", {
+      status: "canonical",
+      provenance_meta: expect.objectContaining({
+        source: "deep_import",
+        needs_review: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "outline_threads",
+        review_previous_status: "candidate",
+      }),
+    })
+    expect(toast).toHaveBeenCalledWith("剧情线已标记为已复核", "success")
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("标记单条剧情线需复核并移除复核字段", async () => {
+    state.currentProjectId = "p1"
+    outlineView._threads = [{
+      id: "t1",
+      name: "主线A",
+      status: "canonical",
+      provenance_meta: {
+        source: "deep_import",
+        review_previous_status: "candidate",
+        reviewed_at: "2026-07-05T00:00:00.000Z",
+        reviewed_by: "manual",
+        reviewed_from: "outline_threads",
+      },
+    }]
+    api.outline.updateThread.mockResolvedValue({})
+
+    await outlineView._markThreadUnreviewed("t1")
+
+    expect(api.outline.updateThread).toHaveBeenCalledWith("t1", "p1", {
+      status: "candidate",
+      provenance_meta: {
+        source: "deep_import",
+        needs_review: true,
+      },
+    })
+    expect(toast).toHaveBeenCalledWith("剧情线已标记为需复核", "success")
   })
 
   it("剧情线超过一页时显示分页控制", async () => {

@@ -287,7 +287,7 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator(".scene-fusion-toolbar")).toContainText("1")
   })
 
-  test("Scene 翻页按钮在列表底部悬浮", async ({ page }) => {
+  test("Scene 翻页按钮在列表内容底部且不覆盖场景卡片", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 620 })
     const project = await createProject({ title: "Scene 分页底部悬浮", genre: "fantasy", language: "zh" })
     testProjectId = project.id
@@ -300,26 +300,44 @@ test.describe("Scene 工作台", () => {
     })))
 
     await openWorkbench(page, project, "scene")
+    await page.locator(".scene-workbench__organize").evaluate((el) => {
+      el.scrollTop = el.scrollHeight
+    })
     const pagination = page.locator(".scene-workbench-pagination")
     await expect(pagination).toBeVisible()
     await expect(pagination).toContainText("第 1 / 2 页")
 
-    const stickyState = await page.evaluate(() => {
+    const paginationState = await page.evaluate(() => {
       const list = document.querySelector(".scene-workbench__organize")
       const pager = document.querySelector(".scene-workbench-pagination")
       const listRect = list?.getBoundingClientRect()
       const pagerRect = pager?.getBoundingClientRect()
       const style = pager ? getComputedStyle(pager) : null
+      const rows = Array.from(document.querySelectorAll(".scene-workbench-row"))
+      const overlaps = rows.filter((row) => {
+        const rect = row.getBoundingClientRect()
+        return Boolean(pagerRect)
+          && rect.left < pagerRect.right
+          && rect.right > pagerRect.left
+          && rect.top < pagerRect.bottom
+          && rect.bottom > pagerRect.top
+      })
       return {
         position: style?.position || "",
-        bottom: style?.bottom || "",
-        nearBottom: Boolean(listRect && pagerRect) && Math.abs(pagerRect.bottom - listRect.bottom) < 4,
+        afterRows: Boolean(pagerRect && rows.length) && pagerRect.top >= rows.at(-1).getBoundingClientRect().bottom,
+        insideList: Boolean(listRect && pagerRect)
+          && pagerRect.left >= listRect.left
+          && pagerRect.right <= listRect.right
+          && pagerRect.top >= listRect.top
+          && pagerRect.bottom <= listRect.bottom,
+        overlappingRows: overlaps.length,
       }
     })
-    expect(stickyState).toEqual({
-      position: "sticky",
-      bottom: "0px",
-      nearBottom: true,
+    expect(paginationState).toEqual({
+      position: "static",
+      afterRows: true,
+      insideList: true,
+      overlappingRows: 0,
     })
   })
 

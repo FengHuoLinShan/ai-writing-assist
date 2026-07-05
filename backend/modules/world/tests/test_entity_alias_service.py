@@ -118,6 +118,30 @@ async def test_create_alias_adds_to_content_json(
 
 
 @pytest.mark.asyncio
+async def test_create_alias_appends_to_existing_content_json(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    db = AsyncMock()
+
+    result = await alias_service.create_alias(
+        db, novel_id, str(entity.id), "King Arthur", "title"
+    )
+
+    assert result["alias"] == "King Arthur"
+    assert entity.content_json["aliases"] == [
+        {"alias": "Art", "type": "nickname"},
+        {"alias": "King Arthur", "type": "title"},
+    ]
+    db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_delete_alias_removes_from_content_json(
     novel_id: str,
     alias_service: EntityAliasService,
@@ -174,6 +198,57 @@ async def test_create_alias_duplicate_returns_409(
         await alias_service.create_alias(db, novel_id, str(entity.id), "Art")
     assert exc_info.value.status_code == 409
     assert "Alias already exists: Art" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_update_alias_updates_metadata_and_removes_none_fields(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        content_json={
+            "aliases": [
+                {
+                    "alias": "Art",
+                    "type": "nickname",
+                    "status": "candidate",
+                    "needs_review": True,
+                    "reviewed_at": "old",
+                },
+            ]
+        },
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    db = AsyncMock()
+
+    result = await alias_service.update_alias(
+        db,
+        novel_id,
+        str(entity.id),
+        "Art",
+        {
+            "status": "canonical",
+            "needs_review": False,
+            "reviewed_at": None,
+            "reviewed_by": "manual",
+        },
+    )
+
+    assert result["status"] == "canonical"
+    assert result["needs_review"] is False
+    assert result["reviewed_at"] is None
+    assert result["reviewed_by"] == "manual"
+    assert entity.content_json["aliases"] == [
+        {
+            "alias": "Art",
+            "type": "nickname",
+            "status": "canonical",
+            "needs_review": False,
+            "reviewed_by": "manual",
+        }
+    ]
+    db.flush.assert_awaited_once()
 
 
 @pytest.mark.parametrize(

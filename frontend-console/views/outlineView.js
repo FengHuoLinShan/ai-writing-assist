@@ -371,6 +371,55 @@ const outlineView = {
     return badges.length ? `<div class="structure-asset-badges">${badges.join("")}</div>` : ""
   },
 
+  _structureReviewState(asset) {
+    const meta = this._assetProvenance(asset)
+    return {
+      reviewed: Boolean(meta.reviewed_at),
+      needsReview: meta.needs_review === true,
+    }
+  },
+
+  _renderThreadReviewAction(thread) {
+    const id = thread?.id || thread?.thread_id
+    if (!id) return ""
+    const review = this._structureReviewState(thread)
+    if (review.reviewed) {
+      return `<button class="btn btn-sm" data-action="mark-thread-unreviewed" data-id="${esc(id)}">取消复核</button>`
+    }
+    const primary = review.needsReview ? "btn-primary" : ""
+    return `<button class="btn btn-sm ${primary}" data-action="mark-thread-reviewed" data-id="${esc(id)}">复核通过</button>`
+  },
+
+  _reviewThreadPayload(thread, reviewedFrom) {
+    const meta = {
+      ...this._assetProvenance(thread),
+      needs_review: false,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: "manual",
+      reviewed_from: reviewedFrom,
+    }
+    if (!meta.review_previous_status && thread?.status && thread.status !== "canonical") {
+      meta.review_previous_status = thread.status
+    }
+    return {
+      status: "canonical",
+      provenance_meta: meta,
+    }
+  },
+
+  _unreviewThreadPayload(thread) {
+    const meta = { ...this._assetProvenance(thread), needs_review: true }
+    const restoreStatus = meta.review_previous_status || "draft"
+    delete meta.reviewed_at
+    delete meta.reviewed_by
+    delete meta.reviewed_from
+    delete meta.review_previous_status
+    return {
+      status: restoreStatus,
+      provenance_meta: meta,
+    }
+  },
+
   _renderStructureEmptyState(kind, subView) {
     const filters = this._structureFilterFor(subView)
     const filteredDeepImport = filters.source === "deep_import" || Boolean(filters.workflow_id)
@@ -413,6 +462,7 @@ const outlineView = {
     reconcileBulkSelection(this, scope, ids)
 
     html += renderBulkToolbar(this, scope, [
+      { action: "review-threads", label: "批量复核通过", className: "btn-primary" },
       { action: "delete-threads", label: "批量删除", className: "btn-danger" },
     ], { noun: "剧情线" }) + `
       <table class="data-table table-card-list">
@@ -445,6 +495,7 @@ const outlineView = {
           <td data-label="标记">${this._renderStructureAssetBadges(t) || "-"}</td>
           <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.description || t.summary || "-")}</td>
           <td data-label="操作">
+            ${this._renderThreadReviewAction(t)}
             <button class="btn btn-sm btn-primary" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
             ${renderActionMenu(`thread-actions-${esc(t.id || t.thread_id)}`, [
               { action: "delete-thread", label: "删除", class: "danger", data: { id: t.id || t.thread_id } },
@@ -952,6 +1003,40 @@ const outlineView = {
         } catch (err) { toast(err.message || "保存失败", "error") }
       },
     }])
+  },
+
+  _findThread(id) {
+    return this._threads.find((thread) => (thread.id || thread.thread_id) === id) || null
+  },
+
+  async _markThreadReviewed(id) {
+    const thread = this._findThread(id)
+    if (!thread) {
+      toast("未找到目标剧情线", "error")
+      return
+    }
+    await api.outline.updateThread(
+      id,
+      state.currentProjectId,
+      this._reviewThreadPayload(thread, "outline_threads"),
+    )
+    toast("剧情线已标记为已复核", "success")
+    router.refresh()
+  },
+
+  async _markThreadUnreviewed(id) {
+    const thread = this._findThread(id)
+    if (!thread) {
+      toast("未找到目标剧情线", "error")
+      return
+    }
+    await api.outline.updateThread(
+      id,
+      state.currentProjectId,
+      this._unreviewThreadPayload(thread),
+    )
+    toast("剧情线已标记为需复核", "success")
+    router.refresh()
   },
 
   _deleteThread(id) {
@@ -1481,6 +1566,8 @@ const outlineView = {
       "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-scope"), t.getAttribute("data-bulk-action")),
       "create-thread": () => this._showCreateThreadForm(),
       "edit-thread": (_e, _t, ctx) => ctx.id && this._editThread(ctx.id),
+      "mark-thread-reviewed": (_e, _t, ctx) => ctx.id && this._markThreadReviewed(ctx.id),
+      "mark-thread-unreviewed": (_e, _t, ctx) => ctx.id && this._markThreadUnreviewed(ctx.id),
       "delete-thread": (_e, _t, ctx) => ctx.id && this._deleteThread(ctx.id),
       "create-arc": () => this._showCreateArcForm(),
       "edit-arc": (_e, _t, ctx) => ctx.id && this._editArc(ctx.id),
@@ -1577,24 +1664,34 @@ const outlineView = {
     }
     const labels = {
       "delete-threads": "批量删除剧情线",
+      "review-threads": "批量复核剧情线",
       "delete-arcs": "批量删除篇章纲",
       "delete-foreshadowing": "批量删除伏笔",
       "delete-reveals": "批量删除揭示",
     }
+    const confirmText = action === "review-threads" ? "确认复核" : "确认删除"
     confirmAction(`确定对选中的 ${items.length} 项执行「${labels[action] || "批量删除"}」吗？`, async () => {
       await this._executeBulkAction(scope, action, items)
-    }, "确认删除")
+    }, confirmText)
   },
 
   async _executeBulkAction(scope, action, items) {
     const labels = {
       "delete-threads": "批量删除剧情线",
+      "review-threads": "批量复核剧情线",
       "delete-arcs": "批量删除篇章纲",
       "delete-foreshadowing": "批量删除伏笔",
       "delete-reveals": "批量删除揭示",
     }
     const result = await runBulkAction(items, async (item) => {
       if (action === "delete-threads") await api.outline.deleteThread(item.id || item.thread_id, state.currentProjectId)
+      else if (action === "review-threads") {
+        await api.outline.updateThread(
+          item.id || item.thread_id,
+          state.currentProjectId,
+          this._reviewThreadPayload(item, "outline_threads_bulk"),
+        )
+      }
       else if (action === "delete-arcs") await api.outline.deleteArc(item.id || item.arc_id, state.currentProjectId)
       else if (action === "delete-foreshadowing") await api.outline.deleteForeshadowing(item.id, state.currentProjectId)
       else if (action === "delete-reveals") await api.outline.deleteReveal(item.id, state.currentProjectId)

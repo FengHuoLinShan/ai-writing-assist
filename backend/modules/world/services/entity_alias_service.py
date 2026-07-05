@@ -117,6 +117,15 @@ class EntityAliasService:
                         "needs_review": alias_item.get("needs_review")
                         if isinstance(alias_item, dict)
                         else None,
+                        "reviewed_at": alias_item.get("reviewed_at")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "reviewed_by": alias_item.get("reviewed_by")
+                        if isinstance(alias_item, dict)
+                        else None,
+                        "reviewed_from": alias_item.get("reviewed_from")
+                        if isinstance(alias_item, dict)
+                        else None,
                         "quote": alias_item.get("quote")
                         if isinstance(alias_item, dict)
                         else None,
@@ -139,8 +148,8 @@ class EntityAliasService:
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
 
-        content = entity.content_json or {}
-        aliases = content.get("aliases", [])
+        content = dict(entity.content_json or {})
+        aliases = list(content.get("aliases", []))
         normalized_alias = alias.strip()
         for alias_item in aliases:
             existing, _ = self._normalize_alias_item(alias_item)
@@ -152,6 +161,63 @@ class EntityAliasService:
         entity.content_json = content
         await db.flush()
         return {"entity_id": str(entity.id), "alias": alias, "alias_type": alias_type}
+
+    async def update_alias(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        alias: str,
+        changes: dict,
+    ) -> dict:
+        """更新实体别名条目的元数据；None 值表示移除对应字段。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        eid = parse_uuid(entity_id, "entity_id")
+        entity = await self.repo.get(db, eid)
+        if entity is None or entity.novel_id != nid:
+            raise NotFoundError("Entity not found")
+
+        content = dict(entity.content_json or {})
+        aliases = list(content.get("aliases", []))
+        normalized_alias = alias.strip()
+        for index, alias_item in enumerate(aliases):
+            existing, alias_type = self._normalize_alias_item(alias_item)
+            if existing != normalized_alias:
+                continue
+
+            updated = dict(alias_item) if isinstance(alias_item, dict) else {
+                "alias": existing,
+                "type": alias_type,
+            }
+            updated["alias"] = existing
+            updated["type"] = updated.get("type") or alias_type or "name"
+            for key, value in changes.items():
+                if value is None:
+                    updated.pop(key, None)
+                else:
+                    updated[key] = value
+
+            aliases[index] = updated
+            content["aliases"] = aliases
+            entity.content_json = content
+            await db.flush()
+            return {
+                "entity_id": str(entity.id),
+                "entity_name": entity.name,
+                "alias": existing,
+                "alias_type": updated.get("type", "name"),
+                "status": updated.get("status"),
+                "source": updated.get("source"),
+                "workflow_id": updated.get("workflow_id"),
+                "confidence": updated.get("confidence"),
+                "needs_review": updated.get("needs_review"),
+                "reviewed_at": updated.get("reviewed_at"),
+                "reviewed_by": updated.get("reviewed_by"),
+                "reviewed_from": updated.get("reviewed_from"),
+                "quote": updated.get("quote"),
+            }
+
+        raise NotFoundError(f"Alias not found: {alias}")
 
     async def append_candidate_alias(
         self,
@@ -237,8 +303,8 @@ class EntityAliasService:
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
 
-        content = entity.content_json or {}
-        aliases = content.get("aliases", [])
+        content = dict(entity.content_json or {})
+        aliases = list(content.get("aliases", []))
         new_aliases: list = []
         found = False
         normalized_alias = alias.strip()

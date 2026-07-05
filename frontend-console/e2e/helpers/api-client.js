@@ -154,6 +154,13 @@ export async function createEntity(novelId, data) {
   })
 }
 
+export async function createAlias(novelId, data) {
+  return request(`/world/aliases?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
 export async function createCharacter(novelId, data) {
   return request(`/world/characters?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",

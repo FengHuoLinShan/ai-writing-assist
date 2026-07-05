@@ -20,13 +20,16 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Computed,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -560,6 +563,485 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
             f"target={self.target_type}:{self.target_id} "
             f"level={self.knowledge_level}>"
         )
+
+
+# ============================================================
+# Worldbuilding profiles — 世界观强类型 / 通用档案
+# ============================================================
+
+
+class _ProfileMixin(TimestampMixin, StatusMixin):
+    """Common fields for worldbuilding profile tables."""
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    extra_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class SpeciesProfile(Base, _ProfileMixin):
+    __tablename__ = "species_profiles"
+    __table_args__ = {"comment": "种族/物种档案"}
+
+    origin_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    physiology_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lifespan: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    abilities_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    weaknesses_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    culture_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    public_baseline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class FactionProfile(Base, _ProfileMixin):
+    __tablename__ = "faction_profiles"
+    __table_args__ = {"comment": "势力/阵营档案"}
+
+    ideology_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    leader_entity_ids_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    member_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    territory_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    resources_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    public_baseline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class LocationProfile(Base, _ProfileMixin):
+    __tablename__ = "location_profiles"
+    __table_args__ = {"comment": "地点档案"}
+
+    map_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    climate: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    population_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resources_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    hazards_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    controlling_faction_ids_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+
+
+class RuleProfile(Base, _ProfileMixin):
+    __tablename__ = "rule_profiles"
+    __table_args__ = {"comment": "世界规则档案"}
+
+    rule_domain: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    principle_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    constraints_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    exceptions_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    consequences_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+
+class ItemProfile(Base, _ProfileMixin):
+    __tablename__ = "item_profiles"
+    __table_args__ = {"comment": "重要物品档案"}
+
+    item_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    powers_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    limitations_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    owner_entity_ids_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    origin_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SecretProfile(Base, _ProfileMixin):
+    __tablename__ = "secret_profiles"
+    __table_args__ = {"comment": "秘密/伏笔档案"}
+
+    truth_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    holder_entity_ids_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    reveal_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="unrevealed",
+    )
+    linked_target_refs_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+
+
+class EntityProfileTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "entity_profile_templates"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "profile_type", name="uq_profile_template_type"),
+        {"comment": "通用世界资产模板"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    profile_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    display_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class GenericEntityProfile(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "generic_entity_profiles"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "entity_id", name="uq_generic_profile_entity"),
+        {"comment": "通用世界资产档案"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    profile_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("entity_profile_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    data_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    extra_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    evidence_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+# ============================================================
+# World Bible pages and projections
+# ============================================================
+
+
+class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "world_bible_pages"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "page_key", name="uq_world_bible_page_key"),
+        {"comment": "World Bible 手册页面"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    page_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    page_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    page_meta_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    free_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    linked_asset_refs_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    activation_defaults_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    template_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "world_bible_page_revisions"
+    __table_args__ = {"comment": "World Bible 页面版本"}
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("world_bible_pages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "world_bible_page_projections"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "page_id",
+            "projection_type",
+            name="uq_world_bible_projection_type",
+        ),
+        {"comment": "World Bible 上下文投影缓存"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("world_bible_pages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    projection_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_spans_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    omitted_reasons_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    sensitivity: Mapped[str] = mapped_column(String(32), nullable=False, default="normal")
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    stale_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ============================================================
+# Knowledge tags, reader reveal, suggestions and conflicts
+# ============================================================
+
+
+class KnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "knowledge_tags"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "slug", name="uq_knowledge_tag_slug"),
+        {"comment": "知识域标签"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CharacterKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "character_knowledge_tags"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "character_id",
+            "tag_id",
+            "grant_source",
+            name="uq_character_knowledge_tag_source",
+        ),
+        {"comment": "人物知识标签授权"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    character_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("characters.entity_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("knowledge_tags.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    grant_source: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="manual",
+    )
+    source_ref_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_ref_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_scene_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    source_chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_memory_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    author_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AssetKnowledgeTag(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "asset_knowledge_tags"
+    __table_args__ = (
+        Index("ix_asset_knowledge_tags_target_hash", "novel_id", "target_hash"),
+        {"comment": "资产知识标签"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target: Mapped[dict] = mapped_column(JSON, nullable=False)
+    target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("knowledge_tags.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+
+class KnowledgeTagExclusion(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "knowledge_tag_exclusions"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "character_id",
+            "tag_id",
+            name="uq_knowledge_tag_exclusion",
+        ),
+        {"comment": "人物派生知识标签排除"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    character_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("characters.entity_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("knowledge_tags.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+
+
+class KnowledgeVisibilityPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "knowledge_visibility_policies"
+    __table_args__ = (
+        Index("ix_visibility_policies_target_hash", "novel_id", "target_hash"),
+        {"comment": "知识可见性策略"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target: Mapped[dict] = mapped_column(JSON, nullable=False)
+    target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    visibility_mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="public",
+    )
+    policy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class ReaderRevealPolicy(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "reader_reveal_policies"
+    __table_args__ = (
+        Index("ix_reader_reveal_target_hash", "novel_id", "target_hash"),
+        Index("ix_reader_reveal_chapter", "novel_id", "reveal_chapter_index"),
+        {"comment": "读者揭示点策略"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target: Mapped[dict] = mapped_column(JSON, nullable=False)
+    target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reveal_chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reveal_scene_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    reveal_plan_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    public_baseline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class CreationSuggestion(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "creation_suggestion_queue"
+    __table_args__ = {"comment": "创设建议队列"}
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    review_group: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action_schema: Mapped[str] = mapped_column(String(128), nullable=False, default="v1")
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    evidence_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    result_ref_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class ConflictCheckQueueItem(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "conflict_check_queue"
+    __table_args__ = {"comment": "世界设定冲突/叙事风险队列"}
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    conflict_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    source_module: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="world",
+    )
+    target: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    target_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    resolution_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class TextArchive(Base, UUIDMixin, NovelMixin):

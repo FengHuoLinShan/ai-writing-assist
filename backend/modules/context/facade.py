@@ -167,6 +167,32 @@ async def render_compiled_context_markdown(
     return _render_compiled_context(ctx)
 
 
+async def preview_activation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    entity_ids: list[str] | None = None,
+    map_id: str | None = None,
+    scene_id: str | None = None,
+    focus_entity_id: str | None = None,
+    top_k: int = 64,
+    depth: int = 2,
+) -> dict:
+    """Preview worldbuilding activation through the world facade."""
+    from modules.world import facade as world_facade
+
+    return await world_facade.preview_worldbuilding_activation(
+        db,
+        novel_id,
+        entity_ids=entity_ids,
+        map_id=map_id,
+        scene_id=scene_id,
+        focus_entity_id=focus_entity_id,
+        top_k=top_k,
+        depth=depth,
+    )
+
+
 async def confirm_context(
     db: AsyncSession,
     *,

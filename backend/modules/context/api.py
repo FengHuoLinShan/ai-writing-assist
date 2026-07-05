@@ -15,9 +15,12 @@ from modules.context.facade import compile_with_tiers
 from modules.context.facade import confirm_context as _confirm_context
 from modules.context.facade import get_context_snapshot as _get_context_snapshot
 from modules.context.facade import list_context_snapshots as _list_context_snapshots
+from modules.context.facade import preview_activation as _preview_activation
 from modules.context.facade import run_snapshot_maintenance as _run_snapshot_maintenance
 from modules.context.markdown_renderer import render_compiled_context
 from modules.context.schemas import (
+    ContextActivationPreviewRequest,
+    ContextActivationPreviewResponse,
     ContextCompileRequest,
     ContextConfirmationResponse,
     ContextConfirmRequest,
@@ -186,6 +189,30 @@ async def confirm_context(
         user_note=request.user_note,
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
+
+
+@router.get("/activation-preview", response_model=ContextActivationPreviewResponse)
+async def activation_preview(
+    db: DbSession,
+    novel_id: str,
+    entity_ids: list[str] | None = Query(None),
+    map_id: str | None = None,
+    scene_id: str | None = None,
+    focus_entity_id: str | None = None,
+    top_k: int = Query(64, ge=1, le=256),
+    depth: int = Query(2, ge=0, le=2),
+) -> ContextActivationPreviewResponse:
+    request = ContextActivationPreviewRequest(
+        novel_id=novel_id,
+        entity_ids=entity_ids or [],
+        map_id=map_id,
+        scene_id=scene_id,
+        focus_entity_id=focus_entity_id,
+        top_k=top_k,
+        depth=depth,
+    )
+    result = await _preview_activation(db, **request.model_dump())
+    return ContextActivationPreviewResponse(**result)
 
 
 @router.get("/snapshots", response_model=ContextSnapshotListResponse)

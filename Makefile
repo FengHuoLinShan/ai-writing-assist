@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill test test-v lint lint-fix format format-fix help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-v lint lint-fix format format-fix help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -6,20 +6,8 @@ FRONTEND_DIR := $(ROOT_DIR)frontend-console
 
 # ─── Full Stack ─────────────────────────────────────
 
-dev: kill-processes db  ## Start all dev services
-	@echo "=== Starting all services ==="
-	@(cd $(BACKEND_DIR) && python scripts/dev_server.py --host 0.0.0.0 --port 8000) & backend_pid=$$!; \
-	(cd $(BACKEND_DIR) && python run_worker.py --reload) & worker_pid=$$!; \
-	(cd $(FRONTEND_DIR) && FRONTEND_PORT=8080 npm run dev) & frontend_pid=$$!; \
-	trap 'kill $$backend_pid $$worker_pid $$frontend_pid 2>/dev/null || true' INT TERM EXIT; \
-	sleep 2; \
-	echo ""; \
-	echo "=== Services started ==="; \
-	echo "  Backend:  http://localhost:8000 (--reload)"; \
-	echo "  Frontend: http://localhost:8080 (Vite hot reload)"; \
-	echo "  Worker:   running with --reload"; \
-	echo "  Press Ctrl+C to stop all"; \
-	wait
+dev:  ## Start all dev services
+	python scripts/dev_stack.py start
 
 # ─── Individual Services ────────────────────────────
 
@@ -35,16 +23,7 @@ dev-frontend:  ## Start frontend Vite dev server (foreground, hot reload)
 # ─── Database ───────────────────────────────────────
 
 db:  ## Start PostgreSQL (idempotent)
-	@if docker inspect ai-novel-db >/dev/null 2>&1; then \
-		echo "=== Reusing existing ai-novel-db container ==="; \
-		docker start ai-novel-db >/dev/null; \
-	else \
-		docker compose up -d; \
-	fi
-	@until docker inspect -f '{{.State.Health.Status}}' ai-novel-db 2>/dev/null | grep -q healthy; do \
-		echo "Waiting for ai-novel-db healthcheck..."; \
-		sleep 1; \
-	done
+	python scripts/dev_stack.py start-db
 
 migrate:  ## Run database migrations
 	cd $(BACKEND_DIR) && alembic upgrade head
@@ -80,17 +59,15 @@ doctor-json:  ## Run doctor with stable JSON output
 doctor-llm:  ## Run doctor and explicitly contact the LLM provider
 	cd $(BACKEND_DIR) && python scripts/doctor.py --llm
 
-kill:  ## Stop all services
+kill:  ## Stop all dev services, including PostgreSQL
 	@echo "=== Stopping services ==="
-	-pkill -f "uvicorn app.main:app" 2>/dev/null || true
-	-pkill -f "run_worker.py" 2>/dev/null || true
-	-pkill -f "vite.*8080" 2>/dev/null || true
+	python scripts/dev_stack.py stop
 	@echo "Done."
 
-kill-processes:
-	-pkill -f "uvicorn app.main:app" 2>/dev/null || true
-	-pkill -f "run_worker.py" 2>/dev/null || true
-	-pkill -f "vite.*8080" 2>/dev/null || true
+kill-apps:  ## Stop backend, worker, and frontend only
+	@echo "=== Stopping app services ==="
+	python scripts/dev_stack.py stop-apps
+	@echo "Done."
 
 # ─── Help ───────────────────────────────────────────
 

@@ -165,3 +165,39 @@ async def handle_world_entity_fusion_suggestions(db, task):
         if inspect.isawaitable(result_flush):
             await result_flush
     return result
+
+
+@task_handler("world_bible_projection_refresh")
+async def handle_world_bible_projection_refresh(db, task):
+    """Refresh a World Bible page projection."""
+    from modules.world.services.worldbuilding_service import WorldBibleService
+
+    meta = task.meta or {}
+    novel_id = str(meta.get("novel_id") or "")
+    page_id = str(meta.get("page_id") or "")
+    projection_type = str(meta.get("projection_type") or "context_brief")
+    if not novel_id or not page_id:
+        raise ValueError("novel_id and page_id are required")
+
+    task.update_progress(0.15)
+    projection = await WorldBibleService().refresh_projection_now(
+        db,
+        novel_id=novel_id,
+        page_id=page_id,
+        projection_type=projection_type,
+    )
+    task.update_progress(1.0)
+    flush = getattr(db, "flush", None)
+    if flush is not None:
+        result_flush = flush()
+        if inspect.isawaitable(result_flush):
+            await result_flush
+    return {
+        "projection_id": projection.id,
+        "projection_type": projection.projection_type,
+        "status": projection.status,
+        "token_estimate": projection.token_estimate,
+        "error_kind": projection.error_kind,
+        "error_summary": projection.error_summary,
+        "stale": projection.stale,
+    }

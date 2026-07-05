@@ -168,7 +168,7 @@ async function request(path, options = {}) {
       throw new Error("请求超时，请检查后端服务是否运行")
     }
 
-    if (err.message === "Failed to fetch" || err.message.includes("fetch")) {
+    if (!err.status && (err.message === "Failed to fetch" || err.message.includes("fetch"))) {
       throw new Error("无法连接到后端服务，请确认后端已启动")
     }
 
@@ -288,6 +288,74 @@ const api = {
       return request(withQuery(`/world/entities/${id}`, { novel_id: novelId }))
     },
 
+    async listProfiles(params = {}) {
+      return request(withQuery("/world/profiles", params))
+    },
+
+    async getProfile(entityId, novelId) {
+      return request(withQuery(`/world/profiles/${entityId}`, { novel_id: novelId }))
+    },
+
+    async upsertProfile(entityId, payload, novelId) {
+      return put(withQuery(`/world/profiles/${entityId}`, { novel_id: novelId }), payload)
+    },
+
+    async migrateGenericProfile(entityId, novelId) {
+      return post(withQuery(`/world/profiles/${entityId}/migrate-generic`, { novel_id: novelId }))
+    },
+
+    async listBiblePages(params = {}) {
+      return request(withQuery("/world/bible/pages", params))
+    },
+
+    async createBiblePage(payload) {
+      return post("/world/bible/pages", payload)
+    },
+
+    async getBiblePage(pageId, novelId) {
+      return request(withQuery(`/world/bible/pages/${pageId}`, { novel_id: novelId }))
+    },
+
+    async updateBiblePage(pageId, payload, novelId) {
+      return patch(withQuery(`/world/bible/pages/${pageId}`, { novel_id: novelId }), payload)
+    },
+
+    async listBibleTemplates() {
+      return request("/world/bible/templates")
+    },
+
+    async refreshBibleProjection(pageId, novelId, projectionType = "context_brief", force = false) {
+      return post(withQuery(`/world/bible/pages/${pageId}/refresh-projection`, {
+        novel_id: novelId,
+        projection_type: projectionType,
+        force,
+      }))
+    },
+
+    async organizeBiblePage(pageId, novelId) {
+      return post(withQuery(`/world/bible/pages/${pageId}/organize`, { novel_id: novelId }))
+    },
+
+    async listSuggestions(params = {}) {
+      return request(withQuery("/world/suggestions", params))
+    },
+
+    async confirmSuggestion(suggestionId, novelId) {
+      return post(withQuery(`/world/suggestions/${suggestionId}/confirm`, { novel_id: novelId }))
+    },
+
+    async rejectSuggestion(suggestionId, novelId) {
+      return post(withQuery(`/world/suggestions/${suggestionId}/reject`, { novel_id: novelId }))
+    },
+
+    async listWorldConflicts(params = {}) {
+      return request(withQuery("/world/conflicts", params))
+    },
+
+    async resolveWorldConflict(conflictId, payload, novelId) {
+      return post(withQuery(`/world/conflicts/${conflictId}/resolve`, { novel_id: novelId }), payload)
+    },
+
     async createEntity(payload, novelId) {
       return post(withQuery("/world/entities", { novel_id: novelId }), payload)
     },
@@ -324,6 +392,10 @@ const api = {
       return post(withQuery("/world/relations", { novel_id: novelId }), payload)
     },
 
+    async updateRelationship(id, payload, novelId) {
+      return put(withQuery(`/world/relations/${id}`, { novel_id: novelId }), payload)
+    },
+
     async deleteRelationship(id, params = {}) {
       return deleteRequest(withQuery(`/world/relations/${id}`, params))
     },
@@ -334,6 +406,11 @@ const api = {
 
     async createAlias(payload, novelId) {
       return post(withQuery("/world/aliases", { novel_id: novelId }), payload)
+    },
+
+    async updateAlias(entityId, alias, payload, params = {}) {
+      params.alias = alias
+      return patch(withQuery(`/world/entities/${entityId}/aliases`, params), payload)
     },
 
     async deleteAlias(entityId, alias, params = {}) {
@@ -584,6 +661,10 @@ const api = {
 
     async getSnapshot(snapshotId, params = {}) {
       return request(withQuery(`/context/snapshots/${snapshotId}`, params))
+    },
+
+    async activationPreview(params = {}) {
+      return request(withQuery("/context/activation-preview", params))
     },
   },
 
@@ -885,9 +966,9 @@ const api = {
 
     async getStatus(taskId, novelId = null) {
       const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
-      const query = resolvedNovelId
-        ? `?novel_id=${encodeURIComponent(resolvedNovelId)}`
-        : ""
+      const params = { _ts: Date.now() }
+      if (resolvedNovelId) params.novel_id = resolvedNovelId
+      const query = buildQueryString(params)
       return request(`/tasks/${taskId}${query}`)
     },
 
