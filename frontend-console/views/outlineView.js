@@ -162,6 +162,24 @@ const outlineView = {
     }
   },
 
+  async _refreshCurrentSubViewInPlace({ preserveScroll = true } = {}) {
+    const content = typeof document !== "undefined"
+      ? document.getElementById("workspace-content")
+      : null
+    const scrollTop = preserveScroll && content ? content.scrollTop : 0
+
+    await this.onEnter()
+
+    if (!content) {
+      router.refresh()
+      return
+    }
+
+    content.innerHTML = await this.render()
+    content.scrollTop = scrollTop
+    this._bindEvents()
+  },
+
   async render() {
     const subView = state.currentSubView || "threads"
     let html = ""
@@ -1029,7 +1047,7 @@ const outlineView = {
       this._reviewThreadPayload(thread, "outline_threads"),
     )
     toast("剧情线已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markThreadUnreviewed(id) {
@@ -1044,7 +1062,7 @@ const outlineView = {
       this._unreviewThreadPayload(thread),
     )
     toast("剧情线已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   _deleteThread(id) {
@@ -1706,8 +1724,7 @@ const outlineView = {
     })
     toast(bulkResultMessage(result, labels[action] || "批量删除", (item) => item.name || item.title || item.summary || item.secret_summary || item.id), result.failed.length ? "warning" : "success")
     clearBulkSelection(this, scope)
-    await this.onEnter()
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 }
 

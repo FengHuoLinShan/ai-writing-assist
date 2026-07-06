@@ -109,6 +109,9 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain('data-action="scene-auto-extract"')
     expect(html).toContain("再选 2 个即可融合")
     expect(html).toContain('data-action="start-selected-merge"')
+    expect(html).toContain('data-action="review-selected-scenes"')
+    expect(html).toContain("复核选中项")
+    expect(html.indexOf("复核选中项")).toBeLessThan(html.indexOf("机械合并"))
     expect(html).toContain("机械合并")
     expect(html).toContain('data-action="start-ai-fusion-draft"')
     expect(html).toContain("AI 融合草稿")
@@ -390,6 +393,10 @@ describe("sceneWorkbenchView", () => {
         : item),
     }
 
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 84
+
     await sceneWorkbenchView._markSceneReviewed("s1")
 
     expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
@@ -404,7 +411,59 @@ describe("sceneWorkbenchView", () => {
       }),
     })
     expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核/已整理", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(84)
+  })
+
+  it("reviews selected scenes in bulk without resetting the scene list scroll", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: workbenchPayload.items.map((item) => ({
+        ...item,
+        scene: {
+          ...item.scene,
+          structure_meta: {
+            source_workflow_id: `wf-${item.scene.id}`,
+            needs_review: true,
+            needs_organize: true,
+          },
+        },
+      })),
+    }
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 91
+
+    await sceneWorkbenchView._reviewSelectedScenes()
+
+    expect(api.outline.updateScene).toHaveBeenCalledTimes(2)
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
+      status: "canonical",
+      structure_meta: expect.objectContaining({
+        source_workflow_id: "wf-s1",
+        needs_review: false,
+        needs_organize: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "scene_workbench_bulk",
+      }),
+    })
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s2", "p1", {
+      status: "canonical",
+      structure_meta: expect.objectContaining({
+        source_workflow_id: "wf-s2",
+        needs_review: false,
+        needs_organize: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "scene_workbench_bulk",
+      }),
+    })
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    expect(toast).toHaveBeenCalledWith("已复核 2 个 Scene", "success")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(91)
   })
 
   it("marks a reviewed scene as needing review", async () => {
@@ -426,6 +485,10 @@ describe("sceneWorkbenchView", () => {
         : item),
     }
 
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 73
+
     await sceneWorkbenchView._markSceneUnreviewed("s1")
 
     const payload = api.outline.updateScene.mock.calls[0][2]
@@ -434,7 +497,8 @@ describe("sceneWorkbenchView", () => {
       needs_review: true,
     })
     expect(toast).toHaveBeenCalledWith("Scene 已标记为需复核", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(73)
   })
 
   it("does not preview manual fusion with fewer than two selected scenes", async () => {

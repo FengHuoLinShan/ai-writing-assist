@@ -200,6 +200,29 @@ const worldView = {
     ])
   },
 
+  async _refreshCurrentSubViewInPlace({ preserveScroll = true } = {}) {
+    const content = typeof document !== "undefined"
+      ? document.getElementById("workspace-content")
+      : null
+    const scrollTop = preserveScroll && content ? content.scrollTop : 0
+    const subView = state.currentSubView || "objects"
+
+    if (subView === "objects") {
+      await this._reloadWorldLists()
+    } else if (subView === "candidates") {
+      await this._loadCandidates()
+    }
+
+    if (!content) {
+      await router.refresh()
+      return
+    }
+
+    content.innerHTML = await this.render()
+    content.scrollTop = scrollTop
+    this._bindEvents()
+  },
+
   onLeave() {
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
@@ -1376,7 +1399,7 @@ const worldView = {
       content_json: this._entityReviewContent(entity, true, "world_objects"),
     }, state.currentProjectId)
     toast("世界对象已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markEntityUnreviewed(id) {
@@ -1395,19 +1418,19 @@ const worldView = {
       content_json: this._entityReviewContent(entity, false, "world_objects"),
     }, state.currentProjectId)
     toast("世界对象已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markRelationReviewed(id) {
     await api.world.updateRelationship(id, { status: "canonical" }, state.currentProjectId)
     toast("关系已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markRelationUnreviewed(id) {
     await api.world.updateRelationship(id, { status: "candidate" }, state.currentProjectId)
     toast("关系已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markAliasReviewed(entityId, alias) {
@@ -1419,7 +1442,7 @@ const worldView = {
       reviewed_from: "world_aliases",
     }, { novel_id: state.currentProjectId })
     toast("别名已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markAliasUnreviewed(entityId, alias) {
@@ -1431,7 +1454,7 @@ const worldView = {
       reviewed_from: null,
     }, { novel_id: state.currentProjectId })
     toast("别名已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   editEntity(id) {
@@ -1820,8 +1843,7 @@ const worldView = {
 
     toast(bulkResultMessage(result, label, (item) => item.name || item.alias || item.relation_type || this._entityId(item)), result.failed.length ? "warning" : "success")
     clearBulkSelection(this, scope)
-    await this._reloadWorldLists()
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   _toggleAdvancedFilters() {

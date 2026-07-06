@@ -321,6 +321,7 @@ describe("outlineView render", () => {
 
   it("标记单条剧情线复核通过", async () => {
     state.currentProjectId = "p1"
+    state.currentSubView = "threads"
     outlineView._threads = [{
       id: "t1",
       name: "主线A",
@@ -328,6 +329,17 @@ describe("outlineView render", () => {
       provenance_meta: { source: "deep_import", needs_review: true },
     }]
     api.outline.updateThread.mockResolvedValue({})
+    api.outline.listThreads.mockResolvedValue({
+      items: [{
+        id: "t1",
+        name: "主线A",
+        status: "canonical",
+        provenance_meta: { source: "deep_import", needs_review: false },
+      }],
+      total: 1,
+    })
+    document.body.innerHTML = `<main id="workspace-content">${await outlineView.render()}</main>`
+    document.getElementById("workspace-content").scrollTop = 92
 
     await outlineView._markThreadReviewed("t1")
 
@@ -343,7 +355,8 @@ describe("outlineView render", () => {
       }),
     })
     expect(toast).toHaveBeenCalledWith("剧情线已标记为已复核", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.getElementById("workspace-content").scrollTop).toBe(92)
   })
 
   it("标记单条剧情线需复核并移除复核字段", async () => {
