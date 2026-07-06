@@ -195,6 +195,27 @@ async def test_retry_wrapper_does_not_retry_schema_errors() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retry_wrapper_never_retries_schema_errors_from_custom_policy() -> None:
+    calls = 0
+
+    async def operation() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        raise LLMInvalidResponseError("Schema validation failed")
+
+    result = await run_deep_import_llm_with_retry(
+        operation,
+        retryable_error_types={"schema_error"},
+    )
+
+    assert calls == 1
+    assert result.attempts == 1
+    assert result.final_status == "failed"
+    assert result.final_error_type == "schema_error"
+    assert result.diagnostics[0].retry_scheduled is False
+
+
+@pytest.mark.asyncio
 async def test_retry_wrapper_retries_empty_result_once_then_succeeds() -> None:
     calls = 0
 

@@ -546,6 +546,206 @@ class TestSceneWorkbenchApi:
             "wf-scene-filter"
         )
 
+    async def test_workbench_filters_text_query_and_preserves_novel_isolation(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        sample_novel_id: str,
+    ) -> None:
+        matching = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "夜入王宫",
+                "goal": "潜入王宫",
+                "core_conflict": "追兵封锁暗门",
+                "status": "draft",
+            },
+        )
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "撤离",
+                "goal": "带出密信",
+                "core_conflict": "城门盘查",
+                "status": "draft",
+            },
+        )
+        await _create_scene(
+            async_client,
+            sample_novel_id,
+            {
+                "scene_index": 0,
+                "title": "其他小说追兵",
+                "core_conflict": "追兵封锁暗门",
+                "status": "draft",
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id, "q": "追兵"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [item["scene"]["id"] for item in data["items"]] == [matching["id"]]
+        assert data["total"] == 1
+
+    async def test_workbench_filters_by_chapter_range(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "前段",
+                "chapter_ids": ["2"],
+                "status": "draft",
+            },
+        )
+        matching = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "中段",
+                "chapter_ids": ["5"],
+                "status": "draft",
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "chapter_from": 4,
+                "chapter_to": 6,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [item["scene"]["id"] for item in data["items"]] == [matching["id"]]
+
+    async def test_workbench_filters_confidence_bands(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        low = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "低置信",
+                "status": "draft",
+                "structure_meta": {"confidence": 0.49},
+            },
+        )
+        medium = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "中置信",
+                "status": "draft",
+                "structure_meta": {"confidence": 0.5},
+            },
+        )
+        high = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 2,
+                "title": "高置信",
+                "status": "draft",
+                "structure_meta": {"confidence": 0.8},
+            },
+        )
+
+        expected = {
+            "low": [low["id"]],
+            "medium": [medium["id"]],
+            "high": [high["id"]],
+        }
+        for band, scene_ids in expected.items():
+            resp = await async_client.get(
+                "/api/outline/scene-workbench",
+                params={"novel_id": test_project_id, "confidence_band": band},
+            )
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert [item["scene"]["id"] for item in data["items"]] == scene_ids
+
+    async def test_workbench_health_filter_is_server_backed_and_paginated(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        for index in range(3):
+            await _create_scene(
+                async_client,
+                test_project_id,
+                {
+                    "scene_index": index,
+                    "title": f"缺设定 {index}",
+                    "status": "draft",
+                },
+            )
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 3,
+                "title": "完整 Scene",
+                "goal": "完成行动",
+                "core_conflict": "追兵阻拦",
+                "must_happen": "取得密信",
+                "must_not_happen": "暴露身份",
+                "status": "draft",
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "health": "missing_setup",
+                "skip": 1,
+                "limit": 1,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["total"] == 3
+        assert data["health"]["missing_setup"]["count"] == 3
+        assert len(data["items"]) == 1
+        assert data["items"][0]["scene"]["title"] == "缺设定 1"
+
+    async def test_workbench_rejects_invalid_filter_ranges(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "chapter_from": 5,
+                "chapter_to": 3,
+            },
+        )
+
+        assert resp.status_code == 400
+
     async def test_workbench_unassigned_chapters_use_all_active_scenes_under_filters(
         self,
         async_client: AsyncClient,

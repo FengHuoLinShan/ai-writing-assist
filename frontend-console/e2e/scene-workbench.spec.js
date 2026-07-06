@@ -323,6 +323,10 @@ test.describe("Scene 工作台", () => {
           && rect.bottom > pagerRect.top
       })
       return {
+        workspaceHasOuterScroll: (() => {
+          const workspace = document.querySelector("#workspace-content")
+          return workspace ? workspace.scrollHeight > workspace.clientHeight + 2 : true
+        })(),
         position: style?.position || "",
         afterRows: Boolean(pagerRect && rows.length) && pagerRect.top >= rows.at(-1).getBoundingClientRect().bottom,
         insideList: Boolean(listRect && pagerRect)
@@ -331,13 +335,22 @@ test.describe("Scene 工作台", () => {
           && pagerRect.top >= listRect.top
           && pagerRect.bottom <= listRect.bottom,
         overlappingRows: overlaps.length,
+        nextHitTarget: (() => {
+          const nextButton = document.querySelector('[data-action="next-scene-page"]')
+          if (!nextButton) return null
+          const rect = nextButton.getBoundingClientRect()
+          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+          return hit?.getAttribute("data-action") || null
+        })(),
       }
     })
     expect(paginationState).toEqual({
+      workspaceHasOuterScroll: false,
       position: "static",
       afterRows: true,
       insideList: true,
       overlappingRows: 0,
+      nextHitTarget: "next-scene-page",
     })
   })
 

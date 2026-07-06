@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
-import { captureModalHandler, clearDocument, modalHtmlFromCall, resetState } from "./helpers.js"
+import {
+  autoConfirm,
+  captureModalHandler,
+  clearDocument,
+  modalHtmlFromCall,
+  resetState,
+} from "./helpers.js"
 
 const workbenchPayload = {
   total: 2,
@@ -80,6 +86,8 @@ beforeEach(() => {
   sceneWorkbenchView._total = 0
   sceneWorkbenchView._activeHealth = null
   sceneWorkbenchView._filters = {
+    health: "",
+    q: "",
     status: "",
     source: "",
     workflow_id: "",
@@ -87,6 +95,9 @@ beforeEach(() => {
     boundary_status: "",
     phase: "",
     phase1a_fallback: false,
+    chapter_from: "",
+    chapter_to: "",
+    confidence_band: "",
     skip: 0,
     limit: 20,
   }
@@ -106,8 +117,15 @@ describe("sceneWorkbenchView", () => {
     const html = await sceneWorkbenchView.render()
 
     expect(html).toContain("场景（scene）自动提取")
+    expect(html).toContain("scene-workbench-shell")
+    expect(html).toContain("scene-workbench-actions")
     expect(html).toContain('data-action="scene-auto-extract"')
     expect(html).toContain("再选 2 个即可融合")
+    expect(html).toContain('data-action="toggle-visible-fusion-selection"')
+    expect(html).toContain('aria-label="选择用于批量操作"')
+    expect(html).not.toContain("<span>融合</span>")
+    expect(html).not.toContain('data-action="clear-fusion-selection"')
+    expect(html).not.toContain(">清空</button>")
     expect(html).toContain('data-action="start-selected-merge"')
     expect(html).toContain('data-action="review-selected-scenes"')
     expect(html).toContain("复核选中项")
@@ -126,6 +144,29 @@ describe("sceneWorkbenchView", () => {
 
     expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s1", "s2"]))
     expect(router.renderCurrentView).not.toHaveBeenCalled()
+  })
+
+  it("toggles current list fusion selection between select all and deselect all", () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    sceneWorkbenchView._toggleVisibleFusionSelection()
+
+    expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s1", "s2"]))
+
+    sceneWorkbenchView._toggleVisibleFusionSelection()
+
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+  })
+
+  it("renders current list selection toggle as cancel when all visible scenes are selected", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain("取消全选")
+    expect(html).not.toContain(">清空</button>")
   })
 
   it("toggles fusion selection without rerendering the whole scene page", async () => {
@@ -212,6 +253,66 @@ describe("sceneWorkbenchView", () => {
     )
   })
 
+  it("confirms overwrite before forcing scene auto extraction", async () => {
+    api.imports.startStage
+      .mockResolvedValueOnce({ requires_confirmation: true, warning: "已有 Scene 会被覆盖" })
+      .mockResolvedValueOnce({ task_id: "scene-task" })
+    autoConfirm()
+    sceneWorkbenchView._showSceneAutoExtractForm()
+    document.body.innerHTML += `
+      <input id="scene-auto-extract-start" value="107" />
+      <input id="scene-auto-extract-end" value="160" />
+      <input id="scene-auto-extract-high-quality" type="checkbox" />
+    `
+
+    await captureModalHandler()()
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      "已有 Scene 会被覆盖",
+      expect.any(Function),
+      "确认覆盖",
+    )
+    expect(api.imports.startStage).toHaveBeenNthCalledWith(
+      1,
+      "scenes",
+      "p1",
+      107,
+      160,
+      false,
+      false,
+    )
+    expect(api.imports.startStage).toHaveBeenNthCalledWith(
+      2,
+      "scenes",
+      "p1",
+      107,
+      160,
+      true,
+      false,
+    )
+    expect(toast).toHaveBeenCalledWith(
+      "场景（scene）自动提取任务已提交：scene-task",
+      "success",
+    )
+  })
+
+  it("does not start polling when scene auto extraction returns no task id", async () => {
+    api.imports.startStage.mockResolvedValue({ message: "章节范围为空" })
+    const pollingSpy = vi.spyOn(sceneWorkbenchView, "_startAutoExtractPolling")
+    sceneWorkbenchView._showSceneAutoExtractForm()
+    document.body.innerHTML += `
+      <input id="scene-auto-extract-start" value="107" />
+      <input id="scene-auto-extract-end" value="160" />
+      <input id="scene-auto-extract-high-quality" type="checkbox" />
+    `
+
+    await captureModalHandler()()
+
+    expect(pollingSpy).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("章节范围为空", "warning")
+    expect(toast).not.toHaveBeenCalledWith("taskId is required", "error")
+  })
+
   it("loads selected scene workbench data on enter", async () => {
     await sceneWorkbenchView.onEnter()
 
@@ -254,12 +355,16 @@ describe("sceneWorkbenchView", () => {
   it("applies management filters through scene workbench API params", async () => {
     api.outline.getSceneWorkbench.mockResolvedValue(workbenchPayload)
     document.body.innerHTML = `
+      <input id="scene-filter-q" value="潜入" />
+      <input id="scene-filter-chapter-from" value="1" />
+      <input id="scene-filter-chapter-to" value="3" />
       <select id="scene-filter-status"><option value="deprecated" selected>废弃</option></select>
       <select id="scene-filter-source"><option value="deep_import" selected>深度导入</option></select>
       <input id="scene-filter-workflow-id" value="wf-17" />
       <select id="scene-filter-needs-review"><option value="true" selected>需复核</option></select>
       <select id="scene-filter-boundary-status"><option value="uncertain" selected>边界不确定</option></select>
       <select id="scene-filter-phase"><option value="phase1a_fallback" selected>Phase 1A fallback</option></select>
+      <select id="scene-filter-confidence-band"><option value="low" selected>低于 0.5</option></select>
       <label><input id="scene-filter-phase1a-fallback" type="checkbox" checked /> fallback</label>
     `
 
@@ -269,6 +374,9 @@ describe("sceneWorkbenchView", () => {
       "p1",
       "s1",
       expect.objectContaining({
+        q: "潜入",
+        chapter_from: "1",
+        chapter_to: "3",
         status: "deprecated",
         source: "deep_import",
         workflow_id: "wf-17",
@@ -276,11 +384,65 @@ describe("sceneWorkbenchView", () => {
         boundary_status: "uncertain",
         phase: "phase1a_fallback",
         phase1a_fallback: true,
+        confidence_band: "low",
         skip: 0,
         limit: 20,
       }),
     )
     expect(sceneWorkbenchView._filters.status).toBe("deprecated")
+  })
+
+  it("renders common and advanced scene filters", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._advancedFiltersOpen = true
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain("scene-filter-q")
+    expect(html).toContain("scene-filter-chapter-from")
+    expect(html).toContain("scene-filter-chapter-to")
+    expect(html).toContain("scene-filter-workflow-id")
+    expect(html).toContain("scene-filter-confidence-band")
+    expect(html).toContain("低于 0.5")
+  })
+
+  it("loads server-backed health filter and clears selection", async () => {
+    api.outline.getSceneWorkbench.mockResolvedValue(workbenchPayload)
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1"])
+
+    await sceneWorkbenchView._toggleHealthFilter("missing_setup")
+
+    expect(sceneWorkbenchView._filters.health).toBe("missing_setup")
+    expect(sceneWorkbenchView._filters.skip).toBe(0)
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s1", {
+      health: "missing_setup",
+      skip: 0,
+      limit: 20,
+    })
+    expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("reset filters clears health and advanced state", async () => {
+    api.outline.getSceneWorkbench.mockResolvedValue(workbenchPayload)
+    sceneWorkbenchView._filters = {
+      ...sceneWorkbenchView._filters,
+      health: "unreviewed",
+      q: "潜入",
+      skip: 20,
+    }
+    sceneWorkbenchView._activeHealth = "unreviewed"
+    sceneWorkbenchView._advancedFiltersOpen = true
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1"])
+
+    await sceneWorkbenchView._resetManagementFilters()
+
+    expect(sceneWorkbenchView._filters.health).toBe("")
+    expect(sceneWorkbenchView._filters.q).toBe("")
+    expect(sceneWorkbenchView._filters.skip).toBe(0)
+    expect(sceneWorkbenchView._activeHealth).toBeNull()
+    expect(sceneWorkbenchView._advancedFiltersOpen).toBe(false)
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
   })
 
   it("renders fixed health filters, 62/38 desktop layout, and unassigned chapters", async () => {
@@ -300,11 +462,10 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("data-action=\"assign-unassigned-chapter\"")
   })
 
-  it("filters scene list by health key", async () => {
+  it("renders server-filtered scene list by health key", async () => {
     sceneWorkbenchView._workbench = {
       ...workbenchPayload,
       items: [
-        ...workbenchPayload.items,
         {
           kind: "scene",
           health: ["needs_organize"],
@@ -313,10 +474,11 @@ describe("sceneWorkbenchView", () => {
         },
       ],
     }
-    sceneWorkbenchView._activeHealth = "needs_organize"
+    sceneWorkbenchView._filters.health = "needs_organize"
 
     const html = await sceneWorkbenchView.render()
 
+    expect(html).toContain('class="scene-health-filter active"')
     expect(html).toContain("整理项")
     expect(html).not.toContain("潜入")
   })
@@ -464,6 +626,50 @@ describe("sceneWorkbenchView", () => {
     expect(toast).toHaveBeenCalledWith("已复核 2 个 Scene", "success")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(91)
+  })
+
+  it("toggles selected reviewed scenes back to needing review", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: workbenchPayload.items.map((item) => ({
+        ...item,
+        scene: {
+          ...item.scene,
+          structure_meta: {
+            source_workflow_id: `wf-${item.scene.id}`,
+            reviewed_at: "2026-07-05T00:00:00.000Z",
+            reviewed_by: "manual",
+            reviewed_from: "scene_workbench_bulk",
+          },
+        },
+      })),
+    }
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 55
+
+    expect(document.body.textContent).toContain("取消复核选中项")
+
+    await sceneWorkbenchView._toggleSelectedSceneReview()
+
+    expect(api.outline.updateScene).toHaveBeenCalledTimes(2)
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
+      structure_meta: {
+        source_workflow_id: "wf-s1",
+        needs_review: true,
+      },
+    })
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s2", "p1", {
+      structure_meta: {
+        source_workflow_id: "wf-s2",
+        needs_review: true,
+      },
+    })
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    expect(toast).toHaveBeenCalledWith("已取消复核 2 个 Scene", "success")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(55)
   })
 
   it("marks a reviewed scene as needing review", async () => {

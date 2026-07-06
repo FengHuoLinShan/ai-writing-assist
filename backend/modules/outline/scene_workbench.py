@@ -36,6 +36,8 @@ HEALTH_DEFS = {
     "needs_organize": "待整理",
 }
 
+CONFIDENCE_BANDS = {"low", "medium", "high"}
+
 
 class SceneWorkbenchService:
     def __init__(self) -> None:
@@ -109,9 +111,20 @@ class SceneWorkbenchService:
         boundary_status: str | None = None,
         phase: str | None = None,
         phase1a_fallback: bool | None = None,
+        health: str | None = None,
+        q: str | None = None,
+        chapter_from: int | None = None,
+        chapter_to: int | None = None,
+        confidence_band: str | None = None,
         skip: int = 0,
         limit: int | None = None,
     ) -> SceneWorkbenchResponse:
+        self._validate_filters(
+            health=health,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            confidence_band=confidence_band,
+        )
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self.repo.get_by_novel_ordered(
             db,
@@ -123,8 +136,12 @@ class SceneWorkbenchService:
             boundary_status=boundary_status,
             phase=phase,
             phase1a_fallback=phase1a_fallback,
-            skip=skip,
-            limit=limit,
+            q=q,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            confidence_band=confidence_band,
+            skip=0 if health else skip,
+            limit=None if health else limit,
         )
         all_matching_scenes = await self.repo.get_by_novel_ordered(
             db,
@@ -136,6 +153,10 @@ class SceneWorkbenchService:
             boundary_status=boundary_status,
             phase=phase,
             phase1a_fallback=phase1a_fallback,
+            q=q,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            confidence_band=confidence_band,
             skip=0,
             limit=None,
         )
@@ -152,6 +173,18 @@ class SceneWorkbenchService:
         )
         duplicate_chapter_ids = self._duplicate_scene_chapter_ids(all_active_scenes)
 
+        visible_scenes = scenes
+        if health:
+            visible_scenes = [
+                scene
+                for scene in scenes
+                if health in self._scene_health(scene, duplicate_chapter_ids)
+            ]
+            if limit is not None:
+                visible_scenes = visible_scenes[skip : skip + limit]
+            else:
+                visible_scenes = visible_scenes[skip:]
+
         items = [
             SceneWorkbenchItem(
                 scene=SceneResponse.model_validate(scene),
@@ -159,7 +192,7 @@ class SceneWorkbenchService:
                 chapter_range=self._chapter_range(scene.chapter_ids or []),
                 summary=scene.goal or scene.core_conflict or scene.emotional_beat,
             )
-            for scene in scenes
+            for scene in visible_scenes
         ]
 
         counts = {key: 0 for key in HEALTH_DEFS}
@@ -167,6 +200,9 @@ class SceneWorkbenchService:
             for key in self._scene_health(scene, duplicate_chapter_ids):
                 counts[key] += 1
         counts["unassigned"] += len(unassigned_chapters)
+        total = len(all_matching_scenes)
+        if health:
+            total = counts[health]
 
         return SceneWorkbenchResponse(
             health={
@@ -174,10 +210,31 @@ class SceneWorkbenchService:
                 for key, label in HEALTH_DEFS.items()
             },
             items=items,
-            total=len(all_matching_scenes),
-            unassigned_chapters=unassigned_chapters,
+            total=total,
+            unassigned_chapters=(
+                unassigned_chapters if health in {None, "unassigned"} else []
+            ),
             selected_scene_id=selected_scene_id,
         )
+
+    def _validate_filters(
+        self,
+        *,
+        health: str | None,
+        chapter_from: int | None,
+        chapter_to: int | None,
+        confidence_band: str | None,
+    ) -> None:
+        if health and health not in HEALTH_DEFS:
+            raise ValueError("Unsupported scene health filter")
+        if confidence_band and confidence_band not in CONFIDENCE_BANDS:
+            raise ValueError("Unsupported confidence band")
+        if (
+            chapter_from is not None
+            and chapter_to is not None
+            and chapter_from > chapter_to
+        ):
+            raise ValueError("chapter_from must be less than or equal to chapter_to")
 
     async def update_mapping(
         self,

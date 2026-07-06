@@ -607,8 +607,7 @@ const worldView = {
           <p>还没有世界对象。</p>
           <p>世界对象是小说世界中的核心创作资产，包括地点、组织、物品、事件等。</p>
           <div class="actions">
-            <button class="btn btn-primary" data-action="toggle-extract">自动提取世界对象</button>
-            <button class="btn" data-action="new">手动新建对象</button>
+            <button class="btn btn-primary" data-action="new">手动新建对象</button>
           </div>
         </div>
         `}

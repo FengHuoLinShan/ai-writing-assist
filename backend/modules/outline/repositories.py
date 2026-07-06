@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
-from sqlalchemy import case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.models import OutlineArc, PlotThread, Scene, SceneChapterLink
@@ -726,6 +726,10 @@ class SceneRepository:
         boundary_status: str | None = None,
         phase: str | None = None,
         phase1a_fallback: bool | None = None,
+        q: str | None = None,
+        chapter_from: int | None = None,
+        chapter_to: int | None = None,
+        confidence_band: str | None = None,
         skip: int = 0,
         limit: int | None = None,
     ) -> list[Scene]:
@@ -754,6 +758,38 @@ class SceneRepository:
             conditions.append(
                 Scene.structure_meta["phase1a_fallback"].as_boolean()
                 == phase1a_fallback
+            )
+        if q:
+            pattern = f"%{q.strip().lower()}%"
+            conditions.append(
+                or_(
+                    func.lower(Scene.title).like(pattern),
+                    func.lower(Scene.goal).like(pattern),
+                    func.lower(Scene.core_conflict).like(pattern),
+                    func.lower(Scene.emotional_beat).like(pattern),
+                    func.lower(Scene.must_happen).like(pattern),
+                    func.lower(Scene.must_not_happen).like(pattern),
+                )
+            )
+        if confidence_band:
+            confidence = Scene.structure_meta["confidence"].as_float()
+            if confidence_band == "low":
+                conditions.append(confidence < 0.5)
+            elif confidence_band == "medium":
+                conditions.append(and_(confidence >= 0.5, confidence < 0.8))
+            elif confidence_band == "high":
+                conditions.append(confidence >= 0.8)
+        if chapter_from is not None or chapter_to is not None:
+            chapter_conditions = [
+                SceneChapterLink.novel_id == novel_id,
+                SceneChapterLink.scene_id == Scene.id,
+            ]
+            if chapter_from is not None:
+                chapter_conditions.append(SceneChapterLink.chapter_index >= chapter_from)
+            if chapter_to is not None:
+                chapter_conditions.append(SceneChapterLink.chapter_index <= chapter_to)
+            conditions.append(
+                select(SceneChapterLink.id).where(*chapter_conditions).exists()
             )
         stmt = (
             select(Scene)

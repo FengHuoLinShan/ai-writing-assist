@@ -37,7 +37,15 @@ const PHASE_OPTIONS = [
   ["phase1b_fusion", "Phase 1B fusion"],
 ]
 
+const CONFIDENCE_BAND_OPTIONS = [
+  ["low", "低于 0.5"],
+  ["medium", "0.5-0.8"],
+  ["high", "0.8 以上"],
+]
+
 const SCENE_FILTER_DEFAULTS = {
+  health: "",
+  q: "",
   status: "",
   source: "",
   workflow_id: "",
@@ -45,6 +53,9 @@ const SCENE_FILTER_DEFAULTS = {
   boundary_status: "",
   phase: "",
   phase1a_fallback: false,
+  chapter_from: "",
+  chapter_to: "",
+  confidence_band: "",
   skip: 0,
   limit: 20,
 }
@@ -123,22 +134,24 @@ const sceneWorkbenchView = {
     const showNarrowDetail = narrow && this._mobileDetailOpen && selected
     const detail = this._renderDetail(selected, narrow)
     const html = `
-      <div style="margin-bottom:8px;display:flex;gap:8px;justify-content:flex-end;">
-        <button class="btn" data-action="detect-cross-chapter-scenes">识别跨章 Scene</button>
-        <button class="btn btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
-      </div>
-      ${this._renderAutoExtractProgress()}
-      ${this._renderCrossChapterProgress()}
-      <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
-        <section class="scene-workbench__organize">
-          ${this._renderManagementFilters()}
-          ${this._renderHealthFilters()}
-          ${this._renderFusionToolbar()}
-          ${this._renderSceneList()}
-          ${this._renderPagination()}
-        </section>
-        ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
-        ${showNarrowDetail ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
+      <div class="scene-workbench-shell">
+        <div class="scene-workbench-actions">
+          <button class="btn" data-action="detect-cross-chapter-scenes">识别跨章 Scene</button>
+          <button class="btn btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
+        </div>
+        ${this._renderAutoExtractProgress()}
+        ${this._renderCrossChapterProgress()}
+        <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
+          <section class="scene-workbench__organize">
+            ${this._renderManagementFilters()}
+            ${this._renderHealthFilters()}
+            ${this._renderFusionToolbar()}
+            ${this._renderSceneList()}
+            ${this._renderPagination()}
+          </section>
+          ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
+          ${showNarrowDetail ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
+        </div>
       </div>
     `
     setTimeout(() => this._bindEvents(), 0)
@@ -160,7 +173,19 @@ const sceneWorkbenchView = {
       skip: this._filters.skip,
       limit: this._filters.limit,
     }
-    for (const key of ["status", "source", "workflow_id", "needs_review", "boundary_status", "phase"]) {
+    for (const key of [
+      "health",
+      "q",
+      "status",
+      "source",
+      "workflow_id",
+      "needs_review",
+      "boundary_status",
+      "phase",
+      "chapter_from",
+      "chapter_to",
+      "confidence_band",
+    ]) {
       const value = this._filters[key]
       if (value === "true") params[key] = true
       else if (value === "false") params[key] = false
@@ -172,8 +197,13 @@ const sceneWorkbenchView = {
 
   _renderManagementFilters() {
     const advancedFilters = this._advancedFiltersOpen ? `
+      <label class="scene-filter-field scene-filter-field--wide">
+        <span>Workflow</span>
+        <input class="form-input" id="scene-filter-workflow-id" value="${esc(this._filters.workflow_id)}" placeholder="workflow_id" />
+      </label>
       ${this._filterSelect("scene-filter-boundary-status", "边界", this._filters.boundary_status, BOUNDARY_STATUS_OPTIONS, "全部边界")}
       ${this._filterSelect("scene-filter-phase", "阶段", this._filters.phase, PHASE_OPTIONS, "全部阶段")}
+      ${this._filterSelect("scene-filter-confidence-band", "置信度", this._filters.confidence_band, CONFIDENCE_BAND_OPTIONS, "全部置信度")}
       <label class="scene-filter-checkbox">
         <input id="scene-filter-phase1a-fallback" type="checkbox" ${this._filters.phase1a_fallback ? "checked" : ""} />
         <span>Phase 1A fallback</span>
@@ -181,12 +211,20 @@ const sceneWorkbenchView = {
     ` : ""
     return `
       <div class="scene-management-filters" aria-label="Scene 管理筛选">
+        <label class="scene-filter-field scene-filter-field--wide">
+          <span>搜索</span>
+          <input class="form-input" id="scene-filter-q" value="${esc(this._filters.q)}" placeholder="标题 / 目标 / 冲突" />
+        </label>
+        <label class="scene-filter-field">
+          <span>起始章</span>
+          <input class="form-input" id="scene-filter-chapter-from" type="number" min="1" value="${esc(this._filters.chapter_from)}" />
+        </label>
+        <label class="scene-filter-field">
+          <span>结束章</span>
+          <input class="form-input" id="scene-filter-chapter-to" type="number" min="1" value="${esc(this._filters.chapter_to)}" />
+        </label>
         ${this._filterSelect("scene-filter-status", "状态", this._filters.status, STATUS_OPTIONS, "全部状态")}
         ${this._filterSelect("scene-filter-source", "来源", this._filters.source, SOURCE_OPTIONS, "全部来源")}
-        <label class="scene-filter-field scene-filter-field--wide">
-          <span>Workflow</span>
-          <input class="form-input" id="scene-filter-workflow-id" value="${esc(this._filters.workflow_id)}" placeholder="workflow_id" />
-        </label>
         ${this._filterSelect("scene-filter-needs-review", "复核", this._filters.needs_review, [["true", "需复核"], ["false", "无需复核"]], "全部复核")}
         <div class="scene-filter-actions">
           <button class="btn btn-sm" data-action="toggle-advanced-scene-filters">${this._advancedFiltersOpen ? "▾" : "▸"} 高级</button>
@@ -217,7 +255,8 @@ const sceneWorkbenchView = {
       <div class="scene-health-bar">
         ${HEALTH_ORDER.map(([key, fallback]) => {
           const item = this._workbench.health?.[key] || { label: fallback, count: 0 }
-          const active = this._activeHealth === key ? "active" : ""
+          const activeHealth = this._filters.health || this._activeHealth
+          const active = activeHealth === key ? "active" : ""
           return `
             <button class="scene-health-filter ${active}" data-action="filter-health" data-id="${esc(key)}">
               <span>${esc(item.label || fallback)}</span>
@@ -266,14 +305,14 @@ const sceneWorkbenchView = {
     }).join("")
     return `
       <article class="scene-workbench-row ${selected}" data-id="${esc(scene.id)}">
-        <label class="scene-fusion-select selection-checkbox" title="选择用于手动融合">
+        <label class="scene-fusion-select selection-checkbox" title="选择用于批量操作">
           <input
             type="checkbox"
             data-action="toggle-fusion-selection"
             data-id="${esc(scene.id)}"
+            aria-label="选择用于批量操作"
             ${fusionSelected ? "checked" : ""}
           />
-          <span>融合</span>
         </label>
         <button class="scene-workbench-row__main" data-action="select-workbench-scene" data-id="${esc(scene.id)}">
           <div class="scene-workbench-row__meta">
@@ -300,8 +339,23 @@ const sceneWorkbenchView = {
 
   _renderFusionToolbar() {
     const count = this._selectedFusionSceneIds.size
+    const visibleSceneIds = this._visibleFusionSceneIds()
+    const allVisibleSelected = visibleSceneIds.length > 0
+      && visibleSceneIds.every((id) => this._selectedFusionSceneIds.has(id))
+    const reviewItems = this._selectedSceneItems()
+    const allSelectedReviewed = reviewItems.length > 0
+      && reviewItems.every((item) => this._sceneReviewState(item).reviewed)
     const disabled = count < 2 ? "disabled" : ""
     const hint = count < 2 ? `再选 ${2 - count} 个即可融合` : "已可开始融合"
+    const selectionLabel = allVisibleSelected ? "取消全选" : "全选当前列表"
+    const selectionTitle = allVisibleSelected ? "取消选择当前列表中的 Scene" : "选择当前列表中的全部 Scene"
+    const reviewLabel = allSelectedReviewed ? "取消复核选中项" : "复核选中项"
+    const reviewClass = allSelectedReviewed ? "" : "btn-primary"
+    const reviewTitle = count === 0
+      ? "请先选择要复核的 Scene"
+      : allSelectedReviewed
+        ? "将选中的 Scene 标记为需复核"
+        : "将选中的 Scene 标记为已复核/已整理"
     return `
       <div class="scene-fusion-toolbar" aria-label="Scene 批量操作">
         <div class="scene-fusion-toolbar__status">
@@ -309,10 +363,9 @@ const sceneWorkbenchView = {
           <span>个 Scene 已选</span>
           <span class="scene-fusion-toolbar__hint">${esc(hint)}</span>
         </div>
-        <button class="btn btn-sm" data-action="select-visible-fusion-scenes">全选当前列表</button>
-        <button class="btn btn-sm" data-action="clear-fusion-selection" ${count === 0 ? "disabled" : ""} title="${count === 0 ? "当前没有选中的 Scene" : "清空当前选择"}">清空</button>
-        <button class="btn btn-sm btn-primary" data-action="review-selected-scenes" ${count === 0 ? "disabled" : ""} title="${count === 0 ? "请先选择要复核的 Scene" : "将选中的 Scene 标记为已复核/已整理"}">
-          复核选中项
+        <button class="btn btn-sm" data-action="toggle-visible-fusion-selection" ${visibleSceneIds.length === 0 ? "disabled" : ""} title="${esc(selectionTitle)}">${esc(selectionLabel)}</button>
+        <button class="btn btn-sm ${reviewClass}" data-action="review-selected-scenes" ${count === 0 ? "disabled" : ""} title="${esc(reviewTitle)}">
+          ${esc(reviewLabel)}
         </button>
         <button class="btn btn-sm" data-action="start-selected-merge" ${disabled} title="${count < 2 ? hint : "机械合并：目标 Scene 吸收其他 Scene"}">
           机械合并
@@ -422,9 +475,7 @@ const sceneWorkbenchView = {
   },
 
   _filteredItems() {
-    const items = this._workbench?.items || []
-    if (!this._activeHealth) return items
-    return items.filter((item) => (item.health || []).includes(this._activeHealth))
+    return this._workbench?.items || []
   },
 
   _selectedSceneId() {
@@ -581,6 +632,18 @@ const sceneWorkbenchView = {
     }
   },
 
+  _visibleFusionSceneIds() {
+    return this._filteredItems()
+      .map((item) => item.scene?.id)
+      .filter(Boolean)
+  },
+
+  _selectedSceneItems() {
+    return Array.from(this._selectedFusionSceneIds)
+      .map((sceneId) => this._findSceneItem(sceneId))
+      .filter(Boolean)
+  },
+
   _toggleFusionSelection(sceneId, selected) {
     if (!sceneId) return
     if (selected) this._selectedFusionSceneIds.add(sceneId)
@@ -592,6 +655,18 @@ const sceneWorkbenchView = {
     for (const item of this._filteredItems()) {
       const id = item.scene?.id
       if (id) this._selectedFusionSceneIds.add(id)
+    }
+    this._syncFusionSelectionUi()
+  },
+
+  _toggleVisibleFusionSelection() {
+    const visibleSceneIds = this._visibleFusionSceneIds()
+    const allVisibleSelected = visibleSceneIds.length > 0
+      && visibleSceneIds.every((id) => this._selectedFusionSceneIds.has(id))
+    if (allVisibleSelected) {
+      visibleSceneIds.forEach((id) => this._selectedFusionSceneIds.delete(id))
+    } else {
+      visibleSceneIds.forEach((id) => this._selectedFusionSceneIds.add(id))
     }
     this._syncFusionSelectionUi()
   },
@@ -646,17 +721,9 @@ const sceneWorkbenchView = {
   },
 
   async _reviewSelectedScenes() {
-    const sceneIds = Array.from(this._selectedFusionSceneIds)
-    if (!sceneIds.length) {
-      toast("请先选择要复核的 Scene", "warning")
-      return
-    }
-
-    const scenes = sceneIds
-      .map((sceneId) => this._findScene(sceneId))
-      .filter(Boolean)
+    const scenes = this._selectedSceneItems().map((item) => item.scene).filter(Boolean)
     if (!scenes.length) {
-      toast("未找到选中的 Scene", "error")
+      toast("请先选择要复核的 Scene", "warning")
       return
     }
 
@@ -682,6 +749,50 @@ const sceneWorkbenchView = {
       return
     }
     toast("选中 Scene 复核失败", "error")
+  },
+
+  async _toggleSelectedSceneReview() {
+    const selectedItems = this._selectedSceneItems()
+    if (!selectedItems.length) {
+      toast("请先选择要复核的 Scene", "warning")
+      return
+    }
+    const allReviewed = selectedItems.every((item) => this._sceneReviewState(item).reviewed)
+    if (allReviewed) {
+      await this._unreviewSelectedScenes(selectedItems)
+      return
+    }
+    await this._reviewSelectedScenes()
+  },
+
+  async _unreviewSelectedScenes(selectedItems = this._selectedSceneItems()) {
+    const scenes = selectedItems.map((item) => item.scene).filter(Boolean)
+    if (!scenes.length) {
+      toast("未找到选中的 Scene", "error")
+      return
+    }
+
+    const failedIds = []
+    const results = await Promise.allSettled(scenes.map((scene) => {
+      const meta = { ...(scene.structure_meta || {}), needs_review: true }
+      delete meta.reviewed_at
+      delete meta.reviewed_by
+      delete meta.reviewed_from
+      return api.outline.updateScene(scene.id, state.currentProjectId, { structure_meta: meta })
+    }))
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") failedIds.push(scenes[index].id)
+    })
+
+    this._selectedFusionSceneIds = new Set(failedIds)
+    const successCount = results.length - failedIds.length
+    if (successCount) {
+      toast(`已取消复核 ${successCount} 个 Scene`, failedIds.length ? "warning" : "success")
+      await this._refreshWorkbenchInPlace()
+      return
+    }
+    toast("选中 Scene 取消复核失败", "error")
   },
 
   async _markSceneUnreviewed(sceneId) {
@@ -1131,6 +1242,8 @@ const sceneWorkbenchView = {
     const read = (id) => document.getElementById(id)?.value?.trim() || ""
     this._filters = {
       ...SCENE_FILTER_DEFAULTS,
+      health: this._filters.health || this._activeHealth || "",
+      q: read("scene-filter-q"),
       status: read("scene-filter-status"),
       source: read("scene-filter-source"),
       workflow_id: read("scene-filter-workflow-id"),
@@ -1138,15 +1251,35 @@ const sceneWorkbenchView = {
       boundary_status: read("scene-filter-boundary-status"),
       phase: read("scene-filter-phase"),
       phase1a_fallback: Boolean(document.getElementById("scene-filter-phase1a-fallback")?.checked),
+      chapter_from: read("scene-filter-chapter-from"),
+      chapter_to: read("scene-filter-chapter-to"),
+      confidence_band: read("scene-filter-confidence-band"),
       skip: 0,
     }
+    this._activeHealth = this._filters.health || null
+    this._selectedFusionSceneIds = new Set()
     await this._loadWorkbench()
     await router.refresh()
   },
 
   async _resetManagementFilters() {
     this._filters = { ...SCENE_FILTER_DEFAULTS }
+    this._activeHealth = null
     this._advancedFiltersOpen = false
+    this._selectedFusionSceneIds = new Set()
+    await this._loadWorkbench()
+    await router.refresh()
+  },
+
+  async _toggleHealthFilter(health) {
+    const nextHealth = this._filters.health === health ? "" : health
+    this._filters = {
+      ...this._filters,
+      health: nextHealth,
+      skip: 0,
+    }
+    this._activeHealth = nextHealth || null
+    this._selectedFusionSceneIds = new Set()
     await this._loadWorkbench()
     await router.refresh()
   },
@@ -1252,39 +1385,62 @@ const sceneWorkbenchView = {
         const end = parseInt(document.getElementById("scene-auto-extract-end")?.value || "10", 10)
         const highQuality = !!document.getElementById("scene-auto-extract-high-quality")?.checked
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
-        try {
-          const result = await api.imports.startStage(
-            "scenes",
-            state.currentProjectId,
-            start,
-            end,
-            false,
-            highQuality,
-          )
-          this._autoExtractTaskId = result.task_id
-          this._autoExtractMeta = { start_chapter: start, end_chapter: end }
-          this._autoExtractProgress = normalizeTaskProgress({
-            ...result,
-            task_type: "scene_auto_extraction",
-            meta: this._autoExtractMeta,
-          }, "scene_auto_extraction")
-          persistActiveWorkflow({
-            taskId: result.task_id,
-            workflowType: "scene_auto_extraction",
-            label: "场景（scene）自动提取",
-            projectId: state.currentProjectId,
-            view: "scene",
-            meta: { ...this._autoExtractMeta, highQuality },
-          })
-          closeModal()
-          toast(`场景（scene）自动提取任务已提交：${result.task_id || ""}`, "success")
-          this._startAutoExtractPolling(result.task_id)
-          router.renderCurrentView()
-        } catch (err) {
-          toast(err.message || "提交失败", "error")
-        }
+        await this._submitSceneAutoExtraction(start, end, highQuality)
       },
     }])
+  },
+
+  async _submitSceneAutoExtraction(start, end, highQuality = false, force = false) {
+    try {
+      const result = await api.imports.startStage(
+        "scenes",
+        state.currentProjectId,
+        start,
+        end,
+        force,
+        highQuality,
+      )
+      if (result.requires_confirmation) {
+        const confirmed = await new Promise((resolve) => {
+          confirmAction(result.warning, () => resolve(true), "确认覆盖")
+          setTimeout(() => {
+            const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
+            if (cancelBtn) cancelBtn.onclick = () => resolve(false)
+          }, 50)
+        })
+        if (!confirmed) return
+        await this._submitSceneAutoExtraction(start, end, highQuality, true)
+        return
+      }
+
+      if (!result.task_id) {
+        closeModal()
+        toast(result.message || "场景（scene）自动提取未启动", "warning")
+        return
+      }
+
+      this._autoExtractTaskId = result.task_id
+      this._autoExtractMeta = { start_chapter: start, end_chapter: end }
+      this._autoExtractProgress = normalizeTaskProgress({
+        ...result,
+        task_type: "scene_auto_extraction",
+        meta: this._autoExtractMeta,
+      }, "scene_auto_extraction")
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "scene_auto_extraction",
+        label: "场景（scene）自动提取",
+        projectId: state.currentProjectId,
+        view: "scene",
+        meta: { ...this._autoExtractMeta, highQuality },
+      })
+      closeModal()
+      toast(`场景（scene）自动提取任务已提交：${result.task_id}`, "success")
+      this._startAutoExtractPolling(result.task_id)
+      router.renderCurrentView()
+    } catch (err) {
+      toast(err.message || "提交失败", "error")
+    }
   },
 
   async _startCrossChapterDetection() {
@@ -1397,8 +1553,7 @@ const sceneWorkbenchView = {
       "detect-cross-chapter-scenes": () => this._startCrossChapterDetection(),
       "show-cross-chapter-suggestions": () => this._showCrossChapterSuggestions(),
       "filter-health": (_e, _t, ctx) => {
-        this._activeHealth = this._activeHealth === ctx.id ? null : ctx.id
-        router.renderCurrentView()
+        this._toggleHealthFilter(ctx.id)
       },
       "apply-scene-filters": () => this._applyManagementFilters(),
       "reset-scene-filters": () => this._resetManagementFilters(),
@@ -1425,8 +1580,9 @@ const sceneWorkbenchView = {
         this._toggleFusionSelection(ctx.id, t.checked)
       },
       "select-visible-fusion-scenes": () => this._selectVisibleFusionScenes(),
+      "toggle-visible-fusion-selection": () => this._toggleVisibleFusionSelection(),
       "clear-fusion-selection": () => this._clearFusionSelection(),
-      "review-selected-scenes": () => this._reviewSelectedScenes(),
+      "review-selected-scenes": () => this._toggleSelectedSceneReview(),
       "start-selected-merge": () => this._startSelectedMerge(),
       "start-ai-fusion-draft": () => this._startManualFusion(),
       "start-manual-fusion": () => this._startManualFusion(),

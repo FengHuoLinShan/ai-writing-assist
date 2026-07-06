@@ -3803,11 +3803,27 @@ kbd {
 }
 
 /* ===== Scene 工作台 ===== */
+.scene-workbench-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.scene-workbench-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 .scene-workbench {
   display: grid;
   grid-template-columns: minmax(0, 62fr) minmax(320px, 38fr);
+  flex: 1 1 auto;
   gap: 16px;
-  height: 100%;
+  height: auto;
   min-height: 0;
 }
 

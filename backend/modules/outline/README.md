@@ -89,6 +89,14 @@ POST  /api/outline/scene-workbench/cross-chapter/detect
 
 健康项由 `SceneWorkbenchService` 派生，固定为 `未复核`、`未关联章节`、
 `缺设定`、`待整理`。跨多章 Scene 是正常形态，不作为默认风险。
+工作台筛选分三层：健康筛选、常用管理筛选和高级导入诊断筛选。`GET
+/api/outline/scene-workbench` 支持 `health`、`q`、`chapter_from`、
+`chapter_to`、`status`、`source`、`needs_review`、`workflow_id`、
+`boundary_status`、`phase`、`phase1a_fallback`、`confidence_band`、
+`skip` 和 `limit` query 参数；`confidence_band` 固定为 `low`、`medium`、
+`high` 三档，分别表示 `<0.5`、`0.5-0.8` 和 `>=0.8`。健康筛选在服务端
+应用，返回的 `total` 与分页都基于筛选后结果；健康统计仍按其他管理筛选后的
+全集计算，不被当前健康桶二次缩窄。
 
 合并 / 拆分都必须先走 preview；执行请求必须包含 `confirmed: true`。
 preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，不修改数据，

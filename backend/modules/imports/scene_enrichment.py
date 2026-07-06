@@ -111,7 +111,6 @@ class Phase1bSceneEnricher:
                 "rate_limit",
                 "timeout",
                 "empty_result",
-                "schema_error",
             },
         )
         diagnostics = retry_result.model_dump(mode="json", exclude={"value"})

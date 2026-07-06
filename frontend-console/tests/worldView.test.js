@@ -295,7 +295,8 @@ describe("对象库", () => {
       const container = renderHtml(html)
       expect(html).toContain("还没有世界对象")
       expect(html).toContain('data-action="new"')
-      expect(container.querySelector(".empty-state [data-action='toggle-extract']")).toBeTruthy()
+      expect(container.querySelector("[data-action='toggle-extract']")).toBeTruthy()
+      expect(container.querySelector(".empty-state [data-action='toggle-extract']")).toBeNull()
     })
 
     it("渲染实体表格", () => {

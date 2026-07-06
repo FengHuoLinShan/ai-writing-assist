@@ -258,6 +258,11 @@ async def api_get_scene_workbench(
     boundary_status: str | None = Query(None, description="边界状态过滤"),
     phase: str | None = Query(None, description="深度导入阶段过滤"),
     phase1a_fallback: bool | None = Query(None, description="是否 Phase 1a fallback"),
+    health: str | None = Query(None, description="Scene 健康筛选"),
+    q: str | None = Query(None, description="Scene 文本搜索"),
+    chapter_from: int | None = Query(None, ge=1, description="起始章节筛选"),
+    chapter_to: int | None = Query(None, ge=1, description="结束章节筛选"),
+    confidence_band: str | None = Query(None, description="置信度分档"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
@@ -273,6 +278,11 @@ async def api_get_scene_workbench(
             boundary_status=boundary_status,
             phase=phase,
             phase1a_fallback=phase1a_fallback,
+            health=health,
+            q=q,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            confidence_band=confidence_band,
             skip=skip,
             limit=limit,
         )
