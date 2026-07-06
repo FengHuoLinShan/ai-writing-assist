@@ -139,12 +139,18 @@ class SceneWorkbenchService:
             skip=0,
             limit=None,
         )
+        all_active_scenes = await self.repo.get_by_novel_ordered(
+            db,
+            nid,
+            skip=0,
+            limit=None,
+        )
         chapter_indices = await list_chapter_indices(db, novel_id)
         unassigned_chapters = self._unassigned_chapters(
             chapter_indices,
-            all_matching_scenes,
+            all_active_scenes,
         )
-        duplicate_chapter_ids = self._duplicate_scene_chapter_ids(all_matching_scenes)
+        duplicate_chapter_ids = self._duplicate_scene_chapter_ids(all_active_scenes)
 
         items = [
             SceneWorkbenchItem(
@@ -832,6 +838,8 @@ class SceneWorkbenchService:
 
     def _needs_organize(self, scene: Scene, duplicate_chapter_ids: set[str]) -> bool:
         meta = scene.structure_meta or {}
+        if meta.get("reviewed_at") or scene.status == "canonical":
+            return False
         if meta.get("needs_organize"):
             return True
         chapter_ids = scene.chapter_ids or []

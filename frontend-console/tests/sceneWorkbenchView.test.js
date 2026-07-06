@@ -139,6 +139,29 @@ describe("sceneWorkbenchView", () => {
     expect(router.refresh).not.toHaveBeenCalled()
   })
 
+  it("selects another scene without rerendering or resetting list scroll", async () => {
+    state.currentView = "scene"
+    sceneWorkbenchView._workbench = workbenchPayload
+    window.history.replaceState({ view: "scene", subView: "s1", projectId: "p1" }, "", "#workbench/p1/scene/s1")
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    const organize = document.querySelector(".scene-workbench__organize")
+    organize.scrollTop = 96
+    vi.clearAllMocks()
+
+    document.querySelector('.scene-workbench-row[data-id="s2"] [data-action="select-workbench-scene"]').click()
+
+    expect(state.currentSubView).toBe("s2")
+    expect(window.location.hash).toBe("#workbench/p1/scene/s2")
+    expect(organize.scrollTop).toBe(96)
+    expect(document.querySelector('.scene-workbench-row[data-id="s1"]').classList.contains("is-selected")).toBe(false)
+    expect(document.querySelector('.scene-workbench-row[data-id="s2"]').classList.contains("is-selected")).toBe(true)
+    expect(document.querySelector(".scene-workbench__detail").textContent).toContain("撤离")
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
   it("submits scene auto extraction stage task", async () => {
     api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
     sceneWorkbenchView._showSceneAutoExtractForm()
@@ -349,7 +372,7 @@ describe("sceneWorkbenchView", () => {
     expect(router.refresh).toHaveBeenCalled()
   })
 
-  it("marks a scene as reviewed while preserving structure meta", async () => {
+  it("marks a scene as reviewed and organized while preserving structure meta", async () => {
     sceneWorkbenchView._workbench = {
       ...workbenchPayload,
       items: workbenchPayload.items.map((item) => item.scene.id === "s1"
@@ -357,7 +380,11 @@ describe("sceneWorkbenchView", () => {
             ...item,
             scene: {
               ...item.scene,
-              structure_meta: { source_workflow_id: "wf-1", needs_review: true },
+              structure_meta: {
+                source_workflow_id: "wf-1",
+                needs_review: true,
+                needs_organize: true,
+              },
             },
           }
         : item),
@@ -366,15 +393,17 @@ describe("sceneWorkbenchView", () => {
     await sceneWorkbenchView._markSceneReviewed("s1")
 
     expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
+      status: "canonical",
       structure_meta: expect.objectContaining({
         source_workflow_id: "wf-1",
         needs_review: false,
+        needs_organize: false,
         reviewed_at: expect.any(String),
         reviewed_by: "manual",
         reviewed_from: "scene_workbench",
       }),
     })
-    expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核", "success")
+    expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核/已整理", "success")
     expect(router.refresh).toHaveBeenCalled()
   })
 

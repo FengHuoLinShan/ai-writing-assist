@@ -433,6 +433,56 @@ const sceneWorkbenchView = {
     return items.find((item) => item.scene?.id === id) || items[0] || null
   },
 
+  _selectSceneInPlace(sceneId) {
+    if (!sceneId) return
+    const item = this._findSceneItem(sceneId)
+    if (!item) return
+
+    this._mobileDetailOpen = true
+    state.currentSubView = sceneId
+    this._pushSceneHistory(sceneId)
+    this._syncSelectedSceneUi()
+  },
+
+  _pushSceneHistory(sceneId) {
+    if (typeof window === "undefined" || !window.history || !state.currentProjectId) return
+    const hash = `#workbench/${encodeURIComponent(state.currentProjectId)}/scene/${encodeURIComponent(sceneId)}`
+    if (window.location.hash === hash) return
+    window.history.pushState(
+      { view: "scene", subView: sceneId, projectId: state.currentProjectId },
+      "",
+      hash,
+    )
+  },
+
+  _syncSelectedSceneUi() {
+    if (typeof document === "undefined") return
+    const selectedId = this._selectedSceneId()
+    document.querySelectorAll(".scene-workbench-row[data-id]").forEach((row) => {
+      row.classList.toggle("is-selected", row.getAttribute("data-id") === selectedId)
+    })
+
+    const item = this._selectedSceneItem()
+    const narrow = typeof window !== "undefined" && window.innerWidth < 720
+    const detail = this._renderDetail(item, narrow)
+    const detailEl = document.querySelector(".scene-workbench__detail")
+    if (detailEl) detailEl.innerHTML = detail
+
+    const drawer = document.querySelector(".scene-workbench-drawer")
+    if (narrow && this._mobileDetailOpen && item) {
+      if (drawer) {
+        drawer.innerHTML = detail
+      } else {
+        document.querySelector(".scene-workbench")?.insertAdjacentHTML(
+          "beforeend",
+          `<div class="scene-workbench-drawer">${detail}</div>`,
+        )
+      }
+    } else if (drawer) {
+      drawer.remove()
+    }
+  },
+
   _findScene(sceneId) {
     return (this._workbench?.items || []).find((item) => item.scene?.id === sceneId)?.scene || null
   },
@@ -534,12 +584,16 @@ const sceneWorkbenchView = {
     const meta = {
       ...(scene.structure_meta || {}),
       needs_review: false,
+      needs_organize: false,
       reviewed_at: new Date().toISOString(),
       reviewed_by: "manual",
       reviewed_from: "scene_workbench",
     }
-    await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
-    toast("Scene 已标记为已复核", "success")
+    await api.outline.updateScene(sceneId, state.currentProjectId, {
+      status: "canonical",
+      structure_meta: meta,
+    })
+    toast("Scene 已标记为已复核/已整理", "success")
     await router.refresh()
   },
 
@@ -1265,14 +1319,10 @@ const sceneWorkbenchView = {
       "prev-scene-page": () => this._changePage(-1),
       "next-scene-page": () => this._changePage(1),
       "select-workbench-scene": (_e, _t, ctx) => {
-        if (!ctx.id) return
-        this._mobileDetailOpen = true
-        router.navigate("scene", ctx.id)
+        this._selectSceneInPlace(ctx.id)
       },
       "edit-workbench-scene": (_e, _t, ctx) => {
-        if (!ctx.id) return
-        this._mobileDetailOpen = true
-        router.navigate("scene", ctx.id)
+        this._selectSceneInPlace(ctx.id)
       },
       "organize-workbench-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
       "open-writing-scene": (_e, _t, ctx) => {
