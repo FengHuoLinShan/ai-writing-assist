@@ -34,6 +34,11 @@ from modules.writing.facade import (
     list_project_writing_stats,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from shared.deep_import_settings import (
+    DEEP_IMPORT_SETTINGS_KEY,
+    clean_deep_import_settings,
+    deep_import_settings_for_response,
+)
 from shared.utils import parse_uuid as _shared_parse_uuid
 
 
@@ -126,6 +131,9 @@ class ProjectService:
     ) -> ProjectLLMSettingsResponse:
         project = await self._get_existing_project(db, project_id)
         profile = sanitize_llm_profile(get_llm_profile(project.settings))
+        profile[DEEP_IMPORT_SETTINGS_KEY] = deep_import_settings_for_response(
+            project.settings
+        )
         return ProjectLLMSettingsResponse.model_validate(profile)
 
     async def update_llm_settings(
@@ -167,11 +175,17 @@ class ProjectService:
             for key, value in next_profile.items()
             if value is not None and value != ""
         }
+        settings[DEEP_IMPORT_SETTINGS_KEY] = clean_deep_import_settings(
+            data.deep_import
+        )
         update_data = ProjectUpdate(settings=settings)
         project = await self._repo.update(db, project, update_data)
         if project is None:
             raise NotFoundError(f"Project {project_id} not found")
         profile = sanitize_llm_profile(get_llm_profile(project.settings))
+        profile[DEEP_IMPORT_SETTINGS_KEY] = deep_import_settings_for_response(
+            project.settings
+        )
         return ProjectLLMSettingsResponse.model_validate(profile)
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:

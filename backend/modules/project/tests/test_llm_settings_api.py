@@ -70,6 +70,10 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
             "temperature": 0.2,
             "top_p": 0.8,
             "extra": {"reasoning_effort": "high"},
+            "deep_import": {
+                "phase0": {"max_tokens_per_input_char": 0.36},
+                "phase1a": {"scene_slicing_timeout_seconds": 1200},
+            },
             "api_key": "sk-secret-value",
         },
     )
@@ -85,6 +89,9 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
     assert data["temperature"] == 0.2
     assert data["top_p"] == 0.8
     assert data["extra"] == {"reasoning_effort": "high"}
+    assert data["deep_import"]["phase0"]["max_tokens_per_input_char"] == 0.36
+    assert data["deep_import"]["phase1a"]["scene_slicing_timeout_seconds"] == 1200
+    assert data["deep_import"]["phase2"]["batch_size_scenes"] == 12
     assert data["api_key_configured"] is True
     assert "api_key" not in data
 
@@ -92,6 +99,7 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
     assert resp.status_code == 200
     assert "sk-secret-value" not in resp.text
     assert resp.json()["api_key_configured"] is True
+    assert resp.json()["deep_import"]["phase0"]["max_tokens_per_input_char"] == 0.36
 
     project_resp = await async_client.get(f"/api/projects/{pid}")
     assert project_resp.status_code == 200

@@ -51,6 +51,42 @@ describe("renderCurrentView error handling", () => {
     expect(toast).toHaveBeenCalledWith("项目信息加载失败，可稍后重试", "warning")
     expect(state.currentProject).toBeNull()
   })
+
+  it("does not reuse keep-alive writing DOM across projects", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.append(content)
+
+    const onEnter = vi.fn()
+    const onActivate = vi.fn()
+    window.router.registerView("writing", {
+      onEnter,
+      onActivate,
+      onDeactivate: vi.fn(),
+      onLeave: vi.fn(),
+      async render() {
+        return `<p id="writing-project">${state.currentProjectId}</p>`
+      },
+    })
+    window.router.registerView("project", { async render() { return "<p>项目</p>" } })
+
+    state.currentProjectId = "p1"
+    state.currentView = "writing"
+    state.currentSubView = null
+    await window.router.renderCurrentView()
+    expect(document.getElementById("writing-project").textContent).toBe("p1")
+    const enterCountAfterProjectOne = onEnter.mock.calls.length
+    const activateCountAfterProjectOne = onActivate.mock.calls.length
+
+    await window.router.navigate("project", null, false)
+
+    state.currentProjectId = "p2"
+    await window.router.navigate("writing", null, false)
+
+    expect(document.getElementById("writing-project").textContent).toBe("p2")
+    expect(onEnter).toHaveBeenCalledTimes(enterCountAfterProjectOne + 1)
+    expect(onActivate).toHaveBeenCalledTimes(activateCountAfterProjectOne)
+  })
 })
 
 describe("subview memory", () => {

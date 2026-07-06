@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 from unittest.mock import Mock
@@ -21,6 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.container import get as _container_get
+from modules.imports.legacy_scene_pipeline import (
+    require_legacy_scene_pipeline_enabled,
+)
 from modules.imports.service_phase_artifacts import coverage_summary
 from modules.imports.workflow_entity_phase import (
     EntityExtractionPhaseRunner,
@@ -65,6 +67,10 @@ from modules.imports.workflow_structure_phase import (
     structure_category_counts,
     structure_output_count,
 )
+from shared.deep_import_settings import (
+    deep_import_bool_setting,
+    deep_import_int_setting,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +101,21 @@ def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
     return False
 
 
-def _phase1b_use_llm(*, start_chapter: int, end_chapter: int) -> bool:
-    configured = os.getenv("PHASE1B_USE_LLM")
+def _phase1b_use_llm(
+    *,
+    start_chapter: int,
+    end_chapter: int,
+    project_settings: dict[str, Any] | None = None,
+) -> bool:
+    configured = deep_import_bool_setting(
+        project_settings,
+        "phase1b",
+        "use_llm",
+        env_name="PHASE1B_USE_LLM",
+        default=None,
+    )
     if configured is not None:
-        return configured.strip().lower() in {"1", "true", "yes", "on"}
+        return configured
     return end_chapter - start_chapter + 1 <= 7
 
 
@@ -335,9 +352,15 @@ class DeepImportWorkflow:
         project_settings = await _project_settings_for_novel(db, novel_id)
         return await check_llm_health_for_project(project_settings)
 
-    @staticmethod
-    def _phase3_timeout_seconds() -> int | float:
-        return PHASE3_STRUCTURE_TIMEOUT_SECONDS
+    def _phase3_timeout_seconds(self) -> int | float:
+        project_settings = getattr(self, "_agent_project_settings", None)
+        return deep_import_int_setting(
+            project_settings,
+            "phase3",
+            "structure_timeout_seconds",
+            env_name="PHASE3_STRUCTURE_TIMEOUT_SECONDS",
+            default=PHASE3_STRUCTURE_TIMEOUT_SECONDS,
+        )
 
     @staticmethod
     async def _run_phase0_prefetch(
@@ -346,6 +369,9 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ):
+        """Deprecated legacy wrapper; default Scene flow uses _run_phase0_plan."""
+
+        require_legacy_scene_pipeline_enabled("DeepImportWorkflow._run_phase0_prefetch")
         from modules.imports.scene_prefetch import Phase0ScenePrefetcher
 
         if end_chapter - start_chapter + 1 <= 7:
@@ -436,10 +462,14 @@ class DeepImportWorkflow:
                 start_chapter,
                 end_chapter,
             )
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None and db is not None and not isinstance(db, Mock):
+            project_settings = await _project_settings_for_novel(db, novel_id)
         return build_scene_import_plan(
             chapters,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+            project_settings=project_settings,
         )
 
     async def _run_phase1a_scene_slicing(
@@ -527,6 +557,11 @@ class DeepImportWorkflow:
         end_chapter: int,
         phase0_candidates,
     ):
+        """Deprecated legacy wrapper; default Scene flow uses scene slicing."""
+
+        require_legacy_scene_pipeline_enabled(
+            "DeepImportWorkflow._run_phase1a_reinforcement"
+        )
         from modules.imports.scene_reinforcement import Phase1aSceneReinforcer
 
         chapters = await self._load_chapters_for_reinforcement(
@@ -743,6 +778,7 @@ class DeepImportWorkflow:
             use_llm=_phase1b_use_llm(
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
+                project_settings=project_settings,
             ),
         ).run(
             phase1a_candidates=phase1a_candidates,
@@ -1191,25 +1227,29 @@ class DeepImportWorkflow:
             )
 
         from modules.imports.phase2_world_extraction import Phase2WorldExtractor
+        from modules.imports.scene_entity_config import (
+            phase2_project_settings_context,
+        )
 
         project_settings = getattr(self, "_agent_project_settings", None)
         if project_settings is None:
             project_settings = await _project_settings_for_novel(db, novel_id)
         high_quality = bool(getattr(self, "_deep_import_high_quality", False))
-        result = await Phase2WorldExtractor(
-            llm=_Phase2WorldExtractionLLM(
-                project_settings=project_settings,
-                high_quality=high_quality,
+        with phase2_project_settings_context(project_settings):
+            result = await Phase2WorldExtractor(
+                llm=_Phase2WorldExtractionLLM(
+                    project_settings=project_settings,
+                    high_quality=high_quality,
+                )
+            ).run(
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
+                existing_checkpoints=existing_checkpoints,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
             )
-        ).run(
-            db,
-            novel_id,
-            workflow_id=workflow_id,
-            on_scene_progress=on_scene_progress,
-            existing_checkpoints=existing_checkpoints,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-        )
         result["high_quality"] = high_quality
         if high_quality:
             result["model_override"] = "deepseek-v4-pro"

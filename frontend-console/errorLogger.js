@@ -149,7 +149,7 @@
     panel.style.cssText =
       "position:fixed;right:12px;bottom:32px;z-index:9999;width:min(520px,calc(100vw - 24px));" +
       "max-height:min(440px,calc(100vh - 80px));overflow:auto;background:var(--bg,#fff);" +
-      "color:var(--text,#111827);border:1px solid var(--border,#d1d5db);border-radius:8px;" +
+      "color:var(--text,#111827);border:1px solid var(--border,#d1d5db);border-radius:var(--radius-md);" +
       "box-shadow:0 16px 40px rgba(15,23,42,0.24);font:12px/1.5 system-ui,sans-serif;"
 
     const header = document.createElement("div")
@@ -181,7 +181,7 @@
     body.style.cssText = "padding:10px 12px;display:grid;gap:8px;"
     for (const entry of log.slice(-10).reverse()) {
       const item = document.createElement("article")
-      item.style.cssText = "border:1px solid var(--border,#e5e7eb);border-radius:6px;padding:8px;background:rgba(15,23,42,0.03);"
+      item.style.cssText = "border:1px solid var(--border,#e5e7eb);border-radius:var(--radius-md);padding:8px;background:rgba(15,23,42,0.03);"
       _appendText(item, "div", `#${entry.id} [${entry.level}] ${entry.timestamp || ""}`, "font-weight:600;margin-bottom:4px;")
       _appendText(item, "div", String(entry.message || ""))
       if (entry.request) {
@@ -210,7 +210,7 @@
       badge.style.cssText =
         "position:fixed;bottom:4px;right:4px;z-index:9999;" +
         "background:#dc2626;color:#fff;font-size:10px;font-family:monospace;" +
-        "padding:2px 6px;border-radius:8px;cursor:pointer;opacity:0.5;" +
+        "padding:2px 6px;border-radius:var(--radius-md);cursor:pointer;opacity:0.5;" +
         "line-height:1.4;"
       badge.addEventListener("click", () => {
         _showPanel()

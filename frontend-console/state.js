@@ -242,54 +242,38 @@ function updateTopbarSubmodule(viewName, subViewName) {
   }
 }
 
+const topbarHelpTexts = {
+  project: "项目是其他所有模块的根。点击项目卡片即可进入创作流程。",
+  world: "管理小说中的人物、地点、物品等长期创作资产。",
+  writing: "按章节撰写正文。支持暂存、发布、版本管理。",
+  rag: "测试向量检索，验证知识库召回效果。",
+  context: "根据当前世界状态编译 LLM 上下文。",
+}
+
+function updateTopbarHelpForView(viewName) {
+  document.getElementById("topbar-view-note")?.remove()
+
+  const text = topbarHelpTexts[viewName]
+  if (!text) return
+
+  const moduleEl = document.getElementById("topbar-module")
+  if (!moduleEl) return
+
+  const note = document.createElement("span")
+  note.id = "topbar-view-note"
+  note.className = "topbar-view-note"
+  note.textContent = text
+  moduleEl.insertAdjacentElement("afterend", note)
+}
+
 /**
  * 根据当前视图更新右侧批注区内容
  * @param {string} viewName - 视图名称
  */
 function updateRightPanelForView(viewName) {
   const notes = document.getElementById("contextual-notes")
-  if (!notes) return
-
-  const helpTexts = {
-    project: {
-      label: "帮助 · 项目管理",
-      text: "项目是其他所有模块的根。点击项目卡片即可进入创作流程。",
-    },
-    world: {
-      label: "帮助 · 世界对象",
-      text: "管理小说中的人物、地点、物品等长期创作资产。",
-    },
-    writing: {
-      label: "帮助 · 手动工作台",
-      text: "按章节撰写正文。支持暂存、发布、版本管理。",
-    },
-    generate: {
-      label: "帮助 · 生成中心",
-      text: "按流程生成结构化资产。",
-    },
-    rag: {
-      label: "帮助 · RAG 检索",
-      text: "测试向量检索，验证知识库召回效果。",
-    },
-    context: {
-      label: "帮助 · 上下文编译",
-      text: "根据当前世界状态编译 LLM 上下文。",
-    },
-  }
-
-  const help = helpTexts[viewName]
-  if (help) {
-    notes.innerHTML = `
-      <div class="note-card" style="top: 24px;">
-        <div class="note-content secondary">
-          <div class="note-label">${esc(help.label)}</div>
-          <div class="note-text">${esc(help.text)}</div>
-        </div>
-      </div>
-    `
-  } else {
-    notes.innerHTML = ""
-  }
+  updateTopbarHelpForView(viewName)
+  if (notes) notes.innerHTML = ""
 }
 
 // 导出到全局

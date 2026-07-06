@@ -36,7 +36,7 @@
 | `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
 | `ragView` | 检索、章节索引、索引重建 |
 | `contextView` | 编译上下文、渲染 Markdown、查看 tier 预算/驱逐结果 |
-| `generateView` | 手动 AI 生成入口，走 AI 参考资料确认流程 |
+| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并手动生成世界对象数据库草稿 |
 
 ## 路由与状态特性
 

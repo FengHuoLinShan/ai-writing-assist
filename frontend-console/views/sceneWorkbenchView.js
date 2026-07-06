@@ -634,7 +634,7 @@ const sceneWorkbenchView = {
       return
     }
     const cards = scenes.map((scene, index) => `
-      <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+      <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
         <input type="radio" name="merge-target-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
         <strong>${esc(scene.title || "未命名 Scene")}</strong>
         <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
@@ -677,7 +677,7 @@ const sceneWorkbenchView = {
         meta.confidence != null ? `置信度:${meta.confidence}` : "",
       ].filter(Boolean)
       return `
-        <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+        <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
           <input type="radio" name="primary-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(scene.title || "未命名 Scene")}</strong>
           <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
@@ -1227,7 +1227,7 @@ const sceneWorkbenchView = {
       const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
       const trace = (item.scan_trace || []).map((step) => `${step.action}: ${step.reason || ""}`).join(" / ")
       return `
-        <label class="scene-fusion-suggestion" style="display:block;margin-bottom:12px;border:1px solid var(--border);padding:8px;border-radius:6px;">
+        <label class="scene-fusion-suggestion" style="display:block;margin-bottom:12px;border:1px solid var(--border);padding:8px;border-radius:var(--radius-md);">
           <input type="radio" name="cross-chapter-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(item.proposed_scene?.title || "跨章融合建议")}</strong>
           <div style="color:var(--text-dim);font-size:12px;">章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.stop_reason || "")}</div>

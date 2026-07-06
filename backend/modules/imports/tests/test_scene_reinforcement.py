@@ -17,6 +17,11 @@ class FakeHTTPError(RuntimeError):
         super().__init__(f"Error code: {status_code}")
 
 
+@pytest.fixture(autouse=True)
+def _enable_legacy_scene_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED", "1")
+
+
 def make_candidate(
     *,
     source_round: str = "A",
@@ -80,6 +85,22 @@ def success_output(payloads: list[dict]) -> dict:
         "confidence": 0.88,
         "missing_or_uncertain_items": ["minor timeline gap"],
     }
+
+
+@pytest.mark.asyncio
+async def test_phase1a_reinforcer_rejects_default_legacy_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED", raising=False)
+
+    async def llm(_payload: dict) -> dict:
+        return {"scenes": []}
+
+    with pytest.raises(RuntimeError, match="deprecated legacy Scene pipeline"):
+        await Phase1aSceneReinforcer(llm=llm).run(
+            phase0_candidates=[make_candidate()],
+            chapters=make_chapters(1, 2),
+        )
 
 
 def test_phase1a_reinforcer_reads_concurrency_env(

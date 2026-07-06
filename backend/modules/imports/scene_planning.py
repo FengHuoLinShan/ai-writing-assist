@@ -7,7 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from modules.imports.env_helpers import positive_float_env, positive_int_env
+from shared.deep_import_settings import (
+    deep_import_float_setting,
+    deep_import_int_setting,
+)
 
 PHASE0_TARGET_INPUT_CHARS = 72_000
 PHASE0_MAX_CHAPTERS_PER_WINDOW = 20
@@ -50,6 +53,7 @@ def build_scene_import_plan(
     *,
     start_chapter: int,
     end_chapter: int,
+    project_settings: dict[str, Any] | None = None,
 ) -> ScenePlanResult:
     """Build deterministic Phase 1a windows from loaded chapter text."""
 
@@ -84,27 +88,28 @@ def build_scene_import_plan(
     }
     total_chars = sum(chapter_char_counts.values())
     avg_chars = total_chars / len(chapters) if chapters else 0
-    overlap = _right_overlap_chapters()
+    overlap = _right_overlap_chapters(project_settings)
     windows = _build_windows(
         chapters,
         chapter_char_counts=chapter_char_counts,
         start_chapter=start_chapter,
         end_chapter=end_chapter,
         overlap=overlap,
+        project_settings=project_settings,
     )
     max_tokens_values = [window.max_tokens for window in windows]
     window_chapter_counts = [len(window.chapter_indices) for window in windows]
     quality_stats = {
         "parameter_version": "phase0_plan_v2_char_budget",
-        "target_input_chars": _target_input_chars(),
-        "max_chapters_per_window": _max_chapters_per_window(),
+        "target_input_chars": _target_input_chars(project_settings),
+        "max_chapters_per_window": _max_chapters_per_window(project_settings),
         "selected_batch_size": max(window_chapter_counts) if window_chapter_counts else 0,
         "selected_window_chapter_counts": window_chapter_counts,
         "overlap": overlap,
         "selected_overlap": overlap,
-        "max_tokens_per_input_char": _max_tokens_per_input_char(),
-        "min_max_tokens": _min_max_tokens(),
-        "max_max_tokens": _max_max_tokens(),
+        "max_tokens_per_input_char": _max_tokens_per_input_char(project_settings),
+        "min_max_tokens": _min_max_tokens(project_settings),
+        "max_max_tokens": _max_max_tokens(project_settings),
         "total_chapters": len(chapters),
         "total_chars": total_chars,
         "avg_chars_per_chapter": round(avg_chars, 2),
@@ -146,13 +151,14 @@ def _build_windows(
     start_chapter: int,
     end_chapter: int,
     overlap: int,
+    project_settings: dict[str, Any] | None,
 ) -> list[SceneWindowPlan]:
     chapter_by_index = {int(chapter["chapter_index"]): chapter for chapter in chapters}
     windows: list[SceneWindowPlan] = []
     owned_start = start_chapter
     window_index = 1
-    target_input_chars = _target_input_chars()
-    max_chapters = _max_chapters_per_window()
+    target_input_chars = _target_input_chars(project_settings)
+    max_chapters = _max_chapters_per_window(project_settings)
     while owned_start <= end_chapter:
         covered_start = owned_start
         chapter_indices: list[int] = []
@@ -203,7 +209,7 @@ def _build_windows(
                 chapter_indices=chapter_indices,
                 owned_chapter_indices=owned_chapter_indices,
                 input_chars=input_chars,
-                max_tokens=_window_max_tokens(input_chars),
+                max_tokens=_window_max_tokens(input_chars, project_settings),
                 batch_size=len(chapter_indices),
                 overlap=0 if is_last_window and len(windows) == 0 else overlap,
             )
@@ -215,9 +221,18 @@ def _build_windows(
     return windows
 
 
-def _window_max_tokens(input_chars: int) -> int:
-    estimated = _round_half_up(input_chars * _max_tokens_per_input_char())
-    return _clamp(estimated, _min_max_tokens(), _max_max_tokens())
+def _window_max_tokens(
+    input_chars: int,
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    estimated = _round_half_up(
+        input_chars * _max_tokens_per_input_char(project_settings)
+    )
+    return _clamp(
+        estimated,
+        _min_max_tokens(project_settings),
+        _max_max_tokens(project_settings),
+    )
 
 
 def _round_half_up(value: float) -> int:
@@ -228,34 +243,61 @@ def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
-def _target_input_chars() -> int:
-    return positive_int_env("PHASE0_TARGET_INPUT_CHARS", PHASE0_TARGET_INPUT_CHARS)
-
-
-def _max_chapters_per_window() -> int:
-    return positive_int_env(
-        "PHASE0_MAX_CHAPTERS_PER_WINDOW",
-        PHASE0_MAX_CHAPTERS_PER_WINDOW,
+def _target_input_chars(project_settings: dict[str, Any] | None = None) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "target_input_chars",
+        env_name="PHASE0_TARGET_INPUT_CHARS",
+        default=PHASE0_TARGET_INPUT_CHARS,
     )
 
 
-def _right_overlap_chapters() -> int:
-    return positive_int_env(
-        "PHASE0_RIGHT_OVERLAP_CHAPTERS",
-        PHASE0_RIGHT_OVERLAP_CHAPTERS,
+def _max_chapters_per_window(project_settings: dict[str, Any] | None = None) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "max_chapters_per_window",
+        env_name="PHASE0_MAX_CHAPTERS_PER_WINDOW",
+        default=PHASE0_MAX_CHAPTERS_PER_WINDOW,
     )
 
 
-def _max_tokens_per_input_char() -> float:
-    return positive_float_env(
-        "PHASE0_MAX_TOKENS_PER_INPUT_CHAR",
-        PHASE0_MAX_TOKENS_PER_INPUT_CHAR,
+def _right_overlap_chapters(project_settings: dict[str, Any] | None = None) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "right_overlap_chapters",
+        env_name="PHASE0_RIGHT_OVERLAP_CHAPTERS",
+        default=PHASE0_RIGHT_OVERLAP_CHAPTERS,
     )
 
 
-def _min_max_tokens() -> int:
-    return positive_int_env("PHASE0_MIN_MAX_TOKENS", PHASE0_MIN_MAX_TOKENS)
+def _max_tokens_per_input_char(project_settings: dict[str, Any] | None = None) -> float:
+    return deep_import_float_setting(
+        project_settings,
+        "phase0",
+        "max_tokens_per_input_char",
+        env_name="PHASE0_MAX_TOKENS_PER_INPUT_CHAR",
+        default=PHASE0_MAX_TOKENS_PER_INPUT_CHAR,
+    )
 
 
-def _max_max_tokens() -> int:
-    return positive_int_env("PHASE0_MAX_MAX_TOKENS", PHASE0_MAX_MAX_TOKENS)
+def _min_max_tokens(project_settings: dict[str, Any] | None = None) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "min_max_tokens",
+        env_name="PHASE0_MIN_MAX_TOKENS",
+        default=PHASE0_MIN_MAX_TOKENS,
+    )
+
+
+def _max_max_tokens(project_settings: dict[str, Any] | None = None) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "max_max_tokens",
+        env_name="PHASE0_MAX_MAX_TOKENS",
+        default=PHASE0_MAX_MAX_TOKENS,
+    )

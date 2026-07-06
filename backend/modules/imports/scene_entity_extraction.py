@@ -667,9 +667,9 @@ class SceneEntityExtractionService:
     def _phase2_boundary_windows(
         batches: list[list[dict[str, Any]]],
         *,
-        boundary_size: int = PHASE2_BOUNDARY_SCENES,
+        boundary_size: int | None = None,
     ) -> list[dict[str, Any]]:
-        size = max(1, int(boundary_size or PHASE2_BOUNDARY_SCENES))
+        size = max(1, int(boundary_size or _phase2_config.phase2_boundary_scenes()))
         windows: list[dict[str, Any]] = []
         for index in range(len(batches) - 1):
             scenes = [*batches[index][-size:], *batches[index + 1][:size]]

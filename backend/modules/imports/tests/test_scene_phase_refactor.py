@@ -71,6 +71,26 @@ def test_phase0_plan_uses_char_budget_windows_and_token_budget() -> None:
     assert result.quality_stats["min_max_tokens"] == 13_000
 
 
+def test_phase0_plan_uses_project_deep_import_coefficient() -> None:
+    result = build_scene_import_plan(
+        _chapters(1, chars_per_chapter=10_000),
+        start_chapter=1,
+        end_chapter=1,
+        project_settings={
+            "deep_import": {
+                "phase0": {
+                    "max_tokens_per_input_char": 0.5,
+                    "min_max_tokens": 1,
+                    "max_max_tokens": 200_000,
+                }
+            }
+        },
+    )
+
+    assert result.quality_stats["max_tokens_per_input_char"] == 0.5
+    assert result.windows[0].max_tokens == 5000
+
+
 def test_phase0_plan_caps_short_chapter_windows_at_twenty_chapters() -> None:
     result = build_scene_import_plan(
         _chapters(100, chars_per_chapter=100),
@@ -425,3 +445,61 @@ async def test_high_quality_adapters_override_model_but_keep_deepseek_extra(
     assert captured_kwargs[0]["timeout_seconds"] == 900
     assert captured_kwargs[1]["timeout_seconds"] == 300
     assert captured_kwargs[2]["timeout_seconds"] == 900
+
+
+@pytest.mark.asyncio
+async def test_phase1a_scene_slicing_uses_window_max_tokens_not_legacy_fixed_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = []
+
+    class FakeProfile:
+        provider_id = "deepseek"
+        model = "deepseek-v4-flash"
+        extra = {}
+
+        def request_defaults(self):
+            return {"model": self.model, "temperature": 0.3, "max_tokens": 8192}
+
+    async def fake_call_structured(_client, request, schema, **_kwargs):
+        captured.append(request)
+        return schema.model_validate(
+            {
+                "scenes": [
+                    {
+                        "title": "切分",
+                        "goal": "测试",
+                        "core_conflict": "冲突",
+                        "start_chapter": 1,
+                        "end_chapter": 1,
+                        "boundary_status": "complete",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("PHASE1A_SCENE_MAX_TOKENS", "99999")
+    monkeypatch.setattr(
+        "modules.imports.workflow_llm_adapters.resolve_llm_profile",
+        lambda _settings: FakeProfile(),
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow_llm_adapters._llm_client_for_profile",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow_llm_adapters._call_structured",
+        fake_call_structured,
+    )
+
+    await _Phase1aSceneSlicingLLM(
+        project_settings={"deep_import": {"phase1a": {"scene_max_tokens": 88888}}},
+    )(
+        {
+            "chapters": [{"chapter_index": 1, "title": "第一章", "content": "正文"}],
+            "window": {"owned_start": 1, "owned_end": 1},
+            "max_tokens": 13_000,
+        }
+    )
+
+    assert captured[0].max_tokens == 13_000

@@ -189,7 +189,7 @@ const contextView = {
       if (renderBtn) renderBtn.disabled = false
     } catch (err) {
       const errMsg = esc(err.message)
-      output.innerHTML = `<div style="color:var(--danger);padding:12px;border:1px solid var(--danger);border-radius:4px;">
+      output.innerHTML = `<div style="color:var(--danger);padding:12px;border:1px solid var(--danger);border-radius:var(--radius-sm);">
         <strong>编译失败</strong>
         <p style="margin:4px 0 0 0;font-size:13px;">${errMsg}</p>
         <p style="color:var(--text-dim);font-size:12px;margin:4px 0 0 0;">请确认后端已启动。</p>
@@ -201,7 +201,7 @@ const contextView = {
     const output = document.getElementById("ctx-output")
     if (!output) return
     let html = ''
-    html += '<div style="margin-bottom:12px;padding:8px;background:var(--panel);border-radius:4px;border:1px solid var(--border);">'
+    html += '<div style="margin-bottom:12px;padding:8px;background:var(--panel);border-radius:var(--radius-sm);border:1px solid var(--border);">'
     html += `<span style="color:var(--accent);font-size:13px;">已加载 ${data.sections?.length || 0} 段上下文</span>`
     html += `<span style="color:var(--text-dim);margin-left:12px;">范围：${esc(data.scope)}</span>`
     html += `<span style="color:var(--text-dim);margin-left:12px;">揭示模式：${esc(data.reveal_mode)}</span>`
@@ -221,7 +221,7 @@ const contextView = {
       html += '<div style="margin-bottom:12px;"><strong style="color:var(--text-muted);font-size:12px;">已驱逐段落：</strong>'
       html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">'
       for (const key of data.evicted) {
-        html += `<span style="background:var(--panel);color:var(--text);padding:2px 8px;border-radius:3px;font-size:11px;border:1px solid var(--border);">${esc(key)}</span>`
+        html += `<span style="background:var(--panel);color:var(--text);padding:2px 8px;border-radius:var(--radius-sm);font-size:11px;border:1px solid var(--border);">${esc(key)}</span>`
       }
       html += '</div></div>'
     }
@@ -230,13 +230,13 @@ const contextView = {
       html += '<div style="margin-bottom:12px;"><strong style="color:var(--text-muted);font-size:12px;">已截断段落：</strong>'
       html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">'
       for (const key of data.truncated) {
-        html += `<span style="background:var(--panel);color:var(--danger);padding:2px 8px;border-radius:3px;font-size:11px;border:1px solid var(--border);">${esc(key)}</span>`
+        html += `<span style="background:var(--panel);color:var(--danger);padding:2px 8px;border-radius:var(--radius-sm);font-size:11px;border:1px solid var(--border);">${esc(key)}</span>`
       }
       html += '</div></div>'
     }
 
     if (data.warnings && data.warnings.length > 0) {
-      html += '<div style="margin-bottom:12px;padding:8px;background:rgba(255,204,102,0.1);border-radius:4px;border:1px solid var(--warning);"><strong style="color:var(--warning);font-size:12px;">⚠ 警告</strong>'
+      html += '<div style="margin-bottom:12px;padding:8px;background:rgba(255,204,102,0.1);border-radius:var(--radius-sm);border:1px solid var(--warning);"><strong style="color:var(--warning);font-size:12px;">⚠ 警告</strong>'
       for (const w of data.warnings) {
         html += `<p style="color:var(--warning);font-size:12px;margin:2px 0;">${esc(w)}</p>`
       }
@@ -281,7 +281,7 @@ const contextView = {
         viewpoint_character_id: viewpointCharacterId,
       })
       if (data && data.markdown) {
-        output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:4px;border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`
+        output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:var(--radius-sm);border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`
         this._lastMarkdown = data.markdown
         if (copyBtn) copyBtn.disabled = false
         if (exportBtn) exportBtn.disabled = false

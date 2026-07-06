@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from infrastructure.llm.profiles import sanitize_project_settings
+from shared.deep_import_settings import clean_deep_import_settings
 
 
 def _sanitize_title(v: str) -> str:
@@ -183,6 +184,7 @@ class ProjectLLMSettingsUpdate(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     extra: dict[str, Any] = Field(default_factory=dict)
+    deep_import: dict[str, Any] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, max_length=4096)
     clear_api_key: bool = False
 
@@ -190,6 +192,11 @@ class ProjectLLMSettingsUpdate(BaseModel):
     @classmethod
     def strip_text(cls, v: str | None) -> str | None:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("deep_import", mode="before")
+    @classmethod
+    def clean_deep_import(cls, v: object) -> dict[str, Any]:
+        return clean_deep_import_settings(v)
 
 
 class ProjectLLMSettingsResponse(BaseModel):
@@ -204,6 +211,7 @@ class ProjectLLMSettingsResponse(BaseModel):
     temperature: float | None = None
     top_p: float | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
+    deep_import: dict[str, Any] = Field(default_factory=dict)
     api_key_configured: bool = False
 
 

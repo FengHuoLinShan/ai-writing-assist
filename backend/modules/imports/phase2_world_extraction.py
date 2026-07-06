@@ -14,7 +14,6 @@ from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
 )
-from modules.imports.env_helpers import positive_float_env, positive_int_env
 from modules.imports.llm_schemas import (
     DeltaEvent,
     ExtractedEntity,
@@ -24,12 +23,17 @@ from modules.imports.llm_schemas import (
     Phase2WorldObject,
     Phase2WorldRelation,
 )
+from modules.imports.scene_entity_config import current_phase2_project_settings
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
 from modules.imports.scene_planning import (
     PHASE0_MAX_MAX_TOKENS,
     PHASE0_TARGET_INPUT_CHARS,
     SceneWindowPlan,
     build_scene_import_plan,
+)
+from shared.deep_import_settings import (
+    deep_import_float_setting,
+    deep_import_int_setting,
 )
 from shared.utils import parse_uuid
 
@@ -77,9 +81,12 @@ class Phase2WorldExtractor:
             1,
             concurrency
             if concurrency is not None
-            else positive_int_env(
-                "PHASE2_WORLD_WINDOW_CONCURRENCY",
-                PHASE2_WORLD_WINDOW_CONCURRENCY,
+            else deep_import_int_setting(
+                current_phase2_project_settings(),
+                "phase2",
+                "world_window_concurrency",
+                env_name="PHASE2_WORLD_WINDOW_CONCURRENCY",
+                default=PHASE2_WORLD_WINDOW_CONCURRENCY,
             ),
         )
         self._legacy = SceneEntityExtractionService()
@@ -120,6 +127,7 @@ class Phase2WorldExtractor:
             chapters,
             start_chapter=chapter_start,
             end_chapter=chapter_end,
+            project_settings=current_phase2_project_settings(),
         )
         if plan.blocked or not plan.windows:
             return {
@@ -901,18 +909,33 @@ def _round_half_up(value: float) -> int:
 
 
 def _max_tokens_per_source_char() -> float:
-    return positive_float_env(
-        "PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR",
-        PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR,
+    return deep_import_float_setting(
+        current_phase2_project_settings(),
+        "phase2",
+        "world_max_tokens_per_source_char",
+        env_name="PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR",
+        default=PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR,
     )
 
 
 def _min_max_tokens() -> int:
-    return positive_int_env("PHASE2_WORLD_MIN_MAX_TOKENS", PHASE2_WORLD_MIN_MAX_TOKENS)
+    return deep_import_int_setting(
+        current_phase2_project_settings(),
+        "phase2",
+        "world_min_max_tokens",
+        env_name="PHASE2_WORLD_MIN_MAX_TOKENS",
+        default=PHASE2_WORLD_MIN_MAX_TOKENS,
+    )
 
 
 def _max_max_tokens() -> int:
-    return positive_int_env("PHASE2_WORLD_MAX_MAX_TOKENS", PHASE2_WORLD_MAX_MAX_TOKENS)
+    return deep_import_int_setting(
+        current_phase2_project_settings(),
+        "phase2",
+        "world_max_max_tokens",
+        env_name="PHASE2_WORLD_MAX_MAX_TOKENS",
+        default=PHASE2_WORLD_MAX_MAX_TOKENS,
+    )
 
 
 def _diagnostics(

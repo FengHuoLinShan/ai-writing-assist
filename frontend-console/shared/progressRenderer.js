@@ -140,9 +140,25 @@ function renderDetailedProgress(progress, options = {}) {
     renderDiagnostics(progress),
   ].filter(Boolean).join("")
   if (!content) return ""
-  const open = options.detailLevel === "detailed" ? " open" : ""
+  const storageKey = options.detailsStorageKey || (
+    progress.taskId ? `workflow-progress-details:${progress.taskId}` : null
+  )
+  let storedOpen = null
+  if (storageKey && globalThis.sessionStorage) {
+    try {
+      storedOpen = globalThis.sessionStorage.getItem(storageKey)
+    } catch {
+      storedOpen = null
+    }
+  }
+  const shouldOpen = storedOpen === "open"
+    || (storedOpen !== "closed" && options.detailLevel === "detailed")
+  const open = shouldOpen ? " open" : ""
+  const storageAttr = storageKey
+    ? ` data-details-storage-key="${escapeHtml(storageKey)}"`
+    : ""
   return `
-    <details class="workflow-progress__details"${open}>
+    <details class="workflow-progress__details"${storageAttr}${open}>
       <summary>详细进度</summary>
       ${content}
     </details>
@@ -225,4 +241,19 @@ export function renderWorkflowCard(progress, options = {}) {
     actionsHtml: `${destination}${options.actionsHtml || ""}`,
     className: `workflow-progress--card ${options.className || ""}`.trim(),
   })
+}
+
+if (!globalThis.__workflowProgressDetailsBound) {
+  globalThis.__workflowProgressDetailsBound = true
+  globalThis.document?.addEventListener("toggle", (event) => {
+    const details = event.target
+    if (!details?.matches?.(".workflow-progress__details")) return
+    const storageKey = details.getAttribute("data-details-storage-key")
+    if (!storageKey || !globalThis.sessionStorage) return
+    try {
+      globalThis.sessionStorage.setItem(storageKey, details.open ? "open" : "closed")
+    } catch {
+      // Ignore storage failures; the details element still works for this render.
+    }
+  }, true)
 }

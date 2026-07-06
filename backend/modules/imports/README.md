@@ -19,7 +19,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 预算。默认目标输入约 `72000` 字符，窗口最多 20 章，`max_tokens=clamp(round(input_chars * 0.36), 13000, 32768)`
 - Phase 1a 只切分并锁定 Scene 边界字段：`title` / `goal` / `core_conflict` / `start_chapter` / `end_chapter` / `boundary_status`；缺失章节会生成 `needs_review` 的章节级 fallback
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；`scene_chunks` 由系统按 `start_chapter` / `end_chapter` 章级确定生成，不由 LLM 定位
-- 旧 `scene_prefetch` / `scene_reinforcement` / `scene_fusion` 保留为 legacy/repair 组件，不进入默认 Scene 自动提取路径
+- 旧 `scene_prefetch` / `scene_reinforcement` / `scene_fusion` 保留为 legacy/repair 组件，不进入默认 Scene 自动提取路径；`scene_prefetch` / `scene_reinforcement` 默认被 `DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=0` 禁用
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；真实 LLM 调参可用 `PHASE2_BATCH_SIZE_SCENES` / `PHASE2_BATCH_CONCURRENCY` 临时覆盖；每个 batch 保留局部 rolling context
@@ -90,7 +90,7 @@ Phase 1b 每个 Scene 失败只 retry 1 次，仍失败时仅 fallback 当前 Sc
 - `scene_planning.py` — Phase 0 章节字符统计、字符预算窗口 / overlap / max_tokens 规划
 - `scene_slicing.py` — Phase 1a Scene 边界切分、owned range 过滤和章节级 fallback
 - `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
-- `scene_reinforcement.py` / `scene_fusion.py` — legacy/repair 路径的候选补强与融合组件，默认不调用
+- `scene_prefetch.py` / `scene_reinforcement.py` / `scene_fusion.py` — legacy/repair 路径的候选预取、补强与融合组件，默认不调用；前两者只有显式设置 `DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1` 才允许运行
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
 - `agent_step_harness.py` — imports 内部受控 LLM step envelope / journal / 输出守门；由 `workflow_llm_adapters.py` 使用，不提供自治 agent loop 或工具自主选择
 
@@ -108,14 +108,19 @@ payload 字段，并只保留脱敏 provider 摘要。服务路径还会返回
 Phase0/1 默认参数和 DeepSeek probe 证据以
 `tools/deepseek_scene_probe/DECISIONS.md` 为准。下面的历史 artifact harness
 仍用于回归、repair 和旧结果复核；其中涉及 prefetch / reinforcement / fusion 的
-术语属于 legacy 路径，不代表当前默认 Scene 自动提取链路。
+术语属于 legacy 路径，不代表当前默认 Scene 自动提取链路。正式 Scene 自动提取链路是
+`phase0_plan -> phase1a_scene_slicing -> phase1b_enrichment -> scene_commit`；
+Phase 1a slicing 的 `max_tokens` 来自 Phase 0 window 的
+`clamp(round(input_chars * max_tokens_per_input_char), min_max_tokens, max_max_tokens)`。
 
 真实 LLM 验收入口默认跳过，只在显式环境变量开启时运行：
 
 ```bash
+DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1 \
 RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
   PHASE01_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
 
+DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1 \
 RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
   PHASE1A_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
 

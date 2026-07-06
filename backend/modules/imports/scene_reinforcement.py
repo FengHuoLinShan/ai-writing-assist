@@ -1,4 +1,9 @@
-"""Phase 1a text-backed reinforcement for intermediate Scene candidates."""
+"""Deprecated Phase 1a reinforcement for intermediate Scene candidates.
+
+This module is retained for explicit legacy repair and historical artifact
+acceptance. Formal Scene slicing now runs through ``scene_slicing.py`` and uses
+Phase 0 window token budgets instead of a fixed Phase 1a max-token setting.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,9 @@ from typing import Any
 
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
 from modules.imports.env_helpers import positive_float_env, positive_int_env
+from modules.imports.legacy_scene_pipeline import (
+    require_legacy_scene_pipeline_enabled,
+)
 from modules.imports.llm_schemas import SceneCandidateOutput
 from modules.imports.scene_candidates import (
     SceneCandidate,
@@ -38,7 +46,7 @@ BatchKey = tuple[str, str, int, tuple[int, ...]]
 
 
 class Phase1aSceneReinforcer:
-    """Reinforce Phase 0 batches without merging rounds or writing Scenes."""
+    """Deprecated legacy reinforcement for Phase 0 batches."""
 
     def __init__(
         self,
@@ -74,6 +82,7 @@ class Phase1aSceneReinforcer:
     ) -> SceneReinforcementResult:
         """Run Phase 1a reinforcement for each Round A/B batch separately."""
 
+        require_legacy_scene_pipeline_enabled("Phase1aSceneReinforcer")
         if chapters is None and chapter_provider is None:
             raise ValueError("chapters or chapter_provider is required")
 

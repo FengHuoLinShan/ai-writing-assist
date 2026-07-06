@@ -572,6 +572,33 @@ def test_compact_phase1b_payload_keeps_reducer_fields_without_body_text():
     assert "content" not in str(compact).lower()
 
 
+def test_compact_phase1b_payload_uses_project_compact_text_limit():
+    long_text = "目标" * 80
+    payload = {
+        "phase": "phase1b_fusion",
+        "source_chapter_indices": [1],
+        "scene_count_guidance": long_text,
+        "candidates": [
+            {
+                "candidate_id": "a-1",
+                "source_chapter_indices": [1],
+                "boundary_reason": long_text,
+                "scenes": [{"title": long_text, "goal": long_text}],
+            }
+        ],
+    }
+
+    compact = _compact_phase1b_payload(
+        payload,
+        project_settings={"deep_import": {"phase1b": {"compact_text_limit": 40}}},
+    )
+
+    assert len(compact["scene_count_guidance"]) <= 40
+    assert len(compact["candidates"][0]["boundary_reason"]) <= 40
+    assert len(compact["candidates"][0]["scenes"][0]["goal"]) <= 40
+    assert len(compact["candidates"][0]["scenes"][0]["title"]) <= 80
+
+
 @pytest.mark.asyncio
 async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
     captured: dict[str, object] = {}
@@ -777,7 +804,7 @@ def test_phase1a_structured_max_fix_attempts_env_override(
     assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 1
 
     monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "0")
-    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 1
+    assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 0
 
     monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "2")
     assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 2
@@ -2859,8 +2886,9 @@ class TestDeepImportWorkflowAutoRun:
     async def test_phase3_timeout_is_partial_and_diagnostic(self, monkeypatch):
         """A slow structure analysis should not leave the import stuck as running."""
         monkeypatch.setattr(
-            "modules.imports.workflow.PHASE3_STRUCTURE_TIMEOUT_SECONDS",
-            0.01,
+            DeepImportWorkflow,
+            "_phase3_timeout_seconds",
+            lambda _self: 0.01,
         )
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
@@ -4046,6 +4074,24 @@ class TestSceneEntityExtractionProgress:
         assert windows[0]["right_batch_index"] == 1
         assert windows[1]["left_batch_index"] == 1
         assert windows[1]["right_batch_index"] == 2
+
+    def test_phase2_boundary_windows_use_project_boundary_size(self):
+        from modules.imports.scene_entity_config import phase2_project_settings_context
+
+        service = SceneEntityExtractionService()
+        batches = [
+            [{"scene_index": idx} for idx in range(1, 13)],
+            [{"scene_index": idx} for idx in range(13, 25)],
+        ]
+
+        with phase2_project_settings_context(
+            {"deep_import": {"phase2": {"boundary_scenes": 3}}}
+        ):
+            windows = service._phase2_boundary_windows(batches)
+
+        assert [
+            scene["scene_index"] for scene in windows[0]["scenes"]
+        ] == [10, 11, 12, 13, 14, 15]
 
     @pytest.mark.asyncio
     @patch(

@@ -119,7 +119,7 @@ const worldBibleView = {
       ? `<button class="btn btn-sm" data-action="bible-force-refresh-projection">强制重新刷新</button>`
       : ""
     return `
-      <div style="margin-top:12px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+      <div style="margin-top:12px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
         <div style="font-size:12px;color:var(--text-dim);">投影任务：${esc(task.task_id || task.id || "")}</div>
         <div>状态：${esc(task.status || "pending")} · 进度 ${Math.round((task.progress || 0) * 100)}%</div>
         ${task.error_message ? `<div style="color:var(--danger);font-size:12px;">${esc(task.error_message)}</div>` : ""}

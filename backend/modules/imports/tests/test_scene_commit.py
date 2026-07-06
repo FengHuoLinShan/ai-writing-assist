@@ -237,6 +237,31 @@ async def test_scene_commit_writes_complete_structure_meta(
 
 
 @pytest.mark.asyncio
+async def test_scene_commit_truncates_long_narrative_tag(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline.facade import get_scene
+
+    candidate = make_final_scene_candidate()
+    candidate.narrative_tag = "仪式与意外，灰雾与塔罗会相连，秘密组织雏形"
+
+    result = await SceneCommitter().commit(
+        db_session,
+        sample_novel_id,
+        [candidate],
+        workflow_id="wf-long-tag",
+    )
+
+    scene = await get_scene(db_session, result.created_scene_ids[0])
+
+    assert scene is not None
+    assert scene["narrative_tag"] == candidate.narrative_tag[:32]
+    assert len(scene["narrative_tag"]) <= 32
+
+
+@pytest.mark.asyncio
 async def test_scene_commit_creates_workbench_complete_setup(
     db_session: AsyncSession,
     sample_novel_id: str,

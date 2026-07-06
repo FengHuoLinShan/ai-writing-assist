@@ -10,6 +10,7 @@ const API_TIMEOUT = 15000
 const RAG_SEARCH_TIMEOUT = 60000
 const RAG_PREWARM_TIMEOUT = 75000
 const CONTEXT_CONFIRM_TIMEOUT = 90000
+const LLM_GENERATE_TIMEOUT = 90000
 const API_CACHE_TTL = 30000
 
 const _apiCache = new Map()
@@ -789,6 +790,14 @@ const api = {
   // 生成中心
   // ============================================================
   generate: {
+    async objectDraftChat(payload) {
+      return post("/world/object-draft-chat", payload, { timeout: LLM_GENERATE_TIMEOUT })
+    },
+
+    async generateObjectDraft(payload) {
+      return post("/world/object-drafts/generate", payload, { timeout: LLM_GENERATE_TIMEOUT })
+    },
+
     async worldCharacter(payload) {
       return post("/world/entities/extract", payload)
     },

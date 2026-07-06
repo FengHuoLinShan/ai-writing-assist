@@ -428,7 +428,7 @@ const App = {
       needs_review: "仅复核，不会直接应用",
     }[item.action] || "需要复核后处理"
     const riskNotice = this._isHighRiskSmartDedupSuggestion(item) ? `
-      <div style="margin-top:8px;padding:8px;border:1px solid var(--warning);border-radius:6px;color:var(--warning);font-size:12px;">
+      <div style="margin-top:8px;padding:8px;border:1px solid var(--warning);border-radius:var(--radius-md);color:var(--warning);font-size:12px;">
         高风险别名命中：默认不选中。确认这确实是同一对象后再手动勾选应用。
       </div>
     ` : ""
@@ -439,7 +439,7 @@ const App = {
       </label>
     ` : ""
     return `
-      <article style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px;" data-smart-dedup-card="${esc(index)}">
+      <article style="border:1px solid var(--border);border-radius:var(--radius-md);padding:10px;margin-bottom:10px;" data-smart-dedup-card="${esc(index)}">
         <label style="display:flex;gap:8px;align-items:flex-start;">
           <input type="checkbox" data-smart-dedup-index="${esc(index)}" ${selected} />
           <span>
@@ -451,7 +451,7 @@ const App = {
           置信度 ${esc(item.confidence ?? "-")} · ${esc(item.match_method || "-")}
         </div>
         <p style="margin:6px 0 0;">${esc(item.reason || "无说明")}</p>
-        <div style="margin-top:8px;padding:8px;border:1px solid var(--border-light);border-radius:6px;background:var(--bg-alt);">
+        <div style="margin-top:8px;padding:8px;border:1px solid var(--border-light);border-radius:var(--radius-md);background:var(--bg-alt);">
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
             操作路径：${esc(operationText)}
           </div>
@@ -1030,15 +1030,16 @@ const App = {
   },
 
   /**
-   * 初始化主题（明暗模式）
+   * 初始化主题（三主题系统）
    */
   _initTheme() {
     try {
       const saved = localStorage.getItem("novel_theme")
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-      const theme = saved || (prefersDark ? "dark" : "light")
+      // 旧主题值迁移映射
+      const legacyMap = { light: "minimal", "dark-soft": "warm", paper: "warm" }
+      const raw = saved || "minimal"
+      const theme = legacyMap[raw] || raw
       document.documentElement.setAttribute("data-theme", theme)
-      document.body.classList.toggle("theme-paper", theme === "paper")
     } catch {}
   },
 
@@ -1048,9 +1049,9 @@ const App = {
   _switchTheme(theme) {
     try {
       document.documentElement.setAttribute("data-theme", theme)
-      document.body.classList.toggle("theme-paper", theme === "paper")
       localStorage.setItem("novel_theme", theme)
-      toast(`已切换至「${{ light: "浅色", dark: "暗色", "dark-soft": "护眼暗色", paper: "纸张" }[theme] || theme}」主题`, "success")
+      const labels = { minimal: "现代极简", warm: "黄金时刻", dark: "午夜星河" }
+      toast(`已切换至「${labels[theme] || theme}」主题`, "success")
     } catch {}
   },
 

@@ -791,7 +791,7 @@ const writingView = {
       html += `
         <div class="scene-tree-node">
           <div class="scene-tree-scene clickable" data-action="select-scene" data-scene-id="${esc(scene.id)}"
-               style="padding:4px 4px;border-radius:4px;${isCurrentScene ? 'background:var(--hover-bg);' : ''}">
+               style="padding:4px 4px;border-radius:var(--radius-sm);${isCurrentScene ? 'background:var(--hover-bg);' : ''}">
             <span class="toggle-icon">${isExpanded ? '▼' : '▶'}</span>
             <span style="font-size:13px;font-weight:${isCurrentScene ? 'bold' : 'normal'};">${esc(scene.title || '未命名')}</span>
             <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${chapters.length}章)</span>
@@ -919,7 +919,7 @@ const writingView = {
 
     if (hasSelection) {
       html += `
-        <input id="writing-title-input" type="text" value="${esc(this._currentTitle || '')}" placeholder="章节标题" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:4px;font-size:13px;margin-bottom:6px;" ${this._isReadonly ? 'readonly' : ''} />
+        <input id="writing-title-input" type="text" value="${esc(this._currentTitle || '')}" placeholder="章节标题" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:6px;" ${this._isReadonly ? 'readonly' : ''} />
 
         <textarea id="writing-editor" class="novel-editor ${this._focusMode ? "novel-editor--focus" : ""}"
           placeholder="在此书写正文..." ${this._isReadonly ? 'readonly' : ''}>${this._currentContent ? esc(this._currentContent) : ''}</textarea>
@@ -1203,7 +1203,7 @@ const writingView = {
     let html = `
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;font-size:12px;">
         <span style="color:var(--text-dim);">版本：</span>
-        <select id="version-selector" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:3px;font-size:12px;">
+        <select id="version-selector" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius-sm);font-size:12px;">
     `
 
     for (const v of this._versions) {
@@ -1653,7 +1653,7 @@ const writingView = {
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === this._currentVersionNumber
       listHtml += `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? 'background:var(--hover-bg);border-radius:4px;padding:8px;' : ''}">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? 'background:var(--hover-bg);border-radius:var(--radius-sm);padding:8px;' : ''}">
           <div>
             <span style="font-weight:500;">v${esc(v.version_number)}</span>
             ${isLatest ? ' <span class="badge badge-canonical">最新</span>' : ''}

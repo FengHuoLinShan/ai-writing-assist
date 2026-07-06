@@ -282,11 +282,11 @@ const worldView = {
       })
       : `<div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">状态: ${esc(this._autoExtractStatus)}</div>`
     return `
-      <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;text-align:center;">
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
         <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
-          起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
-          结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:var(--radius-sm);" />
+          结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:var(--radius-sm);" />
           <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${isRunning ? "disabled" : ""}>
             ${isRunning ? "提取中..." : "开始提取"}
           </button>
@@ -635,7 +635,7 @@ const worldView = {
       // 渲染自动入库批次折叠区
       if (autoEntities.length > 0) {
         html += `<div style="margin-bottom:12px;">`
-        html += `<details open style="border:1px solid var(--border);border-radius:4px;overflow:hidden;">`
+        html += `<details open style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">`
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           <span style="color:var(--accent);">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
         </summary>`
@@ -645,7 +645,7 @@ const worldView = {
 
       // 渲染手动创建区
       if (manualEntities.length > 0) {
-        html += `<details ${!autoEntities.length > 0 ? "open" : ""} style="border:1px solid var(--border);border-radius:4px;overflow:hidden;">`
+        html += `<details ${!autoEntities.length > 0 ? "open" : ""} style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">`
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           其他对象 — ${manualEntities.length} 个
         </summary>`
@@ -778,7 +778,7 @@ const worldView = {
       const sourceText = { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }
       const needsReview = this._entityNeedsReview(e)
       const reviewText = needsReview ? "需复核" : "已复核"
-      const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;">新</span>' : ""
+      const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:var(--radius-sm);">新</span>' : ""
       const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
       const canMerge = e.status === "draft" || e.status === "candidate"
       const canPromote = e.status === "draft" || e.status === "candidate"
@@ -2095,7 +2095,7 @@ const worldView = {
         </label>
       ` : ""
       return `
-        <article style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:10px;">
+        <article style="border:1px solid var(--border);border-radius:var(--radius-md);padding:8px;margin-bottom:10px;">
           <label style="display:flex;gap:8px;align-items:flex-start;">
             <input type="checkbox" data-fusion-index="${esc(index)}" ${item.action === "needs_review" ? "" : "checked"} />
             <span>

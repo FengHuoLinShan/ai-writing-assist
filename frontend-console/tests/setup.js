@@ -116,6 +116,8 @@ globalThis.api = {
     getSnapshot: vi.fn(),
   },
   generate: {
+    objectDraftChat: vi.fn(),
+    generateObjectDraft: vi.fn(),
     worldCharacter: vi.fn(),
     plotStructure: vi.fn(),
     chapterScene: vi.fn(),

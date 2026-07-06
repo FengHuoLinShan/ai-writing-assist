@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -142,6 +142,70 @@ class WorldAliasRelationExtractResponse(BaseModel):
 
     task_id: str
     status: str = "pending"
+
+
+ObjectDraftTemplate = Literal[
+    "none",
+    "character",
+    "event",
+    "item",
+    "location",
+    "faction",
+    "rule",
+    "custom",
+]
+
+ObjectDraftQualityMode = Literal["fast", "pro"]
+
+
+class ObjectDraftChatMessage(BaseModel):
+    """生成中心自由共创消息。"""
+
+    role: Literal["user", "assistant"] = "user"
+    content: str = Field(..., min_length=1, max_length=20000)
+
+
+class ObjectDraftChatRequest(BaseModel):
+    """生成中心自由聊天请求；不写入数据库。"""
+
+    novel_id: str
+    template: ObjectDraftTemplate = "none"
+    messages: list[ObjectDraftChatMessage] = Field(default_factory=list, max_length=40)
+    pasted_context: str | None = Field(default=None, max_length=60000)
+    selected_chapter_indices: list[int] = Field(default_factory=list, max_length=20)
+    quality_mode: ObjectDraftQualityMode = "fast"
+    template_name: str | None = Field(default=None, max_length=80)
+    template_prompt: str | None = Field(default=None, max_length=8000)
+
+
+class ObjectDraftChatResponse(BaseModel):
+    """生成中心自由聊天响应。"""
+
+    reply: str
+    model: str = ""
+    provider: str = ""
+
+
+class ObjectDraftGenerateRequest(BaseModel):
+    """将生成中心共创内容收束为数据库草稿对象。"""
+
+    novel_id: str
+    template: ObjectDraftTemplate = "none"
+    messages: list[ObjectDraftChatMessage] = Field(default_factory=list, max_length=40)
+    pasted_context: str | None = Field(default=None, max_length=60000)
+    selected_chapter_indices: list[int] = Field(default_factory=list, max_length=20)
+    quality_mode: ObjectDraftQualityMode = "fast"
+    template_name: str | None = Field(default=None, max_length=80)
+    template_prompt: str | None = Field(default=None, max_length=8000)
+
+
+class ObjectDraftGenerateResponse(BaseModel):
+    """生成中心对象草稿生成响应。"""
+
+    entity: CoreEntityResponse
+    quality_mode: ObjectDraftQualityMode
+    model: str = ""
+    provider: str = ""
 
 
 # ============================================================

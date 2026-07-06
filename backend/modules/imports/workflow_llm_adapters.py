@@ -17,6 +17,9 @@ from modules.imports.agent_step_harness import (
     StepToolEnvelope,
 )
 from modules.imports.env_helpers import positive_int_env
+from shared.deep_import_settings import (
+    deep_import_int_setting,
+)
 
 DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS = 15
 DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS = 2
@@ -50,47 +53,218 @@ def _phase01_scene_max_tokens(default: int) -> int:
     return positive_int_env("PHASE01_SCENE_MAX_TOKENS", default)
 
 
-def _phase0_scene_max_tokens(default: int) -> int:
+def _phase0_scene_max_tokens(
+    default: int,
+    project_settings: dict[str, Any] | None = None,
+) -> int:
     del default
-    return positive_int_env("PHASE0_SCENE_MAX_TOKENS", PHASE0_SCENE_MAX_TOKENS)
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "scene_max_tokens",
+        env_name="PHASE0_SCENE_MAX_TOKENS",
+        default=PHASE0_SCENE_MAX_TOKENS,
+    )
 
 
-def _phase0_scene_timeout_seconds(default: int | None) -> int | None:
+def _phase0_scene_timeout_seconds(
+    default: int | None,
+    project_settings: dict[str, Any] | None = None,
+) -> int | None:
     if default is not None:
         return default
-    return positive_int_env(
-        "PHASE0_SCENE_TIMEOUT_SECONDS",
-        positive_int_env("LLM_TIMEOUT", PHASE0_SCENE_TIMEOUT_SECONDS),
+    return deep_import_int_setting(
+        project_settings,
+        "phase0",
+        "scene_timeout_seconds",
+        env_name="PHASE0_SCENE_TIMEOUT_SECONDS",
+        default=positive_int_env("LLM_TIMEOUT", PHASE0_SCENE_TIMEOUT_SECONDS),
     )
 
 
-def _phase1a_scene_max_tokens(default: int) -> int:
+def _phase1a_scene_max_tokens(
+    default: int,
+    project_settings: dict[str, Any] | None = None,
+) -> int:
     del default
-    return positive_int_env("PHASE1A_SCENE_MAX_TOKENS", PHASE1A_SCENE_MAX_TOKENS)
-
-
-def _phase1a_structured_max_fix_attempts() -> int:
-    return positive_int_env(
-        "PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS",
-        PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS,
+    return deep_import_int_setting(
+        project_settings,
+        "phase1a",
+        "scene_max_tokens",
+        env_name="PHASE1A_SCENE_MAX_TOKENS",
+        default=PHASE1A_SCENE_MAX_TOKENS,
     )
 
 
-def _phase1a_scene_slicing_timeout_seconds() -> int:
-    return positive_int_env(
-        "PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS",
-        PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS,
+def _phase1a_structured_max_fix_attempts(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1a",
+        "structured_max_fix_attempts",
+        env_name="PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS",
+        default=PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS,
     )
 
 
-def _deep_import_structured_max_fix_attempts() -> int:
+def _phase1a_scene_slicing_timeout_seconds(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1a",
+        "scene_slicing_timeout_seconds",
+        env_name="PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS",
+        default=PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS,
+    )
+
+
+def _phase1b_small_sample_max_tokens(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1b",
+        "small_sample_max_tokens",
+        env_name="PHASE1B_SMALL_SAMPLE_MAX_TOKENS",
+        default=int(
+            _workflow_constant(
+                "PHASE1B_SMALL_SAMPLE_MAX_TOKENS",
+                PHASE1B_SMALL_SAMPLE_MAX_TOKENS,
+            )
+        ),
+    )
+
+
+def _phase1b_small_sample_timeout_seconds(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1b",
+        "small_sample_timeout_seconds",
+        env_name="PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS",
+        default=int(
+            _workflow_constant(
+                "PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS",
+                PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS,
+            )
+        ),
+    )
+
+
+def _phase1b_reducer_max_tokens(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1b",
+        "reducer_max_tokens",
+        env_name="PHASE1B_REDUCER_MAX_TOKENS",
+        default=PHASE1B_REDUCER_MAX_TOKENS,
+    )
+
+
+def _phase1b_reducer_timeout_seconds(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1b",
+        "reducer_timeout_seconds",
+        env_name="PHASE1B_REDUCER_TIMEOUT_SECONDS",
+        default=PHASE1B_REDUCER_TIMEOUT_SECONDS,
+    )
+
+
+def _phase1b_compact_text_limit(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1b",
+        "compact_text_limit",
+        env_name="PHASE1B_COMPACT_TEXT_LIMIT",
+        default=int(
+            _workflow_constant(
+                "PHASE1B_COMPACT_TEXT_LIMIT",
+                PHASE1B_COMPACT_TEXT_LIMIT,
+            )
+        ),
+    )
+
+
+def _phase1b_enrich_timeout_seconds(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase1b",
+        "enrich_timeout_seconds",
+        env_name="PHASE1B_ENRICH_TIMEOUT_SECONDS",
+        default=PHASE1B_ENRICH_TIMEOUT_SECONDS,
+    )
+
+
+def _phase2_world_timeout_seconds(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase2",
+        "world_timeout_seconds",
+        env_name="PHASE2_WORLD_TIMEOUT_SECONDS",
+        default=PHASE2_WORLD_TIMEOUT_SECONDS,
+    )
+
+
+def _phase2_world_min_max_tokens(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    return deep_import_int_setting(
+        project_settings,
+        "phase2",
+        "world_min_max_tokens",
+        env_name="PHASE2_WORLD_MIN_MAX_TOKENS",
+        default=PHASE2_WORLD_MIN_MAX_TOKENS,
+    )
+
+
+def _deep_import_structured_timeout_grace_seconds(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
+    default = int(
+        _workflow_constant(
+            "DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
+            DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
+        )
+    )
+    return deep_import_int_setting(
+        project_settings,
+        "global",
+        "structured_timeout_grace_seconds",
+        env_name="DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
+        default=default,
+    )
+
+
+def _deep_import_structured_max_fix_attempts(
+    project_settings: dict[str, Any] | None = None,
+) -> int:
     default = int(
         _workflow_constant(
             "DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
             DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
         )
     )
-    return positive_int_env("DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS", default)
+    return deep_import_int_setting(
+        project_settings,
+        "global",
+        "structured_max_fix_attempts",
+        env_name="DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
+        default=default,
+    )
 
 
 def _structured_list_fields(schema: type[BaseModel]) -> set[str]:
@@ -166,7 +340,7 @@ def _phase2_overlap_text(window: dict[str, Any]) -> str:
 
 
 class _Phase0SceneCandidateLLM:
-    """LLM adapter that feeds Phase 0 batches with chapter text without writes."""
+    """Deprecated LLM adapter for legacy Phase 0 candidate prefetch."""
 
     def __init__(
         self,
@@ -207,7 +381,10 @@ class _Phase0SceneCandidateLLM:
             project_settings = await _project_settings_for_novel(self.db, self.novel_id)
         profile = resolve_llm_profile(project_settings)
         request_defaults = _profile_request_defaults(profile)
-        timeout_seconds = _phase0_scene_timeout_seconds(self.timeout_seconds)
+        timeout_seconds = _phase0_scene_timeout_seconds(
+            self.timeout_seconds,
+            project_settings,
+        )
         request = LLMCallRequest(
             model=request_defaults["model"],
             messages=[
@@ -237,7 +414,10 @@ class _Phase0SceneCandidateLLM:
                 ),
             ],
             temperature=request_defaults["temperature"] or 0.3,
-            max_tokens=_phase0_scene_max_tokens(request_defaults["max_tokens"]),
+            max_tokens=_phase0_scene_max_tokens(
+                request_defaults["max_tokens"],
+                project_settings,
+            ),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
@@ -250,6 +430,7 @@ class _Phase0SceneCandidateLLM:
             step_name="phase0_prefetch",
             transport_retries=False,
             timeout_seconds=timeout_seconds,
+            project_settings=project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
                 "object，必须包含 scenes 数组；每章最多 1 个 scene；每个 scene "
@@ -260,7 +441,7 @@ class _Phase0SceneCandidateLLM:
 
 
 class _Phase1aSceneCandidateLLM:
-    """LLM adapter for text-backed Phase 1a candidate reinforcement."""
+    """Deprecated LLM adapter for legacy Phase 1a reinforcement."""
 
     def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
         self.project_settings = project_settings
@@ -313,7 +494,10 @@ class _Phase1aSceneCandidateLLM:
                 ),
             ],
             temperature=request_defaults["temperature"] or 0.3,
-            max_tokens=_phase1a_scene_max_tokens(request_defaults["max_tokens"]),
+            max_tokens=_phase1a_scene_max_tokens(
+                request_defaults["max_tokens"],
+                self.project_settings,
+            ),
             response_format={"type": "json_object"},
         )
         return await _call_structured(
@@ -322,7 +506,10 @@ class _Phase1aSceneCandidateLLM:
             SceneCandidateOutput,
             step_name="phase1a_reinforce",
             transport_retries=False,
-            max_fix_attempts=_phase1a_structured_max_fix_attempts(),
+            max_fix_attempts=_phase1a_structured_max_fix_attempts(
+                self.project_settings
+            ),
+            project_settings=self.project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
                 "object，必须包含 scenes 数组；每个 scene 只保留 title、goal、"
@@ -427,8 +614,13 @@ class _Phase1aSceneSlicingLLM:
             SceneSlicingOutput,
             step_name="phase1a_scene_slicing",
             transport_retries=False,
-            timeout_seconds=_phase1a_scene_slicing_timeout_seconds(),
-            max_fix_attempts=1,
+            timeout_seconds=_phase1a_scene_slicing_timeout_seconds(
+                self.project_settings
+            ),
+            max_fix_attempts=_phase1a_structured_max_fix_attempts(
+                self.project_settings
+            ),
+            project_settings=self.project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 SceneSlicingOutput 校验。只输出 JSON object："
                 "{\"scenes\":[{\"title\":\"...\",\"goal\":\"...\","
@@ -485,6 +677,7 @@ class _SingleChapterSceneCandidateLLM:
             SceneSegmentationOutput,
             step_name="phase1a_single_chapter",
             transport_retries=False,
+            project_settings=self.project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 SceneSegmentationOutput 校验。请只输出一个 JSON "
                 "object，必须包含 scenes 数组；每个 scene 必须包含 title、goal、"
@@ -505,7 +698,10 @@ class _Phase1bSceneFusionLLM:
         from modules.imports.scene_fusion import Phase1bReducerOutput
 
         profile = resolve_llm_profile(self.project_settings)
-        compact_payload = _compact_phase1b_payload(payload)
+        compact_payload = _compact_phase1b_payload(
+            payload,
+            project_settings=self.project_settings,
+        )
         small_sample = _is_small_phase1b_payload(compact_payload)
         if not small_sample:
             return await self._call_compact_decision_reducer(
@@ -513,30 +709,14 @@ class _Phase1bSceneFusionLLM:
                 profile,
             )
         max_tokens = (
-            int(
-                _workflow_constant(
-                    "PHASE1B_SMALL_SAMPLE_MAX_TOKENS",
-                    PHASE1B_SMALL_SAMPLE_MAX_TOKENS,
-                )
-            )
+            _phase1b_small_sample_max_tokens(self.project_settings)
             if small_sample
-            else positive_int_env(
-                "PHASE1B_REDUCER_MAX_TOKENS",
-                PHASE1B_REDUCER_MAX_TOKENS,
-            )
+            else _phase1b_reducer_max_tokens(self.project_settings)
         )
         timeout_seconds = (
-            int(
-                _workflow_constant(
-                    "PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS",
-                    PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS,
-                )
-            )
+            _phase1b_small_sample_timeout_seconds(self.project_settings)
             if small_sample
-            else positive_int_env(
-                "PHASE1B_REDUCER_TIMEOUT_SECONDS",
-                PHASE1B_REDUCER_TIMEOUT_SECONDS,
-            )
+            else _phase1b_reducer_timeout_seconds(self.project_settings)
         )
         scene_guidance = (
             "1-7章样本目标输出9个Scene，必须覆盖1-7章；只合并真正重复的候选。"
@@ -608,6 +788,7 @@ class _Phase1bSceneFusionLLM:
             step_name="phase1b_fusion",
             transport_retries=False,
             timeout_seconds=timeout_seconds,
+            project_settings=self.project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 Phase1bReducerOutput 校验。请只输出一个 JSON "
                 "object，必须包含 scenes 数组。每个 scene 必须包含 "
@@ -663,10 +844,7 @@ class _Phase1bSceneFusionLLM:
                 ),
             ],
             temperature=0.0,
-            max_tokens=positive_int_env(
-                "PHASE1B_REDUCER_MAX_TOKENS",
-                PHASE1B_REDUCER_MAX_TOKENS,
-            ),
+            max_tokens=_phase1b_reducer_max_tokens(self.project_settings),
             response_format={"type": "json_object"},
         )
         try:
@@ -676,11 +854,11 @@ class _Phase1bSceneFusionLLM:
                 _Phase1bDecisionOutput,
                 step_name="phase1b_fusion",
                 transport_retries=False,
-                timeout_seconds=positive_int_env(
-                    "PHASE1B_REDUCER_TIMEOUT_SECONDS",
-                    PHASE1B_REDUCER_TIMEOUT_SECONDS,
+                timeout_seconds=_phase1b_reducer_timeout_seconds(
+                    self.project_settings
                 ),
                 max_fix_attempts=1,
+                project_settings=self.project_settings,
                 fix_prompt=(
                     "上一轮输出无法通过 Phase1b decision schema。只输出 JSON object："
                     "{\"use_primary_round\":true} 或 {\"use_primary_round\":false}。"
@@ -718,7 +896,16 @@ class _Phase1bSceneEnrichmentLLM:
             if isinstance(chapter, dict)
         ]
         locked_scene = payload.get("locked_scene") or {}
-        max_tokens = int(payload.get("max_tokens") or PHASE1B_ENRICH_MAX_TOKENS)
+        max_tokens = int(
+            payload.get("max_tokens")
+            or deep_import_int_setting(
+                self.project_settings,
+                "phase1b",
+                "enrich_max_tokens",
+                env_name="PHASE1B_ENRICH_MAX_TOKENS",
+                default=PHASE1B_ENRICH_MAX_TOKENS,
+            )
+        )
         request = LLMCallRequest(
             model=model,
             messages=[
@@ -763,11 +950,9 @@ class _Phase1bSceneEnrichmentLLM:
             SceneEnrichmentOutput,
             step_name="phase1b_enrichment",
             transport_retries=False,
-            timeout_seconds=positive_int_env(
-                "PHASE1B_ENRICH_TIMEOUT_SECONDS",
-                PHASE1B_ENRICH_TIMEOUT_SECONDS,
-            ),
+            timeout_seconds=_phase1b_enrich_timeout_seconds(self.project_settings),
             max_fix_attempts=1,
+            project_settings=self.project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 SceneEnrichmentOutput 校验。只输出 JSON object，"
                 "只能包含 emotional_beat、must_happen、must_not_happen、"
@@ -804,7 +989,10 @@ class _Phase2WorldExtractionLLM:
             scene for scene in payload.get("scenes", []) if isinstance(scene, dict)
         ]
         window = payload.get("window") or {}
-        max_tokens = int(payload.get("max_tokens") or PHASE2_WORLD_MIN_MAX_TOKENS)
+        max_tokens = int(
+            payload.get("max_tokens")
+            or _phase2_world_min_max_tokens(self.project_settings)
+        )
         owned_scene_ids = [
             str(scene_id)
             for scene_id in payload.get("owned_scene_ids", [])
@@ -923,11 +1111,9 @@ class _Phase2WorldExtractionLLM:
             Phase2WorldExtractionOutput,
             step_name="phase2_world_extraction",
             transport_retries=False,
-            timeout_seconds=positive_int_env(
-                "PHASE2_WORLD_TIMEOUT_SECONDS",
-                PHASE2_WORLD_TIMEOUT_SECONDS,
-            ),
+            timeout_seconds=_phase2_world_timeout_seconds(self.project_settings),
             max_fix_attempts=1,
+            project_settings=self.project_settings,
             fix_prompt=(
                 "上一轮输出无法通过 Phase2WorldExtractionOutput 校验。"
                 "只输出 JSON object，只包含 objects、relations、deltas、"
@@ -1228,7 +1414,11 @@ def _is_small_phase1b_payload(payload: dict[str, Any]) -> bool:
     return 0 < len(set(chapters)) <= 7
 
 
-def _compact_phase1b_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _compact_phase1b_payload(
+    payload: dict[str, Any],
+    *,
+    project_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Keep Phase 1b reducer input bounded and正文-free."""
 
     return {
@@ -1240,14 +1430,25 @@ def _compact_phase1b_payload(payload: dict[str, Any]) -> dict[str, Any]:
             payload.get("source_chapter_indices")
         ),
         "recommended_scene_count": payload.get("recommended_scene_count"),
-        "scene_count_guidance": _compact_text(payload.get("scene_count_guidance")),
+        "scene_count_guidance": _compact_text(
+            payload.get("scene_count_guidance"),
+            project_settings=project_settings,
+        ),
         "candidates": [
-            _compact_phase1b_candidate(candidate)
+            _compact_phase1b_candidate(candidate, project_settings=project_settings)
             for candidate in payload.get("candidates", [])
             if isinstance(candidate, dict)
         ],
-        "merge_hints": _compact_list(payload.get("merge_hints"), limit=12),
-        "split_hints": _compact_list(payload.get("split_hints"), limit=12),
+        "merge_hints": _compact_list(
+            payload.get("merge_hints"),
+            limit=12,
+            project_settings=project_settings,
+        ),
+        "split_hints": _compact_list(
+            payload.get("split_hints"),
+            limit=12,
+            project_settings=project_settings,
+        ),
         "output_requirements": {
             "required_scene_fields": [
                 "title",
@@ -1278,7 +1479,11 @@ def _compact_phase1b_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _compact_phase1b_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+def _compact_phase1b_candidate(
+    candidate: dict[str, Any],
+    *,
+    project_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "candidate_id": candidate.get("candidate_id"),
         "source_round": candidate.get("source_round"),
@@ -1290,30 +1495,62 @@ def _compact_phase1b_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "quality": candidate.get("quality"),
         "confidence": candidate.get("confidence"),
         "boundary_status": candidate.get("boundary_status"),
-        "boundary_reason": _compact_text(candidate.get("boundary_reason")),
+        "boundary_reason": _compact_text(
+            candidate.get("boundary_reason"),
+            project_settings=project_settings,
+        ),
         "scenes": [
-            _compact_phase1b_scene(scene)
+            _compact_phase1b_scene(scene, project_settings=project_settings)
             for scene in candidate.get("scenes", [])
             if isinstance(scene, dict)
         ],
-        "evidence_anchors": _compact_list(candidate.get("evidence_anchors"), limit=4),
-        "merge_hints": _compact_list(candidate.get("merge_hints"), limit=4),
-        "split_hints": _compact_list(candidate.get("split_hints"), limit=4),
+        "evidence_anchors": _compact_list(
+            candidate.get("evidence_anchors"),
+            limit=4,
+            project_settings=project_settings,
+        ),
+        "merge_hints": _compact_list(
+            candidate.get("merge_hints"),
+            limit=4,
+            project_settings=project_settings,
+        ),
+        "split_hints": _compact_list(
+            candidate.get("split_hints"),
+            limit=4,
+            project_settings=project_settings,
+        ),
         "missing_or_uncertain_items": _compact_list(
             candidate.get("missing_or_uncertain_items"),
             limit=4,
+            project_settings=project_settings,
         ),
     }
 
 
-def _compact_phase1b_scene(scene: dict[str, Any]) -> dict[str, Any]:
+def _compact_phase1b_scene(
+    scene: dict[str, Any],
+    *,
+    project_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "title": _compact_text(scene.get("title"), limit=80),
-        "goal": _compact_text(scene.get("goal")),
-        "core_conflict": _compact_text(scene.get("core_conflict")),
-        "emotional_beat": _compact_text(scene.get("emotional_beat")),
-        "must_happen": _compact_text(scene.get("must_happen")),
-        "must_not_happen": _compact_text(scene.get("must_not_happen")),
+        "goal": _compact_text(scene.get("goal"), project_settings=project_settings),
+        "core_conflict": _compact_text(
+            scene.get("core_conflict"),
+            project_settings=project_settings,
+        ),
+        "emotional_beat": _compact_text(
+            scene.get("emotional_beat"),
+            project_settings=project_settings,
+        ),
+        "must_happen": _compact_text(
+            scene.get("must_happen"),
+            project_settings=project_settings,
+        ),
+        "must_not_happen": _compact_text(
+            scene.get("must_not_happen"),
+            project_settings=project_settings,
+        ),
         "narrative_tag": _compact_text(scene.get("narrative_tag"), limit=40),
         "scene_chunks": [
             _compact_scene_chunk(chunk)
@@ -1332,12 +1569,19 @@ def _compact_scene_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def _compact_list(value: Any, *, limit: int | None = None) -> list[Any]:
+def _compact_list(
+    value: Any,
+    *,
+    limit: int | None = None,
+    project_settings: dict[str, Any] | None = None,
+) -> list[Any]:
     if not isinstance(value, list):
         return []
     items = value[:limit] if limit is not None else value
     return [
-        _compact_text(item) if isinstance(item, str) else item
+        _compact_text(item, project_settings=project_settings)
+        if isinstance(item, str)
+        else item
         for item in items
         if item is not None and item != ""
     ]
@@ -1357,14 +1601,14 @@ def _compact_chapters(value: Any) -> list[int]:
     return sorted(set(chapters))
 
 
-def _compact_text(value: Any, *, limit: int | None = None) -> str:
+def _compact_text(
+    value: Any,
+    *,
+    limit: int | None = None,
+    project_settings: dict[str, Any] | None = None,
+) -> str:
     if limit is None:
-        limit = int(
-            _workflow_constant(
-                "PHASE1B_COMPACT_TEXT_LIMIT",
-                PHASE1B_COMPACT_TEXT_LIMIT,
-            )
-        )
+        limit = _phase1b_compact_text_limit(project_settings)
     text = str(value or "").strip()
     if len(text) <= limit:
         return text
@@ -1381,6 +1625,7 @@ async def _run_deep_import_structured_call(
     fix_prompt: str,
     timeout_seconds: int | None = None,
     max_fix_attempts: int | None = None,
+    project_settings: dict[str, Any] | None = None,
     diagnostics: list[dict[str, Any]] | None = None,
 ):
     from core.config import get_settings
@@ -1390,12 +1635,7 @@ async def _run_deep_import_structured_call(
         timeout_seconds
         if timeout_seconds is not None
         else int(settings.llm_timeout)
-        + int(
-            _workflow_constant(
-                "DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
-                DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
-            )
-        )
+        + _deep_import_structured_timeout_grace_seconds(project_settings)
     )
     step = ManagedLLMStep(
         StepToolEnvelope(
@@ -1414,7 +1654,7 @@ async def _run_deep_import_structured_call(
             max_fix_attempts=(
                 max_fix_attempts
                 if max_fix_attempts is not None
-                else _deep_import_structured_max_fix_attempts()
+                else _deep_import_structured_max_fix_attempts(project_settings)
             ),
             transport_retries=transport_retries,
             fix_prompt=fix_prompt,

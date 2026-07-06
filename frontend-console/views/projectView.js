@@ -639,7 +639,7 @@ const projectView = {
   _renderImportSection() {
     const hasProject = !!state.currentProjectId
     return `
-      <div style="border:1px solid var(--text-quaternary);border-radius:8px;padding:16px;margin-top:16px;background:var(--bg-panel);">
+      <div style="border:1px solid var(--text-quaternary);border-radius:var(--radius-md);padding:16px;margin-top:16px;background:var(--bg-panel);">
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
           将小说文件导入到当前选中的项目。
           ${hasProject ? `当前项目：<strong>${esc(state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}

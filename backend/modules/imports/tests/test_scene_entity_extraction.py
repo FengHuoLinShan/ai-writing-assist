@@ -248,13 +248,13 @@ def test_phase2b_compacts_entity_index_to_scene_relevant_terms(
 def test_phase2b_trims_scene_text_with_head_and_tail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT", "20")
+    monkeypatch.setenv("PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT", "100")
 
-    compact = _trim_phase2b_scene_text("A" * 20 + "B" * 20 + "C" * 20)
+    compact = _trim_phase2b_scene_text("A" * 100 + "B" * 100 + "C" * 100)
 
     assert compact.startswith("A")
     assert "Scene 中段已压缩" in compact
-    assert compact.endswith("C" * 6)
+    assert compact.endswith("C" * 30)
 
 
 @pytest.fixture

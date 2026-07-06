@@ -34,6 +34,15 @@ const STATUS_LABELS = {
   cancelled: "已取消",
 }
 
+const PHASE_MESSAGE_LABELS = {
+  phase0_plan: "正在规划 Scene 切分窗口",
+  phase1a_scene_slicing: "正在切分 Scene 边界",
+  phase1b_enrichment: "正在补全 Scene 结构字段",
+  scene_commit: "正在写入正式 Scene",
+  entity_extraction: "正在按 Scene 提取世界对象与别名/关系",
+  structure_analysis: "正在提取剧情结构",
+}
+
 function nowIso() {
   return new Date().toISOString()
 }
@@ -90,11 +99,15 @@ function inferDeepImportPercent(result) {
 }
 
 function inferMessage({ status, workflowType, result, meta, percent }) {
-  if (result.message) return result.message
-  if (meta.message) return meta.message
   if (status === "failed") return "任务失败"
   if (status === "cancelled") return "任务已取消"
-  if (status === "done") return "任务完成"
+  if (status === "done") return result.message || "任务完成"
+  if (RUNNING_STATUSES.has(status)) {
+    const phaseLabel = PHASE_MESSAGE_LABELS[result.current_phase]
+    if (phaseLabel) return phaseLabel
+  }
+  if (result.message) return result.message
+  if (meta.message) return meta.message
   if (workflowType === "deep_import") {
     if (percent != null) return "深度导入处理中"
     return "深度导入已提交，等待处理"
@@ -277,6 +290,8 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     phaseTimeline: safeArray(result.phase_timeline),
     diagnosticCounts: safeObject(result.diagnostic_counts),
     phaseErrors: safeArray(result.phase_errors),
+    currentPhase: result.current_phase || null,
+    currentOperation: result.current_operation || null,
     createdAt: raw.created_at || meta.createdAt || null,
     startedAt: raw.started_at || null,
     updatedAt: raw.updated_at || raw.heartbeat_at || null,

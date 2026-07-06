@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.outline import facade as outline_facade
 
+MAX_NARRATIVE_TAG_LENGTH = 32
+
 
 class SceneCommitResult(BaseModel):
     """Summary of formal Scene writes performed by one commit call."""
@@ -137,7 +139,7 @@ def _build_scene_data(
         "emotional_beat": candidate.emotional_beat,
         "must_happen": candidate.must_happen,
         "must_not_happen": candidate.must_not_happen,
-        "narrative_tag": candidate.narrative_tag,
+        "narrative_tag": _safe_narrative_tag(candidate.narrative_tag),
         "source": "deep_import",
         "scene_chunks": scene_chunks,
         "chapter_ids": [str(index) for index in source_chapter_indices],
@@ -148,6 +150,11 @@ def _build_scene_data(
         ),
         "status": "draft",
     }
+
+
+def _safe_narrative_tag(value: str | None) -> str:
+    tag = " ".join(str(value or "").split()) or "imported"
+    return tag[:MAX_NARRATIVE_TAG_LENGTH]
 
 
 def _build_structure_meta(

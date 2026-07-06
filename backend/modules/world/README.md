@@ -296,6 +296,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 |------|------|------|
 | GET | `/api/world/entities` | 世界对象列表 |
 | POST | `/api/world/entities` | 创建世界对象 |
+| POST | `/api/world/object-draft-chat` | 生成中心自由共创聊天；不写库 |
+| POST | `/api/world/object-drafts/generate` | 将生成中心聊天/粘贴内容收束为世界对象草稿 |
 | POST | `/api/world/entities/extract` | 手动世界对象补抽；必须携带 `context_confirmation_id` |
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
@@ -327,6 +329,9 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
 - 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
 - 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
+- 生成中心 Chatbox 的自由聊天不创建确认记录，也不写库；只有
+  `POST /api/world/object-drafts/generate` 会创建 `status="draft"` 的
+  `core_entities` 草稿，正史提升仍走显式用户确认。
 
 | 方法 | 路径 | 用途 |
 |------|------|------|

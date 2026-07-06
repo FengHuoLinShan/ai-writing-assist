@@ -87,6 +87,12 @@ describe("llmSettingsView", () => {
     expect(html).toContain("MiMo")
     expect(html).toContain("已保存")
     expect(html).toContain("显示 Key")
+    expect(html).toContain("深度导入参数")
+    expect(html).toContain("0.36")
+    expect(html).toContain("Phase 0 Plan")
+    expect(html).toContain("Phase 1A Scene Slicing")
+    expect(html).not.toContain("预取 max tokens")
+    expect(html).not.toContain("切分 max tokens")
     expect(html).not.toContain("sk-")
   })
 
@@ -237,20 +243,60 @@ describe("llmSettingsView", () => {
 
     await llmSettingsView.save()
 
-    expect(api.projects.updateLlmSettings).toHaveBeenCalledWith("p1", {
+    expect(api.projects.updateLlmSettings).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({
+        provider_id: "deepseek",
+        label: "DeepSeek",
+        base_url: "https://api.deepseek.com/v1",
+        model: "deepseek-chat",
+        timeout: 180,
+        max_tokens: 8192,
+        temperature: 0.2,
+        top_p: 0.8,
+        extra: { reasoning_effort: "high" },
+        api_key: "sk-user-input",
+        clear_api_key: false,
+        deep_import: expect.objectContaining({
+          phase0: expect.objectContaining({
+            max_tokens_per_input_char: 0.36,
+          }),
+          phase1a: expect.objectContaining({
+            scene_slicing_timeout_seconds: 900,
+          }),
+        }),
+      }),
+    )
+    expect(toast).toHaveBeenCalledWith("LLM 配置已保存", "success")
+  })
+
+  it("保存时提交深度导入 phase 参数", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: templates })
+    api.projects.getLlmSettings.mockResolvedValue({
       provider_id: "deepseek",
-      label: "DeepSeek",
       base_url: "https://api.deepseek.com/v1",
       model: "deepseek-chat",
-      timeout: 180,
-      max_tokens: 8192,
-      temperature: 0.2,
-      top_p: 0.8,
-      extra: { reasoning_effort: "high" },
-      api_key: "sk-user-input",
-      clear_api_key: false,
+      deep_import: {
+        phase0: { max_tokens_per_input_char: 0.36 },
+        phase1a: { scene_slicing_timeout_seconds: 900 },
+      },
     })
-    expect(toast).toHaveBeenCalledWith("LLM 配置已保存", "success")
+    api.projects.updateLlmSettings.mockResolvedValue({ api_key_configured: true })
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    document.getElementById("deep-import-phase0-max-tokens-per-input-char").value = "0.36"
+    document.getElementById("deep-import-phase1a-scene-slicing-timeout-seconds").value = "1200"
+    document.getElementById("deep-import-phase2-batch-concurrency").value = "8"
+
+    await llmSettingsView.save()
+
+    const payload = api.projects.updateLlmSettings.mock.calls[0][1]
+    expect(payload.deep_import.phase0.max_tokens_per_input_char).toBe(0.36)
+    expect(payload.deep_import.phase0.scene_max_tokens).toBeUndefined()
+    expect(payload.deep_import.phase1a.scene_max_tokens).toBeUndefined()
+    expect(payload.deep_import.phase1a.scene_slicing_timeout_seconds).toBe(1200)
+    expect(payload.deep_import.phase2.batch_concurrency).toBe(8)
   })
 
   it("扩展参数不是 JSON object 时阻止保存", async () => {
