@@ -317,4 +317,17 @@ describe("llmSettingsView", () => {
     expect(api.projects.updateLlmSettings).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("供应商扩展参数必须是 JSON object", "warning")
   })
+
+  it("模板列表为空时回退到 openai-compatible 并禁用选择", async () => {
+    api.projects.listLlmProviderTemplates.mockResolvedValue({ items: [] })
+    api.projects.getLlmSettings.mockResolvedValue({})
+    await llmSettingsView.onEnter()
+
+    document.body.innerHTML = await llmSettingsView.render()
+    const select = document.getElementById("llm-provider")
+
+    expect(select.disabled).toBe(true)
+    expect(select.innerHTML).toContain("openai-compatible")
+    expect(document.body.innerHTML).toContain("未加载到供应商模板")
+  })
 })

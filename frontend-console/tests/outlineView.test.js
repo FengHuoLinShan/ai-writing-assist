@@ -406,7 +406,7 @@ describe("outlineView render", () => {
     api.outline.createThread.mockResolvedValue({ id: "t1" })
 
     outlineView._showCreateThreadForm()
-    document.body.innerHTML = showModal.mock.calls.at(-1)[1]
+    document.body.innerHTML = showModal.mock.calls.at(-1)[1].html
     document.getElementById("create-thread-name").value = "归一潮失踪案主线"
     document.getElementById("create-thread-type").value = "main"
     document.getElementById("create-thread-desc").value = "沈澜追查潮雾失踪案。"

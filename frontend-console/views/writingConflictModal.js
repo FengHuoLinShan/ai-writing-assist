@@ -41,7 +41,7 @@ export function showWritingConflictModal({
     </div>
   `
 
-  showModal("剧情设定冲突检查", body, [{ text: "关闭", class: "btn-ghost", handler: closeModal }])
+  showModalHtml("剧情设定冲突检查", body, [{ text: "关闭", class: "btn-ghost", handler: closeModal }])
   bindConflictModalEvents({
     check,
     novelId,
@@ -195,7 +195,7 @@ function renderSuggestion(item) {
         <button class="btn btn-sm" data-conflict-copy-suggestion="${esc(item.id)}">复制</button>
         <button class="btn btn-sm btn-primary" data-conflict-apply-suggestion="${esc(item.id)}">应用草稿</button>
       </div>
-      <textarea class="form-textarea" rows="4" data-conflict-suggestion-draft="${esc(item.id)}">${esc(suggestion.suggested_text || item.ai_suggestion)}</textarea>
+      <textarea class="form-textarea" rows="4" data-conflict-suggestion-draft="${esc(item.id)}">${esc(suggestion.suggested_text ?? "")}</textarea>
       ${suggestion.rationale ? `<small>${esc(suggestion.rationale)}</small>` : ""}
       ${renderSuggestionList("约束", suggestion.constraints)}
       ${renderSuggestionList("注意", suggestion.risk_notes)}
@@ -209,6 +209,9 @@ function renderSuggestionList(label, values) {
 }
 
 function parseSuggestion(value) {
+  if (value && typeof value === "object") {
+    return { suggested_text: value.suggested_text ?? "", ...value }
+  }
   try {
     const parsed = JSON.parse(value)
     return parsed && typeof parsed === "object" ? parsed : { suggested_text: value }

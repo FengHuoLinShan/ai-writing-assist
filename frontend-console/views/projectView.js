@@ -353,7 +353,7 @@ const projectView = {
       </div>
     `
 
-    showModal("编辑项目", formHtml, [
+    showModalHtml("编辑项目", formHtml, [
       {
         text: "保存",
         class: "btn-primary",
@@ -423,7 +423,7 @@ const projectView = {
       const data = await api.projects.listDeleted()
       const items = data.items || data || []
       if (items.length === 0) {
-        showModal("回收站", "<p>回收站为空。</p>")
+        showModalHtml("回收站", "<p>回收站为空。</p>")
         return
       }
       let listHtml = `
@@ -460,7 +460,7 @@ const projectView = {
         `
       }
       listHtml += "</div>"
-      showModal("回收站", listHtml)
+      showModalHtml("回收站", listHtml)
 
       setTimeout(() => {
         const selectedRecycleProjects = () => {
@@ -558,7 +558,7 @@ const projectView = {
       </div>
     `
 
-    showModal("新建项目", formHtml, [
+    showModalHtml("新建项目", formHtml, [
       {
         text: "创建",
         class: "btn-primary",

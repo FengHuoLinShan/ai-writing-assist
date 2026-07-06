@@ -138,6 +138,17 @@ const llmSettingsView = {
     const creativeMode = this._creativeMode || this._detectCreativeMode(parameters)
     const statusText = settings.api_key_configured ? "已保存" : "未保存"
     const statusClass = settings.api_key_configured ? "success" : "muted"
+    const hasTemplates = this._templates.length > 0
+    const providerOptions = hasTemplates
+      ? this._templates.map((template) => `
+          <option value="${esc(template.id)}" ${template.id === providerId ? "selected" : ""}>
+            ${esc(template.name)}
+          </option>
+        `).join("")
+      : `<option value="openai-compatible" selected>openai-compatible</option>`
+    const providerFallbackHint = hasTemplates
+      ? ""
+      : `<p class="llm-provider-fallback-hint" style="font-size:12px;color:var(--warning);margin-top:4px;">未加载到供应商模板，将使用 openai-compatible 默认配置。</p>`
 
     setTimeout(() => this.bindEvents(), 0)
 
@@ -155,13 +166,10 @@ const llmSettingsView = {
           <div class="form-row">
             <div class="form-group">
               <label for="llm-provider">供应商模板</label>
-              <select class="form-input" id="llm-provider">
-                ${this._templates.map((template) => `
-                  <option value="${esc(template.id)}" ${template.id === providerId ? "selected" : ""}>
-                    ${esc(template.name)}
-                  </option>
-                `).join("")}
+              <select class="form-input" id="llm-provider" ${hasTemplates ? "" : "disabled"}>
+                ${providerOptions}
               </select>
+              ${providerFallbackHint}
             </div>
             <div class="form-group">
               <label>API Key</label>

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 import "../router.js"
+import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -105,5 +106,52 @@ describe("subview memory", () => {
     await window.router.navigate("map", null, false)
 
     expect(window.router.getLastSubView("world")).toBe("objects")
+  })
+})
+
+describe("refresh forces project sync", () => {
+  it("re-fetches current project metadata even when project is unchanged", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.append(content)
+
+    window.router.registerView("writing", { async render() { return "<p>写作台</p>" } })
+
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "Old" }
+    state.currentView = "writing"
+    state.currentSubView = null
+
+    api.projects.get.mockResolvedValue({ id: "p1", title: "New" })
+
+    await window.router.refresh()
+
+    expect(api.projects.get).toHaveBeenCalledWith("p1")
+    expect(state.currentProject.title).toBe("New")
+  })
+})
+
+describe("scene workbench navigation lifecycle", () => {
+  it("leaving scene workbench does not clear the target route subview", async () => {
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.append(content)
+
+    window.router.registerView("scene", {
+      onLeave: () => sceneWorkbenchView.onLeave(),
+      async render() { return "<p>Scene 工作台</p>" },
+    })
+    window.router.registerView("outline", {
+      async render() { return `<p>${state.currentSubView}</p>` },
+    })
+
+    state.currentProjectId = "p1"
+
+    await window.router.navigate("scene", "s1", false)
+    await window.router.navigate("outline", "scenes", false)
+
+    expect(state.currentView).toBe("outline")
+    expect(state.currentSubView).toBe("scenes")
+    expect(content.textContent).toContain("scenes")
   })
 })

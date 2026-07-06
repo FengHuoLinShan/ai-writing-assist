@@ -724,7 +724,7 @@ const outlineView = {
         <select class="form-select" id="create-foreshadowing-status">${statusOptions}</select>
       </div>
     `
-    showModal("新建伏笔", formHtml, [{
+    showModalHtml("新建伏笔", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const description = document.getElementById("create-foreshadowing-description")?.value?.trim()
         if (!description) { toast("请输入描述", "warning"); return }
@@ -769,7 +769,7 @@ const outlineView = {
         <select class="form-select" id="edit-foreshadowing-status">${statusOptions}</select>
       </div>
     `
-    showModal("编辑伏笔", formHtml, [{
+    showModalHtml("编辑伏笔", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         const description = document.getElementById("edit-foreshadowing-description")?.value?.trim()
         if (!description) { toast("请输入描述", "warning"); return }
@@ -827,7 +827,7 @@ const outlineView = {
         <select class="form-select" id="create-reveal-status">${statusOptions}</select>
       </div>
     `
-    showModal("新建揭示", formHtml, [{
+    showModalHtml("新建揭示", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const description = document.getElementById("create-reveal-description")?.value?.trim()
         const chapterValue = document.getElementById("create-reveal-chapter")?.value
@@ -887,7 +887,7 @@ const outlineView = {
         <select class="form-select" id="edit-reveal-status">${statusOptions}</select>
       </div>
     `
-    showModal("编辑揭示", formHtml, [{
+    showModalHtml("编辑揭示", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         const description = document.getElementById("edit-reveal-description")?.value?.trim()
         const chapterValue = document.getElementById("edit-reveal-chapter")?.value
@@ -977,7 +977,7 @@ const outlineView = {
         <textarea class="form-textarea" id="create-thread-desc" rows="3" placeholder="剧情线描述"></textarea>
       </div>
     `
-    showModal("新建剧情线", formHtml, [{
+    showModalHtml("新建剧情线", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const name = document.getElementById("create-thread-name")?.value
         if (!name) { toast("请输入名称", "warning"); return }
@@ -1016,7 +1016,7 @@ const outlineView = {
         <textarea class="form-textarea" id="edit-thread-desc" rows="3">${esc(this._threadDescription(thread) === "-" ? "" : this._threadDescription(thread))}</textarea>
       </div>
     `
-    showModal("编辑剧情线", formHtml, [{
+    showModalHtml("编辑剧情线", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         try {
           await api.outline.updateThread(id, state.currentProjectId, {
@@ -1094,7 +1094,7 @@ const outlineView = {
         <textarea class="form-textarea" id="create-arc-desc" rows="3" placeholder="篇章纲描述"></textarea>
       </div>
     `
-    showModal("新建篇章纲", formHtml, [{
+    showModalHtml("新建篇章纲", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const title = document.getElementById("create-arc-name")?.value
         if (!title) { toast("请输入名称", "warning"); return }
@@ -1134,7 +1134,7 @@ const outlineView = {
         <textarea class="form-textarea" id="edit-arc-desc" rows="3">${esc(this._arcDescription(arc) === "-" ? "" : this._arcDescription(arc))}</textarea>
       </div>
     `
-    showModal("编辑篇章纲", formHtml, [{
+    showModalHtml("编辑篇章纲", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         try {
           await api.outline.updateArc(id, state.currentProjectId, {
@@ -1214,7 +1214,7 @@ const outlineView = {
         <textarea class="form-textarea" id="create-scene-must-not" rows="2" placeholder="禁止发生的事件"></textarea>
       </div>
     `
-    showModal("新建 Scene 卡", formHtml, [{
+    showModalHtml("新建 Scene 卡", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         try {
           await api.outline.createScene(state.currentProjectId, {
@@ -1280,7 +1280,7 @@ const outlineView = {
         <textarea class="form-textarea" id="edit-scene-must-not" rows="2">${esc(scene.must_not_happen || "")}</textarea>
       </div>
     `
-    showModal("编辑 Scene 卡", formHtml, [{
+    showModalHtml("编辑 Scene 卡", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         try {
           await api.outline.updateScene(id, state.currentProjectId, {
@@ -1374,7 +1374,7 @@ const outlineView = {
         <input class="form-input" id="plot-auto-extract-end" type="number" min="1" value="10" />
       </div>
     `
-    showModal("剧情线自动提取", formHtml, [{
+    showModalHtml("剧情线自动提取", formHtml, [{
       text: "开始提取",
       class: "btn-primary",
       handler: async () => {
@@ -1428,7 +1428,7 @@ const outlineView = {
         </label>
       </div>
     `
-    showModal("AI 生成剧情结构", formHtml, [{
+    showModalHtml("AI 生成剧情结构", formHtml, [{
       text: "生成", class: "btn-primary", handler: async () => {
         const start = parseInt(document.getElementById("generate-structure-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("generate-structure-end")?.value || "10", 10)

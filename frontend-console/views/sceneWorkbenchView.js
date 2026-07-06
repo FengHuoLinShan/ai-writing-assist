@@ -106,6 +106,7 @@ const sceneWorkbenchView = {
   onLeave() {
     this._stopAutoExtractPolling()
     this._stopCrossChapterPolling()
+    this._mobileDetailOpen = false
   },
 
   async render() {
@@ -612,20 +613,24 @@ const sceneWorkbenchView = {
 
   async _saveSceneDetails(sceneId) {
     const value = (id) => document.getElementById(id)?.value?.trim() || null
-    await api.outline.updateScene(sceneId, state.currentProjectId, {
-      title: value("scene-detail-title"),
-      narrative_tag: value("scene-detail-tag") || "draft",
-      status: value("scene-detail-status") || "draft",
-      source: value("scene-detail-source") || "manual",
-      goal: value("scene-detail-goal"),
-      core_conflict: value("scene-detail-conflict"),
-      emotional_beat: value("scene-detail-emotion"),
-      must_happen: value("scene-detail-must"),
-      must_not_happen: value("scene-detail-must-not"),
-      pov_character_id: value("scene-detail-pov"),
-    })
-    toast("Scene 已保存", "success")
-    await this._refreshWorkbenchInPlace()
+    try {
+      await api.outline.updateScene(sceneId, state.currentProjectId, {
+        title: value("scene-detail-title"),
+        narrative_tag: value("scene-detail-tag") || "draft",
+        status: value("scene-detail-status") || "draft",
+        source: value("scene-detail-source") || "manual",
+        goal: value("scene-detail-goal"),
+        core_conflict: value("scene-detail-conflict"),
+        emotional_beat: value("scene-detail-emotion"),
+        must_happen: value("scene-detail-must"),
+        must_not_happen: value("scene-detail-must-not"),
+        pov_character_id: value("scene-detail-pov"),
+      })
+      toast("Scene 已保存", "success")
+      await this._refreshWorkbenchInPlace()
+    } catch (err) {
+      toast(err.message || "保存 Scene 失败", "error")
+    }
   },
 
   async _markSceneReviewed(sceneId) {
@@ -725,7 +730,7 @@ const sceneWorkbenchView = {
       source_scene_ids: sourceSceneIds,
     }
     const preview = await api.outline.previewSceneMerge(state.currentProjectId, request)
-    showModal("合并 Scene 影响预览", this._renderPreview(preview), [
+    showModalHtml("合并 Scene 影响预览", this._renderPreview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认合并",
@@ -777,7 +782,7 @@ const sceneWorkbenchView = {
         <p style="margin:6px 0 0;">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
       </label>
     `).join("")
-    showModal("选择目标 Scene", cards, [
+    showModalHtml("选择目标 Scene", cards, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "预览机械合并",
@@ -822,7 +827,7 @@ const sceneWorkbenchView = {
         </label>
       `
     }).join("")
-    showModal("选择主 Scene", cards, [
+    showModalHtml("选择主 Scene", cards, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "生成 AI 融合草稿",
@@ -857,7 +862,7 @@ const sceneWorkbenchView = {
       ? preview.source_scene_ids
       : fallbackSourceIds
     this._activeDraftReview = preview || null
-    showModal("Scene AI 草稿审稿", this._renderDraftReview(preview), [
+    showModalHtml("Scene AI 草稿审稿", this._renderDraftReview(preview), [
       {
         text: "保留原 Scene + 保存融合 Scene",
         class: "btn-primary",
@@ -1002,7 +1007,7 @@ const sceneWorkbenchView = {
       split_chapter_index: splitChapterIndex,
     }
     const preview = await api.outline.previewSceneSplit(state.currentProjectId, request)
-    showModal("Scene AI 草稿审稿", this._renderSplitDraftReview(preview), [
+    showModalHtml("Scene AI 草稿审稿", this._renderSplitDraftReview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认拆分",
@@ -1239,7 +1244,7 @@ const sceneWorkbenchView = {
         更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
       </label>
     `
-    showModal("场景（scene）自动提取", formHtml, [{
+    showModalHtml("场景（scene）自动提取", formHtml, [{
       text: "开始提取",
       class: "btn-primary",
       handler: async () => {
@@ -1372,7 +1377,7 @@ const sceneWorkbenchView = {
         </label>
       `
     }).join("")
-    showModal("跨章 Scene 建议", rows, [{
+    showModalHtml("跨章 Scene 建议", rows, [{
       text: "打开 AI 融合草稿",
       class: "btn-primary",
       handler: async () => {

@@ -32,12 +32,16 @@ beforeEach(() => {
   writingView._sceneMapSummary = null
   writingView._sceneMapSummaryError = null
   writingView._sceneMapSummarySceneId = null
+  writingView._sceneMapSummaryPendingSceneId = null
   writingView._sceneMapSummaryLoading = false
   writingView._publishTaskId = null
   writingView._publishProgress = null
   writingView._lastPublishStatus = null
   writingView._deepImportTaskId = null
   writingView._deepImportProgress = null
+  writingView._deepImportPollFailures = 0
+  writingView._autoSaving = false
+  writingView._currentSavePromise = null
   writingView._focusMode = false
   writingView._forceDesktopMode = false
   document.body.className = ""
@@ -133,7 +137,7 @@ describe("writingView render", () => {
     }]
 
     writingView._showVersionHistory()
-    const modalHtml = showModal.mock.calls.at(-1)[1]
+    const modalHtml = showModal.mock.calls.at(-1)[1].html
     const container = renderHtml(modalHtml)
     const button = container.querySelector(".version-preview-btn")
 
@@ -587,6 +591,96 @@ describe("onLeave", () => {
   })
 })
 
+describe("_confirmAsync", () => {
+  it("resolves false when the modal is closed via overlay click", async () => {
+    document.body.innerHTML = `
+      <button id="modal-close">x</button>
+      <div id="modal-overlay"></div>
+    `
+    confirmAction.mockImplementation((message, onConfirm) => {
+      // confirmAction only exposes the confirm callback; close path is handled by listeners.
+    })
+
+    const promise = writingView._confirmAsync("msg", "确认")
+    document.getElementById("modal-overlay").click()
+
+    await expect(promise).resolves.toBe(false)
+  })
+
+  it("resolves false when Escape is pressed", async () => {
+    document.body.innerHTML = `
+      <button id="modal-close">x</button>
+      <div id="modal-overlay"></div>
+    `
+    confirmAction.mockImplementation(() => {})
+
+    const promise = writingView._confirmAsync("msg", "确认")
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+
+    await expect(promise).resolves.toBe(false)
+  })
+})
+
+describe("save race / mutex", () => {
+  beforeEach(() => {
+    state.currentProjectId = "p1"
+    writingView._currentChapter = 1
+    writingView._currentDraftId = "d1"
+    writingView._currentVersionNumber = 1
+    writingView._currentUpdatedAt = "2026-06-29T00:00:00Z"
+    writingView._currentTitle = "第一章"
+    writingView._currentContent = "旧正文"
+    writingView._lastSavedContent = "旧正文"
+  })
+
+  it("waits for in-flight autosave before navigating instead of racing", async () => {
+    let resolveAutosave
+    api.writing.autosave.mockImplementation(() => new Promise((resolve) => {
+      resolveAutosave = () => resolve({ version_number: 2, updated_at: "2026-06-29T00:00:01Z" })
+    }))
+    document.body.innerHTML = `
+      <input id="writing-title-input" value="第一章" />
+      <textarea id="writing-editor">新正文</textarea>
+    `
+
+    const autosavePromise = writingView._autosave()
+    expect(writingView._autoSaving).toBe(true)
+
+    const navigatePromise = writingView._saveBeforeNavigate()
+    expect(api.writing.autosave).toHaveBeenCalledTimes(1)
+
+    resolveAutosave()
+    await autosavePromise
+    await navigatePromise
+
+    expect(writingView._lastSavedContent).toBe("新正文")
+    expect(api.writing.autosave).toHaveBeenCalledTimes(1)
+  })
+
+  it("skips concurrent autosave calls and queues navigation save behind the first", async () => {
+    let resolveAutosave
+    api.writing.autosave.mockImplementation(() => new Promise((resolve) => {
+      resolveAutosave = () => resolve({ version_number: 2, updated_at: "2026-06-29T00:00:01Z" })
+    }))
+    document.body.innerHTML = `
+      <input id="writing-title-input" value="第一章" />
+      <textarea id="writing-editor">新正文</textarea>
+    `
+
+    const first = writingView._autosave()
+    const second = writingView._autosave()
+    const navigate = writingView._saveBeforeNavigate()
+
+    resolveAutosave()
+    await first
+    await second
+    await navigate
+
+    expect(api.writing.autosave).toHaveBeenCalledTimes(1)
+    expect(writingView._lastSavedContent).toBe("新正文")
+  })
+})
+
 describe("_findCurrentScene", () => {
   it("通过 chapter_ids 匹配", () => {
     writingView._currentChapter = 2
@@ -744,17 +838,21 @@ describe("writingView map integration", () => {
 
   it("shows summary fallback text when scene-summary fails", async () => {
     state.currentProjectId = "p1"
+    writingView._currentSceneId = "s1"
+    writingView._sceneMapSummaryPendingSceneId = "s1"
     api.world.getMapSceneSummary.mockRejectedValue(new Error("fail"))
 
     await writingView._loadCurrentSceneMapSummary({ id: "s1" })
 
     expect(writingView._sceneMapSummary).toBeNull()
     expect(writingView._sceneMapSummaryError).toBe("地图摘要暂不可用")
+    expect(writingView._sceneMapSummarySceneId).toBe("s1")
   })
 
   it("does not cache stale scene-summary results after scene switch", async () => {
     state.currentProjectId = "p1"
     writingView._currentSceneId = "s1"
+    writingView._sceneMapSummaryPendingSceneId = "s1"
     let resolveSummary
     api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => {
       resolveSummary = resolve
@@ -762,12 +860,108 @@ describe("writingView map integration", () => {
 
     const pending = writingView._loadCurrentSceneMapSummary({ id: "s1" })
     writingView._currentSceneId = "s2"
+    writingView._sceneMapSummaryPendingSceneId = "s2"
     resolveSummary({ primary_location: { name: "旧地点" } })
     await pending
 
     expect(writingView._sceneMapSummary).toBeNull()
     expect(writingView._sceneMapSummaryError).toBeNull()
+    expect(writingView._sceneMapSummarySceneId).toBeNull()
+  })
+
+  it("only sets sceneMapSummarySceneId after load completes and scene is still current", async () => {
+    state.currentProjectId = "p1"
+    writingView._currentSceneId = "s1"
+    writingView._sceneMapSummaryPendingSceneId = "s1"
+    api.world.getMapSceneSummary.mockResolvedValue({ primary_location: { name: "洛阳" } })
+
+    await writingView._loadCurrentSceneMapSummary({ id: "s1" })
+
+    expect(writingView._sceneMapSummarySceneId).toBe("s1")
+    expect(writingView._sceneMapSummary).toEqual({ primary_location: { name: "洛阳" } })
     expect(writingView._sceneMapSummaryLoading).toBe(false)
+    expect(writingView._sceneMapSummaryPendingSceneId).toBeNull()
+  })
+
+  it("discards scene-summary result when scene changed during load", async () => {
+    state.currentProjectId = "p1"
+    writingView._currentSceneId = "s1"
+    writingView._sceneMapSummaryPendingSceneId = "s1"
+    let resolveSummary
+    api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => {
+      resolveSummary = resolve
+    }))
+
+    const pending = writingView._loadCurrentSceneMapSummary({ id: "s1" })
+    writingView._currentSceneId = "s2"
+    writingView._sceneMapSummaryPendingSceneId = "s2"
+    resolveSummary({ primary_location: { name: "旧地点" } })
+    await pending
+
+    expect(writingView._sceneMapSummary).toBeNull()
+    expect(writingView._sceneMapSummarySceneId).toBeNull()
+  })
+})
+
+describe("writingView deep import polling", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    state.currentProjectId = "p1"
+    writingView._deepImportTaskId = "deep-1"
+    writingView._deepImportProgress = {
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "深度导入",
+      phase: "running",
+      step: "",
+      message: "运行中",
+      percent: 0,
+      degraded: false,
+      degradedBatches: [],
+      phaseError: "",
+      phaseErrors: [],
+      qualityStatus: "pending",
+      auditSummary: {},
+      snapshotHealthSummary: {},
+    }
+    writingView._deepImportPollFailures = 0
+  })
+
+  afterEach(() => {
+    writingView._stopDeepImportPolling()
+    vi.useRealTimers()
+  })
+
+  it("stops polling after 5 consecutive task query failures and toasts an error", async () => {
+    api.tasks.get.mockRejectedValue(new Error("network down"))
+
+    writingView._startDeepImportPolling()
+    for (let i = 0; i < 5; i += 1) {
+      await vi.advanceTimersByTimeAsync(3000)
+    }
+
+    expect(api.tasks.get).toHaveBeenCalledTimes(5)
+    expect(writingView._deepImportTaskId).toBeNull()
+    expect(writingView._deepImportTimer).toBeNull()
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("连续失败 5 次"), "error")
+  })
+
+  it("resets the failure counter after a successful poll", async () => {
+    api.tasks.get
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValue({
+        task_id: "deep-1",
+        task_type: "deep_import",
+        status: "running",
+        progress: 0.5,
+        result: { completed_steps: ["scene_segmentation"] },
+      })
+
+    writingView._startDeepImportPolling()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(writingView._deepImportPollFailures).toBe(1)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(writingView._deepImportPollFailures).toBe(0)
   })
 })
 
@@ -851,7 +1045,7 @@ describe("writingView conflict checks", () => {
     await Promise.resolve()
     expect(showModal).toHaveBeenCalledWith(
       "剧情设定冲突检查",
-      expect.stringContaining("writing-conflict-include-candidates"),
+      expect.objectContaining({ html: expect.stringContaining("writing-conflict-include-candidates") }),
       expect.any(Array),
     )
     showModal.mock.calls[0][2][1].handler()
@@ -886,7 +1080,7 @@ describe("writingView conflict checks", () => {
 
     const pending = writingView._runConflictCheck()
     await Promise.resolve()
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
     document.getElementById("writing-conflict-include-candidates").checked = true
     showModal.mock.calls[0][2][1].handler()
     await pending
@@ -941,7 +1135,7 @@ describe("writingView conflict checks", () => {
     `
 
     writingView._openConflictCheck("c1")
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
     document.querySelector("[data-conflict-ai-review]").click()
     await Promise.resolve()
     document.querySelectorAll("#modal-footer button")[1].click()
@@ -982,7 +1176,7 @@ describe("writingView conflict checks", () => {
     editor.selectionStart = editor.selectionEnd = 2
 
     writingView._openConflictCheck("c1")
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
     const draft = document.querySelector('[data-conflict-suggestion-draft="i1"]')
     draft.value = "用户改过的建议。"
     document.querySelector('[data-conflict-apply-suggestion="i1"]').click()
@@ -1252,10 +1446,10 @@ describe("writingView conflict checks", () => {
 
     expect(showModal).toHaveBeenCalledWith(
       "记忆来源",
-      expect.stringContaining("char-1"),
+      expect.objectContaining({ html: expect.stringContaining("char-1") }),
       expect.any(Array),
     )
-    expect(showModal.mock.calls[0][1]).toContain("第 4 章")
+    expect(showModal.mock.calls[0][1].html).toContain("第 4 章")
   })
 })
 
@@ -1472,7 +1666,7 @@ describe("_submitDeepImport", () => {
     vi.spyOn(writingView, "_startDeepImportPolling").mockImplementation(() => {})
 
     writingView._showAutoExtractionForm("scenes")
-    expect(showModal.mock.calls[0][1]).toContain("需要标准提取约8倍时间")
+    expect(showModal.mock.calls[0][1].html).toContain("需要标准提取约8倍时间")
     document.body.innerHTML += `
       <input id="auto-extract-start" value="1" />
       <input id="auto-extract-end" value="5" />
@@ -1852,7 +2046,7 @@ describe("workflow progress rendering", () => {
     await vi.waitFor(() => {
       expect(showModal).toHaveBeenCalled()
     })
-    const modalBody = showModal.mock.calls.at(-1)[1]
+    const modalBody = showModal.mock.calls.at(-1)[1].html
     expect(writingView._publishProgress.message).toBe("发布失败。草稿已保存，请稍后重试。")
     expect(modalBody).toContain("发布失败。草稿已保存，请稍后重试。")
     expect(modalBody).not.toContain("DBAPIError")
@@ -1977,7 +2171,7 @@ describe("_showSplitSceneForm", () => {
     await writingView._showSplitSceneForm()
 
     expect(showModal).toHaveBeenCalled()
-    const [, html] = showModal.mock.calls[0]
+    const html = showModal.mock.calls[0][1].html
     expect(html).toContain("split-pos")
     expect(html).toContain('value="5"')
   })

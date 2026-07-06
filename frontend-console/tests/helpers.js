@@ -161,6 +161,21 @@ export function latestModal() {
   return { title, body, buttons }
 }
 
+/**
+ * 从 showModal mock 调用中提取 body 的 HTML 字符串。
+ * 兼容字符串、{ html: string } 以及 HTMLElement。
+ */
+export function modalHtmlFromCall(call) {
+  const body = call?.[1]
+  if (body && typeof body === "object" && typeof body.html === "string") return body.html
+  return body
+}
+
+/** 读取最近一次 showModal 调用的 HTML body。 */
+export function latestModalHtml() {
+  return modalHtmlFromCall(showModal.mock.calls.at(-1))
+}
+
 /** 按用户可见按钮文案触发最近一次 modal action。 */
 export async function clickModalButtonByText(text) {
   const modal = latestModal()

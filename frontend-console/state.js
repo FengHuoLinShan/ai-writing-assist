@@ -178,6 +178,8 @@ function updateUIForState(key, value) {
         } else if (value === "SEARCH") {
           modeLabel.textContent = "搜索模式"
           modeLabel.className = "command-mode-label search"
+        } else {
+          modeLabel.className = "command-mode-label"
         }
       }
       if (cmdInput) {

@@ -31,3 +31,30 @@ describe("state topbar help", () => {
     expect(document.getElementById("contextual-notes")?.innerHTML).toBe("")
   })
 })
+
+describe("state mode styling", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <span id="command-mode" class="command-mode-label"></span>
+      <input id="command-input" />
+    `
+  })
+
+  it("sets command class on COMMAND mode", () => {
+    window.appState.mode = "COMMAND"
+    expect(document.getElementById("command-mode").className).toBe("command-mode-label command")
+  })
+
+  it("sets search class on SEARCH mode", () => {
+    window.appState.mode = "SEARCH"
+    expect(document.getElementById("command-mode").className).toBe("command-mode-label search")
+  })
+
+  it("resets mode label class to default on NORMAL mode", () => {
+    window.appState.mode = "COMMAND"
+    expect(document.getElementById("command-mode").className).toBe("command-mode-label command")
+
+    window.appState.mode = "NORMAL"
+    expect(document.getElementById("command-mode").className).toBe("command-mode-label")
+  })
+})

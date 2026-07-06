@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
-import { captureModalHandler, clearDocument, resetState } from "./helpers.js"
+import { captureModalHandler, clearDocument, modalHtmlFromCall, resetState } from "./helpers.js"
 
 const workbenchPayload = {
   total: 2,
@@ -168,7 +168,7 @@ describe("sceneWorkbenchView", () => {
   it("submits scene auto extraction stage task", async () => {
     api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
     sceneWorkbenchView._showSceneAutoExtractForm()
-    expect(showModal.mock.calls[0][1]).toContain("需要标准提取约8倍时间")
+    expect(showModal.mock.calls[0][1].html).toContain("需要标准提取约8倍时间")
     document.body.innerHTML += `
       <input id="scene-auto-extract-start" value="1" />
       <input id="scene-auto-extract-end" value="5" />
@@ -540,7 +540,7 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._startManualFusion()
     expect(showModal.mock.calls[0][0]).toBe("选择主 Scene")
-    document.body.innerHTML = showModal.mock.calls[0][1]
+    document.body.innerHTML = showModal.mock.calls[0][1].html
     await showModal.mock.calls[0][2][1].handler()
 
     expect(api.outline.previewSceneFusion).toHaveBeenCalledWith("p1", {
@@ -548,7 +548,9 @@ describe("sceneWorkbenchView", () => {
       primary_scene_id: "s1",
     })
     expect(showModal).toHaveBeenCalled()
-    const [title, body, buttons] = showModal.mock.calls[1]
+    const call = showModal.mock.calls[1]
+    const [title, , buttons] = call
+    const body = modalHtmlFromCall(call)
     expect(title).toBe("Scene AI 草稿审稿")
     expect(body).toContain("潜入与撤离")
     expect(body).toContain("取得密信并撤离")
@@ -633,7 +635,9 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._workbench = workbenchPayload
 
     sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
-    const [, body, buttons] = showModal.mock.calls[0]
+    const call = showModal.mock.calls[0]
+    const [, , buttons] = call
+    const body = modalHtmlFromCall(call)
     document.body.innerHTML = body
     document.getElementById("scene-fusion-title").value = "用户改标题"
     document.getElementById("scene-fusion-goal").value = "用户改目标"
@@ -710,7 +714,7 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._startSelectedMerge()
     expect(showModal.mock.calls[0][0]).toBe("选择目标 Scene")
-    document.body.innerHTML = showModal.mock.calls[0][1]
+    document.body.innerHTML = showModal.mock.calls[0][1].html
     await showModal.mock.calls[0][2][1].handler()
 
     expect(api.outline.previewSceneMerge).toHaveBeenCalledWith("p1", {
@@ -738,7 +742,9 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._workbench = workbenchPayload
 
     await sceneWorkbenchView._previewAndSplit("s1", 2)
-    const [title, body, buttons] = showModal.mock.calls[0]
+    const call = showModal.mock.calls[0]
+    const [title, , buttons] = call
+    const body = modalHtmlFromCall(call)
     expect(title).toBe("Scene AI 草稿审稿")
     expect(body).toContain("AI 拆分草稿")
     expect(body).toContain("scene-split-0-title")
@@ -799,5 +805,38 @@ describe("sceneWorkbenchView", () => {
 
     expect(state.viewStates.writing.currentChapter).toBe(3)
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
+  })
+
+  it("keeps router subview and only closes mobile detail on leave", () => {
+    state.currentSubView = "s1"
+    sceneWorkbenchView._mobileDetailOpen = true
+
+    sceneWorkbenchView.onLeave()
+
+    expect(state.currentSubView).toBe("s1")
+    expect(sceneWorkbenchView._mobileDetailOpen).toBe(false)
+  })
+
+  it("toasts and does not refresh workbench when saving scene details fails", async () => {
+    document.body.innerHTML = `
+      <input id="scene-detail-title" value="新标题" />
+      <select id="scene-detail-tag"><option value="climax" selected>climax</option></select>
+      <select id="scene-detail-status"><option value="canonical" selected>canonical</option></select>
+      <select id="scene-detail-source"><option value="manual" selected>manual</option></select>
+      <textarea id="scene-detail-goal">目标</textarea>
+      <textarea id="scene-detail-conflict">冲突</textarea>
+      <textarea id="scene-detail-emotion">情感</textarea>
+      <textarea id="scene-detail-must">必须</textarea>
+      <textarea id="scene-detail-must-not">禁止</textarea>
+      <input id="scene-detail-pov" value="char-2" />
+    `
+    sceneWorkbenchView._workbench = workbenchPayload
+    api.outline.updateScene.mockRejectedValue(new Error("保存失败"))
+
+    await sceneWorkbenchView._saveSceneDetails("s1")
+
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", expect.any(Object))
+    expect(toast).toHaveBeenCalledWith("保存失败", "error")
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 })

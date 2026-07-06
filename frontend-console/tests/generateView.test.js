@@ -15,6 +15,8 @@ beforeEach(() => {
   generateView._busy = false
   generateView._templatePromptOverrides = {}
   generateView._customTemplates = []
+  generateView._renderTimeout = null
+  generateView._abortControllers = null
 })
 
 describe("generateView chatbox", () => {
@@ -52,12 +54,15 @@ describe("generateView chatbox", () => {
 
     await generateView._sendChatMessage()
 
-    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(expect.objectContaining({
-      novel_id: "p1",
-      template: "none",
-      quality_mode: "fast",
-      messages: [{ role: "user", content: "帮我设计一个反派" }],
-    }))
+    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        novel_id: "p1",
+        template: "none",
+        quality_mode: "fast",
+        messages: [{ role: "user", content: "帮我设计一个反派" }],
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
     expect(api.generate.generateObjectDraft).not.toHaveBeenCalled()
     expect(api.context.confirm).not.toHaveBeenCalled()
     expect(document.getElementById("generate-chat-messages")?.innerHTML).toContain("旧友型反派")
@@ -73,9 +78,12 @@ describe("generateView chatbox", () => {
     const html = document.getElementById("generate-chat-messages")?.innerHTML || ""
     expect(html).toContain("设计一个典型 dnd 圣骑士")
     expect(html).toContain("聊天失败：请求超时")
-    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(expect.objectContaining({
-      messages: [{ role: "user", content: "设计一个典型 dnd 圣骑士" }],
-    }))
+    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "设计一个典型 dnd 圣骑士" }],
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
     expect(toast).toHaveBeenCalledWith("聊天失败：请求超时", "error")
   })
 
@@ -94,11 +102,14 @@ describe("generateView chatbox", () => {
 
     await generateView._generateObjectDraft()
 
-    expect(api.generate.generateObjectDraft).toHaveBeenCalledWith(expect.objectContaining({
-      messages: [{ role: "user", content: "外部 Chatbox：反派不是纯恶人。" }],
-      pasted_context: undefined,
-      quality_mode: "fast",
-    }))
+    expect(api.generate.generateObjectDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "外部 Chatbox：反派不是纯恶人。" }],
+        pasted_context: undefined,
+        quality_mode: "fast",
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
     expect(document.getElementById("generate-result")?.innerHTML).toContain("沈无咎")
     expect(document.getElementById("generate-chat-input").value).toBe("")
   })
@@ -110,7 +121,7 @@ describe("generateView chatbox", () => {
 
     expect(showModal).toHaveBeenCalledWith(
       "编辑模板",
-      expect.stringContaining("不预设对象类型"),
+      expect.objectContaining({ html: expect.stringContaining("不预设对象类型") }),
       expect.any(Array),
     )
 
@@ -156,15 +167,17 @@ describe("generateView chatbox", () => {
     })
 
     await generateView._generateObjectDraft()
-    expect(api.generate.generateObjectDraft).toHaveBeenLastCalledWith(expect.objectContaining({
-      quality_mode: "fast",
-    }))
+    expect(api.generate.generateObjectDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ quality_mode: "fast" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
 
     document.getElementById("generate-quality-pro").checked = true
     await generateView._generateObjectDraft()
-    expect(api.generate.generateObjectDraft).toHaveBeenLastCalledWith(expect.objectContaining({
-      quality_mode: "pro",
-    }))
+    expect(api.generate.generateObjectDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ quality_mode: "pro" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
   })
 
   it("章节选择弹窗显示标题和摘录，多选后回填附件区", async () => {
@@ -182,10 +195,10 @@ describe("generateView chatbox", () => {
 
     expect(showModal).toHaveBeenCalledWith(
       "选择附带正文",
-      expect.stringContaining("主角在雨夜背叛"),
+      expect.objectContaining({ html: expect.stringContaining("主角在雨夜背叛") }),
       expect.any(Array),
     )
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1])
+    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
     document.getElementById("generate-chapter-1").checked = true
     showModal.mock.calls[0][2][1].handler()
 
@@ -202,5 +215,111 @@ describe("generateView chatbox", () => {
 
     expect(api.generate.generateObjectDraft).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("请先聊天或粘贴已有对话到输入框", "warning")
+  })
+
+  it("离开视图时中断进行中的聊天和生成请求", async () => {
+    document.body.innerHTML = await generateView.render()
+    const signals = []
+    const deferreds = []
+    function makeDeferred() {
+      const d = {}
+      d.promise = new Promise((resolve) => { d.resolve = resolve })
+      return d
+    }
+    api.generate.objectDraftChat.mockImplementation((_payload, options) => {
+      signals.push(options?.signal)
+      return deferreds[0].promise
+    })
+    api.generate.generateObjectDraft.mockImplementation((_payload, options) => {
+      signals.push(options?.signal)
+      return deferreds[1].promise
+    })
+
+    deferreds.push(makeDeferred(), makeDeferred())
+    generateView._messages = [{ role: "user", content: "聊" }]
+    document.getElementById("generate-chat-input").value = "继续聊"
+
+    generateView._sendChatMessage()
+    generateView._generateObjectDraft()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(signals).toHaveLength(2)
+    expect(signals.every((signal) => signal && !signal.aborted)).toBe(true)
+    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(api.generate.generateObjectDraft).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+
+    generateView.onLeave()
+
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+    deferreds.forEach((d) => d.resolve({}))
+  })
+
+  it("离开视图时取消 render 的 setTimeout，避免回调操作新视图 DOM", async () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(generateView, "_bindEvents")
+    await generateView.render()
+
+    generateView.onLeave()
+    vi.runAllTimers()
+
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it("章节选择器分批拉取章节，每次最多 5 个并行", async () => {
+    vi.useFakeTimers()
+    document.body.innerHTML = await generateView.render()
+    const chapters = Array.from({ length: 12 }, (_, i) => ({
+      id: `d${i + 1}`,
+      chapter_index: i + 1,
+      title: `第${i + 1}章`,
+    }))
+    api.writing.listChapters.mockResolvedValue({ chapters })
+
+    const deferreds = new Map()
+    api.writing.get.mockImplementation((id) => {
+      if (!deferreds.has(id)) {
+        const deferred = {}
+        deferred.promise = new Promise((resolve) => { deferred.resolve = resolve })
+        deferreds.set(id, deferred)
+      }
+      return deferreds.get(id).promise
+    })
+
+    const pickerPromise = generateView._openChapterPicker()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(api.writing.get).toHaveBeenCalledTimes(5)
+
+    const firstBatchIds = Array.from(deferreds.keys()).slice(0, 5)
+    for (const id of firstBatchIds) {
+      deferreds.get(id).resolve({ title: `第${id.slice(1)}章`, content: "正文" })
+    }
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(api.writing.get).toHaveBeenCalledTimes(10)
+
+    const secondBatchIds = Array.from(deferreds.keys()).slice(5, 10)
+    for (const id of secondBatchIds) {
+      deferreds.get(id).resolve({ title: `第${id.slice(1)}章`, content: "正文" })
+    }
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(api.writing.get).toHaveBeenCalledTimes(12)
+
+    const thirdBatchIds = Array.from(deferreds.keys()).slice(10, 12)
+    for (const id of thirdBatchIds) {
+      deferreds.get(id).resolve({ title: `第${id.slice(1)}章`, content: "正文" })
+    }
+
+    await pickerPromise
+    vi.useRealTimers()
   })
 })

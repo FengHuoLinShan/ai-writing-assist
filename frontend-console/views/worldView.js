@@ -127,6 +127,7 @@ const worldView = {
 
     this._recoverAutoExtractWorkflow()
     this._recoverFusionWorkflow()
+    this._eventsBound = false
 
     await this._loadEntities()
     await this._loadCandidates()
@@ -229,10 +230,12 @@ const worldView = {
       this._autoExtractTimer = null
     }
     this._stopAutoExtractPolling()
+    this._stopFusionPolling()
     worldBibleView.onLeave()
   },
 
   async render() {
+    this._eventsBound = false
     const subView = state.currentSubView || "objects"
     if (this._lastRenderedSubView === "bible" && subView !== "bible") {
       worldBibleView.onLeave()
@@ -325,9 +328,11 @@ const worldView = {
     const end = parseInt(document.getElementById("w-extract-end")?.value || "10", 10)
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
 
+    // worldView 面板只提供 world_objects 阶段；保留 taskType 参数便于后续扩展。
+    const stage = taskType === "world_object_auto_extraction" ? "world_objects" : taskType
     try {
       const result = await api.imports.startStage(
-        "world_objects",
+        stage,
         state.currentProjectId,
         start,
         end,
@@ -1180,7 +1185,7 @@ const worldView = {
         <input class="form-input" id="rel-desc" placeholder="关系描述（可选）" />
       </div>
     `
-    showModal("新建关系", formHtml, [{
+    showModalHtml("新建关系", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const src = document.getElementById("rel-source")?.value
         const tgt = document.getElementById("rel-target")?.value
@@ -1351,7 +1356,7 @@ const worldView = {
         </select>
       </div>
     `
-    showModal("新建别名", formHtml, [{
+    showModalHtml("新建别名", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const eid = document.getElementById("alias-entity")?.value
         const text = document.getElementById("alias-text")?.value
@@ -1478,7 +1483,7 @@ const worldView = {
       </div>
     `
 
-    showModal("编辑世界对象", formHtml, [
+    showModalHtml("编辑世界对象", formHtml, [
       {
         text: "保存",
         class: "btn-primary",
@@ -1644,6 +1649,7 @@ const worldView = {
   },
 
   _bindEvents() {
+    if (this._eventsBound) return
     bindWorkspaceClick(this, {
       "nav-objects": () => router.navigate("world", "objects"),
       "nav-candidates": () => router.navigate("world", "candidates"),
@@ -1711,6 +1717,7 @@ const worldView = {
     bindActionMenus()
     if (state.currentSubView === "bible") worldBibleView.bindEvents()
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+    this._eventsBound = true
   },
 
   _setObjectViewMode(mode) {
@@ -1892,7 +1899,7 @@ const worldView = {
       </div>
     `
 
-    showModal("新建世界对象", formHtml, [
+    showModalHtml("新建世界对象", formHtml, [
       {
         text: "创建",
         class: "btn-primary",
@@ -1999,7 +2006,7 @@ const worldView = {
         <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">显示名称、类型、状态和摘要；没有明确目标时请先搜索再选择。</p>
       </div>
     `
-    showModal("合并对象", formHtml, [{
+    showModalHtml("合并对象", formHtml, [{
       text: "合并",
       class: "btn-primary",
       handler: async () => {
@@ -2134,7 +2141,7 @@ const worldView = {
         </article>
       `
     }).join("")
-    showModal("世界对象 AI 合并建议", rows, [{
+    showModalHtml("世界对象 AI 合并建议", rows, [{
       text: "应用选中建议",
       class: "btn-primary",
       handler: async () => {
@@ -2184,7 +2191,7 @@ const worldView = {
         <input class="form-input" id="rollback-scene-index" type="number" min="0" value="0" />
       </div>
     `
-    showModal("回滚对象", formHtml, [{
+    showModalHtml("回滚对象", formHtml, [{
       text: "回滚",
       class: "btn-primary",
       handler: async () => {
@@ -2243,7 +2250,7 @@ const worldView = {
         <input class="form-input" id="knowledge-chapter" type="number" min="0" placeholder="可选" />
       </div>
     `
-    showModal("添加知识边界", formHtml, [{
+    showModalHtml("添加知识边界", formHtml, [{
       text: "添加",
       class: "btn-primary",
       handler: async () => {

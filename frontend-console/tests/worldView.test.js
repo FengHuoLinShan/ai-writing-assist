@@ -32,7 +32,13 @@ beforeEach(() => {
   worldView._autoExtractProgress = null
   worldView._autoExtractPoller = null
   worldView._autoExtractMeta = null
+  worldView._fusionTaskId = null
+  worldView._fusionProgress = null
+  if (worldView._fusionPoller?.stop) worldView._fusionPoller.stop()
+  worldView._fusionPoller = null
+  worldView._eventsBound = false
   localStorage.removeItem("novel_world_extract_task")
+  localStorage.removeItem("novel_active_workflows_v1")
   vi.clearAllMocks()
 })
 
@@ -76,6 +82,20 @@ describe("onEnter", () => {
 })
 
 // ============================================================
+// onLeave
+// ============================================================
+
+describe("onLeave", () => {
+  it("stops the fusion poller", () => {
+    const stop = vi.fn()
+    worldView._fusionPoller = { stop }
+    worldView.onLeave()
+    expect(stop).toHaveBeenCalled()
+    expect(worldView._fusionPoller).toBeNull()
+  })
+})
+
+// ============================================================
 // render
 // ============================================================
 
@@ -98,6 +118,21 @@ describe("worldView render", () => {
     await vi.waitFor(() => {
       expect(router.navigate).toHaveBeenCalledWith("map", null)
     })
+  })
+
+  it("repeated render and bind does not double-fire direct-bound button clicks", async () => {
+    state.currentProjectId = "p1"
+    worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical" }]
+    const spy = vi.spyOn(worldView, "_showCreateForm").mockImplementation(() => {})
+
+    document.body.innerHTML = await worldView.render()
+    worldView._bindEvents()
+    document.body.innerHTML = await worldView.render()
+    worldView._bindEvents()
+
+    document.getElementById("btn-new-entity").click()
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
   })
 })
 
@@ -506,7 +541,7 @@ describe("对象库", () => {
     it("_showCreateForm 调用 showModal 显示表单", () => {
       worldView._showCreateForm()
       expect(showModal).toHaveBeenCalled()
-      const html = vi.mocked(showModal).mock.calls[0][1]
+      const html = vi.mocked(showModal).mock.calls[0][1].html
       expect(html).toContain("create-entity-name")
     })
 
@@ -825,6 +860,20 @@ describe("AI 自动识别", () => {
       expect(api.world.extractEntities).not.toHaveBeenCalled()
       expect(api.world.extractAliasRelations).not.toHaveBeenCalled()
       expect(worldView._autoExtractTaskId).toBe("t1")
+    })
+
+    it("honors the passed taskType when mapping to a stage", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = `
+        <input id="w-extract-start" value="2"/>
+        <input id="w-extract-end" value="4"/>
+      `
+      api.imports.startStage.mockResolvedValue({ task_id: "t2" })
+
+      await worldView._submitAutoExtract("plot_structure")
+
+      expect(api.imports.startStage).toHaveBeenCalledWith("plot_structure", "p1", 2, 4)
+      expect(worldView._autoExtractTaskId).toBe("t2")
     })
   })
 

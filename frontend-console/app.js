@@ -38,6 +38,9 @@ const App = {
     if (this._initialized) return
     this._initialized = true
 
+    // 重新初始化前清理旧的健康检查定时器，避免重复注册
+    if (this._healthInterval) clearInterval(this._healthInterval)
+
     // 绑定全局 UI 事件
     this._bindNavigation()
     this._bindCommandBar()
@@ -64,7 +67,7 @@ const App = {
     this._checkBackendHealth()
 
     // 定期检查（每 30 秒）
-    setInterval(() => this._checkBackendHealth(), 30000)
+    this._healthInterval = setInterval(() => this._checkBackendHealth(), 30000)
 
     console.log("小说结构化创作控制台 v2.0 已启动")
   },
@@ -199,15 +202,24 @@ const App = {
 
   _startSmartDedupPolling(taskId) {
     this._stopSmartDedupPolling()
+    const capturedProjectId = state.currentProjectId
     this._smartDedupPoller = pollTaskProgress({
       taskId,
       workflowType: "smart_dedup_scan",
       apiClient: api,
       onUpdate: (progress) => {
+        if (state.currentProjectId !== capturedProjectId) {
+          this._stopSmartDedupPolling()
+          return
+        }
         this._smartDedupProgress = progress
         this._renderGlobalActions()
       },
       onDone: (progress) => {
+        if (state.currentProjectId !== capturedProjectId) {
+          this._stopSmartDedupPolling()
+          return
+        }
         clearActiveWorkflow(progress.taskId || taskId)
         this._smartDedupTaskId = null
         this._smartDedupProgress = progress
@@ -216,6 +228,10 @@ const App = {
         this._showSmartDedupSuggestions()
       },
       onFailed: (progress) => {
+        if (state.currentProjectId !== capturedProjectId) {
+          this._stopSmartDedupPolling()
+          return
+        }
         clearActiveWorkflow(progress.taskId || taskId)
         this._smartDedupTaskId = null
         this._smartDedupProgress = progress
@@ -240,7 +256,7 @@ const App = {
       this._showSmartDedupSuggestions()
       return
     }
-    showModal("智能去重", renderWorkflowCard(progress, {
+    showModalHtml("智能去重", renderWorkflowCard(progress, {
       title: "智能去重扫描",
       destinationLabel: "完成后可选择合并或软废弃重复资产",
       detailLevel: "detailed",
@@ -252,7 +268,7 @@ const App = {
     const suggestions = this._smartDedupSuggestions(result)
     if (!suggestions.length) {
       this._resetSmartDedupResult()
-      showModal("智能去重", "<p>没有发现可处理的重复资产。</p>", [{
+      showModalHtml("智能去重", "<p>没有发现可处理的重复资产。</p>", [{
         text: "重新扫描",
         class: "btn-primary",
         handler: async () => this._startSmartDedupScan(),
@@ -266,7 +282,7 @@ const App = {
       suggestions,
       this._smartDedupSuggestionPage
     )
-    showModal("智能去重建议", body, [{
+    showModalHtml("智能去重建议", body, [{
       text: "应用选中建议",
       class: "btn-primary",
       handler: async () => this._applySmartDedupSuggestions(suggestions),

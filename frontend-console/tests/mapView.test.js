@@ -603,6 +603,7 @@ describe("mapView Leaflet overlay alignment", () => {
       map: vi.fn(() => ({
         fitBounds: vi.fn(),
         on: vi.fn(),
+        off: vi.fn(function () { return this }),
         getZoom: vi.fn(() => 0),
         latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
         eachLayer: vi.fn(),
@@ -723,7 +724,7 @@ describe("mapView 地图设置", () => {
     }
     mapView._showSettingsModal()
     expect(showModal).toHaveBeenCalled()
-    const formHtml = showModal.mock.calls[0][1]
+    const formHtml = showModal.mock.calls[0][1].html
     expect(formHtml).toContain('value="九州"')
     expect(formHtml).toContain("古都世界")
   })
@@ -841,6 +842,51 @@ describe("mapView 删除地图", () => {
     const callback = confirmAction.mock.calls[0][1]
     await callback()
     expect(toast).toHaveBeenCalledWith("删除失败：网络失败", "error")
+  })
+
+  it("_deleteMap 删除最后一张地图后清空状态并回到列表", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
+    mapView._state = {
+      map: { id: "m1", name: "九州", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+    }
+    api.world.deleteMap.mockResolvedValue({})
+    api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
+    const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {
+      mapView._state = null
+      resetMapState()
+    })
+    const renderSpy = vi.spyOn(mapView, "_render").mockImplementation(() => {})
+
+    mapView._deleteMap("m1")
+    const callback = confirmAction.mock.calls[0][1]
+    await callback()
+
+    expect(api.world.deleteMap).toHaveBeenCalledWith("m1", "p1")
+    expect(unmountSpy).toHaveBeenCalled()
+    expect(renderSpy).toHaveBeenCalledWith("map-root")
+    expect(mapView._state).toBeNull()
+    unmountSpy.mockRestore()
+    renderSpy.mockRestore()
+  })
+})
+
+describe("mapView Leaflet 事件清理", () => {
+  it("_teardownInteractiveSurface 在 remove 之前 off 掉注册的 Leaflet 事件", () => {
+    const offSpy = vi.fn(function () { return this })
+    const removeSpy = vi.fn()
+    mapView._leaflet = {
+      off: offSpy,
+      remove: removeSpy,
+      closePopup: vi.fn(),
+    }
+    mapView._teardownInteractiveSurface()
+    expect(offSpy).toHaveBeenCalledWith("resize zoom move")
+    expect(offSpy).toHaveBeenCalledWith("zoomend moveend")
+    expect(removeSpy).toHaveBeenCalled()
+    expect(mapView._leaflet).toBeNull()
   })
 })
 

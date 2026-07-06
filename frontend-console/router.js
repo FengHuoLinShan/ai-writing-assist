@@ -162,7 +162,7 @@ function _rememberSubView(viewName, subView) {
  * 同步当前项目状态：当 projectId 变化时，清空缓存并加载项目元数据。
  * 避免面包屑/标题显示旧项目名或为空。
  */
-async function _syncCurrentProject(projectId) {
+async function _syncCurrentProject(projectId, force) {
   // 无 projectId 时保留当前选择（例如项目列表视图），不要清空 localStorage 恢复的状态
   if (!projectId) {
     return
@@ -175,8 +175,8 @@ async function _syncCurrentProject(projectId) {
     state.currentProject = null
   }
 
-  // 当前项目对象已存在且 ID 一致时避免重复请求
-  if (state.currentProject && state.currentProject.id === projectId) {
+  // 当前项目对象已存在且 ID 一致时避免重复请求，refresh() 可通过 force 强制刷新
+  if (!changed && state.currentProject && !force) {
     return
   }
 
@@ -325,6 +325,7 @@ async function refresh() {
   _forceRefresh = true
   const cacheKey = _viewCacheKey(state.currentView, state.currentSubView)
   delete _viewDomCache[cacheKey]
+  await _syncCurrentProject(state.currentProjectId, true)
   await renderCurrentView()
 }
 

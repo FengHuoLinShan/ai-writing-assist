@@ -137,7 +137,7 @@ describe("projectView", () => {
       expect(globalThis.showModal).toHaveBeenCalledOnce()
       const showModalMock = vi.mocked(globalThis.showModal)
       const title = showModalMock.mock.calls[0][0]
-      const html = showModalMock.mock.calls[0][1]
+      const html = showModalMock.mock.calls[0][1].html
       const buttons = showModalMock.mock.calls[0][2]
       expect(title).toBe("新建项目")
       expect(html).toContain("create-title")
@@ -202,7 +202,7 @@ describe("projectView", () => {
       expect(globalThis.showModal).toHaveBeenCalledOnce()
       const showModalMock = vi.mocked(globalThis.showModal)
       const title = showModalMock.mock.calls[0][0]
-      const html = showModalMock.mock.calls[0][1]
+      const html = showModalMock.mock.calls[0][1].html
       expect(title).toBe("编辑项目")
       expect(html).toContain("项目A")
       expect(html).toContain("edit-tone")

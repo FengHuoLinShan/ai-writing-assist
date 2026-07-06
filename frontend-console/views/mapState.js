@@ -112,6 +112,9 @@ export function consumePendingChanges() {
   const changes = Object.values(mapState.pendingTerrainChanges)
   if (changes.length > 0) {
     mapState.undoStack.push(changes)
+    if (mapState.undoStack.length > 50) {
+      mapState.undoStack = mapState.undoStack.slice(mapState.undoStack.length - 50)
+    }
   }
   mapState.pendingTerrainChanges = {}
   return changes

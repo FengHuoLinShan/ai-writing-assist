@@ -37,15 +37,20 @@ const generateView = {
   _busy: false,
   _templatePromptOverrides: {},
   _customTemplates: [],
+  _renderTimeout: null,
+  _abortControllers: null,
 
   onLeave() {
     this._persistState()
     this._clearTopbarNote()
+    this._clearRenderTimeout()
+    this._abortAllRequests()
   },
 
   async render() {
     this._restoreState()
-    setTimeout(() => {
+    this._clearRenderTimeout()
+    this._renderTimeout = setTimeout(() => {
       this._bindEvents()
       this._mountTopbarNote()
       this._renderMessages()
@@ -229,7 +234,7 @@ const generateView = {
 
   _openTemplateEditor() {
     const current = this._findTemplate()
-    showModal("编辑模板", this._renderTemplateEditor(current.value), [
+    showModalHtml("编辑模板", this._renderTemplateEditor(current.value), [
       { text: "保存模板", class: "btn-primary", handler: () => this._saveTemplateFromEditor() },
       { text: "新建模板", class: "btn", handler: () => this._createTemplateFromEditor() },
       { text: "关闭", class: "btn-ghost", handler: closeModal },
@@ -344,9 +349,11 @@ const generateView = {
     this._renderMessages()
     this._persistState()
 
+    let controller = null
     try {
       this._setBusy(true)
-      const response = await api.generate.objectDraftChat(payload)
+      controller = this._trackRequestController()
+      const response = await api.generate.objectDraftChat(payload, { signal: controller.signal })
       if (response?.reply) {
         pendingMessage.content = response.reply
         pendingMessage.pending = false
@@ -361,6 +368,7 @@ const generateView = {
       this._persistState()
       toast(`聊天失败：${err.message || "未知错误"}`, "error")
     } finally {
+      this._releaseRequestController(controller)
       this._setBusy(false)
     }
   },
@@ -380,9 +388,11 @@ const generateView = {
     this._persistState()
     const resultEl = document.getElementById("generate-result")
     if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成数据库草稿...</div>'
+    let controller = null
     try {
       this._setBusy(true)
-      const response = await api.generate.generateObjectDraft(this._buildPayload())
+      controller = this._trackRequestController()
+      const response = await api.generate.generateObjectDraft(this._buildPayload(), { signal: controller.signal })
       this._lastEntity = response?.entity || null
       if (resultEl) resultEl.innerHTML = this._lastEntity
         ? this._renderEntityResult(this._lastEntity)
@@ -395,6 +405,7 @@ const generateView = {
       }
       toast(`生成失败：${err.message || "未知错误"}`, "error")
     } finally {
+      this._releaseRequestController(controller)
       this._setBusy(false)
     }
   },
@@ -411,7 +422,7 @@ const generateView = {
         toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成草稿", "info")
         return
       }
-      const chapters = await Promise.all(summaries.slice(0, 60).map(async (item) => {
+      const chapters = await this._runInBatches(summaries.slice(0, 60), 5, async (item) => {
         try {
           const draft = item.id
             ? await api.writing.get(item.id, state.currentProjectId)
@@ -428,8 +439,8 @@ const generateView = {
             excerpt: "",
           }
         }
-      }))
-      showModal("选择附带正文", this._renderChapterPicker(chapters), [
+      })
+      showModalHtml("选择附带正文", this._renderChapterPicker(chapters), [
         { text: "取消", class: "btn-ghost", handler: closeModal },
         {
           text: "确认选择",
@@ -547,6 +558,45 @@ const generateView = {
     document.querySelectorAll('[data-action="send-chat-message"], [data-action="generate-object-draft"]').forEach((btn) => {
       btn.disabled = busy
     })
+  },
+
+  _trackRequestController() {
+    if (!this._abortControllers) this._abortControllers = new Set()
+    const controller = new AbortController()
+    this._abortControllers.add(controller)
+    return controller
+  },
+
+  _releaseRequestController(controller) {
+    if (!controller) return
+    this._abortControllers?.delete(controller)
+  },
+
+  _abortAllRequests() {
+    if (!this._abortControllers) return
+    for (const controller of this._abortControllers) {
+      try {
+        controller.abort()
+      } catch {}
+    }
+    this._abortControllers.clear()
+  },
+
+  _clearRenderTimeout() {
+    if (this._renderTimeout) {
+      clearTimeout(this._renderTimeout)
+      this._renderTimeout = null
+    }
+  },
+
+  async _runInBatches(items, batchSize, fn) {
+    const results = []
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize)
+      const batchResults = await Promise.all(batch.map((item) => fn(item)))
+      results.push(...batchResults)
+    }
+    return results
   },
 
   _focusChatInput() {

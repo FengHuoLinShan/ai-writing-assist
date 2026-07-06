@@ -6,12 +6,19 @@ import { bindWorkspaceClick } from "../shared/viewHelper.js"
 
 const contextView = {
   onLeave() {
+    if (this._abortController) {
+      this._abortController.abort()
+      this._abortController = null
+    }
     this._lastBundle = null
     this._lastMarkdown = null
+    this._lastRequestParams = null
   },
 
   _lastBundle: null,
   _lastMarkdown: null,
+  _lastRequestParams: null,
+  _abortController: null,
 
   async render() {
     setTimeout(() => this._bindEvents(), 0)
@@ -130,6 +137,41 @@ const contextView = {
     if (scope) scope.value = preset.scope
   },
 
+  _readCompileParams() {
+    const task = document.getElementById("ctx-task")?.value || ""
+    const scope = document.getElementById("ctx-scope")?.value || "arc"
+    const reveal = document.getElementById("ctx-reveal")?.value || "author_safe"
+    const entitiesInput = document.getElementById("ctx-entities")?.value || ""
+    const charactersInput = document.getElementById("ctx-characters")?.value || ""
+    const chapterInput = document.getElementById("ctx-chapter")?.value || ""
+    const sceneInput = document.getElementById("ctx-scene")?.value || ""
+    const budgetInput = document.getElementById("ctx-budget")?.value || ""
+    const entityIds = entitiesInput ? entitiesInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
+    const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
+    const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
+    const sceneId = sceneInput ? sceneInput.trim() : undefined
+    const budgetTokens = budgetInput ? parseInt(budgetInput, 10) : 4000
+    const viewpointCharacterId = reveal === "character" ? characterIds?.[0] : undefined
+    return {
+      novel_id: state.currentProjectId,
+      task, scope,
+      chapter_index: chapterIndex,
+      scene_id: sceneId,
+      budget_tokens: budgetTokens,
+      entity_ids: entityIds,
+      character_ids: characterIds,
+      reveal_mode: reveal,
+      viewpoint_character_id: viewpointCharacterId,
+    }
+  },
+
+  _ensureAbortController() {
+    if (!this._abortController) {
+      this._abortController = new AbortController()
+    }
+    return this._abortController
+  },
+
   async compile() {
     const output = document.getElementById("ctx-output")
     const renderBtn = document.querySelector('[data-action="render-md"]')
@@ -142,27 +184,12 @@ const contextView = {
       return
     }
 
-    const task = document.getElementById("ctx-task")?.value || ""
-    const scope = document.getElementById("ctx-scope")?.value || "arc"
-    const reveal = document.getElementById("ctx-reveal")?.value || "author_safe"
-    const entitiesInput = document.getElementById("ctx-entities")?.value || ""
-    const charactersInput = document.getElementById("ctx-characters")?.value || ""
-    const chapterInput = document.getElementById("ctx-chapter")?.value || ""
-    const sceneInput = document.getElementById("ctx-scene")?.value || ""
-    const budgetInput = document.getElementById("ctx-budget")?.value || ""
-
-    if (!task) {
+    const payload = this._readCompileParams()
+    if (!payload.task) {
       toast("请输入任务描述", "warning")
       return
     }
-
-    const entityIds = entitiesInput ? entitiesInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
-    const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
-    const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
-    const sceneId = sceneInput ? sceneInput.trim() : undefined
-    const budgetTokens = budgetInput ? parseInt(budgetInput, 10) : 4000
-    const viewpointCharacterId = reveal === "character" ? characterIds?.[0] : undefined
-    if (reveal === "character" && !viewpointCharacterId) {
+    if (payload.reveal_mode === "character" && !payload.viewpoint_character_id) {
       toast("角色视角模式必须选择或输入视角人物 ID", "warning")
       return
     }
@@ -173,18 +200,9 @@ const contextView = {
     if (exportBtn) exportBtn.disabled = true
 
     try {
-      const data = await api.context.compile({
-        novel_id: state.currentProjectId,
-        task, scope,
-        chapter_index: chapterIndex,
-        scene_id: sceneId,
-        budget_tokens: budgetTokens,
-        entity_ids: entityIds,
-        character_ids: characterIds,
-        reveal_mode: reveal,
-        viewpoint_character_id: viewpointCharacterId,
-      })
+      const data = await api.context.compile(payload, { signal: this._ensureAbortController().signal })
       this._lastBundle = data
+      this._lastRequestParams = payload
       this._renderCompileResult(data)
       if (renderBtn) renderBtn.disabled = false
     } catch (err) {
@@ -252,34 +270,25 @@ const contextView = {
     const exportBtn = document.querySelector('[data-action="export"]')
     if (!output || !this._lastBundle) return
 
-    const task = document.getElementById("ctx-task")?.value || ""
-    const scope = document.getElementById("ctx-scope")?.value || "arc"
-    const reveal = document.getElementById("ctx-reveal")?.value || "author_safe"
-    const entitiesInput = document.getElementById("ctx-entities")?.value || ""
-    const charactersInput = document.getElementById("ctx-characters")?.value || ""
-    const chapterInput = document.getElementById("ctx-chapter")?.value || ""
-    const sceneInput = document.getElementById("ctx-scene")?.value || ""
-    const budgetInput = document.getElementById("ctx-budget")?.value || ""
-    const entityIds = entitiesInput ? entitiesInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
-    const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
-    const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
-    const sceneId = sceneInput ? sceneInput.trim() : undefined
-    const budgetTokens = budgetInput ? parseInt(budgetInput, 10) : 4000
-    const viewpointCharacterId = reveal === "character" ? characterIds?.[0] : undefined
-    if (reveal === "character" && !viewpointCharacterId) {
+    const params = this._lastRequestParams || this._readCompileParams()
+    if (params.reveal_mode === "character" && !params.viewpoint_character_id) {
       toast("角色视角模式必须选择或输入视角人物 ID", "warning")
       return
     }
 
     try {
       const data = await api.context.render({
-        novel_id: state.currentProjectId, task, scope,
-        chapter_index: chapterIndex, scene_id: sceneId,
-        budget_tokens: budgetTokens,
-        entity_ids: entityIds,
-        character_ids: characterIds, reveal_mode: reveal,
-        viewpoint_character_id: viewpointCharacterId,
-      })
+        novel_id: state.currentProjectId,
+        task: params.task,
+        scope: params.scope,
+        chapter_index: params.chapter_index,
+        scene_id: params.scene_id,
+        budget_tokens: params.budget_tokens,
+        entity_ids: params.entity_ids,
+        character_ids: params.character_ids,
+        reveal_mode: params.reveal_mode,
+        viewpoint_character_id: params.viewpoint_character_id,
+      }, { signal: this._ensureAbortController().signal })
       if (data && data.markdown) {
         output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:var(--radius-sm);border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`
         this._lastMarkdown = data.markdown

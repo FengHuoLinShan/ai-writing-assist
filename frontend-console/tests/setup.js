@@ -54,6 +54,9 @@ globalThis.esc = (str) => {
 
 globalThis.toast = vi.fn()
 globalThis.showModal = vi.fn()
+globalThis.showModalHtml = vi.fn((title, htmlString, buttons) => {
+  globalThis.showModal(title, { html: htmlString }, buttons)
+})
 globalThis.confirmAction = vi.fn()
 globalThis.closeModal = vi.fn()
 globalThis.prompt = vi.fn()
