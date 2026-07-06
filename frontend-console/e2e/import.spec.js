@@ -44,9 +44,9 @@ test.describe("导入模块", () => {
     // 点击上传
     await page.locator('[data-action="upload-file"]').click()
 
-    // 等待导入完成 toast 显示解析/成功章节数
+    // 等待导入完成 toast 显示解析/保存章节数（实际文案不含"成功"）
     await expect(page.locator(SEL.toastContainer)).toContainText("共解析", { timeout: 15000 })
-    await expect(page.locator(SEL.toastContainer)).toContainText("成功", { timeout: 15000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 15000 })
 
     // 导入成功后自动跳转到写作视图，章节树应出现导入的章节
     await expect(page.locator("#writing-tree-container")).toContainText("第 1 章", { timeout: 10000 })

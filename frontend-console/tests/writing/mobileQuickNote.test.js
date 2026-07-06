@@ -1,0 +1,183 @@
+/**
+ * mobileQuickNote 子模块最小测试
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { createMobileQuickNote } from "../../views/writing/mobileQuickNote.js"
+import { resetState, clearDocument } from "../helpers.js"
+
+function createMockEditor(overrides = {}) {
+  return {
+    getContent: vi.fn(() => "正文内容"),
+    getCursorOffset: vi.fn(() => 10),
+    setState: vi.fn(),
+    ...overrides,
+  }
+}
+
+function createTestNote(overrides = {}) {
+  return createMobileQuickNote({
+    state: globalThis.state,
+    api: globalThis.api,
+    toast: globalThis.toast,
+    esc: globalThis.esc,
+    editor: createMockEditor(),
+    onSaved: vi.fn(),
+    ...overrides,
+  })
+}
+
+beforeEach(() => {
+  resetState()
+  clearDocument()
+  vi.clearAllMocks()
+  state._currentChapter = null
+  state._currentDraftId = null
+  state._currentTitle = null
+  state._currentContent = null
+  state._currentVersionNumber = null
+  state._currentUpdatedAt = null
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe("createMobileQuickNote", () => {
+  it("returns the public API", () => {
+    const note = createTestNote()
+    expect(note.shouldRender).toBeTypeOf("function")
+    expect(note.render).toBeTypeOf("function")
+    expect(note.bindEvents).toBeTypeOf("function")
+    expect(note.dispose).toBeTypeOf("function")
+  })
+
+  it("renders only on narrow viewport with current chapter", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    vi.stubGlobal("window", { innerWidth: 400 })
+    const note = createTestNote()
+    expect(note.shouldRender()).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it("does not render on desktop viewport", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    vi.stubGlobal("window", { innerWidth: 1200 })
+    const note = createTestNote()
+    expect(note.shouldRender()).toBe(false)
+    vi.unstubAllGlobals()
+  })
+
+  it("does not render when force-desktop class present", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    document.body.classList.add("force-desktop")
+    vi.stubGlobal("window", { innerWidth: 400 })
+    const note = createTestNote()
+    expect(note.shouldRender()).toBe(false)
+    document.body.classList.remove("force-desktop")
+    vi.unstubAllGlobals()
+  })
+
+  it("renders mobile note editor", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._currentContent = "灵感片段"
+    const note = createTestNote()
+    const html = note.render()
+    expect(html).toContain("mobile-quick-note")
+    expect(html).toContain("mobile-note-editor")
+    expect(html).toContain("灵感片段")
+    expect(html).toContain('data-action="save-mobile-note"')
+  })
+
+  it("autosaves existing draft when save button clicked", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._currentDraftId = "d1"
+    state._currentVersionNumber = 3
+    state._currentUpdatedAt = "2026-07-06T10:00:00Z"
+    state._currentTitle = "第一章"
+    api.writing.autosave.mockResolvedValue({ version_number: 4, updated_at: "2026-07-06T11:00:00Z" })
+    const onSaved = vi.fn()
+    const note = createTestNote({ onSaved })
+
+    document.body.innerHTML = note.render()
+    document.getElementById("mobile-note-editor").value = "更新内容"
+    note.bindEvents(document.body)
+    document.querySelector('[data-action="save-mobile-note"]').click()
+    await flushPromises()
+
+    expect(api.writing.autosave).toHaveBeenCalledWith(
+      "d1",
+      expect.objectContaining({ content: "更新内容", expected_version: 3 }),
+      "p1",
+    )
+    expect(onSaved).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("已保存到草稿", "success")
+  })
+
+  it("creates new draft when save button clicked without current draft id", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 2
+    state._currentTitle = "第二章"
+    api.writing.autosaveDraftOnly.mockResolvedValue({
+      id: "d2",
+      version_number: 1,
+      updated_at: "2026-07-06T10:00:00Z",
+    })
+
+    const note = createTestNote()
+    document.body.innerHTML = note.render()
+    document.getElementById("mobile-note-editor").value = "新内容"
+    note.bindEvents(document.body)
+    document.querySelector('[data-action="save-mobile-note"]').click()
+    await flushPromises()
+
+    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      chapter_index: 2,
+      content: "新内容",
+    }))
+  })
+
+  it("updates word count on input", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    const note = createTestNote()
+    document.body.innerHTML = note.render()
+    note.bindEvents(document.body)
+
+    const editor = document.getElementById("mobile-note-editor")
+    editor.value = "一二三四五"
+    editor.dispatchEvent(new Event("input"))
+
+    expect(document.getElementById("mobile-note-wc").textContent).toBe("5 字")
+  })
+
+  it("does nothing when saving without editor", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._currentDraftId = "d1"
+    const note = createTestNote()
+    note.bindEvents(document.body)
+    document.querySelector('[data-action="save-mobile-note"]')?.click()
+    await flushPromises()
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+  })
+
+  it("escapes current content", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._currentContent = "<script>"
+    const note = createTestNote()
+    const html = note.render()
+    expect(html).toContain("&lt;script&gt;")
+    expect(html).not.toContain("<script>")
+  })
+})
+
+function flushPromises() {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}

@@ -46,9 +46,29 @@ frontend-console/
 ├── router.js               # Hash 路由系统
 ├── commands.js             # 命令系统（全中文帮助）
 ├── app.js                  # 应用主入口（快捷键绑定）
-├── views/                  # 8 个一级路由视图 + 地图拆分组件
+├── shared/                 # 可复用业务组件与工具
+│   ├── smartDedup.js       # 智能去重管理器
+│   ├── confirmAsync.js     # 异步二次确认封装
+│   ├── writingToolsResult.js # 工具结果应用到 orchestrator
+│   ├── sceneLocator.js     # 光标/章节定位当前 Scene
+│   └── ...                 # 其他共享模块
+├── views/                  # 一级路由视图
 │   ├── projectView.js      # 项目
-│   ├── writingView.js      # 写作台
+│   ├── writingView.js      # 写作台 orchestrator
+│   ├── writing/            # 写作台子模块
+│   │   ├── chapterTree.js
+│   │   ├── editor.js
+│   │   ├── versions.js
+│   │   ├── publish.js
+│   │   ├── deepImportRecovery.js
+│   │   ├── autoExtraction.js
+│   │   ├── conflictCheck.js
+│   │   ├── scenePanel.js
+│   │   ├── outlineFloat.js
+│   │   ├── focusMode.js
+│   │   ├── tools.js
+│   │   ├── mobileQuickNote.js
+│   │   └── submodules.js   # 子模块工厂
 │   ├── worldView.js        # 世界对象 / 关系 / 别名 / 地图子标签
 │   ├── mapWorkspaceView.js # 地图一级工作台
 │   ├── mapView.js          # 动态地图主视图
@@ -60,6 +80,9 @@ frontend-console/
 │   ├── ragView.js          # RAG 检索
 │   ├── contextView.js      # 上下文编译
 │   └── generateView.js     # 生成中心
+├── tests/                  # 测试目录
+│   ├── writing/            # 写作台子模块单元测试
+│   └── shared/             # shared 模块测试
 └── README.md
 ```
 

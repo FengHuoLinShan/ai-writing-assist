@@ -108,16 +108,14 @@ describe("worldView render", () => {
     expect(html).toContain("别名")
   })
 
-  it("world/map 作为兼容入口跳转到一级地图页", async () => {
-    state.currentSubView = "map"
+  it("点击地图子标签直接导航到一级地图页", async () => {
+    state.currentSubView = "objects"
 
-    const html = await worldView.render()
+    document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
+    worldView._bindEvents()
+    document.querySelector('[data-action="nav-map"]')?.click()
 
-    expect(html).toContain("正在打开地图")
-    expect(html).not.toContain("map-root")
-    await vi.waitFor(() => {
-      expect(router.navigate).toHaveBeenCalledWith("map", null)
-    })
+    expect(router.navigate).toHaveBeenCalledWith("map", null)
   })
 
   it("repeated render and bind does not double-fire direct-bound button clicks", async () => {

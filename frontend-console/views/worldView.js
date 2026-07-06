@@ -264,25 +264,10 @@ const worldView = {
       html += await this._renderAliases()
     } else if (subView === "bible") {
       html += await worldBibleView.render()
-    } else if (subView === "map") {
-      html += this._renderMap()
     }
 
     setTimeout(() => this._bindEvents(), 0)
     return html
-  },
-
-  /** 渲染地图子视图容器（mapView 命令式挂载到 #map-root） */
-  _renderMap() {
-    // 延迟导航，避免在当前 render 周期内递归触发路由渲染导致竞态
-    setTimeout(() => router.navigate("map", null), 0)
-    return `
-      <div class="empty-state">
-        <div class="empty-icon">&#128506;</div>
-        <p>正在打开地图</p>
-        <p style="color:var(--text-dim);font-size:12px;">地图已升级为侧边栏一级功能。</p>
-      </div>
-    `
   },
 
   // ============================================================
@@ -1655,7 +1640,7 @@ const worldView = {
       "nav-relations": () => router.navigate("world", "relations"),
       "nav-aliases": () => router.navigate("world", "aliases"),
       "nav-bible": () => router.navigate("world", "bible"),
-      "nav-map": () => router.navigate("world", "map"),
+      "nav-map": () => router.navigate("map", null),
       "nav-generate": () => router.navigate("generate"),
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()

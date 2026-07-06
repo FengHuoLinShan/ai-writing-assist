@@ -1,5 +1,5 @@
 /**
- * writingView 测试 — 核心生命周期和行为
+ * writingView orchestrator 测试 — 生命周期与跨子模块协调
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import writingView from "../views/writingView.js"
@@ -11,48 +11,150 @@ import {
   stubMethod,
   renderHtml,
   captureModalHandler,
+  latestModal,
 } from "./helpers.js"
 
 beforeEach(() => {
   resetState()
   clearDocument()
   localStorage.clear()
-  writingView._chapters = {}
-  writingView._chapterList = []
-  writingView._chapterListLoadError = null
-  writingView._currentChapter = null
-  writingView._currentDraftId = null
-  writingView._currentContent = null
-  writingView._currentTitle = null
-  writingView._currentVersionNumber = null
-  writingView._versions = []
-  writingView._scenes = []
-  writingView._currentSceneId = null
-  writingView._cursorOffset = 0
-  writingView._sceneMapSummary = null
-  writingView._sceneMapSummaryError = null
-  writingView._sceneMapSummarySceneId = null
-  writingView._sceneMapSummaryPendingSceneId = null
-  writingView._sceneMapSummaryLoading = false
-  writingView._publishTaskId = null
-  writingView._publishProgress = null
-  writingView._lastPublishStatus = null
-  writingView._deepImportTaskId = null
-  writingView._deepImportProgress = null
-  writingView._deepImportPollFailures = 0
-  writingView._autoSaving = false
-  writingView._currentSavePromise = null
-  writingView._focusMode = false
-  writingView._forceDesktopMode = false
-  document.body.className = ""
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 })
+  document.body.className = ""
   api.world.getMapSceneSummary = vi.fn()
   vi.clearAllMocks()
   confirmAction.mockReset()
+
+  // 重置 orchestrator 共享状态
+  writingView._currentChapter = null
+  writingView._chapterList = []
+  writingView._chapters = {}
+  writingView._scenes = []
+  writingView._loading = true
+  writingView._chapterListLoadError = null
+  writingView._focusMode = false
+  writingView._forceDesktopMode = false
+  writingView._bulkSelections = {}
+  writingView._showBulkActions = false
+  writingView._chapterTree = null
+  writingView._editor = null
+  writingView._versions = null
+  writingView._publish = null
+  writingView._deepImportRecovery = null
+  writingView._autoExtraction = null
+  writingView._conflictCheck = null
+  writingView._scenePanel = null
+  writingView._outlineFloat = null
+  writingView._focusModeManager = null
+  writingView._tools = null
+  writingView._mobileQuickNote = null
 })
 
 afterEach(() => {
+  writingView._disposeSubModules?.()
   vi.restoreAllMocks()
+})
+
+function mockChapterList() {
+  api.writing.listChapters.mockResolvedValue({
+    chapter_indices: [1, 3],
+    chapters: [
+      { chapter_index: 1, title: "第一章", word_count: 120, version_number: 1, status: "draft" },
+      { chapter_index: 3, title: "第三章 归潮尽头", word_count: 1095, version_number: 1, status: "draft" },
+    ],
+  })
+  api.outline.listScenesOrdered.mockResolvedValue([])
+}
+
+function mockEditorLoad() {
+  api.writing.getVersionHistory.mockResolvedValue({
+    versions: [{ id: "draft-1", version_number: 1, title: "第一章", word_count: 120 }],
+  })
+  api.writing.get.mockResolvedValue({
+    id: "draft-1",
+    title: "第一章",
+    content: "第一章正文",
+    version_number: 1,
+    updated_at: "2026-07-05T00:00:00Z",
+  })
+  api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+}
+
+describe("writingView onEnter", () => {
+  it("无项目时 loading=false", async () => {
+    await writingView.onEnter()
+    expect(writingView._loading).toBe(false)
+  })
+
+  it("有项目时加载章节列表和 Scene 列表", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    await writingView.onEnter()
+
+    expect(writingView._chapterList).toEqual([1, 3])
+    expect(writingView._chapters[1]).toMatchObject({ title: "第一章", wordcount: 120 })
+    expect(writingView._chapters[3]).toMatchObject({ title: "第三章 归潮尽头", wordcount: 1095 })
+  })
+
+  it("章节列表 API 失败时显示错误", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockRejectedValue(new Error("fail"))
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    await writingView.onEnter()
+
+    expect(writingView._chapterListLoadError).toBe("fail")
+    const html = await writingView.render()
+    expect(html).toContain("章节列表加载失败")
+  })
+
+  it("恢复上次编辑的章节", async () => {
+    state.currentProjectId = "p1"
+    state.viewStates.writing = {
+      projectId: "p1",
+      currentChapter: 3,
+      currentDraftId: "draft-3",
+      currentTitle: "第三章 归潮尽头",
+      currentContent: "第三章正文",
+      currentVersionNumber: 1,
+      currentUpdatedAt: "2026-07-05T00:03:00Z",
+      isReadonly: false,
+      restoreSourceVersion: null,
+    }
+    mockChapterList()
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "draft-3", version_number: 1, title: "第三章 归潮尽头", word_count: 1095 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "draft-3",
+      title: "第三章 归潮尽头",
+      content: "第三章正文",
+      version_number: 1,
+      updated_at: "2026-07-05T00:03:00Z",
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+
+    await writingView.onEnter()
+
+    expect(writingView._currentChapter).toBe(3)
+    expect(writingView._editor.getContent()).toBe("第三章正文")
+  })
+
+  it("切换到新项目时不恢复旧项目状态", async () => {
+    state.currentProjectId = "p2"
+    state.viewStates.writing = {
+      projectId: "p1",
+      currentChapter: 1,
+      currentContent: "旧项目正文",
+      currentTitle: "旧项目章节",
+      currentDraftId: "old-draft",
+    }
+    api.writing.listChapters.mockResolvedValue({ chapter_indices: [], chapters: [] })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+
+    await writingView.onEnter()
+
+    expect(writingView._currentChapter).toBeNull()
+    expect(writingView._chapterTree).toBeTruthy()
+  })
 })
 
 describe("writingView render", () => {
@@ -65,1543 +167,565 @@ describe("writingView render", () => {
   it("无章节时显示空状态", async () => {
     writingView._loading = false
     writingView._chapterList = []
+    writingView._deepImportRecovery = { renderBar: () => "" }
     const html = await writingView.render()
     expect(html).toContain("开始创作")
+    expect(html).toContain('data-action="new-chapter"')
   })
 
-  it("有章节时渲染编辑器", async () => {
-    writingView._loading = false
-    writingView._chapterList = [1]
-    writingView._currentChapter = 1
-    writingView._chapters = { 1: { draftCount: 0 } }
-    writingView._scenes = []
-    writingView._versions = []
-    const html = await writingView.render()
-    expect(html).toContain("章节（1）")
-    expect(html).toContain("writing-editor")
-  })
-
-  it("AI 工具菜单显示三个分阶段自动提取入口并移除深度导入入口", () => {
+  it("有章节时渲染编辑器、版本、工具栏、进度条和冲突条", async () => {
     state.currentProjectId = "p1"
-    writingView._currentChapter = 1
-    writingView._isReadonly = false
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
 
-    const html = writingView._renderEditorToolsMenu(true)
+    const html = await writingView.render()
+    expect(html).toContain("writing-editor")
+    expect(html).toContain("writing-versions-container")
+    expect(html).toContain("writing-wordcount-bar")
+    expect(html).toContain("writing-tools-menu")
+    expect(html).toContain("writing-conflict-strip")
+    expect(html).toContain('data-action="publish"')
+    expect(html).toContain('data-action="autosave"')
+  })
 
-    expect(html).toContain("生成")
-    expect(html).toContain("提取")
-    expect(html).toContain("检查")
-    expect(html).toContain("地图")
+  it("AI 工具菜单显示分阶段自动提取入口", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    const html = await writingView.render()
+    expect(html).toContain("AI 生成草稿")
     expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain("世界对象与别名/关系自动提取")
     expect(html).toContain("剧情线自动提取")
-    expect(html).not.toContain('data-action="deep-import"')
   })
+})
 
-  it("编辑器显示保存状态徽章", () => {
-    writingView._currentChapter = 1
-    writingView._currentDraftId = "d1"
-    writingView._currentVersionNumber = 2
-    writingView._currentTitle = "第一章"
-    writingView._currentContent = "正文"
-    writingView._isReadonly = false
-
-    const html = writingView._renderEditor()
-
-    expect(html).toContain("writing-save-badge")
-    expect(html).toContain("writing-version-badge")
-  })
-
-  it("版本下拉转义 draft id 属性", () => {
-    writingView._currentChapter = 1
-    writingView._currentVersionNumber = 1
-    writingView._versions = [{
-      id: 'd1" onclick="alert(1)',
-      version_number: 1,
-    }]
-
-    const container = renderHtml(writingView._renderVersionSelector())
-    const option = container.querySelector("option")
-
-    expect(option?.getAttribute("onclick")).toBeNull()
-    expect(option?.value).toBe('d1" onclick="alert(1)')
-  })
-
-  it("版本历史按钮转义版本号属性", () => {
-    writingView._currentChapter = 1
-    writingView._currentVersionNumber = 1
-    writingView._versions = [{
-      id: "d1",
-      version_number: '1" onclick="alert(1)',
-      word_count: 10,
-    }]
-
-    writingView._showVersionHistory()
-    const modalHtml = showModal.mock.calls.at(-1)[1].html
-    const container = renderHtml(modalHtml)
-    const button = container.querySelector(".version-preview-btn")
-
-    expect(button?.getAttribute("onclick")).toBeNull()
-    expect(button?.dataset.version).toBe('1" onclick="alert(1)')
-  })
-
-  it("编辑器使用写作字体、字数条和专注模式入口", () => {
-    writingView._currentChapter = 1
-    writingView._currentDraftId = "d1"
-    writingView._currentContent = "第一段\n\n第二段"
-    writingView._currentTitle = "第一章"
-    writingView._isReadonly = false
-
-    const html = writingView._renderEditor()
-
-    expect(html).toContain("novel-editor")
-    expect(html).toContain("writing-wordcount-bar")
-    expect(html).toContain('data-action="toggle-focus-mode"')
-    expect(html).toContain("专注模式")
-  })
-
-  it("章节树主视图显示简化行、状态点和上下章按钮", () => {
-    writingView._chapterList = [1, 2]
-    writingView._chapters = {
-      1: { title: "开篇", draftCount: 1, wordcount: 1200 },
-      2: { title: "转折", draftCount: 0 },
-    }
-    writingView._currentChapter = 1
-    writingView._scenes = []
-
-    const html = writingView._renderSceneTree()
-
-    expect(html).toContain('data-action="prev-chapter"')
-    expect(html).toContain('data-action="next-chapter"')
-    expect(html).toContain("chapter-row")
-    expect(html).toContain('<button type="button" class="chapter-row chapter-row--active"')
-    expect(html).toContain('aria-label="打开第 1 章：开篇，1,200 字"')
-    expect(html).toContain("1,200 字")
-    expect(html).not.toContain("批量删除章节")
-  })
-
-  it("章节行是可点击按钮，点击后选择章节并启用写作操作", async () => {
+describe("writingView chapter selection", () => {
+  it("点击章节行后加载编辑器、版本并启用操作按钮", async () => {
     state.currentProjectId = "p1"
-    writingView._chapterList = [1, 3]
-    writingView._chapters = {
-      1: { title: "第一章", draftCount: 1, wordcount: 120 },
-      3: { title: "第三章 归潮尽头", draftCount: 1, wordcount: 1095 },
-    }
-    writingView._currentChapter = 1
-    writingView._currentDraftId = "draft-1"
-    writingView._currentTitle = "第一章"
-    writingView._currentContent = "第一章正文"
-    writingView._currentVersionNumber = 1
-    writingView._currentUpdatedAt = "2026-07-05T00:00:00Z"
-    writingView._lastSavedContent = "第一章正文"
-    writingView._isReadonly = false
-    writingView._scenes = []
-    api.writing.getVersionHistory.mockResolvedValue({
-      versions: [{
-        id: "draft-3",
-        title: "第三章 归潮尽头",
-        version_number: 1,
-        word_count: 1095,
-      }],
-    })
-    api.writing.get.mockResolvedValue({
-      id: "draft-3",
-      title: "第三章 归潮尽头",
-      content: "第三章正文",
-      version_number: 1,
-      updated_at: "2026-07-05T00:03:00Z",
-    })
-    api.outline.listThreads.mockResolvedValue({ items: [] })
-    api.outline.listArcs.mockResolvedValue({ items: [] })
-    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
 
     document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
     writingView._bindEvents()
+
     const row = document.querySelector('[data-action="select-chapter"][data-chapter="3"]')
-
     expect(row?.tagName).toBe("BUTTON")
-    expect(row?.getAttribute("aria-label")).toContain("打开第 3 章")
-
     row.click()
+
     await vi.waitFor(() => {
       expect(writingView._currentChapter).toBe(3)
+      expect(document.getElementById("writing-editor")).not.toBeNull()
     })
-
-    expect(document.getElementById("writing-title-input").value).toBe("第三章 归潮尽头")
-    expect(document.getElementById("writing-editor").value).toBe("第三章正文")
+    expect(document.getElementById("writing-editor").value).toBe("第一章正文")
     expect(document.getElementById("btn-autosave").disabled).toBe(false)
     expect(document.getElementById("btn-publish").disabled).toBe(false)
-    expect(document.getElementById("btn-conflict-check").disabled).toBe(false)
   })
 
-  it("真实 Scene 分组树默认展开含章节节点，避免嵌套章节按钮处于隐藏父容器", () => {
-    writingView._chapterList = [1, 3]
-    writingView._chapters = {
-      1: { title: "第一章", draftCount: 1, wordcount: 120 },
-      3: { title: "第三章 归潮尽头", draftCount: 1, wordcount: 1095 },
-    }
-    writingView._currentChapter = null
-    writingView._currentSceneId = null
-    writingView._scenes = [{
-      id: "scene-real-tree",
-      title: "回声仓",
-      chapter_ids: ["1", "3"],
-    }]
-
-    const container = renderHtml(writingView._renderSceneTree())
-    const row = container.querySelector('[data-action="select-chapter"][data-chapter="3"]')
-    const group = row.closest(".scene-tree-chapters")
-
-    expect(row?.tagName).toBe("BUTTON")
-    expect(group?.style.display).toBe("block")
-    expect(row?.getAttribute("aria-label")).toContain("第三章 归潮尽头")
-  })
-
-  it("更新字数统计会同步底部和顶部仪表盘", () => {
-    const updateDashboard = vi.fn()
-    globalThis.App = { updateWordcountDashboard: updateDashboard }
+  it("重复点击同一章节刷新版本", async () => {
     state.currentProjectId = "p1"
-    writingView._currentChapter = 1
-    document.body.innerHTML = `
-      <textarea id="writing-editor">一二三\n\n四五</textarea>
-      <span id="wc-chapter"></span>
-      <span id="wc-paragraphs"></span>
-      <span id="wc-readtime"></span>
-      <span id="wc-daily"></span>
-      <div id="wc-goal-fill"></div>
-    `
-
-    writingView._updateWordcount()
-
-    expect(document.getElementById("wc-chapter").textContent).toBe("7")
-    expect(document.getElementById("wc-paragraphs").textContent).toBe("2")
-    expect(updateDashboard).toHaveBeenCalledWith(expect.objectContaining({
-      chapterIndex: 1,
-      chapterWords: 7,
-      todayWords: 7,
-    }))
-  })
-
-  it("专注模式切换隐藏两侧面板并保留编辑器聚焦", () => {
-    writingView._focusMode = false
-    document.body.innerHTML = `
-      <header id="topbar"></header>
-      <nav id="sidebar"></nav>
-      <div id="writing-tree-container"></div>
-      <textarea id="writing-editor"></textarea>
-      <div id="writing-panel-container"></div>
-    `
-
-    writingView._toggleFocusMode()
-
-    expect(writingView._focusMode).toBe(true)
-    expect(document.body.classList.contains("focus-mode-active")).toBe(true)
-    expect(document.getElementById("writing-tree-container").classList.contains("focus-hidden")).toBe(true)
-  })
-
-  it("移动窄屏渲染快速记录模式", async () => {
-    writingView._loading = false
-    writingView._chapterList = [1]
-    writingView._currentChapter = 1
-    writingView._currentContent = "灵感"
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
-
-    const html = await writingView.render()
-
-    expect(html).toContain("mobile-quick-note")
-    expect(html).toContain("mobile-note-editor")
-  })
-
-  it("移动快速记录在无草稿时使用现有草稿创建接口", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 3
-    writingView._currentDraftId = null
-    writingView._currentTitle = null
-    api.writing.autosaveDraftOnly.mockResolvedValue({
-      id: "d3",
-      version_number: 1,
-      updated_at: "2026-07-03T00:00:00Z",
-    })
-    document.body.innerHTML = '<textarea id="mobile-note-editor">新灵感</textarea>'
-
-    await writingView._saveMobileNote()
-
-    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 3,
-      title: "第 3 章",
-      content: "新灵感",
-    })
-    expect(api.writing.autosave).not.toHaveBeenCalled()
-    expect(writingView._currentDraftId).toBe("d3")
-    expect(toast).toHaveBeenCalledWith("已保存到草稿", "success")
-  })
-
-  it("移动快速记录保存失败时只保留本地暂存并提示失败", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 4
-    writingView._currentDraftId = null
-    api.writing.autosaveDraftOnly.mockRejectedValue(new Error("接口失败"))
-    document.body.innerHTML = '<textarea id="mobile-note-editor">离线灵感</textarea>'
-
-    await writingView._saveMobileNote()
-
-    expect(toast).toHaveBeenCalledWith("接口失败", "error")
-    expect(toast).not.toHaveBeenCalledWith("已保存到草稿", "success")
-    expect(JSON.parse(localStorage.getItem("draft_backup_p1_4"))).toEqual(expect.objectContaining({
-      content: "离线灵感",
-      title: "第 4 章",
-    }))
-  })
-
-  it("写作台读取项目级作者偏好并兼容旧偏好", () => {
-    state.currentProjectId = "p1"
-    localStorage.setItem("novel_author_preferences:p1", JSON.stringify({
-      dailyGoal: 6500,
-      defaultFocusMode: true,
-    }))
-
-    expect(writingView._getDailyGoal()).toBe(6500)
-    expect(writingView._getFocusDefault()).toBe(true)
-
-    localStorage.removeItem("novel_author_preferences:p1")
-    localStorage.setItem("novel_daily_goal", "3200")
-    localStorage.setItem("novel_focus_default", "1")
-
-    expect(writingView._getDailyGoal()).toBe(3200)
-    expect(writingView._getFocusDefault()).toBe(true)
-  })
-
-  it("版本接口失败时仍提示恢复本地暂存", async () => {
-    state.currentProjectId = "p1"
-    autoConfirm()
-    api.writing.getVersionHistory.mockRejectedValue(new Error("backend failed"))
-    localStorage.setItem("draft_backup_p1_1", JSON.stringify({
-      content: "本地暂存正文",
-      title: "本地暂存标题",
-      chapter_index: 1,
-      timestamp: Date.now(),
-    }))
-
-    await writingView._refreshVersions(1)
-
-    expect(writingView._versions).toEqual([])
-    expect(confirmAction).toHaveBeenCalledWith(
-      expect.stringContaining("检测到本地暂存的第 1 章内容"),
-      expect.any(Function),
-      "恢复本地内容",
-    )
-    expect(writingView._currentContent).toBe("本地暂存正文")
-    expect(writingView._currentTitle).toBe("本地暂存标题")
-  })
-
-  it("新建第 3 章不会继承上一章正文", async () => {
-    state.currentProjectId = "p1"
-    writingView._chapterList = [1, 2]
-    writingView._chapters = { 1: { title: "第一章" }, 2: { title: "第二章" } }
-    writingView._currentChapter = 2
-    writingView._currentDraftId = "d2"
-    writingView._currentVersionNumber = 1
-    document.body.innerHTML = `
-      <input id="writing-title-input" value="第二章" />
-      <textarea id="writing-editor">上一章正文不应继承</textarea>
-    `
-    api.writing.autosave.mockResolvedValue({
-      version_number: 1,
-      updated_at: "2026-07-05T00:00:00Z",
-    })
-    api.writing.autosaveDraftOnly.mockResolvedValue({
-      id: "d3",
-      title: "第 3 章",
-      content: "",
-      version_number: 1,
-      status: "draft",
-      updated_at: "2026-07-05T00:01:00Z",
-    })
-    api.outline.listThreads.mockResolvedValue({ items: [] })
-    api.outline.listArcs.mockResolvedValue({ items: [] })
-    vi.spyOn(writingView, "_rerender").mockResolvedValue()
-
-    await writingView._newChapter()
-
-    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 3,
-      title: "第 3 章",
-      content: "",
-    })
-    expect(writingView._currentChapter).toBe(3)
-    expect(writingView._currentContent).toBe("")
-    expect(writingView._lastSavedContent).toBe("")
-    expect(writingView._versions[0].content).toBe("")
-  })
-
-  it("编辑器工具栏显示打开地图按钮", async () => {
-    state.currentProjectId = "p1"
-    writingView._loading = false
-    writingView._chapterList = [1]
-    writingView._currentChapter = 1
-    writingView._chapters = { 1: { draftCount: 0 } }
-
-    const html = await writingView.render()
-
-    expect(html).toContain('data-action="open-map"')
-    expect(html).toContain("打开地图")
-  })
-
-  it("编辑器工具栏显示 AI 生成草稿按钮", async () => {
-    state.currentProjectId = "p1"
-    writingView._loading = false
-    writingView._chapterList = [1]
-    writingView._currentChapter = 1
-    writingView._chapters = { 1: { draftCount: 0 } }
-
-    const html = await writingView.render()
-
-    expect(html).toContain('data-action="ai-generate-draft"')
-    expect(html).toContain("AI 生成草稿")
-  })
-})
-
-describe("writingView AI generation", () => {
-  it("确认 AI 参考资料后提交正文生成任务", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 2
-    writingView._currentTitle = "夜访王都"
-    document.body.innerHTML = `
-      <div id="modal-overlay" class="hidden">
-        <div id="modal-title"></div>
-        <div id="modal-body"></div>
-        <div id="modal-footer"></div>
-      </div>
-    `
-    api.context.confirm.mockResolvedValue({
-      id: "confirm-1",
-      user_note: "保持克制",
-      selected_asset_ids: {},
-      warnings: [],
-    })
-    api.writing.generate.mockResolvedValue({ task_id: "task-1", status: "pending" })
-
-    const promise = writingView._generateDraft()
-    await Promise.resolve()
-    document.querySelectorAll("#modal-footer button")[1].click()
-    await promise
-
-    expect(api.writing.generate).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 2,
-      title: "夜访王都",
-      instruction: "保持克制",
-      context_confirmation_id: "confirm-1",
-    })
-  })
-})
-
-describe("writingView onEnter", () => {
-  it("无项目时 loading=false", async () => {
+    mockChapterList()
+    mockEditorLoad()
     await writingView.onEnter()
-    expect(writingView._loading).toBe(false)
+    await writingView._selectChapter(1)
+
+    api.writing.getVersionHistory.mockClear()
+    await writingView._selectChapter(1)
+
+    expect(api.writing.getVersionHistory).toHaveBeenCalledWith(1, "p1")
   })
 
-  it("有项目时加载数据", async () => {
+  it("切换章节后使用新章节 Scene 刷新冲突检查", async () => {
     state.currentProjectId = "p1"
     api.writing.listChapters.mockResolvedValue({
       chapter_indices: [1, 3],
       chapters: [
-        {
-          chapter_index: 1,
-          title: "第一章",
-          word_count: 1234,
-          version_number: 2,
-          status: "draft",
-        },
-        {
-          chapter_index: 3,
-          title: "第三章",
-          word_count: 3456,
-          version_number: 1,
-          status: "published",
-        },
+        { chapter_index: 1, title: "第一章", word_count: 120, version_number: 1, status: "draft" },
+        { chapter_index: 3, title: "第三章", word_count: 180, version_number: 1, status: "draft" },
       ],
     })
-    api.outline.listScenesOrdered.mockResolvedValue([])
-    await writingView.onEnter()
-    expect(writingView._chapterList).toEqual([1, 3])
-    expect(writingView._chapters[1]).toMatchObject({
-      title: "第一章",
-      draftCount: 2,
-      wordcount: 1234,
-      status: "draft",
-    })
-    expect(writingView._chapterWordcount(3)).toBe("3,456")
-  })
-
-  it("有项目时兼容旧章节索引响应", async () => {
-    state.currentProjectId = "p1"
-    api.writing.listChapters.mockResolvedValue({ chapter_indices: [1, 3] })
-    api.outline.listScenesOrdered.mockResolvedValue([])
-    await writingView.onEnter()
-
-    expect(writingView._chapterList).toEqual([1, 3])
-    expect(writingView._chapters[1]).toEqual({ draftCount: 0 })
-  })
-
-  it("切换到新项目时不恢复旧项目的章节状态", async () => {
-    state.currentProjectId = "p2"
-    state.viewStates.writing = {
-      projectId: "p1",
-      currentChapter: 1,
-      currentContent: "旧项目导入章节正文",
-      currentTitle: "旧项目章节",
-      currentDraftId: "old-draft",
-    }
-    api.writing.listChapters.mockResolvedValue({ chapter_indices: [], chapters: [] })
-    api.outline.listScenesOrdered.mockResolvedValue([])
-
-    await writingView.onEnter()
-
-    expect(writingView._chapterList).toEqual([])
-    expect(writingView._currentChapter).toBeNull()
-    expect(writingView._currentContent).toBeNull()
-    expect(api.writing.getVersionHistory).not.toHaveBeenCalled()
-  })
-
-  it("API 失败时显示章节列表加载失败提示", async () => {
-    state.currentProjectId = "p1"
-    api.writing.listChapters.mockRejectedValue(new Error("fail"))
-    await writingView.onEnter()
-    const html = await writingView.render()
-
-    expect(writingView._chapterList).toEqual([])
-    expect(html).toContain("章节列表加载失败")
-    expect(html).toContain("可稍后重试")
-  })
-})
-
-describe("onLeave", () => {
-  it("保存编辑状态", () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 2
-    writingView._currentTitle = "title"
-    writingView.onLeave()
-    expect(state.viewStates.writing.projectId).toBe("p1")
-    expect(state.viewStates.writing.currentChapter).toBe(2)
-    expect(state.viewStates.writing.currentTitle).toBe("title")
-  })
-})
-
-describe("_confirmAsync", () => {
-  it("resolves false when the modal is closed via overlay click", async () => {
-    document.body.innerHTML = `
-      <button id="modal-close">x</button>
-      <div id="modal-overlay"></div>
-    `
-    confirmAction.mockImplementation((message, onConfirm) => {
-      // confirmAction only exposes the confirm callback; close path is handled by listeners.
-    })
-
-    const promise = writingView._confirmAsync("msg", "确认")
-    document.getElementById("modal-overlay").click()
-
-    await expect(promise).resolves.toBe(false)
-  })
-
-  it("resolves false when Escape is pressed", async () => {
-    document.body.innerHTML = `
-      <button id="modal-close">x</button>
-      <div id="modal-overlay"></div>
-    `
-    confirmAction.mockImplementation(() => {})
-
-    const promise = writingView._confirmAsync("msg", "确认")
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-
-    await expect(promise).resolves.toBe(false)
-  })
-})
-
-describe("save race / mutex", () => {
-  beforeEach(() => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 1
-    writingView._currentDraftId = "d1"
-    writingView._currentVersionNumber = 1
-    writingView._currentUpdatedAt = "2026-06-29T00:00:00Z"
-    writingView._currentTitle = "第一章"
-    writingView._currentContent = "旧正文"
-    writingView._lastSavedContent = "旧正文"
-  })
-
-  it("waits for in-flight autosave before navigating instead of racing", async () => {
-    let resolveAutosave
-    api.writing.autosave.mockImplementation(() => new Promise((resolve) => {
-      resolveAutosave = () => resolve({ version_number: 2, updated_at: "2026-06-29T00:00:01Z" })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "scene-a", title: "Scene A", chapter_ids: ["1"] },
+      { id: "scene-b", title: "Scene B", chapter_ids: ["3"] },
+    ])
+    api.writing.getVersionHistory.mockImplementation((chapterIndex) => Promise.resolve({
+      versions: [{ id: `draft-${chapterIndex}`, version_number: 1 }],
     }))
-    document.body.innerHTML = `
-      <input id="writing-title-input" value="第一章" />
-      <textarea id="writing-editor">新正文</textarea>
-    `
-
-    const autosavePromise = writingView._autosave()
-    expect(writingView._autoSaving).toBe(true)
-
-    const navigatePromise = writingView._saveBeforeNavigate()
-    expect(api.writing.autosave).toHaveBeenCalledTimes(1)
-
-    resolveAutosave()
-    await autosavePromise
-    await navigatePromise
-
-    expect(writingView._lastSavedContent).toBe("新正文")
-    expect(api.writing.autosave).toHaveBeenCalledTimes(1)
-  })
-
-  it("skips concurrent autosave calls and queues navigation save behind the first", async () => {
-    let resolveAutosave
-    api.writing.autosave.mockImplementation(() => new Promise((resolve) => {
-      resolveAutosave = () => resolve({ version_number: 2, updated_at: "2026-06-29T00:00:01Z" })
+    api.writing.get.mockImplementation((draftId) => Promise.resolve({
+      id: draftId,
+      title: draftId === "draft-3" ? "第三章" : "第一章",
+      content: draftId === "draft-3" ? "第三章正文" : "第一章正文",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
     }))
-    document.body.innerHTML = `
-      <input id="writing-title-input" value="第一章" />
-      <textarea id="writing-editor">新正文</textarea>
-    `
-
-    const first = writingView._autosave()
-    const second = writingView._autosave()
-    const navigate = writingView._saveBeforeNavigate()
-
-    resolveAutosave()
-    await first
-    await second
-    await navigate
-
-    expect(api.writing.autosave).toHaveBeenCalledTimes(1)
-    expect(writingView._lastSavedContent).toBe("新正文")
-  })
-})
-
-describe("_findCurrentScene", () => {
-  it("通过 chapter_ids 匹配", () => {
-    writingView._currentChapter = 2
-    writingView._scenes = [
-      { id: "s1", chapter_ids: ["1"] },
-      { id: "s2", chapter_ids: ["2"] },
-    ]
-    expect(writingView._findCurrentScene()?.id).toBe("s2")
-  })
-
-  it("无匹配返回 null", () => {
-    writingView._currentChapter = 99
-    writingView._scenes = [{ id: "s1", chapter_ids: ["1"] }]
-    expect(writingView._findCurrentScene()).toBeNull()
-  })
-
-  it("selects the scene matching the editor cursor offset", () => {
-    writingView._currentChapter = 5
-    writingView._cursorOffset = 1700
-    writingView._scenes = [
-      { id: "s1", title: "前段", scene_chunks: [{ chapter_index: 5, start_pos: 0, end_pos: 1500 }] },
-      { id: "s2", title: "后段", scene_chunks: [{ chapter_index: 5, start_pos: 1500, end_pos: 3000 }] },
-    ]
-
-    expect(writingView._findCurrentScene()?.id).toBe("s2")
-  })
-
-  it("prefers offset match over chapter_ids and scene_chunks", () => {
-    writingView._currentChapter = 5
-    writingView._cursorOffset = 1700
-    writingView._scenes = [
-      { id: "s1", chapter_ids: ["5"], scene_chunks: [{ chapter_index: 5, start_pos: 0, end_pos: 1500 }] },
-      { id: "s2", chapter_ids: [], scene_chunks: [{ chapter_index: 5, start_pos: 1500, end_pos: 3000 }] },
-      { id: "s3", chapter_ids: ["5"] },
-    ]
-
-    expect(writingView._findCurrentScene()?.id).toBe("s2")
-  })
-
-  it("falls back to chapter_ids when offset does not match", () => {
-    writingView._currentChapter = 5
-    writingView._cursorOffset = 4000
-    writingView._scenes = [
-      { id: "s1", scene_chunks: [{ chapter_index: 5, start_pos: 0, end_pos: 1500 }] },
-      { id: "s2", chapter_ids: ["5"] },
-    ]
-
-    expect(writingView._findCurrentScene()?.id).toBe("s2")
-  })
-
-  it("falls back to any scene_chunks for the chapter when chapter_ids does not match", () => {
-    writingView._currentChapter = 5
-    writingView._cursorOffset = 0
-    writingView._scenes = [
-      { id: "s1", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 5, start_pos: 0, end_pos: 100 }] },
-    ]
-
-    expect(writingView._findCurrentScene()?.id).toBe("s1")
-  })
-})
-
-describe("writingView map integration", () => {
-  it("opens current Scene map target in a new browser tab", () => {
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
-    state.currentProjectId = "p1"
-    writingView._sceneMapSummary = {
-      open_target: { mode: "map", map_id: "m1", scene_id: "s1" },
-    }
-
-    writingView._openMapForCurrentScene()
-
-    expect(openSpy).toHaveBeenCalledWith(
-      "#workbench/p1/map?map_id=m1&scene_id=s1&mode=map",
-      "_blank",
-      "noopener"
-    )
-    openSpy.mockRestore()
-  })
-
-  it("opens fallback map target in a new tab and shows fallback message", () => {
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
-    state.currentProjectId = "p1"
-    writingView._scenes = [{ id: "s1", chapter_ids: ["1"] }]
-    writingView._currentChapter = 1
-    writingView._sceneMapSummary = {
-      open_target: {
-        mode: "recent",
-        scene_id: "s1",
-        fallback_message: "当前 Scene 暂无地图上下文，已回退到最近地图",
-      },
-    }
-
-    writingView._openMapForCurrentScene()
-
-    expect(toast).toHaveBeenCalledWith(
-      "当前 Scene 暂无地图上下文，已回退到最近地图",
-      "warning",
-    )
-    expect(openSpy).toHaveBeenCalledWith(
-      "#workbench/p1/map?scene_id=s1&mode=recent",
-      "_blank",
-      "noopener"
-    )
-    openSpy.mockRestore()
-  })
-
-  it("renders compact Scene map summary", () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 1
-    writingView._scenes = [{ id: "s1", scene_index: 1, title: "东门", chapter_ids: ["1"] }]
-    writingView._sceneMapSummary = {
-      primary_location: { name: "洛阳外城" },
-      characters: [{ name: "沈砚" }],
-      events: [{ name: "东门封锁" }],
-      factions: [{ name: "北府" }],
-      crises: [{ name: "粮仓起火" }],
-      risks: [{ message: "陆青跨图移动需复核" }],
-      warnings: [{ message: "陆青上一场在江陵，需确认移动合理性" }],
-    }
-
-    const html = writingView._renderScenePanel()
-
-    expect(html).toContain("地图摘要")
-    expect(html).toContain("洛阳外城")
-    expect(html).toContain("沈砚")
-    expect(html).toContain("东门封锁")
-    expect(html).toContain("北府")
-    expect(html).toContain("粮仓起火")
-    expect(html).toContain("陆青跨图移动需复核")
-    expect(html).toContain("陆青上一场")
-  })
-
-  it("renders stable copy for spatial continuity warning codes", () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 1
-    writingView._scenes = [{ id: "s1", chapter_ids: ["1"], title: "旧城门" }]
-    writingView._sceneMapSummary = {
-      primary_location: null,
-      characters: [],
-      events: [],
-      factions: [],
-      warnings: [
-        { code: "scene_without_map_context" },
-        { code: "scene_without_location" },
-        { code: "character_cross_map", message: "陆青上一场在其他地图，需确认移动合理性" },
-      ],
-    }
-
-    const html = writingView._renderScenePanel()
-
-    expect(html).toContain("当前 Scene 暂无地图上下文")
-    expect(html).toContain("当前 Scene 暂无主地点")
-    expect(html).toContain("陆青上一场在其他地图")
-  })
-
-  it("shows summary fallback text when scene-summary fails", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentSceneId = "s1"
-    writingView._sceneMapSummaryPendingSceneId = "s1"
-    api.world.getMapSceneSummary.mockRejectedValue(new Error("fail"))
-
-    await writingView._loadCurrentSceneMapSummary({ id: "s1" })
-
-    expect(writingView._sceneMapSummary).toBeNull()
-    expect(writingView._sceneMapSummaryError).toBe("地图摘要暂不可用")
-    expect(writingView._sceneMapSummarySceneId).toBe("s1")
-  })
-
-  it("does not cache stale scene-summary results after scene switch", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentSceneId = "s1"
-    writingView._sceneMapSummaryPendingSceneId = "s1"
-    let resolveSummary
-    api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => {
-      resolveSummary = resolve
-    }))
-
-    const pending = writingView._loadCurrentSceneMapSummary({ id: "s1" })
-    writingView._currentSceneId = "s2"
-    writingView._sceneMapSummaryPendingSceneId = "s2"
-    resolveSummary({ primary_location: { name: "旧地点" } })
-    await pending
-
-    expect(writingView._sceneMapSummary).toBeNull()
-    expect(writingView._sceneMapSummaryError).toBeNull()
-    expect(writingView._sceneMapSummarySceneId).toBeNull()
-  })
-
-  it("only sets sceneMapSummarySceneId after load completes and scene is still current", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentSceneId = "s1"
-    writingView._sceneMapSummaryPendingSceneId = "s1"
-    api.world.getMapSceneSummary.mockResolvedValue({ primary_location: { name: "洛阳" } })
-
-    await writingView._loadCurrentSceneMapSummary({ id: "s1" })
-
-    expect(writingView._sceneMapSummarySceneId).toBe("s1")
-    expect(writingView._sceneMapSummary).toEqual({ primary_location: { name: "洛阳" } })
-    expect(writingView._sceneMapSummaryLoading).toBe(false)
-    expect(writingView._sceneMapSummaryPendingSceneId).toBeNull()
-  })
-
-  it("discards scene-summary result when scene changed during load", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentSceneId = "s1"
-    writingView._sceneMapSummaryPendingSceneId = "s1"
-    let resolveSummary
-    api.world.getMapSceneSummary.mockReturnValue(new Promise((resolve) => {
-      resolveSummary = resolve
-    }))
-
-    const pending = writingView._loadCurrentSceneMapSummary({ id: "s1" })
-    writingView._currentSceneId = "s2"
-    writingView._sceneMapSummaryPendingSceneId = "s2"
-    resolveSummary({ primary_location: { name: "旧地点" } })
-    await pending
-
-    expect(writingView._sceneMapSummary).toBeNull()
-    expect(writingView._sceneMapSummarySceneId).toBeNull()
-  })
-})
-
-describe("writingView deep import polling", () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    state.currentProjectId = "p1"
-    writingView._deepImportTaskId = "deep-1"
-    writingView._deepImportProgress = {
-      workflowType: "deep_import",
-      stage: "scenes",
-      label: "深度导入",
-      phase: "running",
-      step: "",
-      message: "运行中",
-      percent: 0,
-      degraded: false,
-      degradedBatches: [],
-      phaseError: "",
-      phaseErrors: [],
-      qualityStatus: "pending",
-      auditSummary: {},
-      snapshotHealthSummary: {},
-    }
-    writingView._deepImportPollFailures = 0
-  })
-
-  afterEach(() => {
-    writingView._stopDeepImportPolling()
-    vi.useRealTimers()
-  })
-
-  it("stops polling after 5 consecutive task query failures and toasts an error", async () => {
-    api.tasks.get.mockRejectedValue(new Error("network down"))
-
-    writingView._startDeepImportPolling()
-    for (let i = 0; i < 5; i += 1) {
-      await vi.advanceTimersByTimeAsync(3000)
-    }
-
-    expect(api.tasks.get).toHaveBeenCalledTimes(5)
-    expect(writingView._deepImportTaskId).toBeNull()
-    expect(writingView._deepImportTimer).toBeNull()
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining("连续失败 5 次"), "error")
-  })
-
-  it("resets the failure counter after a successful poll", async () => {
-    api.tasks.get
-      .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValue({
-        task_id: "deep-1",
-        task_type: "deep_import",
-        status: "running",
-        progress: 0.5,
-        result: { completed_steps: ["scene_segmentation"] },
-      })
-
-    writingView._startDeepImportPolling()
-    await vi.advanceTimersByTimeAsync(3000)
-    expect(writingView._deepImportPollFailures).toBe(1)
-    await vi.advanceTimersByTimeAsync(3000)
-    expect(writingView._deepImportPollFailures).toBe(0)
-  })
-})
-
-describe("writingView conflict checks", () => {
-  beforeEach(() => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 1
-    writingView._currentDraftId = "d1"
-    writingView._currentVersionNumber = 2
-    writingView._currentUpdatedAt = "2026-06-29T00:00:00Z"
-    writingView._currentTitle = "第一章"
-    writingView._currentContent = "旧正文"
-    writingView._scenes = [{ id: "s1", title: "东门", chapter_ids: ["1"] }]
-    writingView._currentSceneId = "s1"
-    document.body.innerHTML = `
-      <input id="writing-title-input" value="第一章" />
-      <textarea id="writing-editor">新正文</textarea>
-    `
-  })
-
-  it("does not autosave or create a conflict check when options modal is cancelled", async () => {
-    const pending = writingView._runConflictCheck()
-    await Promise.resolve()
-    showModal.mock.calls[0][2][0].handler()
-    await pending
-
-    expect(api.writing.autosave).not.toHaveBeenCalled()
-    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
-    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
-    expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
-  })
-
-  it("treats global modal close as conflict check cancellation", async () => {
-    document.body.insertAdjacentHTML("beforeend", `
-      <button id="modal-close">x</button>
-      <div id="modal-overlay"></div>
-    `)
-
-    const pending = writingView._runConflictCheck()
-    await Promise.resolve()
-    document.getElementById("modal-close").click()
-    await pending
-
-    expect(api.writing.autosave).not.toHaveBeenCalled()
-    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
-    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
-    expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
-  })
-
-  it("ignores repeated conflict check triggers while options modal is active", async () => {
-    const first = writingView._runConflictCheck()
-    const second = writingView._runConflictCheck()
-    await Promise.resolve()
-
-    expect(showModal).toHaveBeenCalledTimes(1)
-
-    showModal.mock.calls[0][2][0].handler()
-    await first
-    await second
-
-    expect(api.writing.autosave).not.toHaveBeenCalled()
-    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
-    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
-    expect(api.writing.listConflictChecks).not.toHaveBeenCalled()
-  })
-
-  it("autosaves before creating a conflict check", async () => {
     api.writing.autosave.mockResolvedValue({
-      id: "d1",
       version_number: 2,
-      updated_at: "2026-06-29T00:00:01Z",
-    })
-    api.writing.createConflictCheck.mockResolvedValue({
-      id: "c1",
-      items: [],
-      summary_json: { total: 0 },
+      updated_at: "2026-07-05T00:01:00Z",
     })
     api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
 
-    const pending = writingView._runConflictCheck()
-    await Promise.resolve()
-    expect(showModal).toHaveBeenCalledWith(
-      "剧情设定冲突检查",
-      expect.objectContaining({ html: expect.stringContaining("writing-conflict-include-candidates") }),
-      expect.any(Array),
-    )
-    showModal.mock.calls[0][2][1].handler()
-    await pending
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    expect(state._currentSceneId).toBe("scene-a")
 
-    expect(api.writing.autosave.mock.invocationCallOrder[0]).toBeLessThan(
-      api.writing.createConflictCheck.mock.invocationCallOrder[0],
-    )
-    expect(api.writing.createConflictCheck).toHaveBeenCalledWith({
+    api.writing.listConflictChecks.mockClear()
+    await writingView._selectChapter(3)
+
+    expect(state._currentSceneId).toBe("scene-b")
+    expect(api.writing.listConflictChecks).toHaveBeenLastCalledWith({
       novel_id: "p1",
-      chapter_index: 1,
-      scene_id: "s1",
-      draft_id: "d1",
-      version_number: 2,
-      content: "新正文",
-      include_candidates: false,
+      chapter_index: 3,
+      limit: 1,
     })
   })
+})
 
-  it("passes include_candidates true when conflict check options include candidates", async () => {
-    api.writing.autosave.mockResolvedValue({
-      id: "d1",
-      version_number: 2,
-      updated_at: "2026-06-29T00:00:01Z",
-    })
-    api.writing.createConflictCheck.mockResolvedValue({
-      id: "c1",
-      items: [],
-      summary_json: { total: 0 },
-    })
-    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+describe("writingView editor callbacks", () => {
+  it("字数更新同步顶部仪表盘", async () => {
+    const updateDashboard = vi.fn()
+    globalThis.App = { updateWordcountDashboard: updateDashboard }
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
 
-    const pending = writingView._runConflictCheck()
-    await Promise.resolve()
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
-    document.getElementById("writing-conflict-include-candidates").checked = true
-    showModal.mock.calls[0][2][1].handler()
-    await pending
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
 
-    expect(api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
-      include_candidates: true,
-    }))
-  })
-
-  it("does not create a conflict check when autosave fails", async () => {
-    api.writing.autosave.mockRejectedValue(new Error("save failed"))
-
-    const pending = writingView._runConflictCheck()
-    await Promise.resolve()
-    showModal.mock.calls[0][2][1].handler()
-    await pending
-
-    expect(api.writing.createConflictCheck).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("save failed", "error")
-  })
-
-  it("refreshes conflict history after AI review completes in the modal", async () => {
-    const rerenderStub = stubMethod(writingView, "_rerender")
-    const initialCheck = {
-      id: "c1",
-      chapter_index: 1,
-      include_candidates: false,
-      items: [],
-    }
-    const updatedCheck = {
-      ...initialCheck,
-      ai_review_status: "done",
-      items: [{ id: "i1", is_ai_judgment: true, kind: "motivation_gap" }],
-    }
-    writingView._conflictChecks = [initialCheck]
-    api.context.confirm.mockResolvedValue({
-      id: "confirm-ai",
-      selected_asset_ids: {},
-      warnings: [],
-    })
-    api.writing.runConflictAiReview.mockResolvedValue(updatedCheck)
-    api.writing.listConflictChecks.mockResolvedValue({
-      items: [updatedCheck],
-      total: 1,
-    })
-    document.body.innerHTML = `
-      <div id="modal-overlay" class="hidden">
-        <div id="modal-title"></div>
-        <div id="modal-body"></div>
-        <div id="modal-footer"></div>
-      </div>
-    `
-
-    writingView._openConflictCheck("c1")
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
-    document.querySelector("[data-conflict-ai-review]").click()
-    await Promise.resolve()
-    document.querySelectorAll("#modal-footer button")[1].click()
-    for (let i = 0; i < 6; i += 1) await Promise.resolve()
-
-    expect(api.writing.listConflictChecks).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 1,
-      scene_id: "s1",
-      limit: 10,
-    })
-    expect(writingView._latestConflictCheck).toEqual(updatedCheck)
-    rerenderStub.mockRestore()
-  })
-
-  it("applies edited AI conflict suggestion to the writing editor", () => {
-    const scheduleSpy = vi.spyOn(writingView, "_scheduleAutoSave").mockImplementation(() => {})
-    writingView._conflictChecks = [{
-      id: "c1",
-      chapter_index: 1,
-      scene_id: "s1",
-      items: [{
-        id: "i1",
-        kind: "motivation_gap",
-        severity: "medium",
-        source_module: "ai",
-        evidence_summary: "缺少动机",
-        status: "open",
-        ai_suggestion: JSON.stringify({
-          strategy: "补动机",
-          suggested_text: "补一段犹豫。",
-          rationale: "减少跳变",
-        }),
-      }],
-    }]
-    document.body.innerHTML = '<textarea id="writing-editor">正文</textarea>'
     const editor = document.getElementById("writing-editor")
-    editor.selectionStart = editor.selectionEnd = 2
+    editor.value = "新正文内容"
+    editor.dispatchEvent(new Event("input"))
 
-    writingView._openConflictCheck("c1")
-    document.body.insertAdjacentHTML("beforeend", showModal.mock.calls[0][1].html)
-    const draft = document.querySelector('[data-conflict-suggestion-draft="i1"]')
-    draft.value = "用户改过的建议。"
-    document.querySelector('[data-conflict-apply-suggestion="i1"]').click()
-
-    expect(editor.value).toBe("正文用户改过的建议。")
-    expect(writingView._currentContent).toBe("正文用户改过的建议。")
-    scheduleSpy.mockRestore()
+    expect(updateDashboard).toHaveBeenCalledWith(expect.objectContaining({
+      chapterIndex: 1,
+      chapterWords: 5,
+    }))
   })
 
-  it("warns before publishing unresolved high severity checks", async () => {
-    autoConfirm()
-    api.writing.listConflictChecks.mockResolvedValue({
-      items: [
-        {
-          id: "c1",
-          summary_json: { open_high_count: 1 },
-          items: [{ severity: "high", status: "open" }],
-        },
-      ],
-      total: 1,
-    })
-    api.writing.publish.mockResolvedValue({
-      draft: {
-        id: "d2",
-        version_number: 3,
-        title: "第一章",
-        content: "新正文",
-      },
-    })
-    api.writing.getVersionHistory.mockResolvedValue({
-      versions: [{ id: "d2", version_number: 3, title: "第一章", word_count: 3 }],
-    })
-    api.writing.get.mockResolvedValue({
-      id: "d2",
-      version_number: 3,
-      title: "第一章",
-      content: "新正文",
+  it("保存状态变化更新徽章", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._editor.setState({ lastPublishStatus: "未保存" })
+    writingView._editor.updateMeta()
+
+    expect(document.getElementById("writing-save-status").textContent).toBe("未保存")
+  })
+})
+
+describe("writingView versions", () => {
+  it("版本切换回调加载对应草稿到编辑器", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    api.writing.get.mockResolvedValueOnce({
+      id: "draft-old",
+      title: "旧版本",
+      content: "旧版本正文",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
     })
 
-    await writingView._publish()
+    await writingView._onVersionSwitch({
+      draftId: "draft-old",
+      versionNumber: 1,
+      isReadonly: true,
+      restoreSourceVersion: 1,
+      title: "旧版本",
+      content: "旧版本正文",
+      updatedAt: "2026-07-05T00:00:00Z",
+    })
+
+    expect(writingView._editor.isReadonly()).toBe(true)
+    expect(writingView._editor.getContent()).toBe("旧版本正文")
+  })
+})
+
+describe("writingView publish", () => {
+  beforeEach(() => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+  })
+
+  it("发布前调用二次确认", async () => {
+    autoConfirm()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    api.writing.publish.mockResolvedValue({ draft: { id: "d2", version_number: 2, status: "published" } })
+
+    await writingView._handlePublish()
+
+    expect(confirmAction).toHaveBeenCalled()
+    expect(api.writing.publish).toHaveBeenCalled()
+  })
+
+  it("高严重度未处理时阻止发布并提示", async () => {
+    autoConfirm()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [{
+        id: "c1",
+        summary_json: { open_high_count: 1 },
+        items: [{ severity: "high", status: "open" }],
+      }],
+      total: 1,
+    })
+    api.writing.publish.mockResolvedValue({ draft: { id: "d2", version_number: 2, status: "published" } })
+
+    await writingView._handlePublish()
 
     expect(confirmAction).toHaveBeenCalledWith(
       expect.stringContaining("未处理高严重度问题"),
       expect.any(Function),
       "继续发布",
     )
-    expect(api.writing.publish).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 1,
-      scene_id: "s1",
-      title: "第一章",
-      content: "新正文",
-    })
   })
 
-  it("does not warn on publish when high severity items are already resolved", async () => {
-    api.writing.listConflictChecks.mockResolvedValue({
-      items: [
-        {
-          id: "c1",
-          summary_json: { open_high_count: 1 },
-          items: [{ severity: "high", status: "resolved" }],
-        },
-      ],
-      total: 1,
-    })
+  it("发布后刷新章节状态", async () => {
+    autoConfirm()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
     api.writing.publish.mockResolvedValue({
-      draft: {
-        id: "d2",
-        version_number: 3,
-        title: "第一章",
-        content: "新正文",
-      },
+      draft: { id: "d2", version_number: 2, title: "第一章", content: "发布正文", status: "published" },
     })
     api.writing.getVersionHistory.mockResolvedValue({
-      versions: [{ id: "d2", version_number: 3, title: "第一章", word_count: 3 }],
+      versions: [{ id: "d2", version_number: 2, title: "第一章", word_count: 4, status: "published" }],
     })
     api.writing.get.mockResolvedValue({
       id: "d2",
-      version_number: 3,
       title: "第一章",
-      content: "新正文",
+      content: "发布正文",
+      version_number: 2,
+      status: "published",
+      updated_at: "2026-07-05T00:02:00Z",
     })
 
-    await writingView._publish()
-
-    expect(confirmAction).not.toHaveBeenCalled()
-    expect(api.writing.publish).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 1,
-      scene_id: "s1",
-      title: "第一章",
-      content: "新正文",
-    })
+    await writingView._handlePublish()
+    await vi.waitFor(() => expect(writingView._chapters[1].status).toBe("published"))
   })
+})
 
-  it("发布后启动并轮询 publish task，显示成功状态且不走 draft-only churn", async () => {
-    vi.spyOn(writingView, "_confirmBeforePublish").mockResolvedValue(true)
-    vi.spyOn(writingView, "_refreshVersions").mockImplementation(async () => {
-      writingView._currentDraftId = "d6"
-      writingView._currentVersionNumber = 6
-      writingView._currentUpdatedAt = "2026-07-05T00:06:00Z"
-    })
-    vi.spyOn(writingView, "_rerender").mockImplementation(async () => {
-      const status = document.getElementById("writing-save-status")
-      if (status) status.textContent = writingView._saveStatusText()
-    })
-
+describe("writingView _confirmBeforePublish", () => {
+  beforeEach(() => {
     state.currentProjectId = "p1"
-    writingView._currentChapter = 3
-    writingView._currentSceneId = "s1"
-    writingView._scenes = [{ id: "s1", title: "回声仓", chapter_ids: ["3"] }]
-    writingView._chapters = {
-      3: { title: "第三章 归潮尽头", draftCount: 6, wordcount: 1095, status: "draft" },
-    }
-    writingView._currentDraftId = "d6"
-    writingView._currentVersionNumber = 6
-    writingView._currentTitle = "第三章 归潮尽头"
-    writingView._currentContent = "归潮正文"
-    writingView._lastSavedContent = "归潮正文"
-    document.body.innerHTML = `
-      <input id="writing-title-input" value="第三章 归潮尽头" />
-      <textarea id="writing-editor">归潮正文</textarea>
-      <button id="btn-publish"></button>
-      <button id="btn-autosave"></button>
-      <span id="writing-save-status"></span>
-      <div id="writing-publish-bar-container"></div>
-      <span id="publish-status-dot"></span>
-    `
-    api.writing.publish.mockResolvedValue({
-      draft: {
-        id: "d6",
-        version_number: 6,
-        title: "第三章 归潮尽头",
-        content: "归潮正文",
-        status: "published",
-      },
-      task_id: "publish-task-6",
-    })
-    api.tasks.get.mockResolvedValue({
-      task_id: "publish-task-6",
-      task_type: "publish_chapter",
-      status: "done",
-      progress: null,
-      result: { message: "发布完成" },
-    })
-
-    await writingView._publish()
-
-    await vi.waitFor(() => {
-      expect(api.tasks.get).toHaveBeenCalledWith("publish-task-6", "p1")
-    })
-    expect(api.writing.autosaveDraftOnly).not.toHaveBeenCalled()
-    expect(writingView._chapters[3].status).toBe("published")
-    expect(writingView._lastPublishStatus).toBe("发布成功")
-    expect(document.getElementById("writing-save-status").textContent).toBe("发布成功")
-    expect(document.getElementById("writing-publish-bar-container").textContent).toContain("发布完成")
   })
 
-  it("locates conflict items with nested evidence text ranges", () => {
+  it("没有冲突检查记录时提示确认", async () => {
+    api.writing.listConflictChecks.mockResolvedValue({ items: [] })
+    autoConfirm()
+
+    const result = await writingView._confirmBeforePublish(1, null)
+
+    expect(result).toBe(true)
+    expect(confirmAction).toHaveBeenCalledWith(
+      "当前章节还没有剧情设定冲突检查记录。可以继续发布，也可以先运行检查。",
+      expect.any(Function),
+      "继续发布",
+    )
+  })
+
+  it("存在未处理高严重度问题时提示确认", async () => {
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [{
+        id: "c1",
+        items: [{ severity: "high", status: "open" }],
+        summary_json: { open_high_count: 1 },
+      }],
+    })
+    autoConfirm()
+
+    const result = await writingView._confirmBeforePublish(1, null)
+
+    expect(result).toBe(true)
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("1 个未处理高严重度问题"),
+      expect.any(Function),
+      "继续发布",
+    )
+  })
+
+  it("没有未处理高严重度问题时直接放行", async () => {
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [{
+        id: "c1",
+        items: [{ severity: "low", status: "open" }],
+        summary_json: { open_high_count: 0 },
+      }],
+    })
+
+    const result = await writingView._confirmBeforePublish(1, null)
+
+    expect(result).toBe(true)
+    expect(confirmAction).not.toHaveBeenCalled()
+  })
+})
+
+describe("writingView conflict check", () => {
+  beforeEach(async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+  })
+
+  it("运行冲突检查前先自动保存", async () => {
+    api.writing.autosave.mockResolvedValue({ version_number: 2, updated_at: "2026-07-05T00:01:00Z" })
+    const runSpy = vi.spyOn(writingView._conflictCheck, "run").mockResolvedValue()
+
+    await writingView._runConflictCheck()
+
+    expect(api.writing.autosave).toHaveBeenCalled()
+    expect(runSpy).toHaveBeenCalledWith(1, expect.any(Function))
+    runSpy.mockRestore()
+  })
+
+  it("定位冲突来源设置编辑器选区", () => {
     document.body.innerHTML = '<textarea id="writing-editor">主角死亡。王后沉默。</textarea>'
     const editor = document.getElementById("writing-editor")
 
-    writingView._locateConflictItem(
-      {
-        items: [
-          {
-            id: "i1",
-            location_json: {
-              text_range: { start: 0, end: 4 },
-              source: { module: "outline" },
-            },
-          },
-        ],
-      },
-      "i1",
-    )
+    writingView._conflictCheck.locateItem({
+      items: [{
+        id: "i1",
+        location_json: { text_range: { start: 0, end: 4 } },
+      }],
+    }, "i1")
 
     expect(editor.selectionStart).toBe(0)
     expect(editor.selectionEnd).toBe(4)
-    expect(toast).not.toHaveBeenCalledWith("该问题暂无正文定位", "info")
   })
 
-  it("opens map sources from map_object open target", () => {
-    const openMapSpy = stubMethod(writingView, "_openMapForCurrentScene")
-
-    writingView._openConflictSource(
-      {
-        items: [
-          {
-            id: "i1",
-            location_json: {
-              open_target: { kind: "map_object", object_id: "obj1" },
-            },
-          },
-        ],
-      },
-      "i1",
-    )
-
-    expect(openMapSpy).toHaveBeenCalled()
-    openMapSpy.mockRestore()
-  })
-
-  it("locates text range sources from text_range open target", () => {
-    document.body.innerHTML = '<textarea id="writing-editor">主角死亡。王后沉默。</textarea>'
-    const editor = document.getElementById("writing-editor")
-
-    writingView._openConflictSource(
-      {
-        items: [
-          {
-            id: "i1",
-            location_json: {
-              open_target: { kind: "text_range" },
-              text_range: { start: 5, end: 9 },
-            },
-          },
-        ],
-      },
-      "i1",
-    )
-
-    expect(editor.selectionStart).toBe(5)
-    expect(editor.selectionEnd).toBe(9)
-    expect(toast).not.toHaveBeenCalledWith("该来源暂无可打开视图", "info")
-  })
-
-  it("opens outline sources from outline_scene open target with location hint", () => {
-    writingView._openConflictSource(
-      {
-        items: [
-          {
-            id: "i1",
-            location_json: {
-              open_target: { kind: "outline_scene", scene_id: "s1" },
-              source: { label: "东门 Scene" },
-            },
-          },
-        ],
-      },
-      "i1",
-    )
+  it("outline_scene 来源跳转到大纲视图", () => {
+    writingView._conflictCheck.openSource({
+      items: [{
+        id: "i1",
+        location_json: {
+          open_target: { kind: "outline_scene", scene_id: "s1" },
+          source: { label: "东门 Scene" },
+        },
+      }],
+    }, "i1")
 
     expect(router.navigate).toHaveBeenCalledWith("outline", null)
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("东门 Scene"), "info")
   })
-
-  it("shows memory chapter source modal from memory_chapter open target", () => {
-    writingView._openConflictSource(
-      {
-        items: [
-          {
-            id: "i1",
-            location_json: {
-              open_target: {
-                kind: "memory_chapter",
-                chapter_index: 4,
-                character_id: "char-1",
-              },
-            },
-          },
-        ],
-      },
-      "i1",
-    )
-
-    expect(showModal).toHaveBeenCalledWith(
-      "记忆来源",
-      expect.objectContaining({ html: expect.stringContaining("char-1") }),
-      expect.any(Array),
-    )
-    expect(showModal.mock.calls[0][1].html).toContain("第 4 章")
-  })
 })
 
-describe("_updateCurrentScene", () => {
-  it("updates _currentSceneId to the matched scene id", () => {
-    writingView._currentChapter = 2
-    writingView._scenes = [
-      { id: "s1", chapter_ids: ["1"] },
-      { id: "s2", chapter_ids: ["2"] },
-    ]
-    writingView._updateCurrentScene()
-    expect(writingView._currentSceneId).toBe("s2")
-  })
-
-  it("sets _currentSceneId to null when no scene matches", () => {
-    writingView._currentChapter = 99
-    writingView._scenes = [{ id: "s1", chapter_ids: ["1"] }]
-    writingView._currentSceneId = "s1"
-    writingView._updateCurrentScene()
-    expect(writingView._currentSceneId).toBeNull()
-  })
-})
-
-describe("cursor events", () => {
+describe("writingView deep import / auto extraction", () => {
   beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    writingView._currentChapter = 1
-    writingView._scenes = [{ id: "s1", chapter_ids: ["1"], title: "Scene A" }]
-    writingView._currentSceneId = null
-    writingView._cursorOffset = 0
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+  })
+
+  it("自动提取任务提交后交给 deepImportRecovery 轮询", async () => {
+    await writingView.onEnter()
+    api.imports.startStage.mockResolvedValue({ task_id: "task-1" })
+    const startTaskSpy = vi.spyOn(writingView._deepImportRecovery, "startTask").mockImplementation(() => {})
+
+    writingView._autoExtraction.showForm("scenes")
+    const handler = captureModalHandler()
     document.body.innerHTML = `
-      <div id="workspace-content">
-        <textarea id="writing-editor">hello world</textarea>
-        <div id="writing-panel-container"></div>
-      </div>
+      <input id="auto-extract-start" value="1" />
+      <input id="auto-extract-end" value="3" />
+      <input id="auto-extract-high-quality" type="checkbox" />
+    `
+    await handler()
+
+    expect(startTaskSpy).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task-1" }))
+    startTaskSpy.mockRestore()
+  })
+})
+
+describe("writingView focus mode", () => {
+  it("切换专注模式隐藏两侧面板", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    document.body.innerHTML = `
+      <header id="topbar"></header>
+      <nav id="sidebar"></nav>
+      <div id="workspace-content">${await writingView.render()}</div>
     `
     writingView._bindEvents()
-  })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+    document.querySelector('[data-action="toggle-focus-mode"]').click()
 
-  it("click updates _cursorOffset and re-renders the panel", () => {
-    const editor = document.getElementById("writing-editor")
-    editor.selectionStart = 5
-    editor.focus()
-    editor.click()
-    expect(writingView._cursorOffset).toBe(5)
-    expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene A")
-  })
-
-  it("selectionchange updates _cursorOffset and re-renders the panel", () => {
-    const editor = document.getElementById("writing-editor")
-    editor.selectionStart = 3
-    editor.focus()
-    document.dispatchEvent(new Event("selectionchange"))
-    expect(writingView._cursorOffset).toBe(3)
-    expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene A")
-  })
-
-  it("keyup debounces panel update and updates _cursorOffset", () => {
-    const editor = document.getElementById("writing-editor")
-    editor.selectionStart = 7
-    editor.focus()
-    document.dispatchEvent(new Event("selectionchange"))
-    expect(writingView._cursorOffset).toBe(7)
-    expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene A")
-
-    // Change scene data to prove the debounced keyup re-renders after the delay
-    writingView._scenes = [{ id: "s2", chapter_ids: ["1"], title: "Scene B" }]
-    editor.dispatchEvent(new KeyboardEvent("keyup"))
-    expect(writingView._cursorDebounceTimer).not.toBeNull()
-    // Scene B is not rendered yet before the debounce fires
-    expect(document.getElementById("writing-panel-container").innerHTML).not.toContain("Scene B")
-
-    vi.advanceTimersByTime(150)
-    expect(writingView._cursorDebounceTimer).toBeNull()
-    expect(document.getElementById("writing-panel-container").innerHTML).toContain("Scene B")
+    expect(writingView._focusMode).toBe(true)
+    expect(document.body.classList.contains("focus-mode-active")).toBe(true)
   })
 })
 
-describe("_bindEvents", () => {
-  it("autosave 按钮触发 _autosave", () => {
-    const spy = stubMethod(writingView, "_autosave")
-    document.body.innerHTML = '<div id="workspace-content"><button data-action="autosave">x</button></div>'
-    writingView._bindEvents()
-    document.querySelector("#workspace-content button").click()
-    expect(spy).toHaveBeenCalled()
-    spy.mockRestore()
+describe("writingView mobile quick note", () => {
+  it("移动窄屏渲染快速记录模式", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    const html = await writingView.render()
+    expect(html).toContain("mobile-quick-note")
+    expect(html).toContain("mobile-note-editor")
+  })
+})
+
+describe("writingView onLeave / onActivate / onDeactivate", () => {
+  it("onLeave 保存编辑状态", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    writingView.onLeave()
+
+    expect(state.viewStates.writing.projectId).toBe("p1")
+    expect(state.viewStates.writing.currentChapter).toBe(1)
+    expect(state.viewStates.writing.currentTitle).toBe("第一章")
   })
 
-  it("空项目点击新建章节会创建第一章草稿并进入编辑器", async () => {
+  it("onActivate 重新绑定事件", async () => {
     state.currentProjectId = "p1"
-    writingView._loading = false
-    writingView._chapterList = []
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    const bindSpy = vi.spyOn(writingView, "_bindEvents").mockImplementation(() => {})
+    await writingView.onActivate()
+    expect(bindSpy).toHaveBeenCalled()
+    bindSpy.mockRestore()
+  })
+})
+
+describe("writingView bulk actions", () => {
+  it("批量删除选中章节并清空当前章状态", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapter_indices: [1, 2],
+      chapters: [
+        { chapter_index: 1, title: "一", word_count: 10, version_number: 1 },
+        { chapter_index: 2, title: "二", word_count: 10, version_number: 1 },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    mockEditorLoad()
+    api.writing.deleteChapter.mockResolvedValue({})
+    autoConfirm()
+    await writingView.onEnter()
+    await writingView._selectChapter(2)
+
+    // 模拟 chapterTree 的批量删除回调
+    writingView._chapterTree._setBulkSelections({ "writing-chapters": new Set(["1", "2"]) })
+    writingView._chapterTree.runBulkAction("delete-chapters")
+
+    await vi.waitFor(() => {
+      expect(api.writing.deleteChapter).toHaveBeenCalledWith(1, "p1")
+      expect(api.writing.deleteChapter).toHaveBeenCalledWith(2, "p1")
+    })
+    await vi.waitFor(() => expect(writingView._currentChapter).toBeNull())
+  })
+})
+
+describe("writingView XSS safety", () => {
+  it("版本下拉转义 draft id 属性", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: 'd1" onclick="alert(1)', version_number: 1, title: "第一章", word_count: 1 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: 'd1" onclick="alert(1)',
+      title: "第一章",
+      content: "正文",
+      version_number: 1,
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    const container = renderHtml(writingView._versions.render())
+    const option = container.querySelector("option")
+
+    expect(option?.getAttribute("onclick")).toBeNull()
+    expect(option?.value).toBe('d1" onclick="alert(1)')
+  })
+})
+
+describe("writingView new chapter", () => {
+  beforeEach(async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapter_indices: [1, 2],
+      chapters: [
+        { chapter_index: 1, title: "第一章", word_count: 4, version_number: 1, status: "draft" },
+        { chapter_index: 2, title: "第二章", word_count: 6, version_number: 1, status: "draft" },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    api.writing.autosave.mockResolvedValue({
+      version_number: 2,
+      updated_at: "2026-07-05T00:01:00Z",
+    })
+    api.writing.getVersionHistory.mockImplementation((chapterIndex) => Promise.resolve({
+      versions: [{ id: `draft-${chapterIndex}`, version_number: 1, title: `第 ${chapterIndex} 章`, word_count: 0 }],
+    }))
+    api.writing.get.mockImplementation((draftId) => Promise.resolve({
+      id: draftId,
+      title: `第 ${draftId.replace("draft-", "")} 章`,
+      content: "",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
+    }))
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+  })
+
+  it("创建新章节后出现在章节树并自动选中", async () => {
     api.writing.autosaveDraftOnly.mockResolvedValue({
-      id: "draft-1",
-      chapter_index: 1,
-      title: "第 1 章",
+      id: "draft-3",
+      chapter_index: 3,
+      title: "第 3 章",
       content: "",
       version_number: 1,
       status: "draft",
       updated_at: "2026-07-05T00:00:00Z",
     })
-    api.outline.listThreads.mockResolvedValue({ items: [] })
-    api.outline.listArcs.mockResolvedValue({ items: [] })
-    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
-    writingView._bindEvents()
+    await writingView.onEnter()
 
-    document.querySelector('[data-action="new-chapter"]').click()
+    await writingView._chapterTree.newChapter()
     await vi.waitFor(() => {
-      expect(document.getElementById("writing-editor")).not.toBeNull()
+      expect(writingView._currentChapter).toBe(3)
     })
 
-    expect(prompt).not.toHaveBeenCalled()
-    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledWith({
-      novel_id: "p1",
-      chapter_index: 1,
-      title: "第 1 章",
-      content: "",
-    })
-    expect(writingView._currentChapter).toBe(1)
-    expect(writingView._currentDraftId).toBe("draft-1")
-    expect(writingView._chapterList).toEqual([1])
-    expect(document.getElementById("btn-autosave").disabled).toBe(false)
-    expect(toast).toHaveBeenCalledWith("已创建第 1 章", "success")
+    expect(writingView._chapterList).toContain(3)
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    expect(document.getElementById("writing-editor")).not.toBeNull()
+    expect(document.querySelector('[data-chapter="3"]')).not.toBeNull()
   })
 
-  it("完整编辑器点击新建会直接创建下一章并选中，不依赖 prompt", async () => {
-    state.currentProjectId = "p1"
-    writingView._loading = false
-    writingView._chapterList = [1]
-    writingView._chapters = {
-      1: {
-        title: "第 1 章",
-        draftCount: 1,
-        wordcount: 4,
-        status: "draft",
-      },
-    }
-    writingView._currentChapter = 1
-    writingView._currentDraftId = "draft-1"
-    writingView._currentTitle = "第 1 章"
-    writingView._currentContent = "第一章正文"
-    writingView._currentVersionNumber = 1
-    writingView._currentUpdatedAt = "2026-07-05T00:00:00Z"
-    writingView._lastSavedContent = "第一章正文"
-    api.writing.autosave.mockResolvedValue({
-      version_number: 2,
-      updated_at: "2026-07-05T00:01:00Z",
-    })
+  it("章节树中点击新建章节创建下一章并选中", async () => {
     api.writing.autosaveDraftOnly.mockImplementation((payload) => Promise.resolve({
       id: `draft-${payload.chapter_index}`,
       chapter_index: payload.chapter_index,
@@ -1611,602 +735,470 @@ describe("_bindEvents", () => {
       status: "draft",
       updated_at: `2026-07-05T00:0${payload.chapter_index}:00Z`,
     }))
-    api.outline.listThreads.mockResolvedValue({ items: [] })
-    api.outline.listArcs.mockResolvedValue({ items: [] })
+    await writingView.onEnter()
+    await writingView._selectChapter(2)
 
     document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
     writingView._bindEvents()
 
-    document.querySelector(".chapter-tree-actions [data-action=\"new-chapter\"]").click()
-    await vi.waitFor(() => {
-      expect(writingView._currentChapter).toBe(2)
-    })
-
-    expect(prompt).not.toHaveBeenCalled()
-    expect(api.writing.autosaveDraftOnly).toHaveBeenLastCalledWith({
-      novel_id: "p1",
-      chapter_index: 2,
-      title: "第 2 章",
-      content: "",
-    })
-    expect(writingView._chapterList).toEqual([1, 2])
-    expect(document.getElementById("writing-title-input").value).toBe("第 2 章")
-    expect(document.getElementById("writing-editor").value).toBe("")
-    expect(document.querySelector('[data-chapter="2"]').className).toContain("chapter-row--active")
-
-    document.querySelector(".chapter-tree-actions [data-action=\"new-chapter\"]").click()
+    document.querySelector('.chapter-tree-actions [data-action="new-chapter"]').click()
     await vi.waitFor(() => {
       expect(writingView._currentChapter).toBe(3)
     })
 
-    expect(prompt).not.toHaveBeenCalled()
-    expect(api.writing.autosaveDraftOnly).toHaveBeenLastCalledWith({
-      novel_id: "p1",
-      chapter_index: 3,
-      title: "第 3 章",
-      content: "",
-    })
     expect(writingView._chapterList).toEqual([1, 2, 3])
     expect(document.getElementById("writing-title-input").value).toBe("第 3 章")
+    expect(document.getElementById("writing-editor").value).toBe("")
     expect(document.querySelector('[data-chapter="3"]').className).toContain("chapter-row--active")
-    expect(toast).toHaveBeenCalledWith("已创建第 2 章", "success")
-    expect(toast).toHaveBeenCalledWith("已创建第 3 章", "success")
   })
-})
 
-describe("_submitDeepImport", () => {
-  it("场景自动提取弹窗透传更高质量选项", async () => {
-    state.currentProjectId = "p1"
-    writingView._chapterList = [1, 5]
-    api.imports.startStage.mockResolvedValue({
-      task_id: "task-high-quality",
-      status: "pending",
-      requires_confirmation: false,
+  it("新建章节不继承上一章正文", async () => {
+    api.writing.get.mockImplementation((draftId) => Promise.resolve({
+      id: draftId,
+      title: `第 ${draftId.replace("draft-", "")} 章`,
+      content: draftId === "draft-2" ? "上一章正文不应继承" : "",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
+    }))
+    api.writing.autosaveDraftOnly.mockImplementation((payload) => Promise.resolve({
+      id: `draft-${payload.chapter_index}`,
+      chapter_index: payload.chapter_index,
+      title: payload.title,
+      content: "",
+      version_number: 1,
+      status: "draft",
+      updated_at: `2026-07-05T00:0${payload.chapter_index}:00Z`,
+    }))
+    await writingView.onEnter()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    await writingView._selectChapter(2)
+    expect(document.getElementById("writing-editor").value).toBe("上一章正文不应继承")
+
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    document.querySelector('.chapter-tree-actions [data-action="new-chapter"]').click()
+    await vi.waitFor(() => {
+      expect(writingView._currentChapter).toBe(3)
     })
-    vi.spyOn(writingView, "_startDeepImportPolling").mockImplementation(() => {})
 
-    writingView._showAutoExtractionForm("scenes")
-    expect(showModal.mock.calls[0][1].html).toContain("需要标准提取约8倍时间")
-    document.body.innerHTML += `
-      <input id="auto-extract-start" value="1" />
-      <input id="auto-extract-end" value="5" />
-      <input id="auto-extract-high-quality" type="checkbox" checked />
-    `
-
-    await captureModalHandler()()
-
-    expect(api.imports.startStage).toHaveBeenCalledWith(
-      "scenes",
-      "p1",
-      1,
-      5,
-      false,
-      true,
-    )
-  })
-
-  it("重复导入需要确认时，确认后使用 force=true 重新提交", async () => {
-    state.currentProjectId = "p1"
-    api.imports.startStage
-      .mockResolvedValueOnce({
-        status: "requires_confirmation",
-        requires_confirmation: true,
-        warning: "第 1-5 章已有数据。重新导入将覆盖现有数据。是否继续？",
-      })
-      .mockResolvedValueOnce({
-        task_id: "task-2",
-        status: "pending",
-        requires_confirmation: false,
-      })
-    autoConfirm()
-    const pollingSpy = vi
-      .spyOn(writingView, "_startDeepImportPolling")
-      .mockImplementation(() => {})
-
-    await writingView._submitDeepImport(1, 5)
-
-    expect(api.imports.startStage).toHaveBeenNthCalledWith(1, "scenes", "p1", 1, 5, false, false)
-    expect(api.imports.startStage).toHaveBeenNthCalledWith(2, "scenes", "p1", 1, 5, true, false)
-    expect(writingView._deepImportTaskId).toBe("task-2")
-    expect(writingView._deepImportProgress.phase).toBe("running")
-    expect(writingView._deepImportProgress.workflowType).toBe("scene_auto_extraction")
-    expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey))).toEqual([
-      expect.objectContaining({
-        taskId: "task-2",
-        workflowType: "scene_auto_extraction",
-        projectId: "p1",
-        view: "writing",
-      }),
-    ])
-    expect(pollingSpy).toHaveBeenCalled()
-
-    pollingSpy.mockRestore()
+    expect(document.getElementById("writing-editor").value).toBe("")
+    expect(document.getElementById("writing-title-input").value).toBe("第 3 章")
   })
 })
 
-describe("_renderDeepImportBar", () => {
-  it("显示部分完成和阶段错误原因", () => {
-    writingView._deepImportProgress = {
-      phase: "done",
-      qualityStatus: "partial",
-      stepLabel: "完成",
-      message: "深度导入完成，但部分阶段降级",
-      percent: 100,
-      degraded: true,
-      phaseErrors: [
-        {
-          phase: "entity_extraction",
-          error_kind: "empty_output",
-          message: "实体提取阶段未生成任何实体",
-        },
+describe("writingView chapter switching", () => {
+  beforeEach(async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapter_indices: [1, 2],
+      chapters: [
+        { chapter_index: 1, title: "第一章", word_count: 5, version_number: 1, status: "draft" },
+        { chapter_index: 2, title: "第二章", word_count: 7, version_number: 1, status: "draft" },
       ],
-    }
-
-    const html = writingView._renderDeepImportBar()
-
-    expect(html).toContain("部分完成")
-    expect(html).toContain("实体提取阶段未生成任何实体")
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    api.writing.autosave.mockResolvedValue({
+      version_number: 2,
+      updated_at: "2026-07-05T00:01:00Z",
+    })
+    api.writing.getVersionHistory.mockImplementation((chapterIndex) => Promise.resolve({
+      versions: [{ id: `draft-${chapterIndex}`, version_number: 1, title: `第 ${chapterIndex} 章`, word_count: chapterIndex === 1 ? 5 : 7 }],
+    }))
+    api.writing.get.mockImplementation((draftId) => Promise.resolve({
+      id: draftId,
+      title: `第 ${draftId.replace("draft-", "")} 章`,
+      content: draftId === "draft-1" ? "第一章正文" : "第二章正文",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
+    }))
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
   })
 
-  it("recovery_required 时显示明确恢复提示和继续/放弃入口", () => {
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = {
-      phase: "running",
-      message: "worker interrupted",
-      percent: 40,
-      recoveryRequired: true,
-      interrupted: true,
-      recoverable: true,
-      recoverySummary: {
-        last_checkpoint: "phase1b_fusion",
-        committed_scenes: 12,
-        pending_scene_candidates: 4,
-      },
-    }
+  it("切换章节加载对应章节内容", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    await writingView._selectChapter(1)
+    expect(document.getElementById("writing-editor").value).toBe("第一章正文")
 
-    const html = writingView._renderDeepImportBar()
-
-    expect(html).toContain("需要恢复")
-    expect(html).toContain("phase1b_fusion")
-    expect(html).toContain("已写入 Scene：12")
-    expect(html).toContain("待处理候选：4")
-    expect(html).toContain('data-action="resume-deep-import"')
-    expect(html).toContain("继续")
-    expect(html).toContain('data-action="abandon-deep-import"')
-    expect(html).toContain("放弃恢复")
+    await writingView._selectChapter(2)
+    expect(document.getElementById("writing-editor").value).toBe("第二章正文")
   })
 
-  it("显示当前阶段、章节范围、Scene candidate、window 和 operation", () => {
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = {
-      phase: "running",
-      percent: 35,
-      message: "running",
-      currentPhase: "phase1b_fusion",
-      currentChapterRange: "3-5",
-      currentChapter: 4,
-      currentSceneCandidateId: "candidate-7",
-      currentWindow: "window-2",
-      currentOperation: "scene_fusion",
-    }
-
-    const html = writingView._renderDeepImportBar()
-
-    expect(html).toContain("阶段：phase1b_fusion")
-    expect(html).toContain("章节范围：3-5")
-    expect(html).toContain("当前章节：4")
-    expect(html).toContain("Scene candidate：candidate-7")
-    expect(html).toContain("窗口：window-2")
-    expect(html).toContain("操作：scene_fusion")
-    expect(html).toContain("deep-import-progress--alive")
+  it("切换回之前章节恢复之前内容", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    await writingView._selectChapter(1)
+    await writingView._selectChapter(2)
+    await writingView._selectChapter(1)
+    expect(document.getElementById("writing-editor").value).toBe("第一章正文")
   })
 })
 
-describe("deep import recovery actions", () => {
-  it("继续恢复调用 resume API 并保留原 task id", async () => {
+describe("writingView version history", () => {
+  beforeEach(async () => {
     state.currentProjectId = "p1"
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = {
-      phase: "running",
-      recoveryRequired: true,
-      recoverable: true,
-      recoverySummary: {},
-    }
-    api.imports.resumeDeepImport.mockResolvedValue({
-      task_id: "deep-task",
-      status: "running",
-      result: { current_phase: "phase1b_fusion" },
+    mockChapterList()
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "draft-2", version_number: 2, title: "第一章", word_count: 5 },
+        { id: "draft-1", version_number: 1, title: "第一章", word_count: 4 },
+      ],
     })
-    const pollingSpy = vi
-      .spyOn(writingView, "_startDeepImportPolling")
-      .mockImplementation(() => {})
-    const rerenderSpy = vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
-
-    await writingView._resumeDeepImportRecovery()
-
-    expect(api.imports.resumeDeepImport).toHaveBeenCalledWith("deep-task")
-    expect(writingView._deepImportTaskId).toBe("deep-task")
-    expect(writingView._deepImportProgress.recoveryRequired).toBe(false)
-    expect(pollingSpy).toHaveBeenCalled()
-    expect(rerenderSpy).toHaveBeenCalled()
-
-    pollingSpy.mockRestore()
-    rerenderSpy.mockRestore()
+    api.writing.get.mockImplementation((draftId) => Promise.resolve({
+      id: draftId,
+      title: "第一章",
+      content: draftId === "draft-1" ? "旧版本正文" : "新版本正文",
+      version_number: draftId === "draft-1" ? 1 : 2,
+      updated_at: "2026-07-05T00:00:00Z",
+    }))
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
   })
 
-  it("放弃恢复需要二次确认，取消时不调用 abandon API", async () => {
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = { recoveryRequired: true }
-
-    await writingView._abandonDeepImportRecovery()
-
-    expect(confirmAction).toHaveBeenCalled()
-    expect(confirmAction.mock.calls[0][0]).toContain("删除/废弃已写入的 Scene/实体")
-    expect(api.imports.abandonDeepImport).not.toHaveBeenCalled()
-  })
-
-  it("确认放弃恢复后调用 abandon API 并清理本地任务", async () => {
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = { recoveryRequired: true }
-    localStorage.setItem("novel_deepImportTaskId", "deep-task")
-    api.imports.abandonDeepImport.mockResolvedValue({
-      status: "cancelled",
-      cleanup_summary: { deprecated_scenes: 2, deprecated_entities: 3 },
-    })
-    autoConfirm()
-    const rerenderSpy = vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
-
-    await writingView._abandonDeepImportRecovery()
-
-    expect(api.imports.abandonDeepImport).toHaveBeenCalledWith("deep-task")
-    expect(writingView._deepImportTaskId).toBeNull()
-    expect(writingView._deepImportProgress).toBeNull()
-    expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
-    expect(toast).toHaveBeenCalledWith("已放弃恢复：Scene 2 个，实体 3 个", "success")
-    expect(rerenderSpy).toHaveBeenCalled()
-
-    rerenderSpy.mockRestore()
-  })
-})
-
-describe("writingView 章节批量操作", () => {
-  it("批量删除选中章节并清空当前章状态", async () => {
-    state.currentProjectId = "p1"
-    writingView._chapterList = [1, 2]
-    writingView._chapters = { 1: { title: "一" }, 2: { title: "二" } }
-    writingView._currentChapter = 2
-    writingView._currentDraftId = "d2"
-    writingView._bulkSelections = { "writing-chapters": new Set(["1", "2"]) }
-    api.writing.deleteChapter.mockResolvedValue({})
-    vi.spyOn(writingView, "_rerender").mockResolvedValue()
-    autoConfirm()
-
-    await writingView._runChapterBulkAction("delete-chapters")
-
-    await vi.waitFor(() => {
-      expect(api.writing.deleteChapter).toHaveBeenCalledWith(1, "p1")
-      expect(api.writing.deleteChapter).toHaveBeenCalledWith(2, "p1")
-      expect(writingView._chapterList).toEqual([])
-    })
-    expect(writingView._currentChapter).toBeNull()
-    await vi.waitFor(() => {
-      expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
-    })
-  })
-})
-
-describe("_recoverDeepImportTask", () => {
-  beforeEach(() => {
-    vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
-    vi.spyOn(writingView, "_startDeepImportPolling").mockImplementation(() => {})
-    localStorage.clear()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it("无 localStorage 时不恢复", async () => {
-    await writingView._recoverDeepImportTask()
-    expect(api.tasks.get).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    {
-      name: "已完成",
-      taskId: "task-done",
-      response: { status: "done", result: { message: "导入完成: 5 个 Scene" } },
-      expectedTaskId: "task-done",
-      expectedPhase: "done",
-      clearStorage: true,
-    },
-    {
-      name: "运行中",
-      taskId: "task-running",
-      response: { status: "running", result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" } },
-      expectedTaskId: "task-running",
-      expectedPhase: "running",
-      polling: true,
-      clearStorage: false,
-    },
-    {
-      name: "失败",
-      taskId: "task-failed",
-      response: { status: "failed", result: { message: "解析失败" } },
-      expectedTaskId: "task-failed",
-      expectedPhase: "failed",
-      expectedPercent: 0,
-      clearStorage: true,
-    },
-    {
-      name: "API 异常",
-      taskId: "task-err",
-      reject: true,
-      clearStorage: true,
-    },
-  ])("$name task 恢复行为正确", async ({ taskId, response, reject, expectedTaskId, expectedPhase, expectedPercent, polling, clearStorage }) => {
-    localStorage.setItem("novel_deepImportTaskId", taskId)
-    if (reject) {
-      api.tasks.get.mockRejectedValue(new Error("network error"))
-    } else {
-      api.tasks.get.mockResolvedValue(response)
-    }
-
-    await writingView._recoverDeepImportTask()
-
-    if (expectedTaskId !== undefined) {
-      expect(writingView._deepImportTaskId).toBe(expectedTaskId)
-    }
-    if (expectedPhase !== undefined) {
-      expect(writingView._deepImportProgress.phase).toBe(expectedPhase)
-    }
-    if (expectedPercent !== undefined) {
-      expect(writingView._deepImportProgress.percent).toBe(expectedPercent)
-    }
-    if (polling) {
-      expect(writingView._startDeepImportPolling).toHaveBeenCalled()
-    }
-    if (clearStorage) {
-      expect(localStorage.getItem("novel_deepImportTaskId")).toBeNull()
-      expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey) || "[]")).toEqual([])
-    }
-  })
-
-  it("可从 shared workflow storage 恢复深度导入任务", async () => {
-    localStorage.setItem(workflowProgressStorageKey, JSON.stringify([{
-      id: "p1:deep_import:task-shared",
-      taskId: "task-shared",
-      workflowType: "deep_import",
-      projectId: "p1",
-      view: "writing",
-    }]))
-    state.currentProjectId = "p1"
-    api.tasks.get.mockResolvedValue({
-      status: "running",
-      result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" },
-    })
-
-    await writingView._recoverDeepImportTask()
-
-    expect(api.tasks.get).toHaveBeenCalledWith("task-shared")
-    expect(writingView._deepImportTaskId).toBe("task-shared")
-    expect(writingView._deepImportProgress.phase).toBe("running")
-  })
-
-  it("onActivate 也会触发恢复", async () => {
-    localStorage.setItem("novel_deepImportTaskId", "task-reactivate")
-    api.tasks.get.mockResolvedValue({
-      status: "running",
-      result: { phase: "running", current_step: "entity_extraction", message: "Phase 2/3" },
-    })
-    vi.spyOn(writingView, "_bindEvents").mockImplementation(() => {})
-    vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
-
-    await writingView.onActivate()
-
-    expect(api.tasks.get).toHaveBeenCalledWith("task-reactivate")
-    expect(writingView._deepImportProgress.phase).toBe("running")
-  })
-})
-
-describe("workflow progress rendering", () => {
-  it("renders publish progress with shared fixed renderer", () => {
-    writingView._publishTaskId = "publish-task"
-    writingView._publishProgress = {
-      phase: "running",
-      step: 0.6,
-      message: "正在创建历史状态...",
-    }
-
-    const html = writingView._renderPublishBar()
-
-    expect(html).toContain("workflow-progress-fixed")
-    expect(html).toContain("发布正文")
-    expect(html).toContain("60%")
-    expect(html).toContain("正在创建历史状态")
-  })
-
-  it("sanitizes publish task DB errors before showing the author", async () => {
-    const raw = "DBAPIError: asyncpg.exceptions.InFailedSQLTransactionError [SQL: UPDATE async_tasks SET progress=$1]"
-    writingView._publishTaskId = "publish-task"
-    writingView._publishProgress = {
-      phase: "running",
-      step: 0.5,
-      message: "正在创建历史状态...",
-    }
-    document.body.innerHTML = '<div id="writing-publish-bar-container"></div>'
-    api.tasks.get.mockResolvedValue({
-      status: "failed",
-      progress: 0.5,
-      error_message: raw,
-    })
-
-    writingView._startPublishPolling()
-
+  it("点击历史按钮打开版本历史弹窗", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    document.querySelector('[data-action="version-history"]').click()
     await vi.waitFor(() => {
       expect(showModal).toHaveBeenCalled()
     })
-    const modalBody = showModal.mock.calls.at(-1)[1].html
-    expect(writingView._publishProgress.message).toBe("发布失败。草稿已保存，请稍后重试。")
-    expect(modalBody).toContain("发布失败。草稿已保存，请稍后重试。")
-    expect(modalBody).not.toContain("DBAPIError")
-    expect(modalBody).not.toContain("UPDATE async_tasks")
+    const modal = latestModal()
+    expect(modal.title).toContain("版本历史")
+    expect(modal.body.html).toContain("draft-1")
+    expect(modal.body.html).toContain("draft-2")
   })
 
-  it("renders degraded deep import progress with shared fixed renderer", () => {
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = {
-      phase: "running",
-      percent: 80,
-      stepLabel: "Phase 3/3: 结构分析",
-      degraded: true,
-      degradedBatches: [2],
-      qualityStatus: "partial",
-      phaseErrors: [{ phase: "entity_extraction", message: "LLM 超时" }],
-    }
+  it("预览旧版本切换到只读模式", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    document.querySelector('[data-action="version-history"]').click()
+    await vi.waitFor(() => expect(showModal).toHaveBeenCalled())
 
-    const html = writingView._renderDeepImportBar()
+    const { body } = latestModal()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>${body.html}`
+    writingView._bindEvents()
+    writingView._versions.bindVersionHistoryEvents()
 
-    expect(html).toContain("workflow-progress-fixed")
-    expect(html).toContain("bottom:40px")
-    expect(html).toContain("Phase 3/3: 结构分析")
-    expect(html).toContain("部分完成")
-    expect(html).toContain("部分批次降级完成")
-    expect(html).toContain("降级批次")
-    expect(html).toContain("LLM 超时")
-  })
-
-  it("renders deep import snapshot health summary when completed", () => {
-    writingView._deepImportTaskId = "deep-task"
-    writingView._deepImportProgress = {
-      phase: "done",
-      percent: 100,
-      stepLabel: "深度导入完成",
-      qualityStatus: "complete",
-      snapshotHealthSummary: {
-        total_snapshots: 3,
-        by_status: {
-          running: 0,
-          succeeded: 2,
-          failed: 1,
-        },
-        by_phase: {
-          entity_extraction: {
-            running: 0,
-            succeeded: 1,
-            failed: 1,
-          },
-          structure_analysis: {
-            running: 0,
-            succeeded: 1,
-            failed: 0,
-          },
-        },
-        stale_running_count: 1,
-        retained_rendered_context_count: 1,
-        latest_failure: {
-          phase: "entity_extraction",
-          scene_index: 8,
-          error_kind: "llm_timeout",
-        },
-      },
-    }
-
-    const html = writingView._renderDeepImportBar()
-
-    expect(html).toContain("快照健康摘要")
-    expect(html).toContain("共 3 条")
-    expect(html).toContain("成功 2")
-    expect(html).toContain("失败 1")
-    expect(html).toContain("超时 1")
-    expect(html).toContain("查看快照状态")
-  })
-})
-
-describe("_showSplitSceneForm", () => {
-  it.each([
-    {
-      name: "无当前章节时提示",
-      setup: () => { writingView._currentChapter = null; writingView._scenes = [] },
-      body: "",
-      expectedToast: "请先选择章节",
-    },
-    {
-      name: "无当前 Scene 时提示",
-      setup: () => { writingView._currentChapter = 1; writingView._scenes = [] },
-      body: "",
-      expectedToast: "当前章节未关联 Scene",
-    },
-    {
-      name: "无编辑器或内容过短时提示无法断章",
-      setup: () => { writingView._currentChapter = 3; writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }] },
-      body: "",
-      expectedToast: "当前章节内容太短，无法断章",
-      expectModal: false,
-    },
-    {
-      name: "编辑器内容少于 2 个字符时提示无法断章",
-      setup: () => { writingView._currentChapter = 3; writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }] },
-      body: '<textarea id="writing-editor">a</textarea>',
-      expectedToast: "当前章节内容太短，无法断章",
-      expectModal: false,
-    },
-  ])("$name", async ({ setup, body, expectedToast, expectModal }) => {
-    setup()
-    document.body.innerHTML = body
-    await writingView._showSplitSceneForm()
-    expect(toast).toHaveBeenCalledWith(expectedToast, "warning")
-    if (expectModal === false) {
-      expect(showModal).not.toHaveBeenCalled()
-    }
-  })
-
-  it("展示断章弹窗并使用编辑器光标位置", async () => {
-    writingView._currentChapter = 3
-    writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }]
-    document.body.innerHTML = '<textarea id="writing-editor">abcdefghij</textarea>'
-    const editor = document.getElementById("writing-editor")
-    editor.selectionStart = 5
-
-    await writingView._showSplitSceneForm()
-
-    expect(showModal).toHaveBeenCalled()
-    const html = showModal.mock.calls[0][1].html
-    expect(html).toContain("split-pos")
-    expect(html).toContain('value="5"')
-  })
-})
-
-describe("_doSplitScene", () => {
-  it("断章成功后切换到新章节", async () => {
-    state.currentProjectId = "p1"
-    writingView._currentChapter = 3
-    writingView._chapterList = [3]
-    writingView._scenes = [{ id: "s1", chapter_ids: ["3"], title: "Scene A" }]
-    const rerenderSpy = vi.spyOn(writingView, "_rerender").mockImplementation(() => {})
-
-    api.writing.splitChapter.mockResolvedValue({
-      source_chapter_index: 3,
-      new_chapter_index: 4,
-      source_draft: { id: "d1", content: "abc", title: "第3章", version_number: 1 },
-      new_draft: { id: "d2", content: "def", title: "第4章", version_number: 1 },
-      scenes: [{ id: "s1" }, { id: "s2" }],
+    document.querySelector('.version-preview-btn[data-version="1"]').click()
+    await vi.waitFor(() => {
+      expect(document.getElementById("writing-editor").readOnly).toBe(true)
     })
+    expect(document.getElementById("writing-editor").value).toBe("旧版本正文")
+  })
 
-    await writingView._doSplitScene(3, { id: "s1" })
+  it("恢复旧版本创建可编辑新版本", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    document.querySelector('[data-action="version-history"]').click()
+    await vi.waitFor(() => expect(showModal).toHaveBeenCalled())
 
-    expect(api.writing.splitChapter).toHaveBeenCalledWith(
-      3,
-      { split_pos: 3, source_scene_id: "s1" },
-      "p1",
+    const { body } = latestModal()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>${body.html}`
+    writingView._bindEvents()
+    writingView._versions.bindVersionHistoryEvents()
+    autoConfirm()
+
+    document.querySelector('.version-restore-btn[data-version="1"]').click()
+    await vi.waitFor(() => {
+      expect(document.getElementById("writing-editor").value).toBe("旧版本正文")
+    })
+    expect(document.getElementById("writing-editor").readOnly).toBe(false)
+    expect(document.getElementById("btn-autosave").textContent).toBe("发布为新版本")
+  })
+})
+
+describe("writingView publish flow", () => {
+  beforeEach(async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    api.writing.autosave.mockResolvedValue({
+      version_number: 2,
+      updated_at: "2026-07-05T00:01:00Z",
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+  })
+
+  it("未选择章节时发布按钮禁用，选择后启用", async () => {
+    await writingView._selectChapter(null)
+    writingView._editor.setState({ chapter: null, content: "", title: "" })
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    expect(document.getElementById("btn-publish").disabled).toBe(true)
+
+    await writingView._selectChapter(1)
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    expect(document.getElementById("btn-publish").disabled).toBe(false)
+  })
+
+  it("发布成功后显示成功状态并刷新章节树", async () => {
+    api.writing.publish.mockResolvedValue({
+      draft: { id: "d2", version_number: 2, status: "published" },
+    })
+    api.writing.listChapters.mockResolvedValue({
+      chapter_indices: [1],
+      chapters: [{ chapter_index: 1, title: "第一章", word_count: 4, version_number: 2, status: "published" }],
+    })
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "d2", version_number: 2, title: "第一章", word_count: 4, status: "published" }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "d2",
+      title: "第一章",
+      content: "发布正文",
+      version_number: 2,
+      status: "published",
+      updated_at: "2026-07-05T00:02:00Z",
+    })
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    autoConfirm()
+    await writingView._handlePublish()
+
+    expect(api.writing.publish).toHaveBeenCalledWith({
+      novel_id: "p1",
+      chapter_index: 1,
+      scene_id: null,
+      title: "第一章",
+      content: "第一章正文",
+    })
+    await vi.waitFor(() => {
+      const status = document.querySelector('[data-chapter="1"] .chapter-status')
+      expect(status?.className).toContain("chapter-status--published")
+    })
+    expect(toast).toHaveBeenCalledWith("已发布", "success")
+  })
+
+  it("发布返回任务ID时显示轮询进度条", async () => {
+    vi.useFakeTimers()
+    api.writing.publish.mockResolvedValue({
+      draft: { id: "d2", version_number: 2, status: "published" },
+      task_id: "publish-task-1",
+    })
+    api.tasks.get.mockResolvedValue({
+      task_id: "publish-task-1",
+      task_type: "publish_chapter",
+      status: "done",
+      progress: 1,
+      result: { message: "发布完成" },
+    })
+    document.body.innerHTML = `
+      <div id="workspace-content">${await writingView.render()}</div>
+      <span id="publish-status-dot"></span>
+    `
+    writingView._bindEvents()
+    autoConfirm()
+    await writingView._handlePublish()
+
+    expect(api.writing.publish).toHaveBeenCalled()
+    expect(writingView._publish.renderBar()).toContain("发布正文")
+
+    await vi.advanceTimersByTimeAsync(2500)
+    await vi.waitFor(() => {
+      expect(document.getElementById("writing-publish-bar-container").textContent).toContain("发布完成")
+    })
+    vi.useRealTimers()
+  })
+})
+
+describe("writingView conflict check strip", () => {
+  it("存在检查记录时渲染冲突条", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    api.writing.listConflictChecks.mockResolvedValue({
+      items: [{
+        id: "c1",
+        chapter_index: 1,
+        summary_json: { total: 3 },
+        items: [],
+        created_at: "2026-07-05T10:00:00Z",
+      }],
+      total: 1,
+    })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    const html = await writingView.render()
+    expect(html).toContain("writing-conflict-strip")
+    expect(html).toContain("发现 3 个冲突")
+    expect(html).toContain('data-action="open-conflict-check"')
+  })
+
+  it("点击冲突条打开检查详情弹窗", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    const check = {
+      id: "c1",
+      chapter_index: 1,
+      summary_json: { total: 1 },
+      items: [{ id: "i1", severity: "high", status: "open", kind: "motivation_gap", source_module: "ai", evidence_summary: "缺少动机" }],
+      created_at: "2026-07-05T10:00:00Z",
+    }
+    api.writing.listConflictChecks.mockResolvedValue({ items: [check], total: 1 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+
+    document.querySelector('[data-action="open-conflict-check"]').click()
+    await vi.waitFor(() => {
+      expect(showModal).toHaveBeenCalled()
+    })
+    const modal = latestModal()
+    expect(modal.title).toContain("剧情设定冲突检查")
+    expect(modal.body.html).toContain("缺少动机")
+  })
+})
+
+describe("writingView scene panel cursor tracking", () => {
+  beforeEach(async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapter_indices: [1],
+      chapters: [{ chapter_index: 1, title: "第一章", word_count: 20, version_number: 1, status: "draft" }],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "s1", title: "Scene A", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 10 }] },
+      { id: "s2", title: "Scene B", chapter_ids: ["1"], scene_chunks: [{ chapter_index: 1, start_pos: 10, end_pos: 20 }] },
+    ])
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "draft-1", version_number: 1, title: "第一章", word_count: 20 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "draft-1",
+      title: "第一章",
+      content: "0123456789abcdefghij",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+  })
+
+  it("点击编辑器更新右侧面板当前Scene", async () => {
+    const editor = document.getElementById("writing-editor")
+    editor.selectionStart = editor.selectionEnd = 15
+    editor.focus()
+    editor.click()
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("writing-panel-container").textContent).toContain("Scene B")
+    })
+  })
+
+  it("键盘输入后光标位置更新Scene", async () => {
+    vi.useFakeTimers()
+    const editor = document.getElementById("writing-editor")
+    editor.selectionStart = editor.selectionEnd = 5
+    editor.focus()
+    editor.dispatchEvent(new KeyboardEvent("keyup"))
+    vi.advanceTimersByTime(200)
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("writing-panel-container").textContent).toContain("Scene A")
+    })
+    vi.useRealTimers()
+  })
+})
+
+describe("writingView offline recovery", () => {
+  it("版本接口失败时从localStorage恢复本地暂存", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    api.writing.getVersionHistory.mockRejectedValue(new Error("backend failed"))
+    localStorage.setItem("draft_backup_p1_1", JSON.stringify({
+      content: "本地暂存正文",
+      title: "本地暂存标题",
+      chapter_index: 1,
+      timestamp: Date.now(),
+    }))
+    autoConfirm()
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+
+    await writingView.onEnter()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    await writingView._selectChapter(1)
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("检测到本地暂存的第 1 章内容"),
+      expect.any(Function),
+      "恢复本地内容",
     )
-    expect(writingView._currentChapter).toBe(4)
-    expect(writingView._currentDraftId).toBe("d2")
-    expect(writingView._currentContent).toBe("def")
-    expect(writingView._currentTitle).toBe("第4章")
-    expect(writingView._chapterList).toEqual([3, 4])
-    expect(toast).toHaveBeenCalledWith("断章完成", "success")
+    expect(document.getElementById("writing-editor").value).toBe("本地暂存正文")
+    expect(document.getElementById("writing-title-input").value).toBe("本地暂存标题")
+  })
+})
 
-    rerenderSpy.mockRestore()
+describe("writingView AI extract chapter cards", () => {
+  beforeEach(async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+  })
+
+  it("AI工具菜单包含提取章节卡按钮", async () => {
+    const html = await writingView.render()
+    expect(html).toContain('data-action="extract-cards"')
+    expect(html).toContain("AI 提取章节卡")
+  })
+
+  it("点击提取章节卡打开弹窗", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    writingView._bindEvents()
+    document.querySelector('[data-action="extract-cards"]').click()
+    await vi.waitFor(() => {
+      expect(showModal).toHaveBeenCalled()
+    })
+    const modal = latestModal()
+    expect(modal.title).toContain("AI 提取章节卡")
+  })
+})
+
+describe("writingView scene map summary", () => {
+  it("scene面板显示地图摘要", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "s1", title: "东门", chapter_ids: ["1"] },
+    ])
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "draft-1", version_number: 1, title: "第一章", word_count: 10 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "draft-1",
+      title: "第一章",
+      content: "正文",
+      version_number: 1,
+      updated_at: "2026-07-05T00:00:00Z",
+    })
+    api.world.getMapSceneSummary.mockResolvedValue({
+      primary_location: { name: "洛阳外城" },
+      characters: [{ name: "沈砚" }],
+      events: [{ name: "东门封锁" }],
+    })
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("writing-panel-container").textContent).toContain("洛阳外城")
+    })
+    expect(document.getElementById("writing-panel-container").textContent).toContain("沈砚")
+    expect(document.getElementById("writing-panel-container").textContent).toContain("东门封锁")
   })
 })
