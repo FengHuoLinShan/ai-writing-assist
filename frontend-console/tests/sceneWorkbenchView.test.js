@@ -142,17 +142,47 @@ describe("sceneWorkbenchView", () => {
   it("submits scene auto extraction stage task", async () => {
     api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
     sceneWorkbenchView._showSceneAutoExtractForm()
+    expect(showModal.mock.calls[0][1]).toContain("需要标准提取约8倍时间")
     document.body.innerHTML += `
       <input id="scene-auto-extract-start" value="1" />
       <input id="scene-auto-extract-end" value="5" />
+      <input id="scene-auto-extract-high-quality" type="checkbox" />
     `
 
     await captureModalHandler()()
 
-    expect(api.imports.startStage).toHaveBeenCalledWith("scenes", "p1", 1, 5)
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      5,
+      false,
+      false,
+    )
     expect(toast).toHaveBeenCalledWith(
       "场景（scene）自动提取任务已提交：scene-task",
       "success",
+    )
+  })
+
+  it("passes high quality flag for scene auto extraction", async () => {
+    api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
+    sceneWorkbenchView._showSceneAutoExtractForm()
+    document.body.innerHTML += `
+      <input id="scene-auto-extract-start" value="1" />
+      <input id="scene-auto-extract-end" value="5" />
+      <input id="scene-auto-extract-high-quality" type="checkbox" checked />
+    `
+
+    await captureModalHandler()()
+
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      5,
+      false,
+      true,
     )
   })
 

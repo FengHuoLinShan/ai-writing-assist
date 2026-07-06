@@ -61,6 +61,7 @@ class PlotStructureGenerator:
         include_existing_scenes: bool = False,
         generate_scenes: bool = True,
         fast_structured: bool = False,
+        high_quality: bool = False,
     ) -> dict[str, Any]:
         """为指定章节范围生成剧情结构并持久化。
 
@@ -86,6 +87,7 @@ class PlotStructureGenerator:
             fast_structured=fast_structured,
         )
         settings = get_settings()
+        model = "deepseek-v4-pro" if high_quality else settings.llm_model
         snapshot_id: str | None = None
         if audit_context_snapshot:
             snapshot_id = await self._create_structure_snapshot(
@@ -95,7 +97,7 @@ class PlotStructureGenerator:
                 end_chapter,
                 context.markdown,
                 warnings=context.warnings,
-                model=settings.llm_model,
+                model=model,
                 workflow_id=workflow_id,
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
@@ -103,7 +105,7 @@ class PlotStructureGenerator:
         try:
             parsed = await parser.parse(
                 self._llm_client,
-                settings.llm_model,
+                model,
                 start_chapter,
                 end_chapter,
             )

@@ -31,6 +31,7 @@ class DeepImportRequest(BaseModel):
     start_chapter: int = Field(default=1, ge=1)
     end_chapter: int = Field(default=0, ge=0)
     force: bool = False
+    high_quality: bool = False
 
     @model_validator(mode="after")
     def validate_chapter_range(self) -> DeepImportRequest:
@@ -135,6 +136,7 @@ async def submit_deep_import(
         body.start_chapter,
         end_chapter,
         force=body.force,
+        high_quality=body.high_quality,
     )
     return result
 
@@ -156,6 +158,7 @@ async def _submit_stage(
         end_chapter,
         stage=stage,
         force=body.force,
+        high_quality=body.high_quality,
     )
 
 

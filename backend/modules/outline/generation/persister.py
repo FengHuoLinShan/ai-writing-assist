@@ -223,6 +223,9 @@ class PlotStructurePersister:
             "offscreen_progress": [p.model_dump() for p in parsed.offscreen_progress],
             "risks": [r.model_dump() for r in parsed.risks],
             "questions_for_user": [q.model_dump() for q in parsed.questions_for_user],
+            "turning_points": list(parsed.turning_points or []),
+            "uncertain_items": list(parsed.uncertain_items or []),
+            "structure_diagnostics": dict(parsed.diagnostics or {}),
         }
 
         return result

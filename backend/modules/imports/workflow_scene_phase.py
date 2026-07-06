@@ -11,10 +11,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.enqueuer import enqueue_task
-from modules.imports.deep_import_dedup import DeepImportDedupCoordinator
 from modules.imports.service_phase_artifacts import (
     add_phase_artifact,
     candidate_chapter_coverage,
+    coverage_summary,
     phase_error,
     scene_phase_repair_summary,
 )
@@ -85,14 +85,14 @@ class ScenePhaseRunner:
     ) -> ScenePhaseOutcome:
         workflow = self.workflow
 
-        # Phase 0: Scene candidate prefetch quality gate.
+        # Phase 0: deterministic Scene import plan.
         progress.current_step = DeepImportStep.scene_segmentation
-        progress.current_phase = "phase0_prefetch"
-        progress.current_operation = "scene_prefetch"
-        progress.message = "正在预取 Scene 候选并统计质量..."
+        progress.current_phase = "phase0_plan"
+        progress.current_operation = "scene_plan"
+        progress.message = "正在统计章节字数并规划 Scene 切分窗口..."
         workflow._start_phase(
             progress,
-            "phase0_prefetch",
+            "phase0_plan",
             item={
                 "kind": "chapter_range",
                 "start_chapter": start_chapter,
@@ -101,45 +101,23 @@ class ScenePhaseRunner:
         )
         await workflow._emit_progress(progress, 0.0, on_progress)
 
-        phase0_result = await workflow._run_phase0_prefetch(
+        phase0_result = await workflow._run_phase0_plan(
             db,
             novel_id,
             start_chapter,
             end_chapter,
         )
-        phase0_repair_summary = scene_phase_repair_summary(
-            phase0_result.quality_stats,
-            phase="phase0_prefetch",
-        )
-        if not phase0_result.blocked and phase0_repair_summary["within_policy"]:
-            phase0_source_stats = dict(phase0_result.quality_stats)
-            phase0_repair_result = await workflow._run_phase0_prefetch(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-            )
-            phase0_result = _merge_phase0_repair_result(
-                phase0_result,
-                phase0_repair_result,
-            )
-            phase0_repair_summary = scene_phase_repair_summary(
-                phase0_source_stats,
-                phase="phase0_prefetch",
-                repaired=True,
-                reason="stage_repair",
-            )
-            phase0_repair_summary["post_repair"] = scene_phase_repair_summary(
-                phase0_result.quality_stats,
-                phase="phase0_prefetch",
-            )
         progress.quality_stats["phase0"] = phase0_result.quality_stats
         if phase0_diagnostics := workflow._diagnostic_samples(
             phase0_result.diagnostics
         ):
             progress.quality_stats["phase0_diagnostics"] = phase0_diagnostics
-        phase0_coverage = candidate_chapter_coverage(
-            phase0_result.candidates,
+        phase0_coverage = coverage_summary(
+            {
+                int(chapter["chapter_index"])
+                for chapter in phase0_result.chapters
+                if chapter.get("chapter_index") is not None
+            },
             start_chapter,
             end_chapter,
         )
@@ -151,23 +129,19 @@ class ScenePhaseRunner:
         )
         add_phase_artifact(
             progress,
-            "phase0_prefetch",
+            "phase0_plan",
             start_chapter=start_chapter,
             end_chapter=end_chapter,
             status="blocked" if phase0_result.blocked else "completed",
             quality_status="failed" if phase0_result.blocked else "complete",
             quality_stats=phase0_result.quality_stats,
-            counts={"candidate_count": len(phase0_result.candidates)},
+            counts={
+                "window_count": len(phase0_result.windows),
+                "chapter_count": len(phase0_result.chapters),
+            },
             coverage=phase0_coverage,
-            repair_summary=phase0_repair_summary,
+            repair_summary={"policy": {}, "attempted": False, "attempts": 0},
         )
-        workflow._finish_phase(
-            progress,
-            "phase0_prefetch",
-            status="completed",
-            details=phase0_result.quality_stats,
-        )
-
         if phase0_result.blocked:
             progress.phase = "failed"
             progress.quality_status = "failed"
@@ -175,74 +149,59 @@ class ScenePhaseRunner:
             progress.degraded = True
             progress.degraded_reason = phase0_result.block_reason
             progress.message = (
-                "Phase 0 Scene 预取 422 错误率过高，已停止深度导入。"
-                f"{_phase0_422_recommendation()}"
+                "Phase 0 Scene 窗口规划失败，已停止深度导入。"
+                f"{phase0_result.block_reason or ''}"
             )
             progress.phase_errors.append(
                 {
-                    "phase": "phase0_prefetch",
+                    "phase": "phase0_plan",
                     "error_kind": phase0_result.block_reason
-                    or "phase0_422_rate_exceeded",
+                    or "phase0_plan_failed",
                     "message": progress.message[:300],
                 }
             )
             workflow._finish_phase(
                 progress,
-                "phase0_prefetch",
+                "phase0_plan",
                 status="failed",
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
             await workflow._emit_progress(progress, 1.0, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
+        workflow._finish_phase(
+            progress,
+            "phase0_plan",
+            status="completed",
+            details=phase0_result.quality_stats,
+        )
 
-        # Phase 1a: text-backed candidate reinforcement.
+        # Phase 1a: text-backed Scene slicing.
         progress.current_step = DeepImportStep.scene_segmentation
-        progress.current_phase = "phase1a_reinforce"
-        progress.current_operation = "scene_reinforcement"
-        progress.message = "正在结合正文强化 Scene 候选..."
+        progress.current_phase = "phase1a_scene_slicing"
+        progress.current_operation = "scene_slicing"
+        progress.message = "正在按完整窗口切分 Scene 边界..."
         workflow._start_phase(
             progress,
-            "phase1a_reinforce",
+            "phase1a_scene_slicing",
             item={
                 "kind": "chapter_range",
                 "start_chapter": start_chapter,
                 "end_chapter": end_chapter,
             },
             details={
-                "phase0_candidate_count": len(phase0_result.candidates),
+                "phase0_window_count": len(phase0_result.windows),
             },
         )
         await workflow._emit_progress(progress, 0.1, on_progress)
 
-        if phase0_result.quality_stats.get("skipped_for_small_sample"):
-            phase1a_result = await workflow._run_phase1a_single_chapter_fallback(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-            )
-            phase1a_result.quality_stats["direct_single_chapter_fallback"] = True
-        elif workflow._should_use_single_chapter_phase1a(
+        phase1a_result = await workflow._run_phase1a_scene_slicing(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
             phase0_result,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-        ):
-            phase1a_result = await workflow._run_phase1a_single_chapter_fallback(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-            )
-            phase1a_result.quality_stats["direct_single_chapter_fallback"] = True
-        else:
-            phase1a_result = await workflow._run_phase1a_reinforcement(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-                phase0_result.candidates,
-            )
+        )
         progress.quality_stats["phase1a"] = phase1a_result.quality_stats
         if phase1a_diagnostics := workflow._diagnostic_samples(
             phase1a_result.diagnostics
@@ -258,27 +217,28 @@ class ScenePhaseRunner:
             phase0_result,
             phase1a_result,
         )
-        if phase1a_result.blocked:
+        phase1a_complete = bool(phase1a_coverage["coverage_complete"])
+        if phase1a_result.blocked or not phase1a_complete:
             progress.phase = "failed"
             progress.quality_status = "failed"
             progress.current_step = None
             progress.degraded = True
-            progress.degraded_reason = phase1a_result.block_reason
+            progress.degraded_reason = (
+                phase1a_result.block_reason or "missing_chapter_coverage"
+            )
             progress.message = (
-                "Phase 1a Scene 强化 422 错误率过高，已停止深度导入。"
-                f"{_phase0_422_recommendation()}"
+                "Phase 1a Scene 切分缺少章节覆盖，已停止深度导入。"
             )
             progress.phase_errors.append(
                 {
-                    "phase": "phase1a_reinforce",
-                    "error_kind": phase1a_result.block_reason
-                    or "phase1a_422_rate_exceeded",
+                    "phase": "phase1a_scene_slicing",
+                    "error_kind": progress.degraded_reason,
                     "message": progress.message[:300],
                 }
             )
             add_phase_artifact(
                 progress,
-                "phase1a_reinforce",
+                "phase1a_scene_slicing",
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
                 status="blocked",
@@ -288,17 +248,17 @@ class ScenePhaseRunner:
                 coverage=phase1a_coverage,
                 repair_summary=scene_phase_repair_summary(
                     phase1a_result.quality_stats,
-                    phase="phase1a_reinforce",
+                    phase="phase1a_scene_slicing",
                 ),
                 errors=[
                     error
                     for error in progress.phase_errors
-                    if error.get("phase") == "phase1a_reinforce"
+                    if error.get("phase") == "phase1a_scene_slicing"
                 ],
             )
             workflow._finish_phase(
                 progress,
-                "phase1a_reinforce",
+                "phase1a_scene_slicing",
                 status="failed",
                 details=phase1a_result.quality_stats,
                 error_kind=progress.degraded_reason,
@@ -307,71 +267,9 @@ class ScenePhaseRunner:
             await workflow._emit_progress(progress, 1.0, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
 
-        fallback_chapters = workflow._missing_phase1a_chapters(
-            phase1a_result.candidates,
-            start_chapter,
-            end_chapter,
-        )
-        phase1a_success_count = int(phase1a_result.quality_stats.get("success", 0))
-        phase1a_failed_count = int(phase1a_result.quality_stats.get("failed", 0))
-        if (
-            fallback_chapters
-            and phase1a_failed_count > 0
-            and len(fallback_chapters) <= PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING
-            and not phase1a_result.quality_stats.get("direct_single_chapter_fallback")
-        ):
-            fallback_result = await workflow._run_phase1a_single_chapter_fallback(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-                only_chapters=fallback_chapters,
-            )
-            progress.quality_stats["phase1a_single_chapter_fallback"] = (
-                fallback_result.quality_stats
-            )
-            if fallback_result.candidates:
-                if phase1a_success_count <= 0:
-                    phase1a_result = fallback_result
-                    phase1a_result.quality_stats["fallback_chapter_count"] = len(
-                        fallback_result.candidates
-                    )
-                else:
-                    phase1a_result = workflow._merge_phase1a_results(
-                        phase1a_result,
-                        fallback_result,
-                    )
-            remaining_fallback_chapters = workflow._missing_phase1a_chapters(
-                phase1a_result.candidates,
-                start_chapter,
-                end_chapter,
-            )
-            if (
-                remaining_fallback_chapters
-                and len(remaining_fallback_chapters)
-                <= PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING
-            ):
-                phase1a_result.quality_stats[
-                    "remaining_missing_after_fallback"
-                ] = remaining_fallback_chapters
-        progress.quality_stats["phase1a"] = phase1a_result.quality_stats
-        if phase1a_diagnostics := workflow._diagnostic_samples(
-            phase1a_result.diagnostics
-        ):
-            progress.quality_stats["phase1a_diagnostics"] = phase1a_diagnostics
-        phase1a_coverage = candidate_chapter_coverage(
-            phase1a_result.candidates,
-            start_chapter,
-            end_chapter,
-        )
-        workflow._update_phase1_batch_counts(
-            progress,
-            phase0_result,
-            phase1a_result,
-        )
         add_phase_artifact(
             progress,
-            "phase1a_reinforce",
+            "phase1a_scene_slicing",
             start_chapter=start_chapter,
             end_chapter=end_chapter,
             status="completed",
@@ -383,40 +281,33 @@ class ScenePhaseRunner:
             coverage=phase1a_coverage,
             repair_summary=scene_phase_repair_summary(
                 phase1a_result.quality_stats,
-                phase="phase1a_reinforce",
+                phase="phase1a_scene_slicing",
                 repaired=bool(
-                    progress.quality_stats.get("phase1a_single_chapter_fallback")
-                    or progress.quality_stats.get(
-                        "phase1a_single_chapter_fallback_retry"
-                    )
+                    int(phase1a_result.quality_stats.get("fallback_count", 0) or 0)
                 ),
-                reason="single_chapter_fallback"
-                if progress.quality_stats.get("phase1a_single_chapter_fallback")
+                reason="chapter_fallback"
+                if int(phase1a_result.quality_stats.get("fallback_count", 0) or 0)
                 else None,
             ),
         )
         workflow._finish_phase(
             progress,
-            "phase1a_reinforce",
+            "phase1a_scene_slicing",
             status="completed",
             details={
                 **phase1a_result.quality_stats,
                 "candidate_count": len(phase1a_result.candidates),
-                "missing_chapters": workflow._missing_phase1a_chapters(
-                    phase1a_result.candidates,
-                    start_chapter,
-                    end_chapter,
-                ),
+                "missing_chapters": phase1a_coverage["missing_chapters"],
             },
         )
 
-        # Phase 1b: windowed reducer/fusion.
-        progress.current_phase = "phase1b_fusion"
-        progress.current_operation = "scene_fusion"
-        progress.message = "正在融合 Scene 候选并生成正式写入候选..."
+        # Phase 1b: per-Scene enrichment.
+        progress.current_phase = "phase1b_enrichment"
+        progress.current_operation = "scene_enrichment"
+        progress.message = "正在逐 Scene 补充叙事字段..."
         workflow._start_phase(
             progress,
-            "phase1b_fusion",
+            "phase1b_enrichment",
             item={
                 "kind": "chapter_range",
                 "start_chapter": start_chapter,
@@ -428,16 +319,14 @@ class ScenePhaseRunner:
         )
         await workflow._emit_progress(progress, 0.2, on_progress)
 
-        phase1b_result = await workflow._run_phase1b_fusion(
+        phase1b_result = await workflow._run_phase1b_enrichment(
+            db,
+            novel_id,
             phase1a_result.candidates,
             start_chapter=start_chapter,
             end_chapter=end_chapter,
+            chapters=phase0_result.chapters,
         )
-        scene_dedup_result = DeepImportDedupCoordinator().dedupe_scenes(
-            list(phase1b_result.candidates),
-        )
-        phase1b_result.candidates = scene_dedup_result.candidates
-        phase1b_result.quality_stats["dedup"] = scene_dedup_result.quality_stats
         progress.quality_stats["phase1b"] = phase1b_result.quality_stats
         if phase1b_diagnostics := workflow._diagnostic_samples(
             phase1b_result.diagnostics
@@ -448,7 +337,9 @@ class ScenePhaseRunner:
             start_chapter,
             end_chapter,
         )
-        progress.phase1a_fallback = phase1b_result.phase1a_fallback
+        progress.phase1a_fallback = bool(
+            int(phase1a_result.quality_stats.get("fallback_count", 0) or 0)
+        )
         workflow._update_phase1_batch_counts(
             progress,
             phase0_result,
@@ -460,10 +351,10 @@ class ScenePhaseRunner:
             progress.degraded_reason = "missing_chapter_coverage"
             progress.phase_errors.append(
                 phase_error(
-                    phase="phase1b_fusion",
+                    phase="phase1b_enrichment",
                     error_kind="missing_chapter_coverage",
                     message=(
-                        "Phase 1b Scene 候选缺少章节覆盖："
+                        "Phase 1b Scene enrichment 缺少章节覆盖："
                         f"{phase1b_coverage['missing_chapters']}"
                     ),
                 )
@@ -472,21 +363,21 @@ class ScenePhaseRunner:
         if phase1b_result.degraded:
             progress.degraded = True
             progress.degraded_reason = (
-                phase1b_result.block_reason or "phase1b_degraded_fallback"
+                phase1b_result.block_reason or "phase1b_enrichment_fallback"
             )
             progress.phase_errors.append(
                 {
-                    "phase": "phase1b_fusion",
+                    "phase": "phase1b_enrichment",
                     "error_kind": progress.degraded_reason,
                     "message": (
-                        "Phase 1b Scene 融合降级，已使用 Phase 1a fallback "
-                        "候选继续提交。"
+                        "Phase 1b Scene enrichment 部分降级，已对失败 Scene "
+                        "使用 fallback 字段继续提交。"
                     ),
                 }
             )
         add_phase_artifact(
             progress,
-            "phase1b_fusion",
+            "phase1b_enrichment",
             start_chapter=start_chapter,
             end_chapter=end_chapter,
             status="degraded"
@@ -501,7 +392,7 @@ class ScenePhaseRunner:
             errors=[
                 error
                 for error in progress.phase_errors
-                if error.get("phase") == "phase1b_fusion"
+                if error.get("phase") == "phase1b_enrichment"
             ],
         )
         if not phase1b_coverage["coverage_complete"]:
@@ -509,11 +400,11 @@ class ScenePhaseRunner:
             progress.quality_status = "failed"
             progress.current_step = None
             progress.message = (
-                "Phase 1b Scene 候选缺少章节覆盖，已停止正式 Scene 提交。"
+                "Phase 1b Scene enrichment 缺少章节覆盖，已停止正式 Scene 提交。"
             )
             workflow._finish_phase(
                 progress,
-                "phase1b_fusion",
+                "phase1b_enrichment",
                 status="failed",
                 details={
                     **phase1b_result.quality_stats,
@@ -527,7 +418,7 @@ class ScenePhaseRunner:
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
         workflow._finish_phase(
             progress,
-            "phase1b_fusion",
+            "phase1b_enrichment",
             status="degraded" if phase1b_result.degraded else "completed",
             details={
                 **phase1b_result.quality_stats,
@@ -540,7 +431,7 @@ class ScenePhaseRunner:
         # Scene commit: only this step writes formal Scene rows.
         progress.current_phase = "scene_commit"
         progress.current_operation = "scene_commit"
-        progress.message = "正在提交融合后的正式 Scene..."
+        progress.message = "正在提交 enriched 正式 Scene..."
         workflow._start_phase(
             progress,
             "scene_commit",
@@ -572,9 +463,6 @@ class ScenePhaseRunner:
             commit_completed=True,
         )
         progress.quality_stats["scene_commit"] = commit_result.model_dump(mode="json")
-        progress.quality_stats["scene_commit"]["dedup"] = (
-            scene_dedup_result.quality_stats
-        )
         total_scenes = commit_result.created_count + commit_result.skipped_count
         scene_commit_coverage = phase1b_coverage
         add_phase_artifact(

@@ -184,6 +184,77 @@ class SceneCandidateOutput(BaseModel):
         return _coerce_string_list(value)
 
 
+class SceneSliceItem(BaseModel):
+    """Phase 1a final Scene boundary candidate before enrichment."""
+
+    title: str = Field(default="")
+    goal: str = Field(default="")
+    core_conflict: str = Field(default="")
+    start_chapter: int = Field(default=1, ge=1)
+    end_chapter: int = Field(default=1, ge=1)
+    boundary_status: str = Field(default="uncertain")
+
+    @field_validator("title", "goal", "core_conflict", "boundary_status", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("start_chapter", "end_chapter", mode="before")
+    @classmethod
+    def _normalize_chapter(cls, value: Any) -> int:
+        try:
+            chapter = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return max(1, chapter)
+
+
+class SceneSlicingOutput(BaseModel):
+    """Phase 1a LLM output: text window -> locked Scene fields."""
+
+    scenes: list[SceneSliceItem] = Field(default_factory=list)
+
+
+class SceneEnrichmentOutput(BaseModel):
+    """Phase 1b LLM output; locked Scene fields are intentionally absent."""
+
+    emotional_beat: str = Field(default="")
+    must_happen: str = Field(default="")
+    must_not_happen: str = Field(default="")
+    narrative_tag: str = Field(default="imported")
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    needs_review: bool = False
+    review_reason: str = Field(default="")
+
+    @field_validator(
+        "emotional_beat",
+        "must_happen",
+        "must_not_happen",
+        "narrative_tag",
+        "review_reason",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.7)
+
+    @field_validator("needs_review", mode="before")
+    @classmethod
+    def _normalize_needs_review(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None or value == "":
+            return False
+        if isinstance(value, int | float):
+            return bool(value)
+        return str(value).strip().lower() in {"true", "1", "yes", "y", "是", "需要"}
+
+
 class ExtractedEntity(BaseModel):
     """Phase 2 LLM 输出的单个世界对象。"""
 
@@ -338,6 +409,149 @@ class SceneEntityExtractionOutput(BaseModel):
     delta_events: list[DeltaEvent] = Field(default_factory=list)
 
     @field_validator("entities", "relations", "delta_events", mode="before")
+    @classmethod
+    def _normalize_optional_lists(cls, value: Any) -> list[Any]:
+        return _coerce_list_or_empty(value)
+
+
+class Phase2WorldObject(BaseModel):
+    """Window-level Phase 2 world asset extracted from Scene + text evidence."""
+
+    name: str = Field(..., min_length=1)
+    entity_type: str = Field(default="other")
+    summary: str = Field(default="")
+    aliases: list[str] = Field(default_factory=list)
+    suggested_action: str = Field(default="create")
+    suggested_existing_name: str = Field(default="")
+    importance: str = Field(default="medium")
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    needs_review: bool = False
+    review_reason: str = Field(default="")
+    supporting_scene_ids: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "entity_type",
+        "summary",
+        "suggested_action",
+        "suggested_existing_name",
+        "importance",
+        "review_reason",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("aliases", "supporting_scene_ids", mode="before")
+    @classmethod
+    def _normalize_string_lists(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.7)
+
+
+class Phase2WorldRelation(BaseModel):
+    """Window-level Phase 2 relation with Scene evidence."""
+
+    source_name: str = Field(..., min_length=1)
+    target_name: str = Field(..., min_length=1)
+    relation_type: str = Field(default="related_to")
+    description: str = Field(default="")
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    needs_review: bool = False
+    review_reason: str = Field(default="")
+    supporting_scene_ids: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "source_name",
+        "target_name",
+        "relation_type",
+        "description",
+        "review_reason",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("supporting_scene_ids", mode="before")
+    @classmethod
+    def _normalize_scene_ids(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.7)
+
+
+class Phase2WorldDelta(BaseModel):
+    """Window-level Phase 2 durable state change."""
+
+    subject_name: str = Field(default="")
+    category: str = Field(default="other")
+    field: str = Field(default="")
+    old: Any | None = None
+    new: Any | None = None
+    description: str = Field(default="")
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    needs_review: bool = False
+    review_reason: str = Field(default="")
+    supporting_scene_ids: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "subject_name",
+        "category",
+        "field",
+        "description",
+        "review_reason",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("supporting_scene_ids", mode="before")
+    @classmethod
+    def _normalize_scene_ids(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.7)
+
+
+class Phase2WorldUncertainItem(BaseModel):
+    """Phase 2 item that should be reviewed instead of written as an asset."""
+
+    description: str = Field(default="")
+    reason: str = Field(default="")
+    supporting_scene_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("description", "reason", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("supporting_scene_ids", mode="before")
+    @classmethod
+    def _normalize_scene_ids(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+
+class Phase2WorldExtractionOutput(BaseModel):
+    """Simplified Phase 2 output: window text + Scene cards -> world assets."""
+
+    objects: list[Phase2WorldObject] = Field(default_factory=list)
+    relations: list[Phase2WorldRelation] = Field(default_factory=list)
+    deltas: list[Phase2WorldDelta] = Field(default_factory=list)
+    uncertain_items: list[Phase2WorldUncertainItem] = Field(default_factory=list)
+
+    @field_validator("objects", "relations", "deltas", "uncertain_items", mode="before")
     @classmethod
     def _normalize_optional_lists(cls, value: Any) -> list[Any]:
         return _coerce_list_or_empty(value)

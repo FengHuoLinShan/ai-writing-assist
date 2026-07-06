@@ -2557,6 +2557,12 @@ const writingView = {
         <label>结束章节</label>
         <input class="form-input" id="auto-extract-end" type="number" min="1" value="${lastChapter}" />
       </div>
+      ${stage === "scenes" ? `
+        <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-body);margin-top:8px;">
+          <input id="auto-extract-high-quality" type="checkbox" />
+          更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
+        </label>
+      ` : ""}
       <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
         ${esc(config.label)}会在所选章节范围内创建或补充对应结构资产。
       </p>
@@ -2566,9 +2572,10 @@ const writingView = {
       handler: async () => {
         const start = parseInt(document.getElementById("auto-extract-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("auto-extract-end")?.value || "10", 10)
+        const highQuality = !!document.getElementById("auto-extract-high-quality")?.checked
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         closeModal()
-        await this._submitAutoExtractionStage(stage, start, end)
+        await this._submitAutoExtractionStage(stage, start, end, false, highQuality)
       },
     }])
   },
@@ -2577,11 +2584,11 @@ const writingView = {
     this._showAutoExtractionForm("scenes")
   },
 
-  async _submitAutoExtractionStage(stage, startChapter, endChapter, force = false) {
+  async _submitAutoExtractionStage(stage, startChapter, endChapter, force = false, highQuality = false) {
     const config = this._stageConfig(stage)
     try {
       const result = await api.imports.startStage(
-        stage, state.currentProjectId, startChapter, endChapter, force,
+        stage, state.currentProjectId, startChapter, endChapter, force, highQuality,
       )
       if (result.requires_confirmation) {
         const confirmed = await new Promise((resolve) => {
@@ -2593,7 +2600,7 @@ const writingView = {
           }, 50)
         })
         if (!confirmed) return
-        await this._submitAutoExtractionStage(stage, startChapter, endChapter, true)
+        await this._submitAutoExtractionStage(stage, startChapter, endChapter, true, highQuality)
         return
       }
 
@@ -2612,7 +2619,13 @@ const writingView = {
         degraded: false, degradedBatches: [], phaseError: "",
         phaseErrors: [], qualityStatus: "pending", auditSummary: {}, snapshotHealthSummary: {},
       }
-      this._persistDeepImportWorkflow(result.task_id, startChapter, endChapter, stage)
+      this._persistDeepImportWorkflow(
+        result.task_id,
+        startChapter,
+        endChapter,
+        stage,
+        highQuality,
+      )
       toast(`${config.label}已启动`, "success")
       await this._rerender()
       this._startDeepImportPolling()
@@ -2621,8 +2634,14 @@ const writingView = {
     }
   },
 
-  async _submitDeepImport(startChapter, endChapter, force = false) {
-    return this._submitAutoExtractionStage("scenes", startChapter, endChapter, force)
+  async _submitDeepImport(startChapter, endChapter, force = false, highQuality = false) {
+    return this._submitAutoExtractionStage(
+      "scenes",
+      startChapter,
+      endChapter,
+      force,
+      highQuality,
+    )
   },
 
   _startDeepImportPolling() {
@@ -3066,7 +3085,13 @@ const writingView = {
     return confirmedWork
   },
 
-  _persistDeepImportWorkflow(taskId, startChapter, endChapter, stage = "scenes") {
+  _persistDeepImportWorkflow(
+    taskId,
+    startChapter,
+    endChapter,
+    stage = "scenes",
+    highQuality = false,
+  ) {
     const config = this._stageConfig(stage)
     persistActiveWorkflow({
       taskId,
@@ -3074,7 +3099,7 @@ const writingView = {
       label: config.label,
       projectId: state.currentProjectId,
       view: "writing",
-      meta: { startChapter, endChapter, stage },
+      meta: { startChapter, endChapter, stage, highQuality },
     })
   },
 

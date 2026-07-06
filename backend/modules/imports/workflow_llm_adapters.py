@@ -29,10 +29,20 @@ PHASE0_SCENE_MAX_TOKENS = 8192
 PHASE0_SCENE_TIMEOUT_SECONDS = 120
 PHASE1A_SCENE_MAX_TOKENS = 8192
 PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS = 1
+PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS = 900
+PHASE1B_ENRICH_MAX_TOKENS = 4096
+PHASE1B_ENRICH_TIMEOUT_SECONDS = 300
+PHASE2_WORLD_TIMEOUT_SECONDS = 900
+PHASE2_WORLD_MIN_MAX_TOKENS = 24_576
 
 
 def _workflow_constant(name: str, default: Any) -> Any:
-    workflow_module = import_module("modules.imports.workflow")
+    try:
+        workflow_module = import_module("modules.imports.workflow")
+    except ImportError as exc:
+        if "partially initialized module" not in str(exc):
+            raise
+        return default
     return getattr(workflow_module, name, default)
 
 
@@ -63,6 +73,13 @@ def _phase1a_structured_max_fix_attempts() -> int:
     return positive_int_env(
         "PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS",
         PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS,
+    )
+
+
+def _phase1a_scene_slicing_timeout_seconds() -> int:
+    return positive_int_env(
+        "PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS",
+        PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS,
     )
 
 
@@ -116,6 +133,36 @@ def _profile_request_defaults(profile: ResolvedLLMProfile) -> dict[str, Any]:
         "temperature": defaults.get("temperature"),
         "max_tokens": defaults["max_tokens"],
     }
+
+
+def _phase_model(profile: ResolvedLLMProfile, *, high_quality: bool = False) -> str:
+    return "deepseek-v4-pro" if high_quality else profile.model
+
+
+def _deepseek_request_extra(
+    profile: ResolvedLLMProfile,
+    *,
+    model: str,
+) -> dict[str, Any]:
+    extra = dict(profile.extra or {})
+    if profile.provider_id == "deepseek" or model.startswith("deepseek-v4"):
+        extra.setdefault("thinking", {"type": "enabled"})
+        extra.setdefault("reasoning_effort", "max")
+    return extra
+
+
+def _chapters_text(chapters: list[dict[str, Any]]) -> str:
+    from modules.imports.scene_segmentation import SceneSegmentationService
+
+    return SceneSegmentationService._build_chapters_text(chapters)
+
+
+def _phase2_overlap_text(window: dict[str, Any]) -> str:
+    owned_end = int(window.get("owned_end") or 0)
+    covered_end = int(window.get("covered_end") or 0)
+    if owned_end and covered_end and owned_end < covered_end:
+        return f"第{owned_end + 1}章-第{covered_end}章"
+    return "无"
 
 
 class _Phase0SceneCandidateLLM:
@@ -284,6 +331,110 @@ class _Phase1aSceneCandidateLLM:
                 "冲突/行动链，用一个 scene 的多个 scene_chunks 显式保留跨章；"
                 "保留 source_round、source_batch_id、source_chapter_indices "
                 "等可追溯信息。"
+            ),
+        )
+
+
+class _Phase1aSceneSlicingLLM:
+    """LLM adapter for final Phase 1a Scene slicing."""
+
+    def __init__(
+        self,
+        project_settings: dict[str, Any] | None = None,
+        *,
+        high_quality: bool = False,
+    ) -> None:
+        self.project_settings = project_settings
+        self.high_quality = high_quality
+
+    async def __call__(self, payload: dict[str, Any]) -> Any:
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.imports.llm_schemas import SceneSlicingOutput
+
+        profile = resolve_llm_profile(self.project_settings)
+        model = _phase_model(profile, high_quality=self.high_quality)
+        request_defaults = _profile_request_defaults(profile)
+        chapters = [
+            chapter
+            for chapter in payload.get("chapters", [])
+            if isinstance(chapter, dict)
+        ]
+        window = payload.get("window") or {}
+        max_tokens = int(payload.get("max_tokens") or request_defaults["max_tokens"])
+        covered_start = int(window.get("covered_start") or 0)
+        covered_end = int(window.get("covered_end") or 0)
+        owned_start = int(window.get("owned_start") or covered_start or 0)
+        owned_end = int(window.get("owned_end") or covered_end or 0)
+        right_overlap = (
+            f"第{owned_end + 1}章-第{covered_end}章"
+            if covered_end and owned_end and owned_end < covered_end
+            else "无"
+        )
+        request = LLMCallRequest(
+            model=model,
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "你是小说叙事结构分析助手。只输出 JSON object，不要 Markdown。"
+                        "任务是把连续章节正文切分为有独立叙事意义的 Scene。"
+                    ),
+                ),
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"{_chapters_text(chapters)}\n\n"
+                        "请基于上面正文切分有独立叙事意义的 Scene。"
+                        "只输出 JSON object，不要 Markdown，不要解释。\n\n"
+                        "【输入范围】\n"
+                        f"- input_range: 第{covered_start}章-第{covered_end}章\n"
+                        f"- owned_range: 第{owned_start}章-第{owned_end}章\n"
+                        f"- right_overlap_range: {right_overlap}\n\n"
+                        "【Scene 定义】\n"
+                        "- Scene 是最小叙事单元，不是物理章。\n"
+                        "- 一个 Scene 可以跨章。\n"
+                        "- Scene 应有明确的叙事目标、阻碍或张力。\n"
+                        "- 不要按章节机械切分，不要输出章节大纲。\n\n"
+                        "【归属规则】\n"
+                        "- 只输出 start_chapter 落在 owned_range 内的 Scene。\n"
+                        "- 如果 Scene 从 owned_range 延续到 right_overlap_range，"
+                        "end_chapter 可以落在 input_range 内。\n"
+                        "- 不要输出完全发生在 right_overlap_range 内的新 Scene。\n\n"
+                        "【输出格式】\n"
+                        "{\n"
+                        "  \"scenes\": [\n"
+                        "    {\n"
+                        "      \"title\": \"简短标题\",\n"
+                        "      \"goal\": \"角色或叙事目标\",\n"
+                        "      \"core_conflict\": \"阻碍、风险或张力\",\n"
+                        "      \"start_chapter\": 1,\n"
+                        "      \"end_chapter\": 1,\n"
+                        "      \"boundary_status\": \"complete|continues|uncertain\"\n"
+                        "    }\n"
+                        "  ]\n"
+                        "}"
+                    ),
+                ),
+            ],
+            temperature=0.2,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            extra=_deepseek_request_extra(profile, model=model),
+        )
+        return await _call_structured(
+            _llm_client_for_profile(self.project_settings),
+            request,
+            SceneSlicingOutput,
+            step_name="phase1a_scene_slicing",
+            transport_retries=False,
+            timeout_seconds=_phase1a_scene_slicing_timeout_seconds(),
+            max_fix_attempts=1,
+            fix_prompt=(
+                "上一轮输出无法通过 SceneSlicingOutput 校验。只输出 JSON object："
+                "{\"scenes\":[{\"title\":\"...\",\"goal\":\"...\","
+                "\"core_conflict\":\"...\",\"start_chapter\":1,"
+                "\"end_chapter\":1,\"boundary_status\":\"complete\"}]}。"
+                "不要 Markdown，不要解释，不要输出其他字段。"
             ),
         )
 
@@ -541,6 +692,249 @@ class _Phase1bSceneFusionLLM:
         if not isinstance(raw_decision, _Phase1bDecisionOutput):
             raw_decision = _Phase1bDecisionOutput.model_validate(raw_decision)
         return _materialize_phase1b_decision_output(compact_payload, raw_decision)
+
+
+class _Phase1bSceneEnrichmentLLM:
+    """LLM adapter for per-Scene Phase 1b enrichment."""
+
+    def __init__(
+        self,
+        project_settings: dict[str, Any] | None = None,
+        *,
+        high_quality: bool = False,
+    ) -> None:
+        self.project_settings = project_settings
+        self.high_quality = high_quality
+
+    async def __call__(self, payload: dict[str, Any]) -> Any:
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.imports.llm_schemas import SceneEnrichmentOutput
+
+        profile = resolve_llm_profile(self.project_settings)
+        model = _phase_model(profile, high_quality=self.high_quality)
+        chapters = [
+            chapter
+            for chapter in payload.get("chapters", [])
+            if isinstance(chapter, dict)
+        ]
+        locked_scene = payload.get("locked_scene") or {}
+        max_tokens = int(payload.get("max_tokens") or PHASE1B_ENRICH_MAX_TOKENS)
+        request = LLMCallRequest(
+            model=model,
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "你是小说 Scene enrichment 助手。只补充叙事字段，"
+                        "不得重切 Scene，不得改 title/goal/core_conflict/start/end。"
+                        "只输出 JSON object，不要 Markdown。"
+                    ),
+                ),
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"{_chapters_text(chapters)}\n\n"
+                        "请基于上面正文为锁定 Scene 补充叙事字段。"
+                        "不要重新切分，不要定位正文，不要输出 scene_chunks。\n\n"
+                        "【锁定 Scene】\n"
+                        f"{json.dumps(locked_scene, ensure_ascii=False)}\n\n"
+                        "【输出字段】\n"
+                        "只输出 JSON object，且只包含以下字段："
+                        "emotional_beat、must_happen、must_not_happen、"
+                        "narrative_tag、confidence、needs_review、review_reason。\n\n"
+                        "【要求】\n"
+                        "- 字段必须基于正文有实际内容，"
+                        "不要机械复述 goal/core_conflict。\n"
+                        "- 即使你认为锁定字段不准，也不要修改或复写 "
+                        "title/goal/core_conflict/start_chapter/end_chapter。\n"
+                        "- 如果信息不足或判断不稳，needs_review=true 并说明 "
+                        "review_reason。"
+                    ),
+                ),
+            ],
+            temperature=0.2,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            extra=_deepseek_request_extra(profile, model=model),
+        )
+        return await _call_structured(
+            _llm_client_for_profile(self.project_settings),
+            request,
+            SceneEnrichmentOutput,
+            step_name="phase1b_enrichment",
+            transport_retries=False,
+            timeout_seconds=positive_int_env(
+                "PHASE1B_ENRICH_TIMEOUT_SECONDS",
+                PHASE1B_ENRICH_TIMEOUT_SECONDS,
+            ),
+            max_fix_attempts=1,
+            fix_prompt=(
+                "上一轮输出无法通过 SceneEnrichmentOutput 校验。只输出 JSON object，"
+                "只能包含 emotional_beat、must_happen、must_not_happen、"
+                "narrative_tag、confidence、needs_review、review_reason。"
+                "不要输出 title、goal、core_conflict、start_chapter、end_chapter。"
+            ),
+        )
+
+
+class _Phase2WorldExtractionLLM:
+    """LLM adapter for simplified window-level Phase 2 world extraction."""
+
+    def __init__(
+        self,
+        project_settings: dict[str, Any] | None = None,
+        *,
+        high_quality: bool = False,
+    ) -> None:
+        self.project_settings = project_settings
+        self.high_quality = high_quality
+
+    async def __call__(self, payload: dict[str, Any]) -> Any:
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.imports.llm_schemas import Phase2WorldExtractionOutput
+
+        profile = resolve_llm_profile(self.project_settings)
+        model = _phase_model(profile, high_quality=self.high_quality)
+        chapters = [
+            chapter
+            for chapter in payload.get("chapters", [])
+            if isinstance(chapter, dict)
+        ]
+        scenes = [
+            scene for scene in payload.get("scenes", []) if isinstance(scene, dict)
+        ]
+        window = payload.get("window") or {}
+        max_tokens = int(payload.get("max_tokens") or PHASE2_WORLD_MIN_MAX_TOKENS)
+        owned_scene_ids = [
+            str(scene_id)
+            for scene_id in payload.get("owned_scene_ids", [])
+            if str(scene_id).strip()
+        ]
+        all_scene_ids = [
+            str(scene_id)
+            for scene_id in payload.get("all_scene_ids", [])
+            if str(scene_id).strip()
+        ]
+        input_block = (
+            "【章节正文】\n"
+            f"{_chapters_text(chapters)}\n\n"
+            "【Scene卡片 JSON】\n"
+            f"{json.dumps(scenes, ensure_ascii=False)}"
+        )
+        request = LLMCallRequest(
+            model=model,
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content="你只输出可解析 JSON。不要 Markdown，不要解释。",
+                ),
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"{input_block}\n\n"
+                        "你是小说世界资产抽取助手。上方是唯一证据来源。\n"
+                        f"当前输入范围：第{window.get('covered_start')}章到"
+                        f"第{window.get('covered_end')}章。\n"
+                        f"owned range：第{window.get('owned_start')}章到"
+                        f"第{window.get('owned_end')}章。\n"
+                        f"右侧 overlap：{_phase2_overlap_text(window)}。\n"
+                        "输入模式：scenes_plus_text。\n\n"
+                        "抽取原则：\n"
+                        "- 宁可少抽，不要污染资产库。\n"
+                        "- 只抽长期资产：主要人物、重复出现或明显重要的人物、"
+                        "组织、地点、关键物品、超凡概念、秘密、制度、能力。\n"
+                        "- 关系只抽对后续剧情理解有价值的稳定关系或关键互动。\n"
+                        "- 状态变化只抽会影响后续上下文的变化，例如身份确认、"
+                        "加入组织、获得物品、知识升级、秘密暴露、关系改变。\n"
+                        "- 每条 objects / relations / deltas 都必须有 "
+                        "supporting_scene_ids。\n"
+                        "- supporting_scene_ids 只能来自全部可用 Scene IDs。\n"
+                        "- 如果依据不足，放入 uncertain_items，不要硬编。\n"
+                        "- 不要输出旁枝路人、普通菜品、普通马车、"
+                        "一次性背景名词。\n"
+                        "- 不要用输入范围之外的后文知识补全当前内容。\n"
+                        "- 不要输出完全只由 overlap Scene 支撑的新条目。\n\n"
+                        f"owned Scene IDs：{', '.join(owned_scene_ids)}\n"
+                        f"全部可用 Scene IDs：{', '.join(all_scene_ids)}\n\n"
+                        "只输出 JSON object：\n"
+                        "{\n"
+                        "  \"objects\": [\n"
+                        "    {\n"
+                        "      \"name\": \"名称\",\n"
+                        "      \"entity_type\": \"character|organization|location|"
+                        "item|concept|ability|secret|other\",\n"
+                        "      \"summary\": \"当前输入中可证实的稳定意义\",\n"
+                        "      \"aliases\": [],\n"
+                        "      \"suggested_action\": \"create|merge|update|ignore\",\n"
+                        "      \"suggested_existing_name\": \"\",\n"
+                        "      \"importance\": \"high|medium|low\",\n"
+                        "      \"confidence\": 0.0,\n"
+                        "      \"needs_review\": false,\n"
+                        "      \"review_reason\": \"\",\n"
+                        "      \"supporting_scene_ids\": []\n"
+                        "    }\n"
+                        "  ],\n"
+                        "  \"relations\": [\n"
+                        "    {\n"
+                        "      \"source_name\": \"源对象\",\n"
+                        "      \"target_name\": \"目标对象\",\n"
+                        "      \"relation_type\": \"关系类型\",\n"
+                        "      \"description\": \"关系说明\",\n"
+                        "      \"confidence\": 0.0,\n"
+                        "      \"needs_review\": false,\n"
+                        "      \"review_reason\": \"\",\n"
+                        "      \"supporting_scene_ids\": []\n"
+                        "    }\n"
+                        "  ],\n"
+                        "  \"deltas\": [\n"
+                        "    {\n"
+                        "      \"subject_name\": \"对象\",\n"
+                        "      \"category\": \"knowledge|status|location|ownership|"
+                        "relationship|power|secret|other\",\n"
+                        "      \"field\": \"变化字段\",\n"
+                        "      \"old\": \"\",\n"
+                        "      \"new\": \"\",\n"
+                        "      \"description\": \"变化说明\",\n"
+                        "      \"confidence\": 0.0,\n"
+                        "      \"needs_review\": false,\n"
+                        "      \"review_reason\": \"\",\n"
+                        "      \"supporting_scene_ids\": []\n"
+                        "    }\n"
+                        "  ],\n"
+                        "  \"uncertain_items\": [\n"
+                        "    {\n"
+                        "      \"description\": \"不确定项\",\n"
+                        "      \"reason\": \"为什么不确定\",\n"
+                        "      \"supporting_scene_ids\": []\n"
+                        "    }\n"
+                        "  ]\n"
+                        "}"
+                    ),
+                ),
+            ],
+            temperature=0.2,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            extra=_deepseek_request_extra(profile, model=model),
+        )
+        return await _call_structured(
+            _llm_client_for_profile(self.project_settings),
+            request,
+            Phase2WorldExtractionOutput,
+            step_name="phase2_world_extraction",
+            transport_retries=False,
+            timeout_seconds=positive_int_env(
+                "PHASE2_WORLD_TIMEOUT_SECONDS",
+                PHASE2_WORLD_TIMEOUT_SECONDS,
+            ),
+            max_fix_attempts=1,
+            fix_prompt=(
+                "上一轮输出无法通过 Phase2WorldExtractionOutput 校验。"
+                "只输出 JSON object，只包含 objects、relations、deltas、"
+                "uncertain_items。每条 objects/relations/deltas 必须包含 "
+                "supporting_scene_ids，且只能使用给定 Scene ID。不要 Markdown。"
+            ),
+        )
 
 
 class _Phase1bDecisionOutput(BaseModel):

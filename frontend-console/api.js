@@ -836,11 +836,11 @@ const api = {
       return request(withQuery(`/imports/${recordId}`, params))
     },
 
-    async deepImport(novelId, startChapter, endChapter, force = false) {
-      return post("/imports/deep", { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force })
+    async deepImport(novelId, startChapter, endChapter, force = false, highQuality = false) {
+      return post("/imports/deep", { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
     },
 
-    async startStage(stage, novelId, startChapter, endChapter, force = false) {
+    async startStage(stage, novelId, startChapter, endChapter, force = false, highQuality = false) {
       const endpoints = {
         scenes: "/imports/stages/scenes",
         world_objects: "/imports/stages/world-objects",
@@ -848,7 +848,7 @@ const api = {
       }
       const endpoint = endpoints[stage]
       if (!endpoint) throw new Error(`unsupported import stage: ${stage}`)
-      return post(endpoint, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force })
+      return post(endpoint, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
     },
 
     async resumeDeepImport(taskId) {

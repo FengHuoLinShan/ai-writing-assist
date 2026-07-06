@@ -4,7 +4,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import writingView from "../views/writingView.js"
 import { workflowProgressStorageKey } from "../shared/workflowProgress.js"
-import { resetState, clearDocument, autoConfirm, stubMethod, renderHtml } from "./helpers.js"
+import {
+  resetState,
+  clearDocument,
+  autoConfirm,
+  stubMethod,
+  renderHtml,
+  captureModalHandler,
+} from "./helpers.js"
 
 beforeEach(() => {
   resetState()
@@ -1454,6 +1461,36 @@ describe("_bindEvents", () => {
 })
 
 describe("_submitDeepImport", () => {
+  it("场景自动提取弹窗透传更高质量选项", async () => {
+    state.currentProjectId = "p1"
+    writingView._chapterList = [1, 5]
+    api.imports.startStage.mockResolvedValue({
+      task_id: "task-high-quality",
+      status: "pending",
+      requires_confirmation: false,
+    })
+    vi.spyOn(writingView, "_startDeepImportPolling").mockImplementation(() => {})
+
+    writingView._showAutoExtractionForm("scenes")
+    expect(showModal.mock.calls[0][1]).toContain("需要标准提取约8倍时间")
+    document.body.innerHTML += `
+      <input id="auto-extract-start" value="1" />
+      <input id="auto-extract-end" value="5" />
+      <input id="auto-extract-high-quality" type="checkbox" checked />
+    `
+
+    await captureModalHandler()()
+
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      5,
+      false,
+      true,
+    )
+  })
+
   it("重复导入需要确认时，确认后使用 force=true 重新提交", async () => {
     state.currentProjectId = "p1"
     api.imports.startStage
@@ -1474,8 +1511,8 @@ describe("_submitDeepImport", () => {
 
     await writingView._submitDeepImport(1, 5)
 
-    expect(api.imports.startStage).toHaveBeenNthCalledWith(1, "scenes", "p1", 1, 5, false)
-    expect(api.imports.startStage).toHaveBeenNthCalledWith(2, "scenes", "p1", 1, 5, true)
+    expect(api.imports.startStage).toHaveBeenNthCalledWith(1, "scenes", "p1", 1, 5, false, false)
+    expect(api.imports.startStage).toHaveBeenNthCalledWith(2, "scenes", "p1", 1, 5, true, false)
     expect(writingView._deepImportTaskId).toBe("task-2")
     expect(writingView._deepImportProgress.phase).toBe("running")
     expect(writingView._deepImportProgress.workflowType).toBe("scene_auto_extraction")

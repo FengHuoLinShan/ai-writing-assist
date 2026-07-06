@@ -21,6 +21,10 @@ from modules.outline.generation.models import (
     Question,
     RevealPlan,
     Risk,
+    SimpleCharacterArc,
+    SimplePlotThread,
+    SimpleStructureOutput,
+    SimpleSupportedStructureItem,
 )
 from modules.outline.generation.parser import (
     ParsedPlotStructure,
@@ -43,6 +47,10 @@ __all__ = [
     "Risk",
     "Question",
     "GeneratedOutput",
+    "SimpleSupportedStructureItem",
+    "SimplePlotThread",
+    "SimpleCharacterArc",
+    "SimpleStructureOutput",
     "ParsedPlotStructure",
     "PlotStructureParser",
     "PersistResult",

@@ -26,6 +26,8 @@ class EntityExtractionPhaseRunner:
         self,
         db: AsyncSession,
         novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
         progress: DeepImportProgress,
         *,
         workflow_id: str | None,
@@ -64,6 +66,8 @@ class EntityExtractionPhaseRunner:
                 workflow_id=workflow_id,
                 on_scene_progress=_on_scene_progress,
                 existing_checkpoints=progress.checkpoints,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
             )
             workflow._merge_checkpoints(progress, phase2_result)
             phase2_result, repair_summary = await self._maybe_repair_phase2a(
@@ -73,6 +77,8 @@ class EntityExtractionPhaseRunner:
                 phase2_result,
                 workflow_id=workflow_id,
                 on_scene_progress=_on_scene_progress,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
             )
             workflow._mark_step_completed(progress, DeepImportStep.entity_extraction)
             workflow._merge_audit_summary(progress, phase2_result)
@@ -573,6 +579,18 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "phase2_low_confidence": int(
             phase2_result.get("phase2_low_confidence", 0) or 0
         ),
+        "parameter_version": phase2_result.get("parameter_version"),
+        "window_count": int(phase2_result.get("window_count", 0) or 0),
+        "input_mode": phase2_result.get("input_mode"),
+        "prompt_level": phase2_result.get("prompt_level"),
+        "invalid_scene_ref_count": int(
+            phase2_result.get("invalid_scene_ref_count", 0) or 0
+        ),
+        "overlap_only_count": int(phase2_result.get("overlap_only_count", 0) or 0),
+        "uncertain_count": int(phase2_result.get("uncertain_count", 0) or 0),
+        "retry_count": int(phase2_result.get("retry_count", 0) or 0),
+        "high_quality": bool(phase2_result.get("high_quality")),
+        "model_override": phase2_result.get("model_override"),
         "degraded": bool(phase2_result.get("degraded")),
         "error_kind": phase2_result.get("error_kind"),
         "checkpoint_status_counts": status_counts,
@@ -618,6 +636,11 @@ def _phase2_counts(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "total_deltas": int(phase2_result.get("total_deltas", 0) or 0),
         "failed_scene_count": len(phase2_result.get("failed_scene_indices") or []),
         "failed_scene_ids": phase2_result.get("failed_scene_ids") or [],
+        "window_count": int(phase2_result.get("window_count", 0) or 0),
+        "invalid_scene_ref_count": int(
+            phase2_result.get("invalid_scene_ref_count", 0) or 0
+        ),
+        "uncertain_count": int(phase2_result.get("uncertain_count", 0) or 0),
         "failed_batch_count": len(phase2_result.get("phase2_failed_batches") or []),
         "alias_relation_failed_scene_count": len(
             phase2_result.get("alias_relation_failed_scenes") or []

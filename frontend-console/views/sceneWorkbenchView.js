@@ -1098,6 +1098,10 @@ const sceneWorkbenchView = {
         <label>结束章节</label>
         <input class="form-input" id="scene-auto-extract-end" type="number" min="1" value="10" />
       </div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-body);margin-top:8px;">
+        <input id="scene-auto-extract-high-quality" type="checkbox" />
+        更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
+      </label>
     `
     showModal("场景（scene）自动提取", formHtml, [{
       text: "开始提取",
@@ -1105,9 +1109,17 @@ const sceneWorkbenchView = {
       handler: async () => {
         const start = parseInt(document.getElementById("scene-auto-extract-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("scene-auto-extract-end")?.value || "10", 10)
+        const highQuality = !!document.getElementById("scene-auto-extract-high-quality")?.checked
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         try {
-          const result = await api.imports.startStage("scenes", state.currentProjectId, start, end)
+          const result = await api.imports.startStage(
+            "scenes",
+            state.currentProjectId,
+            start,
+            end,
+            false,
+            highQuality,
+          )
           this._autoExtractTaskId = result.task_id
           this._autoExtractMeta = { start_chapter: start, end_chapter: end }
           this._autoExtractProgress = normalizeTaskProgress({
@@ -1121,7 +1133,7 @@ const sceneWorkbenchView = {
             label: "场景（scene）自动提取",
             projectId: state.currentProjectId,
             view: "scene",
-            meta: this._autoExtractMeta,
+            meta: { ...this._autoExtractMeta, highQuality },
           })
           closeModal()
           toast(`场景（scene）自动提取任务已提交：${result.task_id || ""}`, "success")

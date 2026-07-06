@@ -410,6 +410,7 @@ def phase3_quality_stats(
     failed: bool,
 ) -> dict[str, Any]:
     extra_sections = phase3_result.get("extra_sections") or {}
+    diagnostics = extra_sections.get("structure_diagnostics") or {}
     foreshadowing = phase3_result.get("total_foreshadowing")
     reveals = phase3_result.get("total_reveals")
     if foreshadowing is None:
@@ -421,6 +422,17 @@ def phase3_quality_stats(
         "total_arcs": int(phase3_result.get("total_arcs", 0) or 0),
         "total_foreshadowing": int(foreshadowing or 0),
         "total_reveals": int(reveals or 0),
+        "turning_point_count": len(extra_sections.get("turning_points") or []),
+        "uncertain_count": len(extra_sections.get("uncertain_items") or []),
+        "parameter_version": diagnostics.get("parameter_version"),
+        "input_mode": diagnostics.get("input_mode"),
+        "prompt_level": diagnostics.get("prompt_level"),
+        "invalid_scene_ref_count": int(
+            diagnostics.get("invalid_scene_ref_count", 0) or 0
+        ),
+        "retry_count": int(diagnostics.get("retry_count", 0) or 0),
+        "high_quality": bool(phase3_result.get("high_quality")),
+        "model_override": phase3_result.get("model_override"),
         "structure_dedup": phase3_result.get("structure_dedup") or {},
         "failed": failed,
         "error_kind": phase3_result.get("error_kind"),
@@ -442,6 +454,7 @@ def _phase3_counts(phase3_result: dict[str, Any]) -> dict[str, Any]:
             if phase3_result.get("total_reveals") is not None
             else len(extra_sections.get("reveal_plans") or [])
         ),
+        "turning_point_count": len(extra_sections.get("turning_points") or []),
     }
 
 

@@ -94,3 +94,30 @@ class GeneratedOutput(BaseModel):
     offscreen_progress: list[OffscreenProgress] = []
     risks: list[Risk] = []
     questions_for_user: list[Question] = []
+
+
+class SimpleSupportedStructureItem(BaseModel):
+    title: str = ""
+    summary: str = ""
+    confidence: float = 0.7
+    needs_review: bool = False
+    review_reason: str = ""
+    supporting_scene_ids: list[str] = []
+
+
+class SimplePlotThread(SimpleSupportedStructureItem):
+    thread_type: str = "main"
+    status: str = "active"
+
+
+class SimpleCharacterArc(SimpleSupportedStructureItem):
+    character_name: str = ""
+
+
+class SimpleStructureOutput(BaseModel):
+    plot_threads: list[SimplePlotThread] = []
+    arcs: list[SimpleCharacterArc] = []
+    foreshadowing: list[SimpleSupportedStructureItem] = []
+    reveals: list[SimpleSupportedStructureItem] = []
+    turning_points: list[SimpleSupportedStructureItem] = []
+    uncertain_items: list[dict] = []

@@ -46,6 +46,7 @@ class DeepImportOrchestrator:
         start_chapter: int,
         end_chapter: int,
         force: bool = False,
+        high_quality: bool = False,
     ) -> dict[str, Any]:
         warning = await self._check_duplicate_import(
             db, novel_id, start_chapter, end_chapter
@@ -70,6 +71,7 @@ class DeepImportOrchestrator:
             end_chapter,
             context_mode="working",
             include_pending_objects=True,
+            high_quality=high_quality,
         )
         await db.flush()
         return {
@@ -89,6 +91,7 @@ class DeepImportOrchestrator:
         *,
         stage: str,
         force: bool = False,
+        high_quality: bool = False,
     ) -> dict[str, Any]:
         if stage not in STAGE_TASK_TYPES:
             raise ValueError(f"unsupported deep import stage: {stage}")
@@ -120,6 +123,7 @@ class DeepImportOrchestrator:
             stage=stage,
             context_mode="working",
             include_pending_objects=True,
+            high_quality=high_quality,
         )
         await db.flush()
         return {
@@ -139,6 +143,7 @@ class DeepImportOrchestrator:
         end_chapter = int(meta.get("end_chapter", 5))
         context_mode = meta.get("context_mode", "working")
         include_pending_objects = bool(meta.get("include_pending_objects", True))
+        high_quality = bool(meta.get("high_quality", False))
         if not novel_id:
             raise ValueError("novel_id is required for deep_import")
 
@@ -163,6 +168,7 @@ class DeepImportOrchestrator:
             workflow_id=str(task.id),
             context_mode=context_mode,
             include_pending_objects=include_pending_objects,
+            high_quality=high_quality,
             on_progress=_record_progress,
         )
         return self._result_from_progress(progress)
@@ -180,6 +186,7 @@ class DeepImportOrchestrator:
         end_chapter = int(meta.get("end_chapter", 5))
         context_mode = meta.get("context_mode", "working")
         include_pending_objects = bool(meta.get("include_pending_objects", True))
+        high_quality = bool(meta.get("high_quality", False))
         if not novel_id:
             raise ValueError(f"novel_id is required for {task.task_type}")
 
@@ -210,6 +217,7 @@ class DeepImportOrchestrator:
                 workflow_id=str(task.id),
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
+                high_quality=high_quality,
                 on_progress=_record_progress,
                 stop_after=DeepImportStep.scene_segmentation,
             )
@@ -482,6 +490,7 @@ class DeepImportOrchestrator:
         *,
         context_mode: str = "working",
         include_pending_objects: bool = True,
+        high_quality: bool = False,
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -494,6 +503,7 @@ class DeepImportOrchestrator:
                 "end_chapter": end_chapter,
                 "context_mode": context_mode,
                 "include_pending_objects": include_pending_objects,
+                "high_quality": high_quality,
             },
         )
 
@@ -508,6 +518,7 @@ class DeepImportOrchestrator:
         stage: str,
         context_mode: str = "working",
         include_pending_objects: bool = True,
+        high_quality: bool = False,
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -521,6 +532,7 @@ class DeepImportOrchestrator:
                 "stage": stage,
                 "context_mode": context_mode,
                 "include_pending_objects": include_pending_objects,
+                "high_quality": high_quality,
             },
         )
 
